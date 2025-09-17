@@ -34,6 +34,7 @@ import tiktoken
 from parlant.adapters.nlp.common import normalize_json_output
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
@@ -68,10 +69,12 @@ class AzureSchematicGenerator(SchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        meter: Meter,
         client: AsyncAzureOpenAI,
     ) -> None:
         self.model_name = model_name
         self._logger = logger
+        self._meter = meter
         self._client = client
         self._tokenizer = AzureEstimatingTokenizer(model_name=self.model_name)
 
@@ -115,8 +118,16 @@ class AzureSchematicGenerator(SchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.operation(f"Azure LLM Request ({self.schema.__name__})"):
-            return await self._do_generate(prompt, hints)
+        with self._logger.scope(f"Azure LLM Request ({self.schema.__name__})"):
+            async with self._meter.measure(
+                "llm_request",
+                {
+                    "service.name": "azure",
+                    "model.name": self.model_name,
+                    "schema.name": self.schema.__name__,
+                },
+            ):
+                return await self._do_generate(prompt, hints)
 
     async def _do_generate(
         self,
@@ -308,12 +319,13 @@ def create_azure_client() -> AsyncAzureOpenAI:
 
 
 class CustomAzureSchematicGenerator(AzureSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         _client = create_azure_client()
 
         super().__init__(
             model_name=os.environ["AZURE_GENERATIVE_MODEL_NAME"],
             logger=logger,
+            meter=meter,
             client=_client,
         )
 
@@ -323,9 +335,13 @@ class CustomAzureSchematicGenerator(AzureSchematicGenerator[T]):
 
 
 class GPT_4o(AzureSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(
+        self,
+        logger: Logger,
+        meter: Meter,
+    ) -> None:
         _client = create_azure_client()
-        super().__init__(model_name="gpt-4o", logger=logger, client=_client)
+        super().__init__(model_name="gpt-4o", logger=logger, meter=meter, client=_client)
 
     @property
     def max_tokens(self) -> int:
@@ -333,9 +349,13 @@ class GPT_4o(AzureSchematicGenerator[T]):
 
 
 class GPT_4o_Mini(AzureSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(
+        self,
+        logger: Logger,
+        meter: Meter,
+    ) -> None:
         _client = create_azure_client()
-        super().__init__(model_name="gpt-4o-mini", logger=logger, client=_client)
+        super().__init__(model_name="gpt-4o-mini", logger=logger, meter=meter, client=_client)
         self._token_estimator = AzureEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -346,10 +366,18 @@ class GPT_4o_Mini(AzureSchematicGenerator[T]):
 class AzureEmbedder(Embedder):
     supported_arguments = ["dimensions"]
 
-    def __init__(self, model_name: str, logger: Logger, client: AsyncAzureOpenAI) -> None:
+    def __init__(
+        self,
+        model_name: str,
+        logger: Logger,
+        meter: Meter,
+        client: AsyncAzureOpenAI,
+    ) -> None:
         self.model_name = model_name
 
         self._logger = logger
+        self._meter = meter
+
         self._client = client
         self._tokenizer = AzureEstimatingTokenizer(model_name=self.model_name)
 
@@ -371,11 +399,18 @@ class AzureEmbedder(Embedder):
         filtered_hints = {k: v for k, v in hints.items() if k in self.supported_arguments}
 
         try:
-            response = await self._client.embeddings.create(
-                model=self.model_name,
-                input=texts,
-                **filtered_hints,
-            )
+            async with self._meter.measure(
+                "embed",
+                {
+                    "service.name": "azure",
+                    "embedding.model.name": self.model_name,
+                },
+            ):
+                response = await self._client.embeddings.create(
+                    model=self.model_name,
+                    input=texts,
+                    **filtered_hints,
+                )
         except RateLimitError:
             self._logger.error(
                 "Azure API rate limit exceeded. Possible reasons:\n"
@@ -395,10 +430,17 @@ class AzureEmbedder(Embedder):
 
 
 class CustomAzureEmbedder(AzureEmbedder):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(
+        self,
+        logger: Logger,
+        meter: Meter,
+    ) -> None:
         _client = create_azure_client()
         super().__init__(
-            model_name=os.environ["AZURE_EMBEDDING_MODEL_NAME"], logger=logger, client=_client
+            model_name=os.environ["AZURE_EMBEDDING_MODEL_NAME"],
+            logger=logger,
+            meter=meter,
+            client=_client,
         )
 
     @property
@@ -412,9 +454,15 @@ class CustomAzureEmbedder(AzureEmbedder):
 
 
 class AzureTextEmbedding3Large(AzureEmbedder):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(
+        self,
+        logger: Logger,
+        meter: Meter,
+    ) -> None:
         _client = create_azure_client()
-        super().__init__(model_name="text-embedding-3-large", logger=logger, client=_client)
+        super().__init__(
+            model_name="text-embedding-3-large", logger=logger, meter=meter, client=_client
+        )
 
     @property
     @override
@@ -427,9 +475,15 @@ class AzureTextEmbedding3Large(AzureEmbedder):
 
 
 class AzureTextEmbedding3Small(AzureEmbedder):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(
+        self,
+        logger: Logger,
+        meter: Meter,
+    ) -> None:
         _client = create_azure_client()
-        super().__init__(model_name="text-embedding-3-small", logger=logger, client=_client)
+        super().__init__(
+            model_name="text-embedding-3-small", logger=logger, meter=meter, client=_client
+        )
 
     @property
     def max_tokens(self) -> int:
@@ -563,8 +617,10 @@ https://docs.microsoft.com/en-us/python/api/overview/azure/identity-readme
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self._logger = logger
+        self._meter = meter
 
     async def get_schematic_generator(self, t: type[T]) -> AzureSchematicGenerator[T]:
         if os.environ.get("AZURE_GENERATIVE_MODEL_NAME"):
@@ -573,8 +629,8 @@ https://docs.microsoft.com/en-us/python/api/overview/azure/identity-readme
 
     async def get_embedder(self) -> Embedder:
         if os.environ.get("AZURE_EMBEDDING_MODEL_NAME"):
-            return CustomAzureEmbedder(self._logger)
-        return AzureTextEmbedding3Large(self._logger)
+            return CustomAzureEmbedder(self._logger, self._meter)
+        return AzureTextEmbedding3Large(self._logger, self._meter)
 
     async def get_moderation_service(self) -> ModerationService:
         return NoModeration()

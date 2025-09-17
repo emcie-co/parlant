@@ -24,11 +24,13 @@ from parlant.core.nlp.moderation import (
     ModerationService,
     ModerationTag,
 )
+from parlant.core.meter import Meter
 
 
 class LakeraGuard(ModerationService):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         self._logger = logger
+        self._meter = meter
 
     @override
     async def moderate_customer(self, context: CustomerModerationContext) -> ModerationCheck:
@@ -52,18 +54,19 @@ class LakeraGuard(ModerationService):
 
             return mapping.get(category.replace("/", "_").replace("-", "_"), [])
 
-        with self._logger.operation("Lakera Moderation Request"):
-            async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
-                response = await client.post(
-                    "https://api.lakera.ai/v2/guard/results",
-                    json={"messages": [{"content": context.message, "role": "user"}]},
-                    headers={"Authorization": f"Bearer {api_key}"},
-                )
+        with self._logger.scope("Lakera Moderation Request"):
+            async with self._meter.measure("moderation_request", {"service.name": "lakera"}):
+                async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
+                    response = await client.post(
+                        "https://api.lakera.ai/v2/guard/results",
+                        json={"messages": [{"content": context.message, "role": "user"}]},
+                        headers={"Authorization": f"Bearer {api_key}"},
+                    )
 
-                if response.is_error:
-                    raise Exception("Moderation service failure (Lakera Guard)")
+                    if response.is_error:
+                        raise Exception("Moderation service failure (Lakera Guard)")
 
-                data = response.json()
+                    data = response.json()
 
         results = [
             (

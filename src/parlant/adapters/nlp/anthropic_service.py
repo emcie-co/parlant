@@ -37,6 +37,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selectio
     JourneyNodeSelectionSchema,
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.meter import Meter
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
     T,
@@ -73,9 +74,11 @@ class AnthropicAISchematicGenerator(SchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self.model_name = model_name
         self._logger = logger
+        self._meter = meter
 
         self._client = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
         self._estimating_tokenizer = AnthropicEstimatingTokenizer(self._client, model_name)
@@ -105,6 +108,22 @@ class AnthropicAISchematicGenerator(SchematicGenerator[T]):
     )
     @override
     async def generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[T]:
+        with self._logger.scope(f"Anthropic LLM Request ({self.schema.__name__})"):
+            async with self._meter.measure(
+                "llm_request",
+                {
+                    "service.name": "anthropic",
+                    "model.name": self.model_name,
+                    "schema.name": self.schema.__name__,
+                },
+            ):
+                return await self._do_generate(prompt, hints)
+
+    async def _do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
@@ -176,10 +195,11 @@ class AnthropicAISchematicGenerator(SchematicGenerator[T]):
 
 
 class Claude_Sonnet_3_5(AnthropicAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="claude-3-5-sonnet-20241022",
             logger=logger,
+            meter=meter,
         )
 
     @property
@@ -189,10 +209,11 @@ class Claude_Sonnet_3_5(AnthropicAISchematicGenerator[T]):
 
 
 class Claude_Sonnet_4(AnthropicAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="claude-sonnet-4-20250514",
             logger=logger,
+            meter=meter,
         )
 
     @property
@@ -202,10 +223,11 @@ class Claude_Sonnet_4(AnthropicAISchematicGenerator[T]):
 
 
 class Claude_Opus_4_1(AnthropicAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="claude-opus-4-1-20250805",
             logger=logger,
+            meter=meter,
         )
 
     @property
@@ -227,8 +249,10 @@ Please set ANTHROPIC_API_KEY in your environment before running Parlant.
 
         return None
 
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         self._logger = logger
+        self._meter = meter
+
         self._logger.info("Initialized AnthropicService")
 
     @override
@@ -243,7 +267,7 @@ Please set ANTHROPIC_API_KEY in your environment before running Parlant.
 
     @override
     async def get_embedder(self) -> Embedder:
-        return JinaAIEmbedder()
+        return JinaAIEmbedder(self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

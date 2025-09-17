@@ -45,6 +45,7 @@ import tiktoken
 
 from parlant.adapters.nlp.common import normalize_json_output
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.moderation import ModerationService, NoModeration
@@ -125,11 +126,13 @@ class VertexAIClaudeSchematicGenerator(SchematicGenerator[T]):
         region: str,
         model_name: str,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self.project_id = project_id
         self.region = region
         self.model_name = model_name
         self._logger = logger
+        self._meter = meter
 
         self._client = AsyncAnthropicVertex(
             project_id=project_id,
@@ -172,6 +175,22 @@ class VertexAIClaudeSchematicGenerator(SchematicGenerator[T]):
     )
     @override
     async def generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[T]:
+        with self._logger.scope(f"Vertex LLM Request ({self.schema.__name__})"):
+            async with self._meter.measure(
+                "llm_request",
+                {
+                    "service.name": "vertex",
+                    "model.name": self.model_name,
+                    "schema.name": self.schema.__name__,
+                },
+            ):
+                return await self._do_generate(prompt, hints)
+
+    async def _do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
@@ -254,15 +273,18 @@ class VertexAIGeminiSchematicGenerator(SchematicGenerator[T]):
 
     def __init__(
         self,
+        logger: Logger,
+        meter: Meter,
         project_id: str,
         region: str,
         model_name: str,
-        logger: Logger,
     ) -> None:
+        self._logger = logger
+        self._meter = meter
+
         self.project_id = project_id
         self.region = region
         self.model_name = model_name
-        self._logger = logger
 
         self._client = google.genai.Client(project=project_id, location=region, vertexai=True)
         self._tokenizer = VertexAIEstimatingTokenizer(self._client, model_name)
@@ -399,82 +421,90 @@ class VertexAIGeminiSchematicGenerator(SchematicGenerator[T]):
 
 
 class VertexClaudeOpus4(VertexAIClaudeSchematicGenerator[T]):
-    def __init__(self, project_id: str, region: str, logger: Logger) -> None:
+    def __init__(self, project_id: str, region: str, logger: Logger, meter: Meter) -> None:
         super().__init__(
             project_id=project_id,
             region=region,
             model_name="claude-opus-4@20250514",
             logger=logger,
+            meter=meter,
         )
 
 
 class VertexClaudeSonnet4(VertexAIClaudeSchematicGenerator[T]):
-    def __init__(self, project_id: str, region: str, logger: Logger) -> None:
+    def __init__(self, project_id: str, region: str, logger: Logger, meter: Meter) -> None:
         super().__init__(
             project_id=project_id,
             region=region,
             model_name="claude-sonnet-4@20250514",
             logger=logger,
+            meter=meter,
         )
 
 
 class VertexClaudeSonnet35(VertexAIClaudeSchematicGenerator[T]):
-    def __init__(self, project_id: str, region: str, logger: Logger) -> None:
+    def __init__(self, project_id: str, region: str, logger: Logger, meter: Meter) -> None:
         super().__init__(
             project_id=project_id,
             region=region,
             model_name="claude-3-5-sonnet-v2@20241022",
             logger=logger,
+            meter=meter,
         )
 
 
 class VertexClaudeHaiku35(VertexAIClaudeSchematicGenerator[T]):
-    def __init__(self, project_id: str, region: str, logger: Logger) -> None:
+    def __init__(self, project_id: str, region: str, logger: Logger, meter: Meter) -> None:
         super().__init__(
             project_id=project_id,
             region=region,
             model_name="claude-3-5-haiku@20241022",
             logger=logger,
+            meter=meter,
         )
 
 
 class VertexGemini15Flash(VertexAIGeminiSchematicGenerator[T]):
-    def __init__(self, project_id: str, region: str, logger: Logger) -> None:
+    def __init__(self, project_id: str, region: str, logger: Logger, meter: Meter) -> None:
         super().__init__(
             project_id=project_id,
             region=region,
             model_name="gemini-1.5-flash",
             logger=logger,
+            meter=meter,
         )
 
 
 class VertexGemini15Pro(VertexAIGeminiSchematicGenerator[T]):
-    def __init__(self, project_id: str, region: str, logger: Logger) -> None:
+    def __init__(self, project_id: str, region: str, logger: Logger, meter: Meter) -> None:
         super().__init__(
             project_id=project_id,
             region=region,
             model_name="gemini-1.5-pro",
             logger=logger,
+            meter=meter,
         )
 
 
 class VertexGemini20Flash(VertexAIGeminiSchematicGenerator[T]):
-    def __init__(self, project_id: str, region: str, logger: Logger) -> None:
+    def __init__(self, project_id: str, region: str, logger: Logger, meter: Meter) -> None:
         super().__init__(
             project_id=project_id,
             region=region,
             model_name="gemini-2.0-flash",
             logger=logger,
+            meter=meter,
         )
 
 
 class VertexGemini25Flash(VertexAIGeminiSchematicGenerator[T]):
-    def __init__(self, project_id: str, region: str, logger: Logger) -> None:
+    def __init__(self, project_id: str, region: str, logger: Logger, meter: Meter) -> None:
         super().__init__(
             project_id=project_id,
             region=region,
             model_name="gemini-2.5-flash",
             logger=logger,
+            meter=meter,
         )
 
     @override
@@ -490,12 +520,19 @@ class VertexGemini25Flash(VertexAIGeminiSchematicGenerator[T]):
 
 
 class VertexGemini25Pro(VertexAIGeminiSchematicGenerator[T]):
-    def __init__(self, project_id: str, region: str, logger: Logger) -> None:
+    def __init__(
+        self,
+        logger: Logger,
+        meter: Meter,
+        project_id: str,
+        region: str,
+    ) -> None:
         super().__init__(
+            logger=logger,
+            meter=meter,
             project_id=project_id,
             region=region,
             model_name="gemini-2.5-pro",
-            logger=logger,
         )
 
 
@@ -504,11 +541,16 @@ class VertexAIEmbedder(Embedder):
 
     supported_hints = ["title", "task_type"]
 
-    def __init__(self, model_name: str, logger: Logger):
+    def __init__(
+        self,
+        logger: Logger,
+        model_name: str,
+    ):
+        self._logger = logger
+
         self.project_id = os.environ.get("VERTEX_AI_PROJECT_ID")
         self.region = os.environ.get("VERTEX_AI_REGION", "us-central1")
         self.model_name = model_name
-        self._logger = logger
 
         self._client = google.genai.Client(
             project=self.project_id, location=self.region, vertexai=True
@@ -532,8 +574,9 @@ class VertexAIEmbedder(Embedder):
 
 
 class VertexTextEmbedding004(VertexAIEmbedder):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         self._logger = logger
+        self._meter = meter
 
         self.project_id = os.environ.get("VERTEX_AI_PROJECT_ID")
         self.region = os.environ.get("VERTEX_AI_REGION", "us-central1")
@@ -575,7 +618,13 @@ class VertexTextEmbedding004(VertexAIEmbedder):
             gemini_api_arguments["task_type"] = "RETRIEVAL_DOCUMENT"
 
         try:
-            with self._logger.operation("Embedding text with gemini"):
+            async with self._meter.measure(
+                "embed",
+                {
+                    "service.name": "vertex",
+                    "embedding.model.name": self.model_name,
+                },
+            ):
                 response = await self._client.aio.models.embed_content(  # type: ignore
                     model=self.model_name,
                     contents=texts,  # type: ignore
@@ -671,13 +720,16 @@ class VertexAIService(NLPService):
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self.project_id = os.environ.get("VERTEX_AI_PROJECT_ID", "project_id")
         self.region = os.environ.get("VERTEX_AI_REGION", "us-central1")
         self.model_name = self._normalize_model_name(
             os.environ.get("VERTEX_AI_MODEL", "claude-sonnet-3.5")
         )
+
         self._logger = logger
+        self._meter = meter
 
         self._logger.info(
             f"Initialized VertexAIService with model {self.model_name} "
@@ -761,7 +813,7 @@ class VertexAIService(NLPService):
     @override
     async def get_embedder(self) -> Embedder:
         """Get an embedder for text embeddings using Google Gen AI."""
-        return VertexTextEmbedding004(logger=self._logger)
+        return VertexTextEmbedding004(logger=self._logger, meter=self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:  # @Todo - add moderation service

@@ -26,6 +26,7 @@ from pydantic import ValidationError
 
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.adapters.nlp.common import normalize_json_output
+from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.moderation import ModerationService, NoModeration
@@ -148,12 +149,14 @@ class OllamaSchematicGenerator(SchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        meter: Meter,
         base_url: str = "http://localhost:11434",
         default_timeout: int | str = 300,
     ) -> None:
         self.model_name = model_name
         self.base_url = base_url.rstrip("/")
         self._logger = logger
+        self._meter = meter
         self._tokenizer = OllamaEstimatingTokenizer(model_name)
         self._default_timeout = default_timeout
 
@@ -222,6 +225,22 @@ class OllamaSchematicGenerator(SchematicGenerator[T]):
     )
     @override
     async def generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[T]:
+        with self._logger.scope(f"Ollama LLM Request ({self.schema.__name__})"):
+            async with self._meter.measure(
+                "llm_request",
+                {
+                    "service.name": "ollama",
+                    "model.name": self.model_name,
+                    "schema.name": self.schema.__name__,
+                },
+            ):
+                return await self._do_generate(prompt, hints)
+
+    async def _do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
@@ -326,46 +345,61 @@ class OllamaSchematicGenerator(SchematicGenerator[T]):
 
 
 class OllamaGemma3_1B(OllamaSchematicGenerator[T]):
-    def __init__(self, logger: Logger, base_url: str = "http://localhost:11434") -> None:
+    def __init__(
+        self, logger: Logger, meter: Meter, base_url: str = "http://localhost:11434"
+    ) -> None:
         super().__init__(
             model_name="gemma3:1b",
             logger=logger,
+            meter=meter,
             base_url=base_url,
         )
 
 
 class OllamaGemma3_4B(OllamaSchematicGenerator[T]):
-    def __init__(self, logger: Logger, base_url: str = "http://localhost:11434") -> None:
+    def __init__(
+        self, logger: Logger, meter: Meter, base_url: str = "http://localhost:11434"
+    ) -> None:
         super().__init__(
             model_name="gemma3:4b",
             logger=logger,
+            meter=meter,
             base_url=base_url,
         )
 
 
 class OllamaGemma3_12B(OllamaSchematicGenerator[T]):
-    def __init__(self, logger: Logger, base_url: str = "http://localhost:11434") -> None:
+    def __init__(
+        self, logger: Logger, meter: Meter, base_url: str = "http://localhost:11434"
+    ) -> None:
         super().__init__(
             model_name="gemma3:12b",
             logger=logger,
+            meter=meter,
             base_url=base_url,
         )
 
 
 class OllamaGemma3_27B(OllamaSchematicGenerator[T]):
-    def __init__(self, logger: Logger, base_url: str = "http://localhost:11434") -> None:
+    def __init__(
+        self, logger: Logger, meter: Meter, base_url: str = "http://localhost:11434"
+    ) -> None:
         super().__init__(
             model_name="gemma3:27b",
             logger=logger,
+            meter=meter,
             base_url=base_url,
         )
 
 
 class OllamaLlama31_8B(OllamaSchematicGenerator[T]):
-    def __init__(self, logger: Logger, base_url: str = "http://localhost:11434") -> None:
+    def __init__(
+        self, logger: Logger, meter: Meter, base_url: str = "http://localhost:11434"
+    ) -> None:
         super().__init__(
             model_name="llama3.1:8b",
             logger=logger,
+            meter=meter,
             base_url=base_url,
         )
 
@@ -377,10 +411,13 @@ class OllamaLlama31_70B(OllamaSchematicGenerator[T]):
     Consider using llama3.1:8b or smaller models for local development.
     """
 
-    def __init__(self, logger: Logger, base_url: str = "http://localhost:11434") -> None:
+    def __init__(
+        self, logger: Logger, meter: Meter, base_url: str = "http://localhost:11434"
+    ) -> None:
         super().__init__(
             model_name="llama3.1:70b",
             logger=logger,
+            meter=meter,
             base_url=base_url,
         )
 
@@ -392,10 +429,13 @@ class OllamaLlama31_405B(OllamaSchematicGenerator[T]):
     Not recommended for local use. Consider llama3.1:8b or llama3.1:70b instead.
     """
 
-    def __init__(self, logger: Logger, base_url: str = "http://localhost:11434") -> None:
+    def __init__(
+        self, logger: Logger, meter: Meter, base_url: str = "http://localhost:11434"
+    ) -> None:
         super().__init__(
             model_name="llama3.1:405b",
             logger=logger,
+            meter=meter,
             base_url=base_url,
         )
 
@@ -404,11 +444,16 @@ class CustomOllamaSchematicGenerator(OllamaSchematicGenerator[T]):
     """Generic Ollama generator that accepts any model name."""
 
     def __init__(
-        self, model_name: str, logger: Logger, base_url: str = "http://localhost:11434"
+        self,
+        model_name: str,
+        logger: Logger,
+        meter: Meter,
+        base_url: str = "http://localhost:11434",
     ) -> None:
         super().__init__(
             model_name=model_name,
             logger=logger,
+            meter=meter,
             base_url=base_url,
         )
 
@@ -418,10 +463,13 @@ class OllamaEmbedder(Embedder):
 
     supported_arguments = ["dimensions"]
 
-    def __init__(self, model_name: str, logger: Logger):
+    def __init__(self, model_name: str, logger: Logger, meter: Meter):
         self.model_name = model_name
         self.base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+
         self._logger = logger
+        self._meter = meter
+
         self._tokenizer = OllamaEstimatingTokenizer(self.model_name)
         self._client = ollama.AsyncClient(host=self.base_url)
 
@@ -458,9 +506,16 @@ class OllamaEmbedder(Embedder):
         filtered_hints = {k: v for k, v in hints.items() if k in self.supported_arguments}
 
         try:
-            response = await self._client.embed(
-                model=self.model_name, input=texts, **filtered_hints
-            )
+            async with self._meter.measure(
+                "embed",
+                {
+                    "service.name": "ollama",
+                    "embedding.model.name": self.model_name,
+                },
+            ):
+                response = await self._client.embed(
+                    model=self.model_name, input=texts, **filtered_hints
+                )
 
             vectors = response.get("embeddings", [])
 
@@ -482,8 +537,8 @@ class OllamaEmbedder(Embedder):
 
 
 class OllamaNomicEmbedding(OllamaEmbedder):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="nomic-embed-text", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="nomic-embed-text", logger=logger, meter=meter)
 
     @property
     @override
@@ -496,8 +551,8 @@ class OllamaNomicEmbedding(OllamaEmbedder):
 
 
 class OllamaMxbiEmbeddingLarge(OllamaEmbedder):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="mxbai-embed-large", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="mxbai-embed-large", logger=logger, meter=meter)
 
     @property
     @override
@@ -510,8 +565,8 @@ class OllamaMxbiEmbeddingLarge(OllamaEmbedder):
 
 
 class OllamaBgeM3EmbeddingLarge(OllamaEmbedder):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="bge-m3", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="bge-m3", logger=logger, meter=meter)
 
     @property
     @override
@@ -524,10 +579,10 @@ class OllamaBgeM3EmbeddingLarge(OllamaEmbedder):
 
 
 class OllamaCustomEmbedding(OllamaEmbedder):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         self.model_name = os.environ.get("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
         self.vector_size = int(os.environ.get("OLLAMA_EMBEDDING_VECTOR_SIZE", "768"))
-        super().__init__(model_name=self.model_name, logger=logger)
+        super().__init__(model_name=self.model_name, logger=logger, meter=meter)
 
     @property
     @override
@@ -587,6 +642,7 @@ Please set these environment variables before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self.base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
         self.model_name = os.environ.get("OLLAMA_MODEL", "gemma3:4b")
@@ -596,6 +652,7 @@ Please set these environment variables before running Parlant.
         )  # always convert to int
 
         self._logger = logger
+        self._meter = meter
         self._logger.info(f"Initialized OllamaService with {self.model_name} at {self.base_url}")
 
     def _get_specialized_generator_class(
@@ -656,13 +713,13 @@ Please set these environment variables before running Parlant.
     @override
     async def get_embedder(self) -> Embedder:
         if "nomic" in self.embedding_model.lower():
-            return OllamaNomicEmbedding(self._logger)
+            return OllamaNomicEmbedding(self._logger, self._meter)
         elif "mxbai" in self.embedding_model.lower():
-            return OllamaMxbiEmbeddingLarge(self._logger)
+            return OllamaMxbiEmbeddingLarge(self._logger, self._meter)
         elif "bge" in self.embedding_model.lower():
-            return OllamaBgeM3EmbeddingLarge(self._logger)
+            return OllamaBgeM3EmbeddingLarge(self._logger, self._meter)
         else:  # its a custom embedding model
-            return OllamaCustomEmbedding(self._logger)
+            return OllamaCustomEmbedding(self._logger, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

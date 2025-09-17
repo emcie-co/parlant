@@ -35,6 +35,7 @@ import tiktoken
 from parlant.adapters.nlp.common import normalize_json_output
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
@@ -78,10 +79,12 @@ class GLMEstimatingTokenizer(EstimatingTokenizer):
 class GLMEmbedder(Embedder):
     supported_arguments = ["dimensions"]
 
-    def __init__(self, model_name: str, logger: Logger) -> None:
+    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
         self.model_name = model_name
 
         self._logger = logger
+        self._meter = meter
+
         self._client = AsyncClient(
             base_url="https://open.bigmodel.cn/api/paas/v4", api_key=os.environ["GLM_API_KEY"]
         )
@@ -119,11 +122,18 @@ class GLMEmbedder(Embedder):
     ) -> EmbeddingResult:
         filtered_hints = {k: v for k, v in hints.items() if k in self.supported_arguments}
         try:
-            response = await self._client.embeddings.create(
-                model=self.model_name,
-                input=texts,
-                **filtered_hints,
-            )
+            async with self._meter.measure(
+                "embed",
+                {
+                    "service.name": "glm",
+                    "embedding.model.name": self.model_name,
+                },
+            ):
+                response = await self._client.embeddings.create(
+                    model=self.model_name,
+                    input=texts,
+                    **filtered_hints,
+                )
         except RateLimitError:
             self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
@@ -133,8 +143,8 @@ class GLMEmbedder(Embedder):
 
 
 class GMLTextEmbedding_3(GLMEmbedder):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="embedding-3", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="embedding-3", logger=logger, meter=meter)
 
     @property
     @override
@@ -154,9 +164,11 @@ class GLMSchematicGenerator(SchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self.model_name = model_name
         self._logger = logger
+        self._meter = meter
 
         self._client = AsyncClient(
             base_url="https://open.bigmodel.cn/api/paas/v4",
@@ -195,8 +207,16 @@ class GLMSchematicGenerator(SchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.operation(f"GLM LLM Request ({self.schema.__name__})"):
-            return await self._do_generate(prompt, hints)
+        with self._logger.scope(f"GLM LLM Request ({self.schema.__name__})"):
+            async with self._meter.measure(
+                "llm_request",
+                {
+                    "service.name": "glm",
+                    "model.name": self.model_name,
+                    "schema.name": self.schema.__name__,
+                },
+            ):
+                return await self._do_generate(prompt, hints)
 
     async def _do_generate(
         self,
@@ -262,8 +282,8 @@ class GLMSchematicGenerator(SchematicGenerator[T]):
 
 
 class GLM_4_5(GLMSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="glm-4.5", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="glm-4.5", logger=logger, meter=meter)
 
     @property
     @override
@@ -287,8 +307,10 @@ Please set GLM_API_KEY in your environment before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self._logger = logger
+        self._meter = meter
         self._logger.info("Initialized GLMService")
 
     @override
@@ -297,7 +319,7 @@ Please set GLM_API_KEY in your environment before running Parlant.
 
     @override
     async def get_embedder(self) -> Embedder:
-        return GMLTextEmbedding_3(logger=self._logger)
+        return GMLTextEmbedding_3(logger=self._logger, meter=self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

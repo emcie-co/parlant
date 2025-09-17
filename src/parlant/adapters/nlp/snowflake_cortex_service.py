@@ -29,6 +29,7 @@ from pydantic import ValidationError
 from parlant.adapters.nlp.common import normalize_json_output
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
@@ -62,21 +63,22 @@ class CortexSchematicGenerator(SchematicGenerator[T]):
     _provider_params = ["temperature", "top_p", "top_k", "max_tokens", "stop"]
     supported_hints = _provider_params + ["strict"]
 
-    def __init__(self, *, schema: type[T], logger: Logger) -> None:
+    def __init__(self, *, schema: type[T], logger: Logger, meter: Meter) -> None:
         self.schema = schema
         self._logger = logger
+        self._meter = meter
         self._base_url = os.environ["SNOWFLAKE_CORTEX_BASE_URL"].rstrip("/")
         self._token = os.environ["SNOWFLAKE_AUTH_TOKEN"]
-        self._model = os.environ["SNOWFLAKE_CORTEX_CHAT_MODEL"]
+        self.model_name = os.environ["SNOWFLAKE_CORTEX_CHAT_MODEL"]
 
-        self._tokenizer = CortexEstimatingTokenizer(self._model)
+        self._tokenizer = CortexEstimatingTokenizer(self.model_name)
         self._client = httpx.AsyncClient(timeout=HTTPX_TIMEOUT)
         self._max_tokens_hint = int(os.environ.get("SNOWFLAKE_CORTEX_MAX_TOKENS", "8192"))
 
     @property
     @override
     def id(self) -> str:
-        return f"snowflake-cortex/{self._model}"
+        return f"snowflake-cortex/{self.model_name}"
 
     @property
     @override
@@ -115,6 +117,22 @@ class CortexSchematicGenerator(SchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
+        with self._logger.scope(f"Cortex LLM Request ({self.schema.__name__})"):
+            async with self._meter.measure(
+                "llm_request",
+                {
+                    "service.name": "cortex",
+                    "model.name": self.model_name,
+                    "schema.name": self.schema.__name__,
+                },
+            ):
+                return await self._do_generate(prompt, hints)
+
+    async def _do_generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[T]:
         if isinstance(prompt, PromptBuilder):
             prompt = prompt.build()
 
@@ -122,7 +140,7 @@ class CortexSchematicGenerator(SchematicGenerator[T]):
 
         messages = [{"role": "user", "content": prompt}]
         payload: dict[str, Any] = {
-            "model": self._model,
+            "model": self.model_name,
             "messages": messages,
             "stream": False,
         }
@@ -214,20 +232,22 @@ class CortexEmbedder(Embedder):
 
     supported_arguments = ["dimensions"]
 
-    def __init__(self, *, logger: Logger) -> None:
+    def __init__(self, *, logger: Logger, meter: Meter) -> None:
         self._logger = logger
+        self._meter = meter
+
         self._base_url = os.environ["SNOWFLAKE_CORTEX_BASE_URL"].rstrip("/")
         self._token = os.environ["SNOWFLAKE_AUTH_TOKEN"]
-        self._model = os.environ["SNOWFLAKE_CORTEX_EMBED_MODEL"]
+        self.model_name = os.environ["SNOWFLAKE_CORTEX_EMBED_MODEL"]
 
         self._client = httpx.AsyncClient(timeout=HTTPX_TIMEOUT)
-        self._tokenizer = CortexEstimatingTokenizer(self._model)
-        self._dims = self._infer_dims(self._model)
+        self._tokenizer = CortexEstimatingTokenizer(self.model_name)
+        self._dims = self._infer_dims(self.model_name)
 
     @property
     @override
     def id(self) -> str:
-        return f"snowflake-cortex/{self._model}"
+        return f"snowflake-cortex/{self.model_name}"
 
     @property
     @override
@@ -277,12 +297,19 @@ class CortexEmbedder(Embedder):
         texts: list[str],
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
-        payload: dict[str, Any] = {"model": self._model, "text": texts}
+        payload: dict[str, Any] = {"model": self.model_name, "text": texts}
         if "dimensions" in hints:
             payload["dimensions"] = hints["dimensions"]
 
         url = f"{self._base_url}/api/v2/cortex/inference:embed"
-        resp = await self._client.post(url, headers=self._headers(), json=payload)
+        async with self._meter.measure(
+            "embed",
+            {
+                "service.name": "cortex",
+                "embedding.model.name": self.model_name,
+            },
+        ):
+            resp = await self._client.post(url, headers=self._headers(), json=payload)
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError as e:
@@ -334,8 +361,10 @@ class SnowflakeCortexService(NLPService):
             return "Missing Snowflake Cortex settings:\n  - " + "\n  - ".join(missing)
         return None
 
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         self._logger = logger
+        self._meter = meter
+
         self._base_url = os.environ["SNOWFLAKE_CORTEX_BASE_URL"].rstrip("/")
         self._token = os.environ["SNOWFLAKE_AUTH_TOKEN"]
         self._chat_model = os.environ["SNOWFLAKE_CORTEX_CHAT_MODEL"]
@@ -347,11 +376,11 @@ class SnowflakeCortexService(NLPService):
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> SchematicGenerator[T]:
-        return CortexSchematicGenerator[t](schema=t, logger=self._logger)  # type: ignore[valid-type,misc]
+        return CortexSchematicGenerator[t](schema=t, logger=self._logger, meter=self._meter)  # type: ignore[valid-type,misc]
 
     @override
     async def get_embedder(self) -> Embedder:
-        return CortexEmbedder(logger=self._logger)
+        return CortexEmbedder(logger=self._logger, meter=self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

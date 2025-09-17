@@ -44,6 +44,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selectio
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.engines.alpha.tool_calling.single_tool_batch import SingleToolBatchSchema
 from parlant.core.loggers import LogLevel, Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
@@ -97,10 +98,12 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        meter: Meter,
         tokenizer_model_name: str | None = None,
     ) -> None:
         self.model_name = model_name
         self._logger = logger
+        self._meter = meter
 
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
 
@@ -138,9 +141,14 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.scope("OpenAISchematicGenerator"):
-            with self._logger.operation(
-                f"LLM Request ({self.schema.__name__})", level=LogLevel.TRACE
+        with self._logger.scope(f"OpenAI LLM Request ({self.schema.__name__})"):
+            async with self._meter.measure(
+                "llm_request",
+                {
+                    "service.name": "openai",
+                    "model.name": self.model_name,
+                    "schema.name": self.schema.__name__,
+                },
             ):
                 return await self._do_generate(prompt, hints)
 
@@ -266,8 +274,8 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
 
 
 class GPT_4o(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="gpt-4o-2024-11-20", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="gpt-4o-2024-11-20", logger=logger, meter=meter)
 
     @property
     @override
@@ -276,8 +284,8 @@ class GPT_4o(OpenAISchematicGenerator[T]):
 
 
 class GPT_4o_24_08_06(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="gpt-4o-2024-08-06", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="gpt-4o-2024-08-06", logger=logger, meter=meter)
 
     @property
     @override
@@ -286,10 +294,11 @@ class GPT_4o_24_08_06(OpenAISchematicGenerator[T]):
 
 
 class GPT_4_1(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="gpt-4.1",
             logger=logger,
+            meter=meter,
             tokenizer_model_name="gpt-4o-2024-11-20",
         )
 
@@ -300,8 +309,8 @@ class GPT_4_1(OpenAISchematicGenerator[T]):
 
 
 class GPT_4o_Mini(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="gpt-4o-mini", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="gpt-4o-mini", logger=logger, meter=meter)
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -313,10 +322,12 @@ class GPT_4o_Mini(OpenAISchematicGenerator[T]):
 class OpenAIEmbedder(Embedder):
     supported_arguments = ["dimensions"]
 
-    def __init__(self, model_name: str, logger: Logger) -> None:
+    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
         self.model_name = model_name
 
         self._logger = logger
+        self._meter = meter
+
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
         self._tokenizer = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
@@ -352,11 +363,18 @@ class OpenAIEmbedder(Embedder):
     ) -> EmbeddingResult:
         filtered_hints = {k: v for k, v in hints.items() if k in self.supported_arguments}
         try:
-            response = await self._client.embeddings.create(
-                model=self.model_name,
-                input=texts,
-                **filtered_hints,
-            )
+            async with self._meter.measure(
+                "embed",
+                {
+                    "service.name": "openai",
+                    "embedding.model.name": self.model_name,
+                },
+            ):
+                response = await self._client.embeddings.create(
+                    model=self.model_name,
+                    input=texts,
+                    **filtered_hints,
+                )
         except RateLimitError:
             self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
@@ -366,8 +384,8 @@ class OpenAIEmbedder(Embedder):
 
 
 class OpenAITextEmbedding3Large(OpenAIEmbedder):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="text-embedding-3-large", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="text-embedding-3-large", logger=logger, meter=meter)
 
     @property
     @override
@@ -380,8 +398,8 @@ class OpenAITextEmbedding3Large(OpenAIEmbedder):
 
 
 class OpenAITextEmbedding3Small(OpenAIEmbedder):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="text-embedding-3-small", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="text-embedding-3-small", logger=logger, meter=meter)
 
     @property
     @override
@@ -394,9 +412,10 @@ class OpenAITextEmbedding3Small(OpenAIEmbedder):
 
 
 class OpenAIModerationService(ModerationService):
-    def __init__(self, model_name: str, logger: Logger) -> None:
+    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
         self.model_name = model_name
         self._logger = logger
+        self._meter = meter
 
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
 
@@ -421,7 +440,7 @@ class OpenAIModerationService(ModerationService):
 
             return mapping.get(category.replace("/", "_").replace("-", "_"), [])
 
-        with self._logger.operation("OpenAI Moderation Request", level=LogLevel.TRACE):
+        async with self._meter.measure("moderation_request", {"service.name": "openai"}):
             response = await self._client.moderations.create(
                 input=context.message,
                 model=self.model_name,
@@ -444,8 +463,8 @@ class OpenAIModerationService(ModerationService):
 
 
 class OmniModeration(OpenAIModerationService):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="omni-moderation-latest", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="omni-moderation-latest", logger=logger, meter=meter)
 
 
 class OpenAIService(NLPService):
@@ -464,8 +483,11 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self._logger = logger
+        self._meter = meter
+
         self._logger.info("Initialized OpenAIService")
 
     @override
@@ -479,8 +501,8 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
 
     @override
     async def get_embedder(self) -> Embedder:
-        return OpenAITextEmbedding3Large(self._logger)
+        return OpenAITextEmbedding3Large(self._logger, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:
-        return OmniModeration(self._logger)
+        return OmniModeration(self._logger, self._meter)

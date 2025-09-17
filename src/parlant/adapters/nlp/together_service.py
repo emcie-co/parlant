@@ -31,6 +31,7 @@ import tiktoken
 from parlant.adapters.nlp.common import normalize_json_output
 from parlant.adapters.nlp.hugging_face import HuggingFaceEstimatingTokenizer
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.meter import Meter
 from parlant.core.nlp.embedding import Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
@@ -74,9 +75,12 @@ class TogetherAISchematicGenerator(SchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        meter: Meter,
     ) -> None:
-        self.model_name = model_name
         self._logger = logger
+        self._meter = meter
+
+        self.model_name = model_name
         self._client = AsyncTogether(api_key=os.environ.get("TOGETHER_API_KEY"))
         self._estimating_tokenizer = LlamaEstimatingTokenizer()
 
@@ -111,6 +115,22 @@ class TogetherAISchematicGenerator(SchematicGenerator[T]):
     )
     @override
     async def generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[T]:
+        with self._logger.scope(f"Together LLM Request ({self.schema.__name__})"):
+            async with self._meter.measure(
+                "llm_request",
+                {
+                    "service.name": "together",
+                    "model.name": self.model_name,
+                    "schema.name": self.schema.__name__,
+                },
+            ):
+                return await self._do_generate(prompt, hints)
+
+    async def _do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
@@ -169,42 +189,48 @@ class TogetherAISchematicGenerator(SchematicGenerator[T]):
 
 
 class Llama3_1_8B(TogetherAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
             logger=logger,
+            meter=meter,
         )
 
 
 class Llama3_1_70B(TogetherAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
             logger=logger,
+            meter=meter,
         )
 
 
 class Llama3_1_405B(TogetherAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
             logger=logger,
+            meter=meter,
         )
 
 
 class Llama3_3_70B(TogetherAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="meta-llama/Llama-3.3-70B-Instruct-Turbo",
             logger=logger,
+            meter=meter,
         )
 
 
 class TogetherAIEmbedder(Embedder):
-    def __init__(self, model_name: str, logger: Logger) -> None:
+    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
         self.model_name = model_name
 
         self._logger = logger
+        self._meter = meter
+
         self._client = AsyncTogether(api_key=os.environ.get("TOGETHER_API_KEY"))
 
     @policy(
@@ -229,10 +255,17 @@ class TogetherAIEmbedder(Embedder):
         _ = hints
 
         try:
-            response = await self._client.embeddings.create(
-                model=self.model_name,
-                input=texts,
-            )
+            async with self._meter.measure(
+                "embed",
+                {
+                    "service.name": "together",
+                    "embedding.model.name": self.model_name,
+                },
+            ):
+                response = await self._client.embeddings.create(
+                    model=self.model_name,
+                    input=texts,
+                )
         except RateLimitError:
             self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
@@ -242,8 +275,12 @@ class TogetherAIEmbedder(Embedder):
 
 
 class M2Bert32K(TogetherAIEmbedder):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="togethercomputer/m2-bert-80M-32k-retrieval", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(
+            model_name="togethercomputer/m2-bert-80M-32k-retrieval",
+            logger=logger,
+            meter=meter,
+        )
         self._estimating_tokenizer = HuggingFaceEstimatingTokenizer(self.model_name)
 
     @property
@@ -338,6 +375,7 @@ Available models can be found at: https://docs.together.ai/docs/inference-models
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self.model_name = os.environ.get(
             "TOGETHER_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo"
@@ -346,6 +384,8 @@ Available models can be found at: https://docs.together.ai/docs/inference-models
             "TOGETHER_EMBEDDING_MODEL", "togethercomputer/m2-bert-80M-32k-retrieval"
         )
         self._logger = logger
+        self._meter = meter
+
         self._logger.info(f"Initialized TogetherService with model: {self.model_name}")
 
     def _get_specialized_generator_class(

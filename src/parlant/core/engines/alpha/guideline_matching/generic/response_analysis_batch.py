@@ -43,6 +43,7 @@ from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.sessions import Event, EventSource
@@ -80,12 +81,15 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[GenericResponseAnalysisSchema],
         context: ResponseAnalysisContext,
         guideline_matches: Sequence[GuidelineMatch],
     ) -> None:
         self._logger = logger
+        self._meter = meter
+
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
         self._batch_size = 5
@@ -101,9 +105,11 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
 
         guideline_batches = list(chunked(all_guidelines, self._batch_size))
 
-        with self._logger.operation(
-            f"{len(all_guidelines)} guidelines "
-            f"in {len(guideline_batches)} batches (batch size={self._batch_size})"
+        async with self._meter.measure(
+            "response_analysis",
+            {
+                "batches.count": len(guideline_batches),
+            },
         ):
             batch_tasks = [
                 self._process_batch(
@@ -150,7 +156,13 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
 
         guidelines = {str(i): g for i, g in enumerate(batch_guidelines, start=1)}
 
-        with self._logger.operation(f"Batch of {len(guidelines)} guidelines"):
+        async with self._meter.measure(
+            "batch_process",
+            {
+                "batch.strategy": "response_analysis",
+                "batch.size": len(guidelines),
+            },
+        ):
             prompt = self._build_prompt(
                 shots=await self.shots(),
                 guidelines=guidelines,

@@ -43,7 +43,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selectio
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.engines.alpha.tool_calling.single_tool_batch import SingleToolBatchSchema
-from parlant.core.loggers import LogLevel, Logger
+from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer

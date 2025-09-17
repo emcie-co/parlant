@@ -19,6 +19,7 @@ import traceback
 from typing import Any, Mapping, Optional, Sequence, cast
 from typing_extensions import override
 from parlant.core.capabilities import Capability
+from parlant.core.meter import Meter
 from parlant.core.tracer import Tracer
 from parlant.core.agents import Agent
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
@@ -125,11 +126,14 @@ class MessageGenerator(MessageEventComposer):
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
         tracer: Tracer,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[MessageSchema],
     ) -> None:
         self._logger = logger
+        self._meter = meter
+
         self._tracer = tracer
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
@@ -152,23 +156,24 @@ class MessageGenerator(MessageEventComposer):
     ) -> Sequence[MessageEventComposition]:
         with self._logger.scope("MessageEventComposer"):
             with self._logger.scope("MessageGenerator"):
-                with self._logger.operation("Message generation"):
-                    return await self._do_generate_events(
-                        event_emitter=context.session_event_emitter,
-                        agent=context.agent,
-                        customer=context.customer,
-                        context_variables=context.state.context_variables,
-                        interaction_history=context.interaction.history,
-                        terms=list(context.state.glossary_terms),
-                        capabilities=context.state.capabilities,
-                        ordinary_guideline_matches=context.state.ordinary_guideline_matches,
-                        journeys=context.state.journeys,
-                        tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
-                        tool_insights=context.state.tool_insights,
-                        staged_tool_events=context.state.tool_events,
-                        staged_message_events=context.state.message_events,
-                        latch=latch,
-                    )
+                with self._logger.scope("Message generation"):
+                    async with self._meter.measure("message_generation"):
+                        return await self._do_generate_events(
+                            event_emitter=context.session_event_emitter,
+                            agent=context.agent,
+                            customer=context.customer,
+                            context_variables=context.state.context_variables,
+                            interaction_history=context.interaction.history,
+                            terms=list(context.state.glossary_terms),
+                            capabilities=context.state.capabilities,
+                            ordinary_guideline_matches=context.state.ordinary_guideline_matches,
+                            journeys=context.state.journeys,
+                            tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
+                            tool_insights=context.state.tool_insights,
+                            staged_tool_events=context.state.tool_events,
+                            staged_message_events=context.state.message_events,
+                            latch=latch,
+                        )
 
     def _format_staged_events(
         self,

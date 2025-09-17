@@ -25,6 +25,7 @@ from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
@@ -397,6 +398,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
         guideline_store: GuidelineStore,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[JourneyNodeSelectionSchema],
@@ -406,6 +408,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
         journey_path: Sequence[str | None] = [],
     ) -> None:
         self._logger = logger
+        self._meter = meter
 
         self._guideline_store = guideline_store
 
@@ -470,7 +473,14 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
             )
         )
 
-        with self._logger.operation(self._examined_journey.title):
+        async with self._meter.measure(
+            "batch_process",
+            {
+                "batch.strategy": "journey_node_selection",
+                "batch.size": 1,
+                "journey.title": self._examined_journey.title,
+            },
+        ):
             prompt = self._build_prompt(journey_conditions, shots=await self.shots())
 
             generation_attempt_temperatures = (

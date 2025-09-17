@@ -35,6 +35,7 @@ from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuil
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.journeys import JourneyId, JourneyStore
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
@@ -75,6 +76,7 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
         journey_store: JourneyStore,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[DisambiguationGuidelineMatchesSchema],
@@ -83,6 +85,8 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
         context: GuidelineMatchingContext,
     ) -> None:
         self._logger = logger
+        self._meter = meter
+
         self._journey_store = journey_store
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
@@ -130,7 +134,13 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
             self._disambiguation_targets
         )
 
-        with self._logger.operation(str(self._disambiguation_guideline)):
+        async with self._meter.measure(
+            "batch_process",
+            {
+                "batch.strategy": "disambiguation",
+                "batch.size": 1,
+            },
+        ):
             prompt = self._build_prompt(
                 shots=await self.shots(),
                 disambiguation_targets_guidelines=disambiguation_targets_guidelines,

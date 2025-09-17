@@ -314,13 +314,14 @@ class GuidelineMatcher:
                 ]
             )
 
-            with self._logger.operation("Processing response analysis batches"):
-                batch_tasks = [
-                    self._process_response_analysis_batch_with_retry(batch)
-                    for strategy_batches in batches
-                    for batch in strategy_batches
-                ]
-                batch_results = await async_utils.safe_gather(*batch_tasks)
+            with self._logger.scope("Processing response analysis batches"):
+                async with self._meter.measure("response_analysis"):
+                    batch_tasks = [
+                        self._process_response_analysis_batch_with_retry(batch)
+                        for strategy_batches in batches
+                        for batch in strategy_batches
+                    ]
+                    batch_results = await async_utils.safe_gather(*batch_tasks)
 
         t_end = time.time()
 

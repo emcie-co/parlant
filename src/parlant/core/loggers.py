@@ -14,16 +14,13 @@
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-import asyncio
 from contextlib import ExitStack, contextmanager
 import contextvars
 from enum import Enum, auto
 import logging
 from pathlib import Path
 import structlog
-import time
-import traceback
-from typing import Any, Iterator, Sequence
+from typing import Iterator, Sequence
 from typing_extensions import override
 
 from parlant.core.common import generate_id
@@ -145,18 +142,6 @@ class Logger(ABC):
         """Create a new logging scope."""
         ...
 
-    @abstractmethod
-    @contextmanager
-    def operation(
-        self,
-        name: str,
-        props: dict[str, Any] = {},
-        level: LogLevel = LogLevel.DEBUG,
-        create_scope: bool = True,
-    ) -> Iterator[None]:
-        """Create a new timed logging operation with a name and properties."""
-        ...
-
 
 class TracingLogger(Logger):
     """A logger that supports trace IDs for structured logging."""
@@ -244,55 +229,6 @@ class TracingLogger(Logger):
         yield
 
         self._scopes.reset(reset_token)
-
-    @override
-    @contextmanager
-    def operation(
-        self,
-        name: str,
-        props: dict[str, Any] = {},
-        level: LogLevel = LogLevel.DEBUG,
-        create_scope: bool = True,
-    ) -> Iterator[None]:
-        log_func = {
-            LogLevel.TRACE: self.trace,
-            LogLevel.DEBUG: self.debug,
-            LogLevel.INFO: self.info,
-            LogLevel.WARNING: self.warning,
-            LogLevel.ERROR: self.error,
-            LogLevel.CRITICAL: self.critical,
-        }[level]
-
-        t_start = time.time()
-        try:
-            if props:
-                self.trace(f"{name} [{props}] started")
-            else:
-                self.trace(f"{name} started")
-
-            if create_scope:
-                with self.scope(name):
-                    yield
-            else:
-                yield
-
-            t_end = time.time()
-
-            if props:
-                log_func(f"{name} [{props}] finished in {t_end - t_start}s")
-            else:
-                log_func(f"{name} finished in {round(t_end - t_start, 3)} seconds")
-        except asyncio.CancelledError:
-            self.warning(f"{name} cancelled after {round(time.time() - t_start, 3)} seconds")
-            raise
-        except Exception as exc:
-            self.error(f"{name} failed")
-            self.error(" ".join(traceback.format_exception(exc)))
-            raise
-        except BaseException as exc:
-            self.error(f"{name} failed with critical error")
-            self.critical(" ".join(traceback.format_exception(exc)))
-            raise
 
     @property
     def current_scope(self) -> str:
@@ -390,22 +326,5 @@ class CompositeLogger(Logger):
     def scope(self, scope_id: str) -> Iterator[None]:
         with ExitStack() as stack:
             for context in [logger.scope(scope_id) for logger in self._loggers]:
-                stack.enter_context(context)
-            yield
-
-    @override
-    @contextmanager
-    def operation(
-        self,
-        name: str,
-        props: dict[str, Any] = {},
-        level: LogLevel = LogLevel.DEBUG,
-        create_scope: bool = True,
-    ) -> Iterator[None]:
-        with ExitStack() as stack:
-            for context in [
-                logger.operation(name, props, level, create_scope=create_scope)
-                for logger in self._loggers
-            ]:
                 stack.enter_context(context)
             yield

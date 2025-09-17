@@ -701,7 +701,7 @@ You will now be given the current state of the interaction to which you must gen
     ) -> Sequence[MessageEventComposition]:
         with self._logger.scope("MessageEventComposer"):
             with self._logger.scope("CannedResponseGenerator"):
-                async with self._meter.measure("response_generation"):
+                async with self._meter.measure("canrep"):
                     return await self._do_generate_events(
                         loaded_context=context,
                         latch=latch,
@@ -1529,10 +1529,11 @@ Output a JSON object with three properties:
                 },
             )
 
-        draft_response = await self._canrep_draft_generator.generate(
-            prompt=draft_prompt,
-            hints={"temperature": temperature},
-        )
+        async with self._meter.measure("draft"):
+            draft_response = await self._canrep_draft_generator.generate(
+                prompt=draft_prompt,
+                hints={"temperature": temperature},
+            )
 
         self._logger.trace(
             f"Canned Response Draft Completion:\n{draft_response.content.model_dump_json(indent=2)}"
@@ -1600,7 +1601,7 @@ Output a JSON object with three properties:
             )
 
         # Step 3: Pre-render these templates so that matching works better
-        async with self._meter.measure("rendering_canned_response_templates"):
+        async with self._meter.measure("render"):
             rendered_canreps = [
                 (r.response.id, str(r.rendered_text))
                 for r in await self._render_responses(
@@ -1612,7 +1613,7 @@ Output a JSON object with three properties:
 
         # Step 4.1: In composited mode, recompose the draft message with the style of the rendered canned responses
         if composition_mode == CompositionMode.CANNED_COMPOSITED:
-            async with self._meter.measure("recomposing_draft_using_canned_responses"):
+            async with self._meter.measure("recompose"):
                 recomposition_generation_info, composited_message = await self._recompose(
                     context=context,
                     draft_message=draft_message,
@@ -1630,7 +1631,7 @@ Output a JSON object with three properties:
                 )
 
         # Step 4.2: In non-composited mode, try to match the draft message with one of the rendered canned responses
-        async with self._meter.measure("selecting_canned_response"):
+        async with self._meter.measure("selection"):
             selection_response = await self._canrep_selection_generator.generate(
                 prompt=self._build_selection_prompt(
                     context=context,

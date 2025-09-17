@@ -7,6 +7,7 @@ from parlant.core.agents import AgentId, AgentStore
 from parlant.core.async_utils import Timeout
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.common import JSONSerializable
+from parlant.core.meter import Meter
 from parlant.core.tracer import Tracer
 from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.emissions import EventEmitterFactory
@@ -38,10 +39,10 @@ class Moderation(Enum):
     NONE = "none"
 
 
-def _get_jailbreak_moderation_service(logger: Logger) -> ModerationService:
+def _get_jailbreak_moderation_service(logger: Logger, meter: Meter) -> ModerationService:
     from parlant.adapters.nlp.lakera import LakeraGuard
 
-    return LakeraGuard(logger)
+    return LakeraGuard(logger, meter)
 
 
 class SessionModule:

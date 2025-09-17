@@ -38,6 +38,7 @@ from parlant.core.entity_cq import EntityQueries
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
@@ -70,6 +71,7 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[GenericObservationalGuidelineMatchesSchema],
         guidelines: Sequence[Guideline],
@@ -77,6 +79,7 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
         context: GuidelineMatchingContext,
     ) -> None:
         self._logger = logger
+        self._meter = meter
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
         self._guidelines = {str(i): g for i, g in enumerate(guidelines, start=1)}
@@ -85,7 +88,13 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
 
     @override
     async def process(self) -> GuidelineMatchingBatchResult:
-        with self._logger.operation(f"Batch of {len(self._guidelines)} guidelines"):
+        async with self._meter.measure(
+            "batch_process",
+            {
+                "batch.strategy": "observational",
+                "batch.size": len(self._guidelines),
+            },
+        ):
             prompt = self._build_prompt(shots=await self.shots())
 
             generation_attempt_temperatures = (

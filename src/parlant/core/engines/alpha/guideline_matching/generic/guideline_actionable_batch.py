@@ -17,9 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import math
-import os
 import traceback
-from typing import Optional
 from typing_extensions import override
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.generic.common import (
@@ -311,7 +309,7 @@ OUTPUT FORMAT
                 "guideline_id": i,
                 "condition": guideline_representations[g.id].condition,
                 "rationale": "<Explanation for why the condition is or isn't met when focusing on the most recent interaction>",
-                "applies": "<BOOL>"
+                "applies": "<BOOL>",
             }
             for i, g in self._guidelines.items()
         ]

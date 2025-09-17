@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import math
-import os
 import traceback
 from typing import Optional, Sequence
 from typing_extensions import override
@@ -328,7 +327,7 @@ OUTPUT FORMAT
                 "action": guideline_representations[g.id].action,
                 "condition_met_again": "<BOOL. Whether the condition met again in a new or subtly different context or information>",
                 "action_wasnt_taken": "<BOOL. include only condition_met_again is True if The action wasn't already taken for this new reason>",
-                "should_reapply": "<BOOL>"
+                "should_reapply": "<BOOL>",
             }
             for i, g in self._guidelines.items()
         ]

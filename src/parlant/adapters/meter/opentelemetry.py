@@ -66,7 +66,7 @@ class OtelMeter(Meter):
         return False
 
     @override
-    async def record_counter(
+    async def increment(
         self,
         name: str,
         value: int = 1,

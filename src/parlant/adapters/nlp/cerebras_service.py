@@ -151,6 +151,19 @@ class CerebrasSchematicGenerator(SchematicGenerator[T]):
         try:
             model_content = self.schema.model_validate(json_object)
 
+            await self._meter.increment(
+                "input_tokens",
+                response.usage.prompt_tokens,  # type: ignore
+                {"model_name": self.model_name},
+            )
+            await self._meter.increment(
+                "output_tokens",
+                response.usage.completion_tokens,  # type: ignore
+                {
+                    "model_name": self.model_name,
+                },
+            )
+
             return SchematicGenerationResult(
                 content=model_content,
                 info=GenerationInfo(

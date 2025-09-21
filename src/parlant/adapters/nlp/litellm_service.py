@@ -165,6 +165,30 @@ class LiteLLMSchematicGenerator(SchematicGenerator[T]):
             content = self.schema.model_validate(json_content)
             assert response.usage
 
+            await self._meter.increment(
+                "input_tokens",
+                response.usage.prompt_tokens,
+                {"model_name": self.model_name},
+            )
+            await self._meter.increment(
+                "output_tokens",
+                response.usage.completion_tokens,
+                {
+                    "model_name": self.model_name,
+                },
+            )
+            await self._meter.increment(
+                "cached_input_tokens",
+                getattr(
+                    response,
+                    "usage.prompt_cache_hit_tokens",
+                    0,
+                ),
+                {
+                    "model_name": self.model_name,
+                },
+            )
+
             return SchematicGenerationResult(
                 content=content,
                 info=GenerationInfo(

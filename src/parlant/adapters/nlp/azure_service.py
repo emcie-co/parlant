@@ -172,6 +172,28 @@ class AzureSchematicGenerator(SchematicGenerator[T]):
 
             assert response.usage
 
+            await self._meter.increment(
+                "input_tokens",
+                response.usage.prompt_tokens,
+                {"model_name": self.model_name},
+            )
+            await self._meter.increment(
+                "output_tokens",
+                response.usage.completion_tokens,
+                {
+                    "model_name": self.model_name,
+                },
+            )
+            await self._meter.increment(
+                "cached_input_tokens",
+                response.usage.prompt_tokens_details.cached_tokens or 0
+                if response.usage.prompt_tokens_details
+                else 0,
+                {
+                    "model_name": self.model_name,
+                },
+            )
+
             return SchematicGenerationResult[T](
                 content=parsed_object,
                 info=GenerationInfo(

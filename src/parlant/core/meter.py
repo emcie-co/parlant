@@ -8,7 +8,7 @@ from parlant.core.common import AttributeValue
 
 class Meter(ABC):
     @abstractmethod
-    async def record_counter(
+    async def increment(
         self,
         name: str,
         value: int = 1,
@@ -35,7 +35,7 @@ class Meter(ABC):
 
 class NullMeter(Meter):
     @override
-    async def record_counter(
+    async def increment(
         self,
         name: str,
         value: int = 1,

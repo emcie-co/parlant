@@ -208,6 +208,20 @@ class CortexSchematicGenerator(SchematicGenerator[T]):
             raise
 
         usage_block = data.get("usage") or {}
+
+        await self._meter.increment(
+            "input_tokens",
+            usage_block.get("prompt_tokens", 0),
+            {"model_name": self.model_name},
+        )
+        await self._meter.increment(
+            "output_tokens",
+            usage_block.get("completion_tokens", 0),
+            {
+                "model_name": self.model_name,
+            },
+        )
+
         return SchematicGenerationResult(
             content=content,
             info=GenerationInfo(

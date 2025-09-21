@@ -17,6 +17,8 @@ import os
 import traceback
 from typing import Awaitable, Callable, TypeAlias
 
+import mimetypes
+
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
@@ -49,6 +51,11 @@ from parlant.core.contextual_correlator import ContextualCorrelator
 from parlant.core.common import ItemNotFoundError, generate_id
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.application import Application
+
+
+mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("image/svg+xml", ".svg")
+
 
 ASGIApplication: TypeAlias = Callable[
     [

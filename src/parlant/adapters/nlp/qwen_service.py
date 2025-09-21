@@ -24,7 +24,7 @@ from openai import (
     InternalServerError,
     RateLimitError,
 )
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 from typing_extensions import override
 import json
 import jsonfinder  # type: ignore
@@ -51,17 +51,18 @@ from parlant.core.nlp.moderation import (
     NoModeration,
 )
 
-RATE_LIMIT_ERROR_MESSAGE = (
-    "Qwen API rate limit exceeded. Possible reasons:\n"
-    "1. Your account may have insufficient API credits.\n"
-    "2. You may be using a free-tier account with limited request capacity.\n"
-    "3. You might have exceeded the requests-per-minute limit for your account.\n\n"
-    "Recommended actions:\n"
-    "- Check your Qwen account balance and billing status.\n"
-    "- Review your API usage limits in Qwen's dashboard.\n"
-    "- For more details on rate limits and usage tiers, visit:\n"
-    "  https://docs.bigmodel.cn/cn/faq/api-code\n",
-)
+RATE_LIMIT_ERROR_MESSAGE = """\
+Qwen API rate limit exceeded. Possible reasons:
+1. Your account may have insufficient API credits.
+2. You may be using a free-tier account with limited request capacity.
+3. You might have exceeded the requests-per-minute limit for your account.
+
+Recommended actions:
+- Check your Qwen account balance and billing status.
+- Review your API usage limits in Qwen's dashboard.
+- For more details on rate limits and usage tiers, visit:
+    https://docs.bigmodel.cn/cn/faq/api-code
+"""
 
 
 class QwenEstimatingTokenizer(EstimatingTokenizer):
@@ -83,9 +84,10 @@ class QwenEmbedder(Embedder):
 
         self._logger = logger
         self._client = AsyncClient(
-            
-            base_url=os.environ.get("BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
-            api_key=os.environ.get("DASHSCOPE_API_KEY", "")
+            base_url=os.environ.get(
+                "BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+            ),
+            api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
         )
         self._tokenizer = QwenEstimatingTokenizer(model_name=self.model_name)
 
@@ -119,8 +121,7 @@ class QwenEmbedder(Embedder):
         texts: list[str],
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
-        filtered_hints = {k: v for k,
-                          v in hints.items() if k in self.supported_arguments}
+        filtered_hints = {k: v for k, v in hints.items() if k in self.supported_arguments}
         try:
             response = await self._client.embeddings.create(
                 model=self.model_name,
@@ -161,7 +162,9 @@ class QwenSchematicGenerator(SchematicGenerator[T]):
         self._logger = logger
 
         self._client = AsyncClient(
-            base_url=os.environ.get("BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
+            base_url=os.environ.get(
+                "BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+            ),
             api_key=os.environ["DASHSCOPE_API_KEY"],
         )
 
@@ -228,11 +231,9 @@ class QwenSchematicGenerator(SchematicGenerator[T]):
         try:
             json_content = json.loads(normalize_json_output(raw_content))
         except json.JSONDecodeError:
-            self._logger.warning(
-                f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
+            self._logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
             json_content = jsonfinder.only_json(raw_content)[2]
-            self._logger.warning(
-                "Found JSON content within model response; continuing...")
+            self._logger.warning("Found JSON content within model response; continuing...")
 
         try:
             content = self.schema.model_validate(json_content)
@@ -273,17 +274,18 @@ class Qwen_MAX(QwenSchematicGenerator[T]):
     @override
     def max_tokens(self) -> int:
         return 32 * 1024
-    
+
+
 class Qwen_Plus(QwenSchematicGenerator[T]):
     def __init__(self, logger: Logger) -> None:
         super().__init__(model_name="qwen-plus", logger=logger)
-
 
     @property
     @override
     def max_tokens(self) -> int:
         return 128 * 1024
-    
+
+
 class Qwen_2_5_72b(QwenSchematicGenerator[T]):
     def __init__(self, logger: Logger) -> None:
         super().__init__(model_name="qwen2.5-72b-instruct", logger=logger)
@@ -315,32 +317,35 @@ Please set DASHSCOPE_API_KEY in your environment before running Parlant.
         self._logger.info("Initialized QwenService")
         self.model_name = os.environ.get("QWEN_MODEL", "qwen-plus")
         self._logger.info(f"Qwen model name: {self.model_name}")
+
     def _get_specialized_generator_class(
-            self,
-            model_name: str,
-            t: type[T],
-        ) -> QwenSchematicGenerator[T]:
-            """
-            Returns the specialized generator class for known models, or defaults to Qwen_Plus for unknown models.
-            """
-            model_mapping: dict[str, type[QwenSchematicGenerator[T]]] = {
-                "qwen-max": Qwen_MAX,
-                "qwen-plus": Qwen_Plus,
-                "qwen2.5-72b-instruct": Qwen_2_5_72b,
-            }
-            
-            generator_class = model_mapping.get(model_name, Qwen_Plus)
-            return generator_class[t](self._logger)
+        self,
+        model_name: str,
+        t: type[T],
+    ) -> Callable[..., QwenSchematicGenerator[T]] | None:
+        """
+        Returns the specialized generator class for known models
+        """
+        model_mapping: dict[str, type[QwenSchematicGenerator[T]]] = {
+            "qwen-max": Qwen_MAX[t],  # type: ignore
+            "qwen-plus": Qwen_Plus[t],  # type: ignore
+            "qwen2.5-72b-instruct": Qwen_2_5_72b[t],  # type: ignore
+        }
+
+        if generator_class := model_mapping.get(model_name):
+            return generator_class
+        else:
+            return None
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> QwenSchematicGenerator[T]:
         qwen_generator = self._get_specialized_generator_class(self.model_name, t)
-        return qwen_generator
+        assert qwen_generator is not None, f"Unsupported Qwen model: {self.model_name}"
+        return qwen_generator(self._logger)
 
     @override
     async def get_embedder(self) -> Embedder:
         return QwenTextEmbedding_V4(logger=self._logger)
-    
 
     @override
     async def get_moderation_service(self) -> ModerationService:

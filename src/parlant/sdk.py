@@ -336,7 +336,7 @@ class NLPServices:
             raise SDKError(error)
 
         return GLMService(container[Logger])
-    
+
     @staticmethod
     def qwen(container: Container) -> NLPService:
         """Creates a Qwen NLPService instance using the provided container."""

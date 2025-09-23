@@ -320,10 +320,11 @@ class M2Bert32K(TogetherAIEmbedder):
 class CustomTogetherAISchematicGenerator(TogetherAISchematicGenerator[T]):
     """Generic Together AI generator that accepts any model name."""
 
-    def __init__(self, model_name: str, logger: Logger) -> None:
+    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name=model_name,
             logger=logger,
+            meter=meter,
         )
 
 
@@ -428,7 +429,7 @@ Available models can be found at: https://docs.together.ai/docs/inference-models
         else:
             self._logger.debug(f"Using custom generator for model: {self.model_name}")
             return CustomTogetherAISchematicGenerator[t](  # type: ignore
-                model_name=self.model_name, logger=self._logger
+                model_name=self.model_name, logger=self._logger, meter=self._meter
             )
 
     def _get_specialized_embedder_class(

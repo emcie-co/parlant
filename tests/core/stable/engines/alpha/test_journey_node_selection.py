@@ -30,6 +30,7 @@ from parlant.core.glossary import Term, TermId
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
 from parlant.core.journeys import Journey, JourneyId, JourneyNodeId
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import EventKind, EventSource, Session, SessionId, SessionStore
 from parlant.core.tags import Tag, TagId
@@ -650,6 +651,7 @@ async def base_test_that_correct_node_is_selected(
 
     journey_node_selector = GenericJourneyNodeSelectionBatch(
         logger=context.logger,
+        meter=context.container[Meter],
         guideline_store=context.container[GuidelineStore],
         schematic_generator=context.schematic_generator,
         examined_journey=journey,

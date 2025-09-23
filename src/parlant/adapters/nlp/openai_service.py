@@ -517,7 +517,7 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
             JourneyNodeSelectionSchema: GPT_4_1[JourneyNodeSelectionSchema],
             CannedResponseDraftSchema: GPT_4_1[CannedResponseDraftSchema],
             CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
-        }.get(t, GPT_4o_24_08_06[t])(self._logger)  # type: ignore
+        }.get(t, GPT_4o_24_08_06[t])(self._logger, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:

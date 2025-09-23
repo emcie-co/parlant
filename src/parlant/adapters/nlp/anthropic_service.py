@@ -276,8 +276,8 @@ Please set ANTHROPIC_API_KEY in your environment before running Parlant.
             or t == DisambiguationGuidelineMatchesSchema
             or t == CannedResponseSelectionSchema
         ):
-            return Claude_Opus_4_1[t](self._logger)  # type: ignore
-        return Claude_Sonnet_4[t](self._logger)  # type: ignore
+            return Claude_Opus_4_1[t](self._logger, self._meter)  # type: ignore
+        return Claude_Sonnet_4[t](self._logger, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:

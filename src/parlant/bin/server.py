@@ -43,6 +43,7 @@ import uvicorn
 
 from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
+from parlant.adapters.meter.opentelemetry import OtelMeter
 from parlant.api.authorization import (
     AuthorizationPolicy,
     DevelopmentAuthorizationPolicy,
@@ -124,6 +125,7 @@ from parlant.core.engines.alpha.canned_response_generator import (
     NoMatchResponseProvider,
 )
 from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
+from parlant.core.meter import Meter, NullMeter
 from parlant.core.services.indexing.guideline_agent_intention_proposer import (
     AgentIntentionProposerSchema,
 )
@@ -279,11 +281,17 @@ class StartupParameters:
     initialize: Callable[[Container], Awaitable[None]] | None = None
 
 
-def load_nlp_service(name: str, extra_name: str, class_name: str, module_path: str) -> NLPService:
+def load_nlp_service(
+    meter: Meter,
+    name: str,
+    extra_name: str,
+    class_name: str,
+    module_path: str,
+) -> NLPService:
     try:
         module = importlib.import_module(module_path)
         service = getattr(module, class_name)
-        return cast(NLPService, service(LOGGER))
+        return cast(NLPService, service(LOGGER, meter))
     except ModuleNotFoundError as exc:
         LOGGER.error(f"Failed to import module: {exc.name}")
         LOGGER.critical(
@@ -292,65 +300,79 @@ def load_nlp_service(name: str, extra_name: str, class_name: str, module_path: s
         sys.exit(1)
 
 
-def load_anthropic() -> NLPService:
+def load_anthropic(meter: Meter) -> NLPService:
     return load_nlp_service(
-        "Anthropic", "anthropic", "AnthropicService", "parlant.adapters.nlp.anthropic_service"
+        meter,
+        "Anthropic",
+        "anthropic",
+        "AnthropicService",
+        "parlant.adapters.nlp.anthropic_service",
     )
 
 
-def load_aws() -> NLPService:
-    return load_nlp_service("AWS", "aws", "BedrockService", "parlant.adapters.nlp.aws_service")
+def load_aws(meter: Meter) -> NLPService:
+    return load_nlp_service(
+        meter, "AWS", "aws", "BedrockService", "parlant.adapters.nlp.aws_service"
+    )
 
 
-def load_azure() -> NLPService:
+def load_azure(meter: Meter) -> NLPService:
     from parlant.adapters.nlp.azure_service import AzureService
 
-    return AzureService(LOGGER)
+    return AzureService(LOGGER, meter)
 
 
-def load_cerebras() -> NLPService:
+def load_cerebras(meter: Meter) -> NLPService:
     return load_nlp_service(
-        "Cerebras", "cerebras", "CerebrasService", "parlant.adapters.nlp.cerebras_service"
+        meter, "Cerebras", "cerebras", "CerebrasService", "parlant.adapters.nlp.cerebras_service"
     )
 
 
-def load_deepseek() -> NLPService:
+def load_deepseek(meter: Meter) -> NLPService:
     return load_nlp_service(
-        "DeepSeek", "deepseek", "DeepSeekService", "parlant.adapters.nlp.deepseek_service"
+        meter, "DeepSeek", "deepseek", "DeepSeekService", "parlant.adapters.nlp.deepseek_service"
     )
 
 
-def load_modelscope() -> NLPService:
+def load_modelscope(meter: Meter) -> NLPService:
     return load_nlp_service(
-        "ModelScope", "modelscope", "ModelScopeService", "parlant.adapters.nlp.modelscope_service"
+        meter,
+        "ModelScope",
+        "modelscope",
+        "ModelScopeService",
+        "parlant.adapters.nlp.modelscope_service",
     )
 
 
-def load_gemini() -> NLPService:
+def load_gemini(meter: Meter) -> NLPService:
     return load_nlp_service(
-        "Gemini", "gemini", "GeminiService", "parlant.adapters.nlp.gemini_service"
+        meter, "Gemini", "gemini", "GeminiService", "parlant.adapters.nlp.gemini_service"
     )
 
 
-def load_openai() -> NLPService:
+def load_openai(meter: Meter) -> NLPService:
     from parlant.adapters.nlp.openai_service import OpenAIService
 
-    return OpenAIService(LOGGER)
+    return OpenAIService(LOGGER, meter)
 
 
-def load_together() -> NLPService:
+def load_together(meter: Meter) -> NLPService:
     return load_nlp_service(
-        "Together.ai", "together", "TogetherService", "parlant.adapters.nlp.together_service"
+        meter, "Together.ai", "together", "TogetherService", "parlant.adapters.nlp.together_service"
     )
 
 
-def load_litellm() -> NLPService:
+def load_litellm(meter: Meter) -> NLPService:
     return load_nlp_service(
-        "LiteLLM", "litellm", "LiteLLMService", "parlant.adapters.nlp.litellm_service"
+        meter,
+        "LiteLLM",
+        "litellm",
+        "LiteLLMService",
+        "parlant.adapters.nlp.litellm_service",
     )
 
 
-NLP_SERVICE_INITIALIZERS: dict[NLPServiceName, Callable[[], NLPService]] = {
+NLP_SERVICE_INITIALIZERS: dict[NLPServiceName, Callable[[Meter], NLPService]] = {
     "anthropic": load_anthropic,
     "aws": load_aws,
     "azure": load_azure,
@@ -411,6 +433,14 @@ async def load_modules(
                 await shutdown_module()
 
 
+async def _define_meter(container: Container) -> None:
+    if OtelMeter.is_environment_set():
+        container[Meter] = await EXIT_STACK.enter_async_context(OtelMeter())
+
+    else:
+        container[Meter] = Singleton(NullMeter)
+
+
 def _define_singleton(container: Container, interface: type, implementation: type) -> None:
     try:
         container[implementation] = Singleton(implementation)
@@ -454,6 +484,7 @@ async def setup_container() -> AsyncIterator[Container]:
     web_socket_logger = WebSocketLogger(TRACER, LogLevel.INFO)
     c[WebSocketLogger] = web_socket_logger
     c[Logger] = CompositeLogger([LOGGER, web_socket_logger])
+    await _define_meter(c)
 
     _define_singleton(c, IdGenerator, IdGenerator)
 
@@ -657,7 +688,7 @@ async def initialize_container(
 
     if isinstance(nlp_service_descriptor, str):
         nlp_service_name = nlp_service_descriptor
-        nlp_service_instance = NLP_SERVICE_INITIALIZERS[nlp_service_name]()
+        nlp_service_instance = NLP_SERVICE_INITIALIZERS[nlp_service_name](c[Meter])
     else:
         nlp_service_instance = await nlp_service_descriptor(c)
         nlp_service_name = nlp_service_instance.__class__.__name__

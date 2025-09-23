@@ -235,7 +235,7 @@ Please consider setting the following your environment before running Parlant.
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> AnthropicBedrockAISchematicGenerator[T]:
-        return Claude_Sonnet_3_5[t](self._logger)  # type: ignore
+        return Claude_Sonnet_3_5[t](self._logger, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:

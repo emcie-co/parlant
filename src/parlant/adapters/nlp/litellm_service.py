@@ -254,6 +254,8 @@ Please set LITELLM_PROVIDER_API_KEY in your environment before running Parlant.
         self._base_url = os.environ.get("LITELLM_PROVIDER_BASE_URL")
         self._model_name = os.environ.get("LITELLM_PROVIDER_MODEL_NAME")
         self._logger = logger
+        self._meter = meter
+
         self._logger.info(
             f"Initialized LiteLLMService with {self._model_name}"
             + (f" at {self._base_url}" if self._base_url else "")
@@ -261,7 +263,7 @@ Please set LITELLM_PROVIDER_API_KEY in your environment before running Parlant.
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> LiteLLMSchematicGenerator[T]:
-        return LiteLLM_Default[t](self._logger, self._base_url, self._model_name)  # type: ignore
+        return LiteLLM_Default[t](self._logger, self._meter, self._base_url, self._model_name)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:

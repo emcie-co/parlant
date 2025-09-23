@@ -768,57 +768,93 @@ class VertexAIService(NLPService):
         if provider == ModelProvider.ANTHROPIC:
             if "opus-4" in self.model_name:
                 primary = VertexClaudeOpus4[t](  # type: ignore
-                    project_id=self.project_id, region=self.region, logger=self._logger
+                    project_id=self.project_id,
+                    region=self.region,
+                    logger=self._logger,
+                    meter=self._meter,
                 )
                 fallback = VertexClaudeSonnet4[t](  # type: ignore
-                    project_id=self.project_id, region=self.region, logger=self._logger
+                    project_id=self.project_id,
+                    region=self.region,
+                    logger=self._logger,
+                    meter=self._meter,
                 )
                 return FallbackSchematicGenerator[t](  # type: ignore
                     primary, fallback, logger=self._logger
                 )
             elif "sonnet-4" in self.model_name:
                 return VertexClaudeSonnet4[t](  # type: ignore
-                    project_id=self.project_id, region=self.region, logger=self._logger
+                    project_id=self.project_id,
+                    region=self.region,
+                    logger=self._logger,
+                    meter=self._meter,
                 )
             elif "claude-3-5" in self.model_name:
                 return VertexClaudeSonnet35[t](  # type: ignore
-                    project_id=self.project_id, region=self.region, logger=self._logger
+                    project_id=self.project_id,
+                    region=self.region,
+                    logger=self._logger,
+                    meter=self._meter,
                 )
             elif "haiku" in self.model_name:
                 return VertexClaudeHaiku35[t](  # type: ignore
-                    project_id=self.project_id, region=self.region, logger=self._logger
+                    project_id=self.project_id,
+                    region=self.region,
+                    logger=self._logger,
+                    meter=self._meter,
                 )
             else:
                 # Default to Sonnet 3.5
                 return VertexClaudeSonnet35[t](  # type: ignore
-                    project_id=self.project_id, region=self.region, logger=self._logger
+                    project_id=self.project_id,
+                    region=self.region,
+                    logger=self._logger,
+                    meter=self._meter,
                 )
 
         elif provider == ModelProvider.GOOGLE:
             if "1.5-flash" in self.model_name:
                 return VertexGemini15Flash[t](  # type: ignore
-                    project_id=self.project_id, region=self.region, logger=self._logger
+                    project_id=self.project_id,
+                    region=self.region,
+                    logger=self._logger,
+                    meter=self._meter,
                 )
             elif "1.5-pro" in self.model_name:
                 return VertexGemini15Pro[t](  # type: ignore
-                    project_id=self.project_id, region=self.region, logger=self._logger
+                    project_id=self.project_id,
+                    region=self.region,
+                    logger=self._logger,
+                    meter=self._meter,
                 )
             elif "2.0-flash" in self.model_name:
                 return VertexGemini20Flash[t](  # type: ignore
-                    project_id=self.project_id, region=self.region, logger=self._logger
+                    project_id=self.project_id,
+                    region=self.region,
+                    logger=self._logger,
+                    meter=self._meter,
                 )
             elif "2.5-flash" in self.model_name:
                 return VertexGemini25Flash[t](  # type: ignore
-                    project_id=self.project_id, region=self.region, logger=self._logger
+                    project_id=self.project_id,
+                    region=self.region,
+                    logger=self._logger,
+                    meter=self._meter,
                 )
             elif "2.5-pro" in self.model_name:
                 return VertexGemini25Pro[t](  # type: ignore
-                    project_id=self.project_id, region=self.region, logger=self._logger
+                    project_id=self.project_id,
+                    region=self.region,
+                    logger=self._logger,
+                    meter=self._meter,
                 )
             else:
                 # Default to Gemini 2.5-flash
                 return VertexGemini25Flash[t](  # type: ignore
-                    project_id=self.project_id, region=self.region, logger=self._logger
+                    project_id=self.project_id,
+                    region=self.region,
+                    logger=self._logger,
+                    meter=self._meter,
                 )
 
         else:

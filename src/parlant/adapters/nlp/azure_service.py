@@ -646,8 +646,8 @@ https://docs.microsoft.com/en-us/python/api/overview/azure/identity-readme
 
     async def get_schematic_generator(self, t: type[T]) -> AzureSchematicGenerator[T]:
         if os.environ.get("AZURE_GENERATIVE_MODEL_NAME"):
-            return CustomAzureSchematicGenerator[t](logger=self._logger)  # type: ignore
-        return GPT_4o[t](self._logger)  # type: ignore
+            return CustomAzureSchematicGenerator[t](logger=self._logger, meter=self._meter)  # type: ignore
+        return GPT_4o[t](self._logger, self._meter)  # type: ignore
 
     async def get_embedder(self) -> Embedder:
         if os.environ.get("AZURE_EMBEDDING_MODEL_NAME"):

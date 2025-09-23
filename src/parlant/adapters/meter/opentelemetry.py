@@ -18,6 +18,15 @@ from parlant.core.meter import Meter
 
 
 class OtelMeter(Meter):
+    @staticmethod
+    def is_environment_set() -> bool:
+        if not os.environ.get("OTEL_METRICS_EXPORTER") and not os.environ.get(
+            "OTEL_EXPORTER_OTLP_ENDPOINT"
+        ):
+            return False
+
+        return True
+
     def __init__(self) -> None:
         self._service_name = os.getenv("OTEL_SERVICE_NAME", "parlant")
 
@@ -44,11 +53,11 @@ class OtelMeter(Meter):
             exporter=metric_exporter,
             export_interval_millis=5000,
         )
-        self.meter_provider = MeterProvider(
+        self._meter_provider = MeterProvider(
             resource=resource,
             metric_readers=[metric_reader],
         )
-        metrics.set_meter_provider(self.meter_provider)
+        metrics.set_meter_provider(self._meter_provider)
 
         self._meter = metrics.get_meter(__name__)
 

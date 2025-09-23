@@ -666,6 +666,7 @@ Please set these environment variables before running Parlant.
 
         self._logger = logger
         self._meter = meter
+
         self._logger.info(f"Initialized OllamaService with {self.model_name} at {self.base_url}")
 
     def _get_specialized_generator_class(
@@ -717,7 +718,10 @@ Please set these environment variables before running Parlant.
         else:
             self._logger.debug(f"Using custom generator for model: {self.model_name}")
             generator = CustomOllamaSchematicGenerator[t](  # type: ignore
-                model_name=self.model_name, logger=self._logger, base_url=self.base_url
+                model_name=self.model_name,
+                logger=self._logger,
+                meter=self._meter,
+                base_url=self.base_url,
             )
 
         generator._default_timeout = self.default_timeout

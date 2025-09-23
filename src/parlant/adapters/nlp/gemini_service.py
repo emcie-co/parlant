@@ -494,21 +494,25 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self._logger = logger
+        self._meter = meter
+
         self._logger.info("Initialized GeminiService")
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> GeminiSchematicGenerator[T]:
         return FallbackSchematicGenerator[t](  # type: ignore
-            Gemini_2_5_Flash[t](self._logger),  # type: ignore
-            Gemini_2_5_Pro[t](self._logger),  # type: ignore
+            Gemini_2_5_Flash[t](self._logger, self._meter),  # type: ignore
+            Gemini_2_5_Pro[t](self._logger, self._meter),  # type: ignore
             logger=self._logger,
+            meter=self._meter,
         )
 
     @override
     async def get_embedder(self) -> Embedder:
-        return GeminiTextEmbedding_001(self._logger)
+        return GeminiTextEmbedding_001(self._logger, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

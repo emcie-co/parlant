@@ -339,7 +339,7 @@ Please set GLM_API_KEY in your environment before running Parlant.
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> GLMSchematicGenerator[T]:
-        return GLM_4_5[t](self._logger)  # type: ignore
+        return GLM_4_5[t](self._logger, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:

@@ -62,6 +62,7 @@ from parlant.core.entity_cq import EntityQueries
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
 from parlant.core.journeys import Journey, JourneyId, JourneyStore
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.relationships import RelationshipKind, RelationshipStore
 
@@ -70,6 +71,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
         optimization_policy: OptimizationPolicy,
         guideline_store: GuidelineStore,
         journey_store: JourneyStore,
@@ -94,6 +96,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         response_analysis_schematic_generator: SchematicGenerator[GenericResponseAnalysisSchema],
     ) -> None:
         self._logger = logger
+        self._meter = meter
 
         self._guideline_store = guideline_store
         self._journey_store = journey_store
@@ -222,6 +225,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         return [
             GenericResponseAnalysisBatch(
                 logger=self._logger,
+                meter=self._meter,
                 optimization_policy=self._optimization_policy,
                 schematic_generator=self._response_analysis_schematic_generator,
                 context=context,
@@ -328,6 +332,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     ) -> GenericObservationalGuidelineMatchingBatch:
         return GenericObservationalGuidelineMatchingBatch(
             logger=self._logger,
+            meter=self._meter,
             optimization_policy=self._optimization_policy,
             schematic_generator=self._observational_guideline_schematic_generator,
             guidelines=guidelines,
@@ -387,6 +392,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     ) -> GenericPreviouslyAppliedActionableGuidelineMatchingBatch:
         return GenericPreviouslyAppliedActionableGuidelineMatchingBatch(
             logger=self._logger,
+            meter=self._meter,
             optimization_policy=self._optimization_policy,
             schematic_generator=self._previously_applied_actionable_guideline_schematic_generator,
             guidelines=guidelines,
@@ -446,6 +452,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     ) -> GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingBatch:
         return GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingBatch(
             logger=self._logger,
+            meter=self._meter,
             optimization_policy=self._optimization_policy,
             schematic_generator=self._previously_applied_actionable_customer_dependent_guideline_schematic_generator,
             guidelines=guidelines,
@@ -505,6 +512,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     ) -> GenericActionableGuidelineMatchingBatch:
         return GenericActionableGuidelineMatchingBatch(
             logger=self._logger,
+            meter=self._meter,
             optimization_policy=self._optimization_policy,
             schematic_generator=self._actionable_guideline_schematic_generator,
             guidelines=guidelines,
@@ -545,6 +553,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
 
         return GenericDisambiguationGuidelineMatchingBatch(
             logger=self._logger,
+            meter=self._meter,
             journey_store=self._journey_store,
             optimization_policy=self._optimization_policy,
             schematic_generator=self._disambiguation_guidelines_schematic_generator,
@@ -572,6 +581,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     ) -> GenericJourneyNodeSelectionBatch:
         return GenericJourneyNodeSelectionBatch(
             logger=self._logger,
+            meter=self._meter,
             guideline_store=self._guideline_store,
             optimization_policy=self._optimization_policy,
             schematic_generator=self._journey_step_selection_schematic_generator,

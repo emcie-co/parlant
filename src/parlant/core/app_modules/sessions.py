@@ -49,6 +49,7 @@ class SessionModule:
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
         agent_store: AgentStore,
         tracer: Tracer,
         session_store: SessionStore,
@@ -60,6 +61,7 @@ class SessionModule:
         background_task_service: BackgroundTaskService,
     ):
         self._logger = logger
+        self._meter = meter
         self._agent_store = agent_store
         self._tracer = tracer
 
@@ -211,7 +213,9 @@ class SessionModule:
             tags.update(check.tags)
 
         if moderation == Moderation.PARANOID:
-            check = await _get_jailbreak_moderation_service(self._logger).moderate_customer(context)
+            check = await _get_jailbreak_moderation_service(
+                self._logger, self._meter
+            ).moderate_customer(context)
             if "jailbreak" in check.tags:
                 flagged = True
                 tags.update({"jailbreak"})

@@ -249,7 +249,7 @@ Please set DEEPSEEK_API_KEY in your environment before running Parlant.
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> DeepSeekSchematicGenerator[T]:
-        return DeepSeek_Chat[t](self._logger)  # type: ignore
+        return DeepSeek_Chat[t](self._logger, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:

@@ -17,8 +17,9 @@ import httpx
 from lagom import Container
 from pytest import fixture
 
+from parlant.core.agents import AgentStore
 from parlant.core.context_variables import ContextVariableStore
-from parlant.core.tags import TagId, TagStore
+from parlant.core.tags import Tag, TagId, TagStore
 from parlant.core.tools import LocalToolService, ToolId, ToolOverlap
 
 
@@ -161,6 +162,47 @@ async def test_that_context_variables_can_be_listed(
 
     assert first_variable_dto["freshness_rules"] == first_variable.freshness_rules
     assert second_variable_dto["freshness_rules"] == second_variable.freshness_rules
+
+
+async def test_that_context_variables_of_specific_tag_can_be_listed(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    tool_id: ToolId,
+) -> None:
+    agent_store = container[AgentStore]
+    context_variable_store = container[ContextVariableStore]
+
+    agent = await agent_store.create_agent(
+        name="test_agent",
+        description="A test agent",
+    )
+
+    first_variable = await context_variable_store.create_variable(
+        name="variable1",
+        description="description 1",
+        tool_id=tool_id,
+        freshness_rules="0 18 14 5 4",
+        tags=[Tag.for_agent_id(agent.id)],
+    )
+
+    _ = await context_variable_store.create_variable(
+        name="variable2",
+        description="description 2",
+        tool_id=tool_id,
+    )
+
+    returned_variables = (
+        (await async_client.get(f"/context-variables?tag_id={Tag.for_agent_id(agent.id)}"))
+        .raise_for_status()
+        .json()
+    )
+
+    assert len(returned_variables) == 1
+    first_variable_dto = returned_variables[0]
+
+    assert first_variable_dto["name"] == first_variable.name
+    assert first_variable_dto["description"] == first_variable.description
+    assert first_variable_dto["freshness_rules"] == first_variable.freshness_rules
 
 
 async def test_that_a_context_variable_can_be_updated_with_new_values(

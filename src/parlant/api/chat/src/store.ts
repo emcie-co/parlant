@@ -9,7 +9,7 @@ export const emptyPendingMessage: () => EventInterface = () => ({
 	creation_utc: new Date(),
 	serverStatus: 'pending',
 	offset: 0,
-	correlation_id: '',
+	trace_id: '',
 	data: {
 		message: '',
 	},

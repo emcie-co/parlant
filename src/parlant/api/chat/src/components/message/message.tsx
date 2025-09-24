@@ -11,7 +11,7 @@ import MessageBubble from './message-bubble';
 
 interface Props {
 	event: EventInterface;
-	sameCorrelationMessages?: EventInterface[];
+	sameTraceMessages?: EventInterface[];
 	isContinual: boolean;
 	isRegenerateHidden?: boolean;
 	isFirstMessageInDate?: boolean;
@@ -61,7 +61,7 @@ const MessageEditing = ({event, resendMessageFn, setIsEditing}: Props) => {
 	);
 };
 
-function Message({event, isFirstMessageInDate, isContinual, showLogs, showLogsForMessage, resendMessageFn, flagged, flaggedChanged, sameCorrelationMessages}: Props): ReactElement {
+function Message({event, isFirstMessageInDate, isContinual, showLogs, showLogsForMessage, resendMessageFn, flagged, flaggedChanged, sameTraceMessages: sameTraceMessages}: Props): ReactElement {
 	const [isEditing, setIsEditing] = useState(false);
 	return (
 		<div className={twMerge(isEditing && '[direction:rtl] flex justify-center')}>
@@ -74,7 +74,7 @@ function Message({event, isFirstMessageInDate, isContinual, showLogs, showLogsFo
 				{isEditing ? (
 					<MessageEditing resendMessageFn={resendMessageFn} setIsEditing={setIsEditing} event={event} isContinual={isContinual} showLogs={showLogs} showLogsForMessage={showLogsForMessage} />
 				) : (
-					<MessageBubble isFirstMessageInDate={isFirstMessageInDate} setIsEditing={setIsEditing} event={event} isContinual={isContinual} showLogs={showLogs} showLogsForMessage={showLogsForMessage} flagged={flagged} flaggedChanged={flaggedChanged} sameCorrelationMessages={sameCorrelationMessages} />
+					<MessageBubble isFirstMessageInDate={isFirstMessageInDate} setIsEditing={setIsEditing} event={event} isContinual={isContinual} showLogs={showLogs} showLogsForMessage={showLogsForMessage} flagged={flagged} flaggedChanged={flaggedChanged} sameTraceMessages={sameTraceMessages} />
 				)}
 				<Spacer />
 			</div>

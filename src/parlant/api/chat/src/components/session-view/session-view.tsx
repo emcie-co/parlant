@@ -128,12 +128,12 @@ const SessionView = (): ReactElement => {
 		const offset = lastEvent?.offset;
 		if (offset || offset === 0) setLastOffset(offset + 1);
 
-		const correlationsMap = groupBy(lastEvents || [], (item: EventInterface) => item?.correlation_id.split('::')[0]);
+		const traceMap = groupBy(lastEvents || [], (item: EventInterface) => item?.trace_id.split('::')[0]);
 
 		const newMessages = lastEvents?.filter((e) => e.kind === 'message') || [];
 		const withStatusMessages = newMessages.map((newMessage, i) => {
 			const data: EventInterface = {...newMessage};
-			const item = correlationsMap?.[newMessage.correlation_id.split('::')[0]]?.at(-1)?.data;
+			const item = traceMap?.[newMessage.trace_id.split('::')[0]]?.at(-1)?.data;
 			data.serverStatus = (item?.status || (newMessages[i + 1] ? 'ready' : null)) as ServerStatus;
 			if (data.serverStatus === 'error') data.error = item?.data?.exception;
 			return data;
@@ -141,9 +141,9 @@ const SessionView = (): ReactElement => {
 
 		setMessages((messages) => {
 			const last = messages.at(-1);
-			if (last?.source === 'customer' && correlationsMap?.[last?.correlation_id]) {
-				last.serverStatus = correlationsMap[last.correlation_id].at(-1)?.data?.status || last.serverStatus;
-				if (last.serverStatus === 'error') last.error = correlationsMap[last.correlation_id].at(-1)?.data?.data?.exception;
+			if (last?.source === 'customer' && traceMap?.[last?.trace_id]) {
+				last.serverStatus = traceMap[last.trace_id].at(-1)?.data?.status || last.serverStatus;
+				if (last.serverStatus === 'error') last.error = traceMap[last.trace_id].at(-1)?.data?.data?.exception;
 			}
 			if (!withStatusMessages?.length) return [...messages];
 			if (pendingMessage?.data?.message) setPendingMessage(emptyPendingMessage());
@@ -186,8 +186,8 @@ const SessionView = (): ReactElement => {
 
 	const getSessionFlaggedItems = async () => {
 		const flaggedItems = await getIndexedItemsFromIndexedDB('Parlant-flags', 'message_flags', 'sessionIndex', session?.id as string, {name: 'sessionIndex', keyPath: 'sessionId'});
-		const asMap = (flaggedItems as {correlationId: string; flagValue: string; sessionId: string}[]).reduce((acc, item) => {
-			acc[item.correlationId] = item.flagValue;
+		const asMap = (flaggedItems as {traceId: string; flagValue: string; sessionId: string}[]).reduce((acc, item) => {
+			acc[item.traceId] = item.flagValue;
 			return acc;
 		}, {} as Record<string, string>);
 		setFlaggedItems(asMap);
@@ -276,19 +276,19 @@ const SessionView = (): ReactElement => {
 								aria-label='Chat messages'>
 								{ErrorTemplate && <ErrorTemplate />}
 								{visibleMessages.map((event, i) => (
-									<React.Fragment key={(event.correlation_id || 0) + `${i}`}>
+									<React.Fragment key={(event.trace_id || 0) + `${i}`}>
 										{!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) && <DateHeader date={event.creation_utc} isFirst={!i} bgColor='bg-white' />}
 										<div ref={lastMessageRef} className='flex snap-end flex-col max-w-[min(1020px,100%)] w-[1020px] self-center'>
 											<Message
 												flaggedChanged={() => {
 													setRefreshFlag((val) => !val);
 												}}
-												flagged={flaggedItems[event.correlation_id]}
+												flagged={flaggedItems[event.trace_id]}
 												isFirstMessageInDate={!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc)}
 												isRegenerateHidden={!!isMissingAgent}
 												event={event}
-												sameCorrelationMessages={visibleMessages.filter((e) => e.correlation_id === event.correlation_id)}
-												isContinual={event.correlation_id === visibleMessages[i - 1]?.correlation_id || (event.source === 'customer' && visibleMessages[i - 1]?.source === 'customer')}
+												sameTraceMessages={visibleMessages.filter((e) => e.trace_id === event.trace_id)}
+												isContinual={event.trace_id === visibleMessages[i - 1]?.trace_id || (event.source === 'customer' && visibleMessages[i - 1]?.source === 'customer')}
 												regenerateMessageFn={regenerateMessageDialog(i)}
 												resendMessageFn={resendMessageDialog(i)}
 												showLogsForMessage={showLogsForMessage}
@@ -374,7 +374,7 @@ const SessionView = (): ReactElement => {
 								flaggedChanged={() => {
 									setRefreshFlag((val) => !val);
 								}}
-								sameCorrelationMessages={visibleMessages.filter((e) => e.correlation_id === showLogsForMessage.correlation_id)}
+								sameTraceMessages={visibleMessages.filter((e) => e.trace_id === showLogsForMessage.trace_id)}
 								event={showLogsForMessage}
 								regenerateMessageFn={showLogsForMessage?.index ? regenerateMessageDialog(showLogsForMessage.index) : undefined}
 								resendMessageFn={showLogsForMessage?.index || showLogsForMessage?.index === 0 ? resendMessageDialog(showLogsForMessage.index) : undefined}

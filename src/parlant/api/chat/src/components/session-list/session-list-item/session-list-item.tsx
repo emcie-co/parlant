@@ -129,19 +129,19 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 			if (messages?.length) {
 				messages.forEach((message) => {
 					exportData.push({
-						'Correlation ID': message.correlation_id,
+						'Trace ID': message.trace_id,
 						Source: message.source === 'ai_agent' ? 'AI Agent' : 'Customer',
 						Participant: message?.data?.participant?.display_name || '',
 						Timestamp: message.creation_utc || '',
 						Message: message.data?.message || '',
 						Draft: message.data?.draft || '',
 						Tags: message.data?.tags || '',
-						Flag: flaggedItems?.[message.correlation_id] || '',
+						Flag: flaggedItems?.[message.trace_id] || '',
 					});
 				});
 			}
 
-			const headers = ['Correlation ID', 'Source', 'Participant', 'Timestamp', 'Message', 'Draft', 'Tags', 'Flag'];
+			const headers = ['Trace ID', 'Source', 'Participant', 'Timestamp', 'Message', 'Draft', 'Tags', 'Flag'];
 
 			const filename = `session_${session.id}_"${session.title.replace(/[^a-zA-Z0-9]/g, '_')}.csv`;
 

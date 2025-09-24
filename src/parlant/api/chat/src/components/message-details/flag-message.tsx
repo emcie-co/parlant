@@ -16,16 +16,16 @@ interface FlagMessageProps {
 const FlagMessage = ({events, sessionId, existingFlagValue, onFlag}: FlagMessageProps) => {
 	const [dialog] = useAtom(dialogAtom);
 	const [flagValue, setFlagValue] = useState(existingFlagValue || '');
-	const correlationId = events?.[0]?.correlation_id;
+	const traceId = events?.[0]?.trace_id;
 
 	const flagMessage = async () => {
-		await addItemToIndexedDB('Parlant-flags', 'message_flags', correlationId, {sessionId, correlationId: correlationId, flagValue: flagValue || 'This message is flagged'}, 'update', {name: 'sessionIndex', keyPath: 'sessionId'});
+		await addItemToIndexedDB('Parlant-flags', 'message_flags', traceId, {sessionId, traceId: traceId, flagValue: flagValue || 'This message is flagged'}, 'update', {name: 'sessionIndex', keyPath: 'sessionId'});
 		onFlag?.(flagValue || '');
 		dialog.closeDialog();
 	};
 
 	const unflagMessage = async () => {
-		await deleteItemFromIndexedDB('Parlant-flags', 'message_flags', correlationId);
+		await deleteItemFromIndexedDB('Parlant-flags', 'message_flags', traceId);
 		onFlag?.('');
 		dialog.closeDialog();
 	};

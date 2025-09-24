@@ -10,7 +10,7 @@ export interface CustomerInterface {
 
 export interface Log {
 	level: 'INFO' | 'DEBUG' | 'WARNING';
-	correlation_id: string;
+	trace_id: string;
 	message: string;
 	timestamp: number;
 }
@@ -22,7 +22,7 @@ export interface EventInterface {
 	id?: string;
 	source: eventSource;
 	kind: 'status' | 'message';
-	correlation_id: string;
+	trace_id: string;
 	serverStatus: ServerStatus;
 	sessionId?: string;
 	error?: string;
@@ -56,5 +56,5 @@ export interface SessionCsvInterface {
 	Draft: string;
 	Tags: string;
 	Flag: string;
-	'Correlation ID': string;
+	'Trace ID': string;
 }

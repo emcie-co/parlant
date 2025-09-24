@@ -376,7 +376,7 @@ class NLPServices:
         if error := QwenService.verify_environment():
             raise SDKError(error)
 
-        return QwenService(container[Logger])
+        return QwenService(container[Logger], container[Meter])
 
     @staticmethod
     def deepseek(container: Container) -> NLPService:
@@ -386,7 +386,7 @@ class NLPServices:
         if error := DeepSeekService.verify_environment():
             raise SDKError(error)
 
-        return DeepSeekService(container[Logger])
+        return DeepSeekService(container[Logger], container[Meter])
 
     @staticmethod
     def snowflake(container: Container) -> NLPService:

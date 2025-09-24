@@ -19,7 +19,7 @@ from typing import Annotated, Sequence, TypeAlias
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import ExampleJson, apigen_config, example_json_content
-from parlant.app_modules.agents import AgentTagUpdateParamsModel
+from parlant.core.app_modules.agents import AgentTagUpdateParamsModel
 from parlant.core.agents import AgentId, CompositionMode
 from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel

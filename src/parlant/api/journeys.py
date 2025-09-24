@@ -19,7 +19,7 @@ from pydantic import Field
 from typing import Annotated, Sequence, TypeAlias, cast
 
 from parlant.api.authorization import Operation, AuthorizationPolicy
-from parlant.app_modules.journeys import (
+from parlant.core.app_modules.journeys import (
     JourneyConditionUpdateParams,
     JourneyGraph,
     JourneyTagUpdateParams,

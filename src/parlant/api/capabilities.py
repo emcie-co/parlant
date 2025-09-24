@@ -17,7 +17,7 @@ from pydantic import Field
 from typing import Annotated, Sequence, TypeAlias
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
-from parlant.app_modules.capabilities import CapabilityTagUpdateParamsModel
+from parlant.core.app_modules.capabilities import CapabilityTagUpdateParamsModel
 from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
 from parlant.api.common import ExampleJson, apigen_config, example_json_content

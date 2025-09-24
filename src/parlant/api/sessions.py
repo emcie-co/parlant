@@ -22,7 +22,7 @@ from typing import Annotated, Mapping, Sequence, TypeAlias, cast
 from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import GuidelineIdField, ExampleJson, JSONSerializableDTO, apigen_config
 from parlant.api.glossary import TermSynonymsField, TermIdPath, TermNameField, TermDescriptionField
-from parlant.app_modules.sessions import Moderation
+from parlant.core.app_modules.sessions import Moderation
 from parlant.core.agents import AgentId
 from parlant.core.application import Application
 from parlant.core.async_utils import Timeout

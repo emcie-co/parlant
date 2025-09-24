@@ -19,7 +19,7 @@ from pydantic import Field
 from parlant.api import common
 from parlant.api.authorization import Operation, AuthorizationPolicy
 from parlant.api.common import apigen_config, ExampleJson
-from parlant.app_modules.glossary import TermTagsUpdateParamsModel
+from parlant.core.app_modules.glossary import TermTagsUpdateParamsModel
 from parlant.core.agents import AgentId
 from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel

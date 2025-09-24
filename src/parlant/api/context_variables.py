@@ -27,7 +27,7 @@ from parlant.api.common import (
     apigen_config,
     ExampleJson,
 )
-from parlant.app_modules.context_variables import (
+from parlant.core.app_modules.context_variables import (
     ContextVariableTagsUpdateParams,
 )
 from parlant.core.agents import AgentId

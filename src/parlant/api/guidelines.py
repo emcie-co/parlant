@@ -31,7 +31,7 @@ from parlant.api.common import (
     apigen_config,
     guideline_dto_example,
 )
-from parlant.app_modules.guidelines import (
+from parlant.core.app_modules.guidelines import (
     GuidelineMetadataUpdateParams,
     GuidelineRelationship,
     GuidelineTagsUpdateParams,

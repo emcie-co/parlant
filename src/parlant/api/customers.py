@@ -20,7 +20,7 @@ from typing import Annotated, Mapping, Sequence, TypeAlias
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import apigen_config, ExampleJson, example_json_content
-from parlant.app_modules.customers import (
+from parlant.core.app_modules.customers import (
     CustomerMetadataUpdateParams,
     CustomerTagUpdateParams,
 )

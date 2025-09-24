@@ -19,7 +19,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import Field
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
-from parlant.app_modules.canned_responses import CannedResponseTagUpdateParamsModel
+from parlant.core.app_modules.canned_responses import CannedResponseTagUpdateParamsModel
 from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
 from parlant.core.canned_responses import (

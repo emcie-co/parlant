@@ -12,19 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from parlant.app_modules.agents import AgentModule
-from parlant.app_modules.capabilities import CapabilityModule
-from parlant.app_modules.canned_responses import CannedResponseModule
-from parlant.app_modules.context_variables import ContextVariableModule
-from parlant.app_modules.evaluations import EvaluationModule
-from parlant.app_modules.journeys import JourneyModule
-from parlant.app_modules.relationships import RelationshipModule
-from parlant.app_modules.services import ServiceModule
-from parlant.app_modules.sessions import SessionModule
-from parlant.app_modules.tags import TagModule
-from parlant.app_modules.customers import CustomerModule
-from parlant.app_modules.guidelines import GuidelineModule
-from parlant.app_modules.glossary import GlossaryModule
+from parlant.core.app_modules.agents import AgentModule
+from parlant.core.app_modules.capabilities import CapabilityModule
+from parlant.core.app_modules.canned_responses import CannedResponseModule
+from parlant.core.app_modules.context_variables import ContextVariableModule
+from parlant.core.app_modules.evaluations import EvaluationModule
+from parlant.core.app_modules.journeys import JourneyModule
+from parlant.core.app_modules.relationships import RelationshipModule
+from parlant.core.app_modules.services import ServiceModule
+from parlant.core.app_modules.sessions import SessionModule
+from parlant.core.app_modules.tags import TagModule
+from parlant.core.app_modules.customers import CustomerModule
+from parlant.core.app_modules.guidelines import GuidelineModule
+from parlant.core.app_modules.glossary import GlossaryModule
 
 
 class Application:

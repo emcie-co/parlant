@@ -29,7 +29,7 @@ from parlant.api.common import (
     apigen_config,
     tool_to_dto,
 )
-from parlant.app_modules.relationships import RelationshipModel
+from parlant.core.app_modules.relationships import RelationshipModel
 from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
 from parlant.core.relationships import (

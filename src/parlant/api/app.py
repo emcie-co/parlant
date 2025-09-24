@@ -193,6 +193,10 @@ async def create_api_app(container: Container) -> ASGIApplication:
     async def root() -> Response:
         return RedirectResponse("/chat")
 
+    @api_app.get("/healthz")
+    async def health_check() -> dict[str, str]:
+        return {"status": "ok"}
+
     agent_router = APIRouter(prefix="/agents")
 
     api_app.include_router(

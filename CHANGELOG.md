@@ -7,6 +7,7 @@ All notable changes to Parlant will be documented here.
 - Allow bailing out of canned response selection and utilize the draft directly, using a hook
 - Add Snowflake Cortex service
 - Add GLM service
+- Add /healthz endpoint
 - Support proxy URL for LiteLLM
 - Allow controlling max tool result payload via environment variable
 - Follow-up canned responses

@@ -22,8 +22,11 @@ import mimetypes
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from starlette.types import Receive, Scope, Send
+from starlette.routing import Match
+
 
 from lagom import Container
 
@@ -84,6 +87,21 @@ class AppWrapper:
             pass
 
 
+RECORDED_FLAG = "_otel_metrics_recorded"
+
+
+def _resolve_operation_id(request: Request) -> str | None:
+    route = request.scope.get("route")
+    if isinstance(route, APIRoute):
+        return route.operation_id
+
+    # If scope['route'] not set (404/early errors/etc.), try to match manually
+    for r in getattr(request.app.router, "routes", []):
+        if isinstance(r, APIRoute) and r.matches(request.scope)[0] == Match.FULL:
+            return r.operation_id
+    return None
+
+
 async def create_api_app(container: Container) -> ASGIApplication:
     logger = container[Logger]
     websocket_logger = container[WebSocketLogger]
@@ -136,21 +154,26 @@ async def create_api_app(container: Container) -> ASGIApplication:
 
             return await call_next(request)
 
+        operation_id = _resolve_operation_id(request)
+
+        if operation_id is None:
+            return await call_next(request)
+
         request_id = generate_id()
         with tracer.span(
             f"{request.method} {request.url.path}",
             {
                 "request_id": request_id,
-                "url.path": request.url.path,
+                "http.request.operation": operation_id,
                 "http.request.method": request.method,
             },
         ):
             async with meter.measure(
-                f"{request.method} {request.url.path}",
+                "http.server.request",
                 {
                     "request_id": request_id,
-                    "url.path": request.url.path,
-                    "http.request.method": request.method,
+                    "http.request.operation": operation_id,
+                    "http.method": request.method,
                 },
             ):
                 return await call_next(request)

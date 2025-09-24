@@ -16,7 +16,7 @@ class Meter(ABC):
     ) -> None: ...
 
     @abstractmethod
-    async def record_histogram(
+    async def record(
         self,
         name: str,
         value: float,
@@ -44,7 +44,7 @@ class NullMeter(Meter):
         pass
 
     @override
-    async def record_histogram(
+    async def record(
         self,
         name: str,
         value: float,

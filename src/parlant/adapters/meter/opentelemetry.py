@@ -20,9 +20,7 @@ from parlant.core.meter import Meter
 class OtelMeter(Meter):
     @staticmethod
     def is_environment_set() -> bool:
-        if not os.environ.get("OTEL_METRICS_EXPORTER") and not os.environ.get(
-            "OTEL_EXPORTER_OTLP_ENDPOINT"
-        ):
+        if not os.environ.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"):
             return False
 
         return True
@@ -31,10 +29,8 @@ class OtelMeter(Meter):
         self._service_name = os.getenv("OTEL_SERVICE_NAME", "parlant")
 
         self._meter: metrics.Meter
-        self._metrics_exporter = os.environ["OTEL_METRICS_EXPORTER"]
+        self._metric_exporter: OTLPMetricExporter
         self._meter_provider: MeterProvider
-
-        self._insecure = os.getenv("OTEL_EXPORTER_OTLP_INSECURE", "false").lower() == "true"
 
         self._scopes: contextvars.ContextVar[str] = contextvars.ContextVar(
             f"otel_meter_scopes_{id(self)}",
@@ -48,10 +44,14 @@ class OtelMeter(Meter):
     async def __aenter__(self) -> Self:
         resource = Resource.create({"service.name": self._service_name})
 
-        metric_exporter = OTLPMetricExporter(insecure=self._insecure)
+        self._metric_exporter = OTLPMetricExporter(
+            endpoint=os.environ["OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"],
+            insecure=os.getenv("OTEL_EXPORTER_OTLP_INSECURE", "false").lower() == "true",
+        )
+
         metric_reader = PeriodicExportingMetricReader(
-            exporter=metric_exporter,
-            export_interval_millis=5000,
+            exporter=self._metric_exporter,
+            export_interval_millis=3000,
         )
         self._meter_provider = MeterProvider(
             resource=resource,
@@ -88,7 +88,7 @@ class OtelMeter(Meter):
         self._counters[name].add(value, attrs)
 
     @override
-    async def record_histogram(
+    async def record(
         self,
         name: str,
         value: float,
@@ -119,7 +119,7 @@ class OtelMeter(Meter):
             yield
         finally:
             duration = asyncio.get_running_loop().time() - start_time
-            await self.record_histogram(token.var.get(), duration, attributes)
+            await self.record(token.var.get(), duration, attributes)
             self._pop_scope(token)
 
     def _push_scope(self, segment: str) -> contextvars.Token[str]:

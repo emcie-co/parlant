@@ -18,12 +18,22 @@ from collections import defaultdict
 from enum import Enum
 import asyncio
 import hashlib
-from typing import Any, Mapping, NewType, Optional, Sequence, TypeAlias, Union
+from typing import Any, Callable, Mapping, NewType, Optional, Sequence, TypeAlias, Union
 from typing_extensions import Self
 
 import nanoid  # type: ignore
 from pydantic import BaseModel, ConfigDict
 import semver  # type: ignore
+
+
+class classproperty:
+    """A descriptor that enables class-level properties."""
+
+    def __init__(self, func: Callable[..., Any]) -> None:
+        self.func = func
+
+    def __get__(self, instance: Any, owner: type) -> Any:
+        return self.func(owner)
 
 
 def _without_dto_suffix(obj: Any, *args: Any) -> str:

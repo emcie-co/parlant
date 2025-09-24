@@ -42,6 +42,7 @@ from parlant.core.engines.alpha.loaded_context import (
     LoadedContext,
     ResponseState,
 )
+from parlant.core.engines.alpha.entity_context import EntityContext
 from parlant.core.engines.alpha.message_generator import MessageGenerator
 from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.alpha.perceived_performance_policy import PerceivedPerformancePolicy
@@ -388,6 +389,9 @@ class AlphaEngine(Engine):
         agent = await self._entity_queries.read_agent(context.agent_id)
         session = await self._entity_queries.read_session(context.session_id)
         customer = await self._entity_queries.read_customer(session.customer_id)
+
+        # Set entities in context for access by hooks and other components
+        EntityContext.set_entities(agent=agent, customer=customer, session=session)
 
         if load_interaction:
             interaction = await self._load_interaction_state(context)

@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from contextlib import AsyncExitStack
+import contextvars
 from dataclasses import dataclass, field
 import enum
 from hashlib import md5
@@ -82,7 +83,13 @@ from parlant.core.agents import (
 )
 from parlant.core.async_utils import Timeout, default_done_callback
 from parlant.core.capabilities import CapabilityId, CapabilityStore, CapabilityVectorStore
-from parlant.core.common import IdGenerator, ItemNotFoundError, JSONSerializable, Version
+from parlant.core.common import (
+    IdGenerator,
+    ItemNotFoundError,
+    JSONSerializable,
+    Version,
+    classproperty,
+)
 from parlant.core.context_variables import (
     ContextVariable,
     ContextVariableDocumentStore,
@@ -100,6 +107,7 @@ from parlant.core.emissions import EmittedEvent, EventEmitterFactory
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder, PromptSection
 from parlant.core.engines.alpha.hooks import EngineHook, EngineHookResult, EngineHooks
 from parlant.core.engines.alpha.loaded_context import LoadedContext, Interaction, InteractionMessage
+from parlant.core.engines.alpha.entity_context import EntityContext
 from parlant.core.glossary import GlossaryStore, GlossaryVectorStore, TermId
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
@@ -1594,8 +1602,8 @@ class Variable:
 class Customer:
     """A customer represents an individual or entity interacting with the agent."""
 
-    @staticmethod
-    def guest() -> Customer:
+    @classproperty
+    def guest(cls: Customer) -> Customer:
         return Customer(
             id=CustomerStore.GUEST_ID,
             name="Guest",
@@ -1607,6 +1615,27 @@ class Customer:
     name: str
     metadata: Mapping[str, str]
     tags: Sequence[TagId]
+
+    @classproperty
+    def current(cls) -> Customer:
+        """Get the current customer from the asyncio task context.
+
+        Returns:
+            The current customer as an SDK Customer object
+
+        Raises:
+            RuntimeError: If no customer is available in the current context
+        """
+        core_customer = EntityContext.get_customer()
+        if core_customer is None:
+            raise RuntimeError("No customer available in current context")
+
+        return Customer(
+            id=core_customer.id,
+            name=core_customer.name,
+            metadata=core_customer.extra,
+            tags=core_customer.tags,
+        )
 
 
 @dataclass(frozen=True)
@@ -1997,6 +2026,42 @@ class Agent:
 
         self._server._retrievers[self.id][id] = retriever
 
+    @classproperty
+    def current(cls) -> Agent:
+        """Get the current agent from the asyncio task context.
+
+        Returns:
+            The current agent as an SDK Agent object
+
+        Raises:
+            RuntimeError: If no agent is available in the current context
+        """
+        core_agent = EntityContext.get_agent()
+        if core_agent is None:
+            raise RuntimeError("No agent available in current context")
+
+        # Get the current server and construct the Agent with the necessary references
+        server = Server.current
+
+        # Map core composition mode to SDK composition mode
+        composition_mode_map = {
+            _CompositionMode.FLUID: CompositionMode.FLUID,
+            _CompositionMode.CANNED_FLUID: CompositionMode.FLUID,
+            _CompositionMode.CANNED_COMPOSITED: CompositionMode.COMPOSITED,
+            _CompositionMode.CANNED_STRICT: CompositionMode.STRICT,
+        }
+
+        return Agent(
+            _server=server,
+            _container=server._container,
+            id=core_agent.id,
+            name=core_agent.name,
+            description=core_agent.description,
+            max_engine_iterations=core_agent.max_engine_iterations,
+            composition_mode=composition_mode_map[core_agent.composition_mode],
+            tags=core_agent.tags,
+        )
+
 
 class ToolContextAccessor:
     """A context accessor for tools, providing access to the server and other relevant data."""
@@ -2042,6 +2107,10 @@ class Server:
         configure_container: A callable to configure the dependency injection container.
         initialize_container: A callable to perform additional initialization after the container is set up.
     """
+
+    _current_server_var: contextvars.ContextVar[Optional[Server]] = contextvars.ContextVar(
+        "parlant_current_server", default=None
+    )
 
     def __init__(
         self,
@@ -2121,6 +2190,9 @@ class Server:
             self._creation_progress_task_id = self._creation_progress.add_task(
                 "Caching entity embeddings", total=None
             )
+
+            # Set this server instance as the current server in the context
+            self._current_server_var.set(self)
 
             return self
         except SDKError as e:
@@ -2995,6 +3067,21 @@ class Server:
             configure=configure,
             initialize=initialize,
         )
+
+    @classproperty
+    def current(cls: Server) -> Server:
+        """Get the current server from the asyncio task context.
+
+        Returns:
+            The current server instance
+
+        Raises:
+            RuntimeError: If no server is available in the current context
+        """
+        server = cls._current_server_var.get()
+        if server is None:
+            raise RuntimeError("No server available in current context")
+        return server
 
 
 __all__ = [

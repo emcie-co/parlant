@@ -8,6 +8,7 @@ All notable changes to Parlant will be documented here.
 - Add Snowflake Cortex service
 - Add GLM service
 - Add /healthz endpoint
+- Add .current propoerty for Server, Agent, and Customer in SDK
 - Support proxy URL for LiteLLM
 - Allow controlling max tool result payload via environment variable
 - Follow-up canned responses

@@ -394,6 +394,8 @@ class SessionUpdateParamsDTO(
     consumption_offsets: ConsumptionOffsetsUpdateParamsDTO | None = None
     title: SessionTitleField | None = None
     mode: SessionModeField | None = None
+    customer_id: CustomerId | None = None
+    agent_id: AgentId | None = None
 
 
 ToolResultDataField: TypeAlias = Annotated[
@@ -1457,6 +1459,12 @@ def create_router(
 
             if dto.mode:
                 params["mode"] = dto.mode.value
+
+            if dto.customer_id:
+                params["customer_id"] = dto.customer_id
+
+            if dto.agent_id:
+                params["agent_id"] = dto.agent_id
 
             return params
 

@@ -18,8 +18,11 @@ General Coding Instructions:
 
 - Always ensure you stick to Hexagonal Architecture patterns in line with how they're used in this codebase.
 - Every time you add something, look for similar things in the codebase and ensure you follow the coding style.
+- We use MyPy on strict mode. Every parameter needs to be type-annotated. Every function's result too.
 - If you need to add a test for something, first say where you plan to add it and ask for confirmation.
 - We follow TDD. When you make a change, first create a failing test. Once it fails, implement just enough so it passes.
+- If you need to test classes/methods in sdk.py (or generally to test things that relate to engine behavior) make sure you inherit from SDKTest and understand how it works and how to use it.
+- Test names should go "test*that*..." using clear names that explain the context, what is executed, and what is the expected result.
 - You can run tests using pytest. Make sure you run "poetry run pytest tests/path/to/test/file.py" while also specifying the test name that you need to run.
 
 Always follow this plan when asked to code a feature or fix a bug:
@@ -34,3 +37,4 @@ Always follow this plan when asked to code a feature or fix a bug:
 5. Once tests are approved, once again suggest your implementation plan for making them pass, and get plan review until confirmation.
 6. Once your implementation plan is confirmed, go ahead with implementing the code to pass them.
 7. Make sure to format all of the files you changed using ruff (it is installed in the environment).
+8. Run `poetry run python scripts/lint.py --mypy --ruff` to ensure your code has no lint issues.

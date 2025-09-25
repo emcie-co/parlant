@@ -4947,8 +4947,8 @@ pydantic = "^2.9.2"
 [package.source]
 type = "git"
 url = "https://github.com/emcie-co/parlant-client-python.git"
-reference = "develop.1755186453"
-resolved_reference = "5dd8e037f16756e44f383d079fda38257b7d7edb"
+reference = "develop.1758804527"
+resolved_reference = "d25345bfeeee10987c87b58ed2c77352a8d438d6"
 
 [[package]]
 name = "parse"
@@ -8485,4 +8485,4 @@ vertex = ["anthropic", "google-api-core", "google-auth", "google-genai", "torch"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "f0b69b598116fd5013456b1efcf8876fc86396573f4d72c1838899b6786e12ef"
+content-hash = "9a77003896c9d43fad35e1d9507fb7eabdaa6fca68018235d46438dfe6161273"

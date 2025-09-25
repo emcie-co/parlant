@@ -250,12 +250,14 @@ def create_azure_client() -> AsyncAzureOpenAI:
         # Use Azure AD authentication
         try:
             credential = DefaultAzureCredential()
-            
+
             async def token_provider() -> str:
                 """Token provider that requests tokens with the correct scope for Azure OpenAI."""
                 try:
-                    token = await credential.get_token("https://cognitiveservices.azure.com/.default")
-                    return token.token
+                    token = await credential.get_token(
+                        "https://cognitiveservices.azure.com/.default"
+                    )
+                    return str(token.token)
                 except Exception as e:
                     raise RuntimeError(
                         f"Failed to get Azure AD token: {e}\n\n"
@@ -268,7 +270,7 @@ def create_azure_client() -> AsyncAzureOpenAI:
                         "3. Managed Identity (if running on Azure)\n\n"
                         "For more details, see: https://docs.microsoft.com/en-us/python/api/overview/azure/identity-readme"
                     ) from e
-            
+
             return AsyncAzureOpenAI(
                 azure_ad_token_provider=token_provider,
                 azure_endpoint=azure_endpoint,
@@ -457,25 +459,29 @@ on the Azure OpenAI resource.
 
         # Check authentication method
         has_api_key = bool(os.environ.get("AZURE_API_KEY"))
-        
+
         if has_api_key:
             # API key authentication is configured
             return None
-        
+
         # Check Azure AD authentication
         try:
-            from azure.identity import DefaultAzureCredential
+            from azure.identity import DefaultAzureCredential  # type: ignore
+
             credential = DefaultAzureCredential()
-            
+
             # Try to get a token to verify authentication works
             import asyncio
+
             async def test_auth() -> bool:
                 try:
-                    token = await credential.get_token("https://cognitiveservices.azure.com/.default")
+                    token = await credential.get_token(
+                        "https://cognitiveservices.azure.com/.default"
+                    )
                     return token is not None
                 except Exception:
                     return False
-            
+
             # Run the async test
             try:
                 loop = asyncio.get_event_loop()
@@ -492,10 +498,10 @@ on the Azure OpenAI resource.
                 auth_works = asyncio.run(test_auth())
                 if auth_works:
                     return None
-                    
+
         except Exception:
             pass
-        
+
         # If we get here, neither authentication method is working
         return """\
 Azure authentication is not properly configured.
@@ -507,25 +513,25 @@ Please choose one of the following authentication methods:
 
 2. Azure AD Authentication (Recommended):
    Ensure you're authenticated using one of these methods:
-   
+
    a) Azure CLI (for development):
       Run: az login
-   
+
    b) Service Principal (for production):
       Set these environment variables:
       - AZURE_CLIENT_ID
       - AZURE_CLIENT_SECRET
       - AZURE_TENANT_ID
-   
+
    c) Managed Identity (if running on Azure):
       Ensure your Azure resource has managed identity enabled
-   
+
    d) Environment Credential:
       Set these environment variables:
       - AZURE_CLIENT_ID
       - AZURE_CLIENT_SECRET
       - AZURE_TENANT_ID
-   
+
    e) Workload Identity (for Kubernetes):
       Set these environment variables:
       - AZURE_CLIENT_ID
@@ -540,8 +546,8 @@ https://docs.microsoft.com/en-us/python/api/overview/azure/identity-readme
 """
 
     def __init__(
-            self,
-            logger: Logger,
+        self,
+        logger: Logger,
     ) -> None:
         self._logger = logger
 

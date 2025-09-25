@@ -251,7 +251,7 @@ def create_azure_client() -> AsyncAzureOpenAI:
         try:
             credential = DefaultAzureCredential()
             
-            async def token_provider():
+            async def token_provider() -> str:
                 """Token provider that requests tokens with the correct scope for Azure OpenAI."""
                 try:
                     token = await credential.get_token("https://cognitiveservices.azure.com/.default")
@@ -469,7 +469,7 @@ on the Azure OpenAI resource.
             
             # Try to get a token to verify authentication works
             import asyncio
-            async def test_auth():
+            async def test_auth() -> bool:
                 try:
                     token = await credential.get_token("https://cognitiveservices.azure.com/.default")
                     return token is not None

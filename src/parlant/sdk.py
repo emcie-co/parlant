@@ -354,6 +354,16 @@ class NLPServices:
             raise SDKError(error)
 
         return QwenService(container[Logger])
+    
+    @staticmethod
+    def deepseek(container: Container) -> NLPService:
+        """Creates a DeepSeek NLPService instance using the provided container."""
+        from parlant.adapters.nlp.deepseek_service import DeepSeekService
+
+        if error := DeepSeekService.verify_environment():
+            raise SDKError(error)
+
+        return DeepSeekService(container[Logger])
 
     @staticmethod
     def snowflake(container: Container) -> NLPService:

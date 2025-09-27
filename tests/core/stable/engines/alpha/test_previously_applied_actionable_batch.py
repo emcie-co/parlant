@@ -74,6 +74,10 @@ GUIDELINES_DICT = {
         "condition": "When a customer asks about a capability that is not supported",
         "action": "inform the customer that the capability is not supported and make a joke",
     },
+    "problem_with_order": {
+        "condition": "The customer is reporting a problem with their order.",
+        "action": "Apologize and ask for more details about the issue.",
+    },
 }
 
 
@@ -577,6 +581,37 @@ async def test_that_reapplied_guideline_is_still_applied_when_handling_condition
     ]
 
     guidelines: list[str] = ["confirm_reservation"]
+
+    await base_test_that_correct_guidelines_are_matched(
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
+        guidelines_target_names=guidelines,
+        guidelines_names=guidelines,
+    )
+
+
+async def test_that_guideline_is_still_matched_when_conversation_still_on_sub_topic_that_made_condition_hold(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (EventSource.CUSTOMER, "Hi, I just received my order, and the pizza is cold."),
+        (
+            EventSource.AI_AGENT,
+            "I'm so sorry to hear that. Could you tell me more about the issue?",
+        ),
+        (EventSource.CUSTOMER, "Yeah, it's not just cold — the box was crushed too."),
+        (EventSource.AI_AGENT, "That's really unacceptable. Let me make this right."),
+        (EventSource.CUSTOMER, "And I got a parking ticket before coming."),
+        (EventSource.AI_AGENT, "I'm sorry to hear that. "),
+        (EventSource.CUSTOMER, "And this isn’t the first time you've ruined my order, honestly."),
+    ]
+    guidelines: list[str] = ["problem_with_order"]
 
     await base_test_that_correct_guidelines_are_matched(
         context,

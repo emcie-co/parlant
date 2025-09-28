@@ -487,9 +487,6 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                         prompt=prompt,
                         hints={"temperature": generation_attempt_temperatures[generation_attempt]},
                     )
-                    with open("journey node selection output.txt", "w") as f:
-                        f.write(inference.content.model_dump_json(indent=2))
-
                     self._logger.trace(
                         f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                     )
@@ -840,8 +837,6 @@ Example section is over. The following is the real data you need to use for your
             name="journey-general_reminder-section",
             template="""Reminder - carefully consider all restraints and instructions. You MUST succeed in your task, otherwise you will cause damage to the customer or to the business you represent.""",
         )
-        with open("journey node selection prompt.txt", "w") as f:
-            f.write(builder.build())
         return builder
 
     def _get_output_format_section(self) -> str:

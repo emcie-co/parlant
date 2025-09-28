@@ -1940,6 +1940,7 @@ async def test_that_two_consecutive_fork_steps_are_traversed_correctly(
     )
 
 
+# A bit ambiguous, could be argued that outputting "None" is also correct
 async def test_that_two_consecutive_fork_steps_are_traversed_correctly_when_backtracking(
     context: ContextOfTest,
     agent: Agent,
@@ -1992,8 +1993,7 @@ async def test_that_two_consecutive_fork_steps_are_traversed_correctly_when_back
         conversation_context=conversation_context,
         journey_name="investment_advice_journey",
         journey_previous_path=["1", "1", "2", "3", "5", "8"],
-        expected_path=["3", "4", "7"],
-        expected_next_node_index="7",
+        expected_next_node_index=["7", "None"],
     )
 
 

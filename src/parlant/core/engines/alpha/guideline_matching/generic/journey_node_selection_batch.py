@@ -78,6 +78,8 @@ class _JourneyNode:  # Refactor after node type is implemented
     kind: JourneyNodeKind
     customer_dependent_action: bool
     customer_action_description: Optional[str] = None
+    agent_dependent_action: Optional[bool] = None
+    agent_action_description: Optional[str] = None
 
 
 class JourneyNodeAdvancement(DefaultBaseModel):
@@ -173,6 +175,9 @@ def build_node_wrappers(guidelines: Sequence[Guideline]) -> dict[str, _JourneyNo
             kind = JourneyNodeKind(
                 cast(dict[str, Any], g.metadata.get("journey_node", {})).get("kind", "NA")
             )
+            customer_dependent_action = cast(
+                dict[str, bool], g.metadata.get("customer_dependent_action_data", {})
+            ).get("is_customer_dependent", False)
             node_wrappers[node_index] = _JourneyNode(
                 id=_get_guideline_node_index(g),
                 action=FORK_NODE_ACTION_STR
@@ -181,12 +186,16 @@ def build_node_wrappers(guidelines: Sequence[Guideline]) -> dict[str, _JourneyNo
                 incoming_edges=[],
                 outgoing_edges=[],
                 kind=kind,
-                customer_dependent_action=cast(
-                    dict[str, bool], g.metadata.get("customer_dependent_action_data", {})
-                ).get("is_customer_dependent", False),
+                customer_dependent_action=customer_dependent_action,
                 customer_action_description=cast(
                     dict[str, str | None], g.metadata.get("customer_dependent_action_data", {})
                 ).get("customer_action", None),
+                agent_dependent_action=cast(
+                    dict[str, bool], g.metadata.get("customer_dependent_action_data", {})
+                ).get("is_agent_dependent", not customer_dependent_action),
+                agent_action_description=cast(
+                    dict[str, str | None], g.metadata.get("customer_dependent_action_data", {})
+                ).get("agent_action", None),
             )
 
     # Build edges
@@ -341,7 +350,7 @@ def get_journey_transition_map_text(
                 flags_str += f'- CUSTOMER DEPENDENT: This action requires an action from the customer to be considered complete. It is completed if the following action was completed: "{node.customer_action_description}" \n'
             else:
                 flags_str += "- CUSTOMER DEPENDENT: This action requires an action from the customer to be considered complete. Mark it as complete if the customer answered the question in the action, if there is one.\n"
-        elif node.kind == JourneyNodeKind.CHAT:
+        if node.kind == JourneyNodeKind.CHAT and node.agent_dependent_action:
             flags_str += "- REQUIRES AGENT ACTION: This step may require the agent to say something for it to be completed. Only advance through it if the agent performed the described action.\n"
 
         # Node kind flags
@@ -478,6 +487,8 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                         prompt=prompt,
                         hints={"temperature": generation_attempt_temperatures[generation_attempt]},
                     )
+                    with open("journey node selection output.txt", "w") as f:
+                        f.write(inference.content.model_dump_json(indent=2))
 
                     self._logger.trace(
                         f"Completion:\n{inference.content.model_dump_json(indent=2)}"
@@ -829,6 +840,8 @@ Example section is over. The following is the real data you need to use for your
             name="journey-general_reminder-section",
             template="""Reminder - carefully consider all restraints and instructions. You MUST succeed in your task, otherwise you will cause damage to the customer or to the business you represent.""",
         )
+        with open("journey node selection prompt.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
     def _get_output_format_section(self) -> str:

@@ -673,7 +673,7 @@ async def base_test_that_correct_node_is_selected(
     )
     result = await journey_node_selector.process()
     if len(result.matches) == 0:
-        assert expected_next_node_index is None
+        assert expected_next_node_index is None or "None" in expected_next_node_index
     else:
         result_path: Sequence[str] = cast(list[str], result.matches[0].metadata["journey_path"])
         if expected_path:

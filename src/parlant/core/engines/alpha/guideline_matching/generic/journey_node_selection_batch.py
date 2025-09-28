@@ -233,6 +233,7 @@ def build_node_wrappers(guidelines: Sequence[Guideline]) -> dict[str, _JourneyNo
 def get_journey_transition_map_text(
     nodes: dict[str, _JourneyNode],
     journey_title: str,
+    journey_description: str = "",
     journey_conditions: Sequence[Guideline] = [],
     previous_path: Sequence[str | None] = [],
     print_customer_action_description: bool = False,
@@ -297,9 +298,13 @@ def get_journey_transition_map_text(
         else nodes
     )
 
+    if journey_description:
+        journey_description_str = f"\nJourney Description: {journey_description}"
+    else:
+        journey_description_str = ""
     if journey_conditions:
         journey_conditions_str = " OR ".join(f'"{g.content.condition}"' for g in journey_conditions)
-        journey_conditions_str = f"\nJourney activation condition: {journey_conditions_str}\n"
+        journey_conditions_str = f"\nJourney activation condition: {journey_conditions_str}"
     else:
         journey_conditions_str = ""
 
@@ -372,7 +377,8 @@ TRANSITIONS:
 """
     return f"""
 Journey: {journey_title}
-{journey_conditions_str}
+{journey_conditions_str}{journey_description_str}
+
 Steps:
 {nodes_str}
 """
@@ -791,7 +797,6 @@ Example section is over. The following is the real data you need to use for your
                 "shots": shots,
             },
         )
-        builder.add_agent_identity(self._context.agent)
         builder.add_context_variables(self._context.context_variables)
         builder.add_glossary(self._context.terms)
         builder.add_capabilities_for_guideline_matching(self._context.capabilities)
@@ -809,6 +814,7 @@ Example section is over. The following is the real data you need to use for your
                 journey_title=self._examined_journey.title,
                 previous_path=self._previous_path,
                 journey_conditions=journey_conditions,
+                journey_description=self._examined_journey.description,
                 print_customer_action_description=True,
                 to_prune=True,
             ),
@@ -823,6 +829,8 @@ Example section is over. The following is the real data you need to use for your
             name="journey-general_reminder-section",
             template="""Reminder - carefully consider all restraints and instructions. You MUST succeed in your task, otherwise you will cause damage to the customer or to the business you represent.""",
         )
+        with open("journey node selection prompt.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
     def _get_output_format_section(self) -> str:

@@ -61,6 +61,7 @@ class _JourneyData:
     title: str
     nodes: list[_NodeData]
     conditions: Sequence[str] = field(default_factory=list)
+    description: str = ""
 
 
 @fixture
@@ -128,6 +129,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 kind=JourneyNodeKind.CHAT,
             ),
         ],
+        description="A journey that aids the customer in resetting their password, including verifying their identity.",
     ),
     "forgot_keys_journey": _JourneyData(
         conditions=["the customer doesn't know where their keys are"],
@@ -174,6 +176,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 kind=JourneyNodeKind.CHAT,
             ),
         ],
+        description="A journey that helps the customer locate their lost keys by asking clarifying questions and providing guidance.",
     ),
     "reset_password_journey": _JourneyData(
         conditions=[
@@ -234,6 +237,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 kind=JourneyNodeKind.CHAT,
             ),
         ],
+        description="A journey that assists the customer in resetting their password. The resetting process is only performed if the customer is polite and wishes the agent a good day. Otherwise - the agent should not reset the password.",
     ),
     "calzone_journey": _JourneyData(
         conditions=["the customer wants to order a calzone"],
@@ -347,6 +351,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 kind=JourneyNodeKind.CHAT,
             ),
         ],
+        description="A journey for ordering calzones, guiding the customer through quantity, type, size, drinks, and delivery details, including stock checks and order confirmation.",
     ),
     "tech_experience_journey": _JourneyData(
         conditions=["the customer needs technical help"],
@@ -419,6 +424,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 kind=JourneyNodeKind.CHAT,
             ),
         ],
+        description="A journey to assess the customer's technical experience and guide them through troubleshooting steps tailored to their expertise and issue type. Specific instructions regarding troubleshooting steps will be provided at a later time and should not concern the node selection process.",
     ),
     "investment_advice_journey": _JourneyData(
         conditions=[
@@ -499,6 +505,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 kind=JourneyNodeKind.TOOL,
             ),
         ],
+        description="A journey that provides investment advice based on the customer's age, financial situation, risk tolerance, and investment timeline.",
     ),
 }
 
@@ -534,7 +541,11 @@ def create_context_variable(
 
 
 async def create_journey(
-    context: ContextOfTest, title: str, nodes: Sequence[_NodeData], conditions: Sequence[str]
+    context: ContextOfTest,
+    title: str,
+    nodes: Sequence[_NodeData],
+    conditions: Sequence[str],
+    description: str = "",
 ) -> tuple[Journey, Sequence[Guideline]]:
     journey_id = JourneyId("j1")
     guideline_store = context.container[GuidelineStore]
@@ -596,7 +607,7 @@ async def create_journey(
         id=journey_id,
         root_id=JourneyNodeId(root_guideline.id),
         creation_utc=datetime.now(timezone.utc),
-        description="",
+        description=description,
         conditions=condition_ids,
         title=title,
         tags=[],
@@ -634,6 +645,7 @@ async def base_test_that_correct_node_is_selected(
         title=JOURNEYS_DICT[journey_name].title,
         nodes=JOURNEYS_DICT[journey_name].nodes,
         conditions=JOURNEYS_DICT[journey_name].conditions,
+        description=JOURNEYS_DICT[journey_name].description,
     )
 
     journey_node_selector = GenericJourneyNodeSelectionBatch(

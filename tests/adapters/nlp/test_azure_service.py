@@ -32,6 +32,7 @@ from parlant.core.common import DefaultBaseModel
 
 class TestSchema(DefaultBaseModel):
     """Test schema for type checking."""
+
     pass
 
 
@@ -249,7 +250,9 @@ def test_that_custom_azure_schematic_generator_initializes_correctly(
         {"AZURE_GENERATIVE_MODEL_NAME": "gpt-4o", "AZURE_GENERATIVE_MODEL_WINDOW": "4096"},
         clear=True,
     ):
-        generator: CustomAzureSchematicGenerator[TestSchema] = CustomAzureSchematicGenerator(logger=mock_logger)
+        generator: CustomAzureSchematicGenerator[TestSchema] = CustomAzureSchematicGenerator(
+            logger=mock_logger
+        )
 
         assert generator.model_name == "gpt-4o"
         assert generator.max_tokens == 4096
@@ -262,7 +265,9 @@ def test_that_custom_azure_schematic_generator_uses_default_max_tokens() -> None
 
     with patch.dict(os.environ, {"AZURE_GENERATIVE_MODEL_NAME": "gpt-4o"}, clear=True):
         with patch("parlant.adapters.nlp.azure_service.create_azure_client"):
-            generator: CustomAzureSchematicGenerator[TestSchema] = CustomAzureSchematicGenerator(logger=mock_logger)
+            generator: CustomAzureSchematicGenerator[TestSchema] = CustomAzureSchematicGenerator(
+                logger=mock_logger
+            )
             assert generator.max_tokens == 4096  # Default value
 
 

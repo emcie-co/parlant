@@ -108,19 +108,19 @@ class OpenAPIClient(ToolService):
                     result.required.append(parameter.name)
 
             if operation.request_body:
-                assert (
-                    len(operation.request_body.content) == 1
-                ), "Only application/json is currently supported in OpenAPI services"
+                assert len(operation.request_body.content) == 1, (
+                    "Only application/json is currently supported in OpenAPI services"
+                )
 
-                assert (
-                    operation.request_body.content[0].type == ContentType.JSON
-                ), "Only application/json is currently supported in OpenAPI services"
+                assert operation.request_body.content[0].type == ContentType.JSON, (
+                    "Only application/json is currently supported in OpenAPI services"
+                )
 
                 content = operation.request_body.content[0]
 
-                assert (
-                    content.schema.type == DataType.OBJECT
-                ), "Only 'object' is supported as a schema type for request bodies in OpenAPI services"
+                assert content.schema.type == DataType.OBJECT, (
+                    "Only 'object' is supported as a schema type for request bodies in OpenAPI services"
+                )
 
                 content_object = cast(Object, content.schema)
 

@@ -306,28 +306,28 @@ def _tool_decorator_impl(
 
         parameters = list(signature.parameters.values())
 
-        assert (
-            len(parameters) >= 1
-        ), "A tool function must accept a parameter 'context: ToolContext'"
+        assert len(parameters) >= 1, (
+            "A tool function must accept a parameter 'context: ToolContext'"
+        )
 
-        assert (
-            parameters[0].name == "context"
-        ), "A tool function's first parameter must be 'context: ToolContext'"
-        assert (
-            parameters[0].annotation == ToolContext
-        ), "A tool function's first parameter must be 'context: ToolContext'"
+        assert parameters[0].name == "context", (
+            "A tool function's first parameter must be 'context: ToolContext'"
+        )
+        assert parameters[0].annotation == ToolContext, (
+            "A tool function's first parameter must be 'context: ToolContext'"
+        )
 
-        assert (
-            signature.return_annotation == ToolResult
-        ), "A tool function must return a ToolResult object"
+        assert signature.return_annotation == ToolResult, (
+            "A tool function must return a ToolResult object"
+        )
 
         for param in parameters[1:]:
             param_info = _resolve_param_info(param)
 
             if issubclass(param_info.resolved_type, enum.Enum):
-                assert all(
-                    type(e.value) is str for e in param_info.resolved_type
-                ), f"{param.name}: {param_info.resolved_type.__name__}: Enum values must be strings"
+                assert all(type(e.value) is str for e in param_info.resolved_type), (
+                    f"{param.name}: {param_info.resolved_type.__name__}: Enum values must be strings"
+                )
 
     def _describe_parameters(
         func: ToolFunction,

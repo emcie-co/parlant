@@ -375,6 +375,16 @@ class NLPServices:
 
         return SnowflakeCortexService(container[Logger])
 
+    @staticmethod
+    def fireworks(container: Container) -> NLPService:
+        """Creates a Fireworks NLPService instance using the provided container."""
+        from parlant.adapters.nlp.fireworks_service import FireworksService
+
+        if error := FireworksService.verify_environment():
+            raise SDKError(error)
+
+        return FireworksService(container[Logger])
+
 
 class _CachedGuidelineEvaluation(TypedDict, total=False):
     id: ObjectId
@@ -2295,13 +2305,11 @@ class Server:
                 _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation,
             ]
         ]:
-            async def task_wrapper() -> (
-                tuple[
-                    Literal["guideline", "node", "journey"],
-                    GuidelineId | JourneyStateId | JourneyId,
-                    _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation,
-                ]
-            ):
+            async def task_wrapper() -> tuple[
+                Literal["guideline", "node", "journey"],
+                GuidelineId | JourneyStateId | JourneyId,
+                _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation,
+            ]:
                 result = await evaluation
                 return (entity_type, entity_id, result)
 

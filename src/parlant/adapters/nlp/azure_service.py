@@ -492,9 +492,7 @@ on the Azure OpenAI resource.
 
             async def test_auth() -> bool:
                 try:
-                    token = await credential.get_token(
-                        "https://cognitiveservices.azure.com/.default"
-                    )
+                    token = credential.get_token("https://cognitiveservices.azure.com/.default")
                     return token is not None
                 except Exception:
                     return False

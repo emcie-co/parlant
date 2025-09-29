@@ -39,13 +39,13 @@ nanoid = "^2.0.0"
 networkx = { extras = ["default"], version = "^3.3" }
 openai = "^1.45.0"
 openapi3-parser = "1.1.21"
-opentelemetry-exporter-otlp-proto-grpc = "1.27.0"
+opentelemetry-exporter-otlp-proto-grpc = "1.37.0"
 parlant-client = { git = "https://github.com/emcie-co/parlant-client-python.git", tag = "develop.1755186453" }
 python = "^3.10"
 python-dateutil = "^2.8.2"
 python-dotenv = "^1.0.1"
 requests = "^2.32.5"
-rich = "^13.7.1"
+rich = "^14.0.0"
 semver = "^3.0.2"
 structlog = "^24.4.0"
 tabulate = "^0.9.0"
@@ -71,6 +71,7 @@ torch = { version = "^2.6.0", optional = true }
 transformers = { version = "^4.46.2", optional = true }
 litellm = { version = "^1.61.16", optional = true }
 pymongo = { version = "^4.11.1", optional = true }
+fireworks-ai = { version = "^0.19.19", optional = true }
 
 
 [tool.poetry.group.dev.dependencies]
@@ -81,11 +82,10 @@ pytest = "^8.0.0"
 pytest-asyncio = "^0.23.5"
 pytest-bdd = "^7.1.2"
 pytest-cov = "^5.0.0"
-pytest-stochastics = { git = "https://github.com/emcie-co/pytest-stochastics.git", tag = "v0.5.2" }
 pytest-tap = "^3.4"
 pytest-timing = { git = "https://github.com/emcie-co/mc-spitfyre.git", subdirectory = "pytest-timing", tag = "timing_v0.1.4" }
 python-dotenv = "^1.0.1"
-ruff = "^0.5.6"
+ruff = "^0.9.1"
 types-python-dateutil = "^2.8.19.20240106"
 types-requests = "^2.32.0.20240712"
 pytest-xdist = "^3.6.1"
@@ -119,6 +119,8 @@ litellm = ["litellm", "torch", "transformers"]
 mongo = ["pymongo"]
 
 azure = ["azure-identity"]
+
+fireworks = ["fireworks-ai"]
 
 
 [build-system]

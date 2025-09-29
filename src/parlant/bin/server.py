@@ -41,6 +41,7 @@ from pathlib import Path
 import sys
 import uvicorn
 
+from parlant.adapters.loggers.opentelemetry import OtelLogger
 from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
 from parlant.adapters.meter.opentelemetry import OtelMeter
@@ -433,6 +434,19 @@ async def load_modules(
                 await shutdown_module()
 
 
+async def _define_logger(container: Container) -> None:
+    if OtelLogger.is_environment_set():
+        container[Logger] = CompositeLogger(
+            [
+                await EXIT_STACK.enter_async_context(OtelLogger(TRACER)),
+                container[WebSocketLogger],
+            ]
+        )
+
+    else:
+        container[Logger] = CompositeLogger([LOGGER, container[WebSocketLogger]])
+
+
 async def _define_meter(container: Container) -> None:
     if OtelMeter.is_environment_set():
         container[Meter] = await EXIT_STACK.enter_async_context(OtelMeter())
@@ -483,7 +497,8 @@ async def setup_container() -> AsyncIterator[Container]:
     c[Tracer] = TRACER
     web_socket_logger = WebSocketLogger(TRACER, LogLevel.INFO)
     c[WebSocketLogger] = web_socket_logger
-    c[Logger] = CompositeLogger([LOGGER, web_socket_logger])
+
+    await _define_logger(c)
     await _define_meter(c)
 
     _define_singleton(c, IdGenerator, IdGenerator)

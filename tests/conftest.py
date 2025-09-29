@@ -371,7 +371,12 @@ async def container(
                 event_emitter_factory=container[EventEmitterFactory],
                 logger=container[Logger],
                 tracer=container[Tracer],
-                nlp_services_provider=lambda: {"default": OpenAIService(container[Logger])},
+                nlp_services_provider=lambda: {
+                    "default": OpenAIService(
+                        container[Logger],
+                        container[Meter],
+                    )
+                },
             )
         )
 

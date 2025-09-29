@@ -22,6 +22,7 @@ from openai import (
     InternalServerError,
     RateLimitError,
 )  # type: ignore
+from azure.identity.aio import DefaultAzureCredential  # type: ignore
 from typing import Any, Mapping
 from typing_extensions import override
 import json
@@ -251,13 +252,64 @@ class AzureSchematicGenerator(SchematicGenerator[T]):
                 raise
 
 
-class CustomAzureSchematicGenerator(AzureSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
-        _client = AsyncAzureOpenAI(
+def create_azure_client() -> AsyncAzureOpenAI:
+    """Create an Azure OpenAI client with appropriate authentication."""
+    azure_endpoint = os.environ["AZURE_ENDPOINT"]
+
+    # Check if API key is provided (backward compatibility)
+    if os.environ.get("AZURE_API_KEY"):
+        return AsyncAzureOpenAI(
             api_key=os.environ["AZURE_API_KEY"],
-            azure_endpoint=os.environ["AZURE_ENDPOINT"],
+            azure_endpoint=azure_endpoint,
             api_version=os.environ.get("AZURE_API_VERSION", "2024-08-01-preview"),
         )
+    else:
+        # Use Azure AD authentication
+        try:
+            credential = DefaultAzureCredential()
+
+            async def token_provider() -> str:
+                """Token provider that requests tokens with the correct scope for Azure OpenAI."""
+                try:
+                    token = await credential.get_token(
+                        "https://cognitiveservices.azure.com/.default"
+                    )
+                    return str(token.token)
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Failed to get Azure AD token: {e}\n\n"
+                        "Please ensure you are authenticated with Azure AD using one of:\n"
+                        "1. Azure CLI: `az login`\n"
+                        "2. Service Principal environment variables:\n"
+                        "   - AZURE_CLIENT_ID\n"
+                        "   - AZURE_CLIENT_SECRET\n"
+                        "   - AZURE_TENANT_ID\n"
+                        "3. Managed Identity (if running on Azure)\n\n"
+                        "For more details, see: https://docs.microsoft.com/en-us/python/api/overview/azure/identity-readme"
+                    ) from e
+
+            return AsyncAzureOpenAI(
+                azure_ad_token_provider=token_provider,
+                azure_endpoint=azure_endpoint,
+                api_version=os.environ.get("AZURE_API_VERSION", "2024-08-01-preview"),
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to initialize Azure AD authentication: {e}\n\n"
+                "Please ensure you are authenticated with Azure AD using one of:\n"
+                "1. Azure CLI: `az login`\n"
+                "2. Service Principal environment variables:\n"
+                "   - AZURE_CLIENT_ID\n"
+                "   - AZURE_CLIENT_SECRET\n"
+                "   - AZURE_TENANT_ID\n"
+                "3. Managed Identity (if running on Azure)\n\n"
+                "For more details, see: https://docs.microsoft.com/en-us/python/api/overview/azure/identity-readme"
+            ) from e
+
+
+class CustomAzureSchematicGenerator(AzureSchematicGenerator[T]):
+    def __init__(self, logger: Logger) -> None:
+        _client = create_azure_client()
 
         super().__init__(
             model_name=os.environ["AZURE_GENERATIVE_MODEL_NAME"],
@@ -272,11 +324,7 @@ class CustomAzureSchematicGenerator(AzureSchematicGenerator[T]):
 
 class GPT_4o(AzureSchematicGenerator[T]):
     def __init__(self, logger: Logger) -> None:
-        _client = AsyncAzureOpenAI(
-            api_key=os.environ["AZURE_API_KEY"],
-            azure_endpoint=os.environ["AZURE_ENDPOINT"],
-            api_version=os.environ.get("AZURE_API_VERSION", "2024-08-01-preview"),
-        )
+        _client = create_azure_client()
         super().__init__(model_name="gpt-4o", logger=logger, client=_client)
 
     @property
@@ -286,11 +334,7 @@ class GPT_4o(AzureSchematicGenerator[T]):
 
 class GPT_4o_Mini(AzureSchematicGenerator[T]):
     def __init__(self, logger: Logger) -> None:
-        _client = AsyncAzureOpenAI(
-            api_key=os.environ["AZURE_API_KEY"],
-            azure_endpoint=os.environ["AZURE_ENDPOINT"],
-            api_version=os.environ.get("AZURE_API_VERSION", "2024-08-01-preview"),
-        )
+        _client = create_azure_client()
         super().__init__(model_name="gpt-4o-mini", logger=logger, client=_client)
         self._token_estimator = AzureEstimatingTokenizer(model_name=self.model_name)
 
@@ -352,11 +396,7 @@ class AzureEmbedder(Embedder):
 
 class CustomAzureEmbedder(AzureEmbedder):
     def __init__(self, logger: Logger) -> None:
-        _client = AsyncAzureOpenAI(
-            api_key=os.environ["AZURE_API_KEY"],
-            azure_endpoint=os.environ["AZURE_ENDPOINT"],
-            api_version=os.environ.get("AZURE_API_VERSION", "2023-05-15"),
-        )
+        _client = create_azure_client()
         super().__init__(
             model_name=os.environ["AZURE_EMBEDDING_MODEL_NAME"], logger=logger, client=_client
         )
@@ -373,11 +413,7 @@ class CustomAzureEmbedder(AzureEmbedder):
 
 class AzureTextEmbedding3Large(AzureEmbedder):
     def __init__(self, logger: Logger) -> None:
-        _client = AsyncAzureOpenAI(
-            api_key=os.environ["AZURE_API_KEY"],
-            azure_endpoint=os.environ["AZURE_ENDPOINT"],
-            api_version=os.environ.get("AZURE_API_VERSION", "2023-05-15"),
-        )
+        _client = create_azure_client()
         super().__init__(model_name="text-embedding-3-large", logger=logger, client=_client)
 
     @property
@@ -392,11 +428,7 @@ class AzureTextEmbedding3Large(AzureEmbedder):
 
 class AzureTextEmbedding3Small(AzureEmbedder):
     def __init__(self, logger: Logger) -> None:
-        _client = AsyncAzureOpenAI(
-            api_key=os.environ["AZURE_API_KEY"],
-            azure_endpoint=os.environ["AZURE_ENDPOINT"],
-            api_version=os.environ.get("AZURE_API_VERSION", "2023-05-15"),
-        )
+        _client = create_azure_client()
         super().__init__(model_name="text-embedding-3-small", logger=logger, client=_client)
 
     @property
@@ -413,13 +445,21 @@ class AzureService(NLPService):
     def verify_environment() -> str | None:
         """Returns an error message if the environment is not set up correctly."""
 
-        if not os.environ.get("AZURE_API_KEY"):
+        if not os.environ.get("AZURE_ENDPOINT"):
             return """\
-You're using the Azure NLP service, but AZURE_API_KEY is not set.
-Please set AZURE_API_KEY in your environment before running Parlant.
+You're using the Azure NLP service, but AZURE_ENDPOINT is not set.
+Please set AZURE_ENDPOINT in your environment before running Parlant.
 
-- AZURE_API_KEY
+Required environment variables:
 - AZURE_ENDPOINT
+
+Authentication options (choose one):
+1. Azure AD (recommended):
+   - Ensure you're authenticated via Azure CLI: `az login`
+   - Or set up managed identity/service principal authentication
+
+2. API Key (legacy):
+   - AZURE_API_KEY
 
 You can also set any specific models you'd like to use, using a few more variables:
 
@@ -429,8 +469,98 @@ You can also set any specific models you'd like to use, using a few more variabl
 - AZURE_EMBEDDING_MODEL_NAME (e.g., text-embedding-3-large)
 - AZURE_EMBEDDING_MODEL_DIMS (dimensions of the embedding model)
 - AZURE_EMBEDDING_MODEL_WINDOW (size of of the embedding model's context window)
+
+For Azure AD authentication, ensure your identity has the "Cognitive Services OpenAI User" role
+on the Azure OpenAI resource.
 """
-        return None
+
+        # Check authentication method
+        has_api_key = bool(os.environ.get("AZURE_API_KEY"))
+
+        if has_api_key:
+            # API key authentication is configured
+            return None
+
+        # Check Azure AD authentication
+        try:
+            from azure.identity import DefaultAzureCredential  # type: ignore
+
+            credential = DefaultAzureCredential()
+
+            # Try to get a token to verify authentication works
+            import asyncio
+
+            async def test_auth() -> bool:
+                try:
+                    token = await credential.get_token(
+                        "https://cognitiveservices.azure.com/.default"
+                    )
+                    return token is not None
+                except Exception:
+                    return False
+
+            # Run the async test
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # If we're already in an async context, we can't test synchronously
+                    # Just check if we can create the credential
+                    return None
+                else:
+                    auth_works = loop.run_until_complete(test_auth())
+                    if auth_works:
+                        return None
+            except RuntimeError:
+                # No event loop, create a new one
+                auth_works = asyncio.run(test_auth())
+                if auth_works:
+                    return None
+
+        except Exception:
+            pass
+
+        # If we get here, neither authentication method is working
+        return """\
+Azure authentication is not properly configured.
+
+Please choose one of the following authentication methods:
+
+1. API Key Authentication (Legacy):
+   Set the AZURE_API_KEY environment variable with your Azure OpenAI API key.
+
+2. Azure AD Authentication (Recommended):
+   Ensure you're authenticated using one of these methods:
+
+   a) Azure CLI (for development):
+      Run: az login
+
+   b) Service Principal (for production):
+      Set these environment variables:
+      - AZURE_CLIENT_ID
+      - AZURE_CLIENT_SECRET
+      - AZURE_TENANT_ID
+
+   c) Managed Identity (if running on Azure):
+      Ensure your Azure resource has managed identity enabled
+
+   d) Environment Credential:
+      Set these environment variables:
+      - AZURE_CLIENT_ID
+      - AZURE_CLIENT_SECRET
+      - AZURE_TENANT_ID
+
+   e) Workload Identity (for Kubernetes):
+      Set these environment variables:
+      - AZURE_CLIENT_ID
+      - AZURE_TENANT_ID
+      - AZURE_FEDERATED_TOKEN_FILE
+
+Important: For Azure AD authentication, ensure your identity has the 
+"Cognitive Services OpenAI User" role on the Azure OpenAI resource.
+
+For more details on Azure AD authentication options, see:
+https://docs.microsoft.com/en-us/python/api/overview/azure/identity-readme
+"""
 
     def __init__(
         self,

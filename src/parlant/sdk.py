@@ -354,7 +354,7 @@ class NLPServices:
             raise SDKError(error)
 
         return QwenService(container[Logger])
-    
+
     @staticmethod
     def deepseek(container: Container) -> NLPService:
         """Creates a DeepSeek NLPService instance using the provided container."""

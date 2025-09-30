@@ -60,7 +60,7 @@ class GoogleEstimatingTokenizer(EstimatingTokenizer):
     @override
     async def estimate_token_count(self, prompt: str) -> int:
         model_approximation = {
-            "text-embedding-004": "gemini-1.5-flash",
+            "text-embedding-004": "gemini-2.5-flash",
         }.get(self._model_name, self._model_name)
 
         result = await self._client.aio.models.count_tokens(

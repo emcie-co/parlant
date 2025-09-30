@@ -202,7 +202,7 @@ Please set DEEPSEEK_API_KEY in your environment before running Parlant.
 """
 
         return None
-    
+
     def __init__(
         self,
         logger: Logger,

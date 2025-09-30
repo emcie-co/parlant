@@ -85,14 +85,11 @@ class OtelLogger(TracingLogger):
             __: str,  # method name (e.g., "info", "error")
             event_dict: MutableMapping[str, Any],
         ) -> MutableMapping[str, Any]:
-            attributes = event_dict.get("attributes", {})
-
-            attributes["trace_id"] = str(self._tracer.trace_id)
+            event_dict["trace_id"] = str(self._tracer.trace_id)
 
             scopes = self.current_scope
             if scopes:
-                attributes["scopes"] = scopes
-            event_dict["attributes"] = attributes
+                event_dict["scopes"] = scopes
 
             return event_dict
 

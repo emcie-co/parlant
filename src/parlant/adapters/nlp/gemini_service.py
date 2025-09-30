@@ -507,7 +507,6 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
             Gemini_2_5_Flash[t](self._logger, self._meter),  # type: ignore
             Gemini_2_5_Pro[t](self._logger, self._meter),  # type: ignore
             logger=self._logger,
-            meter=self._meter,
         )
 
     @override

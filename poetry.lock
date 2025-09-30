@@ -4,7 +4,7 @@
 name = "aiodns"
 version = "3.5.0"
 description = "Simple DNS resolver for asyncio"
-optional = false
+optional = true
 python-versions = ">=3.9"
 files = [
     {file = "aiodns-3.5.0-py3-none-any.whl", hash = "sha256:6d0404f7d5215849233f6ee44854f2bb2481adf71b336b2279016ea5990ca5c5"},
@@ -29,7 +29,7 @@ files = [
 name = "aiohappyeyeballs"
 version = "2.6.1"
 description = "Happy Eyeballs for asyncio"
-optional = false
+optional = true
 python-versions = ">=3.9"
 files = [
     {file = "aiohappyeyeballs-2.6.1-py3-none-any.whl", hash = "sha256:f349ba8f4b75cb25c99c5c2d84e997e485204d2902a9597802b0371f09331fb8"},
@@ -40,7 +40,7 @@ files = [
 name = "aiohttp"
 version = "3.12.15"
 description = "Async http client/server framework (asyncio)"
-optional = false
+optional = true
 python-versions = ">=3.9"
 files = [
     {file = "aiohttp-3.12.15-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:b6fc902bff74d9b1879ad55f5404153e2b33a82e72a95c89cec5eb6cc9e92fbc"},
@@ -187,7 +187,7 @@ files = [
 name = "aiosignal"
 version = "1.4.0"
 description = "aiosignal: a list of registered asynchronous callbacks"
-optional = false
+optional = true
 python-versions = ">=3.9"
 files = [
     {file = "aiosignal-1.4.0-py3-none-any.whl", hash = "sha256:053243f8b92b990551949e63930a839ff0cf0b0ebbe0597b0f3fb19e1a0fe82e"},
@@ -273,7 +273,7 @@ test = ["astroid (>=2,<4)", "pytest", "pytest-cov", "pytest-xdist"]
 name = "async-timeout"
 version = "5.0.1"
 description = "Timeout context manager for asyncio programs"
-optional = false
+optional = true
 python-versions = ">=3.8"
 files = [
     {file = "async_timeout-5.0.1-py3-none-any.whl", hash = "sha256:39e3809566ff85354557ec2398b55e096c8364bacac9405a7a1fa429e77fe76c"},
@@ -284,7 +284,7 @@ files = [
 name = "asyncstdlib-fw"
 version = "3.13.2"
 description = "Fork of asyncstdlib that work with fireworks-ai"
-optional = false
+optional = true
 python-versions = ">=3.8"
 files = [
     {file = "asyncstdlib_fw-3.13.2-py3-none-any.whl", hash = "sha256:91cc2b19c232cd377f26eec0f353468eec7d80cf83709e1ca903bd954a694b27"},
@@ -446,7 +446,7 @@ typecheck = ["mypy"]
 name = "betterproto-fw"
 version = "2.0.3"
 description = "A better Protobuf / gRPC generator & library"
-optional = false
+optional = true
 python-versions = ">=3.9"
 files = [
     {file = "betterproto_fw-2.0.3-py3-none-any.whl", hash = "sha256:af66a24e5d182922121b7119947166289442b19d2664d057e0b0a96c1f049757"},
@@ -506,7 +506,7 @@ crt = ["awscrt (==0.27.6)"]
 name = "brotli"
 version = "1.1.0"
 description = "Python bindings for the Brotli compression library"
-optional = false
+optional = true
 python-versions = "*"
 files = [
     {file = "Brotli-1.1.0-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:e1140c64812cb9b06c922e77f1c26a75ec5e3f0fb2bf92cc8c58720dec276752"},
@@ -640,7 +640,7 @@ files = [
 name = "brotlicffi"
 version = "1.1.0.0"
 description = "Python CFFI bindings to the Brotli library"
-optional = false
+optional = true
 python-versions = ">=3.7"
 files = [
     {file = "brotlicffi-1.1.0.0-cp37-abi3-macosx_10_9_x86_64.whl", hash = "sha256:9b7ae6bd1a3f0df532b6d67ff674099a96d22bc0948955cb338488c31bfb8851"},
@@ -1541,7 +1541,7 @@ files = [
 name = "fireworks-ai"
 version = "0.19.19"
 description = "Python client library for the Fireworks AI Platform"
-optional = false
+optional = true
 python-versions = ">=3.10"
 files = [
     {file = "fireworks_ai-0.19.19-py3-none-any.whl", hash = "sha256:a375304c4e1fa8f2e8d32b8edf53bdc4eb9f55cd0e9085c0866e479aaa1880a1"},
@@ -1682,7 +1682,7 @@ woff = ["brotli (>=1.0.1)", "brotlicffi (>=0.8.0)", "zopfli (>=0.1.4)"]
 name = "frozenlist"
 version = "1.7.0"
 description = "A list-like structure which implements collections.abc.MutableSequence"
-optional = false
+optional = true
 python-versions = ">=3.9"
 files = [
     {file = "frozenlist-1.7.0-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:cc4df77d638aa2ed703b878dd093725b72a824c3c546c076e8fdf276f78ee84a"},
@@ -1992,7 +1992,7 @@ protobuf = ["grpcio-tools (>=1.74.0)"]
 name = "grpclib"
 version = "0.4.8"
 description = "Pure-Python gRPC implementation for asyncio"
-optional = false
+optional = true
 python-versions = ">=3.8"
 files = [
     {file = "grpclib-0.4.8-py3-none-any.whl", hash = "sha256:a5047733a7acc1c1cee6abf3c841c7c6fab67d2844a45a853b113fa2e6cd2654"},
@@ -2021,7 +2021,7 @@ files = [
 name = "h2"
 version = "4.3.0"
 description = "Pure-Python HTTP/2 protocol implementation"
-optional = false
+optional = true
 python-versions = ">=3.9"
 files = [
     {file = "h2-4.3.0-py3-none-any.whl", hash = "sha256:c438f029a25f7945c69e0ccf0fb951dc3f73a5f6412981daee861431b70e2bdd"},
@@ -2056,7 +2056,7 @@ tests = ["pytest"]
 name = "hpack"
 version = "4.1.0"
 description = "Pure-Python HPACK header encoding"
-optional = false
+optional = true
 python-versions = ">=3.9"
 files = [
     {file = "hpack-4.1.0-py3-none-any.whl", hash = "sha256:157ac792668d995c657d93111f46b4535ed114f0c9c8d672271bbec7eae1b496"},
@@ -2178,7 +2178,7 @@ files = [
 name = "httpx-ws"
 version = "0.8.0"
 description = "WebSockets support for HTTPX"
-optional = false
+optional = true
 python-versions = ">=3.10"
 files = [
     {file = "httpx_ws-0.8.0-py3-none-any.whl", hash = "sha256:42f650a63c5d9b4940e0375e4bee001b644620e06c87d192692ce6015e17f8e2"},
@@ -2247,7 +2247,7 @@ pyreadline3 = {version = "*", markers = "sys_platform == \"win32\" and python_ve
 name = "hyperframe"
 version = "6.1.0"
 description = "Pure-Python HTTP/2 framing"
-optional = false
+optional = true
 python-versions = ">=3.9"
 files = [
     {file = "hyperframe-6.1.0-py3-none-any.whl", hash = "sha256:b03380493a519fce58ea5af42e4a42317bf9bd425596f7a0835ffce80f1a42e5"},
@@ -5045,7 +5045,7 @@ files = [
 name = "pycares"
 version = "4.11.0"
 description = "Python interface for c-ares"
-optional = false
+optional = true
 python-versions = ">=3.9"
 files = [
     {file = "pycares-4.11.0-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:87dab618fe116f1936f8461df5970fcf0befeba7531a36b0a86321332ff9c20b"},
@@ -7508,7 +7508,7 @@ files = [
 name = "wsproto"
 version = "1.2.0"
 description = "WebSockets state-machine based protocol implementation"
-optional = false
+optional = true
 python-versions = ">=3.7.0"
 files = [
     {file = "wsproto-1.2.0-py3-none-any.whl", hash = "sha256:b9acddd652b585d75b20477888c56642fdade28bdfd3579aa24a4d2c037dd736"},
@@ -7661,6 +7661,7 @@ aws = ["anthropic", "torch", "transformers"]
 azure = ["azure-identity"]
 cerebras = ["cerebras-cloud-sdk", "torch", "transformers"]
 deepseek = ["torch", "transformers"]
+fireworks = ["fireworks-ai"]
 gemini = ["google-api-core", "google-genai", "torch"]
 litellm = ["litellm", "torch", "transformers"]
 mongo = ["pymongo"]
@@ -7671,4 +7672,4 @@ vertex = ["anthropic", "google-api-core", "google-auth", "google-genai", "torch"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "5cae7b2d278500e8811badf49995b6e3e727fbe31d18a7d81b78b53c4ecfa3f2"
+content-hash = "6723b905d69da3d4bafa047af49d6e7be558dbf168a5dce11b97885d404132a4"

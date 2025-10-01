@@ -169,8 +169,6 @@ async def main() -> None:
             description="Is empathetic and calming to the patient.",
         )
 
-        await agent.create_canned_response("How can I help you today?")
-
         await add_domain_glossary(agent)
         scheduling_journey = await create_scheduling_journey(server, agent)
         lab_results_journey = await create_lab_results_journey(server, agent)

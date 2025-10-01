@@ -241,9 +241,9 @@ def then_the_message_contains_the_text(
     message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message = cast(MessageEventData, message_event.data)["message"]
 
-    assert something.lower() in message.lower(), (
-        f"message: '{message}', expected to contain the text: '{something}'"
-    )
+    assert (
+        something.lower() in message.lower()
+    ), f"message: '{message}', expected to contain the text: '{something}'"
 
 
 @step(then, parsers.parse('the message doesn\'t contain the text "{something}"'))
@@ -254,9 +254,9 @@ def then_the_message_does_not_contain_the_text(
     message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message = cast(MessageEventData, message_event.data)["message"]
 
-    assert something.lower() not in message.lower(), (
-        f"message: '{message}', expected to NOT contain the text: '{something}'"
-    )
+    assert (
+        something.lower() not in message.lower()
+    ), f"message: '{message}', expected to NOT contain the text: '{something}'"
 
 
 @step(then, parsers.parse("the message contains {something}"))
@@ -286,9 +286,9 @@ def then_the_ith_message_contains(
     messages = [cast(MessageEventData, e.data)["message"] for e in message_events]
     messages_str = " || ".join(messages)
 
-    assert any(something.lower() in m.lower() for m in messages), (
-        f"text: '{something} not found in outputted messages {messages_str}'"
-    )
+    assert any(
+        something.lower() in m.lower() for m in messages
+    ), f"text: '{something} not found in outputted messages {messages_str}'"
 
 
 @step(then, parsers.parse("the message doesn't contains {something}"))
@@ -375,9 +375,9 @@ def then_a_no_match_message_is_emitted(
     message_event = next(e for e in emitted_events if e.kind == EventKind.MESSAGE)
     message = cast(MessageEventData, message_event.data)["message"]
 
-    assert message == DEFAULT_NO_MATCH_CANREP, (
-        f"message: '{message}', expected to be{DEFAULT_NO_MATCH_CANREP}'"
-    )
+    assert (
+        message == DEFAULT_NO_MATCH_CANREP
+    ), f"message: '{message}', expected to be{DEFAULT_NO_MATCH_CANREP}'"
 
 
 def _has_status_event(
@@ -461,9 +461,9 @@ def then_no_tool_error_occurred(emitted_events: list[EmittedEvent]) -> None:
         tool_event_data = cast(ToolEventData, tool_event.data)
         for tc in tool_event_data["tool_calls"]:
             result_data = tc["result"].get("data", [])
-            assert not (isinstance(result_data, str) and "error" in result_data), (
-                f"A tool error has occurred in tool: {tc}"
-            )
+            assert not (
+                isinstance(result_data, str) and "error" in result_data
+            ), f"A tool error has occurred in tool: {tc}"
 
 
 @step(then, parsers.parse("a {status_type} status event is not emitted"))
@@ -570,9 +570,9 @@ def then_the_number_of_missing_is_exactly(
     )
     missing_data = latest_context.state.tool_insights.missing_data
 
-    assert len(missing_data) == number_of_missing, (
-        f"Expected {number_of_missing} missing parameters, but found {len(missing_data)}"
-    )
+    assert (
+        len(missing_data) == number_of_missing
+    ), f"Expected {number_of_missing} missing parameters, but found {len(missing_data)}"
 
 
 @step(then, parsers.parse("the number of invalid parameters is exactly {number_of_invalid:d}"))
@@ -585,9 +585,9 @@ def then_the_number_of_invalid_is_exactly(
     )
     invalid_data = latest_context.state.tool_insights.invalid_data
 
-    assert len(invalid_data) == number_of_invalid, (
-        f"Expected {number_of_invalid} missing parameters, but found {len(invalid_data)}"
-    )
+    assert (
+        len(invalid_data) == number_of_invalid
+    ), f"Expected {number_of_invalid} missing parameters, but found {len(invalid_data)}"
 
 
 def _get_staged_events(context: ContextOfTest) -> list[EmittedEvent]:
@@ -646,9 +646,9 @@ def then_the_session_inspection_contains_preparation_iterations(
         session_store.read_inspection(session_id=session_id, correlation_id="<main>")
     )
 
-    assert len(inspection.preparation_iterations) >= count, (
-        f"Expected at least {count} preparation iterations, but found {len(inspection.preparation_iterations)}"
-    )
+    assert (
+        len(inspection.preparation_iterations) >= count
+    ), f"Expected at least {count} preparation iterations, but found {len(inspection.preparation_iterations)}"
 
 
 @step(
@@ -674,9 +674,7 @@ def then_the_guideline_is_in_the_specified_preparation_iteration(
 
     assert any(
         m["guideline_id"] == guideline_id for m in preparation_iteration.guideline_matches
-    ), (
-        f"Expected guideline '{guideline_name}' to be matched in iteration {iteration}, but it was not found."
-    )
+    ), f"Expected guideline '{guideline_name}' to be matched in iteration {iteration}, but it was not found."
 
 
 @step(
@@ -702,6 +700,4 @@ def then_the_guideline_is_not_in_the_specified_preparation_iteration(
 
     assert all(
         m["guideline_id"] != guideline_id for m in preparation_iteration.guideline_matches
-    ), (
-        f"Expected guideline '{guideline_name}' to be matched in iteration {iteration}, but it was not found."
-    )
+    ), f"Expected guideline '{guideline_name}' to be matched in iteration {iteration}, but it was not found."

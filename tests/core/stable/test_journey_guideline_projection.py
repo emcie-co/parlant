@@ -50,6 +50,6 @@ async def test_that_projection_yields_followup_for_existing_guideline(container:
             "follow_ups", []
         )
         for f_id in cast(list[str], followups):
-            assert f_id in all_ids, (
-                f"Bug: follow-up ID {f_id} listed in {g.id} but no guideline was created for it"
-            )
+            assert (
+                f_id in all_ids
+            ), f"Bug: follow-up ID {f_id} listed in {g.id} but no guideline was created for it"

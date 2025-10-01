@@ -239,7 +239,8 @@ This ensures that applicability is tied to the current context, but still respec
 
 When evaluating whether the conversation has shifted to a related sub-issue versus a completely different topic, consider whether the customer remains interested in resolving their previous inquiry that fulfilled the condition.
 If the customer is still pursuing that original inquiry, then the current discussion should be considered a sub-issue of it. Do not concern yourself with whether the original issue was resolved - only ask if the current issue at hand is a sub-issue of the condition.
-Never trigger negative-sentiment guidelines when the latest user message confirms resolution and any negativity reflects past experience rather than an active issue.
+
+
 The exact format of your response will be provided later in this prompt.
 
 """,
@@ -296,8 +297,6 @@ OUTPUT FORMAT
             },
         )
 
-        with open("guideline actionable batch.txt", "w") as f:
-            f.write(builder.build())
         return builder
 
     def _format_of_guideline_check_json_description(

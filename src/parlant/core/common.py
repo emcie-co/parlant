@@ -222,7 +222,7 @@ def generate_id(hints: Optional[Mapping[str, Any]] = None) -> UniqueId:
     strategy = hints.get("strategy", "nanoid")
 
     if strategy == "uuid4":
-        return UniqueId(str(uuid4()))
+        return UniqueId(uuid4().hex)
     else:
         return UniqueId(nanoid.generate(size=10, alphabet=id_generation_alphabet))
 

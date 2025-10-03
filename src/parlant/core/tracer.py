@@ -15,10 +15,10 @@
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 import contextvars
-from typing import Any, Iterator, Mapping
+from typing import Iterator, Mapping
 from typing_extensions import override
 
-from parlant.core.common import generate_id
+from parlant.core.common import AttributeValue, generate_id
 
 _UNINITIALIZED = 0xC0FFEE
 
@@ -28,68 +28,90 @@ class Tracer(ABC):
     @abstractmethod
     def span(
         self,
-        scope_id: str,
-        attributes: Mapping[str, Any] = {},
+        span_id: str,
+        attributes: Mapping[str, AttributeValue] = {},
     ) -> Iterator[None]: ...
 
     @contextmanager
     @abstractmethod
     def attributes(
         self,
-        attributes: Mapping[str, Any],
+        attributes: Mapping[str, AttributeValue],
     ) -> Iterator[None]: ...
 
     @property
     @abstractmethod
     def trace_id(self) -> str: ...
 
-    def get(self, property_name: str) -> Any | None: ...
+    @property
+    @abstractmethod
+    def span_id(self) -> str: ...
+
+    @abstractmethod
+    def get_attribute(self, name: str) -> AttributeValue | None: ...
+
+    @abstractmethod
+    def set_attribute(self, name: str, value: AttributeValue) -> None: ...
+
+    @abstractmethod
+    def add_event(self, name: str, attributes: Mapping[str, AttributeValue] = {}) -> None: ...
+
+    @abstractmethod
+    def flush(self) -> None: ...
 
 
 class LocalTracer(Tracer):
     def __init__(self) -> None:
-        self._instance_id = generate_id()
-
-        self._scopes = contextvars.ContextVar[str](
-            f"tracer_{self._instance_id}_scopes",
+        self._spans = contextvars.ContextVar[str](
+            "tracer_spans",
             default="",
         )
 
-        self._attributes = contextvars.ContextVar[Mapping[str, Any]](
-            f"tracer_{self._instance_id}_properties",
+        self._attributes = contextvars.ContextVar[Mapping[str, AttributeValue]](
+            "tracer_attributes",
             default={},
+        )
+
+        self._trace_id = contextvars.ContextVar[str](
+            "tracer_trace_id",
+            default="",
         )
 
     @contextmanager
     @override
     def span(
         self,
-        scope_id: str,
-        attributes: Mapping[str, Any] = {},
+        span_id: str,
+        attributes: Mapping[str, AttributeValue] = {},
     ) -> Iterator[None]:
-        current_scopes = self._scopes.get()
+        current_spans = self._spans.get()
 
-        if current_scopes:
-            new_scopes = current_scopes + f"::{scope_id}"
+        if not current_spans:
+            new_trace_id = generate_id()
+            new_spans = span_id
+            trace_id_reset_token = self._trace_id.set(new_trace_id)
         else:
-            new_scopes = scope_id
+            new_spans = current_spans + f"::{span_id}"
+            trace_id_reset_token = None
 
-        current_properties = self._attributes.get()
-        new_attributes = {**current_properties, **attributes}
+        current_attributes = self._attributes.get()
+        new_attributes = {**current_attributes, **attributes}
 
-        scopes_reset_token = self._scopes.set(new_scopes)
+        spans_reset_token = self._spans.set(new_spans)
         attributes_reset_token = self._attributes.set(new_attributes)
 
         yield
 
-        self._scopes.reset(scopes_reset_token)
+        self._spans.reset(spans_reset_token)
         self._attributes.reset(attributes_reset_token)
+        if trace_id_reset_token is not None:
+            self._trace_id.reset(trace_id_reset_token)
 
     @contextmanager
     @override
     def attributes(
         self,
-        attributes: Mapping[str, Any],
+        attributes: Mapping[str, AttributeValue],
     ) -> Iterator[None]:
         current_attributes = self._attributes.get()
         new_attributes = {**current_attributes, **attributes}
@@ -103,12 +125,45 @@ class LocalTracer(Tracer):
     @property
     @override
     def trace_id(self) -> str:
-        if scopes := self._scopes.get():
-            return scopes
+        if trace_id := self._trace_id.get():
+            return trace_id
+
+        return "<main>"
+
+    @property
+    @override
+    def span_id(self) -> str:
+        if spans := self._spans.get():
+            return spans
 
         return "<main>"
 
     @override
-    def get(self, attribute_name: str) -> Any | None:
+    def get_attribute(
+        self,
+        name: str,
+    ) -> AttributeValue | None:
         attributes = self._attributes.get()
-        return attributes.get(attribute_name, None)
+        return attributes.get(name, None)
+
+    @override
+    def set_attribute(
+        self,
+        name: str,
+        value: AttributeValue,
+    ) -> None:
+        current_attributes = self._attributes.get()
+        new_attributes = {**current_attributes, name: value}
+        self._attributes.set(new_attributes)
+
+    @override
+    def add_event(
+        self,
+        name: str,
+        attributes: Mapping[str, AttributeValue] = {},
+    ) -> None:
+        pass
+
+    @override
+    def flush(self) -> None:
+        pass

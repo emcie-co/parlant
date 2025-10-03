@@ -40,17 +40,17 @@ class DataCollectingSchematicGenerator(SchematicGenerator[T]):
 
         path = self._base_path
 
-        if scope := self._tracer.get("scope"):
+        if scope := self._tracer.get_attribute("scope"):
             path = path / scope
 
-        if self._tracer.get("session"):
-            session = cast(Session, self._tracer.get("session"))
+        if self._tracer.get_attribute("session"):
+            session = cast(Session, self._tracer.get_attribute("session"))
             path = path / f"Session_{session.id}"
 
-        if request_id := self._tracer.get("request_id"):
+        if request_id := self._tracer.get_attribute("request_id"):
             path = path / f"R{request_id}"
 
-        if iteration := self._tracer.get("engine_iteration"):
+        if iteration := self._tracer.get_attribute("engine_iteration"):
             path = path / f"Iteration_{iteration}"
 
         path.mkdir(parents=True, exist_ok=True)

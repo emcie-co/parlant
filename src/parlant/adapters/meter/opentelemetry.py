@@ -13,6 +13,7 @@ from opentelemetry.sdk.metrics.export import (
 )
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+
 from parlant.core.common import AttributeValue
 from parlant.core.meter import Meter
 

@@ -297,7 +297,7 @@ class SessionModule:
         return event
 
     async def dispatch_processing_task(self, session: Session) -> str:
-        with self._tracer.span("process", {"session": session}):
+        with self._tracer.span("process", {"session_id": session.id}):
             await self._background_task_service.restart(
                 self._process_session(session),
                 tag=f"process-session({session.id})",

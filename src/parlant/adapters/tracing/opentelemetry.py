@@ -19,12 +19,13 @@ from types import TracebackType
 from typing import Iterator, Mapping
 from typing_extensions import override, Self
 
-from opentelemetry import trace
+from opentelemetry import trace, context
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.trace import Status, StatusCode, SpanContext
+from opentelemetry.trace import Status, StatusCode, SpanContext, TraceFlags
+from opentelemetry.trace.span import TraceState
 
 from parlant.core.common import AttributeValue, generate_id
 from parlant.core.tracer import Tracer
@@ -67,21 +68,31 @@ class OtelTracer(Tracer):
     async def __aenter__(self) -> Self:
         resource = Resource.create({"service.name": self._service_name})
 
-        endpoint = "http://host.docker.internal:4317"
-        insecure = os.getenv("OTEL_EXPORTER_OTLP_INSECURE", "false").lower() == "true"
-
-        self._span_exporter = OTLPSpanExporter(
-            endpoint=endpoint,
-            insecure=insecure,
-        )
-
-        self._span_processor = BatchSpanProcessor(
-            span_exporter=self._span_exporter,
-            schedule_delay_millis=2000,
-        )
-
         self._tracer_provider = TracerProvider(resource=resource)
-        self._tracer_provider.add_span_processor(self._span_processor)
+
+        # Add console exporter for debugging (using BatchSpanProcessor)
+        console_exporter = ConsoleSpanExporter()
+        console_processor = BatchSpanProcessor(
+            span_exporter=console_exporter,
+            schedule_delay_millis=1000,
+        )
+        self._tracer_provider.add_span_processor(console_processor)
+
+        # Add OTLP exporter if endpoint is configured
+        endpoint = os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+        if endpoint:
+            insecure = os.getenv("OTEL_EXPORTER_OTLP_INSECURE", "false").lower() == "true"
+
+            self._span_exporter = OTLPSpanExporter(
+                endpoint=endpoint,
+                insecure=insecure,
+            )
+
+            self._span_processor = BatchSpanProcessor(
+                span_exporter=self._span_exporter,
+                schedule_delay_millis=2000,
+            )
+            self._tracer_provider.add_span_processor(self._span_processor)
 
         trace.set_tracer_provider(self._tracer_provider)
         self._tracer = trace.get_tracer(__name__)
@@ -106,37 +117,67 @@ class OtelTracer(Tracer):
         span_id: str,
         attributes: Mapping[str, AttributeValue] = {},
     ) -> Iterator[None]:
+        # Use standard OpenTelemetry span creation
         current_spans = self._spans.get()
 
+        # Prepare attributes first
+        current_attributes = self._attributes.get()
+        new_attributes = {**current_attributes, **attributes}
+
         if not current_spans:
-            new_trace_id = generate_id({"strategy": "uuid4"})
             new_spans = span_id
-            trace_id_reset_token = self._trace_id.set(new_trace_id)
+            custom_trace_id = generate_id({"strategy": "uuid4"})
+            trace_id_reset_token = self._trace_id.set(custom_trace_id)
+
+            # Convert UUID hex to proper OpenTelemetry format
+            # Ensure exactly 32 hex chars (128 bits) for trace ID
+            trace_id_hex = str(custom_trace_id)[:32]
+            trace_id_int = int(trace_id_hex, 16)
+
+            # Ensure trace ID is non-zero (OpenTelemetry requirement)
+            if trace_id_int == 0:
+                trace_id_int = 1
+
+            # Generate 64-bit span ID (16 hex chars)
+            span_uuid = generate_id({"strategy": "uuid4"})
+            span_id_hex = str(span_uuid)[:16]
+            span_id_int = int(span_id_hex, 16)
+
+            # Ensure span ID is non-zero (OpenTelemetry requirement)
+            if span_id_int == 0:
+                span_id_int = 1
 
             span_context = SpanContext(
-                # UUID string → 128-bit integer (mask ensures it fits in 128 bits)
-                trace_id=int(new_trace_id, 16) & ((1 << 128) - 1),
-                # UUID string → 64-bit integer (mask ensures it fits in 64 bits)
-                span_id=int(generate_id({"strategy": "uuid4"})[:16], 16) & ((1 << 64) - 1),
+                trace_id=trace_id_int,
+                span_id=span_id_int,
                 is_remote=False,
+                trace_flags=TraceFlags(0x01),
+                trace_state=TraceState(),
             )
-            parent_context = trace.set_span_in_context(trace.NonRecordingSpan(span_context))
+
+            # For root spans, create a completely isolated context
+            # We'll create the span with our custom context after setting up the isolated context
+            isolated_ctx = context.Context()
+            ctx = isolated_ctx
         else:
             new_spans = current_spans + f"::{span_id}"
             trace_id_reset_token = None
-            parent_context = None
-
-        current_attributes = self._attributes.get()
-        new_attributes = {**current_attributes, **attributes}
+            ctx = context.get_current()
 
         spans_reset_token = self._spans.set(new_spans)
         attributes_reset_token = self._attributes.set(new_attributes)
 
-        span = self._tracer.start_span(
-            name=span_id,
-            attributes=new_attributes,
-            context=parent_context,
-        )
+        # Create span with the prepared context
+        if not current_spans:
+            # For root spans, we need to manually create a span with our custom context
+            # Start the span normally first
+            span = self._tracer.start_span(name=span_id, attributes=new_attributes, context=ctx)
+            # Then update its context with our custom IDs (this is a workaround)
+            if hasattr(span, "_context"):
+                span._context = span_context
+        else:
+            # For child spans, create normally
+            span = self._tracer.start_span(name=span_id, attributes=new_attributes, context=ctx)
 
         span_token = self._current_span.set(span)
 

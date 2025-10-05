@@ -1,7 +1,7 @@
 import json
 import os
 from pathlib import Path
-from typing import Any, Mapping, cast
+from typing import Any, Mapping
 import aiofiles
 from typing_extensions import override
 
@@ -11,7 +11,6 @@ from parlant.core.tracer import Tracer
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.nlp.generation import T, SchematicGenerationResult, SchematicGenerator
 from parlant.core.nlp.tokenization import EstimatingTokenizer
-from parlant.core.sessions import Session
 
 
 class DataCollectingSchematicGenerator(SchematicGenerator[T]):
@@ -40,12 +39,12 @@ class DataCollectingSchematicGenerator(SchematicGenerator[T]):
 
         path = self._base_path
 
-        if scope := self._tracer.get_attribute("scope"):
-            path = path / scope
+        if span_id := self._tracer.get_attribute("span_id"):
+            path = path / span_id
 
-        if self._tracer.get_attribute("session"):
-            session = cast(Session, self._tracer.get_attribute("session"))
-            path = path / f"Session_{session.id}"
+        if self._tracer.get_attribute("session_id"):
+            session_id = self._tracer.get_attribute("session_id")
+            path = path / f"Session_{session_id}"
 
         if request_id := self._tracer.get_attribute("request_id"):
             path = path / f"R{request_id}"

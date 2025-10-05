@@ -352,7 +352,7 @@ class SessionModule:
     ) -> Event:
         session = await self._session_store.read_session(session_id)
 
-        with self._tracer.span("utter", {"session": session}):
+        with self._tracer.span("utter", {"session_id": session_id}):
             event_emitter = await self._event_emitter_factory.create_event_emitter(
                 emitting_agent_id=session.agent_id,
                 session_id=session.id,

@@ -18,7 +18,18 @@ from collections import defaultdict
 from enum import Enum
 import asyncio
 import hashlib
-from typing import Any, Callable, Mapping, NewType, Optional, Sequence, TypeAlias, Union
+from typing import (
+    Any,
+    Callable,
+    Generic,
+    Mapping,
+    NewType,
+    Optional,
+    Sequence,
+    TypeAlias,
+    TypeVar,
+    Union,
+)
 from typing_extensions import Self
 
 import nanoid  # type: ignore
@@ -26,13 +37,16 @@ from pydantic import BaseModel, ConfigDict
 import semver  # type: ignore
 
 
-class classproperty:
+_ClassPropertyReturnType = TypeVar("_ClassPropertyReturnType")
+
+
+class classproperty(Generic[_ClassPropertyReturnType]):
     """A descriptor that enables class-level properties."""
 
-    def __init__(self, func: Callable[..., Any]) -> None:
+    def __init__(self, func: Callable[..., _ClassPropertyReturnType]) -> None:
         self.func = func
 
-    def __get__(self, instance: Any, owner: type) -> Any:
+    def __get__(self, instance: Any, owner: type) -> _ClassPropertyReturnType:
         return self.func(owner)
 
 

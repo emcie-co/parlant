@@ -227,3 +227,12 @@ class NullPerceivedPerformancePolicy(PerceivedPerformancePolicy):
         context: LoadedContext | None = None,
     ) -> bool:
         return False
+
+
+class VoiceOptimizedPerceivedPerformancePolicy(NullPerceivedPerformancePolicy):
+    @override
+    async def is_preamble_required(
+        self,
+        context: LoadedContext | None = None,
+    ) -> bool:
+        return True

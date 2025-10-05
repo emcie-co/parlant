@@ -201,6 +201,7 @@ from parlant.core.engines.alpha.perceived_performance_policy import (
     PerceivedPerformancePolicy,
     NullPerceivedPerformancePolicy,
     BasicPerceivedPerformancePolicy,
+    VoiceOptimizedPerceivedPerformancePolicy,
 )
 from parlant.bin.server import PARLANT_HOME_DIR, start_parlant, StartupParameters
 from parlant.core.services.tools.plugins import PluginServer, ToolEntry, tool
@@ -3162,6 +3163,7 @@ __all__ = [
     "PerceivedPerformancePolicy",
     "BasicPerceivedPerformancePolicy",
     "NullPerceivedPerformancePolicy",
+    "VoiceOptimizedPerceivedPerformancePolicy",
     "NoMatchResponseProvider",
     "BasicNoMatchResponseProvider",
     "PluginServer",

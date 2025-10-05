@@ -17,6 +17,7 @@ All notable changes to Parlant will be documented here.
 - Follow-up canned responses
 - Improved Gemini Flash 2.5 output consistency by using function call trick instead of structured outputs
 - Added persistence option for context variable values (variable store)
+- Add Fireworks service
 - Rename ContextualCorrelator to Tracer
 - Add OpenTelemetry integration for Meter, Logger and Tracer
 

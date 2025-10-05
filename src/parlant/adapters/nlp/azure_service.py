@@ -31,7 +31,7 @@ import os
 from pydantic import ValidationError
 import tiktoken
 
-from parlant.adapters.nlp.common import normalize_json_output
+from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
@@ -172,26 +172,14 @@ class AzureSchematicGenerator(SchematicGenerator[T]):
 
             assert response.usage
 
-            await self._meter.increment(
-                "input_tokens",
-                response.usage.prompt_tokens,
-                {"model_name": self.model_name},
-            )
-            await self._meter.increment(
-                "output_tokens",
-                response.usage.completion_tokens,
-                {
-                    "model_name": self.model_name,
-                },
-            )
-            await self._meter.increment(
-                "cached_input_tokens",
-                response.usage.prompt_tokens_details.cached_tokens or 0
+            await record_llm_metrics(
+                self._meter,
+                self.model_name,
+                input_tokens=response.usage.prompt_tokens,
+                output_tokens=response.usage.completion_tokens,
+                cached_input_tokens=response.usage.prompt_tokens_details.cached_tokens or 0
                 if response.usage.prompt_tokens_details
                 else 0,
-                {
-                    "model_name": self.model_name,
-                },
             )
 
             return SchematicGenerationResult[T](

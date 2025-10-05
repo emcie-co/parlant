@@ -28,7 +28,7 @@ import jsonfinder  # type: ignore
 import os
 import tiktoken
 
-from parlant.adapters.nlp.common import normalize_json_output
+from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.meter import Meter
@@ -166,17 +166,11 @@ class AnthropicBedrockAISchematicGenerator(SchematicGenerator[T]):
         try:
             model_content = self.schema.model_validate(json_object)
 
-            await self._meter.increment(
-                "input_tokens",
-                response.usage.input_tokens,
-                {"model_name": self.model_name},
-            )
-            await self._meter.increment(
-                "output_tokens",
-                response.usage.output_tokens,
-                {
-                    "model_name": self.model_name,
-                },
+            await record_llm_metrics(
+                self._meter,
+                self.model_name,
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
             )
 
             return SchematicGenerationResult(

@@ -13,6 +13,9 @@
 # limitations under the License.
 
 
+from parlant.core.meter import Meter
+
+
 def normalize_json_output(raw_output: str) -> str:
     json_start = raw_output.find("```json")
 
@@ -27,3 +30,31 @@ def normalize_json_output(raw_output: str) -> str:
         json_end = len(raw_output[json_start:])
 
     return raw_output[json_start : json_start + json_end].strip()
+
+
+async def record_llm_metrics(
+    meter: Meter,
+    model_name: str,
+    input_tokens: int,
+    output_tokens: int,
+    cached_input_tokens: int = 0,
+) -> None:
+    await meter.increment(
+        "input_tokens",
+        input_tokens,
+        {"model_name": model_name},
+    )
+
+    await meter.increment(
+        "output_tokens",
+        output_tokens,
+        {
+            "model_name": model_name,
+        },
+    )
+
+    await meter.increment(
+        "cached_input_tokens",
+        cached_input_tokens,
+        {"model_name": model_name},
+    )

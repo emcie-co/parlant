@@ -26,7 +26,7 @@ import tiktoken
 from typing_extensions import override
 from pydantic import ValidationError
 
-from parlant.adapters.nlp.common import normalize_json_output
+from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
@@ -209,17 +209,11 @@ class CortexSchematicGenerator(SchematicGenerator[T]):
 
         usage_block = data.get("usage") or {}
 
-        await self._meter.increment(
-            "input_tokens",
-            usage_block.get("prompt_tokens", 0),
-            {"model_name": self.model_name},
-        )
-        await self._meter.increment(
-            "output_tokens",
-            usage_block.get("completion_tokens", 0),
-            {
-                "model_name": self.model_name,
-            },
+        await record_llm_metrics(
+            self._meter,
+            self.model_name,
+            input_tokens=usage_block.get("prompt_tokens", 0),
+            output_tokens=usage_block.get("completion_tokens", 0),
         )
 
         return SchematicGenerationResult(

@@ -22,7 +22,7 @@ from typing import Any, Mapping
 from typing_extensions import override
 from fireworks.client.error import RateLimitError  # type: ignore
 
-from parlant.adapters.nlp.common import normalize_json_output
+from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.meter import Meter
@@ -165,17 +165,11 @@ class FireworksSchematicGenerator(SchematicGenerator[T]):
         try:
             model_content = self.schema.model_validate(json_object)
 
-            await self._meter.increment(
-                "input_tokens",
-                response.usage.prompt_tokens,  # type: ignore
-                {"model_name": self.model_name},
-            )
-            await self._meter.increment(
-                "output_tokens",
-                response.usage.completion_tokens,  # type: ignore
-                {
-                    "model_name": self.model_name,
-                },
+            await record_llm_metrics(
+                self._meter,
+                self.model_name,
+                input_tokens=response.usage.prompt_tokens,  # type: ignore
+                output_tokens=response.usage.completion_tokens,  # type: ignore
             )
 
             return SchematicGenerationResult(

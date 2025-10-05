@@ -33,7 +33,7 @@ import os
 from pydantic import ValidationError
 import tiktoken
 
-from parlant.adapters.nlp.common import normalize_json_output
+from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.core.engines.alpha.canned_response_generator import (
     CannedResponseDraftSchema,
     CannedResponseSelectionSchema,
@@ -200,24 +200,12 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
             assert response.usage
             assert response.usage.prompt_tokens_details
 
-            await self._meter.increment(
-                "input_tokens",
-                response.usage.prompt_tokens,
-                {"model_name": self.model_name},
-            )
-            await self._meter.increment(
-                "output_tokens",
-                response.usage.completion_tokens,
-                {
-                    "model_name": self.model_name,
-                },
-            )
-            await self._meter.increment(
-                "cached_input_tokens",
-                response.usage.prompt_tokens_details.cached_tokens or 0,
-                {
-                    "model_name": self.model_name,
-                },
+            await record_llm_metrics(
+                self._meter,
+                self.model_name,
+                input_tokens=response.usage.prompt_tokens,
+                output_tokens=response.usage.completion_tokens,
+                cached_input_tokens=response.usage.prompt_tokens_details.cached_tokens or 0,
             )
 
             return SchematicGenerationResult[T](

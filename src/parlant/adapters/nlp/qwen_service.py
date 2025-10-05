@@ -33,7 +33,7 @@ import os
 from pydantic import ValidationError
 import tiktoken
 
-from parlant.adapters.nlp.common import normalize_json_output
+from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
@@ -258,28 +258,16 @@ class QwenSchematicGenerator(SchematicGenerator[T]):
         try:
             content = self.schema.model_validate(json_content)
 
-            await self._meter.increment(
-                "input_tokens",
-                response.usage.prompt_tokens,
-                {"model_name": self.model_name},
-            )
-            await self._meter.increment(
-                "output_tokens",
-                response.usage.completion_tokens,
-                {
-                    "model_name": self.model_name,
-                },
-            )
-            await self._meter.increment(
-                "cached_input_tokens",
-                getattr(
+            await record_llm_metrics(
+                self._meter,
+                self.model_name,
+                input_tokens=response.usage.prompt_tokens,
+                output_tokens=response.usage.completion_tokens,
+                cached_input_tokens=getattr(
                     response,
                     "usage.prompt_cache_hit_tokens",
                     0,
                 ),
-                {
-                    "model_name": self.model_name,
-                },
             )
 
             return SchematicGenerationResult(

@@ -227,11 +227,13 @@ async def create_session(
     agent_id: AgentId,
     customer_id: Optional[CustomerId] = None,
     title: Optional[str] = None,
+    metadata: Optional[Mapping[str, JSONSerializable]] = None,
 ) -> Session:
     return await container[SessionStore].create_session(
         customer_id or (await create_customer(container, "Auto-Created Customer")).id,
         agent_id=agent_id,
         title=title,
+        metadata=metadata or {},
     )
 
 

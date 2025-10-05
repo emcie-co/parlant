@@ -281,6 +281,7 @@ class SessionUpdateParams(TypedDict, total=False):
     title: Optional[str]
     consumption_offsets: Mapping[ConsumerId, int]
     agent_states: Sequence[AgentState]
+    metadata: Mapping[str, JSONSerializable]
 
 
 class SessionStore(ABC):
@@ -831,6 +832,8 @@ class SessionDocumentStore(SessionStore):
                 )
                 for s in params["agent_states"]
             ]
+        if "metadata" in params:
+            doc_params["metadata"] = params["metadata"]
 
         return doc_params
 

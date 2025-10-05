@@ -15,7 +15,7 @@
 import asyncio
 import os
 import time
-from typing import Any
+from typing import Any, Mapping
 import dateutil
 from fastapi import status
 import httpx
@@ -23,7 +23,7 @@ from lagom import Container
 from pytest import fixture, mark
 from datetime import datetime, timezone
 
-from parlant.core.common import generate_id
+from parlant.core.common import generate_id, JSONSerializable
 from parlant.core.canned_responses import CannedResponseStore
 from parlant.core.tools import ToolResult
 from parlant.core.agents import AgentId, AgentStore, AgentUpdateParams, CompositionMode
@@ -214,16 +214,68 @@ async def test_that_a_created_session_has_meaningful_creation_utc(
     )
 
 
+async def test_that_a_session_can_be_created_with_metadata(
+    async_client: httpx.AsyncClient,
+    agent_id: AgentId,
+) -> None:
+    metadata = {"project": "test_project", "priority": "high", "version": 1}
+
+    response = await async_client.post(
+        "/sessions",
+        json={
+            "customer_id": "test_customer",
+            "agent_id": agent_id,
+            "title": "Test Session with Metadata",
+            "metadata": metadata,
+        },
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+    data = response.json()
+
+    assert "id" in data
+    assert "agent_id" in data
+    assert data["agent_id"] == agent_id
+    assert "metadata" in data
+    assert data["metadata"] == metadata
+
+
+async def test_that_a_session_can_be_created_without_metadata(
+    async_client: httpx.AsyncClient,
+    agent_id: AgentId,
+) -> None:
+    response = await async_client.post(
+        "/sessions",
+        json={
+            "customer_id": "test_customer",
+            "agent_id": agent_id,
+            "title": "Test Session without Metadata",
+        },
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+    data = response.json()
+
+    assert "id" in data
+    assert "metadata" in data
+    assert data["metadata"] == {}
+
+
 async def test_that_a_session_can_be_read(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     agent = await create_agent(container, "test-agent")
-    session = await create_session(container, agent_id=agent.id, title="first-session")
+    metadata: Mapping[str, JSONSerializable] = {"simulation": True, "priority": "medium"}
+    session = await create_session(
+        container,
+        agent_id=agent.id,
+        title="session-with-metadata",
+        metadata=metadata,
+    )
 
     data = (await async_client.get(f"/sessions/{session.id}")).raise_for_status().json()
 
     assert data["id"] == session.id
+    assert data["metadata"] == metadata
     assert data["agent_id"] == session.agent_id
 
 
@@ -373,6 +425,96 @@ async def test_that_mode_can_be_updated(
     )
 
     assert session_dto["mode"] == "manual"
+
+
+async def test_that_metadata_can_be_set_on_session_update(
+    async_client: httpx.AsyncClient,
+    session_id: SessionId,
+) -> None:
+    new_metadata = {"project": "updated_project", "priority": "low", "version": 2}
+
+    session_dto = (
+        (
+            await async_client.patch(
+                f"/sessions/{session_id}",
+                json={"metadata": {"set": new_metadata}},
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert session_dto["metadata"] == new_metadata
+
+
+async def test_that_metadata_can_be_partially_updated(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    agent_id: AgentId,
+) -> None:
+    # Create session with initial metadata
+    initial_metadata: Mapping[str, JSONSerializable] = {
+        "project": "initial",
+        "priority": "high",
+        "version": 1,
+        "team": "backend",
+    }
+
+    session = await create_session(
+        container,
+        agent_id=agent_id,
+        title="Test Session",
+        metadata=initial_metadata,
+    )
+
+    session_dto = (
+        (
+            await async_client.patch(
+                f"/sessions/{session.id}",
+                json={
+                    "metadata": {
+                        "set": {"priority": "low", "version": 2},
+                        "unset": ["team"],
+                    }
+                },
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    expected_metadata = {"project": "initial", "priority": "low", "version": 2}
+    assert session_dto["metadata"] == expected_metadata
+
+
+async def test_that_metadata_unset_ignores_nonexistent_keys(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    agent_id: AgentId,
+) -> None:
+    # Create session with initial metadata
+    initial_metadata: Mapping[str, JSONSerializable] = {"project": "test", "priority": "high"}
+
+    session = await create_session(
+        container,
+        agent_id=agent_id,
+        title="Test Session",
+        metadata=initial_metadata,
+    )
+
+    session_dto = (
+        (
+            await async_client.patch(
+                f"/sessions/{session.id}",
+                json={"metadata": {"unset": ["nonexistent_key", "priority"]}},
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    expected_metadata = {"project": "test"}
+    assert session_dto["metadata"] == expected_metadata
 
 
 async def test_that_deleting_a_nonexistent_session_returns_404(

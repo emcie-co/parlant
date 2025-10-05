@@ -20,6 +20,7 @@ All notable changes to Parlant will be documented here.
 - Add Fireworks service
 - Rename ContextualCorrelator to Tracer
 - Add OpenTelemetry integration for Meter, Logger and Tracer
+- Add API for CRUD operations on session metadata
 
 ## [3.0.3] - 2025-10-23
 

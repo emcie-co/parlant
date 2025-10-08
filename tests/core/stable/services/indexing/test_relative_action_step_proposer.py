@@ -157,7 +157,9 @@ async def base_test_that_related_action_step_proposed(
         assert await nlp_test(
             context=f"Here's an action description: {proposed_actions[a]}",
             condition=f"The description contains {to_propose_actions[a]}",
-        ), f"proposed action: '{proposed_actions[a]}', expected to contain: '{to_propose_actions[a]}'"
+        ), (
+            f"proposed action: '{proposed_actions[a]}', expected to contain: '{to_propose_actions[a]}'"
+        )
 
 
 async def test_action_is_proposed_when_needed(

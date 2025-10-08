@@ -2306,13 +2306,11 @@ class Server:
                 _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation,
             ]
         ]:
-            async def task_wrapper() -> (
-                tuple[
-                    Literal["guideline", "node", "journey"],
-                    GuidelineId | JourneyStateId | JourneyId,
-                    _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation,
-                ]
-            ):
+            async def task_wrapper() -> tuple[
+                Literal["guideline", "node", "journey"],
+                GuidelineId | JourneyStateId | JourneyId,
+                _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation,
+            ]:
                 result = await evaluation
                 return (entity_type, entity_id, result)
 

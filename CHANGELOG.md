@@ -12,6 +12,7 @@ All notable changes to Parlant will be documented here.
 - Support proxy URL for LiteLLM
 - Allow controlling max tool result payload via environment variable
 - Follow-up canned responses
+- Improved Gemini Flash 2.5 output consistency by using function call trick instead of structured outputs
 
 ## [3.0.2] - 2025-08-27
 

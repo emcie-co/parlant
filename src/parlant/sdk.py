@@ -39,6 +39,7 @@ from rich.live import Live
 from rich.text import Text
 from types import TracebackType
 from typing import (
+    List,
     Optional,
     Any,
     Awaitable,
@@ -54,6 +55,7 @@ from typing import (
     TypeVar,
     TypeAlias,
     TypedDict,
+    Union,
     cast,
 )
 from typing_extensions import overload
@@ -292,7 +294,7 @@ class NLPServices:
         return TogetherService(container[Logger])
 
     @staticmethod
-    def gemini(container: Optional[Container] = None, model_name: Optional[str] = None) -> NLPService:
+    def gemini(container: Optional[Container] = None, model_name: Optional[Union[List[str], str]] = None) -> NLPService:
         """
         Returns a callable that creates a Gemini NLPService instance using the provided container and model_name.
         If container is None, the callable expects the container to be provided later (by the Server).

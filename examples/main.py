@@ -10,7 +10,9 @@ from src.parlant import sdk as p
 
 async def main():
     async with p.Server(
-        nlp_service=p.NLPServices.gemini(model_name="gemini-2.0-flash-lite")
+        nlp_service=p.NLPServices.gemini(
+            model_name=["gemini-2.0-flash-lite", "gemini-2.5-flash"]
+        )
     ) as server:
         agent = await server.create_agent(
             name="Otto Carmen",

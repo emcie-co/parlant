@@ -21,7 +21,7 @@ from google.api_core.exceptions import NotFound, TooManyRequests, ResourceExhaus
 import google.genai  # type: ignore
 import google.genai.types  # type: ignore
 from collections.abc import Mapping as MappingABC, Sequence as SequenceABC
-from typing import Any, Literal, Mapping, Sequence, Union, cast
+from typing import Any, List, Literal, Mapping, Optional, Sequence, Union, cast
 from typing_extensions import get_args, get_origin, override
 from pydantic import BaseModel, Field, ValidationError
 from pydantic.fields import FieldInfo
@@ -410,43 +410,58 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
 
         return None
 
-    def __init__(self, logger: Logger, model_name: str | None = None) -> None:
+    def __init__(self, logger: Logger, model_name: Optional[Union[List[str], str]] = None) -> None:
         self._model_name = model_name
         self._logger = logger
         self._logger.info("Initialized GeminiService")
 
     @override
-    async def get_schematic_generator(
-        self, t: type[T], model_name: str | None = None
-    ) -> GeminiSchematicGenerator[T]:
-        selected_model = model_name or self._model_name
+    async def get_schematic_generator(self, t: type[T]) -> GeminiSchematicGenerator[T]:
+        selected_model = self._model_name
 
-        # return generator based on model
-        if selected_model == "gemini-2.5-pro":
-            return Gemini_2_5_Pro[t](self._logger)
-        elif selected_model == "gemini-2.5-flash":
-            return Gemini_2_5_Flash[t](self._logger)
-        elif selected_model == "gemini-2.0-flash":
-            return Gemini_2_0_Flash[t](self._logger)
-        elif selected_model == "gemini-2.0-flash-lite":
-            return Gemini_2_0_Flash_Lite[t](self._logger)
-        elif selected_model == "gemini-1.5-pro":
-            return Gemini_1_5_Pro[t](self._logger)
-        elif selected_model == "gemini-1.5-flash":
-            return Gemini_1_5_Flash[t](self._logger)
-        else:
+        if isinstance(selected_model, list):
+            model_classes: List[SchematicGenerator][T] = []
+            for model_name in selected_model:
+                model_cls = self._resolve_model_class(model_name)
+                if model_cls:
+                    model_classes.append(model_cls[t](self._logger))
+
+            if not model_classes:
+                self._logger.warning("No valid models found in list, falling back to defaults.")
+                model_classes = [
+                    Gemini_2_5_Flash[t](self._logger),
+                    Gemini_2_5_Pro[t](self._logger),
+                ]
+
+            return FallbackSchematicGenerator[t](*model_classes, logger=self._logger)
+
+        if isinstance(selected_model, str):
+            model_cls = self._resolve_model_class(selected_model)
+            if model_cls:
+                return model_cls[t](self._logger)
+
             self._logger.warning(
-                f"Unrecognized or no model_name specified for GeminiService: '{selected_model}'."
-                " Falling back to default priority order."
+                f"Unrecognized model name: '{selected_model}', falling back to defaults."
             )
-        
 
-        # fallback to default priority order
         return FallbackSchematicGenerator[t](
             Gemini_2_5_Flash[t](self._logger),
             Gemini_2_5_Pro[t](self._logger),
             logger=self._logger,
         )
+
+    async def _resolve_model_class(self, model_name: str) -> Optional[type[GeminiSchematicGenerator[T]]]:
+        """Maps model names to their respective Gemini implementations."""
+        mapping = {
+            "gemini-2.5-pro": Gemini_2_5_Pro,
+            "gemini-2.5-flash": Gemini_2_5_Flash,
+            "gemini-2.0-flash": Gemini_2_0_Flash,
+            "gemini-2.0-flash-lite": Gemini_2_0_Flash_Lite,
+            "gemini-1.5-pro": Gemini_1_5_Pro,
+            "gemini-1.5-flash": Gemini_1_5_Flash,
+        }
+        return mapping.get(model_name)
+
 
     @override
     async def get_embedder(self) -> Embedder:

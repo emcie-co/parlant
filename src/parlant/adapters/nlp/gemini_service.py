@@ -84,7 +84,9 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
 
         self._client = google.genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
-        self._tokenizer = GoogleEstimatingTokenizer(client=self._client, model_name=self.model_name)
+        self._tokenizer = GoogleEstimatingTokenizer(
+            client=self._client, model_name=self.model_name  # new
+        )
 
     @property
     @override
@@ -287,7 +289,9 @@ class GoogleEmbedder(Embedder):
 
         self._logger = logger
         self._client = google.genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-        self._tokenizer = GoogleEstimatingTokenizer(client=self._client, model_name=self.model_name)
+        self._tokenizer = GoogleEstimatingTokenizer(
+            client=self._client, model_name=self.model_name
+        )
 
     @property
     @override
@@ -375,18 +379,41 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
 
         return None
 
-    def __init__(
-        self,
-        logger: Logger,
-    ) -> None:
+    def __init__(self, logger: Logger, model_name: str | None = None) -> None:
+        self._model_name = model_name
         self._logger = logger
         self._logger.info("Initialized GeminiService")
 
     @override
-    async def get_schematic_generator(self, t: type[T]) -> GeminiSchematicGenerator[T]:
-        return FallbackSchematicGenerator[t](  # type: ignore
-            Gemini_2_5_Flash[t](self._logger),  # type: ignore
-            Gemini_2_5_Pro[t](self._logger),  # type: ignore
+    async def get_schematic_generator(
+        self, t: type[T], model_name: str | None = None
+    ) -> GeminiSchematicGenerator[T]:
+        selected_model = model_name or self._model_name
+
+        # return generator based on model
+        if selected_model == "gemini-2.5-pro":
+            return Gemini_2_5_Pro[t](self._logger)
+        elif selected_model == "gemini-2.5-flash":
+            return Gemini_2_5_Flash[t](self._logger)
+        elif selected_model == "gemini-2.0-flash":
+            return Gemini_2_0_Flash[t](self._logger)
+        elif selected_model == "gemini-2.0-flash-lite":
+            return Gemini_2_0_Flash_Lite[t](self._logger)
+        elif selected_model == "gemini-1.5-pro":
+            return Gemini_1_5_Pro[t](self._logger)
+        elif selected_model == "gemini-1.5-flash":
+            return Gemini_1_5_Flash[t](self._logger)
+        else:
+            self._logger.warning(
+                f"Unrecognized or no model_name specified for GeminiService: '{selected_model}'."
+                " Falling back to default priority order."
+            )
+        
+
+        # fallback to default priority order
+        return FallbackSchematicGenerator[t](
+            Gemini_2_5_Flash[t](self._logger),
+            Gemini_2_5_Pro[t](self._logger),
             logger=self._logger,
         )
 

@@ -39,6 +39,7 @@ from rich.live import Live
 from rich.text import Text
 from types import TracebackType
 from typing import (
+    Optional,
     Any,
     Awaitable,
     Callable,
@@ -291,14 +292,23 @@ class NLPServices:
         return TogetherService(container[Logger])
 
     @staticmethod
-    def gemini(container: Container) -> NLPService:
-        """Creates a Gemini NLPService instance using the provided container."""
+    def gemini(container: Optional[Container] = None, model_name: Optional[str] = None) -> NLPService:
+        """
+        Returns a callable that creates a Gemini NLPService instance using the provided container and model_name.
+        If container is None, the callable expects the container to be provided later (by the Server).
+        If model_name is None, the default Gemini_2_5_Flash model is used.
+        """
         from parlant.adapters.nlp.gemini_service import GeminiService
 
-        if error := GeminiService.verify_environment():
-            raise SDKError(error)
+        def factory(c: Container) -> NLPService:
+            if error := GeminiService.verify_environment():
+                raise SDKError(error)
+            return GeminiService(c[Logger], model_name=model_name)
 
-        return GeminiService(container[Logger])
+        if container is not None:
+            return factory(container)
+
+        return factory
 
     @staticmethod
     def litellm(container: Container) -> NLPService:

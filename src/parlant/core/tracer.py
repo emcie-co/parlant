@@ -15,12 +15,23 @@
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 import contextvars
-from typing import Iterator, Mapping
-from typing_extensions import override
+from typing import Iterator, Mapping, Union, Sequence
+from typing_extensions import deprecated, override
 
-from parlant.core.common import AttributeValue, generate_id
+from parlant.core.common import generate_id
 
 _UNINITIALIZED = 0xC0FFEE
+
+AttributeValue = Union[
+    str,
+    bool,
+    int,
+    float,
+    Sequence[str],
+    Sequence[bool],
+    Sequence[int],
+    Sequence[float],
+]
 
 
 class Tracer(ABC):
@@ -42,6 +53,11 @@ class Tracer(ABC):
     @property
     @abstractmethod
     def trace_id(self) -> str: ...
+
+    @property
+    @deprecated("Use trace_id instead")
+    def correlation_id(self) -> str:
+        return self.trace_id
 
     @property
     @abstractmethod
@@ -167,3 +183,8 @@ class LocalTracer(Tracer):
     @override
     def flush(self) -> None:
         pass
+
+
+@deprecated("Please use the Tracer class instead of ContextualCorrelator")
+class ContextualCorrelator(Tracer):
+    pass

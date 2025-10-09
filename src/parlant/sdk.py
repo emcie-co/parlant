@@ -1696,6 +1696,13 @@ class RetrieverContext:
     variables: Mapping[Variable, JSONSerializable]
     interaction: Interaction
 
+    @property
+    def correlator(self) -> Tracer:
+        self.logger.warning(
+            "`correlator` is deprecated. Please change your code to use the `tracer` property"
+        )
+        return self.tracer
+
 
 @dataclass(frozen=True)
 class RetrieverResult:
@@ -3210,6 +3217,9 @@ __all__ = [
     "CustomerStore",
     "DevelopmentAuthorizationPolicy",
     "END_JOURNEY",
+    "Variable",
+    "ContextVariableId",
+    "ControlOptions",
     "Embedder",
     "EmbedderFactory",
     "EmbeddingResult",
@@ -3286,6 +3296,7 @@ __all__ = [
     "ToolParameterOptions",
     "ToolParameterType",
     "ToolResult",
+    "Tracer",
     "Variable",
     "VoiceOptimizedPerceivedPerformancePolicy",
     "tool",

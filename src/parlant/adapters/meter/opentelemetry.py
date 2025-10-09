@@ -14,18 +14,11 @@ from opentelemetry.sdk.metrics.export import (
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
 
-from parlant.core.common import AttributeValue
 from parlant.core.meter import Meter
+from parlant.core.tracer import AttributeValue
 
 
-class OtelMeter(Meter):
-    @staticmethod
-    def is_environment_set() -> bool:
-        if not os.environ.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"):
-            return False
-
-        return True
-
+class OpenTelemetryMeter(Meter):
     def __init__(self) -> None:
         self._service_name = os.getenv("OTEL_SERVICE_NAME", "parlant")
 

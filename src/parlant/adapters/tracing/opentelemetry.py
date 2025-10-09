@@ -27,16 +27,11 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from opentelemetry.trace import Status, StatusCode, SpanContext, TraceFlags
 from opentelemetry.trace.span import TraceState
 
-from parlant.core.common import AttributeValue, generate_id
-from parlant.core.tracer import Tracer
+from parlant.core.common import generate_id
+from parlant.core.tracer import Tracer, AttributeValue
 
 
-class OtelTracer(Tracer):
-    @staticmethod
-    def is_environment_set() -> bool:
-        """Check if the required OpenTelemetry environment variables are set."""
-        return bool(os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"))
-
+class OpenTelemetryTracer(Tracer):
     def __init__(self) -> None:
         self._service_name = os.getenv("OTEL_SERVICE_NAME", "parlant")
 

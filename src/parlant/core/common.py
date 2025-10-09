@@ -96,18 +96,6 @@ JSONSerializable: TypeAlias = Union[
 ]
 """A JSON-serializable value."""
 
-AttributeValue = Union[
-    str,
-    bool,
-    int,
-    float,
-    Sequence[str],
-    Sequence[bool],
-    Sequence[int],
-    Sequence[float],
-]
-
-
 UniqueId = NewType("UniqueId", str)
 
 

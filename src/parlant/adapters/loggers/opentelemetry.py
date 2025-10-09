@@ -13,12 +13,8 @@ from parlant.core.loggers import LogLevel, TracingLogger
 from parlant.core.tracer import Tracer
 
 
-class OtelLogger(TracingLogger):
+class OpenTelemetryLogger(TracingLogger):
     """TracingLogger with OpenTelemetry log export via OTLP gRPC."""
-
-    @staticmethod
-    def is_environment_set() -> bool:
-        return bool(os.environ.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"))
 
     def __init__(
         self,

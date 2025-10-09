@@ -41,11 +41,9 @@ from pathlib import Path
 import sys
 import uvicorn
 
-from parlant.adapters.loggers.opentelemetry import OtelLogger
+
 from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
-from parlant.adapters.meter.opentelemetry import OtelMeter
-from parlant.adapters.tracing.opentelemetry import OtelTracer
 from parlant.api.authorization import (
     AuthorizationPolicy,
     DevelopmentAuthorizationPolicy,
@@ -282,7 +280,7 @@ class StartupParameters:
 
 
 def load_nlp_service(
-    meter: Meter,
+    container: Container,
     name: str,
     extra_name: str,
     class_name: str,
@@ -291,7 +289,7 @@ def load_nlp_service(
     try:
         module = importlib.import_module(module_path)
         service = getattr(module, class_name)
-        return cast(NLPService, service(LOGGER, meter))
+        return cast(NLPService, service(LOGGER, container[Meter]))
     except ModuleNotFoundError as exc:
         LOGGER.error(f"Failed to import module: {exc.name}")
         LOGGER.critical(
@@ -300,9 +298,9 @@ def load_nlp_service(
         sys.exit(1)
 
 
-def load_anthropic(meter: Meter) -> NLPService:
+def load_anthropic(container: Container) -> NLPService:
     return load_nlp_service(
-        meter,
+        container,
         "Anthropic",
         "anthropic",
         "AnthropicService",
@@ -310,33 +308,41 @@ def load_anthropic(meter: Meter) -> NLPService:
     )
 
 
-def load_aws(meter: Meter) -> NLPService:
+def load_aws(container: Container) -> NLPService:
     return load_nlp_service(
-        meter, "AWS", "aws", "BedrockService", "parlant.adapters.nlp.aws_service"
+        container, "AWS", "aws", "BedrockService", "parlant.adapters.nlp.aws_service"
     )
 
 
-def load_azure(meter: Meter) -> NLPService:
+def load_azure(container: Container) -> NLPService:
     from parlant.adapters.nlp.azure_service import AzureService
 
-    return AzureService(LOGGER, meter)
+    return AzureService(LOGGER, container[Meter])
 
 
-def load_cerebras(meter: Meter) -> NLPService:
+def load_cerebras(container: Container) -> NLPService:
     return load_nlp_service(
-        meter, "Cerebras", "cerebras", "CerebrasService", "parlant.adapters.nlp.cerebras_service"
+        container,
+        "Cerebras",
+        "cerebras",
+        "CerebrasService",
+        "parlant.adapters.nlp.cerebras_service",
     )
 
 
-def load_deepseek(meter: Meter) -> NLPService:
+def load_deepseek(container: Container) -> NLPService:
     return load_nlp_service(
-        meter, "DeepSeek", "deepseek", "DeepSeekService", "parlant.adapters.nlp.deepseek_service"
+        container,
+        "DeepSeek",
+        "deepseek",
+        "DeepSeekService",
+        "parlant.adapters.nlp.deepseek_service",
     )
 
 
-def load_modelscope(meter: Meter) -> NLPService:
+def load_modelscope(container: Container) -> NLPService:
     return load_nlp_service(
-        meter,
+        container,
         "ModelScope",
         "modelscope",
         "ModelScopeService",
@@ -344,27 +350,31 @@ def load_modelscope(meter: Meter) -> NLPService:
     )
 
 
-def load_gemini(meter: Meter) -> NLPService:
+def load_gemini(container: Container) -> NLPService:
     return load_nlp_service(
-        meter, "Gemini", "gemini", "GeminiService", "parlant.adapters.nlp.gemini_service"
+        container, "Gemini", "gemini", "GeminiService", "parlant.adapters.nlp.gemini_service"
     )
 
 
-def load_openai(meter: Meter) -> NLPService:
+def load_openai(container: Container) -> NLPService:
     from parlant.adapters.nlp.openai_service import OpenAIService
 
-    return OpenAIService(LOGGER, meter)
+    return OpenAIService(LOGGER, container[Meter])
 
 
-def load_together(meter: Meter) -> NLPService:
+def load_together(container: Container) -> NLPService:
     return load_nlp_service(
-        meter, "Together.ai", "together", "TogetherService", "parlant.adapters.nlp.together_service"
+        container,
+        "Together.ai",
+        "together",
+        "TogetherService",
+        "parlant.adapters.nlp.together_service",
     )
 
 
-def load_litellm(meter: Meter) -> NLPService:
+def load_litellm(container: Container) -> NLPService:
     return load_nlp_service(
-        meter,
+        container,
         "LiteLLM",
         "litellm",
         "LiteLLMService",
@@ -372,7 +382,7 @@ def load_litellm(meter: Meter) -> NLPService:
     )
 
 
-NLP_SERVICE_INITIALIZERS: dict[NLPServiceName, Callable[[Meter], NLPService]] = {
+NLP_SERVICE_INITIALIZERS: dict[NLPServiceName, Callable[[Container], NLPService]] = {
     "anthropic": load_anthropic,
     "aws": load_aws,
     "azure": load_azure,
@@ -434,11 +444,13 @@ async def load_modules(
 
 
 async def _define_logger(container: Container) -> None:
-    if OtelLogger.is_environment_set():
+    if os.environ.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"):
+        from parlant.adapters.loggers.opentelemetry import OpenTelemetryLogger
+
         print("OpenTelemetry logging is enabled.")
         container[Logger] = CompositeLogger(
             [
-                await EXIT_STACK.enter_async_context(OtelLogger(TRACER)),
+                await EXIT_STACK.enter_async_context(OpenTelemetryLogger(TRACER)),
                 container[WebSocketLogger],
             ]
         )
@@ -448,21 +460,25 @@ async def _define_logger(container: Container) -> None:
 
 
 async def _define_tracer(container: Container) -> None:
-    if OtelTracer.is_environment_set():
+    if os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"):
+        from parlant.adapters.tracing.opentelemetry import OpenTelemetryTracer
+
         print("OpenTelemetry tracing is enabled.")
-        container[Tracer] = await EXIT_STACK.enter_async_context(OtelTracer())
+        container[Tracer] = await EXIT_STACK.enter_async_context(OpenTelemetryTracer())
 
     else:
-        container[Tracer] = Singleton(LocalTracer)
+        _define_singleton(container, Tracer, LocalTracer)
 
 
 async def _define_meter(container: Container) -> None:
-    if OtelMeter.is_environment_set():
+    if not os.environ.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"):
+        from parlant.adapters.meter.opentelemetry import OpenTelemetryMeter
+
         print("OpenTelemetry metrics is enabled.")
-        container[Meter] = await EXIT_STACK.enter_async_context(OtelMeter())
+        container[Meter] = await EXIT_STACK.enter_async_context(OpenTelemetryMeter())
 
     else:
-        container[Meter] = Singleton(NullMeter)
+        _define_singleton(container, Meter, NullMeter)
 
 
 def _define_singleton(container: Container, interface: type, implementation: type) -> None:
@@ -713,7 +729,7 @@ async def initialize_container(
 
     if isinstance(nlp_service_descriptor, str):
         nlp_service_name = nlp_service_descriptor
-        nlp_service_instance = NLP_SERVICE_INITIALIZERS[nlp_service_name](c[Meter])
+        nlp_service_instance = NLP_SERVICE_INITIALIZERS[nlp_service_name](c)
     else:
         nlp_service_instance = await nlp_service_descriptor(c)
         nlp_service_name = nlp_service_instance.__class__.__name__

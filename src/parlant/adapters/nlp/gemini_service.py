@@ -95,9 +95,6 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
         self._tokenizer = GoogleEstimatingTokenizer(
             client=self._client, model_name=self.model_name  # new
         )
-        self._tokenizer = GoogleEstimatingTokenizer(
-            client=self._client, model_name=self.model_name  # new
-        )
 
     @property
     @override
@@ -382,9 +379,6 @@ class GoogleEmbedder(Embedder):
         self._tokenizer = GoogleEstimatingTokenizer(
             client=self._client, model_name=self.model_name
         )
-        self._tokenizer = GoogleEstimatingTokenizer(
-            client=self._client, model_name=self.model_name
-        )
 
     @property
     @override
@@ -472,8 +466,6 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
 
         return None
 
-    def __init__(self, logger: Logger, model_name: Optional[Union[List[str], str]] = None) -> None:
-        self._model_name = model_name
     def __init__(self, logger: Logger, model_name: Optional[Union[List[str], str]] = None) -> None:
         self._model_name = model_name
         self._logger = logger

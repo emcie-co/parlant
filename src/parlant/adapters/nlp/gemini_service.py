@@ -24,7 +24,7 @@ from google.api_core.exceptions import NotFound, TooManyRequests, ResourceExhaus
 import google.genai  # type: ignore
 import google.genai.types  # type: ignore
 from collections.abc import Mapping as MappingABC, Sequence as SequenceABC
-from typing import Any, List, Literal, Mapping, Optional, Sequence, Union, cast
+from typing import Any, Literal, Mapping, Optional, Sequence, Union, cast
 from typing_extensions import get_args, get_origin, override
 from pydantic import BaseModel, Field, ValidationError
 from pydantic.fields import FieldInfo
@@ -158,7 +158,6 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
                 model=self.model_name,
                 contents=prompt,
                 config=config,
-                config=config,
             )
         except TooManyRequests:
             self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
@@ -189,7 +188,6 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
             self._logger.trace(response.usage_metadata.model_dump_json(indent=2))
 
         try:
-            model_content = self.schema.model_validate(json_result)
             model_content = self.schema.model_validate(json_result)
 
             return SchematicGenerationResult(
@@ -462,47 +460,38 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
 
         return None
 
-    def __init__(self, logger: Logger, model_name: Optional[Union[List[str], str]] = None) -> None:
-        self._model_name = model_name
+    def __init__(self, logger: Logger, model_names: Union[list[str], str] | None = None) -> None:
+        self._model_names = model_names
         self._logger = logger
         self._logger.info("Initialized GeminiService")
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> GeminiSchematicGenerator[T]:
-        selected_model = self._model_name
+        model_classes: list[GeminiSchematicGenerator[T]] = []
 
-        if isinstance(selected_model, list):
-            model_classes: List[SchematicGenerator][T] = []
-            for model_name in selected_model:
-                model_cls = self._resolve_model_class(model_name)
-                if model_cls:
-                    model_classes.append(model_cls[t](self._logger))
+        # Normalize to list for consistent handling
+        names = [self._model_names] if isinstance(self._model_names, str) else (self._model_names or [])
 
-            if not model_classes:
-                self._logger.warning("No valid models found in list, falling back to defaults.")
-                model_classes = [
-                    Gemini_2_5_Flash[t](self._logger),
-                    Gemini_2_5_Pro[t](self._logger),
-                ]
-
-            return FallbackSchematicGenerator[t](*model_classes, logger=self._logger)
-
-        if isinstance(selected_model, str):
-            model_cls = self._resolve_model_class(selected_model)
+        for name in names:
+            model_cls = self._resolve_model_class(name)
             if model_cls:
-                return model_cls[t](self._logger)
+                model_classes.append(model_cls[t](self._logger))
 
-            self._logger.warning(
-                f"Unrecognized model name: '{selected_model}', falling back to defaults."
-            )
+        # If nothing valid found, fall back to defaults
+        if not model_classes:
+            model_classes = [
+                Gemini_2_5_Flash[t](self._logger),
+                Gemini_2_5_Pro[t](self._logger),
+            ]
 
-        return FallbackSchematicGenerator[t](
-            Gemini_2_5_Flash[t](self._logger),
-            Gemini_2_5_Pro[t](self._logger),
-            logger=self._logger,
-        )
+        # If only one model, return it directly
+        if len(model_classes) == 1:
+            return model_classes[0]
 
-    async def _resolve_model_class(self, model_name: str) -> Optional[type[GeminiSchematicGenerator[T]]]:
+        # Otherwise, wrap multiple models in a fallback generator
+        return FallbackSchematicGenerator[t](*model_classes, logger=self._logger)
+
+    def _resolve_model_class(self, model_name: str) -> Optional[type[GeminiSchematicGenerator[T]]]:
         """Maps model names to their respective Gemini implementations."""
         mapping = {
             "gemini-2.5-pro": Gemini_2_5_Pro,

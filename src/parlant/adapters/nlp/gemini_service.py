@@ -30,7 +30,6 @@ from pydantic import BaseModel, Field, ValidationError
 from pydantic.fields import FieldInfo
 
 from parlant.core.common import DefaultBaseModel
-from parlant.core.common import DefaultBaseModel
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
@@ -92,9 +91,7 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
 
         self._client = google.genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
-        self._tokenizer = GoogleEstimatingTokenizer(
-            client=self._client, model_name=self.model_name  # new
-        )
+        self._tokenizer = GoogleEstimatingTokenizer(client=self._client, model_name=self.model_name)
 
     @property
     @override
@@ -219,7 +216,6 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
             )
         except ValidationError:
             self._logger.error(
-                f"JSON content returned by {self.model_name} does not match expected schema:\n{json_result}"
                 f"JSON content returned by {self.model_name} does not match expected schema:\n{json_result}"
             )
             raise

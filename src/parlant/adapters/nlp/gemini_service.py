@@ -12,17 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import enum
+import inspect
 import os
 import time
+import types
 from google.api_core.exceptions import NotFound, TooManyRequests, ResourceExhausted, ServerError
 import google.genai  # type: ignore
 import google.genai.types  # type: ignore
-from typing import Any, Mapping, cast
-from typing_extensions import override
-import jsonfinder  # type: ignore
-from pydantic import ValidationError
+from collections.abc import Mapping as MappingABC, Sequence as SequenceABC
+from typing import Any, List, Literal, Mapping, Optional, Sequence, Union, cast
+from typing_extensions import get_args, get_origin, override
+from pydantic import BaseModel, Field, ValidationError
+from pydantic.fields import FieldInfo
 
-from parlant.adapters.nlp.common import normalize_json_output
+from parlant.core.common import DefaultBaseModel
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
@@ -84,7 +88,9 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
 
         self._client = google.genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
-        self._tokenizer = GoogleEstimatingTokenizer(client=self._client, model_name=self.model_name)
+        self._tokenizer = GoogleEstimatingTokenizer(
+            client=self._client, model_name=self.model_name  # new
+        )
 
     @property
     @override
@@ -118,18 +124,26 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
             prompt = prompt.build()
 
         gemini_api_arguments = {k: v for k, v in hints.items() if k in self.supported_hints}
-        config = {
-            "response_mime_type": "application/json",
-            "response_schema": self.schema.model_json_schema(),
-            **gemini_api_arguments,
-        }
+
+        fd = self._get_schema_function_declaration()
+
+        config = google.genai.types.GenerateContentConfig(
+            tools=[google.genai.types.Tool(function_declarations=[fd])],
+            tool_config=google.genai.types.ToolConfig(
+                function_calling_config=google.genai.types.FunctionCallingConfig(
+                    mode=google.genai.types.FunctionCallingConfigMode.ANY,
+                    allowed_function_names=[fd.name],
+                )
+            ),
+            **gemini_api_arguments,  # type: ignore
+        )
 
         t_start = time.time()
         try:
             response = await self._client.aio.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
-                config=cast(google.genai.types.GenerateContentConfigOrDict, config),
+                config=config,
             )
         except TooManyRequests:
             self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
@@ -137,29 +151,21 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
 
         t_end = time.time()
 
-        raw_content = response.text
-        try:
-            json_content = normalize_json_output(raw_content or "{}")
-            json_content = json_content.replace("“", '"').replace("”", '"')
+        assert response.candidates
+        assert response.candidates[0].content
+        assert response.candidates[0].content.parts
+        assert response.candidates[0].content.parts[0].function_call
+        assert response.candidates[0].content.parts[0].function_call.args
 
-            # Fix cases where Gemini return double-escaped sequences
-            for control_character in "utn":
-                json_content = json_content.replace(
-                    f"\\\\{control_character}", f"\\{control_character}"
-                )
-
-            json_object = jsonfinder.only_json(json_content)[2]
-        except Exception:
-            self._logger.error(
-                f"Failed to extract JSON returned by {self.model_name}:\n{raw_content}"
-            )
-            raise
+        json_result = (
+            response.candidates[0].content.parts[0].function_call.args.get("log_data", {}) or {}
+        )
 
         if response.usage_metadata:
             self._logger.trace(response.usage_metadata.model_dump_json(indent=2))
 
         try:
-            model_content = self.schema.model_validate(json_object)
+            model_content = self.schema.model_validate(json_result)
 
             return SchematicGenerationResult(
                 content=model_content,
@@ -185,9 +191,36 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
             )
         except ValidationError:
             self._logger.error(
-                f"JSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
+                f"JSON content returned by {self.model_name} does not match expected schema:\n{json_result}"
             )
             raise
+
+    def _get_schema_function_declaration(self) -> google.genai.types.FunctionDeclaration:
+        # Create a signature from parameters
+        sig = inspect.Signature(
+            parameters=[
+                inspect.Parameter(
+                    name="log_data",
+                    kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    annotation=convert_model_to_gemini_compatible_schema(self.schema),
+                )
+            ],
+            return_annotation=bool,
+        )
+
+        # Create a fake callable
+        def log_data() -> None:
+            pass
+
+        # Attach the signature
+        log_data.__signature__ = sig  # type: ignore
+
+        fd = google.genai.types.FunctionDeclaration.from_callable(
+            callable=log_data,
+            client=self._client,  # type: ignore
+        )
+
+        return fd
 
 
 class Gemini_1_5_Flash(GeminiSchematicGenerator[T]):
@@ -287,7 +320,9 @@ class GoogleEmbedder(Embedder):
 
         self._logger = logger
         self._client = google.genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-        self._tokenizer = GoogleEstimatingTokenizer(client=self._client, model_name=self.model_name)
+        self._tokenizer = GoogleEstimatingTokenizer(
+            client=self._client, model_name=self.model_name
+        )
 
     @property
     @override
@@ -375,20 +410,58 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
 
         return None
 
-    def __init__(
-        self,
-        logger: Logger,
-    ) -> None:
+    def __init__(self, logger: Logger, model_name: Optional[Union[List[str], str]] = None) -> None:
+        self._model_name = model_name
         self._logger = logger
         self._logger.info("Initialized GeminiService")
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> GeminiSchematicGenerator[T]:
-        return FallbackSchematicGenerator[t](  # type: ignore
-            Gemini_2_5_Flash[t](self._logger),  # type: ignore
-            Gemini_2_5_Pro[t](self._logger),  # type: ignore
+        selected_model = self._model_name
+
+        if isinstance(selected_model, list):
+            model_classes: List[SchematicGenerator][T] = []
+            for model_name in selected_model:
+                model_cls = self._resolve_model_class(model_name)
+                if model_cls:
+                    model_classes.append(model_cls[t](self._logger))
+
+            if not model_classes:
+                self._logger.warning("No valid models found in list, falling back to defaults.")
+                model_classes = [
+                    Gemini_2_5_Flash[t](self._logger),
+                    Gemini_2_5_Pro[t](self._logger),
+                ]
+
+            return FallbackSchematicGenerator[t](*model_classes, logger=self._logger)
+
+        if isinstance(selected_model, str):
+            model_cls = self._resolve_model_class(selected_model)
+            if model_cls:
+                return model_cls[t](self._logger)
+
+            self._logger.warning(
+                f"Unrecognized model name: '{selected_model}', falling back to defaults."
+            )
+
+        return FallbackSchematicGenerator[t](
+            Gemini_2_5_Flash[t](self._logger),
+            Gemini_2_5_Pro[t](self._logger),
             logger=self._logger,
         )
+
+    async def _resolve_model_class(self, model_name: str) -> Optional[type[GeminiSchematicGenerator[T]]]:
+        """Maps model names to their respective Gemini implementations."""
+        mapping = {
+            "gemini-2.5-pro": Gemini_2_5_Pro,
+            "gemini-2.5-flash": Gemini_2_5_Flash,
+            "gemini-2.0-flash": Gemini_2_0_Flash,
+            "gemini-2.0-flash-lite": Gemini_2_0_Flash_Lite,
+            "gemini-1.5-pro": Gemini_1_5_Pro,
+            "gemini-1.5-flash": Gemini_1_5_Flash,
+        }
+        return mapping.get(model_name)
+
 
     @override
     async def get_embedder(self) -> Embedder:
@@ -397,3 +470,103 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
     @override
     async def get_moderation_service(self) -> ModerationService:
         return NoModeration()
+
+
+def convert_type_annotation_to_gemini_compatible_schema(annotation: Any) -> Any:
+    origin = get_origin(annotation)
+
+    # If not a generic type, check if it's a BaseModel or Enum
+    if origin is None:
+        # If it's an Enum class, convert to Literal of its values
+        if inspect.isclass(annotation) and issubclass(annotation, enum.Enum):
+            enum_values = tuple(member.value for member in annotation)
+            if len(enum_values) == 1:
+                return Literal[enum_values[0]]
+            return Literal.__getitem__(enum_values)
+
+        # If it's a BaseModel class, recursively convert it
+        if inspect.isclass(annotation) and issubclass(annotation, DefaultBaseModel):
+            return convert_model_to_gemini_compatible_schema(annotation)
+
+        return annotation
+
+    # Get the type arguments
+    args = get_args(annotation)
+
+    # Convert nested types recursively
+    converted_args = tuple(convert_type_annotation_to_gemini_compatible_schema(arg) for arg in args)
+
+    # Check if origin is Mapping or Sequence
+    if origin is Mapping or origin is MappingABC:
+        return dict[converted_args] if converted_args else dict  # type: ignore
+
+    if origin is Sequence or origin is SequenceABC:
+        return list[converted_args] if converted_args else list  # type: ignore
+
+    # Handle UnionType (X | Y syntax) - not subscriptable!
+    if origin is types.UnionType:
+        return Union[converted_args]
+
+    # For other generic types, preserve the origin with converted args
+    if converted_args:
+        return origin[converted_args]
+
+    return annotation
+
+
+def convert_model_to_gemini_compatible_schema(model_cls: type[DefaultBaseModel]) -> type[BaseModel]:
+    """
+    Create a new BaseModel class with converted annotations.
+    Returns a new class without modifying the original.
+    """
+    # Avoid infinite recursion - check if already converted
+    if hasattr(model_cls, "_conversion_cache"):
+        return cast(type[BaseModel], model_cls._conversion_cache)
+
+    # Build new annotations
+    new_annotations = {}
+    new_fields = {}
+
+    for field_name, field_info in model_cls.model_fields.items():
+        # Convert the annotation
+        converted_annotation = convert_type_annotation_to_gemini_compatible_schema(
+            field_info.annotation
+        )
+        new_annotations[field_name] = converted_annotation
+
+        # Preserve field metadata (default, description, etc.)
+        # We need to recreate the field with the new annotation
+        field_kwargs = {}
+
+        if field_info.default is not None and field_info.default is not FieldInfo:
+            field_kwargs["default"] = field_info.default
+        elif field_info.default_factory is not None:
+            field_kwargs["default_factory"] = field_info.default_factory
+
+        if field_info.description is not None:
+            field_kwargs["description"] = field_info.description
+
+        if field_info.title is not None:
+            field_kwargs["title"] = field_info.title
+
+        if field_info.examples is not None:
+            field_kwargs["examples"] = field_info.examples
+
+        # Add other field properties as needed
+        if field_kwargs:
+            new_fields[field_name] = Field(**field_kwargs)
+
+    # Create new model class
+    new_model_attrs = {"__annotations__": new_annotations, **new_fields}
+
+    # Preserve model config if present
+    if hasattr(model_cls, "model_config"):
+        new_model_attrs["model_config"] = model_cls.model_config
+
+    # Create the new class
+    converted_model = type(f"{model_cls.__name__}Converted", (DefaultBaseModel,), new_model_attrs)
+
+    # Cache the conversion to avoid infinite recursion
+    setattr(model_cls, "_conversion_cache", converted_model)
+
+    return converted_model

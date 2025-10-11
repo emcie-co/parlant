@@ -129,7 +129,6 @@ class ModelScopeSchematicGenerator(SchematicGenerator[T]):
 
         t_start = time.time()
         response = await self._client.chat.completions.create(
-            # messages=[{"role": "user", "content": prompt + "你只能输出一个严格符合JSON格式的对象，不要包含任何额外文本"}],
             messages=[{"role": "user", "content": prompt}],
             model=self.model_name,
             stream=True,

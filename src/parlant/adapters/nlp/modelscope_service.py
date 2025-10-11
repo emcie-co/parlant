@@ -178,7 +178,7 @@ class ModelScopeSchematicGenerator(SchematicGenerator[T]):
             raise
 
 
-class ModelScope_Chat(ModelScopeSchematicGenerator[T]):
+class ModelScopeChat(ModelScopeSchematicGenerator[T]):
     def __init__(self, logger: Logger) -> None:
         model_name = os.environ["MODELSCOPE_MODEL_NAME"]
         super().__init__(model_name=model_name, logger=logger)
@@ -214,7 +214,7 @@ Please set MODELSCOPE_API_KEY in your environment before running Parlant.
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> ModelScopeSchematicGenerator[T]:
-        return ModelScope_Chat[t](self._logger)  # type: ignore
+        return ModelScopeChat[t](self._logger)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:

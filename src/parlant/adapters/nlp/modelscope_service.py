@@ -139,7 +139,6 @@ class ModelScopeSchematicGenerator(SchematicGenerator[T]):
         )
         t_end = time.time()
 
-        # 收集流式响应内容
         raw_content = ""
         async for chunk in response:
             if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:

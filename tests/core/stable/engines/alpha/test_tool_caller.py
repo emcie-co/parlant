@@ -686,7 +686,7 @@ async def test_that_a_tool_from_a_plugin_with_missing_parameters_returns_the_mis
         street: Annotated[str, ToolParameterOptions(precedence=1)],
         house_number: Annotated[str, ToolParameterOptions(precedence=1)],
         number_of_entries: Annotated[int, ToolParameterOptions(hidden=True, precedence=2)],
-        donation_amount: Annotated[Optional[int], ToolParameterOptions(required=False)] = None,
+        donation_amount: Annotated[Optional[int], ToolParameterOptions()] = None,
     ) -> ToolResult:
         return ToolResult({"success": True})
 

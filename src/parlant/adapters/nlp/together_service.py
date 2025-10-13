@@ -68,7 +68,7 @@ class LlamaEstimatingTokenizer(EstimatingTokenizer):
 
 
 class TogetherAISchematicGenerator(SchematicGenerator[T]):
-    supported_hints = ["temperature"]
+    supported_hints = ["temperature", "max_tokens", "top_p", "top_k"]
 
     def __init__(
         self,
@@ -78,6 +78,23 @@ class TogetherAISchematicGenerator(SchematicGenerator[T]):
         self.model_name = model_name
         self._logger = logger
         self._client = AsyncTogether(api_key=os.environ.get("TOGETHER_API_KEY"))
+        self._estimating_tokenizer = LlamaEstimatingTokenizer()
+
+    @property
+    @override
+    def id(self) -> str:
+        return self.model_name
+
+    @property
+    @override
+    def tokenizer(self) -> LlamaEstimatingTokenizer:
+        return self._estimating_tokenizer
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        # Default max tokens, can be overridden by specific model classes
+        return 128 * 1024
 
     @policy(
         [
@@ -157,22 +174,6 @@ class Llama3_1_8B(TogetherAISchematicGenerator[T]):
             model_name="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
             logger=logger,
         )
-        self._estimating_tokenizer = LlamaEstimatingTokenizer()
-
-    @property
-    @override
-    def id(self) -> str:
-        return self.model_name
-
-    @property
-    @override
-    def max_tokens(self) -> int:
-        return 128 * 1024
-
-    @property
-    @override
-    def tokenizer(self) -> LlamaEstimatingTokenizer:
-        return self._estimating_tokenizer
 
 
 class Llama3_1_70B(TogetherAISchematicGenerator[T]):
@@ -182,23 +183,6 @@ class Llama3_1_70B(TogetherAISchematicGenerator[T]):
             logger=logger,
         )
 
-        self._estimating_tokenizer = LlamaEstimatingTokenizer()
-
-    @property
-    @override
-    def id(self) -> str:
-        return self.model_name
-
-    @property
-    @override
-    def tokenizer(self) -> LlamaEstimatingTokenizer:
-        return self._estimating_tokenizer
-
-    @property
-    @override
-    def max_tokens(self) -> int:
-        return 128 * 1024
-
 
 class Llama3_1_405B(TogetherAISchematicGenerator[T]):
     def __init__(self, logger: Logger) -> None:
@@ -207,23 +191,6 @@ class Llama3_1_405B(TogetherAISchematicGenerator[T]):
             logger=logger,
         )
 
-        self._estimating_tokenizer = LlamaEstimatingTokenizer()
-
-    @property
-    @override
-    def id(self) -> str:
-        return self.model_name
-
-    @property
-    @override
-    def tokenizer(self) -> LlamaEstimatingTokenizer:
-        return self._estimating_tokenizer
-
-    @property
-    @override
-    def max_tokens(self) -> int:
-        return 128 * 1024
-
 
 class Llama3_3_70B(TogetherAISchematicGenerator[T]):
     def __init__(self, logger: Logger) -> None:
@@ -231,23 +198,6 @@ class Llama3_3_70B(TogetherAISchematicGenerator[T]):
             model_name="meta-llama/Llama-3.3-70B-Instruct-Turbo",
             logger=logger,
         )
-
-        self._estimating_tokenizer = LlamaEstimatingTokenizer()
-
-    @property
-    @override
-    def id(self) -> str:
-        return self.model_name
-
-    @property
-    @override
-    def tokenizer(self) -> LlamaEstimatingTokenizer:
-        return self._estimating_tokenizer
-
-    @property
-    @override
-    def max_tokens(self) -> int:
-        return 128 * 1024
 
 
 class TogetherAIEmbedder(Embedder):
@@ -317,15 +267,72 @@ class M2Bert32K(TogetherAIEmbedder):
         return 768
 
 
+class CustomTogetherAISchematicGenerator(TogetherAISchematicGenerator[T]):
+    """Generic Together AI generator that accepts any model name."""
+
+    def __init__(
+        self, model_name: str, logger: Logger
+    ) -> None:
+        super().__init__(
+            model_name=model_name,
+            logger=logger,
+        )
+
+
+class CustomTogetherAIEmbedder(TogetherAIEmbedder):
+    """Generic Together AI embedder that accepts any model name."""
+    
+    def __init__(self, model_name: str, logger: Logger) -> None:
+        super().__init__(model_name=model_name, logger=logger)
+        self._estimating_tokenizer = HuggingFaceEstimatingTokenizer(model_name)
+        self._dimensions = int(os.environ.get("TOGETHER_EMBEDDING_DIMENSIONS", "768"))
+
+    @property
+    @override
+    def id(self) -> str:
+        return self.model_name
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return int(os.environ.get("TOGETHER_EMBEDDING_MAX_TOKENS", "32768"))
+
+    @property
+    @override
+    def tokenizer(self) -> HuggingFaceEstimatingTokenizer:
+        return self._estimating_tokenizer
+
+    @property
+    @override
+    def dimensions(self) -> int:
+        return self._dimensions
+
+
 class TogetherService(NLPService):
     @staticmethod
     def verify_environment() -> str | None:
         """Returns an error message if the environment is not set up correctly."""
 
-        if not os.environ.get("TOGETHER_API_KEY"):
-            return """\
-You're using the OpenAI NLP service, but TOGETHER_API_KEY is not set.
-Please set TOGETHER_API_KEY in your environment before running Parlant.
+        required_vars = {
+            "TOGETHER_API_KEY": "your-together-api-key",
+            "TOGETHER_MODEL": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+            "TOGETHER_EMBEDDING_MODEL": "togethercomputer/m2-bert-80M-32k-retrieval",
+        }
+
+        missing_vars = []
+        for var_name, example_value in required_vars.items():
+            if not os.environ.get(var_name):
+                missing_vars.append(f'export {var_name}="{example_value}"')
+
+        if missing_vars:
+            return f"""\
+You're using the Together AI NLP service, but the following environment variables are not set:
+
+{chr(10).join(missing_vars)}
+
+Please set these environment variables before running Parlant.
+
+Available models can be found at: https://docs.together.ai/docs/inference-models
 """
 
         return None
@@ -334,16 +341,66 @@ Please set TOGETHER_API_KEY in your environment before running Parlant.
         self,
         logger: Logger,
     ) -> None:
+        self.model_name = os.environ.get("TOGETHER_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo")
+        self.embedding_model = os.environ.get("TOGETHER_EMBEDDING_MODEL", "togethercomputer/m2-bert-80M-32k-retrieval")
         self._logger = logger
-        self._logger.info("Initialized TogetherService")
+        self._logger.info(f"Initialized TogetherService with model: {self.model_name}")
+
+    def _get_specialized_generator_class(
+        self,
+        model_name: str,
+        schema_type: type[T],
+    ) -> type[TogetherAISchematicGenerator[T]] | None:
+        """
+        Returns the specialized generator class for known models, or None for custom models.
+        """
+        model_to_class: dict[str, type[TogetherAISchematicGenerator[T]]] = {
+            "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo": Llama3_1_8B[schema_type],  # type: ignore
+            "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo": Llama3_1_70B[schema_type],  # type: ignore
+            "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo": Llama3_1_405B[schema_type],  # type: ignore
+            "meta-llama/Llama-3.3-70B-Instruct-Turbo": Llama3_3_70B[schema_type],  # type: ignore
+        }
+
+        return model_to_class.get(model_name)
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> TogetherAISchematicGenerator[T]:
-        return Llama3_3_70B[t](self._logger)  # type: ignore
+        specialized_class = self._get_specialized_generator_class(self.model_name, schema_type=t)
+
+        if specialized_class:
+            self._logger.debug(f"Using specialized generator for model: {self.model_name}")
+            return specialized_class(logger=self._logger)
+        else:
+            self._logger.debug(f"Using custom generator for model: {self.model_name}")
+            return CustomTogetherAISchematicGenerator[t](  # type: ignore
+                model_name=self.model_name, logger=self._logger
+            )
+
+    def _get_specialized_embedder_class(
+        self,
+        model_name: str,
+    ) -> type[TogetherAIEmbedder] | None:
+        """
+        Returns the specialized embedder class for known models, or None for custom models.
+        """
+        model_to_class: dict[str, type[TogetherAIEmbedder]] = {
+            "togethercomputer/m2-bert-80M-32k-retrieval": M2Bert32K,
+        }
+
+        return model_to_class.get(model_name)
 
     @override
     async def get_embedder(self) -> Embedder:
-        return M2Bert32K(self._logger)
+        specialized_class = self._get_specialized_embedder_class(self.embedding_model)
+
+        if specialized_class:
+            self._logger.debug(f"Using specialized embedder for model: {self.embedding_model}")
+            return specialized_class(logger=self._logger)
+        else:
+            self._logger.debug(f"Using custom embedder for model: {self.embedding_model}")
+            return CustomTogetherAIEmbedder(
+                model_name=self.embedding_model, logger=self._logger
+            )
 
     @override
     async def get_moderation_service(self) -> ModerationService:

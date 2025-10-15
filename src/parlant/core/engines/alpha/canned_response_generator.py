@@ -1185,7 +1185,7 @@ Otherwise, follow the rest of this prompt to choose the content of your response
                 name="canned-response-generator-draft-ongoing-interaction-instructions",
                 template="""
 Since the interaction with the user is already ongoing, always produce a reply to the user's last message.
-The only exception where you may not produce a reply (i.e., setting message = null) is if the user explicitly asked you not to respond to their message.
+The only exception where you may not produce a reply (i.e., setting message = null) is if the user, or a provided guideline, explicitly asked you not to respond.
 In all other cases, even if the user is indicating that the conversation is over, you must produce a reply.
                 """,
                 props={},

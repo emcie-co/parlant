@@ -222,6 +222,7 @@ from parlant.core.application import Application
 from parlant.core.version import VERSION
 
 
+DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8800
 SERVER_ADDRESS = "https://localhost"
 CONFIG_FILE_PATH = Path("parlant.toml")
@@ -266,6 +267,7 @@ NLPServiceName = Literal[
 
 @dataclass
 class StartupParameters:
+    host: str
     port: int
     nlp_service: NLPServiceName | Callable[[Container], Awaitable[NLPService]]
     log_level: str | LogLevel
@@ -898,16 +900,18 @@ def _print_startup_banner() -> None:
 async def serve_app(
     container: Container,
     app: ASGIApplication,
+    host: str,
     port: int,
 ) -> None:
     config = uvicorn.Config(
         app,
-        host="0.0.0.0",
+        host=host,
         port=port,
         log_level="critical",
         timeout_graceful_shutdown=1,
     )
     server = uvicorn.Server(config)
+    host_txt = "localhost" if host in ["127.0.0.1", "0.0.0.0"] else host
 
     try:
         LOGGER.info(".-----------------------------------------.")
@@ -916,9 +920,9 @@ async def serve_app(
         LOGGER.info(f"Server authorization policy: {container[AuthorizationPolicy].name}")
 
         if isinstance(container[AuthorizationPolicy], DevelopmentAuthorizationPolicy):
-            LOGGER.info(f"Try the Sandbox UI at http://localhost:{port}")
+            LOGGER.info(f"Try the Sandbox UI at http://{host_txt}:{port}")
         else:
-            LOGGER.info(f"Server address: http://localhost:{port}")
+            LOGGER.info(f"Server address: http://{host_txt}:{port}")
 
         await server.serve()
         await asyncio.sleep(0)  # Required to trigger the possible cancellation error
@@ -972,6 +976,7 @@ async def start_parlant(params: StartupParameters) -> AsyncIterator[Container]:
         await serve_app(
             container,
             app,
+            params.host,
             params.port,
         )
 
@@ -1001,6 +1006,13 @@ def main() -> None:
             transform_and_exec_help(" ".join(command))
 
     @cli.command("run", help="Run the server")
+    @click.option(
+        "-h",
+        "--host",
+        type=str,
+        default=DEFAULT_HOST,
+        help="NIC to which the server will bind.",
+    )
     @click.option(
         "-p",
         "--port",
@@ -1109,6 +1121,7 @@ def main() -> None:
     @click.pass_context
     def run(
         ctx: click.Context,
+        host: str,
         port: int,
         openai: bool,
         aws: bool,
@@ -1167,6 +1180,7 @@ def main() -> None:
             assert False, "Should never get here"
 
         ctx.obj = StartupParameters(
+            host=host,
             port=port,
             nlp_service=cast(NLPServiceName, nlp_service),
             log_level=log_level,

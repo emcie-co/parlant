@@ -2116,6 +2116,7 @@ class Server:
     This class is responsible for initializing the server, managing the lifecycle of the agent, and providing access to various services and components.
 
     Args:
+        host: The NIC host to which the server will bind.
         port: The port on which the server will run.
         tool_service_port: The port for the integrated tool service.
         nlp_service: A factory function to create an NLP service instance. See `NLPServiceFactories` for available options.
@@ -2135,6 +2136,8 @@ class Server:
 
     def __init__(
         self,
+        *,
+        host: str = "0.0.0.0",
         port: int = 8800,
         tool_service_port: int = 8818,
         nlp_service: Callable[[Container], NLPService] = NLPServices.openai,
@@ -2147,6 +2150,7 @@ class Server:
         configure_container: Callable[[Container], Awaitable[Container]] | None = None,
         initialize_container: Callable[[Container], Awaitable[None]] | None = None,
     ) -> None:
+        self.host = host
         self.port = port
         self.tool_service_port = tool_service_port
         self.log_level = log_level
@@ -3078,6 +3082,7 @@ class Server:
                 await self._initialize(c)
 
         return StartupParameters(
+            host=self.host,
             port=self.port,
             nlp_service=async_nlp_service_shim,
             log_level=self.log_level,

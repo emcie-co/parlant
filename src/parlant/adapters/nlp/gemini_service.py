@@ -297,6 +297,30 @@ class Gemini_2_5_Flash(GeminiSchematicGenerator[T]):
         return 1024 * 1024
 
 
+class Gemini_2_5_Flash_Lite(GeminiSchematicGenerator[T]):
+    def __init__(self, logger: Logger) -> None:
+        super().__init__(
+            model_name="gemini-2.5-flash-lite",
+            logger=logger,
+        )
+
+    @override
+    async def generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[T]:
+        return await super().generate(
+            prompt,
+            {"thinking_config": {"thinking_budget": 0}, **hints},
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 1024 * 1024
+
+
 class Gemini_2_5_Pro(GeminiSchematicGenerator[T]):
     def __init__(self, logger: Logger) -> None:
         super().__init__(

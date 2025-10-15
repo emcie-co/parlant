@@ -1037,9 +1037,9 @@ def main() -> None:
         is_flag=True,
         help=(
             """
-    Run with AWS Bedrock. The following environment variables must be set: 
-    AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION 
-    (optionally AWS_SESSION_TOKEN if you are using temporary credentials). 
+    Run with AWS Bedrock. The following environment variables must be set:
+    AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+    (optionally AWS_SESSION_TOKEN if you are using temporary credentials).
     Also, install the extra package parlant[aws]."""
         ),
         default=False,
@@ -1077,14 +1077,14 @@ def main() -> None:
     @click.option(
         "--litellm",
         is_flag=True,
-        help="""Run with LiteLLM. The following environment variables must be set: 
+        help="""Run with LiteLLM. The following environment variables must be set:
                 LITELLM_PROVIDER_MODEL_NAME, LITELLM_PROVIDER_API_KEY.
 
-                Optionally, you may also set a proxy URL using the environment 
+                Optionally, you may also set a proxy URL using the environment
                 variable LITELLM_PROVIDER_BASE_URL.
 
-                Check this link https://docs.litellm.ai/docs/providers for additional 
-                environment variables required for your provider. Be sure to set them 
+                Check this link https://docs.litellm.ai/docs/providers for additional
+                environment variables required for your provider. Be sure to set them
                 and install the extra package parlant[litellm].""",
         default=False,
     )

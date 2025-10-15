@@ -168,7 +168,7 @@ const LogFilters = ({
 			<Tooltip value={text} side='top' delayDuration={1000}>
 				<div key={text} className={twMerge('group px-[2px] cursor-default max-w-[320px] bg-white border-[#EEEEEE] border h-[30px] rounded-[5px] flex justify-center items-center w-fit', wrapperClassName)}>
 					<div className={twMerge('flex items-center w-full justify-between max-w-full rounded-[3px] h-[calc(100%-4px)] py-[5px] ps-[5px] pe-[6px] gap-[8px]', className)}>
-						<div className='flex items-center gap-[8px] leading-[16px]'>
+						<div className='flex items-center gap-[8px] leading-[16px] max-w-[-webkit-fill-available]'>
 							<img src='icons/text.svg' alt='' />
 							<p className='text-nowrap cursor-default max-w-full overflow-hidden text-ellipsis font-light text-[14px]'>{text}</p>
 						</div>

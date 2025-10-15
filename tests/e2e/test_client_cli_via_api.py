@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+from asyncio import subprocess
 import json
 import os
 import tempfile
@@ -37,9 +38,7 @@ from tests.test_utilities import (
 REASONABLE_AMOUNT_OF_TIME_FOR_TERM_CREATION = 0.25
 
 
-async def run_cli(
-    *args: str, address: str = SERVER_ADDRESS, **kwargs: Any
-) -> asyncio.subprocess.Process:
+async def run_cli(*args: str, address: str = SERVER_ADDRESS, **kwargs: Any) -> subprocess.Process:
     exec_args = [
         "poetry",
         "run",
@@ -80,8 +79,8 @@ async def test_that_an_agent_can_be_added(context: ContextOfTest) -> None:
             description,
             "--max-engine-iterations",
             str(123),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
@@ -100,8 +99,8 @@ async def test_that_an_agent_can_be_added(context: ContextOfTest) -> None:
             "create",
             "--name",
             "Test Agent With No Description",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
@@ -136,8 +135,8 @@ async def test_that_an_agent_can_be_updated(
             str(new_max_engine_iterations),
             "--composition-mode",
             "strict_canned",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
@@ -195,8 +194,8 @@ async def test_that_sessions_can_be_listed(
         process = await run_cli(
             "session",
             "list",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout, stderr = await process.communicate()
@@ -212,8 +211,8 @@ async def test_that_sessions_can_be_listed(
             "list",
             "--customer-id",
             first_customer,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout, stderr = await process.communicate()
@@ -270,8 +269,8 @@ async def test_that_a_term_can_be_created_with_synonyms(
             description,
             "--synonyms",
             synonyms,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
@@ -294,8 +293,8 @@ async def test_that_a_term_can_be_created_without_synonyms(
             term_name,
             "--description",
             description,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
@@ -334,8 +333,8 @@ async def test_that_a_term_can_be_updated(
             new_description,
             "--synonyms",
             new_synonyms,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
@@ -364,8 +363,8 @@ async def test_that_a_term_can_be_deleted(
             "delete",
             "--id",
             term["id"],
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
@@ -391,8 +390,8 @@ async def test_that_a_guideline_can_be_added(
             condition,
             "--action",
             action,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
@@ -423,8 +422,8 @@ async def test_that_a_guideline_can_be_updated(
             condition,
             "--action",
             updated_action,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
@@ -457,8 +456,8 @@ async def test_that_guidelines_can_be_entailed(
             condition1,
             "--action",
             action1,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
@@ -473,8 +472,8 @@ async def test_that_guidelines_can_be_entailed(
             condition2,
             "--action",
             action2,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
@@ -500,8 +499,8 @@ async def test_that_guidelines_can_be_entailed(
             first_guideline["id"],
             "--target",
             second_guideline["id"],
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         await process.communicate()
@@ -530,8 +529,8 @@ async def test_that_a_guideline_can_be_deleted(
             "delete",
             "--id",
             guideline["id"],
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
@@ -673,8 +672,8 @@ async def test_that_variables_can_be_listed(
         process = await run_cli(
             "variable",
             "list",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
 
@@ -842,8 +841,8 @@ async def test_that_a_variable_can_be_deleted(
             "delete",
             "--id",
             variable["id"],
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
@@ -875,8 +874,8 @@ async def test_that_a_variable_value_can_be_set_with_json(
             key,
             "--value",
             json.dumps(data),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
@@ -908,8 +907,8 @@ async def test_that_a_variable_value_can_be_set_with_string(
             key,
             "--value",
             data,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
@@ -946,8 +945,8 @@ async def test_that_a_variables_values_can_be_retrieved(
             "get",
             "--id",
             variable["id"],
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout_get_all_values, stderr_get_all = await process.communicate()
@@ -968,8 +967,8 @@ async def test_that_a_variables_values_can_be_retrieved(
             variable["id"],
             "--key",
             specific_key,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout, stderr = await process.communicate()
@@ -1149,8 +1148,8 @@ async def test_that_a_service_can_be_deleted(
             "delete",
             "--name",
             service_name,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout_view, stderr_view = await process.communicate()
@@ -1180,8 +1179,8 @@ async def test_that_services_can_be_listed(
         process = await run_cli(
             "service",
             "list",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
 
@@ -1209,8 +1208,8 @@ async def test_that_a_service_can_be_viewed(
             "view",
             "--name",
             service_name,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
 
@@ -1238,8 +1237,8 @@ async def test_that_customers_can_be_listed(context: ContextOfTest) -> None:
         process = await run_cli(
             "customer",
             "list",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout, stderr = await process.communicate()
@@ -1297,8 +1296,8 @@ async def test_that_a_customer_can_be_viewed(context: ContextOfTest) -> None:
             "view",
             "--id",
             customer_id,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout, stderr = await process.communicate()
@@ -1446,8 +1445,8 @@ async def test_that_tags_can_be_listed(context: ContextOfTest) -> None:
         process = await run_cli(
             "tag",
             "list",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             address=context.api.server_address,
         )
         stdout, stderr = await process.communicate()

@@ -149,8 +149,7 @@ def run_server(
                 # If still running, force kill
                 if process.poll() is None:
                     LOGGER.error(
-                        "Server process had to be killed. stderr="
-                        + (process.stderr and process.stderr.read() or "None")
+                        f"Server process had to be killed. stderr={process.stderr.read() if process.stderr else 'None'}"
                     )
                     process.kill()
                     process.wait(timeout=5)

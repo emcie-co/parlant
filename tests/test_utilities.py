@@ -314,11 +314,18 @@ async def create_guideline(
 
         existing_tools = await local_tool_service.list_tools()
 
-        tool = next((t for t in existing_tools if t.name == tool_function.__name__), None)
+        tool = next(
+            (
+                t
+                for t in existing_tools
+                if t.name == getattr(tool_function, "__name__", "unnamed_tool")
+            ),
+            None,
+        )
 
         if not tool:
             tool = await local_tool_service.create_tool(
-                name=tool_function.__name__,
+                name=getattr(tool_function, "__name__", "unnamed_tool"),
                 module_path=tool_function.__module__,
                 description="",
                 parameters={},
@@ -327,7 +334,7 @@ async def create_guideline(
 
         await container[GuidelineToolAssociationStore].create_association(
             guideline_id=guideline.id,
-            tool_id=ToolId("local", tool_function.__name__),
+            tool_id=ToolId("local", getattr(tool_function, "__name__", "unnamed_tool")),
         )
 
     return guideline

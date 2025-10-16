@@ -54,7 +54,12 @@ from parlant.core.nlp.generation import (
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
-from parlant.core.nlp.moderation import CustomerModerationContext, ModerationCheck, ModerationService, ModerationTag
+from parlant.core.nlp.moderation import (
+    CustomerModerationContext,
+    ModerationCheck,
+    ModerationService,
+    ModerationTag,
+)
 
 
 RATE_LIMIT_ERROR_MESSAGE = (

@@ -18,7 +18,7 @@ from typing_extensions import override
 import httpx
 
 from parlant.core.loggers import Logger
-from parlant.core.nlp.moderation import ModerationCheck, ModerationService, ModerationTag
+from parlant.core.nlp.moderation import CustomerModerationContext, ModerationCheck, ModerationService, ModerationTag
 
 
 class LakeraGuard(ModerationService):
@@ -26,7 +26,7 @@ class LakeraGuard(ModerationService):
         self._logger = logger
 
     @override
-    async def check(self, content: str) -> ModerationCheck:
+    async def moderate_customer(self, context: CustomerModerationContext) -> ModerationCheck:
         api_key: str | None = os.environ.get("LAKERA_API_KEY")
 
         if not api_key:
@@ -51,7 +51,7 @@ class LakeraGuard(ModerationService):
             async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
                 response = await client.post(
                     "https://api.lakera.ai/v2/guard/results",
-                    json={"messages": [{"content": content, "role": "user"}]},
+                    json={"messages": [{"content": context.message, "role": "user"}]},
                     headers={"Authorization": f"Bearer {api_key}"},
                 )
 

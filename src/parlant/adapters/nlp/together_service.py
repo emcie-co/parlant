@@ -22,7 +22,7 @@ from together.error import (  # type: ignore
     APIError,
     ServiceUnavailableError,
 )
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 from typing_extensions import override
 import jsonfinder  # type: ignore
 import os
@@ -270,9 +270,7 @@ class M2Bert32K(TogetherAIEmbedder):
 class CustomTogetherAISchematicGenerator(TogetherAISchematicGenerator[T]):
     """Generic Together AI generator that accepts any model name."""
 
-    def __init__(
-        self, model_name: str, logger: Logger
-    ) -> None:
+    def __init__(self, model_name: str, logger: Logger) -> None:
         super().__init__(
             model_name=model_name,
             logger=logger,
@@ -281,7 +279,7 @@ class CustomTogetherAISchematicGenerator(TogetherAISchematicGenerator[T]):
 
 class CustomTogetherAIEmbedder(TogetherAIEmbedder):
     """Generic Together AI embedder that accepts any model name."""
-    
+
     def __init__(self, model_name: str, logger: Logger) -> None:
         super().__init__(model_name=model_name, logger=logger)
         self._estimating_tokenizer = HuggingFaceEstimatingTokenizer(model_name)
@@ -341,8 +339,12 @@ Available models can be found at: https://docs.together.ai/docs/inference-models
         self,
         logger: Logger,
     ) -> None:
-        self.model_name = os.environ.get("TOGETHER_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo")
-        self.embedding_model = os.environ.get("TOGETHER_EMBEDDING_MODEL", "togethercomputer/m2-bert-80M-32k-retrieval")
+        self.model_name = os.environ.get(
+            "TOGETHER_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+        )
+        self.embedding_model = os.environ.get(
+            "TOGETHER_EMBEDDING_MODEL", "togethercomputer/m2-bert-80M-32k-retrieval"
+        )
         self._logger = logger
         self._logger.info(f"Initialized TogetherService with model: {self.model_name}")
 
@@ -350,11 +352,11 @@ Available models can be found at: https://docs.together.ai/docs/inference-models
         self,
         model_name: str,
         schema_type: type[T],
-    ) -> type[TogetherAISchematicGenerator[T]] | None:
+    ) -> Callable[[Logger], TogetherAISchematicGenerator[T]] | None:
         """
         Returns the specialized generator class for known models, or None for custom models.
         """
-        model_to_class: dict[str, type[TogetherAISchematicGenerator[T]]] = {
+        model_to_class: dict[str, Callable[[Logger], TogetherAISchematicGenerator[T]]] = {
             "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo": Llama3_1_8B[schema_type],  # type: ignore
             "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo": Llama3_1_70B[schema_type],  # type: ignore
             "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo": Llama3_1_405B[schema_type],  # type: ignore
@@ -369,7 +371,7 @@ Available models can be found at: https://docs.together.ai/docs/inference-models
 
         if specialized_class:
             self._logger.debug(f"Using specialized generator for model: {self.model_name}")
-            return specialized_class(logger=self._logger)
+            return specialized_class(self._logger)
         else:
             self._logger.debug(f"Using custom generator for model: {self.model_name}")
             return CustomTogetherAISchematicGenerator[t](  # type: ignore
@@ -379,11 +381,11 @@ Available models can be found at: https://docs.together.ai/docs/inference-models
     def _get_specialized_embedder_class(
         self,
         model_name: str,
-    ) -> type[TogetherAIEmbedder] | None:
+    ) -> Callable[[Logger], TogetherAIEmbedder] | None:
         """
         Returns the specialized embedder class for known models, or None for custom models.
         """
-        model_to_class: dict[str, type[TogetherAIEmbedder]] = {
+        model_to_class: dict[str, Callable[[Logger], TogetherAIEmbedder]] = {
             "togethercomputer/m2-bert-80M-32k-retrieval": M2Bert32K,
         }
 
@@ -395,12 +397,10 @@ Available models can be found at: https://docs.together.ai/docs/inference-models
 
         if specialized_class:
             self._logger.debug(f"Using specialized embedder for model: {self.embedding_model}")
-            return specialized_class(logger=self._logger)
+            return specialized_class(self._logger)
         else:
             self._logger.debug(f"Using custom embedder for model: {self.embedding_model}")
-            return CustomTogetherAIEmbedder(
-                model_name=self.embedding_model, logger=self._logger
-            )
+            return CustomTogetherAIEmbedder(model_name=self.embedding_model, logger=self._logger)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

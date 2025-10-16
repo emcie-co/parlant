@@ -260,7 +260,7 @@ Before each response, Parlant only loads the guidelines and journeys that are re
 >
 > This back and forth approach is implemented in an optimized algorithm that minimizes response latency.
 >
-> The engine first tries to predict which journeys will be activated based on the current conversation context. Given this prediction, it attempts to match the relevant journeys' states in parallel to guideline matching, saving seconds off the response latency.
+> The engine first tries to predict which journeys will be activated based on the current conversation context. Given this prediction, it attempts to match the relevant journeys' states in parallel to guideline matching, shaving seconds off the response latency.
 >
 > Only when this prediction fails (i.e., when other journeys were activated) does it incur the extra step to match their states, as well.
 

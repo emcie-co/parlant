@@ -53,7 +53,7 @@ You can generate your API key from the [Google AI Studio](https://aistudio.googl
 from parlant import sdk as p
 
 async with p.Server(
-    nlp_service=p.NLPServices.gemini(model_name="gemini-2.0-flash-lite")
+    nlp_service=p.NLPServices.gemini(generative_model_name="gemini-2.0-flash-lite")
 ) as server:
     agent = await server.create_agent(
         name="Otto Carmen",
@@ -70,7 +70,7 @@ from parlant import sdk as p
 
 async with p.Server(
     nlp_service=p.NLPServices.gemini(
-        model_name=["gemini-2.0-flash-lite", "gemini-2.5-flash"]
+        generative_model_name=["gemini-2.0-flash-lite", "gemini-2.5-flash"]
     )
 ) as server:
     agent = await server.create_agent(
@@ -100,7 +100,7 @@ async with p.Server(nlp_service=p.NLPServices.gemini) as server:
 #### Constructor
 
 ```python
-def __init__(self, logger: Logger, model_name: str | list[str] | None = None)
+def __init__(self, logger: Logger, generative_model_name: str | list[str] | None = None)
 ```
 
 * model_name: Can be a single model name or a list of preferred models.
@@ -112,7 +112,7 @@ def __init__(self, logger: Logger, model_name: str | list[str] | None = None)
 
 ```python
 async def get_schematic_generator(
-    self, t: type[T], model_name: str | list[str] | None = None
+    self, t: type[T], generative_model_name: str | list[str] | None = None
 ) -> GeminiSchematicGenerator[T]
 ```
 
@@ -148,13 +148,13 @@ Returns a no-op moderation service (currently not implemented).
 
 ```python
 @staticmethod
-def gemini(container: Container | None = None, model_names: Union[list[str], str] | None = None) -> NLPService:
+def gemini(container: Container | None = None, generative_model_name: Union[list[str], str] | None = None) -> NLPService:
     from parlant.adapters.nlp.gemini_service import GeminiService
 
     if error := GeminiService.verify_environment():
         raise SDKError(error)
     if model_names is not None:
-        return lambda c: GeminiService(c[Logger], model_names=model_names)
+        return lambda c: GeminiService(c[Logger], generative_model_name=generative_model_name)
 
     return GeminiService(container[Logger])
 ```
@@ -167,7 +167,7 @@ async def get_schematic_generator(self, t: type[T]) -> GeminiSchematicGenerator[
     model_classes: list[GeminiSchematicGenerator[T]] = []
 
     # Normalize to list for consistent handling
-    names = [self._model_names] if isinstance(self._model_names, str) else (self._model_names or [])
+    names = [self._generative_model_name] if isinstance(self._generative_model_name, str) else (self._generative_model_name or [])
 
     for name in names:
         model_cls = self._resolve_model_class(name)

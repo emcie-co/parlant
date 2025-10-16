@@ -460,8 +460,8 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
 
         return None
 
-    def __init__(self, logger: Logger, model_names: Union[list[str], str] | None = None) -> None:
-        self._model_names = model_names
+    def __init__(self, logger: Logger, generative_model_name: Union[list[str], str] | None = None) -> None:
+        self._generative_model_name = generative_model_name
         self._logger = logger
         self._logger.info("Initialized GeminiService")
 
@@ -470,7 +470,7 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
         model_classes: list[GeminiSchematicGenerator[T]] = []
 
         # Normalize to list for consistent handling
-        names = [self._model_names] if isinstance(self._model_names, str) else (self._model_names or [])
+        names = [self._generative_model_name] if isinstance(self._generative_model_name, str) else (self._generative_model_name or [])
 
         for name in names:
             model_cls = self._resolve_model_class(name)

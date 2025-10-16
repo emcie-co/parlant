@@ -1345,6 +1345,7 @@ class Journey:
         guideline = await self._container[GuidelineStore].create_guideline(
             condition=condition,
             action=action,
+            metadata=metadata,
         )
 
         if canned_responses:
@@ -1808,6 +1809,7 @@ class Agent:
             condition=condition,
             action=action,
             tags=[_Tag.for_agent_id(self.id)],
+            metadata=metadata,
         )
 
         if canned_responses:

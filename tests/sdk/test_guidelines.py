@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import pytest
+from parlant.core.guidelines import GuidelineStore
 from parlant.core.relationships import RelationshipKind, RelationshipStore
 from parlant.core.services.tools.plugins import tool
 from parlant.core.tags import Tag
@@ -286,3 +287,25 @@ class Test_that_agent_observation_can_be_created_with_canned_responses(SDKTest):
         updated_canrep = await canrep_store.read_canned_response(self.canrep)
 
         assert Tag.for_guideline_id(self.observation.id) in updated_canrep.tags
+
+
+class Test_that_agent_guideline_can_be_created_with_metadata(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Test Agent",
+            description="Agent for testing guideline metadata",
+        )
+
+        self.guideline = await self.agent.create_guideline(
+            condition="Customer requests a callback",
+            action="Schedule a callback within 24 hours",
+            metadata={"continuous": True, "agent_intention_condition": "Test another property"},
+        )
+
+    async def run(self, ctx: Context) -> None:
+        guideline_store = ctx.container[GuidelineStore]
+
+        guideline = await guideline_store.read_guideline(self.guideline.id)
+
+        assert guideline.metadata["continuous"] is True
+        assert guideline.metadata["agent_intention_condition"] == "Test another property"

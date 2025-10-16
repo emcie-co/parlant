@@ -30,10 +30,12 @@ ModerationTag: TypeAlias = Literal[
     "violence",
 ]
 
+
 @dataclass(frozen=True)
 class CustomerModerationContext:
     session: Session
     message: str
+
 
 @dataclass(frozen=True)
 class ModerationCheck:

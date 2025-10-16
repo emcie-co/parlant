@@ -184,6 +184,7 @@ from parlant.core.journeys import (
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.nlp.service import NLPService
 from parlant.core.nlp.moderation import (
+    CustomerModerationContext,
     ModerationCheck,
     ModerationService,
     ModerationTag,
@@ -3122,6 +3123,7 @@ __all__ = [
     "Container",
     "Customer",
     "CustomerId",
+    "CustomerModerationContext",
     "Variable",
     "ContextVariableId",
     "ControlOptions",

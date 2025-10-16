@@ -12,7 +12,7 @@ from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.emissions import EventEmitterFactory
 from parlant.core.engines.types import Context, Engine, UtteranceRequest
 from parlant.core.loggers import Logger
-from parlant.core.nlp.moderation import ModerationService
+from parlant.core.nlp.moderation import CustomerModerationContext, ModerationService
 from parlant.core.nlp.service import NLPService
 from parlant.core.sessions import (
     Event,
@@ -200,19 +200,20 @@ class SessionModule:
         flagged = False
         tags: Set[str] = set()
 
+        session = await self._session_store.read_session(session_id)
+
         if moderation in [Moderation.AUTO, Moderation.PARANOID]:
             moderation_service = await self._nlp_service.get_moderation_service()
-            check = await moderation_service.check(message)
+            context = CustomerModerationContext(session=session, message=message)
+            check = await moderation_service.moderate_customer(context)
             flagged |= check.flagged
             tags.update(check.tags)
 
         if moderation == Moderation.PARANOID:
-            check = await _get_jailbreak_moderation_service(self._logger).check(message)
+            check = await _get_jailbreak_moderation_service(self._logger).moderate_customer(context)
             if "jailbreak" in check.tags:
                 flagged = True
                 tags.update({"jailbreak"})
-
-        session = await self._session_store.read_session(session_id)
 
         try:
             customer = await self._customer_store.read_customer(session.customer_id)

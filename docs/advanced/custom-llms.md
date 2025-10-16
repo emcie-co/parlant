@@ -198,6 +198,12 @@ All moderation services implement the `ModerationService` abstract base class:
 
 ```python
 @dataclass(frozen=True)
+class CustomerModerationContext:
+    """Context for moderation check"""
+    session: Session    # Session context for the message being checked
+    message: str    # The content of the message to check
+
+@dataclass(frozen=True)
 class ModerationCheck:
     """Result of a moderation check."""
     flagged: bool  # Whether the content was flagged as inappropriate
@@ -207,7 +213,7 @@ class ModerationService(ABC):
     """Abstract base class for content moderation services."""
 
     @abstractmethod
-    async def check(self, content: str) -> ModerationCheck:
+    async def moderate_customer(self, context: CustomerModerationContext) -> ModerationCheck:
         """Check content for policy violations and return moderation result."""
         ...
 ```
@@ -242,13 +248,13 @@ class MyModerationService(p.ModerationService):
         self._logger = logger
         self._client = httpx.AsyncClient()
 
-    async def check(self, content: str) -> p.ModerationCheck:
+    async def moderate_customer(self, context: p.CustomerModerationContext) -> p.ModerationCheck:
         """Implement your moderation logic here."""
         try:
             # Example: Call your moderation API
             response = await self._client.post(
                 "https://api.your-moderation-service.com/moderate",
-                json={"text": content},
+                json={"text": context.message},
                 headers={"Authorization": f"Bearer {self._api_key}"}
             )
             response.raise_for_status()

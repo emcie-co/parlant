@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from typing import Literal, TypeAlias
 from typing_extensions import override
 
+from parlant.core.sessions import Session
+
 
 ModerationTag: TypeAlias = Literal[
     "jailbreak",
@@ -28,6 +30,10 @@ ModerationTag: TypeAlias = Literal[
     "violence",
 ]
 
+@dataclass(frozen=True)
+class CustomerModerationContext:
+    session: Session
+    message: str
 
 @dataclass(frozen=True)
 class ModerationCheck:
@@ -37,16 +43,16 @@ class ModerationCheck:
 
 class ModerationService(ABC):
     @abstractmethod
-    async def check(
+    async def moderate_customer(
         self,
-        content: str,
+        context: CustomerModerationContext,
     ) -> ModerationCheck: ...
 
 
 class NoModeration(ModerationService):
     @override
-    async def check(
+    async def moderate_customer(
         self,
-        content: str,
+        context: CustomerModerationContext,
     ) -> ModerationCheck:
         return ModerationCheck(flagged=False, tags=[])

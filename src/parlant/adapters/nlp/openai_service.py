@@ -54,7 +54,7 @@ from parlant.core.nlp.generation import (
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
-from parlant.core.nlp.moderation import ModerationCheck, ModerationService, ModerationTag
+from parlant.core.nlp.moderation import CustomerModerationContext, ModerationCheck, ModerationService, ModerationTag
 
 
 RATE_LIMIT_ERROR_MESSAGE = (
@@ -396,7 +396,7 @@ class OpenAIModerationService(ModerationService):
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
 
     @override
-    async def check(self, content: str) -> ModerationCheck:
+    async def moderate_customer(self, context: CustomerModerationContext) -> ModerationCheck:
         def extract_tags(category: str) -> list[ModerationTag]:
             mapping: dict[str, list[ModerationTag]] = {
                 "sexual": ["sexual"],
@@ -418,7 +418,7 @@ class OpenAIModerationService(ModerationService):
 
         with self._logger.operation("OpenAI Moderation Request", level=LogLevel.TRACE):
             response = await self._client.moderations.create(
-                input=content,
+                input=context.message,
                 model=self.model_name,
             )
 

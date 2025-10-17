@@ -324,6 +324,16 @@ class NLPServices:
         return VertexAIService(container[Logger])
 
     @staticmethod
+    def mistral(container: Container) -> NLPService:
+        """Creates a Ollama NLPService instance using the provided container."""
+        from parlant.adapters.nlp.mistral_service import MistralService
+
+        if error := MistralService.verify_environment():
+            raise SDKError(error)
+
+        return MistralService(container[Logger])
+
+    @staticmethod
     def ollama(container: Container) -> NLPService:
         """Creates a Ollama NLPService instance using the provided container."""
         from parlant.adapters.nlp.ollama_service import OllamaService

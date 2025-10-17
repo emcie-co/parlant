@@ -72,6 +72,7 @@ transformers = { version = "^4.46.2", optional = true }
 litellm = { version = "^1.61.16", optional = true }
 pymongo = { version = "^4.11.1", optional = true }
 fireworks-ai = { version = "^0.19.19", optional = true }
+mistralai = { version = "^1.0.0", optional = true }
 
 
 [tool.poetry.group.dev.dependencies]
@@ -121,6 +122,8 @@ mongo = ["pymongo"]
 azure = ["azure-identity"]
 
 fireworks = ["fireworks-ai"]
+
+mistral = ["mistralai"]
 
 
 [build-system]

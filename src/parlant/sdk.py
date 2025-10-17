@@ -2146,6 +2146,7 @@ class Server:
         nlp_service: Callable[[Container], NLPService] = NLPServices.openai,
         session_store: Literal["transient", "local"] | str | SessionStore = "transient",
         customer_store: Literal["transient", "local"] | str | CustomerStore = "transient",
+        variable_store: Literal["transient", "local"] | str | ContextVariableStore = "transient",
         log_level: LogLevel = LogLevel.INFO,
         modules: list[str] = [],
         migrate: bool = False,
@@ -2162,8 +2163,11 @@ class Server:
         self._migrate = migrate
         self._nlp_service_func = nlp_service
         self._evaluator: _CachedEvaluator
+
         self._session_store = session_store
         self._customer_store = customer_store
+        self._context_variable_store = variable_store
+
         self._configure_hooks = configure_hooks
         self._configure_container = configure_container
         self._initialize = initialize_container
@@ -2883,7 +2887,6 @@ class Server:
 
             for interface, implementation in [
                 (AgentStore, AgentDocumentStore),
-                (ContextVariableStore, ContextVariableDocumentStore),
                 (TagStore, TagDocumentStore),
                 (GuidelineStore, GuidelineDocumentStore),
                 (GuidelineToolAssociationStore, GuidelineToolAssociationDocumentStore),
@@ -2991,6 +2994,16 @@ class Server:
                     CustomerDocumentStore,
                     self._customer_store,
                     "customers",
+                    id_generator=c()[IdGenerator],
+                )
+
+            if isinstance(self._context_variable_store, ContextVariableStore):
+                c()[ContextVariableStore] = self._context_variable_store
+            else:
+                c()[ContextVariableStore] = await make_persistable_store(
+                    ContextVariableDocumentStore,
+                    self._context_variable_store,
+                    "context_variables",
                     id_generator=c()[IdGenerator],
                 )
 
@@ -3115,20 +3128,25 @@ __all__ = [
     "Agent",
     "AgentId",
     "AuthorizationException",
-    "Operation",
     "AuthorizationPolicy",
-    "DevelopmentAuthorizationPolicy",
-    "ProductionAuthorizationPolicy",
+    "BasicNoMatchResponseProvider",
+    "BasicOptimizationPolicy",
+    "BasicPerceivedPerformancePolicy",
+    "BasicRateLimiter",
+    "CannedResponseId",
     "Capability",
     "CapabilityId",
     "CompositionMode",
     "Container",
+    "ContextVariableId",
+    "ContextVariableStore",
+    "ControlOptions",
     "Customer",
     "CustomerId",
     "CustomerModerationContext",
-    "Variable",
-    "ContextVariableId",
-    "ControlOptions",
+    "CustomerStore",
+    "DevelopmentAuthorizationPolicy",
+    "END_JOURNEY",
     "Embedder",
     "EmbedderFactory",
     "EmbeddingResult",
@@ -3144,14 +3162,13 @@ __all__ = [
     "GuidelineId",
     "Interaction",
     "InteractionMessage",
+    "JSONSerializable",
     "Journey",
     "JourneyId",
     "JourneyState",
     "JourneyStateId",
-    "END_JOURNEY",
     "JourneyTransition",
     "JourneyTransitionId",
-    "JSONSerializable",
     "Lifespan",
     "LoadedContext",
     "LogLevel",
@@ -3160,23 +3177,20 @@ __all__ = [
     "ModerationCheck",
     "ModerationService",
     "ModerationTag",
-    "NoModeration",
     "NLPService",
     "NLPServices",
+    "NoMatchResponseProvider",
+    "NoModeration",
+    "NullPerceivedPerformancePolicy",
+    "Operation",
     "OptimizationPolicy",
+    "PerceivedPerformancePolicy",
+    "PluginServer",
+    "ProductionAuthorizationPolicy",
     "PromptBuilder",
     "PromptSection",
-    "BasicOptimizationPolicy",
-    "PerceivedPerformancePolicy",
-    "BasicPerceivedPerformancePolicy",
-    "NullPerceivedPerformancePolicy",
-    "VoiceOptimizedPerceivedPerformancePolicy",
-    "NoMatchResponseProvider",
-    "BasicNoMatchResponseProvider",
-    "PluginServer",
-    "RateLimiter",
     "RateLimitExceededException",
-    "BasicRateLimiter",
+    "RateLimiter",
     "RelationshipEntity",
     "RelationshipEntityId",
     "RelationshipEntityKind",
@@ -3192,6 +3206,7 @@ __all__ = [
     "SessionId",
     "SessionMode",
     "SessionStatus",
+    "SessionStore",
     "StatusEventData",
     "T",
     "Tag",
@@ -3208,6 +3223,7 @@ __all__ = [
     "ToolParameterOptions",
     "ToolParameterType",
     "ToolResult",
-    "CannedResponseId",
+    "Variable",
+    "VoiceOptimizedPerceivedPerformancePolicy",
     "tool",
 ]

@@ -7,6 +7,7 @@ All notable changes to Parlant will be documented here.
 - Allow bailing out of canned response selection and utilize the draft directly, using a hook
 - Add Snowflake Cortex service
 - Add GLM service
+- Add Mistral service
 - Add /healthz endpoint
 - Add .current propoerty for Server, Agent, and Customer in SDK
 - Support proxy URL for LiteLLM

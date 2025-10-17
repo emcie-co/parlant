@@ -13,6 +13,7 @@ All notable changes to Parlant will be documented here.
 - Allow controlling max tool result payload via environment variable
 - Follow-up canned responses
 - Improved Gemini Flash 2.5 output consistency by using function call trick instead of structured outputs
+- Added persistence option for context variable values (variable store)
 
 ## [3.0.2] - 2025-08-27
 

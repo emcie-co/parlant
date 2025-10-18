@@ -44,11 +44,15 @@ from parlant.core.guidelines import (
     GuidelineId,
 )
 from parlant.adapters.db.json_file import JSONFileDocumentDatabase
-from parlant.core.persistence.common import MigrationRequired
+from parlant.core.persistence.common import MigrationRequired, ObjectId
 from parlant.core.persistence.document_database import (
     BaseDocument,
+    Cursor,
     DocumentCollection,
     FindResult,
+    Sort,
+    SortDirection,
+    SortField,
     identity_loader,
 )
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
@@ -638,6 +642,7 @@ class DummyStore:
     class DummyDocumentV2(BaseDocument):
         name: str
         additional_field: str
+        creation_utc: str
 
     def __init__(self, database: JSONFileDocumentDatabase, allow_migration: bool = True):
         self._database = database
@@ -652,9 +657,14 @@ class DummyStore:
                 version=Version.String("2.0.0"),
                 name=doc["name"],
                 additional_field="default_value",
+                creation_utc=str(doc.get("creation_utc", "2023-01-01T00:00:00Z")),
             )
         elif doc["version"] == "2.0.0":
-            return cast(DummyStore.DummyDocumentV2, doc)
+            # Ensure creation_utc field exists for existing documents
+            doc_with_creation = dict(doc)
+            if "creation_utc" not in doc_with_creation:
+                doc_with_creation["creation_utc"] = "2023-01-01T00:00:00Z"
+            return cast(DummyStore.DummyDocumentV2, doc_with_creation)
         return None
 
     async def __aenter__(self) -> Self:
@@ -679,8 +689,24 @@ class DummyStore:
     ) -> None:
         pass
 
-    async def list_dummy(self) -> FindResult[DummyDocumentV2]:
-        return await self._collection.find({})
+    async def list_dummy(
+        self,
+        sort: Optional[Sort] = None,
+        limit: Optional[int] = None,
+        cursor: Optional[Cursor] = None,
+    ) -> FindResult[DummyDocumentV2]:
+        return await self._collection.find({}, sort=sort, limit=limit, cursor=cursor)
+
+    async def create_dummy(self, name: str, additional_field: str = "default") -> DummyDocumentV2:
+        doc = self.DummyDocumentV2(
+            id=ObjectId(f"dummy_{name}"),
+            version=Version.String("2.0.0"),
+            name=name,
+            additional_field=additional_field,
+            creation_utc=datetime.now(timezone.utc).isoformat(),
+        )
+        await self._collection.insert_one(doc)
+        return doc
 
 
 async def test_document_upgrade_during_loading_of_store(
@@ -832,3 +858,314 @@ async def test_that_persistence_and_store_version_match_allows_store_to_open_whe
 
             assert meta_document
             assert meta_document["version"] == "2.0.0"
+
+
+async def test_that_find_with_limit_returns_number_of_documents(
+    context: _TestContext,
+    new_file: Path,
+) -> None:
+    async with JSONFileDocumentDatabase(context.container[Logger], new_file) as db:
+        async with DummyStore(db) as dummy_store:
+            for i in range(5):
+                await dummy_store.create_dummy(f"doc{i}", f"field{i}")
+
+            result = await dummy_store.list_dummy(limit=3)
+
+            assert len(result.items) == 3
+            assert result.total_count == 5  # Total should include all documents
+            assert result.has_more
+            assert result.next_cursor is not None
+
+
+async def test_that_find_with_sort_orders_documents(
+    context: _TestContext,
+    new_file: Path,
+) -> None:
+    async with JSONFileDocumentDatabase(context.container[Logger], new_file) as db:
+        async with DummyStore(db) as dummy_store:
+            # Create dummy documents with different names for sorting
+            doc1 = await dummy_store.create_dummy("apple", "field1")
+            doc2 = await dummy_store.create_dummy("banana", "field2")
+            doc3 = await dummy_store.create_dummy("cherry", "field3")
+
+            # Sort by name ascending
+            sort_asc = Sort.by_field("name", SortDirection.ASC)
+            result = await dummy_store.list_dummy(sort=sort_asc)
+
+            assert len(result.items) == 3
+            assert str(result.items[0]["id"]) == str(doc1["id"])
+            assert str(result.items[1]["id"]) == str(doc2["id"])
+            assert str(result.items[2]["id"]) == str(doc3["id"])
+
+            # Sort by name descending
+            sort_desc = Sort.by_field("name", SortDirection.DESC)
+            result = await dummy_store.list_dummy(sort=sort_desc)
+
+            assert len(result.items) == 3
+            assert str(result.items[0]["id"]) == str(doc3["id"])
+            assert str(result.items[1]["id"]) == str(doc2["id"])
+            assert str(result.items[2]["id"]) == str(doc1["id"])
+
+
+async def test_that_find_with_cursor_returns_documents_after_cursor(
+    context: _TestContext,
+    new_file: Path,
+) -> None:
+    async with JSONFileDocumentDatabase(context.container[Logger], new_file) as db:
+        async with DummyStore(db) as dummy_store:
+            # Create dummy documents with different names for sorting
+            doc1 = await dummy_store.create_dummy("first", "field1")
+            await dummy_store.create_dummy("second", "field2")
+            await dummy_store.create_dummy("third", "field3")
+
+            # Sort by name
+            sort_by_name = Sort.by_field("name", SortDirection.ASC)
+
+            # Create cursor from doc1 using its actual creation_utc
+            cursor = Cursor(creation_utc=doc1["creation_utc"], id=doc1["id"])
+
+            # Find documents after cursor
+            result = await dummy_store.list_dummy(sort=sort_by_name, cursor=cursor)
+
+            assert len(result.items) == 2
+            # Should get the documents created after doc1 (second and third)
+
+
+async def test_that_cursor_based_pagination_works_with_configurable_page_size(
+    context: _TestContext,
+    new_file: Path,
+) -> None:
+    async with JSONFileDocumentDatabase(context.container[Logger], new_file) as db:
+        async with DummyStore(db) as dummy_store:
+            # Create 5 dummy documents
+            docs = []
+            for i in range(5):
+                doc = await dummy_store.create_dummy(f"doc{i:02d}", f"field{i}")
+                docs.append(doc)
+
+            sort_by_name = Sort.by_field("name", SortDirection.ASC)
+
+            # First page: get first 2 documents
+            result1 = await dummy_store.list_dummy(sort=sort_by_name, limit=2)
+
+            assert len(result1.items) == 2
+            assert str(result1.items[0]["id"]) == str(docs[0]["id"])
+            assert str(result1.items[1]["id"]) == str(docs[1]["id"])
+            assert result1.has_more
+            assert result1.next_cursor is not None
+
+            # Second page: use cursor from first page
+            result2 = await dummy_store.list_dummy(
+                sort=sort_by_name, limit=2, cursor=result1.next_cursor
+            )
+
+            assert len(result2.items) == 2
+            assert result2.has_more
+            assert result2.next_cursor is not None
+
+            # Third page: use cursor from second page
+            result3 = await dummy_store.list_dummy(
+                sort=sort_by_name, limit=2, cursor=result2.next_cursor
+            )
+
+            assert len(result3.items) == 1
+            assert not result3.has_more
+            assert result3.next_cursor is None
+
+
+class ComplexDummyStore:
+    VERSION = Version.from_string("1.0.0")
+
+    class ComplexDocument(BaseDocument):
+        name: str
+        priority: int
+        score: float
+        creation_utc: str
+
+    def __init__(self, database: JSONFileDocumentDatabase):
+        self._database = database
+        self._collection: DocumentCollection[ComplexDummyStore.ComplexDocument]
+
+    async def __aenter__(self) -> Self:
+        self._collection = await self._database.get_or_create_collection(
+            name="complex_docs",
+            schema=self.ComplexDocument,
+            document_loader=self._document_loader,
+        )
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: object,
+        exc_val: object,
+        exc_tb: object,
+    ) -> None:
+        pass
+
+    async def _document_loader(
+        self, doc: BaseDocument
+    ) -> Optional["ComplexDummyStore.ComplexDocument"]:
+        return cast(ComplexDummyStore.ComplexDocument, doc)
+
+    async def create(
+        self,
+        name: str,
+        priority: int,
+        score: float,
+    ) -> ComplexDocument:
+        doc = self.ComplexDocument(
+            id=ObjectId(f"complex_{name}_{priority}_{score}"),
+            version=Version.String("1.0.0"),
+            name=name,
+            priority=priority,
+            score=score,
+            creation_utc=datetime.now(timezone.utc).isoformat(),
+        )
+        await self._collection.insert_one(doc)
+        return doc
+
+    async def list(
+        self,
+        sort: Optional[Sort] = None,
+        limit: Optional[int] = None,
+        cursor: Optional[Cursor] = None,
+    ) -> FindResult[ComplexDocument]:
+        return await self._collection.find({}, sort=sort, limit=limit, cursor=cursor)
+
+
+async def test_that_complex_sorting_works_with_mixed_data_types(
+    context: _TestContext,
+    new_file: Path,
+) -> None:
+    async with JSONFileDocumentDatabase(context.container[Logger], new_file) as db:
+        async with ComplexDummyStore(db) as store:
+            await store.create("charlie", priority=1, score=9.5)
+            await store.create("alice", priority=2, score=8.0)
+            await store.create("bob", priority=1, score=9.5)
+            await store.create("david", priority=2, score=7.5)
+            await store.create("eve", priority=1, score=10.0)
+
+            sort_multi = Sort(
+                fields=[
+                    SortField(field="priority", direction=SortDirection.ASC),
+                    SortField(field="score", direction=SortDirection.DESC),
+                    SortField(field="name", direction=SortDirection.ASC),
+                ]
+            )
+
+            result = await store.list(sort=sort_multi)
+            assert len(result.items) == 5
+
+            expected_names = ["eve", "bob", "charlie", "alice", "david"]
+            actual_names = [doc["name"] for doc in result.items]
+            assert actual_names == expected_names
+
+            sort_multi2 = Sort(
+                fields=[
+                    SortField(field="score", direction=SortDirection.DESC),
+                    SortField(field="priority", direction=SortDirection.ASC),
+                    SortField(field="name", direction=SortDirection.DESC),
+                ]
+            )
+
+            result2 = await store.list(sort=sort_multi2)
+            assert len(result2.items) == 5
+
+            expected_names2 = ["eve", "charlie", "bob", "alice", "david"]
+            actual_names2 = [doc["name"] for doc in result2.items]
+            assert actual_names2 == expected_names2
+
+
+async def test_that_complex_sorting_handles_equal_values_correctly(
+    context: _TestContext,
+    new_file: Path,
+) -> None:
+    async with JSONFileDocumentDatabase(context.container[Logger], new_file) as db:
+        async with ComplexDummyStore(db) as store:
+            await store.create("zebra", priority=5, score=3.14)
+            await store.create("alpha", priority=5, score=3.14)
+            await store.create("beta", priority=5, score=3.14)
+            await store.create("gamma", priority=5, score=3.14)
+
+            sort_equal = Sort(
+                fields=[
+                    SortField(field="priority", direction=SortDirection.ASC),
+                    SortField(field="score", direction=SortDirection.ASC),
+                    SortField(field="name", direction=SortDirection.ASC),
+                ]
+            )
+
+            result = await store.list(sort=sort_equal)
+            assert len(result.items) == 4
+
+            expected_names = ["alpha", "beta", "gamma", "zebra"]
+            actual_names = [doc["name"] for doc in result.items]
+            assert actual_names == expected_names
+
+            sort_equal_desc = Sort(
+                fields=[
+                    SortField(field="priority", direction=SortDirection.ASC),
+                    SortField(field="score", direction=SortDirection.ASC),
+                    SortField(field="name", direction=SortDirection.DESC),
+                ]
+            )
+
+            result_desc = await store.list(sort=sort_equal_desc)
+            assert len(result_desc.items) == 4
+
+            expected_names_desc = ["zebra", "gamma", "beta", "alpha"]
+            actual_names_desc = [doc["name"] for doc in result_desc.items]
+            assert actual_names_desc == expected_names_desc
+
+
+async def test_that_multi_field_sorting_with_numeric_edge_cases(
+    context: _TestContext,
+    new_file: Path,
+) -> None:
+    async with JSONFileDocumentDatabase(context.container[Logger], new_file) as db:
+        async with ComplexDummyStore(db) as store:
+            await store.create("negative_int", priority=-5, score=-1.5)
+            await store.create("zero_int", priority=0, score=0.0)
+            await store.create("positive_int", priority=10, score=2.7)
+            await store.create("large_float", priority=1, score=999.99)
+            await store.create("small_float", priority=1, score=0.001)
+
+            sort_numeric = Sort(
+                fields=[
+                    SortField(field="priority", direction=SortDirection.ASC),
+                    SortField(field="score", direction=SortDirection.ASC),
+                ]
+            )
+
+            result = await store.list(sort=sort_numeric)
+            assert len(result.items) == 5
+
+            expected_names = [
+                "negative_int",
+                "zero_int",
+                "small_float",
+                "large_float",
+                "positive_int",
+            ]
+            actual_names = [doc["name"] for doc in result.items]
+            assert actual_names == expected_names
+
+            sort_numeric_desc = Sort(
+                fields=[
+                    SortField(field="priority", direction=SortDirection.DESC),
+                    SortField(field="score", direction=SortDirection.DESC),
+                ]
+            )
+
+            result_desc = await store.list(sort=sort_numeric_desc)
+            assert len(result_desc.items) == 5
+
+            expected_names_desc = [
+                "positive_int",
+                "large_float",
+                "small_float",
+                "zero_int",
+                "negative_int",
+            ]
+            actual_names_desc = [doc["name"] for doc in result_desc.items]
+            assert actual_names_desc == expected_names_desc

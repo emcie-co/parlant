@@ -45,9 +45,12 @@ class SortDirection(Enum):
     DESC = auto()
 
 
+SortFieldType = str | ObjectId | float | int | bool | None
+
+
 @dataclass(frozen=True)
 class SortField:
-    field: str
+    field: SortFieldType
     direction: SortDirection = SortDirection.DESC
 
 

@@ -7,12 +7,14 @@ All notable changes to Parlant will be documented here.
 - Allow bailing out of canned response selection and utilize the draft directly, using a hook
 - Add Snowflake Cortex service
 - Add GLM service
+- Add Mistral service
 - Add /healthz endpoint
 - Add .current propoerty for Server, Agent, and Customer in SDK
 - Support proxy URL for LiteLLM
 - Allow controlling max tool result payload via environment variable
 - Follow-up canned responses
 - Improved Gemini Flash 2.5 output consistency by using function call trick instead of structured outputs
+- Added persistence option for context variable values (variable store)
 
 ## [3.0.2] - 2025-08-27
 

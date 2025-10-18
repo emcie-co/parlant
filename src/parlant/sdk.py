@@ -293,7 +293,7 @@ class NLPServices:
         return TogetherService(container[Logger])
 
     @staticmethod
-    def gemini(container: Container | None = None, generative_model_name: Union[list[str], str] | None = None) -> NLPService:
+    def gemini(container: Container | None = None, generative_model_name: Union[list[str], str] | None = None) -> Union[NLPService, Callable[[Container], NLPService]]:
         """
         Returns a callable that creates a Gemini NLPService instance using the provided container and model_names.
         If generative_model_name is None, the default Gemini_2_5_Flash model is used, followed by Gemini_2_5_Pro.

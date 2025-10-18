@@ -27,10 +27,13 @@ from parlant.core.persistence.common import (
 from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.persistence.document_database import (
     BaseDocument,
+    Cursor,
     DeleteResult,
     DocumentCollection,
     DocumentDatabase,
     InsertResult,
+    FindResult,
+    Sort,
     TDocument,
     UpdateResult,
     identity_loader,
@@ -238,7 +241,12 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
     async def find(
         self,
         filters: Where,
-    ) -> Sequence[TDocument]:
+        sort: Optional[Sort] = None,
+        limit: Optional[int] = None,
+        cursor: Optional[Cursor] = None,
+    ) -> FindResult[TDocument]:
+        # For now, just return all matching documents without implementing pagination
+        # TODO: Implement proper pagination with sort, limit, and cursor support
         result = []
         async with self._lock.reader_lock:
             for doc in filter(
@@ -247,7 +255,7 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
             ):
                 result.append(doc)
 
-        return result
+        return FindResult(items=result, total_count=len(result), has_more=False, next_cursor=None)
 
     @override
     async def find_one(

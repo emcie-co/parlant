@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Awaitable, Callable, Optional, Sequence
+from typing import Any, Awaitable, Callable, Optional
 from bson import CodecOptions
 from typing_extensions import Self
 from parlant.core.loggers import Logger
@@ -22,6 +22,9 @@ from parlant.core.persistence.document_database import (
     DeleteResult,
     DocumentCollection,
     DocumentDatabase,
+    Cursor,
+    Sort,
+    FindResult,
     InsertResult,
     TDocument,
     UpdateResult,
@@ -157,11 +160,17 @@ class MongoDocumentCollection(DocumentCollection[TDocument]):
         self._database = mongo_document_database
         self._collection = mongo_collection
 
-    async def find(self, filters: Where) -> Sequence[TDocument]:
+    async def find(
+        self,
+        filters: Where,
+        sort: Optional[Sort] = None,
+        limit: Optional[int] = None,
+        cursor: Optional[Cursor] = None,
+    ) -> FindResult[TDocument]:
         mongo_cursor = self._collection.find(filters)
         result = await mongo_cursor.to_list()
         await mongo_cursor.close()
-        return result
+        return FindResult(items=result, total_count=len(result), has_more=False, next_cursor=None)
 
     async def find_one(self, filters: Where) -> TDocument | None:
         result = await self._collection.find_one(filters)

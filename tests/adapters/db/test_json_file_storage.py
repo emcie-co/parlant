@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-from typing import Any, AsyncIterator, Optional, Sequence, cast
+from typing import Any, AsyncIterator, Optional, cast
 from typing_extensions import Self
 import tempfile
 from lagom import Container
@@ -48,6 +48,7 @@ from parlant.core.persistence.common import MigrationRequired
 from parlant.core.persistence.document_database import (
     BaseDocument,
     DocumentCollection,
+    FindResult,
     identity_loader,
 )
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
@@ -678,7 +679,7 @@ class DummyStore:
     ) -> None:
         pass
 
-    async def list_dummy(self) -> Sequence[DummyDocumentV2]:
+    async def list_dummy(self) -> FindResult[DummyDocumentV2]:
         return await self._collection.find({})
 
 
@@ -710,10 +711,10 @@ async def test_document_upgrade_during_loading_of_store(
 
     async with JSONFileDocumentDatabase(logger, new_file) as db:
         async with DummyStore(db, allow_migration=True) as store:
-            documents = await store.list_dummy()
+            result = await store.list_dummy()
 
-            assert len(documents) == 1
-            upgraded_doc = documents[0]
+            assert result.total_count == 1
+            upgraded_doc = result.items[0]
             assert upgraded_doc["version"] == "2.0.0"
             assert upgraded_doc["name"] == "Test Document"
             assert upgraded_doc["additional_field"] == "default_value"
@@ -764,17 +765,17 @@ async def test_failed_migration_collection(
 
     async with JSONFileDocumentDatabase(logger, new_file) as db:
         async with DummyStore(db, allow_migration=True) as store:
-            documents = await store.list_dummy()
+            result = await store.list_dummy()
 
-            assert len(documents) == 0
+            assert result.total_count == 0
 
             failed_migrations_collection = await db.get_collection(
                 "failed_migrations", BaseDocument, identity_loader
             )
-            failed_docs = await failed_migrations_collection.find({})
+            result_of_failed_migrations = await failed_migrations_collection.find({})
 
-            assert len(failed_docs) == 1
-            failed_doc = failed_docs[0]
+            assert result_of_failed_migrations.total_count == 1
+            failed_doc = result_of_failed_migrations.items[0]
             assert failed_doc["id"] == "invalid_dummy_id"
             assert failed_doc["version"] == "3.0"
             assert failed_doc.get("name") == "Unmigratable Document"

@@ -23,7 +23,10 @@ from parlant.core.persistence.document_database import (
     DeleteResult,
     DocumentCollection,
     DocumentDatabase,
+    FindResult,
     InsertResult,
+    Sort,
+    Cursor,
     TDocument,
     UpdateResult,
 )
@@ -104,7 +107,10 @@ class TransientDocumentCollection(DocumentCollection[TDocument]):
     async def find(
         self,
         filters: Where,
-    ) -> Sequence[TDocument]:
+        sort: Optional[Sort] = None,
+        limit: Optional[int] = None,
+        cursor: Optional[Cursor] = None,
+    ) -> FindResult[TDocument]:
         result = []
         for doc in filter(
             lambda d: matches_filters(filters, d),
@@ -112,7 +118,7 @@ class TransientDocumentCollection(DocumentCollection[TDocument]):
         ):
             result.append(doc)
 
-        return result
+        return FindResult(items=result, total_count=len(result), has_more=False, next_cursor=None)
 
     @override
     async def find_one(

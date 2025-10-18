@@ -15,10 +15,12 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from enum import Enum, auto
 from typing import (
     Awaitable,
     Callable,
     Generic,
+    Iterator,
     Optional,
     Sequence,
     TypeVar,
@@ -36,6 +38,68 @@ class BaseDocument(TypedDict, total=False):
 
 
 TDocument = TypeVar("TDocument", bound=BaseDocument)
+
+
+class SortDirection(Enum):
+    ASC = auto()
+    DESC = auto()
+
+
+@dataclass(frozen=True)
+class SortField:
+    field: str
+    direction: SortDirection = SortDirection.DESC
+
+
+@dataclass(frozen=True)
+class Sort:
+    fields: Sequence[SortField]
+
+    @classmethod
+    def by_field(cls, field: str, direction: SortDirection = SortDirection.DESC) -> Sort:
+        return cls(fields=[SortField(field, direction), SortField("id", direction)])
+
+
+class Cursor(TypedDict, total=True):
+    creation_utc: str
+    id: ObjectId
+
+
+@dataclass(frozen=True)
+class FindResult(Generic[TDocument]):
+    items: Sequence[TDocument]
+    total_count: int
+    has_more: bool
+    next_cursor: Optional[Cursor] = None
+
+    def __iter__(self) -> Iterator[TDocument]:
+        """Allow iteration over the documents in the result."""
+        return iter(self.items)
+
+    def __bool__(self) -> bool:
+        return self.total_count > 0
+
+    @classmethod
+    def create(
+        cls,
+        items: Sequence[TDocument],
+        total_count: int,
+        limit: int,
+        sort: Optional[Sort] = None,
+    ) -> FindResult[TDocument]:
+        has_more = len(items) == limit and total_count > limit
+        next_cursor = None
+
+        if has_more and items:
+            # For cursor-based pagination, always use creation_utc (primary) and id (tiebreaker)
+            last_item = items[-1]
+            creation_utc = last_item.get("creation_utc")
+            item_id = last_item.get("id")
+
+            if creation_utc is not None and item_id is not None:
+                next_cursor = Cursor(creation_utc=str(creation_utc), id=ObjectId(str(item_id)))
+
+        return cls(items=items, total_count=total_count, has_more=has_more, next_cursor=next_cursor)
 
 
 @dataclass(frozen=True)
@@ -123,8 +187,11 @@ class DocumentCollection(ABC, Generic[TDocument]):
     async def find(
         self,
         filters: Where,
-    ) -> Sequence[TDocument]:
-        """Finds all documents that match the given filters."""
+        sort: Optional[Sort] = None,
+        limit: Optional[int] = None,
+        cursor: Optional[Cursor] = None,
+    ) -> FindResult[TDocument]:
+        """Finds documents with optional pagination."""
         ...
 
     @abstractmethod

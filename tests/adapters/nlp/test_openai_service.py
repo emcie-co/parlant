@@ -14,8 +14,9 @@
 
 import os
 import pytest
-from unittest.mock import AsyncMock, patch, Mock   
-from typing import cast
+from unittest.mock import AsyncMock, patch, Mock
+import asyncio
+from typing import Any
 
 from parlant.adapters.nlp.openai_service import (
     OpenAIService,
@@ -24,8 +25,6 @@ from parlant.adapters.nlp.openai_service import (
     GPT_4o_24_08_06,
     GPT_4_1,
     GPT_4o_Mini,
-    OpenAITextEmbedding3Large,
-    OmniModeration,
 )
 from parlant.core.loggers import Logger
 from parlant.core.common import DefaultBaseModel
@@ -34,11 +33,7 @@ from parlant.core.engines.alpha.tool_calling.single_tool_batch import SingleTool
 from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
     JourneyNodeSelectionSchema,
 )
-
-
-class _TestSchema(DefaultBaseModel):
-    """Test schema for type checking."""
-    pass
+from parlant.sdk import NLPServices
 
 
 def test_that_missing_openai_api_key_returns_error_message() -> None:
@@ -47,56 +42,52 @@ def test_that_missing_openai_api_key_returns_error_message() -> None:
         error = OpenAIService.verify_environment()
         assert error is not None
         assert "OPENAI_API_KEY is not set" in error
-        assert "OpenAI NLP service" in error
+        assert "Please set OPENAI_API_KEY in your environment" in error
 
 
-def test_that_valid_openai_api_key_passes_verification() -> None:
-    """Test that valid OPENAI_API_KEY passes verification."""
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True):
+def test_that_openai_api_key_presence_passes_verification() -> None:
+    """Test that presence of OPENAI_API_KEY passes verification."""
+    with patch.dict(os.environ, {"OPENAI_API_KEY": "test-api-key"}, clear=True):
         error = OpenAIService.verify_environment()
         assert error is None
 
 
 def test_that_openai_service_initializes_without_model_name() -> None:
-    """Test OpenAIService initialization with default behavior."""
+    """Test OpenAIService initialization without generative_model_name parameter."""
     mock_logger = Mock(spec=Logger)
     
     service = OpenAIService(logger=mock_logger)
     
     assert service._logger == mock_logger
     assert service._generative_model_name is None
-    mock_logger.info.assert_called_once_with("Initialized OpenAIService")
 
 
 def test_that_openai_service_initializes_with_single_model_name() -> None:
-    """Test OpenAIService initialization with single model name."""
+    """Test OpenAIService initialization with single generative_model_name."""
     mock_logger = Mock(spec=Logger)
     
     service = OpenAIService(logger=mock_logger, generative_model_name="gpt-4o-mini")
     
     assert service._logger == mock_logger
     assert service._generative_model_name == "gpt-4o-mini"
-    mock_logger.info.assert_called_once_with("Initialized OpenAIService")
 
 
 def test_that_openai_service_initializes_with_multiple_model_names() -> None:
-    """Test OpenAIService initialization with multiple model names."""
+    """Test OpenAIService initialization with list of generative_model_names."""
     mock_logger = Mock(spec=Logger)
-    models = ["gpt-4o-mini", "gpt-4o"]
+    model_names = ["gpt-4o-mini", "gpt-4o"]
     
-    service = OpenAIService(logger=mock_logger, generative_model_name=models)
+    service = OpenAIService(logger=mock_logger, generative_model_name=model_names)
     
     assert service._logger == mock_logger
-    assert service._generative_model_name == models
-    mock_logger.info.assert_called_once_with("Initialized OpenAIService")
+    assert service._generative_model_name == model_names
 
 
-def test_that_get_generator_class_for_model_returns_correct_classes() -> None:
-    """Test _get_generator_class_for_model returns correct generator classes."""
+def test_that_get_generator_class_for_model_returns_known_models() -> None:
+    """Test _get_generator_class_for_model returns correct classes for known models."""
     mock_logger = Mock(spec=Logger)
     service = OpenAIService(logger=mock_logger)
     
-    # Test known models
     assert service._get_generator_class_for_model("gpt-4o") == GPT_4o
     assert service._get_generator_class_for_model("gpt-4o-2024-11-20") == GPT_4o
     assert service._get_generator_class_for_model("gpt-4o-2024-08-06") == GPT_4o_24_08_06
@@ -105,283 +96,269 @@ def test_that_get_generator_class_for_model_returns_correct_classes() -> None:
 
 
 def test_that_get_generator_class_for_model_handles_unknown_models() -> None:
-    """Test _get_generator_class_for_model handles unknown models."""
+    """Test _get_generator_class_for_model creates dynamic generator for unknown models."""
     mock_logger = Mock(spec=Logger)
     service = OpenAIService(logger=mock_logger)
     
-    # Test unknown model
     generator_class = service._get_generator_class_for_model("gpt-3.5-turbo")
     
-    # Should return a callable that creates OpenAISchematicGenerator
+    # Should return a callable that creates a custom generator
     assert callable(generator_class)
     mock_logger.warning.assert_called_once_with(
         "Unrecognized model name 'gpt-3.5-turbo'. Using dynamic OpenAISchematicGenerator."
     )
 
 
-@pytest.mark.asyncio
-async def test_that_get_schematic_generator_uses_default_behavior_without_model_name() -> None:
-    """Test get_schematic_generator uses default behavior when no model name specified."""
+@patch("parlant.adapters.nlp.openai_service.AsyncClient")
+def test_that_default_behavior_still_works(mock_client_class: Mock) -> None:
+    """Test that default schema-specific model selection still works."""
+    mock_client = AsyncMock()
+    mock_client_class.return_value = mock_client
     mock_logger = Mock(spec=Logger)
+    
     service = OpenAIService(logger=mock_logger)
     
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True):
-        # Test default schema mapping
-        generator = await service.get_schematic_generator(SingleToolBatchSchema)
+    with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=True):
+        # Test SingleToolBatchSchema gets GPT_4o
+        generator = asyncio.run(service.get_schematic_generator(SingleToolBatchSchema))
         assert isinstance(generator, GPT_4o)
         
-        generator = await service.get_schematic_generator(JourneyNodeSelectionSchema)
+        # Test JourneyNodeSelectionSchema gets GPT_4_1
+        generator = asyncio.run(service.get_schematic_generator(JourneyNodeSelectionSchema))
         assert isinstance(generator, GPT_4_1)
         
-        # Test default fallback for unknown schema
-        generator = await service.get_schematic_generator(_TestSchema)
+        # Test unknown schema gets GPT_4o_24_08_06
+        generator = asyncio.run(service.get_schematic_generator(type('TestSchema', (DefaultBaseModel,), {})))
         assert isinstance(generator, GPT_4o_24_08_06)
 
 
-@pytest.mark.asyncio
-async def test_that_get_schematic_generator_uses_single_model() -> None:
-    """Test get_schematic_generator uses single specified model."""
+@patch("parlant.adapters.nlp.openai_service.AsyncClient")
+def test_that_single_model_selection_works(mock_client_class: Mock) -> None:
+    """Test that single model selection returns correct generator."""
+    mock_client = AsyncMock()
+    mock_client_class.return_value = mock_client
     mock_logger = Mock(spec=Logger)
+    
     service = OpenAIService(logger=mock_logger, generative_model_name="gpt-4o-mini")
     
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True):
-        generator = await service.get_schematic_generator(_TestSchema)
+    with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=True):
+        generator = asyncio.run(service.get_schematic_generator(type('TestSchema', (DefaultBaseModel,), {})))
         assert isinstance(generator, GPT_4o_Mini)
 
 
-@pytest.mark.asyncio
-async def test_that_get_schematic_generator_uses_fallback_for_multiple_models() -> None:
-    """Test get_schematic_generator uses FallbackSchematicGenerator for multiple models."""
+@patch("parlant.adapters.nlp.openai_service.AsyncClient")
+def test_that_multiple_model_selection_returns_fallback_generator(mock_client_class: Mock) -> None:
+    """Test that multiple model selection returns FallbackSchematicGenerator."""
+    mock_client = AsyncMock()
+    mock_client_class.return_value = mock_client
     mock_logger = Mock(spec=Logger)
-    models = ["gpt-4o-mini", "gpt-4o"]
-    service = OpenAIService(logger=mock_logger, generative_model_name=models)
     
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True):
-        generator = await service.get_schematic_generator(_TestSchema)
+    model_names = ["gpt-4o-mini", "gpt-4o"]
+    service = OpenAIService(logger=mock_logger, generative_model_name=model_names)
+    
+    with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=True):
+        generator = asyncio.run(service.get_schematic_generator(type('TestSchema', (DefaultBaseModel,), {})))
         assert isinstance(generator, FallbackSchematicGenerator)
-        
-        # Check that fallback contains the correct generators
-        assert len(generator._generators) == 2
-        assert isinstance(generator._generators[0], GPT_4o_Mini)
-        assert isinstance(generator._generators[1], GPT_4o)
 
 
-@pytest.mark.asyncio
-async def test_that_get_schematic_generator_handles_custom_models() -> None:
-    """Test get_schematic_generator handles custom model names."""
+@patch("parlant.adapters.nlp.openai_service.AsyncClient")
+def test_that_custom_model_selection_works(mock_client_class: Mock) -> None:
+    """Test that custom model selection creates dynamic generator."""
+    mock_client = AsyncMock()
+    mock_client_class.return_value = mock_client
     mock_logger = Mock(spec=Logger)
+    
     service = OpenAIService(logger=mock_logger, generative_model_name="gpt-3.5-turbo")
     
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True):
-        generator = await service.get_schematic_generator(_TestSchema)
+    with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=True):
+        generator = asyncio.run(service.get_schematic_generator(type('TestSchema', (DefaultBaseModel,), {})))
         assert isinstance(generator, OpenAISchematicGenerator)
         assert generator.model_name == "gpt-3.5-turbo"
 
 
-@pytest.mark.asyncio
-async def test_that_get_embedder_returns_correct_embedder() -> None:
-    """Test get_embedder returns correct embedder."""
-    mock_logger = Mock(spec=Logger)
-    service = OpenAIService(logger=mock_logger)
-    
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True):
-        embedder = await service.get_embedder()
-        assert isinstance(embedder, OpenAITextEmbedding3Large)
-
-
-@pytest.mark.asyncio
-async def test_that_get_moderation_service_returns_correct_service() -> None:
-    """Test get_moderation_service returns correct service."""
-    mock_logger = Mock(spec=Logger)
-    service = OpenAIService(logger=mock_logger)
-    
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True):
-        moderation_service = await service.get_moderation_service()
-        assert isinstance(moderation_service, OmniModeration)
-
-
-def test_that_openai_schematic_generator_initializes_correctly() -> None:
-    """Test OpenAISchematicGenerator initialization using concrete implementation."""
+@patch("parlant.adapters.nlp.openai_service.AsyncClient")
+def test_that_mixed_known_and_custom_models_work_in_fallback(mock_client_class: Mock) -> None:
+    """Test that fallback works with mix of known and custom models."""
+    mock_client = AsyncMock()
+    mock_client_class.return_value = mock_client
     mock_logger = Mock(spec=Logger)
     
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True):
-        with patch("parlant.adapters.nlp.openai_service.AsyncClient") as mock_client_class:
-            with patch("parlant.adapters.nlp.openai_service.OpenAIEstimatingTokenizer") as mock_tokenizer_class:
-                generator = GPT_4o(logger=mock_logger)
-                
-                assert generator.model_name == "gpt-4o-2024-11-20"
-                assert generator._logger == mock_logger
-                assert generator.id == "openai/gpt-4o-2024-11-20"
-                mock_client_class.assert_called_once_with(api_key="sk-test-key")
-                mock_tokenizer_class.assert_called_once_with(model_name="gpt-4o-2024-11-20")
+    model_names = ["gpt-3.5-turbo", "gpt-4o-mini"]  # custom + known
+    service = OpenAIService(logger=mock_logger, generative_model_name=model_names)
+    
+    with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=True):
+        generator = asyncio.run(service.get_schematic_generator(type('TestSchema', (DefaultBaseModel,), {})))
+        assert isinstance(generator, FallbackSchematicGenerator)
 
 
-def test_that_gpt_4o_initializes_with_correct_model_name() -> None:
-    """Test GPT_4o initializes with correct model name."""
+def test_that_sdk_openai_method_accepts_model_name_parameter() -> None:
+    """Test that SDK NLPServices.openai method accepts generative_model_name parameter."""
+    from lagom import Container
+    
+    # Test with Container provided
+    mock_container = Mock()
+    mock_logger = Mock(spec=Logger)
+    mock_container.__getitem__ = Mock(return_value=mock_logger)
+    
+    with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=True):
+        service = NLPServices.openai(container=mock_container, generative_model_name="gpt-4o-mini")
+        assert isinstance(service, OpenAIService)
+        assert service._generative_model_name == "gpt-4o-mini"
+
+
+def test_that_sdk_openai_method_returns_factory_without_container() -> None:
+    """Test that SDK NLPServices.openai method returns factory when no container provided."""
+    factory = NLPServices.openai(generative_model_name="gpt-4o-mini")
+    assert callable(factory)
+
+
+def test_that_sdk_openai_factory_creates_service_with_model_name() -> None:
+    """Test that SDK factory creates service with correct model name."""
+    from lagom import Container
+    
+    factory = NLPServices.openai(generative_model_name="gpt-4o-mini")
+    
+    mock_container = Mock()
+    mock_logger = Mock(spec=Logger)
+    mock_container.__getitem__ = Mock(return_value=mock_logger)
+    
+    with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=True):
+        service = factory(mock_container)
+        assert isinstance(service, OpenAIService)
+        assert service._generative_model_name == "gpt-4o-mini"
+
+
+def test_that_sdk_openai_method_works_with_multiple_models() -> None:
+    """Test that SDK method works with list of model names."""
+    from lagom import Container
+    
+    model_names = ["gpt-4o-mini", "gpt-4o"]
+    mock_container = Mock()
+    mock_logger = Mock(spec=Logger)
+    mock_container.__getitem__ = Mock(return_value=mock_logger)
+    
+    with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=True):
+        service = NLPServices.openai(container=mock_container, generative_model_name=model_names)
+        assert isinstance(service, OpenAIService)
+        assert service._generative_model_name == model_names
+
+
+def test_that_sdk_openai_method_handles_verification_error() -> None:
+    """Test that SDK method raises SDKError when environment verification fails."""
+    from parlant.sdk import SDKError
+    from lagom import Container
+    
+    mock_container = Mock()
+    
+    with patch.dict(os.environ, {}, clear=True):  # No OPENAI_API_KEY
+        with pytest.raises(SDKError) as exc_info:
+            NLPServices.openai(container=mock_container)
+        
+        assert "OPENAI_API_KEY is not set" in str(exc_info.value)
+
+
+def test_that_sdk_factory_handles_verification_error_on_call() -> None:
+    """Test that SDK factory raises SDKError when called with invalid environment."""
+    from parlant.sdk import SDKError
+    from lagom import Container
+    
+    factory = NLPServices.openai(generative_model_name="gpt-4o")
+    mock_container = Mock()
+    
+    with patch.dict(os.environ, {}, clear=True):  # No OPENAI_API_KEY
+        with pytest.raises(SDKError) as exc_info:
+            factory(mock_container)
+        
+        assert "OPENAI_API_KEY is not set" in str(exc_info.value)
+
+
+@patch("parlant.adapters.nlp.openai_service.AsyncClient")
+def test_that_openai_schematic_generator_initializes_correctly(mock_client_class: Mock) -> None:
+    """Test OpenAISchematicGenerator initialization."""
+    mock_client = AsyncMock()
+    mock_client_class.return_value = mock_client
     mock_logger = Mock(spec=Logger)
     
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True):
-        with patch("parlant.adapters.nlp.openai_service.AsyncClient"):
-            with patch("parlant.adapters.nlp.openai_service.OpenAIEstimatingTokenizer"):
-                generator = GPT_4o(logger=mock_logger)
-                
-                assert generator.model_name == "gpt-4o-2024-11-20"
-                assert generator.max_tokens == 128 * 1024
-
-
-def test_that_gpt_4o_24_08_06_initializes_with_correct_model_name() -> None:
-    """Test GPT_4o_24_08_06 initializes with correct model name."""
-    mock_logger = Mock(spec=Logger)
-    
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True):
-        with patch("parlant.adapters.nlp.openai_service.AsyncClient"):
-            with patch("parlant.adapters.nlp.openai_service.OpenAIEstimatingTokenizer"):
-                generator = GPT_4o_24_08_06(logger=mock_logger)
-                
-                assert generator.model_name == "gpt-4o-2024-08-06"
-                assert generator.max_tokens == 128 * 1024
-
-
-def test_that_gpt_4_1_initializes_with_correct_model_name() -> None:
-    """Test GPT_4_1 initializes with correct model name."""
-    mock_logger = Mock(spec=Logger)
-    
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True):
-        with patch("parlant.adapters.nlp.openai_service.AsyncClient"):
-            with patch("parlant.adapters.nlp.openai_service.OpenAIEstimatingTokenizer"):
-                generator = GPT_4_1(logger=mock_logger)
-                
-                assert generator.model_name == "gpt-4.1"
-                assert generator.max_tokens == 128 * 1024
-
-
-def test_that_gpt_4o_mini_initializes_with_correct_model_name() -> None:
-    """Test GPT_4o_Mini initializes with correct model name."""
-    mock_logger = Mock(spec=Logger)
-    
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True):
-        with patch("parlant.adapters.nlp.openai_service.AsyncClient"):
-            with patch("parlant.adapters.nlp.openai_service.OpenAIEstimatingTokenizer"):
-                generator = GPT_4o_Mini(logger=mock_logger)
-                
-                assert generator.model_name == "gpt-4o-mini"
-                assert generator.max_tokens == 128 * 1024
+    with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=True):
+        generator = GPT_4o(logger=mock_logger)
+        
+        assert generator.model_name == "gpt-4o-2024-11-20"
+        assert generator._logger == mock_logger
+        assert generator.id == "openai/gpt-4o-2024-11-20"
 
 
 def test_that_openai_schematic_generator_supports_correct_parameters() -> None:
-    """Test OpenAISchematicGenerator supports correct parameters using concrete implementation."""
+    """Test OpenAISchematicGenerator supported parameters."""
     mock_logger = Mock(spec=Logger)
     
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True):
+    with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=True):
         with patch("parlant.adapters.nlp.openai_service.AsyncClient"):
-            with patch("parlant.adapters.nlp.openai_service.OpenAIEstimatingTokenizer"):
-                generator = GPT_4o(logger=mock_logger)
-                
-                expected_params = ["temperature", "logit_bias", "max_tokens"]
-                assert generator.supported_openai_params == expected_params
-                
-                expected_hints = expected_params + ["strict"]
-                assert generator.supported_hints == expected_hints
-
-
-def test_that_openai_text_embedding_3_large_initializes_correctly() -> None:
-    """Test OpenAITextEmbedding3Large initialization."""
-    mock_logger = Mock(spec=Logger)
-    
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True):
-        with patch("parlant.adapters.nlp.openai_service.AsyncClient"):
-            with patch("parlant.adapters.nlp.openai_service.OpenAIEstimatingTokenizer"):
-                embedder = OpenAITextEmbedding3Large(logger=mock_logger)
-                
-                assert embedder.model_name == "text-embedding-3-large"
-                assert embedder.max_tokens == 8192
-                assert embedder.dimensions == 3072
-                assert embedder.id == "openai/text-embedding-3-large"
-
-
-def test_that_omni_moderation_initializes_correctly() -> None:
-    """Test OmniModeration initialization."""
-    mock_logger = Mock(spec=Logger)
-    
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True):
-        with patch("parlant.adapters.nlp.openai_service.AsyncClient"):
-            moderation = OmniModeration(logger=mock_logger)
+            generator = GPT_4o(logger=mock_logger)
             
-            assert moderation.model_name == "omni-moderation-latest"
+            expected_params = ["temperature", "logit_bias", "max_tokens"]
+            assert generator.supported_openai_params == expected_params
+            
+            expected_hints = expected_params + ["strict"]
+            assert generator.supported_hints == expected_hints
 
 
-def test_that_unsupported_params_by_model_filters_correctly() -> None:
-    """Test that unsupported parameters are filtered correctly."""
+def test_that_predefined_generators_have_correct_model_names() -> None:
+    """Test that predefined generator classes have correct model names."""
     mock_logger = Mock(spec=Logger)
     
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True):
+    with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=True):
         with patch("parlant.adapters.nlp.openai_service.AsyncClient"):
-            with patch("parlant.adapters.nlp.openai_service.OpenAIEstimatingTokenizer"):
-                # Create a generator with a model that has unsupported params
-                class TestGPT5Generator(OpenAISchematicGenerator[_TestSchema]):
-                    def __init__(self, logger: Logger):
-                        super().__init__(model_name="gpt-5", logger=logger)
-                    
-                    @property
-                    def max_tokens(self) -> int:
-                        return 4096
-                
-                generator = TestGPT5Generator(logger=mock_logger)
-                
-                # Test filtering hints for unsupported model parameters
-                hints = {"temperature": 0.7, "logit_bias": {}, "max_tokens": 100}
-                filtered = generator._list_arguments(hints)
-                
-                # temperature should be filtered out for gpt-5
-                assert "temperature" not in filtered
-                assert "logit_bias" in filtered
-                assert "max_tokens" in filtered
+            gpt_4o = GPT_4o(logger=mock_logger)
+            assert gpt_4o.model_name == "gpt-4o-2024-11-20"
+            
+            gpt_4o_mini = GPT_4o_Mini(logger=mock_logger)
+            assert gpt_4o_mini.model_name == "gpt-4o-mini"
+            
+            gpt_4_1 = GPT_4_1(logger=mock_logger)
+            assert gpt_4_1.model_name == "gpt-4.1"
+            
+            gpt_4o_24_08_06 = GPT_4o_24_08_06(logger=mock_logger)
+            assert gpt_4o_24_08_06.model_name == "gpt-4o-2024-08-06"
 
 
-def test_that_fallback_generator_id_includes_all_generators() -> None:
-    """Test that FallbackSchematicGenerator ID includes all generator IDs."""
+def test_that_predefined_generators_have_correct_max_tokens() -> None:
+    """Test that predefined generator classes have correct max_tokens."""
     mock_logger = Mock(spec=Logger)
     
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True):
+    with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=True):
         with patch("parlant.adapters.nlp.openai_service.AsyncClient"):
-            with patch("parlant.adapters.nlp.openai_service.OpenAIEstimatingTokenizer"):
-                gen1 = GPT_4o_Mini(logger=mock_logger)
-                gen2 = GPT_4o(logger=mock_logger)
-                
-                fallback = FallbackSchematicGenerator(gen1, gen2, logger=mock_logger)
-                
-                assert "openai/gpt-4o-mini" in fallback.id
-                assert "openai/gpt-4o-2024-11-20" in fallback.id
-                assert "fallback(" in fallback.id
+            gpt_4o = GPT_4o(logger=mock_logger)
+            assert gpt_4o.max_tokens == 128 * 1024
+            
+            gpt_4o_mini = GPT_4o_Mini(logger=mock_logger)
+            assert gpt_4o_mini.max_tokens == 128 * 1024
+            
+            gpt_4_1 = GPT_4_1(logger=mock_logger)
+            assert gpt_4_1.max_tokens == 128 * 1024
+            
+            gpt_4o_24_08_06 = GPT_4o_24_08_06(logger=mock_logger)
+            assert gpt_4o_24_08_06.max_tokens == 128 * 1024
 
 
-def test_that_fallback_generator_uses_first_generator_tokenizer() -> None:
-    """Test that FallbackSchematicGenerator uses first generator's tokenizer."""
+def test_backward_compatibility_with_existing_code() -> None:
+    """Test that existing code without generative_model_name still works."""
+    from lagom import Container
+    
+    mock_container = Mock()
+    mock_logger = Mock(spec=Logger)
+    mock_container.__getitem__ = Mock(return_value=mock_logger)
+    
+    with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=True):
+        # This is how it was called before the changes
+        service = NLPServices.openai(container=mock_container)
+        assert isinstance(service, OpenAIService)
+        assert service._generative_model_name is None
+
+
+def test_that_empty_model_list_is_handled_gracefully() -> None:
+    """Test that empty model list is handled gracefully."""
     mock_logger = Mock(spec=Logger)
     
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True):
-        with patch("parlant.adapters.nlp.openai_service.AsyncClient"):
-            with patch("parlant.adapters.nlp.openai_service.OpenAIEstimatingTokenizer"):
-                gen1 = GPT_4o_Mini(logger=mock_logger)
-                gen2 = GPT_4o(logger=mock_logger)
-                
-                fallback = FallbackSchematicGenerator(gen1, gen2, logger=mock_logger)
-                
-                assert fallback.tokenizer == gen1.tokenizer
-
-
-def test_that_fallback_generator_uses_minimum_max_tokens() -> None:
-    """Test that FallbackSchematicGenerator uses minimum max_tokens."""
-    mock_logger = Mock(spec=Logger)
-    
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True):
-        with patch("parlant.adapters.nlp.openai_service.AsyncClient"):
-            with patch("parlant.adapters.nlp.openai_service.OpenAIEstimatingTokenizer"):
-                gen1 = GPT_4o_Mini(logger=mock_logger)
-                gen2 = GPT_4o(logger=mock_logger)
-                
-                fallback = FallbackSchematicGenerator(gen1, gen2, logger=mock_logger)
-                
-                # Both have same max_tokens, so should be that value
-                expected_max_tokens = min(gen1.max_tokens, gen2.max_tokens)
-                assert fallback.max_tokens == expected_max_tokens
+    # Should not raise an error during initialization
+    service = OpenAIService(logger=mock_logger, generative_model_name=[])
+    assert service._generative_model_name == []

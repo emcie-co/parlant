@@ -51,6 +51,7 @@ from parlant.core.nlp.embedding import Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
     SchematicGenerator,
+    FallbackSchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -442,18 +443,77 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        generative_model_name: str | list[str] | None = None,
     ) -> None:
         self._logger = logger
+        self._generative_model_name = generative_model_name
         self._logger.info("Initialized OpenAIService")
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> OpenAISchematicGenerator[T]:
+        # If a specific model name is provided, use it
+        if self._generative_model_name is not None:
+            return self._get_generator_for_model(t, self._generative_model_name)
+        
+        # Default behavior - use specialized models for specific schemas
         return {
             SingleToolBatchSchema: GPT_4o[SingleToolBatchSchema],
             JourneyNodeSelectionSchema: GPT_4_1[JourneyNodeSelectionSchema],
             CannedResponseDraftSchema: GPT_4_1[CannedResponseDraftSchema],
             CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
         }.get(t, GPT_4o_24_08_06[t])(self._logger)  # type: ignore
+    
+    def _get_generator_for_model(self, t: type[T], model_name: str | list[str]) -> OpenAISchematicGenerator[T]:
+        """Get a schematic generator for the specified model name(s)."""
+        model_mapping = {
+            "gpt-4o": GPT_4o[t],
+            "gpt-4o-2024-11-20": GPT_4o[t],
+            "gpt-4o-2024-08-06": GPT_4o_24_08_06[t],
+            "gpt-4.1": GPT_4_1[t],
+            "gpt-4o-mini": GPT_4o_Mini[t],
+        }
+        
+        if isinstance(model_name, str):
+            # Single model name
+            if model_name in model_mapping:
+                return model_mapping[model_name](self._logger)  # type: ignore
+            else:
+                self._logger.warning(
+                    f"Unrecognized model name for OpenAIService: '{model_name}'. "
+                    "Falling back to default model selection."
+                )
+                return GPT_4o_24_08_06[t](self._logger)  # type: ignore
+        
+        elif isinstance(model_name, list):
+            # Multiple model names - create fallback generator
+            generators = []
+            for name in model_name:
+                if name in model_mapping:
+                    generators.append(model_mapping[name](self._logger))  # type: ignore
+                else:
+                    self._logger.warning(
+                        f"Unrecognized model name for OpenAIService: '{name}'. Skipping."
+                    )
+            
+            if not generators:
+                self._logger.warning(
+                    "No valid model names provided. Falling back to default model selection."
+                )
+                return GPT_4o_24_08_06[t](self._logger)  # type: ignore
+            
+            if len(generators) == 1:
+                return generators[0]
+            
+            return FallbackSchematicGenerator[t](  # type: ignore
+                *generators,
+                logger=self._logger,
+            )
+        
+        else:
+            self._logger.warning(
+                f"Invalid model name type: {type(model_name)}. Falling back to default model selection."
+            )
+            return GPT_4o_24_08_06[t](self._logger)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:

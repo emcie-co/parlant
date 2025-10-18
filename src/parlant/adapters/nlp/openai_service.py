@@ -52,6 +52,7 @@ from parlant.core.nlp.generation import (
     T,
     SchematicGenerator,
     SchematicGenerationResult,
+    FallbackSchematicGenerator,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.moderation import (
@@ -464,18 +465,76 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        generative_model_name: str | list[str] | None = None,
     ) -> None:
         self._logger = logger
+        self._generative_model_name = generative_model_name
         self._logger.info("Initialized OpenAIService")
+
+    def _get_generator_class_for_model(self, model_name: str):
+        """Returns the appropriate generator class for the given model name."""
+        model_mapping = {
+            "gpt-4o": GPT_4o,
+            "gpt-4o-2024-11-20": GPT_4o,
+            "gpt-4o-2024-08-06": GPT_4o_24_08_06,
+            "gpt-4.1": GPT_4_1,
+            "gpt-4o-mini": GPT_4o_Mini,
+        }
+        
+        # Check if it's a known model
+        if model_name in model_mapping:
+            return model_mapping[model_name]
+        else:
+            # For unknown models, create a dynamic generator
+            self._logger.warning(
+                f"Unrecognized model name '{model_name}'. Using dynamic OpenAISchematicGenerator."
+            )
+            
+            class CustomOpenAIGenerator(OpenAISchematicGenerator[T]):
+                def __init__(self, logger: Logger):
+                    super().__init__(model_name=model_name, logger=logger)
+                
+                @property
+                def max_tokens(self) -> int:
+                    return 4096  # Default max tokens for custom models
+            
+            return CustomOpenAIGenerator
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> OpenAISchematicGenerator[T]:
-        return {
-            SingleToolBatchSchema: GPT_4o[SingleToolBatchSchema],
-            JourneyNodeSelectionSchema: GPT_4_1[JourneyNodeSelectionSchema],
-            CannedResponseDraftSchema: GPT_4_1[CannedResponseDraftSchema],
-            CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
-        }.get(t, GPT_4o_24_08_06[t])(self._logger)  # type: ignore
+        if self._generative_model_name:
+            # If specific model(s) requested, use them with fallback support
+            model_names = (
+                self._generative_model_name
+                if isinstance(self._generative_model_name, list)
+                else [self._generative_model_name]
+            )
+            
+            generators = []
+            for model_name in model_names:
+                generator_class = self._get_generator_class_for_model(model_name)
+                if callable(generator_class) and not hasattr(generator_class, '__getitem__'):
+                    # This is a custom generator function, call it directly
+                    generators.append(generator_class(self._logger))  # type: ignore
+                else:
+                    # This is a generator class, instantiate it with the schema type
+                    generators.append(generator_class[t](self._logger))  # type: ignore
+            
+            if len(generators) == 1:
+                return generators[0]
+            else:
+                return FallbackSchematicGenerator[t](  # type: ignore
+                    *generators,
+                    logger=self._logger,
+                )
+        else:
+            # Default behavior with schema-specific model selection
+            return {
+                SingleToolBatchSchema: GPT_4o[SingleToolBatchSchema],
+                JourneyNodeSelectionSchema: GPT_4_1[JourneyNodeSelectionSchema],
+                CannedResponseDraftSchema: GPT_4_1[CannedResponseDraftSchema],
+                CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
+            }.get(t, GPT_4o_24_08_06[t])(self._logger)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:

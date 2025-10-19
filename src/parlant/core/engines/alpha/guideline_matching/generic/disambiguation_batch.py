@@ -150,6 +150,11 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
                         prompt=prompt,
                         hints={"temperature": generation_attempt_temperatures[generation_attempt]},
                     )
+                    with open("disambiguation prompt.txt", "w") as f:
+                        f.write(prompt.build())
+                    with open("disambiguation inference.txt", "w") as f:
+                        f.write(inference.content.model_dump_json(indent=2))
+
                     self._logger.trace(
                         f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                     )
@@ -296,8 +301,9 @@ Each guideline is composed of two parts:
 
 Task Description
 ----------------
-Sometimes a customer expresses that they’ve experienced something or want to proceed with something, but there are multiple possible ways to go, and it’s as-yet unclear what exactly they intend.
-In such cases, we need to identify the potential options and ask the customer which one they mean.
+During your interaction with the customer, they might express express a need or problem that can potentially be handled by multiple guidelines, resulting in ambiguity. 
+I.e., there are multiple guideline conditions which might currently apply, but not enough information is available to determine which should apply exactly. 
+In such cases, we need to identify the potentially relevant guidelines, and to ask the customer which one they intended to apply.
 
 Your task is to determine whether the customer’s intention is currently ambiguous and, if so, what the possible interpretations or directions are.
 You’ll be given a disambiguation condition — one that, if true, signals a potential ambiguity — and a list of related guidelines, each representing a possible path the customer might want to follow.
@@ -311,19 +317,18 @@ Notes:
 - Base your evaluation on the customer's most recent message.
 - If you determine that there is indeed an ambiguity - then, when one of the guidelines might be relevant - include it. We prefer to let the customer choose of all plausible options.
 - Some guidelines may turn out to be irrelevant based on the interaction. For example, due to earlier parts of the conversation or because the user's status (provided in the interaction history or
-as a context variable) rules them out. In such cases, the ambiguity may already be resolved (only one or none option is relevant) and note that no clarification is needed in such cases.
-
-- Notice that if you've already asked for disambiguation from the customer you need to **pay extra attention** to if we need to re-ask for clarification or the user responded and it was resolved.
+as a context variable) rules them out. In such cases, the ambiguity may already be resolved (meaning only one or none of the examined guidelines are relevant). If this is the case, no ambiguity exists.
+- Note that if you've already asked for disambiguation from the customer, you need to **pay extra attention** to test whether you need to re-ask for clarification or whether the user responded and the ambiguity was already resolved.
 - **Accept brief customer responses as valid clarifications**: Customers often communicate with very short responses (single words or phrases like "return", "replace", "yes", "no"). If the customer's brief
  response clearly indicates their choice among the previously presented options, consider the ambiguity resolved even if their answer is not in complete sentences.
-
-distinction is between:
-- Pending clarification (customer hasn't answered yet) - re-disambiguate (disambiguation_requested = true, customer_resolved=false, is_ambiguous = true)
-- Clarification provided (customer has answered) - don't re-disambiguate the same issue (disambiguation_requested = true, customer_resolved=true, is_ambiguous = false)
-- New ambiguity (different unclear intent emerges) - do disambiguate (is_ambiguous = true)
-
-- Focus on current context: If the customer has changed the subject or moved on to a different topic in their most recent message, do not disambiguate previous unresolved issues.
+- If the customer was previously asked for disambiguation, carefully distinguish between the following cases:
+  1. Disambiguation requested and is Pending clarification (Disambiguation was already asked by the agent, but the customer hasn't answered yet) - In this case,  re-disambiguate (set disambiguation_requested = true, customer_resolved=false, is_ambiguous = true)
+  2. Disambiguation requested, clarification provided (customer has answered) - don't re-disambiguate the same issue (disambiguation_requested = true, customer_resolved=true, is_ambiguous = false)
+  3. New ambiguity (different unclear intent emerges) - do disambiguate (is_ambiguous = true)
+- **Focus on current context**: If the customer has changed the subject or moved on to a different topic in their most recent message, do not disambiguate previous unresolved issues.
 Always prioritize the customer's current request and intent over past ambiguities.
+
+
 """,
             props={},
         )

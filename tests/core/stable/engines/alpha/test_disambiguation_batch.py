@@ -586,7 +586,7 @@ async def test_that_ambiguity_detected_based_on_context_variable_2(
     )
 
 
-async def test_that_ambiguity_is_not_detected_when_there_is_no_ambiguity(
+async def test_that_ambiguity_is_not_detected_when_there_is_no_ambiguity_1(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -874,7 +874,7 @@ async def test_that_ambiguity_is_not_detected_when_clarification_was_asked_and_c
     )
 
 
-async def test_that_ambiguity_is_not_detected_on_clear_request_1(
+async def test_that_ambiguity_is_not_detected_when_there_is_no_ambiguity_2(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,

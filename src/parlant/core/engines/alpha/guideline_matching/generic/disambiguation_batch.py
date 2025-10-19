@@ -150,10 +150,6 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
                         prompt=prompt,
                         hints={"temperature": generation_attempt_temperatures[generation_attempt]},
                     )
-                    with open("disambiguation prompt.txt", "w") as f:
-                        f.write(prompt.build())
-                    with open("disambiguation inference.txt", "w") as f:
-                        f.write(inference.content.model_dump_json(indent=2))
 
                     self._logger.trace(
                         f"Completion:\n{inference.content.model_dump_json(indent=2)}"
@@ -326,8 +322,8 @@ as a context variable) rules them out. If only one or no guidelines remain relev
 - **Accept brief customer responses as valid clarifications**: Customers often communicate with very short responses (single words or phrases like "return", "replace", "yes", "no"). If the customer's brief
  response clearly indicates their choice among the previously presented options, consider the ambiguity resolved even if their answer is not in complete sentences.
 - If the customer was previously asked for disambiguation, carefully distinguish between the following cases:
-  1. Disambiguation requested and is Pending clarification (Disambiguation was already asked by the agent, but the customer hasn't answered yet) - In this case,  re-disambiguate (set disambiguation_requested = true, customer_resolved=false, is_ambiguous = true)
-  2. Disambiguation requested, clarification provided (customer has answered) - don't re-disambiguate the same issue (disambiguation_requested = true, customer_resolved=true, is_ambiguous = false)
+  1. Disambiguation requested and is Pending clarification (Disambiguation was already asked by the agent, but the customer hasn't answered yet) - In this case,  re-disambiguate (set disambiguation_requested = true, customer_resolved = false, is_ambiguous = true)
+  2. Disambiguation requested, clarification provided (customer has answered) - don't re-disambiguate the same issue (disambiguation_requested = true, customer_resolved = true, is_ambiguous = false)
   3. New ambiguity (different unclear intent emerges) - do disambiguate (is_ambiguous = true)
 - **Focus on current context**: If the customer has changed the subject or moved on to a different topic in their most recent message, do not disambiguate previous unresolved issues.
 Always prioritize the customer's current request and intent over past ambiguities.

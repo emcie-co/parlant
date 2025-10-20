@@ -471,7 +471,7 @@ async def _define_tracer(container: Container) -> None:
 
 
 async def _define_meter(container: Container) -> None:
-    if not os.environ.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"):
+    if os.environ.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"):
         from parlant.adapters.meter.opentelemetry import OpenTelemetryMeter
 
         print("OpenTelemetry metrics is enabled.")

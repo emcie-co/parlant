@@ -301,14 +301,12 @@ During your interaction with the customer, they may express a need or problem th
 This occurs when multiple guideline conditions might apply, but insufficient information is available to determine which one should apply.
 In such cases, we need to identify the potentially relevant guidelines, and to ask the customer which one they intended to apply.
 
-
-
-Your task is to determine whether the customer’s intention is currently ambiguous and, if so, what the possible interpretations or directions are.
+Your task is to determine whether the customer’s intention is currently ambiguous in regards to the provided guidelines, and, if so, what the possible interpretations or directions are.
 You'll be given:
 1. A disambiguation condition that signals potential ambiguity when true
 2. A list of related guidelines, each representing a possible path the customer might follow
 
-If you identify an ambiguity, return the relevant guidelines that represent the available options.
+If you identify an ambiguity between these guidelines, return the relevant guidelines that represent the available options.
 Then, formulate a response in the format:
 "Ask the customer whether they want to do X, Y, or Z..."
 This response should clearly present the options to help resolve the ambiguity.

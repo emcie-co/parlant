@@ -81,8 +81,6 @@ class OpenTelemetryLogger(TracingLogger):
             __: str,  # method name (e.g., "info", "error")
             event_dict: MutableMapping[str, Any],
         ) -> MutableMapping[str, Any]:
-            event_dict["trace_id"] = str(self._tracer.trace_id)
-
             scopes = self.current_scope
             if scopes:
                 event_dict["scopes"] = scopes
@@ -109,24 +107,48 @@ class OpenTelemetryLogger(TracingLogger):
         if self.log_level != LogLevel.TRACE:
             return
 
-        self._logger.debug(message)
+        self._logger.debug(
+            message,
+            trace_id=str(self._tracer.trace_id),
+            scopes=self.current_scope or None,
+        )
 
     @override
     def debug(self, message: str) -> None:
-        self._logger.debug(message)
+        self._logger.debug(
+            message,
+            trace_id=str(self._tracer.trace_id),
+            scopes=self.current_scope or None,
+        )
 
     @override
     def info(self, message: str) -> None:
-        self._logger.info(message)
+        self._logger.info(
+            message,
+            trace_id=str(self._tracer.trace_id),
+            scopes=self.current_scope or None,
+        )
 
     @override
     def warning(self, message: str) -> None:
-        self._logger.warning(message)
+        self._logger.warning(
+            message,
+            trace_id=str(self._tracer.trace_id),
+            scopes=self.current_scope or None,
+        )
 
     @override
     def error(self, message: str) -> None:
-        self._logger.error(message)
+        self._logger.error(
+            message,
+            trace_id=str(self._tracer.trace_id),
+            scopes=self.current_scope or None,
+        )
 
     @override
     def critical(self, message: str) -> None:
-        self._logger.critical(message)
+        self._logger.critical(
+            message,
+            trace_id=str(self._tracer.trace_id),
+            scopes=self.current_scope or None,
+        )

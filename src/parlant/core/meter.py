@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Mapping
 from typing_extensions import override
 
-from parlant.core.common import AttributeValue
+from parlant.core.tracer import AttributeValue
 
 
 class Meter(ABC):

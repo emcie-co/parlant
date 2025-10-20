@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Container
+from lagom import Container
 from datetime import datetime, timezone
 
 from pytest import fixture

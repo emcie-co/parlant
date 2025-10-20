@@ -29,6 +29,7 @@ class Meter(ABC):
         self,
         name: str,
         attributes: Mapping[str, AttributeValue] | None = None,
+        create_scope: bool = True,
     ) -> AsyncGenerator[None, None]:
         yield
 
@@ -58,5 +59,6 @@ class NullMeter(Meter):
         self,
         name: str,
         attributes: Mapping[str, AttributeValue] | None = None,
+        create_scope: bool = True,
     ) -> AsyncGenerator[None, None]:
         yield

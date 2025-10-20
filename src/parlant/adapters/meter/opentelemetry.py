@@ -15,12 +15,14 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
 
 from parlant.core.meter import Meter
-from parlant.core.tracer import AttributeValue
+from parlant.core.tracer import AttributeValue, Tracer
 
 
 class OpenTelemetryMeter(Meter):
-    def __init__(self) -> None:
+    def __init__(self, tracer: Tracer) -> None:
         self._service_name = os.getenv("OTEL_SERVICE_NAME", "parlant")
+
+        self._tracer = tracer
 
         self._meter: metrics.Meter
         self._metric_exporter: OTLPMetricExporter
@@ -85,11 +87,15 @@ class OpenTelemetryMeter(Meter):
     async def record(
         self,
         name: str,
+        unit: str,
         value: float,
         attributes: Mapping[str, AttributeValue] | None = None,
     ) -> None:
         if name not in self._histograms:
-            self._histograms[name] = self._meter.create_histogram(name)
+            self._histograms[name] = self._meter.create_histogram(
+                name=name,
+                unit=unit,
+            )
 
         attrs = attributes or {}
         self._histograms[name].record(value, attrs)
@@ -98,8 +104,9 @@ class OpenTelemetryMeter(Meter):
     @asynccontextmanager
     async def measure(
         self,
-        name: str,
+        histogram: Histogram,
         attributes: Mapping[str, AttributeValue] | None = None,
+        create_scope: bool = True,
     ) -> AsyncGenerator[None, None]:
         """
         Measure the duration of a block of code.
@@ -107,14 +114,27 @@ class OpenTelemetryMeter(Meter):
             async with meter.measure("my_duration"):
                 # Code to measure
         """
-        token = self._push_scope(name)
-        start_time = asyncio.get_running_loop().time()
-        try:
-            yield
-        finally:
-            duration = asyncio.get_running_loop().time() - start_time
-            await self.record(token.var.get(), duration, attributes)
-            self._pop_scope(token)
+        if create_scope:
+            token = self._push_scope(f"{name}")
+            start_time = asyncio.get_running_loop().time()
+            try:
+                yield
+            finally:
+                duration = asyncio.get_running_loop().time() - start_time
+                await self.record(
+                    name=f"{token.var.get()}.time",
+                    unit="ms",
+                    duration=duration,
+                    attributes=attributes,
+                )
+                self._pop_scope(token)
+        else:
+            start_time = asyncio.get_running_loop().time()
+            try:
+                yield
+            finally:
+                duration = asyncio.get_running_loop().time() - start_time
+                await self.record(name, duration, attributes)
 
     def _push_scope(self, segment: str) -> contextvars.Token[str]:
         current = self._scopes.get()

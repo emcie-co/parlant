@@ -694,6 +694,7 @@ async def test_that_guideline_is_still_matched_when_conversation_still_on_sub_to
         guidelines_names=guidelines,
     )
 
+
 async def test_that_guideline_is_still_matched_when_conversation_still_on_sub_topic_that_made_condition_hold_2(
     context: ContextOfTest,
     agent: Agent,
@@ -797,8 +798,13 @@ async def test_that_previously_applied_guidelines_are_not_matched_based_on_irrel
 # ---------------------------
 
 
-async def test_info_then_info_subscription(context, agent, new_session, customer):
-    convo = [
+async def test_info_then_info_subscription(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    convo: list[tuple[EventSource, str]] = [
         (EventSource.CUSTOMER, "When does my free trial end?"),
         (EventSource.AI_AGENT, "Your trial ends on Sept 30."),
         (EventSource.CUSTOMER, "Yes, what’s the monthly cost?"),
@@ -814,13 +820,18 @@ async def test_info_then_info_subscription(context, agent, new_session, customer
     )
 
 
-async def test_info_then_complaint_food_delivery(context, agent, new_session, customer):
-    convo = [
+async def test_info_then_complaint_food_delivery(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    convo: list[tuple[EventSource, str]] = [
         (EventSource.CUSTOMER, "How long does delivery usually take?"),
         (EventSource.AI_AGENT, "Typically 30–40 minutes."),
         (EventSource.CUSTOMER, "It's been over an hour; I want a refund."),
     ]
-    guidelines = ["frustrated_so_discount"]
+    guidelines: list[str] = ["frustrated_so_discount"]
     await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
@@ -832,13 +843,18 @@ async def test_info_then_complaint_food_delivery(context, agent, new_session, cu
     )
 
 
-async def test_info_then_inexplicit_flight(context, agent, new_session, customer):
-    convo = [
+async def test_info_then_inexplicit_flight(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    convo: list[tuple[EventSource, str]] = [
         (EventSource.CUSTOMER, "What’s the baggage allowance for economy?"),
         (EventSource.AI_AGENT, "One carry-on and one checked bag up to 23 kg."),
         (EventSource.CUSTOMER, "My ticket shows something different..."),
     ]
-    guidelines = ["identify_problem"]
+    guidelines: list[str] = ["identify_problem"]
     await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
@@ -850,13 +866,18 @@ async def test_info_then_inexplicit_flight(context, agent, new_session, customer
     )
 
 
-async def test_action_then_inexplicit_banking(context, agent, new_session, customer):
-    convo = [
+async def test_action_then_inexplicit_banking(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    convo: list[tuple[EventSource, str]] = [
         (EventSource.CUSTOMER, "Transfer $500 to my savings."),
         (EventSource.AI_AGENT, "Initiated the transfer."),
         (EventSource.CUSTOMER, "Hmm, something doesn’t look right."),
     ]
-    guidelines = ["identify_problem"]
+    guidelines: list[str] = ["identify_problem"]
     await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
@@ -868,13 +889,18 @@ async def test_action_then_inexplicit_banking(context, agent, new_session, custo
     )
 
 
-async def test_complaint_then_info_retail(context, agent, new_session, customer):
-    convo = [
+async def test_complaint_then_info_retail(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    convo: list[tuple[EventSource, str]] = [
         (EventSource.CUSTOMER, "The headphones I bought arrived broken."),
         (EventSource.AI_AGENT, "I'm sorry to hear that — I can help."),
         (EventSource.CUSTOMER, "Do you also sell replacement cables?"),
     ]
-    guidelines = ["problem_with_order"]
+    guidelines: list[str] = ["problem_with_order"]
     await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
@@ -886,13 +912,18 @@ async def test_complaint_then_info_retail(context, agent, new_session, customer)
     )
 
 
-async def test_complaint_then_complaint_hotel(context, agent, new_session, customer):
-    convo = [
+async def test_complaint_then_complaint_hotel(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    convo: list[tuple[EventSource, str]] = [
         (EventSource.CUSTOMER, "My hotel room wasn’t cleaned today."),
         (EventSource.AI_AGENT, "I’ll arrange housekeeping right away."),
         (EventSource.CUSTOMER, "Also the AC is broken — I expect a discount."),
     ]
-    guidelines = ["problem_with_order", "frustrated_customer"]
+    guidelines: list[str] = ["problem_with_order", "frustrated_customer"]
     await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
@@ -904,13 +935,18 @@ async def test_complaint_then_complaint_hotel(context, agent, new_session, custo
     )
 
 
-async def test_complaint_then_action_flight(context, agent, new_session, customer):
-    convo = [
+async def test_complaint_then_action_flight(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    convo: list[tuple[EventSource, str]] = [
         (EventSource.CUSTOMER, "My flight was delayed 5 hours; I want compensation."),
         (EventSource.AI_AGENT, "I'm sorry about the delay, I can start the process."),
         (EventSource.CUSTOMER, "Please rebook me for tomorrow morning."),
     ]
-    guidelines = ["frustrated_so_discount", "rebook_reservation"]
+    guidelines: list[str] = ["frustrated_so_discount", "rebook_reservation"]
     await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
@@ -922,13 +958,18 @@ async def test_complaint_then_action_flight(context, agent, new_session, custome
     )
 
 
-async def test_inexplicit_then_info_tech(context, agent, new_session, customer):
-    convo = [
+async def test_inexplicit_then_info_tech(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    convo: list[tuple[EventSource, str]] = [
         (EventSource.CUSTOMER, "I can’t seem to log in."),
         (EventSource.AI_AGENT, "Are you seeing an error message?"),
         (EventSource.CUSTOMER, "Yes, it says ‘invalid credentials’. What does that mean?"),
     ]
-    guidelines = ["problem_so_restart"]
+    guidelines: list[str] = ["problem_so_restart"]
     await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
@@ -940,13 +981,18 @@ async def test_inexplicit_then_info_tech(context, agent, new_session, customer):
     )
 
 
-async def test_inexplicit_then_complaint_food(context, agent, new_session, customer):
-    convo = [
+async def test_inexplicit_then_complaint_food(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    convo: list[tuple[EventSource, str]] = [
         (EventSource.CUSTOMER, "My order doesn’t look right…"),
         (EventSource.AI_AGENT, "Could you tell me what’s missing?"),
         (EventSource.CUSTOMER, "This is the third time — I want a refund."),
     ]
-    guidelines = ["problem_with_order", "frustrated_so_discount"]
+    guidelines: list[str] = ["problem_with_order", "frustrated_so_discount"]
     await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
@@ -958,13 +1004,18 @@ async def test_inexplicit_then_complaint_food(context, agent, new_session, custo
     )
 
 
-async def test_inexplicit_then_action_subscription(context, agent, new_session, customer):
-    convo = [
+async def test_inexplicit_then_action_subscription(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    convo: list[tuple[EventSource, str]] = [
         (EventSource.CUSTOMER, "The app keeps crashing."),
         (EventSource.AI_AGENT, "When does it usually happen?"),
         (EventSource.CUSTOMER, "Just cancel my subscription — I’m done with this."),
     ]
-    guidelines = ["cancel_subscription"]
+    guidelines: list[str] = ["cancel_subscription"]
     await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
@@ -976,13 +1027,18 @@ async def test_inexplicit_then_action_subscription(context, agent, new_session, 
     )
 
 
-async def test_inexplicit_then_inexplicit_banking(context, agent, new_session, customer):
-    convo = [
+async def test_inexplicit_then_inexplicit_banking(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    convo: list[tuple[EventSource, str]] = [
         (EventSource.CUSTOMER, "Something’s off with my account balance."),
         (EventSource.AI_AGENT, "Which transactions seem incorrect?"),
         (EventSource.CUSTOMER, "One of the ATM withdrawals didn’t register properly."),
     ]
-    guidelines = ["identify_problem"]
+    guidelines: list[str] = ["identify_problem"]
     await base_test_that_correct_guidelines_are_matched(
         context,
         agent,

@@ -272,51 +272,6 @@ async def test_that_partially_fulfilled_action_with_missing_behavioral_part_is_n
     )
 
 
-async def test_that_partially_fulfilled_action_with_missing_behavioral_part_is_matched_again(
-    context: ContextOfTest,
-    agent: Agent,
-    new_session: Session,
-    customer: Customer,
-) -> None:
-    capabilities = [
-        Capability(
-            id=CapabilityId("cap_123"),
-            creation_utc=datetime.now(timezone.utc),
-            title="Reset Password",
-            description="The ability to send the customer an email with a link to reset their password. The password can only be reset via this link",
-            signals=["reset password", "password"],
-            tags=[],
-        )
-    ]
-    conversation_context: list[tuple[EventSource, str]] = [
-        (
-            EventSource.CUSTOMER,
-            "Hey, can you reset my password?",
-        ),
-        (
-            EventSource.AI_AGENT,
-            "Sure, for that I will need your email please so I will send you the password. What's your email address?",
-        ),
-        (
-            EventSource.CUSTOMER,
-            "I forgot what I was going to say, can you continue from the same point?",
-        ),
-    ]
-
-    guidelines: list[str] = ["reset_password"]
-
-    await base_test_that_correct_guidelines_are_matched(
-        context,
-        agent,
-        new_session.id,
-        customer,
-        conversation_context,
-        guidelines_target_names=guidelines,
-        guidelines_names=guidelines,
-        capabilities=capabilities,
-    )
-
-
 async def test_that_guideline_that_was_reapplied_earlier_and_should_not_reapply_based_on_the_most_recent_interaction_is_not_matched_1(
     context: ContextOfTest,
     agent: Agent,

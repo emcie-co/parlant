@@ -104,39 +104,38 @@ class ToolEventGenerator:
         preexecution_state: ToolPreexecutionState,
         context: LoadedContext,
     ) -> ToolEventGenerationResult:
-        async with self._meter.measure("tool_event_generation"):
-            _ = preexecution_state  # Not used for now, but good to have for extensibility
+        _ = preexecution_state  # Not used for now, but good to have for extensibility
 
-            if not context.state.tool_enabled_guideline_matches:
-                self._logger.trace(
-                    "Skipping tool calling; no tools associated with guidelines found"
+        if not context.state.tool_enabled_guideline_matches:
+            self._logger.trace("Skipping tool calling; no tools associated with guidelines found")
+            return ToolEventGenerationResult(generations=[], events=[], insights=ToolInsights())
+
+        await context.session_event_emitter.emit_status_event(
+            trace_id=self._tracer.trace_id,
+            data={
+                "status": "processing",
+                "data": {"stage": "Fetching data"},
+            },
+        )
+
+        tool_call_context = ToolCallContext(
+            agent=context.agent,
+            session_id=context.session.id,
+            customer_id=context.customer.id,
+            context_variables=context.state.context_variables,
+            interaction_history=context.interaction.history,
+            terms=list(context.state.glossary_terms),
+            ordinary_guideline_matches=context.state.ordinary_guideline_matches,
+            tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
+            journeys=context.state.journeys,
+            staged_events=context.state.tool_events,
+        )
+
+        async with self._meter.measure("tc"):
+            async with self._meter.measure("infer"):
+                inference_result = await self._tool_caller.infer_tool_calls(
+                    context=tool_call_context,
                 )
-                return ToolEventGenerationResult(generations=[], events=[], insights=ToolInsights())
-
-            await context.session_event_emitter.emit_status_event(
-                trace_id=self._tracer.trace_id,
-                data={
-                    "status": "processing",
-                    "data": {"stage": "Fetching data"},
-                },
-            )
-
-            tool_call_context = ToolCallContext(
-                agent=context.agent,
-                session_id=context.session.id,
-                customer_id=context.customer.id,
-                context_variables=context.state.context_variables,
-                interaction_history=context.interaction.history,
-                terms=list(context.state.glossary_terms),
-                ordinary_guideline_matches=context.state.ordinary_guideline_matches,
-                tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
-                journeys=context.state.journeys,
-                staged_events=context.state.tool_events,
-            )
-
-            inference_result = await self._tool_caller.infer_tool_calls(
-                context=tool_call_context,
-            )
 
             tool_calls = list(chain.from_iterable(inference_result.batches))
 
@@ -153,10 +152,11 @@ class ToolEventGenerator:
                 customer_id=context.customer.id,
             )
 
-            tool_results = await self._tool_caller.execute_tool_calls(
-                tool_context,
-                tool_calls,
-            )
+            async with self._meter.measure("run"):
+                tool_results = await self._tool_caller.execute_tool_calls(
+                    tool_context,
+                    tool_calls,
+                )
 
             if not tool_results:
                 return ToolEventGenerationResult(

@@ -135,7 +135,7 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
         )
 
         async with self._meter.measure(
-            "batch_process",
+            "batch",
             {
                 "batch.strategy": "disambiguation",
                 "batch.size": 1,

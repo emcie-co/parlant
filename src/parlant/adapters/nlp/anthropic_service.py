@@ -41,8 +41,8 @@ from parlant.core.meter import Meter
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
     T,
+    BaseSchematicGenerator,
     SchematicGenerationResult,
-    SchematicGenerator,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.loggers import Logger
@@ -67,7 +67,7 @@ class AnthropicEstimatingTokenizer(EstimatingTokenizer):
         return result.input_tokens  # type: ignore[no-any-return]
 
 
-class AnthropicAISchematicGenerator(SchematicGenerator[T]):
+class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
     supported_hints = ["temperature"]
 
     def __init__(
@@ -107,21 +107,13 @@ class AnthropicAISchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
         with self._logger.scope(f"Anthropic LLM Request ({self.schema.__name__})"):
-            async with self._meter.measure(
-                "llm_request",
-                {
-                    "service.name": "anthropic",
-                    "model.name": self.model_name,
-                    "schema.name": self.schema.__name__,
-                },
-            ):
-                return await self._do_generate(prompt, hints)
+            return await self._do_generate(prompt, hints)
 
     async def _do_generate(
         self,

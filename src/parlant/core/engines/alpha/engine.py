@@ -170,7 +170,9 @@ class AlphaEngine(Engine):
 
         try:
             async with self._meter.measure(
-                "processing_context_for_session", {"session_id": context.session_id}
+                "eng.process",
+                {"session_id": context.session_id},
+                create_scope=False,
             ):
                 await self._do_process(loaded_context)
             return True
@@ -206,7 +208,11 @@ class AlphaEngine(Engine):
         )
 
         try:
-            async with self._meter.measure("uttering_session", {"session_id": context.session_id}):
+            async with self._meter.measure(
+                "eng.utter",
+                {"session_id": context.session_id},
+                create_scope=False,
+            ):
                 await self._do_utter(loaded_context, requests)
             return True
         except asyncio.CancelledError:

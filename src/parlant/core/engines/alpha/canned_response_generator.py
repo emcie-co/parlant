@@ -519,7 +519,7 @@ class CannedResponseGenerator(MessageEventComposer):
     ) -> Sequence[MessageEventComposition]:
         with self._logger.scope("MessageEventComposer"):
             with self._logger.scope("CannedResponseGenerator"):
-                async with self._meter.measure("preamble_generation"):
+                async with self._meter.measure("canrep.preamble"):
                     return await self._do_generate_preamble(context)
 
     async def _do_generate_preamble(
@@ -591,7 +591,7 @@ You must generate the preamble message. You must produce a JSON object with a si
             ]
 
             async with self._meter.measure(
-                "rendering_canned_preamble_templates",
+                "render",
             ):
                 preamble_choices = [
                     str(r.rendered_text)
@@ -1577,7 +1577,7 @@ Output a JSON object with three properties:
 
         # Step 2: Select the most relevant canned response templates based on the draft message
         async with self._meter.measure(
-            "retrieving_top_relevant_canned_response_templates",
+            "retrieval",
         ):
             relevant_canreps = set(
                 r.canned_response

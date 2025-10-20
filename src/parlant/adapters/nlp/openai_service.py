@@ -143,7 +143,7 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
     ) -> SchematicGenerationResult[T]:
         with self._logger.scope(f"OpenAI LLM Request ({self.schema.__name__})"):
             async with self._meter.measure(
-                "llm_request",
+                "llm",
                 {
                     "service.name": "openai",
                     "model.name": self.model_name,

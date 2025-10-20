@@ -213,15 +213,13 @@ class ToolCaller:
 
                 tools[(tool_id, tool)].append(guideline_match)
 
-            async with self._meter.measure("create_batches"):
-                batches = await self.batcher.create_batches(
-                    tools=tools,
-                    context=context,
-                )
+            batches = await self.batcher.create_batches(
+                tools=tools,
+                context=context,
+            )
 
-            async with self._meter.measure("process_batches"):
-                batch_tasks = [batch.process() for batch in batches]
-                batch_results = await async_utils.safe_gather(*batch_tasks)
+            batch_tasks = [batch.process() for batch in batches]
+            batch_results = await async_utils.safe_gather(*batch_tasks)
 
             t_end = time.time()
 
@@ -316,16 +314,15 @@ class ToolCaller:
         tool_calls: Sequence[ToolCall],
     ) -> Sequence[ToolCallResult]:
         with self._logger.scope("ToolCaller"):
-            async with self._meter.measure("execution"):
-                tool_results = await async_utils.safe_gather(
-                    *(
-                        self._run_tool(
-                            context=context,
-                            tool_call=tool_call,
-                            tool_id=tool_call.tool_id,
-                        )
-                        for tool_call in tool_calls
+            tool_results = await async_utils.safe_gather(
+                *(
+                    self._run_tool(
+                        context=context,
+                        tool_call=tool_call,
+                        tool_id=tool_call.tool_id,
                     )
+                    for tool_call in tool_calls
                 )
+            )
 
-                return tool_results
+            return tool_results

@@ -136,7 +136,7 @@ class SingleToolBatch(ToolCallBatch):
         tool_id, tool, _ = self._candidate_tool
 
         async with self._meter.measure(
-            "batch_process",
+            "batch",
             {
                 "batch.strategy": "single",
                 "tool_id": tool_id,

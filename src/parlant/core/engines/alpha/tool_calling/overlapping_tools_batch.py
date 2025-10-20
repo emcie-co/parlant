@@ -118,7 +118,7 @@ class OverlappingToolsBatch(ToolCallBatch):
 
     async def process(self) -> ToolCallBatchResult:
         async with self._meter.measure(
-            "batch_process",
+            "batch",
             {
                 "batch.strategy": "overlapping",
             },

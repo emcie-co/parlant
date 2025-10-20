@@ -104,7 +104,7 @@ class OpenTelemetryMeter(Meter):
     @asynccontextmanager
     async def measure(
         self,
-        histogram: Histogram,
+        name: str,
         attributes: Mapping[str, AttributeValue] | None = None,
         create_scope: bool = True,
     ) -> AsyncGenerator[None, None]:
@@ -115,7 +115,7 @@ class OpenTelemetryMeter(Meter):
                 # Code to measure
         """
         if create_scope:
-            token = self._push_scope(f"{name}")
+            token = self._push_scope(name)
             start_time = asyncio.get_running_loop().time()
             try:
                 yield

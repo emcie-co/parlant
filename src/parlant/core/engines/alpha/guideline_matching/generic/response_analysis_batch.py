@@ -105,44 +105,38 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
 
         guideline_batches = list(chunked(all_guidelines, self._batch_size))
 
-        async with self._meter.measure(
-            "response_analysis",
-            {
-                "batches.count": len(guideline_batches),
-            },
-        ):
-            batch_tasks = [
-                self._process_batch(
-                    batch,
-                )
-                for batch in guideline_batches
-            ]
-
-            batch_results = await async_utils.safe_gather(*batch_tasks)
-
-            all_analyzed_guidelines = list(
-                chain.from_iterable(result.analyzed_guidelines for result in batch_results)
+        batch_tasks = [
+            self._process_batch(
+                batch,
             )
+            for batch in guideline_batches
+        ]
 
-            generation_info = (
-                batch_results[-1].generation_info
-                if batch_results
-                else GenerationInfo(
-                    schema_name="",
-                    model="",
-                    duration=0.0,
-                    usage=UsageInfo(
-                        input_tokens=0,
-                        output_tokens=0,
-                        extra={},
-                    ),
-                )
-            )
+        batch_results = await async_utils.safe_gather(*batch_tasks)
 
-            return ResponseAnalysisBatchResult(
-                analyzed_guidelines=all_analyzed_guidelines,
-                generation_info=generation_info,
+        all_analyzed_guidelines = list(
+            chain.from_iterable(result.analyzed_guidelines for result in batch_results)
+        )
+
+        generation_info = (
+            batch_results[-1].generation_info
+            if batch_results
+            else GenerationInfo(
+                schema_name="",
+                model="",
+                duration=0.0,
+                usage=UsageInfo(
+                    input_tokens=0,
+                    output_tokens=0,
+                    extra={},
+                ),
             )
+        )
+
+        return ResponseAnalysisBatchResult(
+            analyzed_guidelines=all_analyzed_guidelines,
+            generation_info=generation_info,
+        )
 
     async def _process_batch(
         self,
@@ -157,7 +151,7 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
         guidelines = {str(i): g for i, g in enumerate(batch_guidelines, start=1)}
 
         async with self._meter.measure(
-            "batch_process",
+            "batch",
             {
                 "batch.strategy": "response_analysis",
                 "batch.size": len(guidelines),

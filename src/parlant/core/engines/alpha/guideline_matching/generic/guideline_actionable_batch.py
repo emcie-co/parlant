@@ -86,7 +86,7 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
     @override
     async def process(self) -> GuidelineMatchingBatchResult:
         async with self._meter.measure(
-            "batch_process",
+            "batch",
             {
                 "batch.strategy": "actionable",
                 "batch.size": len(self._guidelines),

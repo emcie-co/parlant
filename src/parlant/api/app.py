@@ -169,12 +169,13 @@ async def create_api_app(container: Container) -> ASGIApplication:
             },
         ):
             async with meter.measure(
-                "http.server.request",
+                "httpreq",
                 {
                     "request_id": request_id,
                     "http.request.operation": operation_id,
                     "http.method": request.method,
                 },
+                create_scope=False,
             ):
                 return await call_next(request)
 

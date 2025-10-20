@@ -97,7 +97,7 @@ class GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingBatch(
     @override
     async def process(self) -> GuidelineMatchingBatchResult:
         async with self._meter.measure(
-            "batch_process",
+            "batch",
             {
                 "batch.strategy": "previously_applied_actionable_customer_dependent",
                 "batch.size": len(self._guidelines),

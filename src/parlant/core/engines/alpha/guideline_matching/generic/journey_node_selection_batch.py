@@ -474,7 +474,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
         )
 
         async with self._meter.measure(
-            "batch_process",
+            "batch",
             {
                 "batch.strategy": "journey_node_selection",
                 "batch.size": 1,

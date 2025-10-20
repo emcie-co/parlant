@@ -108,7 +108,7 @@ class FireworksSchematicGenerator(SchematicGenerator[T]):
     ) -> SchematicGenerationResult[T]:
         with self._logger.scope(f"Fireworks LLM Request ({self.schema.__name__})"):
             async with self._meter.measure(
-                "llm_request",
+                "llm",
                 {
                     "service.name": "fireworks",
                     "model.name": self.model_name,

@@ -150,10 +150,6 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
                         prompt=prompt,
                         hints={"temperature": generation_attempt_temperatures[generation_attempt]},
                     )
-                    with open("disambiguation prompt.txt", "w") as f:
-                        f.write(prompt.build())
-                    with open("disambiguation inference.txt", "w") as f:
-                        f.write(inference.content.model_dump_json(indent=2))
 
                     self._logger.trace(
                         f"Completion:\n{inference.content.model_dump_json(indent=2)}"

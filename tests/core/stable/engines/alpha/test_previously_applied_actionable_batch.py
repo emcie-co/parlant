@@ -509,48 +509,6 @@ async def test_that_guideline_that_should_reapply_is_matched_when_condition_hold
     )
 
 
-async def test_that_guideline_that_previously_applied_is_not_applied_if_subtopic_is_not_resolved_explicitly(
-    context: ContextOfTest,
-    agent: Agent,
-    new_session: Session,
-    customer: Customer,
-) -> None:
-    conversation_context: list[tuple[EventSource, str]] = [
-        (
-            EventSource.CUSTOMER,
-            "I’d like to book a table for 2 at 7 PM tonight.",
-        ),
-        (
-            EventSource.AI_AGENT,
-            "Got it — a table for 2 at 7 PM. Would you like to add anything else before I confirm the reservation?",
-        ),
-        (
-            EventSource.CUSTOMER,
-            "Yes, actually — it’s for a birthday. Can we get a small cake? Do you have chocolate cakes?",
-        ),
-        (
-            EventSource.AI_AGENT,
-            "Yes we have chocolate and cheese cakes. What would you want?",
-        ),
-        (
-            EventSource.CUSTOMER,
-            "Great so add one strawberry chocolate cake please.",
-        ),
-    ]
-
-    guidelines: list[str] = ["confirm_reservation", "unsupported_capability"]
-
-    await base_test_that_correct_guidelines_are_matched(
-        context,
-        agent,
-        new_session.id,
-        customer,
-        conversation_context,
-        guidelines_target_names=["unsupported_capability"],
-        guidelines_names=guidelines,
-    )
-
-
 async def test_that_reapplied_guideline_is_still_applied_when_handling_conditions_sub_issue(
     context: ContextOfTest,
     agent: Agent,

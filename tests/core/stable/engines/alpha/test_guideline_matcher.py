@@ -2801,7 +2801,7 @@ async def test_that_batch_processing_retries_on_key_error(
         @property
         @override
         def size(self) -> int:
-            return len(self.guidelines)
+            return len(self.guideline_matches)
 
         @override
         async def process(self) -> ResponseAnalysisBatchResult:
@@ -2923,7 +2923,7 @@ async def test_that_batch_processing_fails_after_max_retries(
         @property
         @override
         def size(self) -> int:
-            return len(self.guidelines)
+            return len(self.guideline_matches)
 
         @override
         async def process(self) -> ResponseAnalysisBatchResult:

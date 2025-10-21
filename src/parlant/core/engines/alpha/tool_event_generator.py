@@ -73,6 +73,19 @@ class ToolEventGenerator:
         self._service_registry = service_registry
         self._tool_caller = tool_caller
 
+        self._hist_tool_call_duration = self._meter.create_duration_histogram(
+            "tc",
+            description="Duration of tool call requests",
+        )
+        self._hist_tool_call_inference_duration = self._meter.create_duration_histogram(
+            "tc.infer",
+            description="Duration of tool call inference",
+        )
+        self._hist_tool_call_execution_duration = self._meter.create_duration_histogram(
+            "tc.run",
+            description="Duration of tool call execution",
+        )
+
     async def create_preexecution_state(
         self,
         event_emitter: EventEmitter,
@@ -131,8 +144,8 @@ class ToolEventGenerator:
             staged_events=context.state.tool_events,
         )
 
-        async with self._meter.measure("tc"):
-            async with self._meter.measure("infer"):
+        async with self._hist_tool_call_duration.measure():
+            async with self._hist_tool_call_inference_duration.measure():
                 inference_result = await self._tool_caller.infer_tool_calls(
                     context=tool_call_context,
                 )
@@ -152,7 +165,7 @@ class ToolEventGenerator:
                 customer_id=context.customer.id,
             )
 
-            async with self._meter.measure("run"):
+            async with self._hist_tool_call_execution_duration.measure():
                 tool_results = await self._tool_caller.execute_tool_calls(
                     tool_context,
                     tool_calls,

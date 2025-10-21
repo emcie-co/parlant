@@ -14,12 +14,13 @@
 
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, asdict, field
 from enum import Enum
 import json
 import time
 import traceback
-from typing import Mapping, NewType, Optional, Sequence
+from typing import AsyncIterator, Mapping, NewType, Optional, Sequence
 
 from parlant.core import async_utils
 from parlant.core.agents import Agent
@@ -31,7 +32,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import Guidel
 from parlant.core.glossary import Term
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
-from parlant.core.meter import Meter
+from parlant.core.meter import DurationHistogram, Meter
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import Event, SessionId, ToolResult
@@ -326,3 +327,26 @@ class ToolCaller:
             )
 
             return tool_results
+
+
+_TOOL_CALL_BATCH_DURATION_HISTOGRAM: DurationHistogram | None = None
+
+
+@asynccontextmanager
+async def measure_tool_call_batch(
+    meter: Meter,
+    batch: ToolCallBatch,
+) -> AsyncIterator[None]:
+    global _TOOL_CALL_BATCH_DURATION_HISTOGRAM
+    if _TOOL_CALL_BATCH_DURATION_HISTOGRAM is None:
+        _TOOL_CALL_BATCH_DURATION_HISTOGRAM = meter.create_duration_histogram(
+            name="gm.batch",
+            description="Duration of guideline matching batch",
+        )
+
+    async with _TOOL_CALL_BATCH_DURATION_HISTOGRAM.measure(
+        attributes={
+            "batch.name": batch.__class__.__name__,
+        }
+    ):
+        yield

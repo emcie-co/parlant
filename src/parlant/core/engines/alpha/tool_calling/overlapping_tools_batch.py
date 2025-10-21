@@ -46,6 +46,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
     ToolCallContext,
     ToolCallId,
     ToolInsights,
+    measure_tool_call_batch,
 )
 from parlant.core.tools import Tool, ToolId, ToolParameterDescriptor, ToolParameterOptions
 
@@ -117,12 +118,7 @@ class OverlappingToolsBatch(ToolCallBatch):
         self._overlapping_tools_batch = overlapping_tools_batch
 
     async def process(self) -> ToolCallBatchResult:
-        async with self._meter.measure(
-            "batch",
-            {
-                "batch.strategy": "overlapping",
-            },
-        ):
+        async with measure_tool_call_batch(self._meter, self):
             (
                 generation_info,
                 inference_output,

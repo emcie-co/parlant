@@ -40,6 +40,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
     ToolCallContext,
     ToolCallId,
     ToolInsights,
+    measure_tool_call_batch,
 )
 from parlant.core.glossary import Term
 from parlant.core.journeys import Journey
@@ -133,15 +134,7 @@ class SingleToolBatch(ToolCallBatch):
 
     @override
     async def process(self) -> ToolCallBatchResult:
-        tool_id, tool, _ = self._candidate_tool
-
-        async with self._meter.measure(
-            "batch",
-            {
-                "batch.strategy": "single",
-                "tool_id": tool_id,
-            },
-        ):
+        async with measure_tool_call_batch(self._meter, self):
             (
                 generation_info,
                 inference_output,

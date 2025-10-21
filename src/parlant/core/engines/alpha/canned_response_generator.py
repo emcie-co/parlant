@@ -504,6 +504,49 @@ class CannedResponseGenerator(MessageEventComposer):
         self._entity_queries = entity_queries
         self._no_match_provider = no_match_provider
         self._follow_ups_enabled = True
+        self._define_histograms()
+
+    def _define_histograms(self) -> None:
+        self._preamble_duration_histogram = self._meter.create_histogram(
+            name="canrep.preamble",
+            description="Duration of canned response preamble generation in milliseconds",
+            unit="ms",
+        )
+        self._preamble_render_duration_histogram = self._meter.create_histogram(
+            name="canrep.preamble.render",
+            description="Duration of canned response rendering in milliseconds",
+            unit="ms",
+        )
+        self._render_duration_histogram = self._meter.create_histogram(
+            name="canrep.render",
+            description="Duration of canned response rendering in milliseconds",
+            unit="ms",
+        )
+        self._canned_response_duration_histogram = self._meter.create_histogram(
+            name="canrep",
+            description="Duration of canned response generation in milliseconds",
+            unit="ms",
+        )
+        self._draft_duration_histogram = self._meter.create_histogram(
+            name="canrep.draft",
+            description="Duration of canned response draft generation in milliseconds",
+            unit="ms",
+        )
+        self._retrieval_duration_histogram = self._meter.create_histogram(
+            name="canrep.retrieval",
+            description="Duration of canned response retrieval in milliseconds",
+            unit="ms",
+        )
+        self._recompose_duration_histogram = self._meter.create_histogram(
+            name="canrep.recompose",
+            description="Duration of canned response recomposition in milliseconds",
+            unit="ms",
+        )
+        self._selection_duration_histogram = self._meter.create_histogram(
+            name="canrep.selection",
+            description="Duration of canned response selection in milliseconds",
+            unit="ms",
+        )
 
     async def draft_generation_shots(
         self, composition_mode: CompositionMode
@@ -519,7 +562,7 @@ class CannedResponseGenerator(MessageEventComposer):
     ) -> Sequence[MessageEventComposition]:
         with self._logger.scope("MessageEventComposer"):
             with self._logger.scope("CannedResponseGenerator"):
-                async with self._meter.measure("canrep.preamble"):
+                async with self._preamble_duration_histogram.measure():
                     return await self._do_generate_preamble(context)
 
     async def _do_generate_preamble(
@@ -590,9 +633,7 @@ You must generate the preamble message. You must produce a JSON object with a si
                 if Tag.preamble() in canrep.tags
             ]
 
-            async with self._meter.measure(
-                "render",
-            ):
+            async with self._preamble_render_duration_histogram.measure():
                 preamble_choices = [
                     str(r.rendered_text)
                     for r in await self._render_responses(canrep_context, preamble_responses)
@@ -701,7 +742,7 @@ You will now be given the current state of the interaction to which you must gen
     ) -> Sequence[MessageEventComposition]:
         with self._logger.scope("MessageEventComposer"):
             with self._logger.scope("CannedResponseGenerator"):
-                async with self._meter.measure("canrep"):
+                async with self._canned_response_duration_histogram.measure():
                     return await self._do_generate_events(
                         loaded_context=context,
                         latch=latch,
@@ -1529,7 +1570,7 @@ Output a JSON object with three properties:
                 },
             )
 
-        async with self._meter.measure("draft"):
+        async with self._draft_duration_histogram.measure():
             draft_response = await self._canrep_draft_generator.generate(
                 prompt=draft_prompt,
                 hints={"temperature": temperature},
@@ -1576,9 +1617,7 @@ Output a JSON object with three properties:
         )
 
         # Step 2: Select the most relevant canned response templates based on the draft message
-        async with self._meter.measure(
-            "retrieval",
-        ):
+        async with self._retrieval_duration_histogram.measure():
             relevant_canreps = set(
                 r.canned_response
                 for r in await self._canned_response_store.filter_relevant_canned_responses(
@@ -1601,7 +1640,7 @@ Output a JSON object with three properties:
             )
 
         # Step 3: Pre-render these templates so that matching works better
-        async with self._meter.measure("render"):
+        async with self._render_duration_histogram.measure():
             rendered_canreps = [
                 (r.response.id, str(r.rendered_text))
                 for r in await self._render_responses(
@@ -1613,7 +1652,7 @@ Output a JSON object with three properties:
 
         # Step 4.1: In composited mode, recompose the draft message with the style of the rendered canned responses
         if composition_mode == CompositionMode.CANNED_COMPOSITED:
-            async with self._meter.measure("recompose"):
+            async with self._recompose_duration_histogram.measure():
                 recomposition_generation_info, composited_message = await self._recompose(
                     context=context,
                     draft_message=draft_message,
@@ -1631,7 +1670,7 @@ Output a JSON object with three properties:
                 )
 
         # Step 4.2: In non-composited mode, try to match the draft message with one of the rendered canned responses
-        async with self._meter.measure("selection"):
+        async with self._selection_duration_histogram.measure():
             selection_response = await self._canrep_selection_generator.generate(
                 prompt=self._build_selection_prompt(
                     context=context,

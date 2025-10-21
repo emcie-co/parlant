@@ -475,7 +475,9 @@ async def _define_meter(container: Container) -> None:
         from parlant.adapters.meter.opentelemetry import OpenTelemetryMeter
 
         print("OpenTelemetry metrics is enabled.")
-        container[Meter] = await EXIT_STACK.enter_async_context(OpenTelemetryMeter())
+        container[Meter] = await EXIT_STACK.enter_async_context(
+            OpenTelemetryMeter(container[Tracer])
+        )
 
     else:
         _define_singleton(container, Meter, NullMeter)

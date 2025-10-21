@@ -1,21 +1,65 @@
+from __future__ import annotations
 import asyncio
-import contextvars
 import os
 from types import TracebackType
-from typing import Any, AsyncGenerator, Mapping
+from typing import AsyncGenerator, Mapping
 from typing_extensions import override, Self
 from contextlib import asynccontextmanager
 
 from opentelemetry import metrics
-from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.metrics import Counter as OTelCounter, Histogram as OTelHistogram
+from opentelemetry.sdk.metrics import (
+    MeterProvider,
+)
 from opentelemetry.sdk.metrics.export import (
     PeriodicExportingMetricReader,
 )
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
 
-from parlant.core.meter import Meter
-from parlant.core.tracer import AttributeValue, Tracer
+from parlant.core.meter import Counter, Histogram, Meter
+from parlant.core.tracer import Tracer
+
+
+class OpenTelemetryCounter(Counter):
+    def __init__(self, otel_counter: OTelCounter) -> None:
+        self._otel_counter = otel_counter
+
+    @override
+    async def increment(
+        self,
+        value: int,
+        attributes: Mapping[str, str] | None = None,
+    ) -> None:
+        self._otel_counter.add(value, {**attributes} if attributes else None)
+
+
+class OpenTelemetryHistogram(Histogram):
+    def __init__(self, otel_histogram: OTelHistogram) -> None:
+        self._otel_histogram = otel_histogram
+
+    @override
+    async def record(
+        self,
+        value: float,
+        attributes: Mapping[str, str] | None = None,
+    ) -> None:
+        self._otel_histogram.record(value, {**attributes} if attributes else None)
+
+    @override
+    @asynccontextmanager
+    async def measure(
+        self,
+        attributes: Mapping[str, str] | None = None,
+    ) -> AsyncGenerator[None, None]:
+        start_time = asyncio.get_running_loop().time()
+        try:
+            yield
+        finally:
+            duration = (
+                asyncio.get_running_loop().time() - start_time
+            ) * 1000  # Convert to milliseconds
+            await self.record(duration, attributes)
 
 
 class OpenTelemetryMeter(Meter):
@@ -23,19 +67,9 @@ class OpenTelemetryMeter(Meter):
         self._service_name = os.getenv("OTEL_SERVICE_NAME", "parlant")
 
         self._tracer = tracer
-
         self._meter: metrics.Meter
         self._metric_exporter: OTLPMetricExporter
         self._meter_provider: MeterProvider
-
-        self._scopes: contextvars.ContextVar[str] = contextvars.ContextVar(
-            f"otel_meter_scopes_{id(self)}",
-            default="",
-        )
-
-        # Instrument caches (name -> instrument)
-        self._counters: dict[str, Any] = {}
-        self._histograms: dict[str, Any] = {}
 
     async def __aenter__(self) -> Self:
         resource = Resource.create({"service.name": self._service_name})
@@ -71,75 +105,28 @@ class OpenTelemetryMeter(Meter):
         return False
 
     @override
-    async def increment(
+    def create_counter(
         self,
         name: str,
-        value: int = 1,
-        attributes: Mapping[str, AttributeValue] | None = None,
-    ) -> None:
-        if name not in self._counters:
-            self._counters[name] = self._meter.create_counter(name)
+        description: str,
+    ) -> Counter:
+        otel_counter = self._meter.create_counter(
+            name=name,
+            description=description,
+        )
 
-        attrs = attributes or {}
-        self._counters[name].add(value, attrs)
+        return OpenTelemetryCounter(otel_counter)
 
     @override
-    async def record(
+    def create_histogram(
         self,
         name: str,
-        unit: str,
-        value: float,
-        attributes: Mapping[str, AttributeValue] | None = None,
-    ) -> None:
-        if name not in self._histograms:
-            self._histograms[name] = self._meter.create_histogram(
-                name=name,
-                unit=unit,
-            )
-
-        attrs = attributes or {}
-        self._histograms[name].record(value, attrs)
-
-    @override
-    @asynccontextmanager
-    async def measure(
-        self,
-        name: str,
-        attributes: Mapping[str, AttributeValue] | None = None,
-        create_scope: bool = True,
-    ) -> AsyncGenerator[None, None]:
-        """
-        Measure the duration of a block of code.
-        Usage:
-            async with meter.measure("my_duration"):
-                # Code to measure
-        """
-        if create_scope:
-            token = self._push_scope(name)
-            start_time = asyncio.get_running_loop().time()
-            try:
-                yield
-            finally:
-                duration = asyncio.get_running_loop().time() - start_time
-                await self.record(
-                    name=f"{token.var.get()}.time",
-                    unit="ms",
-                    duration=duration,
-                    attributes=attributes,
-                )
-                self._pop_scope(token)
-        else:
-            start_time = asyncio.get_running_loop().time()
-            try:
-                yield
-            finally:
-                duration = asyncio.get_running_loop().time() - start_time
-                await self.record(name, duration, attributes)
-
-    def _push_scope(self, segment: str) -> contextvars.Token[str]:
-        current = self._scopes.get()
-        new_scope = f"{current}.{segment}" if current else segment
-        return self._scopes.set(new_scope)
-
-    def _pop_scope(self, token: contextvars.Token[str]) -> None:
-        self._scopes.reset(token)
+        description: str,
+        unit: str = "ms",
+    ) -> Histogram:
+        otel_histogram = self._meter.create_histogram(
+            name=name,
+            description=description,
+            unit=unit,
+        )
+        return OpenTelemetryHistogram(otel_histogram)

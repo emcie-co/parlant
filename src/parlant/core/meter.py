@@ -3,62 +3,92 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Mapping
 from typing_extensions import override
 
-from parlant.core.tracer import AttributeValue
 
-
-class Meter(ABC):
-    @abstractmethod
-    async def increment(
-        self,
-        name: str,
-        value: int = 1,
-        attributes: Mapping[str, AttributeValue] | None = None,
-    ) -> None: ...
-
+class Histogram(ABC):
     @abstractmethod
     async def record(
         self,
-        name: str,
         value: float,
-        attributes: Mapping[str, AttributeValue] | None = None,
+        attributes: Mapping[str, str] | None = None,
     ) -> None: ...
 
     @abstractmethod
     @asynccontextmanager
     async def measure(
         self,
+        attributes: Mapping[str, str] | None = None,
+    ) -> AsyncGenerator[None, None]:
+        yield
+
+
+class Counter(ABC):
+    @abstractmethod
+    async def increment(
+        self,
+        value: int,
+        attributes: Mapping[str, str] | None = None,
+    ) -> None: ...
+
+
+class Meter(ABC):
+    @abstractmethod
+    def create_counter(
+        self,
         name: str,
-        attributes: Mapping[str, AttributeValue] | None = None,
-        create_scope: bool = True,
+        description: str,
+    ) -> Counter: ...
+
+    @abstractmethod
+    def create_histogram(
+        self,
+        name: str,
+        description: str,
+        unit: str = "ms",
+    ) -> Histogram: ...
+
+
+class NullCounter(Counter):
+    @override
+    async def increment(
+        self,
+        value: int,
+        attributes: Mapping[str, str] | None = None,
+    ) -> None:
+        pass
+
+
+class NullHistogram(Histogram):
+    @override
+    async def record(
+        self,
+        value: float,
+        attributes: Mapping[str, str] | None = None,
+    ) -> None:
+        pass
+
+    @override
+    @asynccontextmanager
+    async def measure(
+        self,
+        attributes: Mapping[str, str] | None = None,
     ) -> AsyncGenerator[None, None]:
         yield
 
 
 class NullMeter(Meter):
     @override
-    async def increment(
+    def create_counter(
         self,
         name: str,
-        value: int = 1,
-        attributes: Mapping[str, AttributeValue] | None = None,
-    ) -> None:
-        pass
+        description: str,
+    ) -> Counter:
+        return NullCounter()
 
     @override
-    async def record(
+    def create_histogram(
         self,
         name: str,
-        value: float,
-        attributes: Mapping[str, AttributeValue] | None = None,
-    ) -> None:
-        pass
-
-    @override
-    @asynccontextmanager
-    async def measure(
-        self,
-        name: str,
-        attributes: Mapping[str, AttributeValue] | None = None,
-        create_scope: bool = True,
-    ) -> AsyncGenerator[None, None]:
-        yield
+        description: str,
+        unit: str = "ms",
+    ) -> Histogram:
+        return NullHistogram()

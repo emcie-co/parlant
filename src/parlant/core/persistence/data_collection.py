@@ -67,9 +67,9 @@ class DataCollectingSchematicGenerator(SchematicGenerator[T]):
             prompt = prompt.build()
 
         async with (
-            aiofiles.open(prompt_path, "w") as prompt_file,
-            aiofiles.open(completion_path, "w") as completion_file,
-            aiofiles.open(usage_path, "w") as usage_file,
+            aiofiles.open(prompt_path, "w", encoding="utf-8") as prompt_file,
+            aiofiles.open(completion_path, "w", encoding="utf-8") as completion_file,
+            aiofiles.open(usage_path, "w", encoding="utf-8") as usage_file,
         ):
             usage_info = json.dumps(
                 {

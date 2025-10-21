@@ -30,7 +30,7 @@ from typing_extensions import override
 
 from parlant.core.async_utils import safe_gather
 from parlant.core.capabilities import Capability
-from parlant.core.meter import Meter
+from parlant.core.meter import Histogram, Meter
 from parlant.core.tracer import Tracer
 from parlant.core.agents import Agent, CompositionMode
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
@@ -507,45 +507,46 @@ class CannedResponseGenerator(MessageEventComposer):
         self._define_histograms()
 
     def _define_histograms(self) -> None:
-        self._preamble_duration_histogram = self._meter.create_histogram(
-            name="canrep.preamble",
-            description="Duration of canned response preamble generation in milliseconds",
-            unit="ms",
-        )
-        self._preamble_render_duration_histogram = self._meter.create_histogram(
-            name="canrep.preamble.render",
-            description="Duration of canned response rendering in milliseconds",
-            unit="ms",
-        )
-        self._render_duration_histogram = self._meter.create_histogram(
-            name="canrep.render",
-            description="Duration of canned response rendering in milliseconds",
-            unit="ms",
-        )
+        def _create_histogram(name: str, description: str) -> Histogram:
+            return self._meter.create_histogram(
+                name=f"canrep.{name}",
+                description=description,
+                unit="ms",
+            )
+
         self._canned_response_duration_histogram = self._meter.create_histogram(
             name="canrep",
             description="Duration of canned response generation in milliseconds",
             unit="ms",
         )
-        self._draft_duration_histogram = self._meter.create_histogram(
-            name="canrep.draft",
+
+        self._preamble_duration_histogram = _create_histogram(
+            name="preamble",
+            description="Duration of canned response preamble generation in milliseconds",
+        )
+        self._preamble_render_duration_histogram = _create_histogram(
+            name="preamble.render",
+            description="Duration of canned response rendering in milliseconds",
+        )
+        self._render_duration_histogram = _create_histogram(
+            name="render",
+            description="Duration of canned response rendering in milliseconds",
+        )
+        self._draft_duration_histogram = _create_histogram(
+            name="draft",
             description="Duration of canned response draft generation in milliseconds",
-            unit="ms",
         )
-        self._retrieval_duration_histogram = self._meter.create_histogram(
-            name="canrep.retrieval",
+        self._retrieval_duration_histogram = _create_histogram(
+            name="retrieval",
             description="Duration of canned response retrieval in milliseconds",
-            unit="ms",
         )
-        self._recompose_duration_histogram = self._meter.create_histogram(
-            name="canrep.recompose",
+        self._recompose_duration_histogram = _create_histogram(
+            name="recompose",
             description="Duration of canned response recomposition in milliseconds",
-            unit="ms",
         )
-        self._selection_duration_histogram = self._meter.create_histogram(
-            name="canrep.selection",
+        self._selection_duration_histogram = _create_histogram(
+            name="selection",
             description="Duration of canned response selection in milliseconds",
-            unit="ms",
         )
 
     async def draft_generation_shots(

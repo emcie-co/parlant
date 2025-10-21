@@ -48,15 +48,16 @@ from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
-from parlant.core.nlp.embedding import Embedder, EmbeddingResult
+from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
-    SchematicGenerator,
+    BaseSchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.moderation import (
     CustomerModerationContext,
+    BaseModerationService,
     ModerationCheck,
     ModerationService,
     ModerationTag,
@@ -87,7 +88,7 @@ class OpenAIEstimatingTokenizer(EstimatingTokenizer):
         return len(tokens)
 
 
-class OpenAISchematicGenerator(SchematicGenerator[T]):
+class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
     supported_openai_params = ["temperature", "logit_bias", "max_tokens"]
     supported_hints = supported_openai_params + ["strict"]
     unsupported_params_by_model: dict[str, list[str]] = {
@@ -136,21 +137,13 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
         with self._logger.scope(f"OpenAI LLM Request ({self.schema.__name__})"):
-            async with self._meter.measure(
-                "llm",
-                {
-                    "service.name": "openai",
-                    "model.name": self.model_name,
-                    "schema.name": self.schema.__name__,
-                },
-            ):
-                return await self._do_generate(prompt, hints)
+            return await self._do_generate(prompt, hints)
 
     def _list_arguments(self, hints: Mapping[str, Any]) -> Mapping[str, Any]:
         exclude_params = [
@@ -327,14 +320,12 @@ class GPT_4o_Mini(OpenAISchematicGenerator[T]):
         return 128 * 1024
 
 
-class OpenAIEmbedder(Embedder):
+class OpenAIEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
     def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
+        super().__init__(logger, meter, model_name)
         self.model_name = model_name
-
-        self._logger = logger
-        self._meter = meter
 
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
         self._tokenizer = OpenAIEstimatingTokenizer(model_name=self.model_name)
@@ -364,27 +355,20 @@ class OpenAIEmbedder(Embedder):
         ]
     )
     @override
-    async def embed(
+    async def do_embed(
         self,
         texts: list[str],
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
         filtered_hints = {k: v for k, v in hints.items() if k in self.supported_arguments}
         try:
-            async with self._meter.measure(
-                "embed",
-                {
-                    "service.name": "openai",
-                    "embedding.model.name": self.model_name,
-                },
-            ):
-                response = await self._client.embeddings.create(
-                    model=self.model_name,
-                    input=texts,
-                    **filtered_hints,
-                )
+            response = await self._client.embeddings.create(
+                model=self.model_name,
+                input=texts,
+                **filtered_hints,
+            )
         except RateLimitError:
-            self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+            self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
 
         vectors = [data_point.embedding for data_point in response.data]
@@ -419,16 +403,22 @@ class OpenAITextEmbedding3Small(OpenAIEmbedder):
         return 3072
 
 
-class OpenAIModerationService(ModerationService):
+class OpenAIModerationService(BaseModerationService):
     def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
+        super().__init__(logger, meter)
+
         self.model_name = model_name
-        self._logger = logger
-        self._meter = meter
 
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
 
+        self._moderation_request_duration_histogram = meter.create_histogram(
+            name="moderation",
+            description="Duration of moderation requests in milliseconds",
+            unit="ms",
+        )
+
     @override
-    async def moderate_customer(self, context: CustomerModerationContext) -> ModerationCheck:
+    async def do_moderate_customer(self, context: CustomerModerationContext) -> ModerationCheck:
         def extract_tags(category: str) -> list[ModerationTag]:
             mapping: dict[str, list[ModerationTag]] = {
                 "sexual": ["sexual"],
@@ -448,11 +438,10 @@ class OpenAIModerationService(ModerationService):
 
             return mapping.get(category.replace("/", "_").replace("-", "_"), [])
 
-        async with self._meter.measure("moderation_request", {"service.name": "openai"}):
-            response = await self._client.moderations.create(
-                input=context.message,
-                model=self.model_name,
-            )
+        response = await self._client.moderations.create(
+            input=context.message,
+            model=self.model_name,
+        )
 
         result = response.results[0]
 

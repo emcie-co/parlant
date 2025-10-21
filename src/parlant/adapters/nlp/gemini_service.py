@@ -34,10 +34,10 @@ from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.moderation import ModerationService, NoModeration
 from parlant.core.nlp.service import NLPService
-from parlant.core.nlp.embedding import Embedder, EmbeddingResult
+from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
-    SchematicGenerator,
+    BaseSchematicGenerator,
     FallbackSchematicGenerator,
     SchematicGenerationResult,
 )
@@ -77,7 +77,7 @@ class GoogleEstimatingTokenizer(EstimatingTokenizer):
         return int(result.total_tokens or 0)
 
 
-class GeminiSchematicGenerator(SchematicGenerator[T]):
+class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
     supported_hints = ["temperature", "thinking_config"]
 
     def __init__(
@@ -86,9 +86,7 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
         logger: Logger,
         meter: Meter,
     ) -> None:
-        self.model_name = model_name
-        self._logger = logger
-        self._meter = meter
+        super().__init__(logger, meter, model_name)
 
         self._client = google.genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
@@ -117,21 +115,13 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.scope(f"Gemini LLM Request ({self.schema.__name__})"):
-            async with self._meter.measure(
-                "llm",
-                {
-                    "service.name": "gemini",
-                    "model.name": self.model_name,
-                    "schema.name": self.schema.__name__,
-                },
-            ):
-                return await self._do_generate(prompt, hints)
+        with self.logger.scope(f"Gemini LLM Request ({self.schema.__name__})"):
+            return await self._do_generate(prompt, hints)
 
     async def _do_generate(
         self,
@@ -164,7 +154,7 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
                 config=config,
             )
         except TooManyRequests:
-            self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+            self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
 
         t_end = time.time()
@@ -180,13 +170,13 @@ class GeminiSchematicGenerator(SchematicGenerator[T]):
         )
 
         if response.usage_metadata:
-            self._logger.trace(response.usage_metadata.model_dump_json(indent=2))
+            self.logger.trace(response.usage_metadata.model_dump_json(indent=2))
 
         try:
             model_content = self.schema.model_validate(json_result)
 
             await record_llm_metrics(
-                self._meter,
+                self.meter,
                 self.model_name,
                 input_tokens=response.usage_metadata.prompt_token_count or 0
                 if response.usage_metadata
@@ -374,14 +364,11 @@ class Gemini_2_5_Pro(GeminiSchematicGenerator[T]):
         return 1024 * 1024
 
 
-class GoogleEmbedder(Embedder):
+class GoogleEmbedder(BaseEmbedder):
     supported_hints = ["title", "task_type"]
 
     def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
-        self.model_name = model_name
-
-        self._logger = logger
-        self._meter = meter
+        super().__init__(logger, meter, model_name)
 
         self._client = google.genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
         self._tokenizer = GoogleEstimatingTokenizer(client=self._client, model_name=self.model_name)
@@ -409,7 +396,7 @@ class GoogleEmbedder(Embedder):
         ]
     )
     @override
-    async def embed(
+    async def do_embed(
         self,
         texts: list[str],
         hints: Mapping[str, Any] = {},
@@ -417,20 +404,13 @@ class GoogleEmbedder(Embedder):
         gemini_api_arguments = {k: v for k, v in hints.items() if k in self.supported_hints}
 
         try:
-            async with self._meter.measure(
-                "embed",
-                {
-                    "service.name": "gemini",
-                    "embedding.model.name": self.model_name,
-                },
-            ):
-                response = await self._client.aio.models.embed_content(  # type: ignore
-                    model=self.model_name,
-                    contents=texts,  # type: ignore
-                    config=cast(google.genai.types.EmbedContentConfigDict, gemini_api_arguments),
-                )
+            response = await self._client.aio.models.embed_content(  # type: ignore
+                model=self.model_name,
+                contents=texts,  # type: ignore
+                config=cast(google.genai.types.EmbedContentConfigDict, gemini_api_arguments),
+            )
         except TooManyRequests:
-            self._logger.error(
+            self.logger.error(
                 (
                     "Google API rate limit exceeded. Possible reasons:\n"
                     "1. Your account may have insufficient API credits.\n"
@@ -487,17 +467,17 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
         logger: Logger,
         meter: Meter,
     ) -> None:
-        self._logger = logger
+        self.logger = logger
         self._meter = meter
 
-        self._logger.info("Initialized GeminiService")
+        self.logger.info("Initialized GeminiService")
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> GeminiSchematicGenerator[T]:
         return FallbackSchematicGenerator[t](  # type: ignore
-            Gemini_2_5_Flash[t](self._logger, self._meter),  # type: ignore
-            Gemini_2_5_Pro[t](self._logger, self._meter),  # type: ignore
-            logger=self._logger,
+            Gemini_2_5_Flash[t](self.logger, self._meter),  # type: ignore
+            Gemini_2_5_Pro[t](self.logger, self._meter),  # type: ignore
+            logger=self.logger,
         )
 
     @override

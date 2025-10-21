@@ -32,10 +32,10 @@ from parlant.adapters.nlp.common import normalize_json_output, record_llm_metric
 from parlant.adapters.nlp.hugging_face import HuggingFaceEstimatingTokenizer
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.meter import Meter
-from parlant.core.nlp.embedding import Embedder, EmbeddingResult
+from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
-    SchematicGenerator,
+    BaseSchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -68,7 +68,7 @@ class LlamaEstimatingTokenizer(EstimatingTokenizer):
         return len(tokens) + 36
 
 
-class TogetherAISchematicGenerator(SchematicGenerator[T]):
+class TogetherAISchematicGenerator(BaseSchematicGenerator[T]):
     supported_hints = ["temperature", "max_tokens", "top_p", "top_k"]
 
     def __init__(
@@ -114,21 +114,13 @@ class TogetherAISchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
         with self._logger.scope(f"Together LLM Request ({self.schema.__name__})"):
-            async with self._meter.measure(
-                "llm",
-                {
-                    "service.name": "together",
-                    "model.name": self.model_name,
-                    "schema.name": self.schema.__name__,
-                },
-            ):
-                return await self._do_generate(prompt, hints)
+            return await self._do_generate(prompt, hints)
 
     async def _do_generate(
         self,
@@ -231,12 +223,9 @@ class Llama3_3_70B(TogetherAISchematicGenerator[T]):
         )
 
 
-class TogetherAIEmbedder(Embedder):
+class TogetherAIEmbedder(BaseEmbedder):
     def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
-        self.model_name = model_name
-
-        self._logger = logger
-        self._meter = meter
+        super().__init__(logger=logger, meter=meter, model_name=model_name)
 
         self._client = AsyncTogether(api_key=os.environ.get("TOGETHER_API_KEY"))
 
@@ -254,7 +243,7 @@ class TogetherAIEmbedder(Embedder):
         ]
     )
     @override
-    async def embed(
+    async def do_embed(
         self,
         texts: list[str],
         hints: Mapping[str, Any] = {},
@@ -262,19 +251,12 @@ class TogetherAIEmbedder(Embedder):
         _ = hints
 
         try:
-            async with self._meter.measure(
-                "embed",
-                {
-                    "service.name": "together",
-                    "embedding.model.name": self.model_name,
-                },
-            ):
-                response = await self._client.embeddings.create(
-                    model=self.model_name,
-                    input=texts,
-                )
+            response = await self._client.embeddings.create(
+                model=self.model_name,
+                input=texts,
+            )
         except RateLimitError:
-            self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+            self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
 
         vectors = [data_point.embedding for data_point in response.data]

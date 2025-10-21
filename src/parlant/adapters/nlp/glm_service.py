@@ -39,10 +39,10 @@ from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
-from parlant.core.nlp.embedding import Embedder, EmbeddingResult
+from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
-    SchematicGenerator,
+    BaseSchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -76,7 +76,7 @@ class GLMEstimatingTokenizer(EstimatingTokenizer):
         return len(tokens)
 
 
-class GLMEmbedder(Embedder):
+class GLMEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
     def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
@@ -115,25 +115,18 @@ class GLMEmbedder(Embedder):
         ]
     )
     @override
-    async def embed(
+    async def do_embed(
         self,
         texts: list[str],
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
         filtered_hints = {k: v for k, v in hints.items() if k in self.supported_arguments}
         try:
-            async with self._meter.measure(
-                "embed",
-                {
-                    "service.name": "glm",
-                    "embedding.model.name": self.model_name,
-                },
-            ):
-                response = await self._client.embeddings.create(
-                    model=self.model_name,
-                    input=texts,
-                    **filtered_hints,
-                )
+            response = await self._client.embeddings.create(
+                model=self.model_name,
+                input=texts,
+                **filtered_hints,
+            )
         except RateLimitError:
             self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
@@ -156,7 +149,7 @@ class GMLTextEmbedding_3(GLMEmbedder):
         return 2048
 
 
-class GLMSchematicGenerator(SchematicGenerator[T]):
+class GLMSchematicGenerator(BaseSchematicGenerator[T]):
     supported_glm_params = ["temperature", "max_tokens"]
     supported_hints = supported_glm_params + ["strict"]
 
@@ -202,21 +195,13 @@ class GLMSchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
         with self._logger.scope(f"GLM LLM Request ({self.schema.__name__})"):
-            async with self._meter.measure(
-                "llm",
-                {
-                    "service.name": "glm",
-                    "model.name": self.model_name,
-                    "schema.name": self.schema.__name__,
-                },
-            ):
-                return await self._do_generate(prompt, hints)
+            return await self._do_generate(prompt, hints)
 
     async def _do_generate(
         self,

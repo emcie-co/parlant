@@ -43,7 +43,7 @@ from parlant.core.nlp.service import NLPService
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
     T,
-    SchematicGenerator,
+    BaseSchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -64,7 +64,7 @@ class DeepSeekEstimatingTokenizer(EstimatingTokenizer):
         return len(tokens)
 
 
-class DeepSeekSchematicGenerator(SchematicGenerator[T]):
+class DeepSeekSchematicGenerator(BaseSchematicGenerator[T]):
     supported_deepseek_params = ["temperature", "logit_bias", "max_tokens"]
     supported_hints = supported_deepseek_params + ["strict"]
 
@@ -110,21 +110,13 @@ class DeepSeekSchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
         with self._logger.scope(f"DeepSeek LLM Request ({self.schema.__name__})"):
-            async with self._meter.measure(
-                "llm",
-                {
-                    "service.name": "deepseek",
-                    "model.name": self.model_name,
-                    "schema.name": self.schema.__name__,
-                },
-            ):
-                return await self._do_generate(prompt, hints)
+            return await self._do_generate(prompt, hints)
 
     async def _do_generate(
         self,
@@ -241,7 +233,7 @@ Please set DEEPSEEK_API_KEY in your environment before running Parlant.
 
     @override
     async def get_embedder(self) -> Embedder:
-        return JinaAIEmbedder(self._meter)
+        return JinaAIEmbedder(self._logger, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

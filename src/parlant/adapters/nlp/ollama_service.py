@@ -31,9 +31,10 @@ from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.moderation import ModerationService, NoModeration
 from parlant.core.nlp.service import NLPService
-from parlant.core.nlp.embedding import Embedder, EmbeddingResult
+from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
+    BaseSchematicGenerator,
     SchematicGenerator,
     SchematicGenerationResult,
 )
@@ -140,7 +141,7 @@ class OllamaEstimatingTokenizer(EstimatingTokenizer):
         return int(len(tokens) * 1.15)
 
 
-class OllamaSchematicGenerator(SchematicGenerator[T]):
+class OllamaSchematicGenerator(BaseSchematicGenerator[T]):
     """Schematic generator that uses Ollama models."""
 
     supported_hints = ["temperature", "max_tokens", "top_p", "top_k", "repeat_penalty", "timeout"]
@@ -224,21 +225,13 @@ class OllamaSchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
         with self._logger.scope(f"Ollama LLM Request ({self.schema.__name__})"):
-            async with self._meter.measure(
-                "llm",
-                {
-                    "service.name": "ollama",
-                    "model.name": self.model_name,
-                    "schema.name": self.schema.__name__,
-                },
-            ):
-                return await self._do_generate(prompt, hints)
+            return await self._do_generate(prompt, hints)
 
     async def _do_generate(
         self,
@@ -465,17 +458,14 @@ class CustomOllamaSchematicGenerator(OllamaSchematicGenerator[T]):
         )
 
 
-class OllamaEmbedder(Embedder):
+class OllamaEmbedder(BaseEmbedder):
     """Embedder that uses Ollama embedding models."""
 
     supported_arguments = ["dimensions"]
 
     def __init__(self, model_name: str, logger: Logger, meter: Meter):
-        self.model_name = model_name
+        super().__init__(logger=logger, meter=meter, model_name=model_name)
         self.base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
-
-        self._logger = logger
-        self._meter = meter
 
         self._tokenizer = OllamaEstimatingTokenizer(self.model_name)
         self._client = ollama.AsyncClient(host=self.base_url)
@@ -505,7 +495,7 @@ class OllamaEmbedder(Embedder):
         ]
     )
     @override
-    async def embed(
+    async def do_embed(
         self,
         texts: list[str],
         hints: Mapping[str, Any] = {},
@@ -513,16 +503,9 @@ class OllamaEmbedder(Embedder):
         filtered_hints = {k: v for k, v in hints.items() if k in self.supported_arguments}
 
         try:
-            async with self._meter.measure(
-                "embed",
-                {
-                    "service.name": "ollama",
-                    "embedding.model.name": self.model_name,
-                },
-            ):
-                response = await self._client.embed(
-                    model=self.model_name, input=texts, **filtered_hints
-                )
+            response = await self._client.embed(
+                model=self.model_name, input=texts, **filtered_hints
+            )
 
             vectors = response.get("embeddings", [])
 
@@ -539,7 +522,7 @@ class OllamaEmbedder(Embedder):
                 raise OllamaError(f"Embedding request failed: {e.error}")
 
         except Exception as e:
-            self._logger.error(f"Error during embedding: {e}")
+            self.logger.error(f"Error during embedding: {e}")
             raise OllamaConnectionError(f"Unexpected error: {e}")
 
 

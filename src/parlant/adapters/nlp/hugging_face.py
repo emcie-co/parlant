@@ -28,10 +28,11 @@ from huggingface_hub.errors import (  # type: ignore
 
 from tempfile import gettempdir
 
+from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
-from parlant.core.nlp.embedding import Embedder, EmbeddingResult
+from parlant.core.nlp.embedding import BaseEmbedder, EmbeddingResult
 
 
 _TOKENIZER_MODELS: dict[str, AutoTokenizer] = {}
@@ -105,11 +106,10 @@ class HuggingFaceEstimatingTokenizer(EstimatingTokenizer):
         return len(tokens)
 
 
-class HuggingFaceEmbedder(Embedder):
-    def __init__(self, meter: Meter, model_name: str) -> None:
-        self._meter = meter
+class HuggingFaceEmbedder(BaseEmbedder):
+    def __init__(self, logger: Logger, meter: Meter, model_name: str) -> None:
+        super().__init__(logger=logger, meter=meter, model_name=model_name)
 
-        self.model_name = model_name
         self._model = _create_auto_model(model_name)
         self._tokenizer = HuggingFaceEstimatingTokenizer(model_name=model_name)
 
@@ -142,34 +142,26 @@ class HuggingFaceEmbedder(Embedder):
         ]
     )
     @override
-    async def embed(
+    async def do_embed(
         self,
         texts: list[str],
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
-        async with self._meter.measure(
-            "embed",
-            {
-                "service.name": "hugging-face",
-                "embedding.model.name": self.model_name,
-            },
-        ):
-            tokenized_texts = self._tokenizer._tokenizer.batch_encode_plus(
-                texts, padding=True, truncation=True, return_tensors="pt"
-            )
-            tokenized_texts = {
-                key: value.to(_get_device()) for key, value in tokenized_texts.items()
-            }
+        tokenized_texts = self._tokenizer._tokenizer.batch_encode_plus(
+            texts, padding=True, truncation=True, return_tensors="pt"
+        )
+        tokenized_texts = {key: value.to(_get_device()) for key, value in tokenized_texts.items()}
 
-            with torch.no_grad():
-                embeddings = self._model(**tokenized_texts).last_hidden_state[:, 0, :]
+        with torch.no_grad():
+            embeddings = self._model(**tokenized_texts).last_hidden_state[:, 0, :]
 
         return EmbeddingResult(vectors=embeddings.tolist())
 
 
 class JinaAIEmbedder(HuggingFaceEmbedder):
-    def __init__(self, meter: Meter) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
+            logger=logger,
             meter=meter,
             model_name="jinaai/jina-embeddings-v2-base-en",
         )

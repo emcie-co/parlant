@@ -50,9 +50,10 @@ from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.moderation import ModerationService, NoModeration
 from parlant.core.nlp.service import NLPService
-from parlant.core.nlp.embedding import Embedder, EmbeddingResult
+from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
+    BaseSchematicGenerator,
     SchematicGenerator,
     FallbackSchematicGenerator,
     SchematicGenerationResult,
@@ -115,7 +116,7 @@ def get_model_provider(model_name: str) -> ModelProvider:
         raise ValueError(f"Unknown model provider for model: {model_name}")
 
 
-class VertexAIClaudeSchematicGenerator(SchematicGenerator[T]):
+class VertexAIClaudeSchematicGenerator(BaseSchematicGenerator[T]):
     """Schematic generator for Claude models via Vertex AI."""
 
     supported_hints = ["temperature", "max_tokens", "top_p", "top_k"]
@@ -174,21 +175,13 @@ class VertexAIClaudeSchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
         with self._logger.scope(f"Vertex LLM Request ({self.schema.__name__})"):
-            async with self._meter.measure(
-                "llm",
-                {
-                    "service.name": "vertex",
-                    "model.name": self.model_name,
-                    "schema.name": self.schema.__name__,
-                },
-            ):
-                return await self._do_generate(prompt, hints)
+            return await self._do_generate(prompt, hints)
 
     async def _do_generate(
         self,
@@ -274,7 +267,7 @@ class VertexAIClaudeSchematicGenerator(SchematicGenerator[T]):
             raise
 
 
-class VertexAIGeminiSchematicGenerator(SchematicGenerator[T]):
+class VertexAIGeminiSchematicGenerator(BaseSchematicGenerator[T]):
     """Schematic generator for Gemini models"""
 
     supported_hints = ["temperature", "thinking_config"]
@@ -330,7 +323,15 @@ class VertexAIGeminiSchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[T]:
+        with self._logger.scope(f"Vertex LLM Request ({self.schema.__name__})"):
+            return await self._do_generate(prompt, hints)
+
+    async def _do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
@@ -544,7 +545,7 @@ class VertexGemini25Pro(VertexAIGeminiSchematicGenerator[T]):
         )
 
 
-class VertexAIEmbedder(Embedder):
+class VertexAIEmbedder(BaseEmbedder):
     """Embedder using Google Gen AI text embeddings"""
 
     supported_hints = ["title", "task_type"]
@@ -552,14 +553,20 @@ class VertexAIEmbedder(Embedder):
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
         model_name: str,
     ):
-        self._logger = logger
-
         self.project_id = os.environ.get("VERTEX_AI_PROJECT_ID")
-        self.region = os.environ.get("VERTEX_AI_REGION", "us-central1")
-        self.model_name = model_name
 
+        if not self.project_id:
+            raise ValueError(
+                "VERTEX_AI_PROJECT_ID environment variable must be set. "
+                "Set this to your Google Cloud Project ID."
+            )
+
+        super().__init__(logger, meter, model_name)
+
+        self.region = os.environ.get("VERTEX_AI_REGION", "us-central1")
         self._client = google.genai.Client(
             project=self.project_id, location=self.region, vertexai=True
         )
@@ -580,28 +587,6 @@ class VertexAIEmbedder(Embedder):
     def max_tokens(self) -> int:
         return 8192
 
-
-class VertexTextEmbedding004(VertexAIEmbedder):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        self._logger = logger
-        self._meter = meter
-
-        self.project_id = os.environ.get("VERTEX_AI_PROJECT_ID")
-        self.region = os.environ.get("VERTEX_AI_REGION", "us-central1")
-        self.embedding_model = "text-embedding-004"
-
-        if not self.project_id:
-            raise ValueError(
-                "VERTEX_AI_PROJECT_ID environment variable must be set. "
-                "Set this to your Google Cloud Project ID."
-            )
-
-        super().__init__(model_name="text-embedding-004", logger=logger)
-
-    @property
-    def dimensions(self) -> int:
-        return 768
-
     @policy(
         [
             retry(
@@ -616,7 +601,7 @@ class VertexTextEmbedding004(VertexAIEmbedder):
         ]
     )
     @override
-    async def embed(
+    async def do_embed(
         self,
         texts: list[str],
         hints: Mapping[str, Any] = {},
@@ -626,18 +611,11 @@ class VertexTextEmbedding004(VertexAIEmbedder):
             gemini_api_arguments["task_type"] = "RETRIEVAL_DOCUMENT"
 
         try:
-            async with self._meter.measure(
-                "embed",
-                {
-                    "service.name": "vertex",
-                    "embedding.model.name": self.model_name,
-                },
-            ):
-                response = await self._client.aio.models.embed_content(  # type: ignore
-                    model=self.model_name,
-                    contents=texts,  # type: ignore
-                    config=cast(google.genai.types.EmbedContentConfigDict, gemini_api_arguments),
-                )
+            response = await self._client.aio.models.embed_content(  # type: ignore
+                model=self.model_name,
+                contents=texts,  # type: ignore
+                config=cast(google.genai.types.EmbedContentConfigDict, gemini_api_arguments),
+            )
 
             vectors = [
                 data_point.values for data_point in response.embeddings or [] if data_point.values
@@ -645,7 +623,7 @@ class VertexTextEmbedding004(VertexAIEmbedder):
             return EmbeddingResult(vectors=vectors)
 
         except TooManyRequests:
-            self._logger.error(
+            self.logger.error(
                 (
                     "Google API rate limit exceeded. Possible reasons:\n"
                     "1. Your account may have insufficient API credits.\n"
@@ -660,8 +638,18 @@ class VertexTextEmbedding004(VertexAIEmbedder):
             )
             raise
         except Exception as e:
-            self._logger.error(f"Error during embedding: {e}")
+            self.logger.error(f"Error during embedding: {e}")
             raise
+
+
+class VertexTextEmbedding004(VertexAIEmbedder):
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="text-embedding-004", logger=logger, meter=meter)
+
+    @property
+    @override
+    def dimensions(self) -> int:
+        return 768
 
 
 class VertexAIService(NLPService):

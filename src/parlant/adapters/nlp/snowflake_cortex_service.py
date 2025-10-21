@@ -33,8 +33,13 @@ from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
-from parlant.core.nlp.embedding import Embedder, EmbeddingResult
-from parlant.core.nlp.generation import T, SchematicGenerator, SchematicGenerationResult
+from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
+from parlant.core.nlp.generation import (
+    T,
+    BaseSchematicGenerator,
+    SchematicGenerator,
+    SchematicGenerationResult,
+)
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.moderation import ModerationService, NoModeration
 
@@ -54,7 +59,7 @@ class CortexEstimatingTokenizer(EstimatingTokenizer):
         return int(len(self.encoding.encode(prompt)) * 1.05)
 
 
-class CortexSchematicGenerator(SchematicGenerator[T]):
+class CortexSchematicGenerator(BaseSchematicGenerator[T]):
     """
     Snowflake Cortex chat generator via REST:
         POST {BASE}/api/v2/cortex/inference:complete
@@ -112,21 +117,13 @@ class CortexSchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
         with self._logger.scope(f"Cortex LLM Request ({self.schema.__name__})"):
-            async with self._meter.measure(
-                "llm",
-                {
-                    "service.name": "cortex",
-                    "model.name": self.model_name,
-                    "schema.name": self.schema.__name__,
-                },
-            ):
-                return await self._do_generate(prompt, hints)
+            return await self._do_generate(prompt, hints)
 
     async def _do_generate(
         self,
@@ -231,7 +228,7 @@ class CortexSchematicGenerator(SchematicGenerator[T]):
         )
 
 
-class CortexEmbedder(Embedder):
+class CortexEmbedder(BaseEmbedder):
     """Embeddings via Snowflake Cortex.
 
     Endpoint:
@@ -241,12 +238,11 @@ class CortexEmbedder(Embedder):
     supported_arguments = ["dimensions"]
 
     def __init__(self, *, logger: Logger, meter: Meter) -> None:
-        self._logger = logger
-        self._meter = meter
+        model_name = os.environ["SNOWFLAKE_CORTEX_EMBED_MODEL"]
+        super().__init__(logger=logger, meter=meter, model_name=model_name)
 
         self._base_url = os.environ["SNOWFLAKE_CORTEX_BASE_URL"].rstrip("/")
         self._token = os.environ["SNOWFLAKE_AUTH_TOKEN"]
-        self.model_name = os.environ["SNOWFLAKE_CORTEX_EMBED_MODEL"]
 
         self._client = httpx.AsyncClient(timeout=HTTPX_TIMEOUT)
         self._tokenizer = CortexEstimatingTokenizer(self.model_name)
@@ -300,7 +296,7 @@ class CortexEmbedder(Embedder):
         ]
     )
     @override
-    async def embed(
+    async def do_embed(
         self,
         texts: list[str],
         hints: Mapping[str, Any] = {},
@@ -310,18 +306,11 @@ class CortexEmbedder(Embedder):
             payload["dimensions"] = hints["dimensions"]
 
         url = f"{self._base_url}/api/v2/cortex/inference:embed"
-        async with self._meter.measure(
-            "embed",
-            {
-                "service.name": "cortex",
-                "embedding.model.name": self.model_name,
-            },
-        ):
-            resp = await self._client.post(url, headers=self._headers(), json=payload)
+        resp = await self._client.post(url, headers=self._headers(), json=payload)
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError as e:
-            self._logger.error(f"Cortex EMBED error {e.response.status_code}: {e.response.text}")
+            self.logger.error(f"Cortex EMBED error {e.response.status_code}: {e.response.text}")
             raise
 
         data = resp.json()

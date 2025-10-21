@@ -13,7 +13,7 @@
 # limitations under the License.
 
 
-from parlant.core.meter import Meter
+from parlant.core.meter import Counter, Meter
 
 
 def normalize_json_output(raw_output: str) -> str:
@@ -32,6 +32,11 @@ def normalize_json_output(raw_output: str) -> str:
     return raw_output[json_start : json_start + json_end].strip()
 
 
+_INPUT_TOKENS_COUNTER: Counter | None = None
+_OUTPUT_TOKENS_COUNTER: Counter | None = None
+_CACHED_TOKENS_COUNTER: Counter | None = None
+
+
 async def record_llm_metrics(
     meter: Meter,
     model_name: str,
@@ -39,22 +44,38 @@ async def record_llm_metrics(
     output_tokens: int,
     cached_input_tokens: int = 0,
 ) -> None:
-    await meter.increment(
-        "input_tokens",
+    if _INPUT_TOKENS_COUNTER is None:
+        global _INPUT_TOKENS_COUNTER
+        _INPUT_TOKENS_COUNTER = meter.create_counter(
+            name="input_tokens",
+            description="Number of input tokens sent to a LLM model",
+        )
+
+    if _OUTPUT_TOKENS_COUNTER is None:
+        global _OUTPUT_TOKENS_COUNTER
+        _OUTPUT_TOKENS_COUNTER = meter.create_counter(
+            name="output_tokens",
+            description="Number of output tokens received from a LLM model",
+        )
+
+    if _CACHED_TOKENS_COUNTER is None:
+        global _CACHED_TOKENS_COUNTER
+        _CACHED_TOKENS_COUNTER = meter.create_counter(
+            name="cached_input_tokens",
+            description="Number of input tokens served from cache for a LLM model",
+        )
+
+    await _INPUT_TOKENS_COUNTER.increment(
         input_tokens,
         {"model_name": model_name},
     )
 
-    await meter.increment(
-        "output_tokens",
+    await _OUTPUT_TOKENS_COUNTER.increment(
         output_tokens,
-        {
-            "model_name": model_name,
-        },
+        {"model_name": model_name},
     )
 
-    await meter.increment(
-        "cached_input_tokens",
+    await _CACHED_TOKENS_COUNTER.increment(
         cached_input_tokens,
         {"model_name": model_name},
     )

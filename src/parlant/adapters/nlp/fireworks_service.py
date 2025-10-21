@@ -29,7 +29,7 @@ from parlant.core.meter import Meter
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
     T,
-    SchematicGenerator,
+    BaseSchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -64,7 +64,7 @@ class FireworksEstimatingTokenizer(EstimatingTokenizer):
         return len(tokens) + 36
 
 
-class FireworksSchematicGenerator(SchematicGenerator[T]):
+class FireworksSchematicGenerator(BaseSchematicGenerator[T]):
     supported_hints = ["temperature", "max_tokens"]
 
     def __init__(
@@ -101,21 +101,13 @@ class FireworksSchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
         with self._logger.scope(f"Fireworks LLM Request ({self.schema.__name__})"):
-            async with self._meter.measure(
-                "llm",
-                {
-                    "service.name": "fireworks",
-                    "model.name": self.model_name,
-                    "schema.name": self.schema.__name__,
-                },
-            ):
-                return await self._do_generate(prompt, hints)
+            return await self._do_generate(prompt, hints)
 
     async def _do_generate(
         self,
@@ -406,7 +398,7 @@ You can get your API key from: https://app.fireworks.ai/settings/users/api-keys
 
     @override
     async def get_embedder(self) -> Embedder:
-        return JinaAIEmbedder(self._meter)
+        return JinaAIEmbedder(self._logger, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

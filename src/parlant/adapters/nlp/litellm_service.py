@@ -35,7 +35,7 @@ from parlant.core.nlp.service import NLPService
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
     T,
-    SchematicGenerator,
+    BaseSchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -68,7 +68,7 @@ class LiteLLMEstimatingTokenizer(EstimatingTokenizer):
         return len(tokens)
 
 
-class LiteLLMSchematicGenerator(SchematicGenerator[T]):
+class LiteLLMSchematicGenerator(BaseSchematicGenerator[T]):
     supported_litellm_params = [
         "temperature",
         "max_tokens",
@@ -111,15 +111,7 @@ class LiteLLMSchematicGenerator(SchematicGenerator[T]):
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
         with self._logger.scope(f"LiteLLM LLM Request ({self.schema.__name__})"):
-            async with self._meter.measure(
-                "llm",
-                {
-                    "service.name": "litellm",
-                    "model.name": self.model_name,
-                    "schema.name": self.schema.__name__,
-                },
-            ):
-                return await self._do_generate(prompt, hints)
+            return await self._do_generate(prompt, hints)
 
     async def _do_generate(
         self,
@@ -255,7 +247,7 @@ Please set LITELLM_PROVIDER_API_KEY in your environment before running Parlant.
 
     @override
     async def get_embedder(self) -> Embedder:
-        return JinaAIEmbedder(self._meter)
+        return JinaAIEmbedder(self._logger, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

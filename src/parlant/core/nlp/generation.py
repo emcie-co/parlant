@@ -21,7 +21,7 @@ from typing_extensions import override
 from parlant.core.common import DefaultBaseModel
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
-from parlant.core.meter import Meter
+from parlant.core.meter import Histogram, Meter
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 
@@ -75,21 +75,22 @@ class SchematicGenerator(ABC, Generic[T]):
         ...
 
 
-# _REQUEST_DURATION_HISTOGRAM: Histogram | None = None
+_REQUEST_DURATION_HISTOGRAM: Histogram | None = None
 
 
 class BaseSchematicGenerator(SchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
+    def __init__(self, logger: Logger, meter: Meter, model_name: str) -> None:
         self.logger = logger
         self.meter = meter
+        self.model_name = model_name
 
-        # if _REQUEST_DURATION_HISTOGRAM is None:
-        #     global _REQUEST_DURATION_HISTOGRAM
-        #     _REQUEST_DURATION_HISTOGRAM = meter.create_histogram(
-        #         name="gen",
-        #         description="Duration of generation requests in milliseconds",
-        #         unit="ms",
-        #     )
+        if _REQUEST_DURATION_HISTOGRAM is None:
+            global _REQUEST_DURATION_HISTOGRAM
+            _REQUEST_DURATION_HISTOGRAM = meter.create_histogram(
+                name="gen",
+                description="Duration of generation requests in milliseconds",
+                unit="ms",
+            )
 
     @abstractmethod
     async def do_generate(
@@ -104,15 +105,17 @@ class BaseSchematicGenerator(SchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        async with self._request_duration_histogram.measure(
-            "gen",
-            {
-                "class.name": self.__class__.__qualname__,
-                "model.name": self.model_name,
-                "schema.name": self.schema.__name__,
-            },
-        ):
-            return await self._do_generate(prompt, hints)
+        if _REQUEST_DURATION_HISTOGRAM is not None:
+            async with _REQUEST_DURATION_HISTOGRAM.measure(
+                {
+                    "class.name": self.__class__.__qualname__,
+                    "model.name": self.model_name,
+                    "schema.name": self.schema.__name__,
+                }
+            ):
+                return await self.do_generate(prompt, hints)
+        else:
+            return await self.do_generate(prompt, hints)
 
 
 class FallbackSchematicGenerator(SchematicGenerator[T]):

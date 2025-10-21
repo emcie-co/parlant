@@ -78,7 +78,6 @@ class BaseEmbedder(Embedder):
 
         global _EMBED_DURATION_HISTOGRAM
         if _EMBED_DURATION_HISTOGRAM is None:
-            global _EMBED_DURATION_HISTOGRAM
             _EMBED_DURATION_HISTOGRAM = meter.create_duration_histogram(
                 name="embed",
                 description="Duration of embedding requests in milliseconds",

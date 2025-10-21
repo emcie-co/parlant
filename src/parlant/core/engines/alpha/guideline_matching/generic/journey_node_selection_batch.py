@@ -10,9 +10,9 @@ from typing_extensions import override
 from parlant.core import async_utils
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 
+from parlant.core.engines.alpha.guideline_matching.common import measure_guideline_matching_batch
 from parlant.core.engines.alpha.guideline_matching.generic.common import (
     internal_representation,
-    measure_guideline_matching_batch,
 )
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch,

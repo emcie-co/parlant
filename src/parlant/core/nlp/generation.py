@@ -86,7 +86,6 @@ class BaseSchematicGenerator(SchematicGenerator[T]):
 
         global _REQUEST_DURATION_HISTOGRAM
         if _REQUEST_DURATION_HISTOGRAM is None:
-            global _REQUEST_DURATION_HISTOGRAM
             _REQUEST_DURATION_HISTOGRAM = meter.create_duration_histogram(
                 name="gen",
                 description="Duration of generation requests in milliseconds",

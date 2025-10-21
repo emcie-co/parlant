@@ -22,10 +22,10 @@ from more_itertools import chunked
 
 from parlant.core import async_utils
 from parlant.core.common import DefaultBaseModel, JSONSerializable
+from parlant.core.engines.alpha.guideline_matching.common import measure_response_analysis_batch
 from parlant.core.engines.alpha.guideline_matching.generic.common import (
     GuidelineInternalRepresentation,
     internal_representation,
-    measure_response_analysis_batch,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.guideline_actionable_batch import (
     _make_event,

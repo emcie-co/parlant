@@ -77,10 +77,8 @@ class TogetherAISchematicGenerator(BaseSchematicGenerator[T]):
         logger: Logger,
         meter: Meter,
     ) -> None:
-        self._logger = logger
-        self._meter = meter
+        super().__init__(logger=logger, meter=meter, model_name=model_name)
 
-        self.model_name = model_name
         self._client = AsyncTogether(api_key=os.environ.get("TOGETHER_API_KEY"))
         self._estimating_tokenizer = LlamaEstimatingTokenizer()
 
@@ -119,7 +117,7 @@ class TogetherAISchematicGenerator(BaseSchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.scope(f"Together LLM Request ({self.schema.__name__})"):
+        with self.logger.scope(f"Together LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     async def _do_generate(
@@ -141,7 +139,7 @@ class TogetherAISchematicGenerator(BaseSchematicGenerator[T]):
                 **together_api_arguments,
             )
         except RateLimitError:
-            self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+            self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
 
         t_end = time.time()
@@ -152,7 +150,7 @@ class TogetherAISchematicGenerator(BaseSchematicGenerator[T]):
             json_content = normalize_json_output(raw_content)
             json_object = jsonfinder.only_json(json_content)[2]
         except Exception:
-            self._logger.error(
+            self.logger.error(
                 f"Failed to extract JSON returned by {self.model_name}:\n{raw_content}"
             )
             raise
@@ -161,7 +159,7 @@ class TogetherAISchematicGenerator(BaseSchematicGenerator[T]):
             model_content = self.schema.model_validate(json_object)
 
             await record_llm_metrics(
-                self._meter,
+                self.meter,
                 self.model_name,
                 input_tokens=response.usage.prompt_tokens,
                 output_tokens=response.usage.completion_tokens,
@@ -181,7 +179,7 @@ class TogetherAISchematicGenerator(BaseSchematicGenerator[T]):
                 ),
             )
         except ValidationError:
-            self._logger.error(
+            self.logger.error(
                 f"JSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
             )
             raise
@@ -307,8 +305,8 @@ class CustomTogetherAISchematicGenerator(TogetherAISchematicGenerator[T]):
 class CustomTogetherAIEmbedder(TogetherAIEmbedder):
     """Generic Together AI embedder that accepts any model name."""
 
-    def __init__(self, model_name: str, logger: Logger) -> None:
-        super().__init__(model_name=model_name, logger=logger)
+    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name=model_name, logger=logger, meter=meter)
         self._estimating_tokenizer = HuggingFaceEstimatingTokenizer(model_name)
         self._dimensions = int(os.environ.get("TOGETHER_EMBEDDING_DIMENSIONS", "768"))
 
@@ -411,11 +409,11 @@ Available models can be found at: https://docs.together.ai/docs/inference-models
     def _get_specialized_embedder_class(
         self,
         model_name: str,
-    ) -> Callable[[Logger], TogetherAIEmbedder] | None:
+    ) -> Callable[[Logger, Meter], TogetherAIEmbedder] | None:
         """
         Returns the specialized embedder class for known models, or None for custom models.
         """
-        model_to_class: dict[str, Callable[[Logger], TogetherAIEmbedder]] = {
+        model_to_class: dict[str, Callable[[Logger, Meter], TogetherAIEmbedder]] = {
             "togethercomputer/m2-bert-80M-32k-retrieval": M2Bert32K,
         }
 
@@ -427,10 +425,14 @@ Available models can be found at: https://docs.together.ai/docs/inference-models
 
         if specialized_class:
             self._logger.debug(f"Using specialized embedder for model: {self.embedding_model}")
-            return specialized_class(self._logger)
+            return specialized_class(self._logger, self._meter)
         else:
             self._logger.debug(f"Using custom embedder for model: {self.embedding_model}")
-            return CustomTogetherAIEmbedder(model_name=self.embedding_model, logger=self._logger)
+            return CustomTogetherAIEmbedder(
+                model_name=self.embedding_model,
+                logger=self._logger,
+                meter=self._meter,
+            )
 
     @override
     async def get_moderation_service(self) -> ModerationService:

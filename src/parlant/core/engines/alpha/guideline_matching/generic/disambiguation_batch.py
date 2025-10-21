@@ -19,8 +19,12 @@ from datetime import datetime, timezone
 import traceback
 import json
 from typing import Optional
+from typing_extensions import override
 from parlant.core.common import DefaultBaseModel, JSONSerializable
-from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
+from parlant.core.engines.alpha.guideline_matching.generic.common import (
+    internal_representation,
+    measure_guideline_matching_batch,
+)
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch,
 )
@@ -94,6 +98,11 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
         self._disambiguation_targets = disambiguation_targets
         self._context = context
 
+    @property
+    @override
+    def size(self) -> int:
+        return 1
+
     async def _get_disambiguation_targets(
         self,
         disambiguation_targets: Sequence[Guideline],
@@ -129,18 +138,13 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
             i += 1
         return guidelines
 
+    @override
     async def process(self) -> GuidelineMatchingBatchResult:
         disambiguation_targets_guidelines = await self._get_disambiguation_targets(
             self._disambiguation_targets
         )
 
-        async with self._meter.measure(
-            "batch",
-            {
-                "batch.strategy": "disambiguation",
-                "batch.size": 1,
-            },
-        ):
+        async with measure_guideline_matching_batch(self._meter, self):
             prompt = self._build_prompt(
                 shots=await self.shots(),
                 disambiguation_targets_guidelines=disambiguation_targets_guidelines,

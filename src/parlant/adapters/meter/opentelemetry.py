@@ -17,7 +17,7 @@ from opentelemetry.sdk.metrics.export import (
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
 
-from parlant.core.meter import Counter, Histogram, Meter
+from parlant.core.meter import Counter, DurationHistogram, Meter
 from parlant.core.tracer import Tracer
 
 
@@ -34,7 +34,7 @@ class OpenTelemetryCounter(Counter):
         self._otel_counter.add(value, {**attributes} if attributes else None)
 
 
-class OpenTelemetryHistogram(Histogram):
+class OpenTelemetryHistogram(DurationHistogram):
     def __init__(self, otel_histogram: OTelHistogram) -> None:
         self._otel_histogram = otel_histogram
 
@@ -118,15 +118,23 @@ class OpenTelemetryMeter(Meter):
         return OpenTelemetryCounter(otel_counter)
 
     @override
-    def create_histogram(
+    def create_custom_histogram(
         self,
         name: str,
         description: str,
-        unit: str = "ms",
-    ) -> Histogram:
+        unit: str,
+    ) -> OpenTelemetryHistogram:
         otel_histogram = self._meter.create_histogram(
             name=name,
             description=description,
             unit=unit,
         )
         return OpenTelemetryHistogram(otel_histogram)
+
+    @override
+    def create_duration_histogram(
+        self,
+        name: str,
+        description: str,
+    ) -> OpenTelemetryHistogram:
+        return self.create_custom_histogram(name, description, "ms")

@@ -115,10 +115,18 @@ class GuidelineMatchingBatch(ABC):
     @abstractmethod
     async def process(self) -> GuidelineMatchingBatchResult: ...
 
+    @property
+    @abstractmethod
+    def size(self) -> int: ...
+
 
 class ResponseAnalysisBatch(ABC):
     @abstractmethod
     async def process(self) -> ResponseAnalysisBatchResult: ...
+
+    @property
+    @abstractmethod
+    def size(self) -> int: ...
 
 
 class GuidelineMatchingStrategy(ABC):
@@ -158,6 +166,16 @@ class GuidelineMatcher:
         self._logger = logger
         self._meter = meter
         self.strategy_resolver = strategy_resolver
+
+        self._hist_match_duration = meter.create_duration_histogram(
+            name="gm.match",
+            description="Duration of guideline matching",
+        )
+
+        self._hist_analysis_duration = meter.create_duration_histogram(
+            name="gm.analysis",
+            description="Duration of response analysis",
+        )
 
     @policy(
         [
@@ -205,7 +223,7 @@ class GuidelineMatcher:
         t_start = time.time()
 
         with self._logger.scope("GuidelineMatcher"):
-            async with self._meter.measure("gm.match"):
+            async with self._hist_match_duration.measure():
                 guideline_strategies: dict[
                     str, tuple[GuidelineMatchingStrategy, list[Guideline]]
                 ] = {}
@@ -313,9 +331,7 @@ class GuidelineMatcher:
             )
 
             with self._logger.scope("Processing response analysis batches"):
-                async with self._meter.measure(
-                    "gm.analysis",
-                ):
+                async with self._hist_analysis_duration.measure():
                     batch_tasks = [
                         self._process_response_analysis_batch_with_retry(batch)
                         for strategy_batches in batches

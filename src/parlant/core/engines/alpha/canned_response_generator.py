@@ -30,7 +30,7 @@ from typing_extensions import override
 
 from parlant.core.async_utils import safe_gather
 from parlant.core.capabilities import Capability
-from parlant.core.meter import Histogram, Meter
+from parlant.core.meter import DurationHistogram, Meter
 from parlant.core.tracer import Tracer
 from parlant.core.agents import Agent, CompositionMode
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
@@ -507,44 +507,42 @@ class CannedResponseGenerator(MessageEventComposer):
         self._define_histograms()
 
     def _define_histograms(self) -> None:
-        def _create_histogram(name: str, description: str) -> Histogram:
-            return self._meter.create_histogram(
+        def _create_histogram(name: str, description: str) -> DurationHistogram:
+            return self._meter.create_duration_histogram(
                 name=f"canrep.{name}",
                 description=description,
-                unit="ms",
             )
 
-        self._canned_response_duration_histogram = self._meter.create_histogram(
+        self._hist_canned_response_duration = self._meter.create_duration_histogram(
             name="canrep",
             description="Duration of canned response generation in milliseconds",
-            unit="ms",
         )
 
-        self._preamble_duration_histogram = _create_histogram(
+        self._hist_preamble_duration = _create_histogram(
             name="preamble",
             description="Duration of canned response preamble generation in milliseconds",
         )
-        self._preamble_render_duration_histogram = _create_histogram(
+        self._hist_preamble_render_duration = _create_histogram(
             name="preamble.render",
             description="Duration of canned response rendering in milliseconds",
         )
-        self._render_duration_histogram = _create_histogram(
+        self._hist_render_duration = _create_histogram(
             name="render",
             description="Duration of canned response rendering in milliseconds",
         )
-        self._draft_duration_histogram = _create_histogram(
+        self._hist_draft_duration = _create_histogram(
             name="draft",
             description="Duration of canned response draft generation in milliseconds",
         )
-        self._retrieval_duration_histogram = _create_histogram(
+        self._hist_retrieval_duration = _create_histogram(
             name="retrieval",
             description="Duration of canned response retrieval in milliseconds",
         )
-        self._recompose_duration_histogram = _create_histogram(
+        self._hist_recompose_duration = _create_histogram(
             name="recompose",
             description="Duration of canned response recomposition in milliseconds",
         )
-        self._selection_duration_histogram = _create_histogram(
+        self._hist_selection_duration = _create_histogram(
             name="selection",
             description="Duration of canned response selection in milliseconds",
         )
@@ -563,7 +561,7 @@ class CannedResponseGenerator(MessageEventComposer):
     ) -> Sequence[MessageEventComposition]:
         with self._logger.scope("MessageEventComposer"):
             with self._logger.scope("CannedResponseGenerator"):
-                async with self._preamble_duration_histogram.measure():
+                async with self._hist_preamble_duration.measure():
                     return await self._do_generate_preamble(context)
 
     async def _do_generate_preamble(
@@ -634,7 +632,7 @@ You must generate the preamble message. You must produce a JSON object with a si
                 if Tag.preamble() in canrep.tags
             ]
 
-            async with self._preamble_render_duration_histogram.measure():
+            async with self._hist_preamble_render_duration.measure():
                 preamble_choices = [
                     str(r.rendered_text)
                     for r in await self._render_responses(canrep_context, preamble_responses)
@@ -743,7 +741,7 @@ You will now be given the current state of the interaction to which you must gen
     ) -> Sequence[MessageEventComposition]:
         with self._logger.scope("MessageEventComposer"):
             with self._logger.scope("CannedResponseGenerator"):
-                async with self._canned_response_duration_histogram.measure():
+                async with self._hist_canned_response_duration.measure():
                     return await self._do_generate_events(
                         loaded_context=context,
                         latch=latch,
@@ -1571,7 +1569,7 @@ Output a JSON object with three properties:
                 },
             )
 
-        async with self._draft_duration_histogram.measure():
+        async with self._hist_draft_duration.measure():
             draft_response = await self._canrep_draft_generator.generate(
                 prompt=draft_prompt,
                 hints={"temperature": temperature},
@@ -1618,7 +1616,7 @@ Output a JSON object with three properties:
         )
 
         # Step 2: Select the most relevant canned response templates based on the draft message
-        async with self._retrieval_duration_histogram.measure():
+        async with self._hist_retrieval_duration.measure():
             relevant_canreps = set(
                 r.canned_response
                 for r in await self._canned_response_store.filter_relevant_canned_responses(
@@ -1641,7 +1639,7 @@ Output a JSON object with three properties:
             )
 
         # Step 3: Pre-render these templates so that matching works better
-        async with self._render_duration_histogram.measure():
+        async with self._hist_render_duration.measure():
             rendered_canreps = [
                 (r.response.id, str(r.rendered_text))
                 for r in await self._render_responses(
@@ -1653,7 +1651,7 @@ Output a JSON object with three properties:
 
         # Step 4.1: In composited mode, recompose the draft message with the style of the rendered canned responses
         if composition_mode == CompositionMode.CANNED_COMPOSITED:
-            async with self._recompose_duration_histogram.measure():
+            async with self._hist_recompose_duration.measure():
                 recomposition_generation_info, composited_message = await self._recompose(
                     context=context,
                     draft_message=draft_message,
@@ -1671,7 +1669,7 @@ Output a JSON object with three properties:
                 )
 
         # Step 4.2: In non-composited mode, try to match the draft message with one of the rendered canned responses
-        async with self._selection_duration_histogram.measure():
+        async with self._hist_selection_duration.measure():
             selection_response = await self._canrep_selection_generator.generate(
                 prompt=self._build_selection_prompt(
                     context=context,

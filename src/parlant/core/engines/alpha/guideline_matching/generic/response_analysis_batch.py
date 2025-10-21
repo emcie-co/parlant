@@ -25,6 +25,7 @@ from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.generic.common import (
     GuidelineInternalRepresentation,
     internal_representation,
+    measure_response_analysis_batch,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.guideline_actionable_batch import (
     _make_event,
@@ -97,6 +98,11 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
         self._context = context
         self._guideline_matches = guideline_matches
 
+    @property
+    @override
+    def size(self) -> int:
+        return len(self._guideline_matches)
+
     @override
     async def process(
         self,
@@ -150,13 +156,7 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
 
         guidelines = {str(i): g for i, g in enumerate(batch_guidelines, start=1)}
 
-        async with self._meter.measure(
-            "batch",
-            {
-                "batch.strategy": "response_analysis",
-                "batch.size": len(guidelines),
-            },
-        ):
+        async with measure_response_analysis_batch(self._meter, self):
             prompt = self._build_prompt(
                 shots=await self.shots(),
                 guidelines=guidelines,

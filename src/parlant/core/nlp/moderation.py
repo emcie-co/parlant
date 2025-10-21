@@ -19,7 +19,7 @@ from typing_extensions import override
 
 from parlant.core.sessions import Session
 from parlant.core.loggers import Logger
-from parlant.core.meter import Histogram, Meter
+from parlant.core.meter import Meter
 
 
 ModerationTag: TypeAlias = Literal[
@@ -58,10 +58,9 @@ class BaseModerationService(ModerationService):
         self.logger = logger
         self.meter = meter
 
-        self._moderation_request_duration_histogram: Histogram = meter.create_histogram(
+        self._hist_moderation_request_duration = meter.create_duration_histogram(
             name="moderation",
             description="Duration of moderation requests",
-            unit="ms",
         )
 
     @override
@@ -69,7 +68,7 @@ class BaseModerationService(ModerationService):
         self,
         context: CustomerModerationContext,
     ) -> ModerationCheck:
-        async with self._moderation_request_duration_histogram.measure(
+        async with self._hist_moderation_request_duration.measure(
             attributes={"class.name": self.__class__.__qualname__}
         ):
             return await self.do_moderate(context)

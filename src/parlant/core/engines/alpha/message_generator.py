@@ -138,6 +138,11 @@ class MessageGenerator(MessageEventComposer):
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
 
+        self._hist_message_generation_duration = self._meter.create_duration_histogram(
+            "message_generation",
+            description="Duration of message generation requests",
+        )
+
     async def shots(self) -> Sequence[MessageGeneratorShot]:
         return await shot_collection.list()
 
@@ -157,7 +162,7 @@ class MessageGenerator(MessageEventComposer):
         with self._logger.scope("MessageEventComposer"):
             with self._logger.scope("MessageGenerator"):
                 with self._logger.scope("Message generation"):
-                    async with self._meter.measure("message_generation"):
+                    async with self._hist_message_generation_duration.measure():
                         return await self._do_generate_events(
                             event_emitter=context.session_event_emitter,
                             agent=context.agent,

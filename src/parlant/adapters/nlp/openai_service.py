@@ -102,9 +102,7 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
         meter: Meter,
         tokenizer_model_name: str | None = None,
     ) -> None:
-        self.model_name = model_name
-        self._logger = logger
-        self._meter = meter
+        super().__init__(logger=logger, meter=meter, model_name=model_name)
 
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
 
@@ -142,7 +140,7 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.scope(f"OpenAI LLM Request ({self.schema.__name__})"):
+        with self.logger.scope(f"OpenAI LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     def _list_arguments(self, hints: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -179,13 +177,13 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
                     **openai_api_arguments,
                 )
             except RateLimitError:
-                self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+                self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
                 raise
 
             t_end = time.time()
 
             if response.usage:
-                self._logger.trace(response.usage.model_dump_json(indent=2))
+                self.logger.trace(response.usage.model_dump_json(indent=2))
 
             parsed_object = response.choices[0].message.parsed
             assert parsed_object
@@ -194,7 +192,7 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
             assert response.usage.prompt_tokens_details
 
             await record_llm_metrics(
-                self._meter,
+                self.meter,
                 self.model_name,
                 input_tokens=response.usage.prompt_tokens,
                 output_tokens=response.usage.completion_tokens,
@@ -229,20 +227,20 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
                 )
                 t_end = time.time()
             except RateLimitError:
-                self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+                self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
                 raise
 
             if response.usage:
-                self._logger.trace(response.usage.model_dump_json(indent=2))
+                self.logger.trace(response.usage.model_dump_json(indent=2))
 
             raw_content = response.choices[0].message.content or "{}"
 
             try:
                 json_content = json.loads(normalize_json_output(raw_content))
             except json.JSONDecodeError:
-                self._logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
+                self.logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
                 json_content = jsonfinder.only_json(raw_content)[2]
-                self._logger.warning("Found JSON content within model response; continuing...")
+                self.logger.warning("Found JSON content within model response; continuing...")
 
             try:
                 content = self.schema.model_validate(json_content)
@@ -268,7 +266,7 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
                 )
 
             except ValidationError as e:
-                self._logger.error(
+                self.logger.error(
                     f"Error: {e.json(indent=2)}\nJSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
                 )
                 raise
@@ -411,14 +409,13 @@ class OpenAIModerationService(BaseModerationService):
 
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
 
-        self._moderation_request_duration_histogram = meter.create_histogram(
+        self._hist_moderation_request_duration = meter.create_duration_histogram(
             name="moderation",
             description="Duration of moderation requests in milliseconds",
-            unit="ms",
         )
 
     @override
-    async def do_moderate_customer(self, context: CustomerModerationContext) -> ModerationCheck:
+    async def do_moderate(self, context: CustomerModerationContext) -> ModerationCheck:
         def extract_tags(category: str) -> list[ModerationTag]:
             mapping: dict[str, list[ModerationTag]] = {
                 "sexual": ["sexual"],

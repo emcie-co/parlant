@@ -23,6 +23,7 @@ from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.generic.common import (
     GuidelineInternalRepresentation,
     internal_representation,
+    measure_guideline_matching_batch,
 )
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch,
@@ -87,15 +88,14 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
         self._journeys = journeys
         self._context = context
 
+    @property
+    @override
+    def size(self) -> int:
+        return len(self._guidelines)
+
     @override
     async def process(self) -> GuidelineMatchingBatchResult:
-        async with self._meter.measure(
-            "batch",
-            {
-                "batch.strategy": "previously_applied_actionable",
-                "batch.size": len(self._guidelines),
-            },
-        ):
+        async with measure_guideline_matching_batch(self._meter, self):
             prompt = self._build_prompt(shots=await self.shots())
 
             try:

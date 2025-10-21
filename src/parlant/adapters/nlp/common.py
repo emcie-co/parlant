@@ -32,9 +32,10 @@ def normalize_json_output(raw_output: str) -> str:
     return raw_output[json_start : json_start + json_end].strip()
 
 
-_INPUT_TOKENS_COUNTER: Counter | None = None
-_OUTPUT_TOKENS_COUNTER: Counter | None = None
-_CACHED_TOKENS_COUNTER: Counter | None = None
+_INPUT_TOKENS_COUNTER: Counter
+_OUTPUT_TOKENS_COUNTER: Counter
+_CACHED_TOKENS_COUNTER: Counter
+_COUNTERS_INITIALIZED = False
 
 
 async def record_llm_metrics(
@@ -44,26 +45,26 @@ async def record_llm_metrics(
     output_tokens: int,
     cached_input_tokens: int = 0,
 ) -> None:
-    if _INPUT_TOKENS_COUNTER is None:
-        global _INPUT_TOKENS_COUNTER
+    global _COUNTERS_INITIALIZED
+    global _INPUT_TOKENS_COUNTER
+    global _OUTPUT_TOKENS_COUNTER
+    global _CACHED_TOKENS_COUNTER
+
+    if not _COUNTERS_INITIALIZED:
         _INPUT_TOKENS_COUNTER = meter.create_counter(
             name="input_tokens",
             description="Number of input tokens sent to a LLM model",
         )
-
-    if _OUTPUT_TOKENS_COUNTER is None:
-        global _OUTPUT_TOKENS_COUNTER
         _OUTPUT_TOKENS_COUNTER = meter.create_counter(
             name="output_tokens",
             description="Number of output tokens received from a LLM model",
         )
-
-    if _CACHED_TOKENS_COUNTER is None:
-        global _CACHED_TOKENS_COUNTER
         _CACHED_TOKENS_COUNTER = meter.create_counter(
             name="cached_input_tokens",
             description="Number of input tokens served from cache for a LLM model",
         )
+
+        _COUNTERS_INITIALIZED = True
 
     await _INPUT_TOKENS_COUNTER.increment(
         input_tokens,

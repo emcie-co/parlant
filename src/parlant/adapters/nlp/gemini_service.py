@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field, ValidationError
 from pydantic.fields import FieldInfo
 
 from parlant.core.common import DefaultBaseModel
-from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
+from parlant.adapters.nlp.common import record_llm_metrics
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
@@ -212,7 +212,7 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
                 ),
             )
         except ValidationError:
-            self._logger.error(
+            self.logger.error(
                 f"JSON content returned by {self.model_name} does not match expected schema:\n{json_result}"
             )
             raise
@@ -482,7 +482,7 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
 
     @override
     async def get_embedder(self) -> Embedder:
-        return GeminiTextEmbedding_001(self._logger, self._meter)
+        return GeminiTextEmbedding_001(self.logger, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

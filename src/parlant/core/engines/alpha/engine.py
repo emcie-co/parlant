@@ -154,6 +154,15 @@ class AlphaEngine(Engine):
 
         self._hooks = hooks
 
+        self._hist_engine_process_duration = self._meter.create_duration_histogram(
+            name="eng.process",
+            description="Duration of engine processing in milliseconds",
+        )
+        self._hist_engine_utter_duration = self._meter.create_duration_histogram(
+            name="eng.utter",
+            description="Duration of engine utter in milliseconds",
+        )
+
     @override
     async def process(
         self,
@@ -169,10 +178,8 @@ class AlphaEngine(Engine):
             return True
 
         try:
-            async with self._meter.measure(
-                "eng.process",
+            async with self._hist_engine_process_duration.measure(
                 {"session_id": context.session_id},
-                create_scope=False,
             ):
                 await self._do_process(loaded_context)
             return True
@@ -208,13 +215,12 @@ class AlphaEngine(Engine):
         )
 
         try:
-            async with self._meter.measure(
-                "eng.utter",
+            async with self._hist_engine_utter_duration.measure(
                 {"session_id": context.session_id},
-                create_scope=False,
             ):
                 await self._do_utter(loaded_context, requests)
             return True
+
         except asyncio.CancelledError:
             self._logger.warning(f"Uttering in session {context.session_id} was cancelled.")
             return False

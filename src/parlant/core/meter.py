@@ -12,6 +12,12 @@ class Histogram(ABC):
         attributes: Mapping[str, str] | None = None,
     ) -> None: ...
 
+
+class DurationHistogram(Histogram):
+    """
+    A histogram that records durations in milliseconds.
+    """
+
     @abstractmethod
     @asynccontextmanager
     async def measure(
@@ -39,12 +45,19 @@ class Meter(ABC):
     ) -> Counter: ...
 
     @abstractmethod
-    def create_histogram(
+    def create_custom_histogram(
         self,
         name: str,
         description: str,
-        unit: str = "ms",
+        unit: str,
     ) -> Histogram: ...
+
+    @abstractmethod
+    def create_duration_histogram(
+        self,
+        name: str,
+        description: str,
+    ) -> DurationHistogram: ...
 
 
 class NullCounter(Counter):
@@ -57,7 +70,7 @@ class NullCounter(Counter):
         pass
 
 
-class NullHistogram(Histogram):
+class NullHistogram(DurationHistogram):
     @override
     async def record(
         self,
@@ -85,10 +98,18 @@ class NullMeter(Meter):
         return NullCounter()
 
     @override
-    def create_histogram(
+    def create_custom_histogram(
         self,
         name: str,
         description: str,
-        unit: str = "ms",
-    ) -> Histogram:
+        unit: str,
+    ) -> DurationHistogram:
+        return NullHistogram()
+
+    @override
+    def create_duration_histogram(
+        self,
+        name: str,
+        description: str,
+    ) -> DurationHistogram:
         return NullHistogram()

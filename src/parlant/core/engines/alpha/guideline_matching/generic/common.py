@@ -12,11 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Optional, cast
+from typing import AsyncIterator, Optional, cast
 
+from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
+    GuidelineMatchingBatch,
+    ResponseAnalysisBatch,
+)
 from parlant.core.guidelines import Guideline, GuidelineId
 from parlant.core.journeys import JourneyEdgeId, JourneyNodeId
+from parlant.core.meter import DurationHistogram, Meter
 
 
 @dataclass
@@ -45,3 +51,49 @@ def format_journey_node_guideline_id(
         return GuidelineId(f"journey_node:{node_id}:{edge_id}")
 
     return GuidelineId(f"journey_node:{node_id}")
+
+
+_MATCHING_BATCH_DURATION_HISTOGRAM: DurationHistogram | None = None
+_ANALYSIS_BATCH_DURATION_HISTOGRAM: DurationHistogram | None = None
+
+
+@asynccontextmanager
+async def measure_guideline_matching_batch(
+    meter: Meter,
+    batch: GuidelineMatchingBatch,
+) -> AsyncIterator[None]:
+    global _MATCHING_BATCH_DURATION_HISTOGRAM
+    if _MATCHING_BATCH_DURATION_HISTOGRAM is None:
+        _MATCHING_BATCH_DURATION_HISTOGRAM = meter.create_duration_histogram(
+            name="gm.batch",
+            description="Duration of guideline matching batch",
+        )
+
+    async with _MATCHING_BATCH_DURATION_HISTOGRAM.measure(
+        attributes={
+            "batch.name": batch.__class__.__name__,
+            "batch.size": str(batch.size),
+        }
+    ):
+        yield
+
+
+@asynccontextmanager
+async def measure_response_analysis_batch(
+    meter: Meter,
+    batch: ResponseAnalysisBatch,
+) -> AsyncIterator[None]:
+    global _ANALYSIS_BATCH_DURATION_HISTOGRAM
+    if _ANALYSIS_BATCH_DURATION_HISTOGRAM is None:
+        _ANALYSIS_BATCH_DURATION_HISTOGRAM = meter.create_duration_histogram(
+            name="rn.batch",
+            description="Duration of guideline matching batch",
+        )
+
+    async with _ANALYSIS_BATCH_DURATION_HISTOGRAM.measure(
+        attributes={
+            "batch.name": batch.__class__.__name__,
+            "batch.size": str(batch.size),
+        }
+    ):
+        yield

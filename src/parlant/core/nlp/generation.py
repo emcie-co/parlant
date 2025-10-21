@@ -21,7 +21,7 @@ from typing_extensions import override
 from parlant.core.common import DefaultBaseModel
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
-from parlant.core.meter import Histogram, Meter
+from parlant.core.meter import DurationHistogram, Meter
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 
@@ -75,7 +75,7 @@ class SchematicGenerator(ABC, Generic[T]):
         ...
 
 
-_REQUEST_DURATION_HISTOGRAM: Histogram | None = None
+_REQUEST_DURATION_HISTOGRAM: DurationHistogram | None = None
 
 
 class BaseSchematicGenerator(SchematicGenerator[T]):
@@ -86,10 +86,9 @@ class BaseSchematicGenerator(SchematicGenerator[T]):
 
         if _REQUEST_DURATION_HISTOGRAM is None:
             global _REQUEST_DURATION_HISTOGRAM
-            _REQUEST_DURATION_HISTOGRAM = meter.create_histogram(
+            _REQUEST_DURATION_HISTOGRAM = meter.create_duration_histogram(
                 name="gen",
                 description="Duration of generation requests in milliseconds",
-                unit="ms",
             )
 
     @abstractmethod

@@ -10,7 +10,10 @@ from typing_extensions import override
 from parlant.core import async_utils
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 
-from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
+from parlant.core.engines.alpha.guideline_matching.generic.common import (
+    internal_representation,
+    measure_guideline_matching_batch,
+)
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch,
 )
@@ -419,6 +422,11 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
         self._examined_journey = examined_journey
         self._previous_path: Sequence[str | None] = journey_path
 
+    @property
+    @override
+    def size(self) -> int:
+        return 1
+
     def auto_return_match(self) -> GuidelineMatchingBatchResult | None:
         if self._previous_path and self._previous_path[-1] in self._node_wrappers:
             last_visited_node = self._node_wrappers[self._previous_path[-1]]
@@ -473,14 +481,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
             )
         )
 
-        async with self._meter.measure(
-            "batch",
-            {
-                "batch.strategy": "journey_node_selection",
-                "batch.size": 1,
-                "journey.title": self._examined_journey.title,
-            },
-        ):
+        async with measure_guideline_matching_batch(self._meter, self):
             prompt = self._build_prompt(journey_conditions, shots=await self.shots())
 
             generation_attempt_temperatures = (

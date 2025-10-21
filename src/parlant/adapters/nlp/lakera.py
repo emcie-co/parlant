@@ -32,7 +32,7 @@ class LakeraGuard(BaseModerationService):
         super().__init__(logger, meter)
 
     @override
-    async def do_moderate_customer(self, context: CustomerModerationContext) -> ModerationCheck:
+    async def do_moderate(self, context: CustomerModerationContext) -> ModerationCheck:
         api_key: str | None = os.environ.get("LAKERA_API_KEY")
 
         if not api_key:

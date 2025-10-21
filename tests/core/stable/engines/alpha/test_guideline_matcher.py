@@ -1490,6 +1490,11 @@ class ActivateEveryGuidelineBatch(GuidelineMatchingBatch):
     def __init__(self, guidelines: Sequence[Guideline]):
         self.guidelines = guidelines
 
+    @property
+    @override
+    def size(self) -> int:
+        return len(self.guidelines)
+
     @override
     async def process(self) -> GuidelineMatchingBatchResult:
         return GuidelineMatchingBatchResult(
@@ -1523,6 +1528,11 @@ async def test_that_guideline_matching_strategies_can_be_overridden(
     class SkipAllGuidelineBatch(GuidelineMatchingBatch):
         def __init__(self, guidelines: Sequence[Guideline]):
             self.guidelines = guidelines
+
+        @property
+        @override
+        def size(self) -> int:
+            return len(self.guidelines)
 
         @override
         async def process(self) -> GuidelineMatchingBatchResult:
@@ -2650,6 +2660,11 @@ async def test_that_response_analysis_strategy_can_be_overridden(
         ) -> None:
             self.guideline_matches = guideline_matches
 
+        @property
+        @override
+        def size(self) -> int:
+            return len(self.guideline_matches)
+
         @override
         async def process(self) -> ResponseAnalysisBatchResult:
             return ResponseAnalysisBatchResult(
@@ -2745,6 +2760,11 @@ async def test_that_batch_processing_retries_on_key_error(
             self.fail_count = fail_count
             self.attempt_count = 0
 
+        @property
+        @override
+        def size(self) -> int:
+            return len(self.guidelines)
+
         @override
         async def process(self) -> GuidelineMatchingBatchResult:
             self.attempt_count += 1
@@ -2777,6 +2797,11 @@ async def test_that_batch_processing_retries_on_key_error(
             self.guideline_matches = guideline_matches
             self.fail_count = fail_count
             self.attempt_count = 0
+
+        @property
+        @override
+        def size(self) -> int:
+            return len(self.guidelines)
 
         @override
         async def process(self) -> ResponseAnalysisBatchResult:
@@ -2880,6 +2905,11 @@ async def test_that_batch_processing_fails_after_max_retries(
             self.guidelines = guidelines
             self.attempt_count = 0
 
+        @property
+        @override
+        def size(self) -> int:
+            return len(self.guidelines)
+
         @override
         async def process(self) -> GuidelineMatchingBatchResult:
             self.attempt_count += 1
@@ -2889,6 +2919,11 @@ async def test_that_batch_processing_fails_after_max_retries(
         def __init__(self, guideline_matches: Sequence[GuidelineMatch]):
             self.guideline_matches = guideline_matches
             self.attempt_count = 0
+
+        @property
+        @override
+        def size(self) -> int:
+            return len(self.guidelines)
 
         @override
         async def process(self) -> ResponseAnalysisBatchResult:

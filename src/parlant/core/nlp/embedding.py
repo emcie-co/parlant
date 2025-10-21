@@ -23,7 +23,7 @@ from typing_extensions import override
 
 from parlant.core.common import Version
 from parlant.core.loggers import Logger
-from parlant.core.meter import Histogram, Meter
+from parlant.core.meter import DurationHistogram, Meter
 from parlant.core.nlp.tokenization import EstimatingTokenizer, ZeroEstimatingTokenizer
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.document_database import (
@@ -67,7 +67,7 @@ class Embedder(ABC):
     def dimensions(self) -> int: ...
 
 
-_EMBED_DURATION_HISTOGRAM: Histogram | None = None
+_EMBED_DURATION_HISTOGRAM: DurationHistogram | None = None
 
 
 class BaseEmbedder(Embedder):
@@ -78,10 +78,9 @@ class BaseEmbedder(Embedder):
 
         if _EMBED_DURATION_HISTOGRAM is None:
             global _EMBED_DURATION_HISTOGRAM
-            _EMBED_DURATION_HISTOGRAM = meter.create_histogram(
+            _EMBED_DURATION_HISTOGRAM = meter.create_duration_histogram(
                 name="embed",
                 description="Duration of embedding requests in milliseconds",
-                unit="ms",
             )
 
     @abstractmethod

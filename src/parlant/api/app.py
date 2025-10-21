@@ -108,7 +108,13 @@ async def create_api_app(container: Container) -> ASGIApplication:
     tracer = container[Tracer]
     authorization_policy = container[AuthorizationPolicy]
     application = container[Application]
+
     meter = container[Meter]
+    http_request_duration_histogram = meter.create_histogram(
+        name="httpreq",
+        description="HTTP Request Duration",
+        unit="ms",
+    )
 
     api_app = FastAPI()
 
@@ -168,14 +174,12 @@ async def create_api_app(container: Container) -> ASGIApplication:
                 "http.request.method": request.method,
             },
         ):
-            async with meter.measure(
-                "httpreq",
+            async with http_request_duration_histogram.measure(
                 {
                     "request_id": request_id,
                     "http.request.operation": operation_id,
                     "http.method": request.method,
                 },
-                create_scope=False,
             ):
                 return await call_next(request)
 

@@ -76,6 +76,7 @@ class BaseEmbedder(Embedder):
         self.meter = meter
         self.model_name = model_name
 
+        global _EMBED_DURATION_HISTOGRAM
         if _EMBED_DURATION_HISTOGRAM is None:
             global _EMBED_DURATION_HISTOGRAM
             _EMBED_DURATION_HISTOGRAM = meter.create_duration_histogram(

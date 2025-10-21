@@ -84,6 +84,7 @@ class BaseSchematicGenerator(SchematicGenerator[T]):
         self.meter = meter
         self.model_name = model_name
 
+        global _REQUEST_DURATION_HISTOGRAM
         if _REQUEST_DURATION_HISTOGRAM is None:
             global _REQUEST_DURATION_HISTOGRAM
             _REQUEST_DURATION_HISTOGRAM = meter.create_duration_histogram(

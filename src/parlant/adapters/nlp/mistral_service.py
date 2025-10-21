@@ -43,7 +43,12 @@ from parlant.core.nlp.generation import (
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
-from parlant.core.nlp.moderation import ModerationCheck, ModerationService, ModerationTag
+from parlant.core.nlp.moderation import (
+    CustomerModerationContext,
+    ModerationCheck,
+    ModerationService,
+    ModerationTag,
+)
 
 try:
     from mistralai import Mistral
@@ -294,7 +299,7 @@ class MistralModerationService(ModerationService):
         self._client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
 
     @override
-    async def check(self, content: str) -> ModerationCheck:
+    async def moderate_customer(self, context: CustomerModerationContext) -> ModerationCheck:
         def extract_tags(category: str) -> list[ModerationTag]:
             mapping: dict[str, list[ModerationTag]] = {
                 "sexual": ["sexual"],
@@ -313,7 +318,7 @@ class MistralModerationService(ModerationService):
         with self._logger.operation("Mistral Moderation Request", level=LogLevel.TRACE):
             response = await self._client.classifiers.moderate_chat_async(
                 model=self.model_name,
-                inputs=[{"role": "user", "content": content}],  # type: ignore[arg-type]
+                inputs=[{"role": "user", "content": context.message}],  # type: ignore[arg-type]
             )
 
         result = response.results[0]

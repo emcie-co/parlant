@@ -64,7 +64,7 @@ class GoogleEstimatingTokenizer(EstimatingTokenizer):
     @override
     async def estimate_token_count(self, prompt: str) -> int:
         model_approximation = {
-            "text-embedding-004": "gemini-2.5-flash",
+            "gemini-embedding-001": "gemini-2.5-flash",
         }.get(self._model_name, self._model_name)
 
         result = await self._client.aio.models.count_tokens(
@@ -379,18 +379,18 @@ class GoogleEmbedder(Embedder):
         return EmbeddingResult(vectors=vectors)
 
 
-class GeminiTextEmbedding_004(GoogleEmbedder):
+class GeminiTextEmbedding_001(GoogleEmbedder):
     def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="text-embedding-004", logger=logger)
+        super().__init__(model_name="gemini-embedding-001", logger=logger)
 
     @property
     @override
     def max_tokens(self) -> int:
-        return 8000
+        return 2048
 
     @property
     def dimensions(self) -> int:
-        return 768
+        return 3072
 
 
 class GeminiService(NLPService):
@@ -423,7 +423,7 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
 
     @override
     async def get_embedder(self) -> Embedder:
-        return GeminiTextEmbedding_004(self._logger)
+        return GeminiTextEmbedding_001(self._logger)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

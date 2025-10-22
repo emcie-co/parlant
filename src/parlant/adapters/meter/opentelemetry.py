@@ -22,7 +22,8 @@ from parlant.core.tracer import Tracer
 
 
 class OpenTelemetryCounter(Counter):
-    def __init__(self, otel_counter: OTelCounter) -> None:
+    def __init__(self, tracer: Tracer, otel_counter: OTelCounter) -> None:
+        self._tracer = tracer
         self._otel_counter = otel_counter
 
     @override
@@ -31,11 +32,21 @@ class OpenTelemetryCounter(Counter):
         value: int,
         attributes: Mapping[str, str] | None = None,
     ) -> None:
-        self._otel_counter.add(value, {**attributes} if attributes else None)
+        if self._tracer.trace_id != "<main>":
+            attributes = {
+                **(attributes or {}),
+                "trace_id": self._tracer.trace_id,
+            }
+
+        self._otel_counter.add(
+            value,
+            {**attributes} if attributes else None,
+        )
 
 
 class OpenTelemetryHistogram(DurationHistogram):
-    def __init__(self, otel_histogram: OTelHistogram) -> None:
+    def __init__(self, tracer: Tracer, otel_histogram: OTelHistogram) -> None:
+        self._tracer = tracer
         self._otel_histogram = otel_histogram
 
     @override
@@ -44,6 +55,12 @@ class OpenTelemetryHistogram(DurationHistogram):
         value: float,
         attributes: Mapping[str, str] | None = None,
     ) -> None:
+        if self._tracer.trace_id != "<main>":
+            attributes = {
+                **(attributes or {}),
+                "trace_id": self._tracer.trace_id,
+            }
+
         self._otel_histogram.record(value, {**attributes} if attributes else None)
 
     @override
@@ -115,7 +132,7 @@ class OpenTelemetryMeter(Meter):
             description=description,
         )
 
-        return OpenTelemetryCounter(otel_counter)
+        return OpenTelemetryCounter(self._tracer, otel_counter)
 
     @override
     def create_custom_histogram(
@@ -129,7 +146,7 @@ class OpenTelemetryMeter(Meter):
             description=description,
             unit=unit,
         )
-        return OpenTelemetryHistogram(otel_histogram)
+        return OpenTelemetryHistogram(self._tracer, otel_histogram)
 
     @override
     def create_duration_histogram(

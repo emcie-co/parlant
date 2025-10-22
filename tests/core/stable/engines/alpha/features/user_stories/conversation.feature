@@ -138,7 +138,7 @@ Feature: Conversation
         And the message contains the option to book the TURTLE roller coaster
 
 
-    Scenario: The agent adheres to the clarification guideline when disambiguation is needed
+    Scenario: The agent adheres to the clarification guideline when disambiguation is needed (fluid canned response)
         Given an agent
         And an empty session
         And a guideline "snake_roller_coaster" to book it when the customer asks for the snake roller coaster
@@ -154,3 +154,16 @@ Feature: Conversation
         And the message contains the option to book the SNAKE roller coaster
         And the message contains the option to book the TURTLE roller coaster
 
+
+    Scenario: The agent ignores tool results when guideline instructs to do so
+        Given an agent
+        And an empty session
+        And that the agent uses the canned_fluid message composition mode
+        And a guideline to Only ask if there are specific needs or goals they have in mind before answering with any further details when The customer asks for information about financing
+        And a guideline to Separate different topics or questions into distinct paragraphs for clarity when communicating or assisting the customer
+        And a customer message, "I want to understand my options to obtain a business loan"
+        And an agent message, "Of course"
+        And a tool event with data, {"tool_calls": [{"tool_id": "built-in:retriever-1", "arguments": {}, "result": {"data": "Your business funding options include:\\n\\n- **Business Line of Credit**\\n- **Revenue-Based Financing**\\n- **Equipment Financing**\\n- **Invoice Factoring**\\n- **Business Credit Card**\\n- **Merchant Cash Advance**\\n\\nRevenued offers different types of business capital but does not provide traditional loans.", "metadata": {}, "control": {}}}]}
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains asking the customer for specific needs or goals, without going into detail about specific funding options

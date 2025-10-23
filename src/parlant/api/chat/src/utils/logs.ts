@@ -1,345 +1,163 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable no-useless-escape */
-import { hasOtherOpenedTabs } from '@/lib/broadcast-channel';
-import {Log} from './interfaces';
+import { Log } from '@parlant/database';
+import { LogType } from '@parlant/interfaces';
+import { getChatSettings } from './chat';
+import { getSensitiveWords } from './settings';
 
-const logLevels = ['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG', 'TRACE'];
-export const DB_NAME = 'Parlant';
-const STORE_NAME = 'logs';
-const MAX_RECORDS = 2000;
-const CHECK_INTERVAL = 10 * 60 * 1000;
+/**
+ * Logs a message to the database.
+ * @param chatId The ID of the chat to log the message in.
+ * @param userId The ID of the user who sent the message.
+ * @param message The message to log.
+ * @param type The type of log.
+ * @returns The created log.
+ */
+export const logMessage = async (
+  chatId: string,
+  userId: string,
+  message: string,
+  type: LogType
+) => {
+  const { sensitiveWords, logsEnabled } = await getChatSettings(chatId);
 
-export function getIndexedDBSize(databaseName = DB_NAME, tableName = STORE_NAME): Promise<number> {
-	return new Promise((resolve, reject) => {
-		const request = indexedDB.open(databaseName);
+  if (!logsEnabled) {
+    return;
+  }
 
-		request.onerror = (event) => {
-			const target = event?.target as IDBOpenDBRequest;
-			const error = target?.error;
-			reject(new Error(`Failed to open database: ${error}`));
-		};
+  const censoredMessage = censorMessage(message, sensitiveWords);
 
-		request.onsuccess = (event) => {
-			const target = event?.target as IDBOpenDBRequest;
-			const db = target?.result;
+  const log = await Log.create({
+    chatId,
+    userId,
+    message: censoredMessage,
+    type,
+  });
 
-			if (!db.objectStoreNames.contains(tableName)) {
-				db.close();
-				reject(new Error(`Table "${tableName}" does not exist in database "${databaseName}"`));
-				return;
-			}
-
-			const transaction = db.transaction(tableName, 'readonly');
-			const store = transaction.objectStore(tableName);
-
-			const getAllRequest = store.getAll();
-
-			getAllRequest.onerror = (event: Event) => {
-				db.close();
-				const target = event.target as IDBRequest;
-				reject(new Error(`Failed to read data: ${target.error}`));
-			};
-
-			getAllRequest.onsuccess = (event: Event) => {
-				const target = event.target as IDBRequest;
-				const records = target.result;
-				let totalSize = 0;
-
-				records.forEach((record: Record<string, unknown>) => {
-					const serialized = JSON.stringify(record);
-					totalSize += serialized.length * 2;
-				});
-
-				const sizeInMB = totalSize / (1024 * 1024);
-
-				db.close();
-				resolve(sizeInMB);
-			};
-		};
-	});
-}
-
-export function clearIndexedDBData(dbName = DB_NAME, objectStoreName = STORE_NAME) {
-	return new Promise((resolve, reject) => {
-		const request = indexedDB.open(dbName);
-
-		request.onerror = (event) => {
-			const target = event?.target as IDBOpenDBRequest;
-			const error = target?.error;
-			reject(error);
-		};
-
-		request.onsuccess = (event) => {
-			const target = event?.target as IDBOpenDBRequest;
-			const db = target?.result;
-			const transaction = db.transaction(objectStoreName, 'readwrite');
-			const objectStore = transaction.objectStore(objectStoreName);
-			const clearRequest = objectStore.clear();
-
-			clearRequest.onsuccess = () => {
-				resolve(null);
-			};
-
-			clearRequest.onerror = (clearEvent: Event) => {
-				const target = clearEvent.target as IDBRequest;
-				reject(target.error);
-			};
-
-			transaction.oncomplete = () => {
-				db.close();
-			};
-		};
-	});
-}
-
-function openDB(storeName = STORE_NAME) {
-	return new Promise<IDBDatabase>((resolve, reject) => {
-		const request = indexedDB.open(DB_NAME, 1);
-
-		request.onupgradeneeded = () => {
-			const db = request.result;
-
-			if (!db.objectStoreNames.contains(storeName)) {
-				const store = db.createObjectStore(storeName, {autoIncrement: true});
-
-				store.createIndex('timestampIndex', 'timestamp', {unique: false});
-			}
-		};
-
-		request.onsuccess = () => resolve(request.result);
-		request.onerror = () => reject(request.error);
-	});
-}
-
-async function getLogs(correlation_id: string): Promise<Log[]> {
-	const db = await openDB();
-	return new Promise((resolve, reject) => {
-		const transaction = db.transaction(STORE_NAME, 'readonly');
-		const store = transaction.objectStore(STORE_NAME);
-		const request = store.get(correlation_id);
-		request.onsuccess = () => resolve(request.result?.values || []);
-		request.onerror = () => reject(request.error);
-	});
-}
-
-export const handleChatLogs = async (log: Log) => {
-	if (hasOtherOpenedTabs()) return;
-	const db = await openDB();
-	const transaction = db.transaction(STORE_NAME, 'readwrite');
-	const store = transaction.objectStore(STORE_NAME);
-
-	const logEntry = store.get(log.correlation_id);
-
-	logEntry.onsuccess = () => {
-		const data = logEntry.result;
-		const timestamp = Date.now();
-		if (!data?.values) {
-			if (!log.message?.trim().startsWith('HTTP') || log.message?.includes('/events')) store.put({timestamp, values: [log]}, log.correlation_id);
-		} else {
-			data.values.push(log);
-			store.put({timestamp, values: data.values}, log.correlation_id);
-		}
-	};
-	logEntry.onerror = () => console.error(logEntry.error);
+  return log;
 };
 
-export const getMessageLogs = async (correlation_id: string): Promise<Log[]> => {
-	return getLogs(correlation_id);
+/**
+ * Logs a message to the database without fetching chat settings.
+ * @param chatId The ID of the chat to log the message in.
+ * @param userId The ID of the user who sent the message.
+ * @param message The message to log.
+ * @param type The type of log.
+ * @returns The created log.
+ */
+export const logMessageWithoutSettings = async (
+  chatId: string,
+  userId: string,
+  message: string,
+  type: LogType
+) => {
+  const sensitiveWords = await getSensitiveWords();
+  const censoredMessage = censorMessage(message, sensitiveWords);
+
+  const log = await Log.create({
+    chatId,
+    userId,
+    message: censoredMessage,
+    type,
+  });
+
+  return log;
 };
 
-export const getMessageLogsWithFilters = async (correlation_id: string, filters: {level: string; types?: string[]; content?: string[]}): Promise<Log[]> => {
-	const logs = await getMessageLogs(correlation_id);
-	const escapedWords = filters?.content?.map((word) => word.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, '\\$1'));
-	const pattern = escapedWords?.map((word) => `\\[?${word}\\]?`).join('.*?');
-	const levelIndex = filters.level ? logLevels.indexOf(filters.level) : null;
-	const validLevels = filters.level ? new Set(logLevels.filter((_, i) => i <= (levelIndex as number))) : null;
-	const filterTypes = filters.types?.length ? new Set(filters.types) : null;
+/**
+ * Logs a message to the database from the system.
+ * @param chatId The ID of the chat to log the message in.
+ * @param message The message to log.
+ * @returns The created log.
+ */
+export const logSystemMessage = async (chatId: string, message: string) => {
+  const { sensitiveWords, logsEnabled } = await getChatSettings(chatId);
 
-	return logs.filter((log) => {
-		if (validLevels && !validLevels.has(log.level)) return false;
-		if (pattern) {
-			const allWordsMatch = escapedWords?.every((word) => {
-				const regex = new RegExp(`\\[?${word}\\]?`, 'i'); // Allow optional brackets
-				return regex.test(`[${log.level}]${log.message}`);
-			  });
-			if (!allWordsMatch) return false;
-		}
-		if (filterTypes) {
-			const match = log.message.match(/^\[([^\]]+)\]/);
-			const type = match ? match[1] : 'General';
-			return filterTypes.has(type);
-		}
-		return true;
-	});
+  if (!logsEnabled) {
+    return;
+  }
+
+  const censoredMessage = censorMessage(message, sensitiveWords);
+
+  const log = await Log.create({
+    chatId,
+    message: censoredMessage,
+    type: LogType.SYSTEM,
+  });
+
+  return log;
 };
 
-export async function getAgentMessageLogsCount(): Promise<Log[]> {
-	const db = await openDB();
-	return new Promise((resolve, reject) => {
-		try {
-			const transaction = db.transaction(STORE_NAME, 'readonly');
-			const store = transaction.objectStore(STORE_NAME);
-			const index = store.index('timestampIndex');
-			const data = index.openCursor();
+/**
+ * Logs a message to the database from the system without fetching chat settings.
+ * @param chatId The ID of the chat to log the message in.
+ * @param message The message to log.
+ * @returns The created log.
+ */
+export const logSystemMessageWithoutSettings = async (
+  chatId: string,
+  message: string
+) => {
+  const sensitiveWords = await getSensitiveWords();
+  const censoredMessage = censorMessage(message, sensitiveWords);
 
-			const items: any[] = [];
+  const log = await Log.create({
+    chatId,
+    message: censoredMessage,
+    type: LogType.SYSTEM,
+  });
 
-			data.onsuccess = (event) => {
-				const cursor = (event.target as IDBRequest).result;
-				if (cursor) {
-					if (cursor.primaryKey?.includes('::')) items.push(cursor.value);
-					cursor.continue();
-				} else {
-					resolve(items);
-				}
-			};
+  return log;
+};
 
-			data.onerror = () => reject(data.error);
-		} catch (error) {
-			db.close();
-			reject(error);
-		}
-	});
-}
+/**
+ * Logs a message to the database from the bot.
+ * @param chatId The ID of the chat to log the message in.
+ * @param message The message to log.
+ * @returns The created log.
+ */
+export const logBotMessage = async (chatId: string, message: string) => {
+  const { sensitiveWords, logsEnabled } = await getChatSettings(chatId);
 
-export async function getAllLogKeys(): Promise<IDBValidKey[]> {
-	const db = await openDB();
-	return new Promise((resolve, reject) => {
-		const transaction = db.transaction(STORE_NAME, 'readonly');
-		const store = transaction.objectStore(STORE_NAME);
-		const keysRequest = store.getAllKeys();
+  if (!logsEnabled) {
+    return;
+  }
 
-		keysRequest.onsuccess = () => {
-			db.close();
-			resolve(keysRequest.result);
-		};
+  const censoredMessage = censorMessage(message, sensitiveWords);
 
-		keysRequest.onerror = () => {
-			db.close();
-			reject(keysRequest.error);
-		};
-	});
-}
+  const log = await Log.create({
+    chatId,
+    message: censoredMessage,
+    type: LogType.BOT,
+  });
 
-export async function deleteOldestLogs(deleteTimestamp = 0): Promise<void> {
-	if (!deleteTimestamp || deleteTimestamp <= 0) {
-		console.log('No valid deletion timestamp provided, skipping cleanup');
-		return;
-	}
+  return log;
+};
 
-	try {
-		const db = await openDB();
-		const transaction = db.transaction(STORE_NAME, 'readonly');
-		const store = transaction.objectStore(STORE_NAME);
-		const keysRequest = store.getAllKeys();
-		const valuesRequest = store.getAll();
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-		return new Promise((resolve, reject) => {
-			let keys: IDBValidKey[] = [];
-			let values: any[] = [];
+/**
+ * Censors a message by replacing sensitive words with asterisks.
+ * @param message The message to censor.
+ * @param sensitiveWords The list of sensitive words to censor.
+ * @returns The censored message.
+ */
+export const censorMessage = (
+  message: string,
+  sensitiveWords: string[]
+): string => {
+  if (!sensitiveWords || sensitiveWords.length === 0) {
+    return message;
+  }
 
-			keysRequest.onsuccess = () => {
-				keys = keysRequest.result;
-				if (values.length > 0) deleteOldest();
-			};
+  const pattern = sensitiveWords
+    .filter((word) => word.length > 0)
+    .map(escapeRegExp)
+    .join('|');
 
-			valuesRequest.onsuccess = () => {
-				values = valuesRequest.result;
-				if (keys.length > 0) deleteOldest();
-			};
+  if (pattern === '') {
+    return message;
+  }
 
-			const deleteOldest = () => {
-				const keysToDelete = [];
-				for (const i in keys) {
-					const data = values[i];
-					if (data.timestamp < deleteTimestamp) keysToDelete.push(keys[i]);
-				}
+  const regex = new RegExp(pattern, 'gi');
 
-				if (keysToDelete.length === 0) {
-					db.close();
-					resolve();
-					return;
-				}
-
-				const deleteTransaction = db.transaction(STORE_NAME, 'readwrite');
-				const deleteStore = deleteTransaction.objectStore(STORE_NAME);
-
-				let completed = 0;
-				let errors = 0;
-
-				keysToDelete.forEach((key) => {
-					const deleteRequest = deleteStore.delete(key);
-
-					deleteRequest.onsuccess = () => {
-						completed++;
-						if (completed + errors === keysToDelete.length) {
-							if (errors > 0) {
-								console.warn(`Completed with ${errors} errors`);
-							}
-						}
-					};
-
-					deleteRequest.onerror = (event) => {
-						errors++;
-						console.error(`Failed to delete key ${key}:`, (event.target as IDBRequest).error);
-					};
-				});
-
-				deleteTransaction.oncomplete = () => {
-					db.close();
-					console.log(`Successfully deleted ${completed} records older than ${new Date(deleteTimestamp).toISOString()}`);
-					resolve();
-				};
-
-				deleteTransaction.onerror = (event) => {
-					db.close();
-					reject((event.target as IDBTransaction).error);
-				};
-			};
-
-			transaction.onerror = (event) => {
-				db.close();
-				reject((event.target as IDBTransaction).error);
-			};
-		});
-	} catch (error) {
-		console.error('Error in deleteOldestLogs:', error);
-		throw error;
-	}
-}
-
-export async function checkAndCleanupLogs(): Promise<void> {
-	try {
-		const agentMessages = await getAgentMessageLogsCount();
-
-		if (agentMessages[MAX_RECORDS]) {
-			const recordsToDeleteDate = agentMessages[agentMessages.length - MAX_RECORDS]?.timestamp || 0;
-			console.log(`Log count exceeds maximum (${MAX_RECORDS}), deleting logs before ${new Date(recordsToDeleteDate)?.toLocaleString()}`);
-			await deleteOldestLogs(recordsToDeleteDate);
-			console.log('Cleanup completed');
-		}
-	} catch (error) {
-		console.error('Error during log cleanup:', error);
-	}
-}
-
-let cleanupInterval: number | null = null;
-
-export function startLogCleanup(): void {
-	checkAndCleanupLogs();
-
-	if (!cleanupInterval) {
-		cleanupInterval = window.setInterval(checkAndCleanupLogs, CHECK_INTERVAL);
-		console.log(`Log cleanup scheduled every ${CHECK_INTERVAL / 1000 / 60} minutes`);
-	}
-}
-
-export function stopLogCleanup(): void {
-	if (cleanupInterval) {
-		window.clearInterval(cleanupInterval);
-		cleanupInterval = null;
-		console.log('Log cleanup stopped');
-	}
-}
-
-startLogCleanup();
+  return message.replace(regex, (match) => '*'.repeat(match.length));
+};

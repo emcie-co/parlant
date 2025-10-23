@@ -138,7 +138,7 @@ Feature: Conversation
         And the message contains the option to book the TURTLE roller coaster
 
 
-    Scenario: The agent adheres to the clarification guideline when disambiguation is needed (fluid canned response)
+    Scenario: The agent adheres to the clarification guideline when disambiguation is needed
         Given an agent
         And an empty session
         And a guideline "snake_roller_coaster" to book it when the customer asks for the snake roller coaster
@@ -155,7 +155,7 @@ Feature: Conversation
         And the message contains the option to book the TURTLE roller coaster
 
 
-    Scenario: The agent ignores tool results when guideline instructs to do so
+    Scenario: The agent ignores tool results when guideline instructs to do so (fluid canned response)
         Given an agent
         And an empty session
         And that the agent uses the canned_fluid message composition mode

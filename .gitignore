@@ -10,6 +10,7 @@ data/*.json
 cache/
 .coverage
 .DS_STORE
+*~
 .vscode
 .venv
 .cursor

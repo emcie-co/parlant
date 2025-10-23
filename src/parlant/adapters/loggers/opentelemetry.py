@@ -78,9 +78,15 @@ class OpenTelemetryLogger(TracingLogger):
 
         def _add_attributes(
             _: Any,  # logger
-            __: str,  # method name (e.g., "info", "error")
+            method: str,
             event_dict: MutableMapping[str, Any],
         ) -> MutableMapping[str, Any]:
+            level = event_dict.get("level", method)
+            event_dict["severity_text"] = str(level).upper()
+
+            event_dict["trace_id"] = self._tracer.trace_id
+            event_dict["span_id"] = self._tracer.span_id
+
             scopes = self.current_scope
             if scopes:
                 event_dict["scopes"] = scopes
@@ -90,8 +96,8 @@ class OpenTelemetryLogger(TracingLogger):
         self._logger = structlog.wrap_logger(
             self.raw_logger,
             processors=[
-                _add_attributes,
                 structlog.stdlib.add_log_level,
+                _add_attributes,
                 structlog.stdlib.PositionalArgumentsFormatter(),
                 structlog.processors.StackInfoRenderer(),
                 structlog.processors.format_exc_info,
@@ -107,48 +113,24 @@ class OpenTelemetryLogger(TracingLogger):
         if self.log_level != LogLevel.TRACE:
             return
 
-        self._logger.debug(
-            message,
-            trace_id=str(self._tracer.trace_id),
-            scopes=self.current_scope or None,
-        )
+        self._logger.debug(message)
 
     @override
     def debug(self, message: str) -> None:
-        self._logger.debug(
-            message,
-            trace_id=str(self._tracer.trace_id),
-            scopes=self.current_scope or None,
-        )
+        self._logger.debug(message)
 
     @override
     def info(self, message: str) -> None:
-        self._logger.info(
-            message,
-            trace_id=str(self._tracer.trace_id),
-            scopes=self.current_scope or None,
-        )
+        self._logger.info(message)
 
     @override
     def warning(self, message: str) -> None:
-        self._logger.warning(
-            message,
-            trace_id=str(self._tracer.trace_id),
-            scopes=self.current_scope or None,
-        )
+        self._logger.warning(message)
 
     @override
     def error(self, message: str) -> None:
-        self._logger.error(
-            message,
-            trace_id=str(self._tracer.trace_id),
-            scopes=self.current_scope or None,
-        )
+        self._logger.error(message)
 
     @override
     def critical(self, message: str) -> None:
-        self._logger.critical(
-            message,
-            trace_id=str(self._tracer.trace_id),
-            scopes=self.current_scope or None,
-        )
+        self._logger.critical(message)

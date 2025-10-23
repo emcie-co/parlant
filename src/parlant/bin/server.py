@@ -450,7 +450,7 @@ async def _define_logger(container: Container) -> None:
         print("OpenTelemetry logging is enabled.")
         container[Logger] = CompositeLogger(
             [
-                await EXIT_STACK.enter_async_context(OpenTelemetryLogger(TRACER)),
+                await EXIT_STACK.enter_async_context(OpenTelemetryLogger(container[Tracer])),
                 container[WebSocketLogger],
             ]
         )

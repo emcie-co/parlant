@@ -181,7 +181,8 @@ class AlphaEngine(Engine):
             async with self._hist_engine_process_duration.measure(
                 {"session_id": context.session_id},
             ):
-                await self._do_process(loaded_context)
+                with self._tracer.span("process", {"session_id": context.session_id}):
+                    await self._do_process(loaded_context)
             return True
         except asyncio.CancelledError:
             return False
@@ -218,7 +219,8 @@ class AlphaEngine(Engine):
             async with self._hist_engine_utter_duration.measure(
                 {"session_id": context.session_id},
             ):
-                await self._do_utter(loaded_context, requests)
+                with self._tracer.span("utter", {"session_id": context.session_id}):
+                    await self._do_utter(loaded_context, requests)
             return True
 
         except asyncio.CancelledError:

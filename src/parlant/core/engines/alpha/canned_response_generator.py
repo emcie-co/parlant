@@ -716,7 +716,7 @@ You will now be given the current state of the interaction to which you must gen
             # If we're in, the hook did not bail out.
 
             emitted_event = await canrep_context.event_emitter.emit_message_event(
-                trace_id=f"{self._tracer.trace_id}",
+                trace_id=self._tracer.trace_id,
                 data=MessageEventData(
                     message=canrep.content.preamble,
                     participant=Participant(id=agent.id, display_name=agent.name),

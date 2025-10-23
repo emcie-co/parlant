@@ -16,25 +16,30 @@ parlant-prepare-migration = "parlant.bin.prepare_migration:main"
 aiofiles = "^24.1.0"
 aiopenapi3 = "0.8.1"
 aiorwlock = "^1.5.0"
+authlib = "^1.6.5"
 boto3 = "^1.35.70"
-chromadb = "1.0.15"
+cachetools = "5.5.2"
 click = "^8.1.7"
 colorama = "^0.4.6"
 coloredlogs = "^15.0.1"
 contextvars = "^2.4"
 croniter = "^5.0.1"
 fastapi = "0.115.12"
+fastmcp = "2.12.5"
 httpx = "^0.28.1"
+jinja2 = "^3.1.6"
 jsonfinder = "^0.4.2"
 jsonschema = "^4.23.0"
 lagom = "^2.6.0"
+limits = "^5.5.0"
+mcp = { extras = ["cli"], version = "^1.7.1" }
 more-itertools = ">=10.3.0"
 nano-vectordb = "^0.0.4.3"
 nanoid = "^2.0.0"
 networkx = { extras = ["default"], version = "^3.3" }
 openai = "^1.45.0"
 openapi3-parser = "1.1.21"
-opentelemetry-exporter-otlp-proto-grpc = "1.27.0"
+opentelemetry-exporter-otlp-proto-grpc = "1.37.0"
 parlant-client = "^3.0.1"
 python = "^3.10"
 python-dateutil = "^2.8.2"
@@ -48,6 +53,7 @@ tiktoken = "^0.8"
 tokenizers = "^0.20"
 toml = "^0.10.2"
 types-aiofiles = "^24.1.0.20240626"
+types-cachetools = "^6.0.0.20250525"
 types-croniter = "^4.0.0.20241030"
 types-jsonschema = "^4.22.0.20240610"
 uvicorn = "^0.32.1"
@@ -55,21 +61,17 @@ uvicorn = "^0.32.1"
 # --- optional packages ---
 anthropic = { version = "^0.60.0", optional = true }
 cerebras-cloud-sdk = { version = "^1.25.0", optional = true }
+chromadb = { version = "^1.1.1", optional = true }
 google-api-core = { version = "^2.24.2", optional = true }
-google-genai = { version = "^1.29.0", optional = true }
-ollama = { version = "^0.5.0", optional = true }
 google-auth = { version = "^2.40.0", optional = true }
+google-genai = { version = "^1.29.0", optional = true }
+litellm = { version = "^1.61.16", optional = true }
+ollama = { version = "^0.5.0", optional = true }
+pymongo = { version = "^4.11.1", optional = true }
 together = { version = "^1.2.12", optional = true }
 torch = { version = "^2.6.0", optional = true }
 transformers = { version = "^4.46.2", optional = true }
-litellm = { version = "^1.61.16", optional = true }
-pymongo = { version = "^4.11.1", optional = true }
-jinja2 = "^3.1.6"
-mcp = { extras = ["cli"], version = "^1.7.1" }
-fastmcp = "2.6.1"
-cachetools = "5.5.2"
-types-cachetools = "^6.0.0.20250525"
-limits = "^5.5.0"
+
 
 
 [tool.poetry.group.dev.dependencies]
@@ -116,6 +118,8 @@ ollama = ["ollama"]
 litellm = ["litellm", "torch", "transformers"]
 
 mongo = ["pymongo"]
+
+chroma = ["chromadb"]
 
 
 [build-system]

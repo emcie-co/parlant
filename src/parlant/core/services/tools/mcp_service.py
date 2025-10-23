@@ -13,17 +13,21 @@
 # limitations under the License.
 
 from __future__ import annotations
+
 from ast import literal_eval
 from datetime import datetime, timezone
 from mailbox import FormatError
+from mcp.types import Tool as McpTool
 from types import TracebackType
 from typing import Any, Sequence, Mapping, Optional, Literal, Callable
-from fastmcp.client.transports import StreamableHttpTransport
 from typing_extensions import override
+import asyncio
+
 from fastmcp import FastMCP
 from fastmcp.client import Client
-from mcp.types import Tool as McpTool
-import asyncio
+from fastmcp.client.transports import StreamableHttpTransport
+from fastmcp.tools import Tool as FastMCPTool
+
 from parlant.core.loggers import Logger
 from parlant.core.tools import (
     Tool,
@@ -74,7 +78,7 @@ class MCPToolServer:
         self._server.settings.host = host
         self.transport = transport
         for tool in tools:
-            self._server.add_tool(tool)
+            self._server.add_tool(FastMCPTool.from_function(tool))
 
     async def __aenter__(self) -> MCPToolServer:
         self._task = asyncio.create_task(self._server.run_async(transport=self.transport))
@@ -202,7 +206,7 @@ class MCPToolClient(ToolService):
             tool = await self.read_tool(name)
             arguments = prepare_tool_arguments(arguments, tool.parameters)
             result = await self._client.call_tool(name, dict(arguments))
-            text = next((r.text for r in result if r.type == "text"), None)
+            text = next((r.text for r in result.content if r.type == "text"), None)
             return ToolResult(data=text)
         except Exception as e:
             raise ToolError(str(e))

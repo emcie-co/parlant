@@ -13,18 +13,21 @@
 # limitations under the License.
 
 from __future__ import annotations
+
 from ast import literal_eval
 from datetime import datetime, timezone
 from mailbox import FormatError
+from mcp.types import Tool as McpTool
 from types import TracebackType
 from typing import Any, Sequence, Mapping, Optional, Literal, Callable
-from fastmcp.client.transports import StreamableHttpTransport
 from typing_extensions import override
+import asyncio
+
 from fastmcp import FastMCP
 from fastmcp.tools import Tool as FastMCPTool
 from fastmcp.client import Client
-from mcp.types import Tool as McpTool
-import asyncio
+from fastmcp.client.transports import StreamableHttpTransport
+
 from parlant.core.loggers import Logger
 from parlant.core.tools import (
     Tool,

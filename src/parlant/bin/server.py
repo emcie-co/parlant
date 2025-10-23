@@ -42,6 +42,7 @@ import sys
 import uvicorn
 
 from parlant.adapters.loggers.websocket import WebSocketLogger
+from parlant.adapters.vector_db.transient import TransientVectorDatabase
 from parlant.api.authorization import (
     AuthorizationPolicy,
     DevelopmentAuthorizationPolicy,
@@ -696,8 +697,6 @@ async def initialize_container(
 
         embedder_factory = EmbedderFactory(c)
 
-        shared_chroma_db: VectorDatabase | None = None
-
         if c[OptimizationPolicy].use_embedding_cache():
             c[EmbeddingCache] = BasicEmbeddingCache(
                 await EXIT_STACK.enter_async_context(
@@ -710,20 +709,12 @@ async def initialize_container(
         else:
             c[EmbeddingCache] = NullEmbeddingCache()
 
-        async def get_shared_chroma_db() -> VectorDatabase:
-            nonlocal shared_chroma_db
-            if shared_chroma_db is None:
-                from parlant.adapters.vector_db.chroma import ChromaDatabase
-
-                shared_chroma_db = await EXIT_STACK.enter_async_context(
-                    ChromaDatabase(
-                        c[Logger],
-                        PARLANT_HOME_DIR,
-                        embedder_factory,
-                        lambda: c[EmbeddingCache],
-                    ),
-                )
-            return cast(VectorDatabase, shared_chroma_db)
+        async def get_transient_vector_db() -> VectorDatabase:
+            return TransientVectorDatabase(
+                c[Logger],
+                embedder_factory,
+                lambda: c[EmbeddingCache],
+            )
 
         async def get_embedder_type() -> type[Embedder]:
             return type(await nlp_service_instance.get_embedder())
@@ -737,7 +728,7 @@ async def initialize_container(
             await try_define_vector_store(
                 store_interface,
                 store_implementation,
-                lambda: get_shared_chroma_db(),
+                lambda: get_transient_vector_db(),
                 document_db_filename,
                 get_embedder_type,
                 embedder_factory,

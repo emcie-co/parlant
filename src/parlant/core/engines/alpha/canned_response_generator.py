@@ -1530,12 +1530,6 @@ Output a JSON object with three properties:
             hints={"temperature": temperature},
         )
 
-        with open("draft prompt and response.txt", "w") as f:
-            f.write(draft_response.content.model_dump_json(indent=2))
-            f.write("\n\nPROMPT:\n")
-            f.write(draft_prompt.build())
-            f.write(f"\n TIME: {draft_response.info.duration}")
-
         self._logger.trace(
             f"Canned Response Draft Completion:\n{draft_response.content.model_dump_json(indent=2)}"
         )

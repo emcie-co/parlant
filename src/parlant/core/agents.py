@@ -80,6 +80,7 @@ class AgentStore(ABC):
         max_engine_iterations: Optional[int] = None,
         composition_mode: Optional[CompositionMode] = None,
         tags: Optional[Sequence[TagId]] = None,
+        id: Optional[AgentId] = None,
     ) -> Agent: ...
 
     @abstractmethod
@@ -291,15 +292,21 @@ class AgentDocumentStore(AgentStore):
         max_engine_iterations: Optional[int] = None,
         composition_mode: Optional[CompositionMode] = None,
         tags: Optional[Sequence[TagId]] = None,
+        id: Optional[AgentId] = None,
     ) -> Agent:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
             max_engine_iterations = max_engine_iterations or 3
 
-            agent_checksum = md5_checksum(f"{name}{description}{max_engine_iterations}{tags}")
+            # Use provided ID or generate one
+            if id is not None:
+                agent_id = id
+            else:
+                agent_checksum = md5_checksum(f"{name}{description}{max_engine_iterations}{tags}")
+                agent_id = AgentId(self._id_generator.generate(agent_checksum))
 
             agent = Agent(
-                id=AgentId(self._id_generator.generate(agent_checksum)),
+                id=agent_id,
                 name=name,
                 description=description,
                 creation_utc=creation_utc,

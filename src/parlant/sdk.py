@@ -2640,8 +2640,29 @@ class Server:
         composition_mode: CompositionMode = CompositionMode.FLUID,
         max_engine_iterations: int | None = None,
         tags: Sequence[TagId] = [],
+        id: str | None = None,
     ) -> Agent:
-        """Creates a new agent with the specified name, description, and composition mode."""
+        """Creates a new agent with the specified name, description, and composition mode.
+
+        Args:
+            name: The agent's name (required).
+            description: A description of the agent's purpose and capabilities (required).
+            composition_mode: How the agent composes responses. Defaults to FLUID.
+                - FLUID: Dynamic response composition
+                - CANNED_FLUID: Mix of canned and dynamic responses
+                - CANNED_COMPOSITED: Composed from canned responses
+                - CANNED_STRICT: Strictly uses canned responses
+            max_engine_iterations: Maximum number of engine iterations per turn.
+                Defaults to 3 if not specified.
+            tags: List of tag IDs to associate with the agent. Defaults to empty list.
+            id: Custom agent ID string (optional). If not provided, an ID will be
+                automatically generated based on the agent's properties. Custom IDs
+                can be any string format and are useful for maintaining consistent
+                agent identifiers across deployments or integrations.
+
+        Returns:
+            The created Agent instance.
+        """
 
         self._advance_creation_progress()
 
@@ -2650,6 +2671,7 @@ class Server:
             description=description,
             max_engine_iterations=max_engine_iterations or 3,
             composition_mode=composition_mode.value,
+            id=AgentId(id) if id is not None else None,
         )
 
         return Agent(

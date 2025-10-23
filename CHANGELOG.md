@@ -4,6 +4,8 @@ All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
 
+- Allow specifying custom IDs when creating agents via SDK and API
+- Allow specifying custom IDs when creating customers via SDK and API
 - Allow bailing out of canned response selection and utilize the draft directly, using a hook
 - Add Snowflake Cortex service
 - Add GLM service

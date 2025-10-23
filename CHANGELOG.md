@@ -6,6 +6,15 @@ All notable changes to Parlant will be documented here.
 
 TBD
 
+## [3.0.3] - 2025-10-23
+
+### Fixed
+
+- Fix installation issue in some environments, failing due to an older FastMCP version
+- Bump versions of OpenTelemetry
+- Made ChromaDB an extra package parlant[chroma]
+- Update NPM dependencies for integrated UI
+
 ## [3.0.2] - 2025-08-27
 
 ### Added

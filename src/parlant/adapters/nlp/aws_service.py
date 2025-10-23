@@ -186,7 +186,7 @@ class BedrockService(NLPService):
         if not os.environ.get("ANTHROPIC_API_KEY"):
             return """\
 You're using the AWS Bedrock NLP service, but some environment variables are missing.
-Please consider seting the following your environment before running Parlant.
+Please consider setting the following your environment before running Parlant.
 
 - AWS_ACCESS_KEY_ID
 - AWS_SECRET_ACCESS_KEY

@@ -2735,8 +2735,29 @@ class Server:
         name: str,
         metadata: Mapping[str, str] = {},
         tags: Sequence[TagId] = [],
+        id: str | None = None,
     ) -> Customer:
-        """Creates a new customer with the specified name and metadata."""
+        """Creates a new customer with the specified name and metadata.
+
+        Args:
+            name: The customer's name (required). An arbitrary string that
+                identifies and/or describes the customer.
+            metadata: Key-value pairs to describe the customer. Defaults to
+                empty dictionary. This allows you to store arbitrary metadata
+                about the customer (e.g., email, VIP status, preferences).
+            tags: List of tag IDs to associate with the customer. Defaults to
+                empty list. Tags are useful for categorizing and filtering
+                customers.
+            id: Custom customer ID string (optional). If not provided, an ID
+                will be automatically generated based on the customer's
+                properties. Custom IDs can be any string format and are useful
+                for maintaining consistent customer identifiers across
+                deployments or integrations (e.g., matching your internal
+                customer IDs).
+
+        Returns:
+            The created Customer instance.
+        """
 
         self._advance_creation_progress()
 
@@ -2744,6 +2765,7 @@ class Server:
             name=name,
             extra=metadata,
             tags=tags,
+            id=CustomerId(id) if id is not None else None,
         )
 
         return Customer(

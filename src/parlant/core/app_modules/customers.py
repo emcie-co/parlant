@@ -43,6 +43,7 @@ class CustomerModule:
         name: str,
         extra: Mapping[str, str],
         tags: Sequence[TagId] | None,
+        id: CustomerId | None = None,
     ) -> Customer:
         if tags:
             for tag_id in tags:
@@ -54,6 +55,7 @@ class CustomerModule:
             name=name,
             extra=extra,
             tags=tags or [],
+            id=id,
         )
         return customer
 

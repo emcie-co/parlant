@@ -127,9 +127,25 @@ class CustomerCreationParamsDTO(
     DefaultBaseModel,
     json_schema_extra={"example": customer_creation_params_example},
 ):
-    """Parameters for creating a new customer."""
+    """Parameters for creating a new customer.
+
+    Optional fields:
+    - `id`: Custom identifier for the customer. If not provided, an ID will be
+      automatically generated. Custom IDs can be any string format and are useful
+      for maintaining consistent identifiers across deployments or integrations.
+    - `metadata`: Key-value pairs to describe the customer
+    - `tags`: List of tag IDs to associate with the customer
+    """
 
     name: CustomerNameField
+    id: Annotated[
+        CustomerId | None,
+        Field(
+            default=None,
+            description="Custom identifier for the customer. If not provided, an ID will be automatically generated.",
+            examples=["my-custom-customer-id", "customer-prod-001"],
+        ),
+    ] = None
     metadata: CustomerMetadataField | None = None
     tags: TagIdSequenceField | None = None
 
@@ -261,6 +277,7 @@ def create_router(
             name=params.name,
             extra=params.metadata if params.metadata else {},
             tags=params.tags,
+            id=params.id,
         )
 
         return CustomerDTO(

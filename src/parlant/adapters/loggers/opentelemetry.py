@@ -83,6 +83,7 @@ class OpenTelemetryLogger(TracingLogger):
         ) -> MutableMapping[str, Any]:
             level = event_dict.get("level", method)
             event_dict["severity_text"] = str(level).upper()
+            del event_dict["level"]
 
             event_dict["trace_id"] = self._tracer.trace_id
             event_dict["span_id"] = self._tracer.span_id

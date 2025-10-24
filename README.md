@@ -68,6 +68,7 @@ await agent.create_guideline(
 ```
 
 - ✅ [Blog: How Parlant Ensures Agent Compliance](https://www.parlant.io/blog/how-parlant-guarantees-compliance)
+- 🆚 [Blog: Parlant vs LangGraph](https://www.parlant.io/blog/parlant-vs-langgraph)
 - 🆚 [Blog: Parlant vs DSPy](https://www.parlant.io/blog/parlant-vs-dspy)
 
 

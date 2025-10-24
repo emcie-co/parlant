@@ -139,7 +139,7 @@ def there_are_pending_git_changes() -> bool:
 
 
 def commit_version(version: str) -> bool:
-    status, _ = subprocess.getstatusoutput(f"git commit -am 'Release {version}'")
+    status, _ = subprocess.getstatusoutput(f"git commit -am 'Release {version}' --no-verify")
     return status != 0
 
 

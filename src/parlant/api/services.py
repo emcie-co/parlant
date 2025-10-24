@@ -185,7 +185,6 @@ ServiceURLField: TypeAlias = Annotated[
 ServiceToolsField: TypeAlias = Annotated[
     Sequence[ToolDTO],
     Field(
-        default=None,
         description="List of tools provided by this service. Only included when retrieving a specific service.",
     ),
 ]

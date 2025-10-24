@@ -183,7 +183,6 @@ GuidelineMetadataField: TypeAlias = Annotated[
 GuidelineEnabledField: TypeAlias = Annotated[
     bool,
     Field(
-        default=True,
         description="Whether the guideline is enabled",
         examples=[True, False],
     ),
@@ -217,7 +216,7 @@ class GuidelineDTO(
     id: GuidelineIdField
     condition: GuidelineConditionField
     action: GuidelineActionField | None = None
-    enabled: GuidelineEnabledField
+    enabled: GuidelineEnabledField = True
     tags: GuidelineTagsField
     metadata: GuidelineMetadataField
 

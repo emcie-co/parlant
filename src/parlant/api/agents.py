@@ -47,7 +47,6 @@ AgentNameField: TypeAlias = Annotated[
 AgentDescriptionField: TypeAlias = Annotated[
     str,
     Field(
-        default=None,
         description="Detailed description of the agent's purpose and capabilities",
         examples=["Technical Support Assistant"],
     ),
@@ -56,7 +55,6 @@ AgentDescriptionField: TypeAlias = Annotated[
 AgentMaxEngineIterationsField: TypeAlias = Annotated[
     int,
     Field(
-        default=1,
         description="Maximum number of processing iterations the agent can perform per request",
         ge=1,
         examples=[1, 3],
@@ -66,7 +64,6 @@ AgentMaxEngineIterationsField: TypeAlias = Annotated[
 AgentTagsField: TypeAlias = Annotated[
     list[TagId],
     Field(
-        default=None,
         description="List of tag IDs associated with the agent",
         examples=[["tag1", "tag2"]],
     ),
@@ -75,7 +72,6 @@ AgentTagsField: TypeAlias = Annotated[
 AgentTagUpdateAddField: TypeAlias = Annotated[
     list[TagId],
     Field(
-        default=None,
         description="List of tag IDs to add to the agent",
         examples=[["tag1", "tag2"]],
     ),
@@ -84,7 +80,6 @@ AgentTagUpdateAddField: TypeAlias = Annotated[
 AgentTagUpdateRemoveField: TypeAlias = Annotated[
     list[TagId],
     Field(
-        default=None,
         description="List of tag IDs to remove from the agent",
         examples=[["tag1", "tag2"]],
     ),
@@ -133,9 +128,9 @@ class AgentDTO(
     id: AgentIdPath
     name: AgentNameField
     description: Optional[AgentDescriptionField] = None
-    max_engine_iterations: AgentMaxEngineIterationsField
+    max_engine_iterations: AgentMaxEngineIterationsField = 1
     composition_mode: CompositionModeDTO
-    tags: AgentTagsField
+    tags: AgentTagsField = []
 
 
 agent_creation_params_example: ExampleJson = {

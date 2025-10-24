@@ -325,6 +325,16 @@ class NLPServices:
         return VertexAIService(container[Logger])
 
     @staticmethod
+    def mistral(container: Container) -> NLPService:
+        """Creates a Ollama NLPService instance using the provided container."""
+        from parlant.adapters.nlp.mistral_service import MistralService
+
+        if error := MistralService.verify_environment():
+            raise SDKError(error)
+
+        return MistralService(container[Logger])
+
+    @staticmethod
     def ollama(container: Container) -> NLPService:
         """Creates a Ollama NLPService instance using the provided container."""
         from parlant.adapters.nlp.ollama_service import OllamaService
@@ -1345,6 +1355,7 @@ class Journey:
         guideline = await self._container[GuidelineStore].create_guideline(
             condition=condition,
             action=action,
+            metadata=metadata,
         )
 
         if canned_responses:
@@ -1808,6 +1819,7 @@ class Agent:
             condition=condition,
             action=action,
             tags=[_Tag.for_agent_id(self.id)],
+            metadata=metadata,
         )
 
         if canned_responses:
@@ -2144,6 +2156,7 @@ class Server:
         nlp_service: Callable[[Container], NLPService] = NLPServices.openai,
         session_store: Literal["transient", "local"] | str | SessionStore = "transient",
         customer_store: Literal["transient", "local"] | str | CustomerStore = "transient",
+        variable_store: Literal["transient", "local"] | str | ContextVariableStore = "transient",
         log_level: LogLevel = LogLevel.INFO,
         modules: list[str] = [],
         migrate: bool = False,
@@ -2160,8 +2173,11 @@ class Server:
         self._migrate = migrate
         self._nlp_service_func = nlp_service
         self._evaluator: _CachedEvaluator
+
         self._session_store = session_store
         self._customer_store = customer_store
+        self._context_variable_store = variable_store
+
         self._configure_hooks = configure_hooks
         self._configure_container = configure_container
         self._initialize = initialize_container
@@ -2624,8 +2640,29 @@ class Server:
         composition_mode: CompositionMode = CompositionMode.FLUID,
         max_engine_iterations: int | None = None,
         tags: Sequence[TagId] = [],
+        id: str | None = None,
     ) -> Agent:
-        """Creates a new agent with the specified name, description, and composition mode."""
+        """Creates a new agent with the specified name, description, and composition mode.
+
+        Args:
+            name: The agent's name (required).
+            description: A description of the agent's purpose and capabilities (required).
+            composition_mode: How the agent composes responses. Defaults to FLUID.
+                - FLUID: Dynamic response composition
+                - CANNED_FLUID: Mix of canned and dynamic responses
+                - CANNED_COMPOSITED: Composed from canned responses
+                - CANNED_STRICT: Strictly uses canned responses
+            max_engine_iterations: Maximum number of engine iterations per turn.
+                Defaults to 3 if not specified.
+            tags: List of tag IDs to associate with the agent. Defaults to empty list.
+            id: Custom agent ID string (optional). If not provided, an ID will be
+                automatically generated based on the agent's properties. Custom IDs
+                can be any string format and are useful for maintaining consistent
+                agent identifiers across deployments or integrations.
+
+        Returns:
+            The created Agent instance.
+        """
 
         self._advance_creation_progress()
 
@@ -2634,6 +2671,7 @@ class Server:
             description=description,
             max_engine_iterations=max_engine_iterations or 3,
             composition_mode=composition_mode.value,
+            id=AgentId(id) if id is not None else None,
         )
 
         return Agent(
@@ -2697,8 +2735,29 @@ class Server:
         name: str,
         metadata: Mapping[str, str] = {},
         tags: Sequence[TagId] = [],
+        id: str | None = None,
     ) -> Customer:
-        """Creates a new customer with the specified name and metadata."""
+        """Creates a new customer with the specified name and metadata.
+
+        Args:
+            name: The customer's name (required). An arbitrary string that
+                identifies and/or describes the customer.
+            metadata: Key-value pairs to describe the customer. Defaults to
+                empty dictionary. This allows you to store arbitrary metadata
+                about the customer (e.g., email, VIP status, preferences).
+            tags: List of tag IDs to associate with the customer. Defaults to
+                empty list. Tags are useful for categorizing and filtering
+                customers.
+            id: Custom customer ID string (optional). If not provided, an ID
+                will be automatically generated based on the customer's
+                properties. Custom IDs can be any string format and are useful
+                for maintaining consistent customer identifiers across
+                deployments or integrations (e.g., matching your internal
+                customer IDs).
+
+        Returns:
+            The created Customer instance.
+        """
 
         self._advance_creation_progress()
 
@@ -2706,6 +2765,7 @@ class Server:
             name=name,
             extra=metadata,
             tags=tags,
+            id=CustomerId(id) if id is not None else None,
         )
 
         return Customer(
@@ -2881,7 +2941,6 @@ class Server:
 
             for interface, implementation in [
                 (AgentStore, AgentDocumentStore),
-                (ContextVariableStore, ContextVariableDocumentStore),
                 (TagStore, TagDocumentStore),
                 (GuidelineStore, GuidelineDocumentStore),
                 (GuidelineToolAssociationStore, GuidelineToolAssociationDocumentStore),
@@ -2989,6 +3048,16 @@ class Server:
                     CustomerDocumentStore,
                     self._customer_store,
                     "customers",
+                    id_generator=c()[IdGenerator],
+                )
+
+            if isinstance(self._context_variable_store, ContextVariableStore):
+                c()[ContextVariableStore] = self._context_variable_store
+            else:
+                c()[ContextVariableStore] = await make_persistable_store(
+                    ContextVariableDocumentStore,
+                    self._context_variable_store,
+                    "context_variables",
                     id_generator=c()[IdGenerator],
                 )
 
@@ -3113,20 +3182,25 @@ __all__ = [
     "Agent",
     "AgentId",
     "AuthorizationException",
-    "Operation",
     "AuthorizationPolicy",
-    "DevelopmentAuthorizationPolicy",
-    "ProductionAuthorizationPolicy",
+    "BasicNoMatchResponseProvider",
+    "BasicOptimizationPolicy",
+    "BasicPerceivedPerformancePolicy",
+    "BasicRateLimiter",
+    "CannedResponseId",
     "Capability",
     "CapabilityId",
     "CompositionMode",
     "Container",
+    "ContextVariableId",
+    "ContextVariableStore",
+    "ControlOptions",
     "Customer",
     "CustomerId",
     "CustomerModerationContext",
-    "Variable",
-    "ContextVariableId",
-    "ControlOptions",
+    "CustomerStore",
+    "DevelopmentAuthorizationPolicy",
+    "END_JOURNEY",
     "Embedder",
     "EmbedderFactory",
     "EmbeddingResult",
@@ -3142,14 +3216,13 @@ __all__ = [
     "GuidelineId",
     "Interaction",
     "InteractionMessage",
+    "JSONSerializable",
     "Journey",
     "JourneyId",
     "JourneyState",
     "JourneyStateId",
-    "END_JOURNEY",
     "JourneyTransition",
     "JourneyTransitionId",
-    "JSONSerializable",
     "Lifespan",
     "LoadedContext",
     "LogLevel",
@@ -3158,23 +3231,20 @@ __all__ = [
     "ModerationCheck",
     "ModerationService",
     "ModerationTag",
-    "NoModeration",
     "NLPService",
     "NLPServices",
+    "NoMatchResponseProvider",
+    "NoModeration",
+    "NullPerceivedPerformancePolicy",
+    "Operation",
     "OptimizationPolicy",
+    "PerceivedPerformancePolicy",
+    "PluginServer",
+    "ProductionAuthorizationPolicy",
     "PromptBuilder",
     "PromptSection",
-    "BasicOptimizationPolicy",
-    "PerceivedPerformancePolicy",
-    "BasicPerceivedPerformancePolicy",
-    "NullPerceivedPerformancePolicy",
-    "VoiceOptimizedPerceivedPerformancePolicy",
-    "NoMatchResponseProvider",
-    "BasicNoMatchResponseProvider",
-    "PluginServer",
-    "RateLimiter",
     "RateLimitExceededException",
-    "BasicRateLimiter",
+    "RateLimiter",
     "RelationshipEntity",
     "RelationshipEntityId",
     "RelationshipEntityKind",
@@ -3190,6 +3260,7 @@ __all__ = [
     "SessionId",
     "SessionMode",
     "SessionStatus",
+    "SessionStore",
     "StatusEventData",
     "T",
     "Tag",
@@ -3206,6 +3277,7 @@ __all__ = [
     "ToolParameterOptions",
     "ToolParameterType",
     "ToolResult",
-    "CannedResponseId",
+    "Variable",
+    "VoiceOptimizedPerceivedPerformancePolicy",
     "tool",
 ]

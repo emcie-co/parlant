@@ -44,7 +44,8 @@
     "sonner": "^1.5.0",
     "tailwind-merge": "^2.5.4",
     "tailwindcss-animate": "^1.0.7",
-    "vaul": "^1.1.2"
+    "vaul": "^1.1.2",
+    "vite": "^5.4.21"
   },
   "devDependencies": {
     "@eslint/js": "^9.11.1",
@@ -68,7 +69,6 @@
     "tailwindcss": "^3.4.14",
     "typescript": "^5.5.3",
     "typescript-eslint": "^8.7.0",
-    "vite": "^5.4.14",
     "vitest": "^2.1.3"
   }
 }

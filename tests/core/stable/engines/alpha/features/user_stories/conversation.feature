@@ -154,3 +154,16 @@ Feature: Conversation
         And the message contains the option to book the SNAKE roller coaster
         And the message contains the option to book the TURTLE roller coaster
 
+
+    Scenario: The agent ignores tool results when guideline instructs to do so (fluid canned response)
+        Given an agent
+        And an empty session
+        And that the agent uses the canned_fluid message composition mode
+        And a guideline to Ask a polite clarifying question without assuming their intent. when The customer's message is unclear or ambiguous
+        And a guideline to Ask if there are specific needs or goals they have in mind before answering. when The customer asks for information about financing.
+        And a guideline to Confirm their business need before recommending any financing options. when The customer describes a business problem but hasn't confirmed what they need yet.
+        And a customer message, "I want to understand my options to obtain a business loan"
+        And a tool event with data, {"tool_calls": [{"tool_id": "built-in:retriever-1", "arguments": {}, "result": {"data": "Your business funding options include:\\n\\n- **Business Line of Credit**\\n- **Revenue-Based Financing**\\n- **Equipment Financing**\\n- **Invoice Factoring**\\n- **Business Credit Card**\\n- **Merchant Cash Advance**\\n\\nRevenued offers different types of business capital but does not provide traditional loans.", "metadata": {}, "control": {}}}]}
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains asking the customer for specific needs or goals, without going into detail about specific funding options

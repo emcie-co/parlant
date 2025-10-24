@@ -33,6 +33,7 @@ class AgentModule:
         max_engine_iterations: int | None,
         composition_mode: CompositionMode | None,
         tags: list[TagId] | None,
+        id: AgentId | None = None,
     ) -> Agent:
         if tags:
             for tag_id in tags:
@@ -46,6 +47,7 @@ class AgentModule:
             max_engine_iterations=max_engine_iterations,
             composition_mode=composition_mode,
             tags=tags,
+            id=id,
         )
         return agent
 

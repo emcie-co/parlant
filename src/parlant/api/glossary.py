@@ -52,7 +52,6 @@ TermDescriptionField: TypeAlias = Annotated[
 TermSynonymsField: TypeAlias = Annotated[
     Sequence[str],
     Field(
-        default=[],
         description="A list of synonyms for the term, including alternate contexts if applicable.",
         examples=[["Execution Cost", "Blockchain Fuel"]],
     ),
@@ -102,7 +101,7 @@ class TermCreationParamsDTO(
 
     name: TermNameField
     description: TermDescriptionField
-    synonyms: TermSynonymsField
+    synonyms: TermSynonymsField = []
     tags: TermTagsField | None = None
 
 
@@ -149,7 +148,7 @@ class TermDTO(
     id: TermIdPath
     name: TermNameField
     description: TermDescriptionField
-    synonyms: TermSynonymsField
+    synonyms: TermSynonymsField = []
     tags: TermTagsField
 
 

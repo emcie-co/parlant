@@ -82,7 +82,6 @@ JourneyConditionField: TypeAlias = Annotated[
 JourneyTagsField: TypeAlias = Annotated[
     list[TagId],
     Field(
-        default=None,
         description="List of tag IDs associated with the journey",
         examples=[["tag1", "tag2"]],
     ),
@@ -133,7 +132,7 @@ class JourneyDTO(
     title: JourneyTitleField
     description: str
     conditions: Sequence[GuidelineId]
-    tags: JourneyTagsField
+    tags: JourneyTagsField = []
 
 
 class JourneyCreationParamsDTO(
@@ -153,7 +152,6 @@ class JourneyCreationParamsDTO(
 JourneyConditionUpdateAddField: TypeAlias = Annotated[
     list[GuidelineId],
     Field(
-        default=None,
         description="List of guideline IDs to add to the journey",
         examples=[["guid_123xz", "guid_456abc"]],
     ),
@@ -162,7 +160,6 @@ JourneyConditionUpdateAddField: TypeAlias = Annotated[
 JourneyConditionUpdateRemoveField: TypeAlias = Annotated[
     list[GuidelineId],
     Field(
-        default=None,
         description="List of guideline IDs to remove from the journey",
         examples=[["guid_123xz", "guid_456abc"]],
     ),
@@ -195,7 +192,6 @@ class JourneyConditionUpdateParamsDTO(
 JourneyTagUpdateAddField: TypeAlias = Annotated[
     list[TagId],
     Field(
-        default=None,
         description="List of tag IDs to add to the journey",
         examples=[["tag1", "tag2"]],
     ),
@@ -204,7 +200,6 @@ JourneyTagUpdateAddField: TypeAlias = Annotated[
 JourneyTagUpdateRemoveField: TypeAlias = Annotated[
     list[TagId],
     Field(
-        default=None,
         description="List of tag IDs to remove from the journey",
         examples=[["tag1", "tag2"]],
     ),

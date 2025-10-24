@@ -4,15 +4,28 @@ All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
 
+- Allow specifying custom IDs when creating agents via SDK and API
+- Allow specifying custom IDs when creating customers via SDK and API
 - Allow bailing out of canned response selection and utilize the draft directly, using a hook
 - Add Snowflake Cortex service
 - Add GLM service
+- Add Mistral service
 - Add /healthz endpoint
 - Add .current propoerty for Server, Agent, and Customer in SDK
 - Support proxy URL for LiteLLM
 - Allow controlling max tool result payload via environment variable
 - Follow-up canned responses
 - Improved Gemini Flash 2.5 output consistency by using function call trick instead of structured outputs
+- Added persistence option for context variable values (variable store)
+
+## [3.0.3] - 2025-10-23
+
+### Fixed
+
+- Fix installation issue in some environments, failing due to an older FastMCP version
+- Bump versions of OpenTelemetry
+- Made ChromaDB an extra package parlant[chroma]
+- Update NPM dependencies for integrated UI
 
 ## [3.0.2] - 2025-08-27
 

@@ -55,6 +55,7 @@ class CustomerStore(ABC):
         extra: Mapping[str, str] = {},
         creation_utc: Optional[datetime] = None,
         tags: Optional[Sequence[TagId]] = None,
+        id: Optional[CustomerId] = None,
     ) -> Customer: ...
 
     @abstractmethod
@@ -231,14 +232,20 @@ class CustomerDocumentStore(CustomerStore):
         extra: Mapping[str, str] = {},
         creation_utc: Optional[datetime] = None,
         tags: Optional[Sequence[TagId]] = None,
+        id: Optional[CustomerId] = None,
     ) -> Customer:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            customer_checksum = md5_checksum(f"{name}{extra}{tags}")
+            # Use provided ID or generate one
+            if id is not None:
+                customer_id = id
+            else:
+                customer_checksum = md5_checksum(f"{name}{extra}{tags}")
+                customer_id = CustomerId(self._id_generator.generate(customer_checksum))
 
             customer = Customer(
-                id=CustomerId(self._id_generator.generate(customer_checksum)),
+                id=customer_id,
                 name=name,
                 extra=extra,
                 creation_utc=creation_utc,

@@ -157,13 +157,26 @@ class AgentCreationParamsDTO(
     Parameters for creating a new agent.
 
     Optional fields:
+    - `id`: Custom identifier for the agent. If not provided, an ID will be automatically generated.
+      Custom IDs can be any string format and are useful for maintaining consistent identifiers
+      across deployments or integrations.
     - `description`: Detailed explanation of the agent's purpose
     - `max_engine_iterations`: Processing limit per request
+    - `composition_mode`: How the agent composes responses
+    - `tags`: List of tag IDs to associate with the agent
 
     Note: Agents must be created via the API before they can be used.
     """
 
     name: AgentNameField
+    id: Annotated[
+        AgentId | None,
+        Field(
+            default=None,
+            description="Custom identifier for the agent. If not provided, an ID will be automatically generated.",
+            examples=["my-custom-agent-id", "agent-prod-001"],
+        ),
+    ] = None
     description: AgentDescriptionField | None = None
     max_engine_iterations: AgentMaxEngineIterationsField | None = None
     composition_mode: CompositionModeDTO | None = None
@@ -276,10 +289,11 @@ def create_router(
         Creates a new agent in the system.
 
         The agent will be initialized with the provided name and optional settings.
-        A unique identifier will be automatically generated.
+        A unique identifier will be automatically generated unless a custom ID is provided.
 
         Default behaviors:
         - `name` defaults to `"Unnamed Agent"` if not provided
+        - `id` is auto-generated if not provided
         - `description` defaults to `None`
         - `max_engine_iterations` defaults to `None` (uses system default)
         """
@@ -296,6 +310,7 @@ def create_router(
             if params and params.composition_mode
             else None,
             tags=params.tags,
+            id=params.id if params else None,
         )
 
         return AgentDTO(

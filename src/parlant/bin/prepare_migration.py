@@ -443,7 +443,7 @@ async def migrate_glossary_with_metadata() -> None:
         if docs := old_collection.peek(limit=1)["metadatas"]:
             document = docs[0]
 
-            version = document["version"]
+            version = cast(str, document["version"])
 
             embedder_module = importlib.import_module(
                 f"{old_collection.metadata['embedder_module_path']}_service"

@@ -18,7 +18,12 @@ from typing_extensions import override
 import httpx
 
 from parlant.core.loggers import Logger
-from parlant.core.nlp.moderation import CustomerModerationContext, ModerationCheck, ModerationService, ModerationTag
+from parlant.core.nlp.moderation import (
+    CustomerModerationContext,
+    ModerationCheck,
+    ModerationService,
+    ModerationTag,
+)
 
 
 class LakeraGuard(ModerationService):

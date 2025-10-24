@@ -232,3 +232,21 @@ class Test_that_the_output_of_an_agent_can_be_intercepted(SDKTest):
     async def run(self, ctx: Context) -> None:
         answer = await ctx.send_and_receive(customer_message="Hello", recipient=self.agent)
         assert answer == "Bananas! More bananas!"
+
+
+class Test_that_an_agent_can_be_created_with_custom_id(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="my-custom-agent-id",
+            name="Custom ID Agent",
+            description="This agent has a custom ID",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        assert self.agent.id == "my-custom-agent-id"
+
+        # Verify the agent can be retrieved with the custom ID
+        retrieved_agent = await ctx.server.find_agent(id="my-custom-agent-id")
+        assert retrieved_agent is not None
+        assert retrieved_agent.id == "my-custom-agent-id"
+        assert retrieved_agent.name == "Custom ID Agent"

@@ -215,7 +215,7 @@ class GuidelineDTO(
 
     id: GuidelineIdField
     condition: GuidelineConditionField
-    action: GuidelineActionField | None = None
+    action: Optional[GuidelineActionField] = None
     enabled: GuidelineEnabledField = True
     tags: GuidelineTagsField
     metadata: GuidelineMetadataField

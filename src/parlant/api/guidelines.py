@@ -112,7 +112,7 @@ class LegacyGuidelineDTO(
     id: GuidelineIdField
     condition: GuidelineConditionField
     action: GuidelineActionField
-    enabled: GuidelineEnabledField
+    enabled: GuidelineEnabledField = True
 
 
 LegacyGuidelineConnectionIndirectField: TypeAlias = Annotated[

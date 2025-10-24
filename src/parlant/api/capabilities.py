@@ -68,7 +68,6 @@ CapabilitySignalsField: TypeAlias = Annotated[
 CapabilityTagsField: TypeAlias = Annotated[
     list[TagId],
     Field(
-        default=None,
         description="List of tag IDs associated with the capability",
         examples=[["tag1", "tag2"]],
     ),
@@ -95,7 +94,7 @@ class CapabilityDTO(
     title: CapabilityTitleField
     description: CapabilityDescriptionField
     signals: CapabilitySignalsField
-    tags: CapabilityTagsField
+    tags: CapabilityTagsField = []
 
 
 class CapabilityCreationParamsDTO(
@@ -115,7 +114,6 @@ class CapabilityCreationParamsDTO(
 CapabilityTagUpdateAddField: TypeAlias = Annotated[
     list[TagId],
     Field(
-        default=None,
         description="List of tag IDs to add to the capability",
         examples=[["tag1", "tag2"]],
     ),
@@ -124,7 +122,6 @@ CapabilityTagUpdateAddField: TypeAlias = Annotated[
 CapabilityTagUpdateRemoveField: TypeAlias = Annotated[
     list[TagId],
     Field(
-        default=None,
         description="List of tag IDs to remove from the capability",
         examples=[["tag1", "tag2"]],
     ),

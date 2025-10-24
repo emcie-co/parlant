@@ -212,7 +212,6 @@ class SessionDTO(
 SessionCreationParamsCustomerIdField: TypeAlias = Annotated[
     Optional[CustomerId],
     Field(
-        default=None,
         description=" ID of the customer this session belongs to. If not provided, a guest customer will be created.",
         examples=[None, "cust_123xy"],
     ),

@@ -45,7 +45,9 @@ API_GROUP = "context-variables"
 
 FreshnessRulesField: TypeAlias = Annotated[
     str,
-    Field(default=None, description="Cron expression defining the freshness rules"),
+    Field(
+        description="Cron expression defining the freshness rules",
+    ),
 ]
 
 ContextVariableIdPath: TypeAlias = Annotated[

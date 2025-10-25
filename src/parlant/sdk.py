@@ -53,6 +53,7 @@ from typing import (
     TypeVar,
     TypeAlias,
     TypedDict,
+    Union,
     cast,
 )
 from typing_extensions import overload
@@ -292,14 +293,20 @@ class NLPServices:
         return TogetherService(container[Logger])
 
     @staticmethod
-    def gemini(container: Container) -> NLPService:
-        """Creates a Gemini NLPService instance using the provided container."""
+    def gemini(container: Container | None = None, generative_model_name: Union[list[str], str] | None = None) -> Union[NLPService, Callable[[Container], NLPService]]:
+        """
+        Returns a callable that creates a Gemini NLPService instance using the provided container and model_names.
+        If generative_model_name is None, the default Gemini_2_5_Flash model is used, followed by Gemini_2_5_Pro.
+        """
         from parlant.adapters.nlp.gemini_service import GeminiService
 
         if error := GeminiService.verify_environment():
             raise SDKError(error)
+        if generative_model_name is not None:
+            return lambda c: GeminiService(c[Logger], generative_model_name=generative_model_name)
 
         return GeminiService(container[Logger])
+
 
     @staticmethod
     def litellm(container: Container) -> NLPService:

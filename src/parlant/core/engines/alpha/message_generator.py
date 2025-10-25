@@ -267,6 +267,8 @@ class MessageGenerator(MessageEventComposer):
                         data=response_message,
                     )
 
+                    self._tracer.add_event("mg.ttfm")
+
                     return [
                         MessageEventComposition({"message_generation": generation_info}, [event])
                     ]

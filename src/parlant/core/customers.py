@@ -240,6 +240,13 @@ class CustomerDocumentStore(CustomerStore):
             # Use provided ID or generate one
             if id is not None:
                 customer_id = id
+
+                # Check if customer with this ID already exists
+                existing = await self._customers_collection.find_one(
+                    filters={"id": {"$eq": customer_id}}
+                )
+                if existing:
+                    raise ValueError(f"Customer with id '{customer_id}' already exists")
             else:
                 customer_checksum = md5_checksum(f"{name}{extra}{tags}")
                 customer_id = CustomerId(self._id_generator.generate(customer_checksum))

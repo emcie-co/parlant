@@ -827,9 +827,12 @@ You will now be given the current state of the interaction to which you must gen
         loaded_context: LoadedContext,
         latch: Optional[CancellationSuppressionLatch] = None,
     ) -> Sequence[MessageEventComposition]:
+        is_first_message_emitted = False
+
         async def output_messages(
             generation_result: _CannedResponseSelectionResult,
         ) -> list[EmittedEvent]:
+            nonlocal is_first_message_emitted
             emitted_events: list[EmittedEvent] = []
             if generation_result is not None:
                 sub_messages = generation_result.message.strip().split("\n\n")
@@ -854,6 +857,9 @@ You will now be given the current state of the interaction to which you must gen
                                 participant=Participant(id=agent.id, display_name=agent.name),
                             ),
                         )
+                        if not is_first_message_emitted:
+                            self._tracer.add_event("canrep.ttfm")
+                            is_first_message_emitted = True
 
                         emitted_events.append(event)
 

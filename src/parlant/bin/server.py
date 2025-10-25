@@ -263,6 +263,7 @@ NLPServiceName = Literal[
     "openai",
     "together",
     "litellm",
+    "modelscope",
 ]
 
 
@@ -319,6 +320,12 @@ def load_deepseek() -> NLPService:
     )
 
 
+def load_modelscope() -> NLPService:
+    return load_nlp_service(
+        "ModelScope", "modelscope", "ModelScopeService", "parlant.adapters.nlp.modelscope_service"
+    )
+
+
 def load_gemini() -> NLPService:
     return load_nlp_service(
         "Gemini", "gemini", "GeminiService", "parlant.adapters.nlp.gemini_service"
@@ -353,6 +360,7 @@ NLP_SERVICE_INITIALIZERS: dict[NLPServiceName, Callable[[], NLPService]] = {
     "openai": load_openai,
     "together": load_together,
     "litellm": load_litellm,
+    "modelscope": load_modelscope,
 }
 
 
@@ -1054,6 +1062,12 @@ def main() -> None:
         default=False,
     )
     @click.option(
+        "--modelscope",
+        is_flag=True,
+        help="Run with ModelScope. You must set the MODELSCOPE_API_KEY environment variable and install the extra package parlant[modelscope].",
+        default=False,
+    )
+    @click.option(
         "--gemini",
         is_flag=True,
         help="Run with Gemini. The environment variable GEMINI_API_KEY must be set and install the extra package parlant[gemini].",
@@ -1123,6 +1137,7 @@ def main() -> None:
         cerebras: bool,
         together: bool,
         litellm: bool,
+        modelscope: bool,
         log_level: str,
         module: tuple[str],
         version: bool,
@@ -1132,12 +1147,28 @@ def main() -> None:
             print(f"Parlant v{VERSION}")
             sys.exit(0)
 
-        if sum([openai, aws, azure, deepseek, gemini, anthropic, cerebras, together, litellm]) > 2:
+        if (
+            sum(
+                [
+                    openai,
+                    aws,
+                    azure,
+                    deepseek,
+                    gemini,
+                    anthropic,
+                    cerebras,
+                    together,
+                    litellm,
+                    modelscope,
+                ]
+            )
+            > 2
+        ):
             print("error: only one NLP service profile can be selected")
             sys.exit(1)
 
         non_default_service_selected = any(
-            (aws, azure, deepseek, gemini, anthropic, cerebras, together, litellm)
+            (aws, azure, deepseek, gemini, anthropic, cerebras, together, litellm, modelscope)
         )
 
         if not non_default_service_selected:
@@ -1155,6 +1186,9 @@ def main() -> None:
         elif deepseek:
             nlp_service = "deepseek"
             require_env_keys(["DEEPSEEK_API_KEY"])
+        elif modelscope:
+            nlp_service = "modelscope"
+            require_env_keys(["MODELSCOPE_API_KEY"])
         elif anthropic:
             nlp_service = "anthropic"
             require_env_keys(["ANTHROPIC_API_KEY"])

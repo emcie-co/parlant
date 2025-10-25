@@ -312,6 +312,16 @@ class NLPServices:
         return LiteLLMService(container[Logger])
 
     @staticmethod
+    def modelscope(container: Container) -> NLPService:
+        """Creates a ModelScope NLPService instance using the provided container."""
+        from parlant.adapters.nlp.modelscope_service import ModelScopeService
+
+        if error := ModelScopeService.verify_environment():
+            raise SDKError(error)
+
+        return ModelScopeService(container[Logger])
+
+    @staticmethod
     def vertex(container: Container) -> NLPService:
         """Creates a Vertex NLPService instance using the provided container."""
         from parlant.adapters.nlp.vertex_service import VertexAIService

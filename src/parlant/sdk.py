@@ -343,7 +343,7 @@ class NLPServices:
         if error := MistralService.verify_environment():
             raise SDKError(error)
 
-        return MistralService(container[Logger])
+        return MistralService(container[Logger], container[Meter])
 
     @staticmethod
     def ollama(container: Container) -> NLPService:

@@ -870,6 +870,16 @@ You will now be given the current state of the interaction to which you must gen
                                 "data": {},
                             },
                         )
+                    else:
+                        await context.event_emitter.emit_status_event(
+                            trace_id=self._tracer.trace_id,
+                            data={
+                                "status": "ready",
+                                "data": {},
+                            },
+                        )
+
+                        return []
 
                     if next_message := sub_messages[0] if sub_messages else None:
                         await self._perceived_performance_policy.get_follow_up_delay()

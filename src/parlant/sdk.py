@@ -320,7 +320,7 @@ class NLPServices:
         if error := ModelScopeService.verify_environment():
             raise SDKError(error)
 
-        return ModelScopeService(container[Logger])
+        return ModelScopeService(container[Logger], container[Meter])
 
     @staticmethod
     def vertex(container: Container) -> NLPService:

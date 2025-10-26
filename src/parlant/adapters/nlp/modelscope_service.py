@@ -33,17 +33,18 @@ import os
 from pydantic import ValidationError
 import tiktoken
 
-from parlant.adapters.nlp.common import normalize_json_output
+from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
     T,
-    SchematicGenerator,
+    BaseSchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -64,7 +65,7 @@ class ModelScopeEstimatingTokenizer(EstimatingTokenizer):
         return len(tokens)
 
 
-class ModelScopeSchematicGenerator(SchematicGenerator[T]):
+class ModelScopeSchematicGenerator(BaseSchematicGenerator[T]):
     supported_modelscope_params = ["temperature", "logit_bias", "max_tokens"]
     supported_hints = supported_modelscope_params + ["strict"]
 
@@ -72,9 +73,9 @@ class ModelScopeSchematicGenerator(SchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        meter: Meter,
     ) -> None:
-        self.model_name = model_name
-        self._logger = logger
+        super().__init__(logger=logger, meter=meter, model_name=model_name)
 
         self._client = AsyncClient(
             base_url="https://api-inference.modelscope.cn/v1",
@@ -113,7 +114,7 @@ class ModelScopeSchematicGenerator(SchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.operation(f"ModelScope LLM Request ({self.schema.__name__})"):
+        with self.logger.scope(f"ModelScope LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     async def _do_generate(
@@ -148,15 +149,23 @@ class ModelScopeSchematicGenerator(SchematicGenerator[T]):
         try:
             json_content = json.loads(normalize_json_output(raw_content))
         except json.JSONDecodeError:
-            self._logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
+            self.logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
             json_content = jsonfinder.only_json(raw_content)[2]
-            self._logger.warning("Found JSON content within model response; continuing...")
+            self.logger.warning("Found JSON content within model response; continuing...")
 
         try:
             content = self.schema.model_validate(json_content)
 
             input_tokens = await self.tokenizer.estimate_token_count(prompt)
             output_tokens = await self.tokenizer.estimate_token_count(raw_content)
+
+            await record_llm_metrics(
+                self.meter,
+                self.model_name,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cached_input_tokens=0,
+            )
 
             return SchematicGenerationResult(
                 content=content,
@@ -172,17 +181,17 @@ class ModelScopeSchematicGenerator(SchematicGenerator[T]):
                 ),
             )
         except ValidationError as ve:
-            self._logger.error(
+            self.logger.error(
                 f"JSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
             )
-            self._logger.error(f"Validation error details: {str(ve)}")
+            self.logger.error(f"Validation error details: {str(ve)}")
             raise
 
 
 class ModelScopeChat(ModelScopeSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         model_name = os.environ["MODELSCOPE_MODEL_NAME"]
-        super().__init__(model_name=model_name, logger=logger)
+        super().__init__(model_name=model_name, logger=logger, meter=meter)
 
     @property
     @override
@@ -205,21 +214,24 @@ Please set MODELSCOPE_MODEL_NAME in your environment before running Parlant.
 You're using the ModelScope NLP service, but MODELSCOPE_API_KEY is not set.
 Please set MODELSCOPE_API_KEY in your environment before running Parlant.
 """
+        return None
 
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self._logger = logger
+        self._meter = meter
         self._logger.info("Initialized ModelScopeService")
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> ModelScopeSchematicGenerator[T]:
-        return ModelScopeChat[t](self._logger)  # type: ignore
+        return ModelScopeChat[t](self._logger, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:
-        return JinaAIEmbedder()
+        return JinaAIEmbedder(self._logger, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

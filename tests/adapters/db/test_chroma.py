@@ -32,6 +32,7 @@ from parlant.core.loggers import Logger
 from parlant.core.nlp.service import NLPService
 from parlant.core.persistence.common import MigrationRequired, ObjectId
 from parlant.core.persistence.vector_database import BaseDocument
+from parlant.core.persistence.vector_database_helper import VectorDocumentStoreMigrationHelper
 from parlant.core.tags import Tag, TagId
 from tests.test_utilities import SyncAwaiter
 
@@ -40,7 +41,7 @@ async def _openai_embedder_type_provider() -> type[Embedder]:
     return OpenAITextEmbedding3Large
 
 
-async def _no_op_embedder_type_provider() -> type[Embedder]:
+async def _null_embedder_type_provider() -> type[Embedder]:
     return NullEmbedder
 
 
@@ -425,7 +426,7 @@ async def test_that_when_persistence_and_store_version_match_allows_store_to_ope
             vector_db=chroma_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=EmbedderFactory(context.container),
-            embedder_type_provider=_no_op_embedder_type_provider,
+            embedder_type_provider=_null_embedder_type_provider,
             allow_migration=False,
         ):
             metadata = await chroma_db.read_metadata()
@@ -598,7 +599,10 @@ async def test_that_migration_error_raised_when_version_mismatch_and_migration_d
     context: _TestContext,
 ) -> None:
     async with create_database(context) as chroma_db:
-        await chroma_db.upsert_metadata("version", "0.0.1")
+        await chroma_db.upsert_metadata(
+            VectorDocumentStoreMigrationHelper.get_store_version_key("GlossaryVectorStore"),
+            "0.0.1",
+        )
 
     async with create_database(context) as chroma_db:
         with raises(MigrationRequired) as exc_info:
@@ -607,7 +611,7 @@ async def test_that_migration_error_raised_when_version_mismatch_and_migration_d
                 vector_db=chroma_db,
                 document_db=TransientDocumentDatabase(),
                 embedder_factory=EmbedderFactory(context.container),
-                embedder_type_provider=_no_op_embedder_type_provider,
+                embedder_type_provider=_null_embedder_type_provider,
                 allow_migration=False,
             ):
                 pass
@@ -630,7 +634,12 @@ async def test_that_new_store_creates_metadata_with_correct_version(
             metadata = await chroma_db.read_metadata()
 
             assert metadata
-            assert metadata["version"] == GlossaryVectorStore.VERSION.to_string()
+            assert (
+                metadata[
+                    VectorDocumentStoreMigrationHelper.get_store_version_key("GlossaryVectorStore")
+                ]
+                == GlossaryVectorStore.VERSION.to_string()
+            )
 
 
 async def test_that_documents_are_indexed_when_changing_embedder_type(
@@ -662,7 +671,7 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
             vector_db=chroma_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=EmbedderFactory(context.container),
-            embedder_type_provider=_no_op_embedder_type_provider,
+            embedder_type_provider=_null_embedder_type_provider,
             allow_migration=True,
         ) as store:
             docs = chroma_db.chroma_client.get_collection(name="glossary_NullEmbedder").get(
@@ -748,7 +757,7 @@ async def test_that_in_filter_works_with_list_of_strings(
             vector_db=chroma_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=EmbedderFactory(context.container),
-            embedder_type_provider=_no_op_embedder_type_provider,
+            embedder_type_provider=_null_embedder_type_provider,
             allow_migration=True,
         ) as store:
             first_term = await store.create_term(
@@ -816,7 +825,7 @@ async def test_that_in_filter_works_with_single_tag(
             vector_db=chroma_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=EmbedderFactory(context.container),
-            embedder_type_provider=_no_op_embedder_type_provider,
+            embedder_type_provider=_null_embedder_type_provider,
             allow_migration=True,
         ) as store:
             first_term = await store.create_term(

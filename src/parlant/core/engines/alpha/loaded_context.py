@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Sequence, cast
+from typing_extensions import deprecated
 
 from parlant.core.agents import Agent
 from parlant.core.capabilities import Capability
@@ -170,6 +171,11 @@ class LoadedContext:
 
     tracer: Tracer
     """The tracer used to track the trace ID and properties in the current context"""
+
+    @property
+    @deprecated("Use the tracer property instead")
+    def correlator(self) -> Tracer:
+        return self.tracer
 
     agent: Agent
     """The agent which is currently requested to respond"""

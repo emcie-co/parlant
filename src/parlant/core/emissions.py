@@ -14,6 +14,8 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
+from typing_extensions import deprecated
 
 from parlant.core.agents import AgentId
 from parlant.core.common import JSONSerializable
@@ -36,6 +38,11 @@ class EmittedEvent:
     trace_id: str
     data: JSONSerializable
 
+    @property
+    @deprecated("Use 'trace_id' instead")
+    def correlation_id(self) -> str:
+        return self.trace_id
+
 
 class EventEmitter(ABC):
     """An interface for emitting events in the system."""
@@ -43,8 +50,9 @@ class EventEmitter(ABC):
     @abstractmethod
     async def emit_status_event(
         self,
-        trace_id: str,
-        data: StatusEventData,
+        trace_id: str | None = None,
+        data: StatusEventData | None = None,
+        **kwargs: Any,
     ) -> EmittedEvent:
         """Emit a status event with the given trace ID and data."""
         ...
@@ -52,8 +60,9 @@ class EventEmitter(ABC):
     @abstractmethod
     async def emit_message_event(
         self,
-        trace_id: str,
-        data: str | MessageEventData,
+        trace_id: str | None = None,
+        data: str | MessageEventData | None = None,
+        **kwargs: Any,
     ) -> EmittedEvent:
         """Emit a message event with the given trace ID and data."""
         ...
@@ -61,8 +70,8 @@ class EventEmitter(ABC):
     @abstractmethod
     async def emit_tool_event(
         self,
-        trace_id: str,
-        data: ToolEventData,
+        trace_id: str | None,
+        data: ToolEventData | None = None,
     ) -> EmittedEvent:
         """Emit a tool event with the given trace ID and data."""
         ...
@@ -70,8 +79,9 @@ class EventEmitter(ABC):
     @abstractmethod
     async def emit_custom_event(
         self,
-        trace_id: str,
-        data: JSONSerializable,
+        trace_id: str | None,
+        data: JSONSerializable | None = None,
+        **kwargs: Any,
     ) -> EmittedEvent:
         """Emit a custom event with the given trace ID and data."""
         ...
@@ -88,3 +98,25 @@ class EventEmitterFactory(ABC):
     ) -> EventEmitter:
         """Create an event emitter for the given agent and session."""
         ...
+
+
+def ensure_new_usage_params_and_get_trace_id(trace_id: str | None, data: Any, **kwargs: Any) -> str:
+    if "correlation_id" in kwargs:
+        import warnings
+
+        warnings.warn(
+            "The 'correlation_id' parameter is deprecated. Use 'trace_id' instead.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+
+        if trace_id is None:
+            return str(kwargs["correlation_id"])
+
+    if trace_id is None:
+        raise ValueError("trace_id must be provided and cannot be None")
+
+    if data is None:
+        raise ValueError("data must be provided and cannot be None")
+
+    return trace_id

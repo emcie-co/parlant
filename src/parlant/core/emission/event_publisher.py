@@ -12,12 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import cast
+from typing import Any, cast
 from typing_extensions import override
 
 from parlant.core.common import JSONSerializable
 from parlant.core.agents import Agent, AgentId, AgentStore
-from parlant.core.emissions import EmittedEvent, EventEmitter, EventEmitterFactory
+from parlant.core.emissions import (
+    EmittedEvent,
+    EventEmitter,
+    EventEmitterFactory,
+    ensure_new_usage_params_and_get_trace_id,
+)
 from parlant.core.sessions import (
     EventKind,
     EventSource,
@@ -43,9 +48,12 @@ class EventPublisher(EventEmitter):
     @override
     async def emit_status_event(
         self,
-        trace_id: str,
-        data: StatusEventData,
+        trace_id: str | None = None,
+        data: StatusEventData | None = None,
+        **kwargs: Any,
     ) -> EmittedEvent:
+        trace_id = ensure_new_usage_params_and_get_trace_id(trace_id, data, **kwargs)
+
         event = EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.STATUS,
@@ -60,9 +68,12 @@ class EventPublisher(EventEmitter):
     @override
     async def emit_message_event(
         self,
-        trace_id: str,
-        data: str | MessageEventData,
+        trace_id: str | None = None,
+        data: str | MessageEventData | None = None,
+        **kwargs: Any,
     ) -> EmittedEvent:
+        trace_id = ensure_new_usage_params_and_get_trace_id(trace_id, data, **kwargs)
+
         if isinstance(data, str):
             message_data = cast(
                 JSONSerializable,
@@ -91,9 +102,12 @@ class EventPublisher(EventEmitter):
     @override
     async def emit_tool_event(
         self,
-        trace_id: str,
-        data: ToolEventData,
+        trace_id: str | None = None,
+        data: ToolEventData | None = None,
+        **kwargs: Any,
     ) -> EmittedEvent:
+        trace_id = ensure_new_usage_params_and_get_trace_id(trace_id, data, **kwargs)
+
         event = EmittedEvent(
             source=EventSource.SYSTEM,
             kind=EventKind.TOOL,
@@ -108,9 +122,12 @@ class EventPublisher(EventEmitter):
     @override
     async def emit_custom_event(
         self,
-        trace_id: str,
-        data: JSONSerializable,
+        trace_id: str | None = None,
+        data: JSONSerializable | None = None,
+        **kwargs: Any,
     ) -> EmittedEvent:
+        trace_id = ensure_new_usage_params_and_get_trace_id(trace_id, data, **kwargs)
+
         event = EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.CUSTOM,

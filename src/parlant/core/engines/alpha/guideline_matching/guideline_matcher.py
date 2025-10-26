@@ -23,6 +23,7 @@ from parlant.core import async_utils
 from parlant.core.capabilities import Capability
 from parlant.core.engines.alpha.loaded_context import LoadedContext
 from parlant.core.journeys import Journey, JourneyId
+from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.agents import Agent
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
@@ -114,10 +115,18 @@ class GuidelineMatchingBatch(ABC):
     @abstractmethod
     async def process(self) -> GuidelineMatchingBatchResult: ...
 
+    @property
+    @abstractmethod
+    def size(self) -> int: ...
+
 
 class ResponseAnalysisBatch(ABC):
     @abstractmethod
     async def process(self) -> ResponseAnalysisBatchResult: ...
+
+    @property
+    @abstractmethod
+    def size(self) -> int: ...
 
 
 class GuidelineMatchingStrategy(ABC):
@@ -151,10 +160,22 @@ class GuidelineMatcher:
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
         strategy_resolver: GuidelineMatchingStrategyResolver,
     ) -> None:
         self._logger = logger
+        self._meter = meter
         self.strategy_resolver = strategy_resolver
+
+        self._hist_match_duration = meter.create_duration_histogram(
+            name="gm.match",
+            description="Duration of guideline matching",
+        )
+
+        self._hist_analysis_duration = meter.create_duration_histogram(
+            name="gm.analysis",
+            description="Duration of response analysis",
+        )
 
     @policy(
         [
@@ -202,36 +223,38 @@ class GuidelineMatcher:
         t_start = time.time()
 
         with self._logger.scope("GuidelineMatcher"):
-            guideline_strategies: dict[str, tuple[GuidelineMatchingStrategy, list[Guideline]]] = {}
+            async with self._hist_match_duration.measure():
+                guideline_strategies: dict[
+                    str, tuple[GuidelineMatchingStrategy, list[Guideline]]
+                ] = {}
 
-            for guideline in guidelines:
-                strategy = await self.strategy_resolver.resolve(guideline)
-                if strategy.__class__.__name__ not in guideline_strategies:
-                    guideline_strategies[strategy.__class__.__name__] = (strategy, [])
-                guideline_strategies[strategy.__class__.__name__][1].append(guideline)
+                for guideline in guidelines:
+                    strategy = await self.strategy_resolver.resolve(guideline)
+                    if strategy.__class__.__name__ not in guideline_strategies:
+                        guideline_strategies[strategy.__class__.__name__] = (strategy, [])
+                    guideline_strategies[strategy.__class__.__name__][1].append(guideline)
 
-            batches = await async_utils.safe_gather(
-                *[
-                    strategy.create_matching_batches(
-                        guidelines,
-                        context=GuidelineMatchingContext(
-                            agent=context.agent,
-                            session=context.session,
-                            customer=context.customer,
-                            context_variables=context.state.context_variables,
-                            interaction_history=context.interaction.history,
-                            terms=list(context.state.glossary_terms),
-                            capabilities=context.state.capabilities,
-                            staged_events=context.state.tool_events,
-                            active_journeys=active_journeys,
-                            journey_paths=context.state.journey_paths,
-                        ),
-                    )
-                    for _, (strategy, guidelines) in guideline_strategies.items()
-                ]
-            )
+                batches = await async_utils.safe_gather(
+                    *[
+                        strategy.create_matching_batches(
+                            guidelines,
+                            context=GuidelineMatchingContext(
+                                agent=context.agent,
+                                session=context.session,
+                                customer=context.customer,
+                                context_variables=context.state.context_variables,
+                                interaction_history=context.interaction.history,
+                                terms=list(context.state.glossary_terms),
+                                capabilities=context.state.capabilities,
+                                staged_events=context.state.tool_events,
+                                active_journeys=active_journeys,
+                                journey_paths=context.state.journey_paths,
+                            ),
+                        )
+                        for _, (strategy, guidelines) in guideline_strategies.items()
+                    ]
+                )
 
-            with self._logger.operation("Processing batches", create_scope=False):
                 batch_tasks = [
                     self._process_guideline_matching_batch_with_retry(batch)
                     for strategy_batches in batches
@@ -307,13 +330,14 @@ class GuidelineMatcher:
                 ]
             )
 
-            with self._logger.operation("Processing response analysis batches"):
-                batch_tasks = [
-                    self._process_response_analysis_batch_with_retry(batch)
-                    for strategy_batches in batches
-                    for batch in strategy_batches
-                ]
-                batch_results = await async_utils.safe_gather(*batch_tasks)
+            with self._logger.scope("Processing response analysis batches"):
+                async with self._hist_analysis_duration.measure():
+                    batch_tasks = [
+                        self._process_response_analysis_batch_with_retry(batch)
+                        for strategy_batches in batches
+                        for batch in strategy_batches
+                    ]
+                    batch_results = await async_utils.safe_gather(*batch_tasks)
 
         t_end = time.time()
 

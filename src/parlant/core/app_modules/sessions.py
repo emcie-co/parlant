@@ -7,7 +7,8 @@ from parlant.core.agents import AgentId, AgentStore
 from parlant.core.async_utils import Timeout
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.common import JSONSerializable
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.meter import Meter
+from parlant.core.tracer import Tracer
 from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.emissions import EventEmitterFactory
 from parlant.core.engines.types import Context, Engine, UtteranceRequest
@@ -38,18 +39,19 @@ class Moderation(Enum):
     NONE = "none"
 
 
-def _get_jailbreak_moderation_service(logger: Logger) -> ModerationService:
+def _get_jailbreak_moderation_service(logger: Logger, meter: Meter) -> ModerationService:
     from parlant.adapters.nlp.lakera import LakeraGuard
 
-    return LakeraGuard(logger)
+    return LakeraGuard(logger, meter)
 
 
 class SessionModule:
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
         agent_store: AgentStore,
-        correlator: ContextualCorrelator,
+        tracer: Tracer,
         session_store: SessionStore,
         customer_store: CustomerStore,
         session_listener: SessionListener,
@@ -59,8 +61,9 @@ class SessionModule:
         background_task_service: BackgroundTaskService,
     ):
         self._logger = logger
+        self._meter = meter
         self._agent_store = agent_store
-        self._correlator = correlator
+        self._tracer = tracer
 
         self._session_store = session_store
         self._customer_store = customer_store
@@ -79,7 +82,7 @@ class SessionModule:
         min_offset: int,
         kinds: Sequence[EventKind] = [],
         source: EventSource | None = None,
-        correlation_id: str | None = None,
+        trace_id: str | None = None,
         timeout: Timeout = Timeout.infinite(),
     ) -> bool:
         return await self._session_listener.wait_for_events(
@@ -87,7 +90,7 @@ class SessionModule:
             min_offset=min_offset,
             kinds=kinds,
             source=source,
-            correlation_id=correlation_id,
+            trace_id=trace_id,
             timeout=timeout,
         )
 
@@ -97,6 +100,7 @@ class SessionModule:
         agent_id: AgentId,
         title: str | None = None,
         allow_greeting: bool = False,
+        metadata: Mapping[str, JSONSerializable] | None = None,
     ) -> Session:
         _ = await self._agent_store.read_agent(agent_id=agent_id)
 
@@ -105,6 +109,7 @@ class SessionModule:
             customer_id=customer_id,
             agent_id=agent_id,
             title=title,
+            metadata=metadata or {},
         )
 
         if allow_greeting:
@@ -159,7 +164,7 @@ class SessionModule:
             session_id=session_id,
             source=source,
             kind=kind,
-            correlation_id=self._correlator.correlation_id,
+            trace_id=self._tracer.trace_id,
             data=data,
         )
 
@@ -210,7 +215,9 @@ class SessionModule:
             tags.update(check.tags)
 
         if moderation == Moderation.PARANOID:
-            check = await _get_jailbreak_moderation_service(self._logger).moderate_customer(context)
+            check = await _get_jailbreak_moderation_service(
+                self._logger, self._meter
+            ).moderate_customer(context)
             if "jailbreak" in check.tags:
                 flagged = True
                 tags.update({"jailbreak"})
@@ -292,13 +299,12 @@ class SessionModule:
         return event
 
     async def dispatch_processing_task(self, session: Session) -> str:
-        with self._correlator.scope("process", {"session": session}):
-            await self._background_task_service.restart(
-                self._process_session(session),
-                tag=f"process-session({session.id})",
-            )
+        await self._background_task_service.restart(
+            self._process_session(session),
+            tag=f"process-session({session.id})",
+        )
 
-            return self._correlator.correlation_id
+        return self._tracer.trace_id
 
     async def _process_session(self, session: Session) -> None:
         event_emitter = await self._event_emitter_factory.create_event_emitter(
@@ -320,11 +326,11 @@ class SessionModule:
     ) -> Event:
         session = await self._session_store.read_session(session_id)
 
-        correlation_id = await self.dispatch_processing_task(session)
+        trace_id = await self.dispatch_processing_task(session)
 
         await self._session_listener.wait_for_events(
             session_id=session_id,
-            correlation_id=correlation_id,
+            trace_id=trace_id,
             timeout=Timeout(60),
         )
 
@@ -332,7 +338,7 @@ class SessionModule:
             iter(
                 await self._session_store.list_events(
                     session_id=session_id,
-                    correlation_id=correlation_id,
+                    trace_id=trace_id,
                     kinds=[EventKind.STATUS],
                 )
             )
@@ -347,7 +353,7 @@ class SessionModule:
     ) -> Event:
         session = await self._session_store.read_session(session_id)
 
-        with self._correlator.scope("utter", {"session": session}):
+        with self._tracer.span("utter", {"session_id": session_id}):
             event_emitter = await self._event_emitter_factory.create_event_emitter(
                 emitting_agent_id=session.agent_id,
                 session_id=session.id,
@@ -361,7 +367,7 @@ class SessionModule:
 
             event, *_ = await self._session_store.list_events(
                 session_id=session_id,
-                correlation_id=self._correlator.correlation_id,
+                trace_id=self._tracer.trace_id,
                 kinds=[EventKind.MESSAGE],
             )
 
@@ -373,14 +379,14 @@ class SessionModule:
         min_offset: int,
         source: EventSource | None,
         kinds: Sequence[EventKind],
-        correlation_id: str | None,
+        trace_id: str | None,
     ) -> Sequence[Event]:
         events = await self._session_store.list_events(
             session_id=session_id,
             min_offset=min_offset,
             source=source,
             kinds=kinds,
-            correlation_id=correlation_id,
+            trace_id=trace_id,
         )
 
         return events
@@ -405,13 +411,13 @@ class SessionModule:
 
         event_at_min_offset = events_starting_from_min_offset[0]
 
-        first_event_of_correlation_id = next(
-            e for e in events if e.correlation_id == event_at_min_offset.correlation_id
+        first_event_of_trace_id = next(
+            e for e in events if e.trace_id == event_at_min_offset.trace_id
         )
 
-        if event_at_min_offset.id != first_event_of_correlation_id.id:
+        if event_at_min_offset.id != first_event_of_trace_id.id:
             raise ValueError(
-                "Cannot delete events with offset < min_offset unless they are the first event of their correlation ID"
+                "Cannot delete events with offset < min_offset unless they are the first event of their trace ID"
             )
 
         for e in events_starting_from_min_offset:
@@ -423,7 +429,7 @@ class SessionModule:
         state_index_offset = next(
             i
             for i, s in enumerate(session.agent_states, start=0)
-            if s.correlation_id.startswith(event_at_min_offset.correlation_id)
+            if s.trace_id.startswith(event_at_min_offset.trace_id)
         )
 
         agent_states = session.agent_states[:state_index_offset]

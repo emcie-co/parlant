@@ -24,7 +24,8 @@ from parlant.core.context_variables import (
     ContextVariableStore,
     ContextVariableValue,
 )
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.meter import Meter
+from parlant.core.tracer import Tracer
 from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.engines.alpha.engine import AlphaEngine
 from parlant.core.emissions import EmittedEvent
@@ -236,6 +237,7 @@ def when_detection_and_processing_are_triggered(
 
     response_analysis = GenericResponseAnalysisBatch(
         logger=context.container[Logger],
+        meter=context.container[Meter],
         optimization_policy=context.container[OptimizationPolicy],
         schematic_generator=context.container[SchematicGenerator[GenericResponseAnalysisSchema]],
         context=ResponseAnalysisContext(
@@ -268,7 +270,7 @@ def when_detection_and_processing_are_triggered(
                 agent_states=list(session.agent_states)
                 + [
                     AgentState(
-                        correlation_id="<main>",
+                        trace_id="<main>",
                         applied_guideline_ids=applied_guideline_ids,
                         journey_paths={},
                     )
@@ -353,7 +355,7 @@ def when_messages_are_emitted(
             agent_id=agent.id,
         ),
         logger=context.container[Logger],
-        correlator=context.container[ContextualCorrelator],
+        tracer=context.container[Tracer],
         agent=agent,
         customer=customer,
         session=session,

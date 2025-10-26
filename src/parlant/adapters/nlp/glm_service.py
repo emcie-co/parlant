@@ -32,16 +32,17 @@ import os
 from pydantic import ValidationError
 import tiktoken
 
-from parlant.adapters.nlp.common import normalize_json_output
+from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
-from parlant.core.nlp.embedding import Embedder, EmbeddingResult
+from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
-    SchematicGenerator,
+    BaseSchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -75,13 +76,15 @@ class GLMEstimatingTokenizer(EstimatingTokenizer):
         return len(tokens)
 
 
-class GLMEmbedder(Embedder):
+class GLMEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
-    def __init__(self, model_name: str, logger: Logger) -> None:
+    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
         self.model_name = model_name
 
         self._logger = logger
+        self._meter = meter
+
         self._client = AsyncClient(
             base_url="https://open.bigmodel.cn/api/paas/v4", api_key=os.environ["GLM_API_KEY"]
         )
@@ -112,7 +115,7 @@ class GLMEmbedder(Embedder):
         ]
     )
     @override
-    async def embed(
+    async def do_embed(
         self,
         texts: list[str],
         hints: Mapping[str, Any] = {},
@@ -133,8 +136,8 @@ class GLMEmbedder(Embedder):
 
 
 class GMLTextEmbedding_3(GLMEmbedder):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="embedding-3", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="embedding-3", logger=logger, meter=meter)
 
     @property
     @override
@@ -146,7 +149,7 @@ class GMLTextEmbedding_3(GLMEmbedder):
         return 2048
 
 
-class GLMSchematicGenerator(SchematicGenerator[T]):
+class GLMSchematicGenerator(BaseSchematicGenerator[T]):
     supported_glm_params = ["temperature", "max_tokens"]
     supported_hints = supported_glm_params + ["strict"]
 
@@ -154,9 +157,11 @@ class GLMSchematicGenerator(SchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self.model_name = model_name
         self._logger = logger
+        self._meter = meter
 
         self._client = AsyncClient(
             base_url="https://open.bigmodel.cn/api/paas/v4",
@@ -190,12 +195,12 @@ class GLMSchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.operation(f"GLM LLM Request ({self.schema.__name__})"):
+        with self._logger.scope(f"GLM LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     async def _do_generate(
@@ -235,6 +240,18 @@ class GLMSchematicGenerator(SchematicGenerator[T]):
 
             assert response.usage
 
+            await record_llm_metrics(
+                self._meter,
+                self.model_name,
+                input_tokens=response.usage.prompt_tokens,
+                output_tokens=response.usage.completion_tokens,
+                cached_input_tokens=getattr(
+                    response,
+                    "usage.prompt_cache_hit_tokens",
+                    0,
+                ),
+            )
+
             return SchematicGenerationResult(
                 content=content,
                 info=GenerationInfo(
@@ -262,8 +279,8 @@ class GLMSchematicGenerator(SchematicGenerator[T]):
 
 
 class GLM_4_5(GLMSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="glm-4.5", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="glm-4.5", logger=logger, meter=meter)
 
     @property
     @override
@@ -287,17 +304,19 @@ Please set GLM_API_KEY in your environment before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self._logger = logger
+        self._meter = meter
         self._logger.info("Initialized GLMService")
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> GLMSchematicGenerator[T]:
-        return GLM_4_5[t](self._logger)  # type: ignore
+        return GLM_4_5[t](self._logger, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:
-        return GMLTextEmbedding_3(logger=self._logger)
+        return GMLTextEmbedding_3(logger=self._logger, meter=self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

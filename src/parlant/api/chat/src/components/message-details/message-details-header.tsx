@@ -11,7 +11,7 @@ import {getItemFromIndexedDB} from '@/lib/utils';
 
 const MessageDetailsHeader = ({
 	event,
-	sameCorrelationMessages,
+	sameTraceMessages: sameTraceMessages,
 	regenerateMessageFn,
 	resendMessageFn,
 	closeLogs,
@@ -19,7 +19,7 @@ const MessageDetailsHeader = ({
 	flaggedChanged,
 }: {
 	event: EventInterface | null;
-	sameCorrelationMessages?: EventInterface[];
+	sameTraceMessages?: EventInterface[];
 	regenerateMessageFn?: (messageId: string) => void;
 	resendMessageFn?: (messageId: string) => void;
 	closeLogs?: VoidFunction;
@@ -33,7 +33,7 @@ const MessageDetailsHeader = ({
 	const [refreshFlag, setRefreshFlag] = useState(false);
 
 	useEffect(() => {
-		const flag = getItemFromIndexedDB('Parlant-flags', 'message_flags', event?.correlation_id as string, {name: 'sessionIndex', keyPath: 'sessionId'});
+		const flag = getItemFromIndexedDB('Parlant-flags', 'message_flags', event?.trace_id as string, {name: 'sessionIndex', keyPath: 'sessionId'});
 		if (flag) {
 			flag.then((f) => {
 				setMessageFlag((f as {flagValue: string})?.flagValue);
@@ -57,7 +57,7 @@ const MessageDetailsHeader = ({
 								className={twMerge('gap-1', messageFlag && 'border-[#9B0360] !text-[#9B0360]')}
 								variant='outline'
 								onClick={() =>
-									dialog.openDialog('Flag Response', <FlagMessage existingFlagValue={messageFlag || ''} events={sameCorrelationMessages || [event]} sessionId={session?.id as string} onFlag={() => setRefreshFlag(!refreshFlag)} />, {
+									dialog.openDialog('Flag Response', <FlagMessage existingFlagValue={messageFlag || ''} events={sameTraceMessages || [event]} sessionId={session?.id as string} onFlag={() => setRefreshFlag(!refreshFlag)} />, {
 										width: '600px',
 										height: '636px',
 									})

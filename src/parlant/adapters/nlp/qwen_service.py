@@ -33,16 +33,17 @@ import os
 from pydantic import ValidationError
 import tiktoken
 
-from parlant.adapters.nlp.common import normalize_json_output
+from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
-from parlant.core.nlp.embedding import Embedder, EmbeddingResult
+from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
-    SchematicGenerator,
+    BaseSchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -76,13 +77,12 @@ class QwenEstimatingTokenizer(EstimatingTokenizer):
         return len(tokens)
 
 
-class QwenEmbedder(Embedder):
+class QwenEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
-    def __init__(self, model_name: str, logger: Logger) -> None:
-        self.model_name = model_name
+    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
+        super().__init__(logger=logger, meter=meter, model_name=model_name)
 
-        self._logger = logger
         self._client = AsyncClient(
             base_url=os.environ.get(
                 "BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
@@ -116,7 +116,7 @@ class QwenEmbedder(Embedder):
         ]
     )
     @override
-    async def embed(
+    async def do_embed(
         self,
         texts: list[str],
         hints: Mapping[str, Any] = {},
@@ -129,7 +129,7 @@ class QwenEmbedder(Embedder):
                 **filtered_hints,
             )
         except RateLimitError:
-            self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+            self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
 
         vectors = [data_point.embedding for data_point in response.data]
@@ -137,8 +137,8 @@ class QwenEmbedder(Embedder):
 
 
 class QwenTextEmbedding_V4(QwenEmbedder):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="text-embedding-v4", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="text-embedding-v4", logger=logger, meter=meter)
 
     @property
     @override
@@ -150,16 +150,18 @@ class QwenTextEmbedding_V4(QwenEmbedder):
         return 1024
 
 
-class QwenSchematicGenerator(SchematicGenerator[T]):
+class QwenSchematicGenerator(BaseSchematicGenerator[T]):
     supported_qwen_params = ["temperature", "max_tokens"]
 
     def __init__(
         self,
         model_name: str,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self.model_name = model_name
         self._logger = logger
+        self._meter = meter
 
         self._client = AsyncClient(
             base_url=os.environ.get(
@@ -195,12 +197,12 @@ class QwenSchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.operation(f"Qwen LLM Request ({self.schema.__name__})"):
+        with self._logger.scope(f"Qwen LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     async def _do_generate(
@@ -238,7 +240,17 @@ class QwenSchematicGenerator(SchematicGenerator[T]):
         try:
             content = self.schema.model_validate(json_content)
 
-            assert response.usage
+            await record_llm_metrics(
+                self._meter,
+                self.model_name,
+                input_tokens=response.usage.prompt_tokens,
+                output_tokens=response.usage.completion_tokens,
+                cached_input_tokens=getattr(
+                    response,
+                    "usage.prompt_cache_hit_tokens",
+                    0,
+                ),
+            )
 
             return SchematicGenerationResult(
                 content=content,
@@ -267,8 +279,8 @@ class QwenSchematicGenerator(SchematicGenerator[T]):
 
 
 class Qwen_MAX(QwenSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="qwen-max", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="qwen-max", logger=logger, meter=meter)
 
     @property
     @override
@@ -277,8 +289,8 @@ class Qwen_MAX(QwenSchematicGenerator[T]):
 
 
 class Qwen_Plus(QwenSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="qwen-plus", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="qwen-plus", logger=logger, meter=meter)
 
     @property
     @override
@@ -287,8 +299,8 @@ class Qwen_Plus(QwenSchematicGenerator[T]):
 
 
 class Qwen_2_5_72b(QwenSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="qwen2.5-72b-instruct", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="qwen2.5-72b-instruct", logger=logger, meter=meter)
 
     @property
     @override
@@ -312,11 +324,13 @@ Please set DASHSCOPE_API_KEY in your environment before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self._logger = logger
-        self._logger.info("Initialized QwenService")
+        self._meter = meter
         self.model_name = os.environ.get("QWEN_MODEL", "qwen-plus")
-        self._logger.info(f"Qwen model name: {self.model_name}")
+
+        self._logger.info(f"Initialized QwenService with model: {self.model_name}")
 
     def _get_specialized_generator_class(
         self,
@@ -341,11 +355,11 @@ Please set DASHSCOPE_API_KEY in your environment before running Parlant.
     async def get_schematic_generator(self, t: type[T]) -> QwenSchematicGenerator[T]:
         qwen_generator = self._get_specialized_generator_class(self.model_name, t)
         assert qwen_generator is not None, f"Unsupported Qwen model: {self.model_name}"
-        return qwen_generator(self._logger)
+        return qwen_generator(self._logger, self._meter)
 
     @override
     async def get_embedder(self) -> Embedder:
-        return QwenTextEmbedding_V4(logger=self._logger)
+        return QwenTextEmbedding_V4(logger=self._logger, meter=self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

@@ -27,13 +27,14 @@ import jsonfinder  # type: ignore
 import os
 import tiktoken
 
-from parlant.adapters.nlp.common import normalize_json_output
+from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.meter import Meter
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
     T,
-    SchematicGenerator,
+    BaseSchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -54,17 +55,19 @@ class LlamaEstimatingTokenizer(EstimatingTokenizer):
         return len(tokens) + 36
 
 
-class CerebrasSchematicGenerator(SchematicGenerator[T]):
+class CerebrasSchematicGenerator(BaseSchematicGenerator[T]):
     supported_hints = ["temperature"]
 
     def __init__(
         self,
         model_name: str,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self.model_name = model_name
 
         self._logger = logger
+        self._meter = meter
         self._client = AsyncCerebras(api_key=os.environ.get("CEREBRAS_API_KEY"))
 
     @policy(
@@ -80,14 +83,13 @@ class CerebrasSchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.scope("CerebrasSchematicGenerator"):
-            with self._logger.operation(f"LLM Request ({self.schema.__name__})"):
-                return await self._do_generate(prompt, hints)
+        with self._logger.scope(f"Cerebras LLM Request ({self.schema.__name__})"):
+            return await self._do_generate(prompt, hints)
 
     async def _do_generate(
         self,
@@ -141,6 +143,13 @@ class CerebrasSchematicGenerator(SchematicGenerator[T]):
         try:
             model_content = self.schema.model_validate(json_object)
 
+            await record_llm_metrics(
+                self._meter,
+                self.model_name,
+                input_tokens=response.usage.prompt_tokens,  # type: ignore
+                output_tokens=response.usage.completion_tokens,  # type: ignore
+            )
+
             return SchematicGenerationResult(
                 content=model_content,
                 info=GenerationInfo(
@@ -162,10 +171,11 @@ class CerebrasSchematicGenerator(SchematicGenerator[T]):
 
 
 class Llama3_3_8B(CerebrasSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="llama3.1-8b",
             logger=logger,
+            meter=meter,
         )
         self._estimating_tokenizer = LlamaEstimatingTokenizer()
 
@@ -186,10 +196,11 @@ class Llama3_3_8B(CerebrasSchematicGenerator[T]):
 
 
 class Llama3_3_70B(CerebrasSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="llama3.3-70b",
             logger=logger,
+            meter=meter,
         )
 
         self._estimating_tokenizer = LlamaEstimatingTokenizer()
@@ -226,17 +237,19 @@ Please set CEREBRAS_API_KEY in your environment before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self._logger = logger
+        self._meter = meter
         self._logger.info("Initialized CerebrasService")
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> CerebrasSchematicGenerator[T]:
-        return Llama3_3_70B[t](self._logger)  # type: ignore
+        return Llama3_3_70B[t](self._logger, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:
-        return JinaAIEmbedder()
+        return JinaAIEmbedder(self._logger, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

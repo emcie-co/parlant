@@ -21,6 +21,7 @@ from typing_extensions import override
 from parlant.core.common import DefaultBaseModel
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
+from parlant.core.meter import DurationHistogram, Meter
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 
@@ -72,6 +73,48 @@ class SchematicGenerator(ABC, Generic[T]):
     def tokenizer(self) -> EstimatingTokenizer:
         """Return a tokenizer that approximates that of the underlying model."""
         ...
+
+
+_REQUEST_DURATION_HISTOGRAM: DurationHistogram | None = None
+
+
+class BaseSchematicGenerator(SchematicGenerator[T]):
+    def __init__(self, logger: Logger, meter: Meter, model_name: str) -> None:
+        self.logger = logger
+        self.meter = meter
+        self.model_name = model_name
+
+        global _REQUEST_DURATION_HISTOGRAM
+        if _REQUEST_DURATION_HISTOGRAM is None:
+            _REQUEST_DURATION_HISTOGRAM = meter.create_duration_histogram(
+                name="gen",
+                description="Duration of generation requests in milliseconds",
+            )
+
+    @abstractmethod
+    async def do_generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[T]: ...
+
+    @override
+    async def generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[T]:
+        if _REQUEST_DURATION_HISTOGRAM is not None:
+            async with _REQUEST_DURATION_HISTOGRAM.measure(
+                {
+                    "class.name": self.__class__.__qualname__,
+                    "model.name": self.model_name,
+                    "schema.name": self.schema.__name__,
+                }
+            ):
+                return await self.do_generate(prompt, hints)
+        else:
+            return await self.do_generate(prompt, hints)
 
 
 class FallbackSchematicGenerator(SchematicGenerator[T]):

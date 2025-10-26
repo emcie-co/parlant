@@ -28,13 +28,14 @@ import jsonfinder  # type: ignore
 import os
 import tiktoken
 
-from parlant.adapters.nlp.common import normalize_json_output
+from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.meter import Meter
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
     T,
-    SchematicGenerator,
+    BaseSchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -55,16 +56,18 @@ class AnthropicBedrockEstimatingTokenizer(EstimatingTokenizer):
         return int(len(tokens) * 1.15)
 
 
-class AnthropicBedrockAISchematicGenerator(SchematicGenerator[T]):
+class AnthropicBedrockAISchematicGenerator(BaseSchematicGenerator[T]):
     supported_hints = ["temperature"]
 
     def __init__(
         self,
         model_name: str,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self.model_name = model_name
         self._logger = logger
+        self._meter = meter
 
         self._client = AsyncAnthropicBedrock(
             aws_access_key=os.environ["AWS_ACCESS_KEY_ID"],
@@ -99,7 +102,15 @@ class AnthropicBedrockAISchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[T]:
+        with self._logger.scope(f"AWS LLM Request ({self.schema.__name__})"):
+            return await self._do_generate(prompt, hints)
+
+    async def _do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
@@ -146,6 +157,14 @@ class AnthropicBedrockAISchematicGenerator(SchematicGenerator[T]):
 
         try:
             model_content = self.schema.model_validate(json_object)
+
+            await record_llm_metrics(
+                self._meter,
+                self.model_name,
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+            )
+
             return SchematicGenerationResult(
                 content=model_content,
                 info=GenerationInfo(
@@ -166,10 +185,11 @@ class AnthropicBedrockAISchematicGenerator(SchematicGenerator[T]):
 
 
 class Claude_Sonnet_3_5(AnthropicBedrockAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="anthropic.claude-3-5-sonnet-20240620-v1:0",
             logger=logger,
+            meter=meter,
         )
 
     @override
@@ -195,16 +215,17 @@ Please consider setting the following your environment before running Parlant.
 """
         return None
 
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         self._logger = logger
+        self._meter = meter
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> AnthropicBedrockAISchematicGenerator[T]:
-        return Claude_Sonnet_3_5[t](self._logger)  # type: ignore
+        return Claude_Sonnet_3_5[t](self._logger, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:
-        return JinaAIEmbedder()
+        return JinaAIEmbedder(self._logger, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

@@ -96,7 +96,8 @@ from parlant.core.context_variables import (
     ContextVariableId,
     ContextVariableStore,
 )
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.meter import Meter
+from parlant.core.tracer import Tracer
 from parlant.core.customers import (
     Customer as _Customer,
     CustomerDocumentStore,
@@ -249,7 +250,7 @@ class NLPServices:
         if error := AzureService.verify_environment():
             raise SDKError(error)
 
-        return AzureService(container[Logger])
+        return AzureService(container[Logger], container[Meter])
 
     @staticmethod
     def openai(container: Container) -> NLPService:
@@ -259,7 +260,7 @@ class NLPServices:
         if error := OpenAIService.verify_environment():
             raise SDKError(error)
 
-        return OpenAIService(container[Logger])
+        return OpenAIService(container[Logger], container[Meter])
 
     @staticmethod
     def anthropic(container: Container) -> NLPService:
@@ -269,7 +270,7 @@ class NLPServices:
         if error := AnthropicService.verify_environment():
             raise SDKError(error)
 
-        return AnthropicService(container[Logger])
+        return AnthropicService(container[Logger], container[Meter])
 
     @staticmethod
     def cerebras(container: Container) -> NLPService:
@@ -279,7 +280,7 @@ class NLPServices:
         if error := CerebrasService.verify_environment():
             raise SDKError(error)
 
-        return CerebrasService(container[Logger])
+        return CerebrasService(container[Logger], container[Meter])
 
     @staticmethod
     def together(container: Container) -> NLPService:
@@ -289,7 +290,7 @@ class NLPServices:
         if error := TogetherService.verify_environment():
             raise SDKError(error)
 
-        return TogetherService(container[Logger])
+        return TogetherService(container[Logger], container[Meter])
 
     @staticmethod
     def gemini(container: Container) -> NLPService:
@@ -299,7 +300,7 @@ class NLPServices:
         if error := GeminiService.verify_environment():
             raise SDKError(error)
 
-        return GeminiService(container[Logger])
+        return GeminiService(container[Logger], container[Meter])
 
     @staticmethod
     def litellm(container: Container) -> NLPService:
@@ -309,7 +310,7 @@ class NLPServices:
         if error := LiteLLMService.verify_environment():
             raise SDKError(error)
 
-        return LiteLLMService(container[Logger])
+        return LiteLLMService(container[Logger], container[Meter])
 
     @staticmethod
     def modelscope(container: Container) -> NLPService:
@@ -319,7 +320,7 @@ class NLPServices:
         if error := ModelScopeService.verify_environment():
             raise SDKError(error)
 
-        return ModelScopeService(container[Logger])
+        return ModelScopeService(container[Logger], container[Meter])
 
     @staticmethod
     def vertex(container: Container) -> NLPService:
@@ -332,7 +333,7 @@ class NLPServices:
         if err := VertexAIService.validate_adc():
             raise SDKError(err)
 
-        return VertexAIService(container[Logger])
+        return VertexAIService(container[Logger], container[Meter])
 
     @staticmethod
     def mistral(container: Container) -> NLPService:
@@ -342,7 +343,7 @@ class NLPServices:
         if error := MistralService.verify_environment():
             raise SDKError(error)
 
-        return MistralService(container[Logger])
+        return MistralService(container[Logger], container[Meter])
 
     @staticmethod
     def ollama(container: Container) -> NLPService:
@@ -355,7 +356,7 @@ class NLPServices:
         if err := OllamaService.verify_models():
             raise SDKError(err)
 
-        return OllamaService(container[Logger])
+        return OllamaService(container[Logger], container[Meter])
 
     @staticmethod
     def glm(container: Container) -> NLPService:
@@ -365,7 +366,7 @@ class NLPServices:
         if error := GLMService.verify_environment():
             raise SDKError(error)
 
-        return GLMService(container[Logger])
+        return GLMService(container[Logger], container[Meter])
 
     @staticmethod
     def qwen(container: Container) -> NLPService:
@@ -375,7 +376,7 @@ class NLPServices:
         if error := QwenService.verify_environment():
             raise SDKError(error)
 
-        return QwenService(container[Logger])
+        return QwenService(container[Logger], container[Meter])
 
     @staticmethod
     def deepseek(container: Container) -> NLPService:
@@ -385,7 +386,7 @@ class NLPServices:
         if error := DeepSeekService.verify_environment():
             raise SDKError(error)
 
-        return DeepSeekService(container[Logger])
+        return DeepSeekService(container[Logger], container[Meter])
 
     @staticmethod
     def snowflake(container: Container) -> NLPService:
@@ -395,7 +396,7 @@ class NLPServices:
         if error := SnowflakeCortexService.verify_environment():
             raise SDKError(error)
 
-        return SnowflakeCortexService(container[Logger])
+        return SnowflakeCortexService(container[Logger], container[Meter])
 
     @staticmethod
     def fireworks(container: Container) -> NLPService:
@@ -405,7 +406,7 @@ class NLPServices:
         if error := FireworksService.verify_environment():
             raise SDKError(error)
 
-        return FireworksService(container[Logger])
+        return FireworksService(container[Logger], container[Meter])
 
 
 class _CachedGuidelineEvaluation(TypedDict, total=False):
@@ -1688,12 +1689,19 @@ class RetrieverContext:
     server: Server
     container: Container
     logger: Logger
-    correlator: ContextualCorrelator
+    tracer: Tracer
     session: Session
     agent: Agent
     customer: Customer
     variables: Mapping[Variable, JSONSerializable]
     interaction: Interaction
+
+    @property
+    def correlator(self) -> Tracer:
+        self.logger.warning(
+            "`correlator` is deprecated. Please change your code to use the `tracer` property"
+        )
+        return self.tracer
 
 
 @dataclass(frozen=True)
@@ -2261,7 +2269,7 @@ class Server:
         self._creation_progress.__exit__(None, None, None)
         self._creation_progress = None
 
-        with self._container[ContextualCorrelator].properties({"scope": "Evaluations"}):
+        with self._container[Tracer].attributes({"scope": "Evaluations"}):
             await self._process_evaluations()
 
         await self._setup_retrievers()
@@ -2520,16 +2528,16 @@ class Server:
                 # First do some garbage collection if needed.
                 # This might be needed if tasks were not awaited
                 # because of exceptions during engine processing.
-                for correlation_id in list(tasks_for_this_retriever.keys()):
-                    if tasks_for_this_retriever[correlation_id][0].expired():
+                for trace_id in list(tasks_for_this_retriever.keys()):
+                    if tasks_for_this_retriever[trace_id][0].expired():
                         # Very, very little change that this task is still meant to be running,
                         # or that anyone is still waiting for it. It's 99.999% garbage.
                         try:
-                            tasks_for_this_retriever[correlation_id][1].add_done_callback(
+                            tasks_for_this_retriever[trace_id][1].add_done_callback(
                                 default_done_callback()
                             )
-                            tasks_for_this_retriever[correlation_id][1].cancel()
-                            del tasks_for_this_retriever[correlation_id]
+                            tasks_for_this_retriever[trace_id][1].cancel()
+                            del tasks_for_this_retriever[trace_id]
                         except BaseException:
                             # If anything went unexpectedly here, whatever. Carry on.
                             pass
@@ -2542,7 +2550,7 @@ class Server:
                         server=self,
                         container=self._container,
                         logger=self._container[Logger],
-                        correlator=self._container[ContextualCorrelator],
+                        tracer=self._container[Tracer],
                         session=ctx.session,
                         agent=agent,
                         customer=customer,
@@ -2555,10 +2563,10 @@ class Server:
                 )
 
                 c[Logger].trace(
-                    f"Starting retriever {retriever_id} for agent {agent_id} with correlation {ctx.correlator.correlation_id}"
+                    f"Starting retriever {retriever_id} for agent {agent_id} with trace {ctx.tracer.trace_id}"
                 )
 
-                tasks_for_this_retriever[ctx.correlator.correlation_id] = (
+                tasks_for_this_retriever[ctx.tracer.trace_id] = (
                     Timeout(600),  # Expiration timeout for garbage collection purposes
                     asyncio.create_task(
                         cast(Coroutine[Any, Any, JSONSerializable | RetrieverResult], coroutine),
@@ -2573,9 +2581,7 @@ class Server:
                 payload: Any,
                 exc: Optional[Exception],
             ) -> EngineHookResult:
-                if timeout_and_task := tasks_for_this_retriever.pop(
-                    ctx.correlator.correlation_id, None
-                ):
+                if timeout_and_task := tasks_for_this_retriever.pop(ctx.tracer.trace_id, None):
                     _, task = timeout_and_task
                     task_result = await task
 
@@ -2600,7 +2606,7 @@ class Server:
 
                     ctx.state.tool_events.append(
                         await ctx.response_event_emitter.emit_tool_event(
-                            ctx.correlator.correlation_id,
+                            ctx.tracer.trace_id,
                             ToolEventData(
                                 tool_calls=[
                                     _SessionToolCall(
@@ -3076,7 +3082,7 @@ class Server:
                     database=TransientDocumentDatabase(),
                     event_emitter_factory=c()[EventEmitterFactory],
                     logger=c()[Logger],
-                    correlator=c()[ContextualCorrelator],
+                    tracer=c()[Tracer],
                     nlp_services_provider=lambda: {"__nlp__": c()[NLPService]},
                     allow_migration=False,
                 )
@@ -3211,6 +3217,9 @@ __all__ = [
     "CustomerStore",
     "DevelopmentAuthorizationPolicy",
     "END_JOURNEY",
+    "Variable",
+    "ContextVariableId",
+    "ControlOptions",
     "Embedder",
     "EmbedderFactory",
     "EmbeddingResult",
@@ -3287,6 +3296,7 @@ __all__ = [
     "ToolParameterOptions",
     "ToolParameterType",
     "ToolResult",
+    "Tracer",
     "Variable",
     "VoiceOptimizedPerceivedPerformancePolicy",
     "tool",

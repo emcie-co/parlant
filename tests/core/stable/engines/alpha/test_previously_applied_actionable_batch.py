@@ -34,6 +34,7 @@ from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import EventSource, Session, SessionId, SessionStore
 from parlant.core.tags import TagId
@@ -190,6 +191,7 @@ async def base_test_that_correct_guidelines_are_matched(
 
     guideline_previously_applied_matcher = GenericPreviouslyAppliedActionableGuidelineMatchingBatch(
         logger=context.container[Logger],
+        meter=context.container[Meter],
         optimization_policy=context.container[OptimizationPolicy],
         schematic_generator=context.schematic_generator,
         guidelines=context.guidelines,

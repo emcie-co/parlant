@@ -17,6 +17,10 @@ All notable changes to Parlant will be documented here.
 - Follow-up canned responses
 - Improved Gemini Flash 2.5 output consistency by using function call trick instead of structured outputs
 - Added persistence option for context variable values (variable store)
+- Add Fireworks service
+- Rename ContextualCorrelator to Tracer
+- Add OpenTelemetry integration for Meter, Logger and Tracer
+- Add API for CRUD operations on session metadata
 
 ## [3.0.3] - 2025-10-23
 
@@ -26,6 +30,7 @@ All notable changes to Parlant will be documented here.
 - Bump versions of OpenTelemetry
 - Made ChromaDB an extra package parlant[chroma]
 - Update NPM dependencies for integrated UI
+
 
 ## [3.0.2] - 2025-08-27
 
@@ -276,7 +281,7 @@ All notable changes to Parlant will be documented here.
 
 ### Changed
 
-- Return event ID instead of correlation ID from utterance API
+- Return event ID instead of trace ID from utterance API
 - Improve and normalize entity update messages in client CLI
 
 ## [1.3.0] - 2024-12-26

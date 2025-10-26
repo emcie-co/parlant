@@ -22,7 +22,8 @@ from pytest import fixture
 from parlant.core.agents import Agent
 from parlant.core.capabilities import Capability, CapabilityId
 from parlant.core.common import JSONSerializable, generate_id
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.meter import Meter
+from parlant.core.tracer import Tracer
 from parlant.core.customers import Customer
 from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.engines.alpha.guideline_matching.generic.response_analysis_batch import (
@@ -118,7 +119,7 @@ def match_guidelines(
             agent_id=agent.id,
         ),
         logger=context.logger,
-        correlator=context.container[ContextualCorrelator],
+        tracer=context.container[Tracer],
         agent=agent,
         customer=customer,
         session=session,
@@ -229,7 +230,7 @@ def update_previously_applied_guidelines(
                 agent_states=list(session.agent_states)
                 + [
                     AgentState(
-                        correlation_id="<main>",
+                        trace_id="<main>",
                         applied_guideline_ids=applied_guideline_ids,
                         journey_paths={},
                     )
@@ -266,6 +267,7 @@ def analyze_response_and_update_session(
 
     generic_response_analysis_batch = GenericResponseAnalysisBatch(
         logger=context.container[Logger],
+        meter=context.container[Meter],
         optimization_policy=context.container[OptimizationPolicy],
         schematic_generator=context.container[SchematicGenerator[GenericResponseAnalysisSchema]],
         context=ResponseAnalysisContext(

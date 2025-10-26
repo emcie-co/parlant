@@ -22,6 +22,7 @@ from more_itertools import chunked
 
 from parlant.core import async_utils
 from parlant.core.common import DefaultBaseModel, JSONSerializable
+from parlant.core.engines.alpha.guideline_matching.common import measure_response_analysis_batch
 from parlant.core.engines.alpha.guideline_matching.generic.common import (
     GuidelineInternalRepresentation,
     internal_representation,
@@ -43,6 +44,7 @@ from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.sessions import Event, EventSource
@@ -80,18 +82,26 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[GenericResponseAnalysisSchema],
         context: ResponseAnalysisContext,
         guideline_matches: Sequence[GuidelineMatch],
     ) -> None:
         self._logger = logger
+        self._meter = meter
+
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
         self._batch_size = 5
 
         self._context = context
         self._guideline_matches = guideline_matches
+
+    @property
+    @override
+    def size(self) -> int:
+        return len(self._guideline_matches)
 
     @override
     async def process(
@@ -101,42 +111,38 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
 
         guideline_batches = list(chunked(all_guidelines, self._batch_size))
 
-        with self._logger.operation(
-            f"{len(all_guidelines)} guidelines "
-            f"in {len(guideline_batches)} batches (batch size={self._batch_size})"
-        ):
-            batch_tasks = [
-                self._process_batch(
-                    batch,
-                )
-                for batch in guideline_batches
-            ]
-
-            batch_results = await async_utils.safe_gather(*batch_tasks)
-
-            all_analyzed_guidelines = list(
-                chain.from_iterable(result.analyzed_guidelines for result in batch_results)
+        batch_tasks = [
+            self._process_batch(
+                batch,
             )
+            for batch in guideline_batches
+        ]
 
-            generation_info = (
-                batch_results[-1].generation_info
-                if batch_results
-                else GenerationInfo(
-                    schema_name="",
-                    model="",
-                    duration=0.0,
-                    usage=UsageInfo(
-                        input_tokens=0,
-                        output_tokens=0,
-                        extra={},
-                    ),
-                )
-            )
+        batch_results = await async_utils.safe_gather(*batch_tasks)
 
-            return ResponseAnalysisBatchResult(
-                analyzed_guidelines=all_analyzed_guidelines,
-                generation_info=generation_info,
+        all_analyzed_guidelines = list(
+            chain.from_iterable(result.analyzed_guidelines for result in batch_results)
+        )
+
+        generation_info = (
+            batch_results[-1].generation_info
+            if batch_results
+            else GenerationInfo(
+                schema_name="",
+                model="",
+                duration=0.0,
+                usage=UsageInfo(
+                    input_tokens=0,
+                    output_tokens=0,
+                    extra={},
+                ),
             )
+        )
+
+        return ResponseAnalysisBatchResult(
+            analyzed_guidelines=all_analyzed_guidelines,
+            generation_info=generation_info,
+        )
 
     async def _process_batch(
         self,
@@ -150,7 +156,7 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
 
         guidelines = {str(i): g for i, g in enumerate(batch_guidelines, start=1)}
 
-        with self._logger.operation(f"Batch of {len(guidelines)} guidelines"):
+        async with measure_response_analysis_batch(self._meter, self):
             prompt = self._build_prompt(
                 shots=await self.shots(),
                 guidelines=guidelines,

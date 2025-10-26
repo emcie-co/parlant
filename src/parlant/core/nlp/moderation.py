@@ -18,6 +18,8 @@ from typing import Literal, TypeAlias
 from typing_extensions import override
 
 from parlant.core.sessions import Session
+from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 
 
 ModerationTag: TypeAlias = Literal[
@@ -46,6 +48,33 @@ class ModerationCheck:
 class ModerationService(ABC):
     @abstractmethod
     async def moderate_customer(
+        self,
+        context: CustomerModerationContext,
+    ) -> ModerationCheck: ...
+
+
+class BaseModerationService(ModerationService):
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        self.logger = logger
+        self.meter = meter
+
+        self._hist_moderation_request_duration = meter.create_duration_histogram(
+            name="moderation",
+            description="Duration of moderation requests",
+        )
+
+    @override
+    async def moderate_customer(
+        self,
+        context: CustomerModerationContext,
+    ) -> ModerationCheck:
+        async with self._hist_moderation_request_duration.measure(
+            attributes={"class.name": self.__class__.__qualname__}
+        ):
+            return await self.do_moderate(context)
+
+    @abstractmethod
+    async def do_moderate(
         self,
         context: CustomerModerationContext,
     ) -> ModerationCheck: ...

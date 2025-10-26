@@ -27,7 +27,7 @@ from typing_extensions import override
 import jsonfinder  # type: ignore
 import os
 
-from parlant.adapters.nlp.common import normalize_json_output
+from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
 from parlant.core.engines.alpha.canned_response_generator import CannedResponseSelectionSchema
 from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch import (
@@ -37,11 +37,12 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selectio
     JourneyNodeSelectionSchema,
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.meter import Meter
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
     T,
+    BaseSchematicGenerator,
     SchematicGenerationResult,
-    SchematicGenerator,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.loggers import Logger
@@ -66,16 +67,18 @@ class AnthropicEstimatingTokenizer(EstimatingTokenizer):
         return result.input_tokens  # type: ignore[no-any-return]
 
 
-class AnthropicAISchematicGenerator(SchematicGenerator[T]):
+class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
     supported_hints = ["temperature"]
 
     def __init__(
         self,
         model_name: str,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self.model_name = model_name
         self._logger = logger
+        self._meter = meter
 
         self._client = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
         self._estimating_tokenizer = AnthropicEstimatingTokenizer(self._client, model_name)
@@ -104,7 +107,15 @@ class AnthropicAISchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[T]:
+        with self._logger.scope(f"Anthropic LLM Request ({self.schema.__name__})"):
+            return await self._do_generate(prompt, hints)
+
+    async def _do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
@@ -156,6 +167,14 @@ class AnthropicAISchematicGenerator(SchematicGenerator[T]):
 
         try:
             model_content = self.schema.model_validate(json_object)
+
+            await record_llm_metrics(
+                self._meter,
+                self.model_name,
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+            )
+
             return SchematicGenerationResult(
                 content=model_content,
                 info=GenerationInfo(
@@ -176,40 +195,43 @@ class AnthropicAISchematicGenerator(SchematicGenerator[T]):
 
 
 class Claude_Sonnet_3_5(AnthropicAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="claude-3-5-sonnet-20241022",
             logger=logger,
+            meter=meter,
         )
 
-    @override
     @property
+    @override
     def max_tokens(self) -> int:
         return 200 * 1024
 
 
 class Claude_Sonnet_4(AnthropicAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="claude-sonnet-4-20250514",
             logger=logger,
+            meter=meter,
         )
 
-    @override
     @property
+    @override
     def max_tokens(self) -> int:
         return 200 * 1024
 
 
 class Claude_Opus_4_1(AnthropicAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="claude-opus-4-1-20250805",
             logger=logger,
+            meter=meter,
         )
 
-    @override
     @property
+    @override
     def max_tokens(self) -> int:
         return 200 * 1024
 
@@ -227,8 +249,10 @@ Please set ANTHROPIC_API_KEY in your environment before running Parlant.
 
         return None
 
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         self._logger = logger
+        self._meter = meter
+
         self._logger.info("Initialized AnthropicService")
 
     @override
@@ -238,12 +262,12 @@ Please set ANTHROPIC_API_KEY in your environment before running Parlant.
             or t == DisambiguationGuidelineMatchesSchema
             or t == CannedResponseSelectionSchema
         ):
-            return Claude_Opus_4_1[t](self._logger)  # type: ignore
-        return Claude_Sonnet_4[t](self._logger)  # type: ignore
+            return Claude_Opus_4_1[t](self._logger, self._meter)  # type: ignore
+        return Claude_Sonnet_4[t](self._logger, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:
-        return JinaAIEmbedder()
+        return JinaAIEmbedder(self._logger, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

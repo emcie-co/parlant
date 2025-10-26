@@ -28,6 +28,7 @@ from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuil
 from parlant.core.glossary import Term
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.services.tools.service_registry import ServiceRegistry
@@ -45,6 +46,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
     ToolCallContext,
     ToolCallId,
     ToolInsights,
+    measure_tool_call_batch,
 )
 from parlant.core.tools import Tool, ToolId, ToolParameterDescriptor, ToolParameterOptions
 
@@ -99,6 +101,7 @@ class OverlappingToolsBatch(ToolCallBatch):
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
         optimization_policy: OptimizationPolicy,
         service_registry: ServiceRegistry,
         schematic_generator: SchematicGenerator[OverlappingToolsBatchSchema],
@@ -106,6 +109,8 @@ class OverlappingToolsBatch(ToolCallBatch):
         context: ToolCallContext,
     ) -> None:
         self._logger = logger
+        self._meter = meter
+
         self._optimization_policy = optimization_policy
         self._service_registry = service_registry
         self._schematic_generator = schematic_generator
@@ -113,7 +118,7 @@ class OverlappingToolsBatch(ToolCallBatch):
         self._overlapping_tools_batch = overlapping_tools_batch
 
     async def process(self) -> ToolCallBatchResult:
-        with self._logger.operation("OverlappingToolsBatch"):
+        async with measure_tool_call_batch(self._meter, self):
             (
                 generation_info,
                 inference_output,

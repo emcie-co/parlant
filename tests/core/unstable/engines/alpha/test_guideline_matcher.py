@@ -29,7 +29,8 @@ from parlant.core.context_variables import (
     ContextVariableValue,
     ContextVariableValueId,
 )
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.meter import Meter
+from parlant.core.tracer import Tracer
 from parlant.core.customers import Customer
 from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.emissions import EmittedEvent
@@ -297,7 +298,7 @@ async def match_guidelines(
             agent_id=agent.id,
         ),
         logger=context.logger,
-        correlator=context.container[ContextualCorrelator],
+        tracer=context.container[Tracer],
         agent=agent,
         customer=customer,
         session=session,
@@ -441,7 +442,7 @@ async def update_previously_applied_guidelines(
             agent_states=list(session.agent_states)
             + [
                 AgentState(
-                    correlation_id="<main>",
+                    trace_id="<main>",
                     applied_guideline_ids=applied_guideline_ids,
                     journey_paths={},
                 )
@@ -481,6 +482,7 @@ async def analyze_response_and_update_session(
 
     generic_response_analysis_batch = GenericResponseAnalysisBatch(
         logger=context.container[Logger],
+        meter=context.container[Meter],
         optimization_policy=context.container[OptimizationPolicy],
         schematic_generator=context.container[SchematicGenerator[GenericResponseAnalysisSchema]],
         context=ResponseAnalysisContext(
@@ -906,7 +908,7 @@ async def test_that_observational_guidelines_arent_wrongly_implied(
     )
     staged_events = [
         EmittedEvent(
-            source=EventSource.AI_AGENT, kind=EventKind.TOOL, correlation_id="", data=tool_result
+            source=EventSource.AI_AGENT, kind=EventKind.TOOL, trace_id="", data=tool_result
         ),
     ]
 
@@ -964,7 +966,7 @@ async def test_that_observational_guidelines_are_detected_correctly_when_lots_of
     )
     staged_events = [
         EmittedEvent(
-            source=EventSource.AI_AGENT, kind=EventKind.TOOL, correlation_id="", data=tool_result
+            source=EventSource.AI_AGENT, kind=EventKind.TOOL, trace_id="", data=tool_result
         ),
     ]
     conversation_context: list[tuple[EventSource, str]] = [

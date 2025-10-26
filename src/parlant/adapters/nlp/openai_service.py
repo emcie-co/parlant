@@ -33,7 +33,7 @@ import os
 from pydantic import ValidationError
 import tiktoken
 
-from parlant.adapters.nlp.common import normalize_json_output
+from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.core.engines.alpha.canned_response_generator import (
     CannedResponseDraftSchema,
     CannedResponseSelectionSchema,
@@ -43,19 +43,21 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selectio
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.engines.alpha.tool_calling.single_tool_batch import SingleToolBatchSchema
-from parlant.core.loggers import LogLevel, Logger
+from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
-from parlant.core.nlp.embedding import Embedder, EmbeddingResult
+from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
-    SchematicGenerator,
+    BaseSchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.moderation import (
     CustomerModerationContext,
+    BaseModerationService,
     ModerationCheck,
     ModerationService,
     ModerationTag,
@@ -86,7 +88,7 @@ class OpenAIEstimatingTokenizer(EstimatingTokenizer):
         return len(tokens)
 
 
-class OpenAISchematicGenerator(SchematicGenerator[T]):
+class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
     supported_openai_params = ["temperature", "logit_bias", "max_tokens"]
     supported_hints = supported_openai_params + ["strict"]
     unsupported_params_by_model: dict[str, list[str]] = {
@@ -97,10 +99,10 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        meter: Meter,
         tokenizer_model_name: str | None = None,
     ) -> None:
-        self.model_name = model_name
-        self._logger = logger
+        super().__init__(logger=logger, meter=meter, model_name=model_name)
 
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
 
@@ -133,16 +135,13 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.scope("OpenAISchematicGenerator"):
-            with self._logger.operation(
-                f"LLM Request ({self.schema.__name__})", level=LogLevel.TRACE
-            ):
-                return await self._do_generate(prompt, hints)
+        with self.logger.scope(f"OpenAI LLM Request ({self.schema.__name__})"):
+            return await self._do_generate(prompt, hints)
 
     def _list_arguments(self, hints: Mapping[str, Any]) -> Mapping[str, Any]:
         exclude_params = [
@@ -178,19 +177,27 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
                     **openai_api_arguments,
                 )
             except RateLimitError:
-                self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+                self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
                 raise
 
             t_end = time.time()
 
             if response.usage:
-                self._logger.trace(response.usage.model_dump_json(indent=2))
+                self.logger.trace(response.usage.model_dump_json(indent=2))
 
             parsed_object = response.choices[0].message.parsed
             assert parsed_object
 
             assert response.usage
             assert response.usage.prompt_tokens_details
+
+            await record_llm_metrics(
+                self.meter,
+                self.model_name,
+                input_tokens=response.usage.prompt_tokens,
+                output_tokens=response.usage.completion_tokens,
+                cached_input_tokens=response.usage.prompt_tokens_details.cached_tokens or 0,
+            )
 
             return SchematicGenerationResult[T](
                 content=parsed_object,
@@ -220,20 +227,20 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
                 )
                 t_end = time.time()
             except RateLimitError:
-                self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+                self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
                 raise
 
             if response.usage:
-                self._logger.trace(response.usage.model_dump_json(indent=2))
+                self.logger.trace(response.usage.model_dump_json(indent=2))
 
             raw_content = response.choices[0].message.content or "{}"
 
             try:
                 json_content = json.loads(normalize_json_output(raw_content))
             except json.JSONDecodeError:
-                self._logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
+                self.logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
                 json_content = jsonfinder.only_json(raw_content)[2]
-                self._logger.warning("Found JSON content within model response; continuing...")
+                self.logger.warning("Found JSON content within model response; continuing...")
 
             try:
                 content = self.schema.model_validate(json_content)
@@ -259,15 +266,15 @@ class OpenAISchematicGenerator(SchematicGenerator[T]):
                 )
 
             except ValidationError as e:
-                self._logger.error(
+                self.logger.error(
                     f"Error: {e.json(indent=2)}\nJSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
                 )
                 raise
 
 
 class GPT_4o(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="gpt-4o-2024-11-20", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="gpt-4o-2024-11-20", logger=logger, meter=meter)
 
     @property
     @override
@@ -276,8 +283,8 @@ class GPT_4o(OpenAISchematicGenerator[T]):
 
 
 class GPT_4o_24_08_06(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="gpt-4o-2024-08-06", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="gpt-4o-2024-08-06", logger=logger, meter=meter)
 
     @property
     @override
@@ -286,10 +293,11 @@ class GPT_4o_24_08_06(OpenAISchematicGenerator[T]):
 
 
 class GPT_4_1(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="gpt-4.1",
             logger=logger,
+            meter=meter,
             tokenizer_model_name="gpt-4o-2024-11-20",
         )
 
@@ -300,8 +308,8 @@ class GPT_4_1(OpenAISchematicGenerator[T]):
 
 
 class GPT_4o_Mini(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="gpt-4o-mini", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="gpt-4o-mini", logger=logger, meter=meter)
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -310,13 +318,13 @@ class GPT_4o_Mini(OpenAISchematicGenerator[T]):
         return 128 * 1024
 
 
-class OpenAIEmbedder(Embedder):
+class OpenAIEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
-    def __init__(self, model_name: str, logger: Logger) -> None:
+    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
+        super().__init__(logger, meter, model_name)
         self.model_name = model_name
 
-        self._logger = logger
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
         self._tokenizer = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
@@ -345,7 +353,7 @@ class OpenAIEmbedder(Embedder):
         ]
     )
     @override
-    async def embed(
+    async def do_embed(
         self,
         texts: list[str],
         hints: Mapping[str, Any] = {},
@@ -358,7 +366,7 @@ class OpenAIEmbedder(Embedder):
                 **filtered_hints,
             )
         except RateLimitError:
-            self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+            self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
 
         vectors = [data_point.embedding for data_point in response.data]
@@ -366,8 +374,8 @@ class OpenAIEmbedder(Embedder):
 
 
 class OpenAITextEmbedding3Large(OpenAIEmbedder):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="text-embedding-3-large", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="text-embedding-3-large", logger=logger, meter=meter)
 
     @property
     @override
@@ -380,8 +388,8 @@ class OpenAITextEmbedding3Large(OpenAIEmbedder):
 
 
 class OpenAITextEmbedding3Small(OpenAIEmbedder):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="text-embedding-3-small", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="text-embedding-3-small", logger=logger, meter=meter)
 
     @property
     @override
@@ -393,15 +401,21 @@ class OpenAITextEmbedding3Small(OpenAIEmbedder):
         return 3072
 
 
-class OpenAIModerationService(ModerationService):
-    def __init__(self, model_name: str, logger: Logger) -> None:
+class OpenAIModerationService(BaseModerationService):
+    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
+        super().__init__(logger, meter)
+
         self.model_name = model_name
-        self._logger = logger
 
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
 
+        self._hist_moderation_request_duration = meter.create_duration_histogram(
+            name="moderation",
+            description="Duration of moderation requests in milliseconds",
+        )
+
     @override
-    async def moderate_customer(self, context: CustomerModerationContext) -> ModerationCheck:
+    async def do_moderate(self, context: CustomerModerationContext) -> ModerationCheck:
         def extract_tags(category: str) -> list[ModerationTag]:
             mapping: dict[str, list[ModerationTag]] = {
                 "sexual": ["sexual"],
@@ -421,11 +435,10 @@ class OpenAIModerationService(ModerationService):
 
             return mapping.get(category.replace("/", "_").replace("-", "_"), [])
 
-        with self._logger.operation("OpenAI Moderation Request", level=LogLevel.TRACE):
-            response = await self._client.moderations.create(
-                input=context.message,
-                model=self.model_name,
-            )
+        response = await self._client.moderations.create(
+            input=context.message,
+            model=self.model_name,
+        )
 
         result = response.results[0]
 
@@ -444,8 +457,8 @@ class OpenAIModerationService(ModerationService):
 
 
 class OmniModeration(OpenAIModerationService):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="omni-moderation-latest", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="omni-moderation-latest", logger=logger, meter=meter)
 
 
 class OpenAIService(NLPService):
@@ -464,8 +477,11 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self._logger = logger
+        self._meter = meter
+
         self._logger.info("Initialized OpenAIService")
 
     @override
@@ -475,12 +491,12 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
             JourneyNodeSelectionSchema: GPT_4_1[JourneyNodeSelectionSchema],
             CannedResponseDraftSchema: GPT_4_1[CannedResponseDraftSchema],
             CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
-        }.get(t, GPT_4o_24_08_06[t])(self._logger)  # type: ignore
+        }.get(t, GPT_4o_24_08_06[t])(self._logger, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:
-        return OpenAITextEmbedding3Large(self._logger)
+        return OpenAITextEmbedding3Large(self._logger, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:
-        return OmniModeration(self._logger)
+        return OmniModeration(self._logger, self._meter)

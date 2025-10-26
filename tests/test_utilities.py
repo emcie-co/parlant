@@ -65,6 +65,7 @@ from parlant.core.glossary import GlossaryStore, Term
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
 from parlant.core.guidelines import Guideline, GuidelineStore
 from parlant.core.loggers import LogLevel, Logger
+from parlant.core.meter import NullMeter
 from parlant.core.nlp.generation import (
     FallbackSchematicGenerator,
     SchematicGenerationResult,
@@ -116,7 +117,7 @@ class SyncAwaiter:
 
 @dataclass(frozen=False)
 class JournalingEngineHooks(EngineHooks):
-    latest_context_per_correlation_id: dict[str, LoadedContext] = field(default_factory=dict)
+    latest_context_per_trace_id: dict[str, LoadedContext] = field(default_factory=dict)
 
     @override
     async def call_hooks(
@@ -126,7 +127,7 @@ class JournalingEngineHooks(EngineHooks):
         payload: Any,
         exc: Optional[Exception] = None,
     ) -> bool:
-        self.latest_context_per_correlation_id[context.correlator.correlation_id] = context
+        self.latest_context_per_trace_id[context.tracer.trace_id] = context
         return await super().call_hooks(hooks, context, payload, exc)
 
 
@@ -168,19 +169,9 @@ class _TestLogger(Logger):
     def scope(self, scope_id: str) -> Iterator[None]:
         yield
 
-    @contextmanager
-    def operation(
-        self,
-        name: str,
-        props: dict[str, Any] = {},
-        level: LogLevel = LogLevel.INFO,
-        create_scope: bool = True,
-    ) -> Iterator[None]:
-        yield
-
 
 async def nlp_test(context: str, condition: str) -> bool:
-    schematic_generator = GPT_4o[NLPTestSchema](logger=_TestLogger())
+    schematic_generator = GPT_4o[NLPTestSchema](logger=_TestLogger(), meter=NullMeter())
 
     inference = await schematic_generator.generate(
         prompt=f"""\
@@ -236,11 +227,13 @@ async def create_session(
     agent_id: AgentId,
     customer_id: Optional[CustomerId] = None,
     title: Optional[str] = None,
+    metadata: Optional[Mapping[str, JSONSerializable]] = None,
 ) -> Session:
     return await container[SessionStore].create_session(
         customer_id or (await create_customer(container, "Auto-Created Customer")).id,
         agent_id=agent_id,
         title=title,
+        metadata=metadata or {},
     )
 
 

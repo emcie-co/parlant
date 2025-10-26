@@ -2408,7 +2408,7 @@ def given_a_journey_path_for_the_journey(
                 agent_states=list(session.agent_states)
                 + [
                     AgentState(
-                        correlation_id="<main>",
+                        trace_id="<main>",
                         applied_guideline_ids=[],
                         journey_paths={journey.id: guideline_path},
                     )

@@ -14,20 +14,17 @@
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-import asyncio
 from contextlib import ExitStack, contextmanager
 import contextvars
 from enum import Enum, auto
 import logging
 from pathlib import Path
 import structlog
-import time
-import traceback
-from typing import Any, Iterator, Sequence
+from typing import Iterator, Sequence
 from typing_extensions import override
 
 from parlant.core.common import generate_id
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.tracer import Tracer
 
 
 class LogLevel(Enum):
@@ -145,29 +142,17 @@ class Logger(ABC):
         """Create a new logging scope."""
         ...
 
-    @abstractmethod
-    @contextmanager
-    def operation(
-        self,
-        name: str,
-        props: dict[str, Any] = {},
-        level: LogLevel = LogLevel.DEBUG,
-        create_scope: bool = True,
-    ) -> Iterator[None]:
-        """Create a new timed logging operation with a name and properties."""
-        ...
 
-
-class CorrelationalLogger(Logger):
-    """A logger that supports correlation IDs for structured logging."""
+class TracingLogger(Logger):
+    """A logger that supports trace IDs for structured logging."""
 
     def __init__(
         self,
-        correlator: ContextualCorrelator,
+        tracer: Tracer,
         log_level: LogLevel = LogLevel.DEBUG,
         logger_id: str | None = None,
     ) -> None:
-        self._correlator = correlator
+        self._tracer = tracer
         self.raw_logger = logging.getLogger(logger_id or "parlant")
         self.raw_logger.setLevel(log_level.to_logging_level())
         self.log_level = log_level
@@ -206,28 +191,28 @@ class CorrelationalLogger(Logger):
             return
 
         self._logger.debug(
-            f"TRACE {self._add_correlation_id_and_scopes(message)}",
+            f"TRACE {self._add_trace_id_and_scopes(message)}",
         )
 
     @override
     def debug(self, message: str) -> None:
-        self._logger.debug(self._add_correlation_id_and_scopes(message))
+        self._logger.debug(self._add_trace_id_and_scopes(message))
 
     @override
     def info(self, message: str) -> None:
-        self._logger.info(self._add_correlation_id_and_scopes(message))
+        self._logger.info(self._add_trace_id_and_scopes(message))
 
     @override
     def warning(self, message: str) -> None:
-        self._logger.warning(self._add_correlation_id_and_scopes(message))
+        self._logger.warning(self._add_trace_id_and_scopes(message))
 
     @override
     def error(self, message: str) -> None:
-        self._logger.error(self._add_correlation_id_and_scopes(message))
+        self._logger.error(self._add_trace_id_and_scopes(message))
 
     @override
     def critical(self, message: str) -> None:
-        self._logger.critical(self._add_correlation_id_and_scopes(message))
+        self._logger.critical(self._add_trace_id_and_scopes(message))
 
     @override
     @contextmanager
@@ -245,61 +230,12 @@ class CorrelationalLogger(Logger):
 
         self._scopes.reset(reset_token)
 
-    @override
-    @contextmanager
-    def operation(
-        self,
-        name: str,
-        props: dict[str, Any] = {},
-        level: LogLevel = LogLevel.DEBUG,
-        create_scope: bool = True,
-    ) -> Iterator[None]:
-        log_func = {
-            LogLevel.TRACE: self.trace,
-            LogLevel.DEBUG: self.debug,
-            LogLevel.INFO: self.info,
-            LogLevel.WARNING: self.warning,
-            LogLevel.ERROR: self.error,
-            LogLevel.CRITICAL: self.critical,
-        }[level]
-
-        t_start = time.time()
-        try:
-            if props:
-                self.trace(f"{name} [{props}] started")
-            else:
-                self.trace(f"{name} started")
-
-            if create_scope:
-                with self.scope(name):
-                    yield
-            else:
-                yield
-
-            t_end = time.time()
-
-            if props:
-                log_func(f"{name} [{props}] finished in {t_end - t_start}s")
-            else:
-                log_func(f"{name} finished in {round(t_end - t_start, 3)} seconds")
-        except asyncio.CancelledError:
-            self.warning(f"{name} cancelled after {round(time.time() - t_start, 3)} seconds")
-            raise
-        except Exception as exc:
-            self.error(f"{name} failed")
-            self.error(" ".join(traceback.format_exception(exc)))
-            raise
-        except BaseException as exc:
-            self.error(f"{name} failed with critical error")
-            self.critical(" ".join(traceback.format_exception(exc)))
-            raise
-
     @property
     def current_scope(self) -> str:
         return self._get_scopes()
 
-    def _add_correlation_id_and_scopes(self, message: str) -> str:
-        return f"[{self._correlator.correlation_id}]{self.current_scope} {message}"
+    def _add_trace_id_and_scopes(self, message: str) -> str:
+        return f"[{self._tracer.trace_id}]{self.current_scope} {message}"
 
     def _get_scopes(self) -> str:
         if scopes := self._scopes.get():
@@ -307,30 +243,30 @@ class CorrelationalLogger(Logger):
         return ""
 
 
-class StdoutLogger(CorrelationalLogger):
+class StdoutLogger(TracingLogger):
     """A logger that outputs to standard output."""
 
     def __init__(
         self,
-        correlator: ContextualCorrelator,
+        tracer: Tracer,
         log_level: LogLevel = LogLevel.DEBUG,
         logger_id: str | None = None,
     ) -> None:
-        super().__init__(correlator, log_level, logger_id)
+        super().__init__(tracer, log_level, logger_id)
         self.raw_logger.addHandler(logging.StreamHandler())
 
 
-class FileLogger(CorrelationalLogger):
+class FileLogger(TracingLogger):
     """A logger that outputs to a file."""
 
     def __init__(
         self,
         log_file_path: Path,
-        correlator: ContextualCorrelator,
+        tracer: Tracer,
         log_level: LogLevel = LogLevel.DEBUG,
         logger_id: str | None = None,
     ) -> None:
-        super().__init__(correlator, log_level, logger_id)
+        super().__init__(tracer, log_level, logger_id)
 
         handlers: list[logging.Handler] = [
             logging.FileHandler(log_file_path),
@@ -390,22 +326,5 @@ class CompositeLogger(Logger):
     def scope(self, scope_id: str) -> Iterator[None]:
         with ExitStack() as stack:
             for context in [logger.scope(scope_id) for logger in self._loggers]:
-                stack.enter_context(context)
-            yield
-
-    @override
-    @contextmanager
-    def operation(
-        self,
-        name: str,
-        props: dict[str, Any] = {},
-        level: LogLevel = LogLevel.DEBUG,
-        create_scope: bool = True,
-    ) -> Iterator[None]:
-        with ExitStack() as stack:
-            for context in [
-                logger.operation(name, props, level, create_scope=create_scope)
-                for logger in self._loggers
-            ]:
                 stack.enter_context(context)
             yield

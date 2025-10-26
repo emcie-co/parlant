@@ -30,7 +30,8 @@ from typing_extensions import override
 
 from parlant.core.async_utils import safe_gather
 from parlant.core.capabilities import Capability
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.meter import DurationHistogram, Meter
+from parlant.core.tracer import Tracer
 from parlant.core.agents import Agent, CompositionMode
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
@@ -70,7 +71,7 @@ from parlant.core.sessions import (
     ToolEventData,
 )
 from parlant.core.common import CancellationSuppressionLatch, DefaultBaseModel, JSONSerializable
-from parlant.core.loggers import LogLevel, Logger
+from parlant.core.loggers import Logger
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import ToolId
 
@@ -466,7 +467,8 @@ class CannedResponseGenerator(MessageEventComposer):
     def __init__(
         self,
         logger: Logger,
-        correlator: ContextualCorrelator,
+        tracer: Tracer,
+        meter: Meter,
         hooks: EngineHooks,
         optimization_policy: OptimizationPolicy,
         canned_response_draft_generator: SchematicGenerator[CannedResponseDraftSchema],
@@ -484,7 +486,9 @@ class CannedResponseGenerator(MessageEventComposer):
         no_match_provider: NoMatchResponseProvider,
     ) -> None:
         self._logger = logger
-        self._correlator = correlator
+        self._tracer = tracer
+        self._meter = meter
+
         self._hooks = hooks
         self._optimization_policy = optimization_policy
         self._canrep_draft_generator = canned_response_draft_generator
@@ -500,6 +504,48 @@ class CannedResponseGenerator(MessageEventComposer):
         self._entity_queries = entity_queries
         self._no_match_provider = no_match_provider
         self._follow_ups_enabled = True
+        self._define_histograms()
+
+    def _define_histograms(self) -> None:
+        def _create_histogram(name: str, description: str) -> DurationHistogram:
+            return self._meter.create_duration_histogram(
+                name=f"canrep.{name}",
+                description=description,
+            )
+
+        self._hist_canned_response_duration = self._meter.create_duration_histogram(
+            name="canrep",
+            description="Duration of canned response generation in milliseconds",
+        )
+
+        self._hist_preamble_duration = _create_histogram(
+            name="preamble",
+            description="Duration of canned response preamble generation in milliseconds",
+        )
+        self._hist_preamble_render_duration = _create_histogram(
+            name="preamble.render",
+            description="Duration of canned response rendering in milliseconds",
+        )
+        self._hist_render_duration = _create_histogram(
+            name="render",
+            description="Duration of canned response rendering in milliseconds",
+        )
+        self._hist_draft_duration = _create_histogram(
+            name="draft",
+            description="Duration of canned response draft generation in milliseconds",
+        )
+        self._hist_retrieval_duration = _create_histogram(
+            name="retrieval",
+            description="Duration of canned response retrieval in milliseconds",
+        )
+        self._hist_recompose_duration = _create_histogram(
+            name="recompose",
+            description="Duration of canned response recomposition in milliseconds",
+        )
+        self._hist_selection_duration = _create_histogram(
+            name="selection",
+            description="Duration of canned response selection in milliseconds",
+        )
 
     async def draft_generation_shots(
         self, composition_mode: CompositionMode
@@ -515,7 +561,7 @@ class CannedResponseGenerator(MessageEventComposer):
     ) -> Sequence[MessageEventComposition]:
         with self._logger.scope("MessageEventComposer"):
             with self._logger.scope("CannedResponseGenerator"):
-                with self._logger.operation("Preamble generation", create_scope=False):
+                async with self._hist_preamble_duration.measure():
                     return await self._do_generate_preamble(context)
 
     async def _do_generate_preamble(
@@ -586,9 +632,7 @@ You must generate the preamble message. You must produce a JSON object with a si
                 if Tag.preamble() in canrep.tags
             ]
 
-            with self._logger.operation(
-                "Rendering canned preamble templates", create_scope=False, level=LogLevel.TRACE
-            ):
+            async with self._hist_preamble_render_duration.measure():
                 preamble_choices = [
                     str(r.rendered_text)
                     for r in await self._render_responses(canrep_context, preamble_responses)
@@ -646,7 +690,7 @@ You will now be given the current state of the interaction to which you must gen
         )
 
         await canrep_context.event_emitter.emit_status_event(
-            correlation_id=f"{self._correlator.correlation_id}",
+            trace_id=f"{self._tracer.trace_id}",
             data={
                 "status": "typing",
                 "data": {},
@@ -672,7 +716,7 @@ You will now be given the current state of the interaction to which you must gen
             # If we're in, the hook did not bail out.
 
             emitted_event = await canrep_context.event_emitter.emit_message_event(
-                correlation_id=f"{self._correlator.correlation_id}",
+                trace_id=self._tracer.trace_id,
                 data=MessageEventData(
                     message=canrep.content.preamble,
                     participant=Participant(id=agent.id, display_name=agent.name),
@@ -697,7 +741,7 @@ You will now be given the current state of the interaction to which you must gen
     ) -> Sequence[MessageEventComposition]:
         with self._logger.scope("MessageEventComposer"):
             with self._logger.scope("CannedResponseGenerator"):
-                with self._logger.operation("Response generation", create_scope=False):
+                async with self._hist_canned_response_duration.measure():
                     return await self._do_generate_events(
                         loaded_context=context,
                         latch=latch,
@@ -783,9 +827,12 @@ You will now be given the current state of the interaction to which you must gen
         loaded_context: LoadedContext,
         latch: Optional[CancellationSuppressionLatch] = None,
     ) -> Sequence[MessageEventComposition]:
+        is_first_message_emitted = False
+
         async def output_messages(
             generation_result: _CannedResponseSelectionResult,
         ) -> list[EmittedEvent]:
+            nonlocal is_first_message_emitted
             emitted_events: list[EmittedEvent] = []
             if generation_result is not None:
                 sub_messages = generation_result.message.strip().split("\n\n")
@@ -797,7 +844,7 @@ You will now be given the current state of the interaction to which you must gen
                         # If we're in, the hook did not bail out.
 
                         event = await event_emitter.emit_message_event(
-                            correlation_id=self._correlator.correlation_id,
+                            trace_id=self._tracer.trace_id,
                             data=MessageEventData(
                                 message=m,
                                 participant=Participant(id=agent.id, display_name=agent.name),
@@ -810,11 +857,14 @@ You will now be given the current state of the interaction to which you must gen
                                 participant=Participant(id=agent.id, display_name=agent.name),
                             ),
                         )
+                        if not is_first_message_emitted:
+                            self._tracer.add_event("canrep.ttfm")
+                            is_first_message_emitted = True
 
                         emitted_events.append(event)
 
                         await context.event_emitter.emit_status_event(
-                            correlation_id=self._correlator.correlation_id,
+                            trace_id=self._tracer.trace_id,
                             data={
                                 "status": "ready",
                                 "data": {},
@@ -824,7 +874,7 @@ You will now be given the current state of the interaction to which you must gen
                     if next_message := sub_messages[0] if sub_messages else None:
                         await self._perceived_performance_policy.get_follow_up_delay()
                         await context.event_emitter.emit_status_event(
-                            correlation_id=self._correlator.correlation_id,
+                            trace_id=self._tracer.trace_id,
                             data={
                                 "status": "typing",
                                 "data": {},
@@ -898,7 +948,7 @@ You will now be given the current state of the interaction to which you must gen
             staged_message_events=staged_message_events,
         )
 
-        responses = await self._get_relevant_canned_responses(context)
+        canreps = await self._get_relevant_canned_responses(context)
 
         follow_up_selection_attempt_temperatures = (
             self._optimization_policy.get_message_generation_retry_temperatures(
@@ -916,7 +966,7 @@ You will now be given the current state of the interaction to which you must gen
                 generation_info, generation_result = await self._generate_response(
                     loaded_context,
                     context,
-                    responses,
+                    canreps,
                     agent.composition_mode,
                     temperature=follow_up_selection_attempt_temperatures[generation_attempt],
                 )
@@ -960,7 +1010,7 @@ You will now be given the current state of the interaction to which you must gen
 
                     if follow_up_canrep_response:
                         await context.event_emitter.emit_status_event(
-                            correlation_id=self._correlator.correlation_id,
+                            trace_id=self._tracer.trace_id,
                             data={
                                 "status": "typing",
                                 "data": {},
@@ -1499,7 +1549,7 @@ Output a JSON object with three properties:
 
         if direct_draft_output_mode:
             await context.event_emitter.emit_status_event(
-                correlation_id=self._correlator.correlation_id,
+                trace_id=self._tracer.trace_id,
                 data={
                     "status": "typing",
                     "data": {},
@@ -1518,17 +1568,18 @@ Output a JSON object with three properties:
             )
         else:
             await context.event_emitter.emit_status_event(
-                correlation_id=self._correlator.correlation_id,
+                trace_id=self._tracer.trace_id,
                 data={
                     "status": "processing",
                     "data": {"stage": "Articulating"},
                 },
             )
 
-        draft_response = await self._canrep_draft_generator.generate(
-            prompt=draft_prompt,
-            hints={"temperature": temperature},
-        )
+        async with self._hist_draft_duration.measure():
+            draft_response = await self._canrep_draft_generator.generate(
+                prompt=draft_prompt,
+                hints={"temperature": temperature},
+            )
 
         self._logger.trace(
             f"Canned Response Draft Completion:\n{draft_response.content.model_dump_json(indent=2)}"
@@ -1563,7 +1614,7 @@ Output a JSON object with three properties:
             )
 
         await context.event_emitter.emit_status_event(
-            correlation_id=self._correlator.correlation_id,
+            trace_id=self._tracer.trace_id,
             data={
                 "status": "typing",
                 "data": {},
@@ -1571,14 +1622,10 @@ Output a JSON object with three properties:
         )
 
         # Step 2: Select the most relevant canned response templates based on the draft message
-        with self._logger.operation(
-            "Retrieving top relevant canned response templates",
-            create_scope=False,
-            level=LogLevel.TRACE,
-        ):
+        async with self._hist_retrieval_duration.measure():
             relevant_canreps = set(
                 r.canned_response
-                for r in await self._canned_response_store.find_relevant_canned_responses(
+                for r in await self._canned_response_store.filter_relevant_canned_responses(
                     query=draft_message,
                     available_canned_responses=canned_responses,
                     max_count=30,
@@ -1598,9 +1645,7 @@ Output a JSON object with three properties:
             )
 
         # Step 3: Pre-render these templates so that matching works better
-        with self._logger.operation(
-            "Rendering canned response templates", create_scope=False, level=LogLevel.TRACE
-        ):
+        async with self._hist_render_duration.measure():
             rendered_canreps = [
                 (r.response.id, str(r.rendered_text))
                 for r in await self._render_responses(
@@ -1612,9 +1657,7 @@ Output a JSON object with three properties:
 
         # Step 4.1: In composited mode, recompose the draft message with the style of the rendered canned responses
         if composition_mode == CompositionMode.CANNED_COMPOSITED:
-            with self._logger.operation(
-                "Recomposing draft using canned responses", create_scope=False, level=LogLevel.TRACE
-            ):
+            async with self._hist_recompose_duration.measure():
                 recomposition_generation_info, composited_message = await self._recompose(
                     context=context,
                     draft_message=draft_message,
@@ -1632,9 +1675,7 @@ Output a JSON object with three properties:
                 )
 
         # Step 4.2: In non-composited mode, try to match the draft message with one of the rendered canned responses
-        with self._logger.operation(
-            "Selecting canned response", create_scope=False, level=LogLevel.TRACE
-        ):
+        async with self._hist_selection_duration.measure():
             selection_response = await self._canrep_selection_generator.generate(
                 prompt=self._build_selection_prompt(
                     context=context,

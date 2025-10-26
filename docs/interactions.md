@@ -47,7 +47,7 @@ graph LR
 
 The diagram above shows the API flows for initiating changes to a session.
 1. **Customer Message:** This request adds a new message to a session on behalf of the customer, and triggers the AI agent to respond asynchronously. This means that the *Created Event* does not in fact contain the agent's reply—that will come in time—but rather the ID (and other details) of the created and persisted customer event.
-1. **AI Agent Message:** This request directly activates the full reaction engine. The agent will match and activate the relevant guidelines and tools, and produce a reply. The *Created Event* here, however, is not the agent's message, since that may take some time. Instead, it returns a *status event* containing the same *Correlation ID* as the eventual agent's message event. It's important to note here that, in most frontend clients, this created event is usually ignored, and is provided mainly for diagnostic purposes.
+1. **AI Agent Message:** This request directly activates the full reaction engine. The agent will match and activate the relevant guidelines and tools, and produce a reply. The *Created Event* here, however, is not the agent's message, since that may take some time. Instead, it returns a *status event* containing the same *Trace ID* as the eventual agent's message event. It's important to note here that, in most frontend clients, this created event is usually ignored, and is provided mainly for diagnostic purposes.
 1. **Human Agent Message:** Sometimes it makes sense for a human (perhaps a  developer) to manually add messages on behalf of the AI agent. This request allows you to do that. The *Created Event* here is the created and persisted manually-written agent message.
 
 ### Receiving Messages

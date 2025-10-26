@@ -31,7 +31,8 @@ from parlant.core.context_variables import (
     ContextVariableValue,
     ContextVariableValueId,
 )
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.meter import Meter
+from parlant.core.tracer import Tracer
 from parlant.core.customers import Customer
 from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.emissions import EmittedEvent
@@ -384,7 +385,7 @@ async def match_guidelines(
             agent_id=agent.id,
         ),
         logger=context.logger,
-        correlator=context.container[ContextualCorrelator],
+        tracer=context.container[Tracer],
         agent=agent,
         customer=customer,
         session=session,
@@ -568,7 +569,7 @@ async def update_previously_applied_guidelines(
             agent_states=list(session.agent_states)
             + [
                 AgentState(
-                    correlation_id="<main>",
+                    trace_id="<main>",
                     applied_guideline_ids=applied_guideline_ids,
                     journey_paths={},
                 )
@@ -608,6 +609,7 @@ async def analyze_response_and_update_session(
 
     generic_response_analysis_batch = GenericResponseAnalysisBatch(
         logger=context.container[Logger],
+        meter=context.container[Meter],
         optimization_policy=context.container[OptimizationPolicy],
         schematic_generator=context.container[SchematicGenerator[GenericResponseAnalysisSchema]],
         context=ResponseAnalysisContext(
@@ -1145,10 +1147,10 @@ async def test_that_guidelines_are_matched_based_on_staged_tool_calls_and_contex
     )
     staged_tool_events = [
         EmittedEvent(
-            source=EventSource.AI_AGENT, kind=EventKind.TOOL, correlation_id="", data=tool_result_1
+            source=EventSource.AI_AGENT, kind=EventKind.TOOL, trace_id="", data=tool_result_1
         ),
         EmittedEvent(
-            source=EventSource.AI_AGENT, kind=EventKind.TOOL, correlation_id="", data=tool_result_2
+            source=EventSource.AI_AGENT, kind=EventKind.TOOL, trace_id="", data=tool_result_2
         ),
     ]
 
@@ -1232,13 +1234,13 @@ async def test_that_guidelines_are_matched_based_on_staged_tool_calls_without_co
         EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.TOOL,
-            correlation_id="",
+            trace_id="",
             data=tool_result_1,
         ),
         EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.TOOL,
-            correlation_id="",
+            trace_id="",
             data=tool_result_2,
         ),
     ]
@@ -1488,6 +1490,11 @@ class ActivateEveryGuidelineBatch(GuidelineMatchingBatch):
     def __init__(self, guidelines: Sequence[Guideline]):
         self.guidelines = guidelines
 
+    @property
+    @override
+    def size(self) -> int:
+        return len(self.guidelines)
+
     @override
     async def process(self) -> GuidelineMatchingBatchResult:
         return GuidelineMatchingBatchResult(
@@ -1521,6 +1528,11 @@ async def test_that_guideline_matching_strategies_can_be_overridden(
     class SkipAllGuidelineBatch(GuidelineMatchingBatch):
         def __init__(self, guidelines: Sequence[Guideline]):
             self.guidelines = guidelines
+
+        @property
+        @override
+        def size(self) -> int:
+            return len(self.guidelines)
 
         @override
         async def process(self) -> GuidelineMatchingBatchResult:
@@ -2060,7 +2072,7 @@ async def test_that_observational_guidelines_are_detected_based_on_tool_results(
     )
     staged_events = [
         EmittedEvent(
-            source=EventSource.AI_AGENT, kind=EventKind.TOOL, correlation_id="", data=tool_result
+            source=EventSource.AI_AGENT, kind=EventKind.TOOL, trace_id="", data=tool_result
         ),
     ]
 
@@ -2648,6 +2660,11 @@ async def test_that_response_analysis_strategy_can_be_overridden(
         ) -> None:
             self.guideline_matches = guideline_matches
 
+        @property
+        @override
+        def size(self) -> int:
+            return len(self.guideline_matches)
+
         @override
         async def process(self) -> ResponseAnalysisBatchResult:
             return ResponseAnalysisBatchResult(
@@ -2743,6 +2760,11 @@ async def test_that_batch_processing_retries_on_key_error(
             self.fail_count = fail_count
             self.attempt_count = 0
 
+        @property
+        @override
+        def size(self) -> int:
+            return len(self.guidelines)
+
         @override
         async def process(self) -> GuidelineMatchingBatchResult:
             self.attempt_count += 1
@@ -2775,6 +2797,11 @@ async def test_that_batch_processing_retries_on_key_error(
             self.guideline_matches = guideline_matches
             self.fail_count = fail_count
             self.attempt_count = 0
+
+        @property
+        @override
+        def size(self) -> int:
+            return len(self.guideline_matches)
 
         @override
         async def process(self) -> ResponseAnalysisBatchResult:
@@ -2878,6 +2905,11 @@ async def test_that_batch_processing_fails_after_max_retries(
             self.guidelines = guidelines
             self.attempt_count = 0
 
+        @property
+        @override
+        def size(self) -> int:
+            return len(self.guidelines)
+
         @override
         async def process(self) -> GuidelineMatchingBatchResult:
             self.attempt_count += 1
@@ -2887,6 +2919,11 @@ async def test_that_batch_processing_fails_after_max_retries(
         def __init__(self, guideline_matches: Sequence[GuidelineMatch]):
             self.guideline_matches = guideline_matches
             self.attempt_count = 0
+
+        @property
+        @override
+        def size(self) -> int:
+            return len(self.guideline_matches)
 
         @override
         async def process(self) -> ResponseAnalysisBatchResult:

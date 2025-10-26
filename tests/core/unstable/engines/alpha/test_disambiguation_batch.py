@@ -43,6 +43,7 @@ from parlant.core.journeys import JourneyStore
 from parlant.core.glossary import Term, TermId
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.services.indexing.behavioral_change_evaluation import GuidelineEvaluator
 from parlant.core.sessions import EventSource, Session
@@ -316,6 +317,7 @@ async def base_test_that_ambiguity_detected_with_relevant_guidelines(
 
     disambiguation_resolver = GenericDisambiguationGuidelineMatchingBatch(
         logger=context.logger,
+        meter=context.container[Meter],
         journey_store=context.container[JourneyStore],
         optimization_policy=context.container[OptimizationPolicy],
         schematic_generator=context.schematic_generator,

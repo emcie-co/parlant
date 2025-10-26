@@ -32,6 +32,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
     ToolCallContext,
 )
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.relationships import RelationshipStore, RelationshipKind
 from parlant.core.services.tools.service_registry import ServiceRegistry
@@ -42,6 +43,7 @@ class DefaultToolCallBatcher(ToolCallBatcher):
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
         optimization_policy: OptimizationPolicy,
         service_registry: ServiceRegistry,
         single_tool_schematic_generator: SchematicGenerator[SingleToolBatchSchema],
@@ -49,6 +51,7 @@ class DefaultToolCallBatcher(ToolCallBatcher):
         relationship_store: RelationshipStore,
     ) -> None:
         self._logger = logger
+        self._meter = meter
         self._optimization_policy = optimization_policy
         self._service_registry = service_registry
         self._single_tool_schematic_generator = single_tool_schematic_generator
@@ -167,6 +170,7 @@ class DefaultToolCallBatcher(ToolCallBatcher):
     ) -> ToolCallBatch:
         return SingleToolBatch(
             logger=self._logger,
+            meter=self._meter,
             optimization_policy=self._optimization_policy,
             service_registry=self._service_registry,
             schematic_generator=self._single_tool_schematic_generator,
@@ -181,6 +185,7 @@ class DefaultToolCallBatcher(ToolCallBatcher):
     ) -> ToolCallBatch:
         return OverlappingToolsBatch(
             logger=self._logger,
+            meter=self._meter,
             optimization_policy=self._optimization_policy,
             service_registry=self._service_registry,
             schematic_generator=self._overlapping_tools_schematic_generator,

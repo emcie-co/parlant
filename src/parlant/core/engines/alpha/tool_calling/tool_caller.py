@@ -14,12 +14,13 @@
 
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, asdict, field
 from enum import Enum
 import json
 import time
 import traceback
-from typing import Mapping, NewType, Optional, Sequence
+from typing import AsyncIterator, Mapping, NewType, Optional, Sequence
 
 from parlant.core import async_utils
 from parlant.core.agents import Agent
@@ -31,6 +32,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import Guidel
 from parlant.core.glossary import Term
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
+from parlant.core.meter import DurationHistogram, Meter
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import Event, SessionId, ToolResult
@@ -158,10 +160,13 @@ class ToolCaller:
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
         service_registry: ServiceRegistry,
         batcher: ToolCallBatcher,
     ) -> None:
         self._logger = logger
+        self._meter = meter
+
         self._service_registry = service_registry
         self.batcher = batcher
 
@@ -209,17 +214,15 @@ class ToolCaller:
 
                 tools[(tool_id, tool)].append(guideline_match)
 
-        with self._logger.operation("Creating batches", create_scope=False):
             batches = await self.batcher.create_batches(
                 tools=tools,
                 context=context,
             )
 
-        with self._logger.operation("Processing batches", create_scope=False):
             batch_tasks = [batch.process() for batch in batches]
             batch_results = await async_utils.safe_gather(*batch_tasks)
 
-        t_end = time.time()
+            t_end = time.time()
 
         # Aggregate insights from all batch results (e.g., missing data across batches)
         aggregated_evaluations: list[tuple[ToolId, ToolCallEvaluation]] = []
@@ -312,16 +315,38 @@ class ToolCaller:
         tool_calls: Sequence[ToolCall],
     ) -> Sequence[ToolCallResult]:
         with self._logger.scope("ToolCaller"):
-            with self._logger.operation("Execution", create_scope=False):
-                tool_results = await async_utils.safe_gather(
-                    *(
-                        self._run_tool(
-                            context=context,
-                            tool_call=tool_call,
-                            tool_id=tool_call.tool_id,
-                        )
-                        for tool_call in tool_calls
+            tool_results = await async_utils.safe_gather(
+                *(
+                    self._run_tool(
+                        context=context,
+                        tool_call=tool_call,
+                        tool_id=tool_call.tool_id,
                     )
+                    for tool_call in tool_calls
                 )
+            )
 
-                return tool_results
+            return tool_results
+
+
+_TOOL_CALL_BATCH_DURATION_HISTOGRAM: DurationHistogram | None = None
+
+
+@asynccontextmanager
+async def measure_tool_call_batch(
+    meter: Meter,
+    batch: ToolCallBatch,
+) -> AsyncIterator[None]:
+    global _TOOL_CALL_BATCH_DURATION_HISTOGRAM
+    if _TOOL_CALL_BATCH_DURATION_HISTOGRAM is None:
+        _TOOL_CALL_BATCH_DURATION_HISTOGRAM = meter.create_duration_histogram(
+            name="gm.batch",
+            description="Duration of guideline matching batch",
+        )
+
+    async with _TOOL_CALL_BATCH_DURATION_HISTOGRAM.measure(
+        attributes={
+            "batch.name": batch.__class__.__name__,
+        }
+    ):
+        yield

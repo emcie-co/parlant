@@ -25,16 +25,17 @@ import tiktoken
 
 import litellm
 
-from parlant.adapters.nlp.common import normalize_json_output
+from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
     T,
-    SchematicGenerator,
+    BaseSchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -67,7 +68,7 @@ class LiteLLMEstimatingTokenizer(EstimatingTokenizer):
         return len(tokens)
 
 
-class LiteLLMSchematicGenerator(SchematicGenerator[T]):
+class LiteLLMSchematicGenerator(BaseSchematicGenerator[T]):
     supported_litellm_params = [
         "temperature",
         "max_tokens",
@@ -82,10 +83,12 @@ class LiteLLMSchematicGenerator(SchematicGenerator[T]):
         base_url: str | None,
         model_name: str,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self.base_url = base_url
         self.model_name = model_name
         self._logger = logger
+        self._meter = meter
 
         self._client = litellm
 
@@ -107,7 +110,7 @@ class LiteLLMSchematicGenerator(SchematicGenerator[T]):
         prompt: PromptBuilder | str,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.operation(f"LiteLLM Request ({self.schema.__name__})"):
+        with self._logger.scope(f"LiteLLM LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     async def _do_generate(
@@ -154,6 +157,18 @@ class LiteLLMSchematicGenerator(SchematicGenerator[T]):
             content = self.schema.model_validate(json_content)
             assert response.usage
 
+            await record_llm_metrics(
+                self._meter,
+                self.model_name,
+                input_tokens=response.usage.prompt_tokens,
+                output_tokens=response.usage.completion_tokens,
+                cached_input_tokens=getattr(
+                    response,
+                    "usage.prompt_cache_hit_tokens",
+                    0,
+                ),
+            )
+
             return SchematicGenerationResult(
                 content=content,
                 info=GenerationInfo(
@@ -181,11 +196,12 @@ class LiteLLMSchematicGenerator(SchematicGenerator[T]):
 
 
 class LiteLLM_Default(LiteLLMSchematicGenerator[T]):
-    def __init__(self, logger: Logger, base_url: str | None, model_name: str) -> None:
+    def __init__(self, logger: Logger, meter: Meter, base_url: str | None, model_name: str) -> None:
         super().__init__(
             base_url=base_url,
             model_name=model_name,
             logger=logger,
+            meter=meter,
         )
 
     @property
@@ -214,13 +230,12 @@ Please set LITELLM_PROVIDER_API_KEY in your environment before running Parlant.
 
         return None
 
-    def __init__(
-        self,
-        logger: Logger,
-    ) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         self._base_url = os.environ.get("LITELLM_PROVIDER_BASE_URL")
         self._model_name = os.environ.get("LITELLM_PROVIDER_MODEL_NAME")
         self._logger = logger
+        self._meter = meter
+
         self._logger.info(
             f"Initialized LiteLLMService with {self._model_name}"
             + (f" at {self._base_url}" if self._base_url else "")
@@ -228,11 +243,11 @@ Please set LITELLM_PROVIDER_API_KEY in your environment before running Parlant.
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> LiteLLMSchematicGenerator[T]:
-        return LiteLLM_Default[t](self._logger, self._base_url, self._model_name)  # type: ignore
+        return LiteLLM_Default[t](self._logger, self._meter, self._base_url, self._model_name)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:
-        return JinaAIEmbedder()
+        return JinaAIEmbedder(self._logger, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

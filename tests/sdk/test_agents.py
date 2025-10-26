@@ -216,7 +216,7 @@ class Test_that_the_output_of_an_agent_can_be_intercepted(SDKTest):
             _ = payload  # Here is where validations would run (payload is the generated message)
 
             await ctx.session_event_emitter.emit_message_event(
-                correlation_id=ctx.correlator.correlation_id,
+                trace_id=ctx.tracer.trace_id,
                 data="Bananas! More bananas!",
             )
 

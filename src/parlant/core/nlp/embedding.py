@@ -22,6 +22,8 @@ from typing import Any, Callable, Optional, Sequence, TypedDict, cast
 from typing_extensions import override
 
 from parlant.core.common import Version
+from parlant.core.loggers import Logger
+from parlant.core.meter import DurationHistogram, Meter
 from parlant.core.nlp.tokenization import EstimatingTokenizer, ZeroEstimatingTokenizer
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.document_database import (
@@ -65,6 +67,47 @@ class Embedder(ABC):
     def dimensions(self) -> int: ...
 
 
+_EMBED_DURATION_HISTOGRAM: DurationHistogram | None = None
+
+
+class BaseEmbedder(Embedder):
+    def __init__(self, logger: Logger, meter: Meter, model_name: str) -> None:
+        self.logger = logger
+        self.meter = meter
+        self.model_name = model_name
+
+        global _EMBED_DURATION_HISTOGRAM
+        if _EMBED_DURATION_HISTOGRAM is None:
+            _EMBED_DURATION_HISTOGRAM = meter.create_duration_histogram(
+                name="embed",
+                description="Duration of embedding requests in milliseconds",
+            )
+
+    @abstractmethod
+    async def do_embed(
+        self,
+        texts: list[str],
+        hints: Mapping[str, Any] = {},
+    ) -> EmbeddingResult: ...
+
+    @override
+    async def embed(
+        self,
+        texts: list[str],
+        hints: Mapping[str, Any] = {},
+    ) -> EmbeddingResult:
+        if _EMBED_DURATION_HISTOGRAM is not None:
+            async with _EMBED_DURATION_HISTOGRAM.measure(
+                {
+                    "class.name": self.__class__.__qualname__,
+                    "embedding.model.name": self.model_name,
+                },
+            ):
+                return await self.do_embed(texts, hints)
+        else:
+            return await self.do_embed(texts, hints)
+
+
 class EmbedderFactory:
     """Factory for creating embedder instances."""
 
@@ -72,14 +115,14 @@ class EmbedderFactory:
         self._container = container
 
     def create_embedder(self, embedder_type: type[Embedder]) -> Embedder:
-        if embedder_type == NoOpEmbedder:
-            return NoOpEmbedder()
+        if embedder_type == NullEmbedder:
+            return NullEmbedder()
         else:
             return self._container[embedder_type]
 
 
-class NoOpEmbedder(Embedder):
-    """A no-op embedder that returns zero vectors."""
+class NullEmbedder(Embedder):
+    """A null embedder that returns zero vectors."""
 
     def __init__(self) -> None:
         self._tokenizer = ZeroEstimatingTokenizer()

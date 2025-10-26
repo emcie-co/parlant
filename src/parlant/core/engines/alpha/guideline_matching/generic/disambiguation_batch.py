@@ -19,8 +19,12 @@ from datetime import datetime, timezone
 import traceback
 import json
 from typing import Optional
+from typing_extensions import override
 from parlant.core.common import DefaultBaseModel, JSONSerializable
-from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
+from parlant.core.engines.alpha.guideline_matching.common import measure_guideline_matching_batch
+from parlant.core.engines.alpha.guideline_matching.generic.common import (
+    internal_representation,
+)
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch,
 )
@@ -35,6 +39,7 @@ from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuil
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.journeys import JourneyId, JourneyStore
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
@@ -75,6 +80,7 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
         journey_store: JourneyStore,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[DisambiguationGuidelineMatchesSchema],
@@ -83,12 +89,19 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
         context: GuidelineMatchingContext,
     ) -> None:
         self._logger = logger
+        self._meter = meter
+
         self._journey_store = journey_store
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
         self._disambiguation_guideline = disambiguation_guideline
         self._disambiguation_targets = disambiguation_targets
         self._context = context
+
+    @property
+    @override
+    def size(self) -> int:
+        return 1
 
     async def _get_disambiguation_targets(
         self,
@@ -125,12 +138,13 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
             i += 1
         return guidelines
 
+    @override
     async def process(self) -> GuidelineMatchingBatchResult:
         disambiguation_targets_guidelines = await self._get_disambiguation_targets(
             self._disambiguation_targets
         )
 
-        with self._logger.operation(str(self._disambiguation_guideline)):
+        async with measure_guideline_matching_batch(self._meter, self):
             prompt = self._build_prompt(
                 shots=await self.shots(),
                 disambiguation_targets_guidelines=disambiguation_targets_guidelines,
@@ -414,7 +428,7 @@ def _make_event(e_id: str, source: EventSource, message: str) -> Event:
         kind=EventKind.MESSAGE,
         creation_utc=datetime.now(timezone.utc),
         offset=0,
-        correlation_id="",
+        trace_id="",
         data={"message": message},
         deleted=False,
     )

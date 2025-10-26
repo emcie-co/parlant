@@ -28,13 +28,14 @@ import jsonfinder  # type: ignore
 import os
 import tiktoken
 
-from parlant.adapters.nlp.common import normalize_json_output
+from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.adapters.nlp.hugging_face import HuggingFaceEstimatingTokenizer
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.nlp.embedding import Embedder, EmbeddingResult
+from parlant.core.meter import Meter
+from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
-    SchematicGenerator,
+    BaseSchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -67,16 +68,17 @@ class LlamaEstimatingTokenizer(EstimatingTokenizer):
         return len(tokens) + 36
 
 
-class TogetherAISchematicGenerator(SchematicGenerator[T]):
+class TogetherAISchematicGenerator(BaseSchematicGenerator[T]):
     supported_hints = ["temperature", "max_tokens", "top_p", "top_k"]
 
     def __init__(
         self,
         model_name: str,
         logger: Logger,
+        meter: Meter,
     ) -> None:
-        self.model_name = model_name
-        self._logger = logger
+        super().__init__(logger=logger, meter=meter, model_name=model_name)
+
         self._client = AsyncTogether(api_key=os.environ.get("TOGETHER_API_KEY"))
         self._estimating_tokenizer = LlamaEstimatingTokenizer()
 
@@ -110,7 +112,15 @@ class TogetherAISchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[T]:
+        with self.logger.scope(f"Together LLM Request ({self.schema.__name__})"):
+            return await self._do_generate(prompt, hints)
+
+    async def _do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
@@ -129,7 +139,7 @@ class TogetherAISchematicGenerator(SchematicGenerator[T]):
                 **together_api_arguments,
             )
         except RateLimitError:
-            self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+            self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
 
         t_end = time.time()
@@ -140,13 +150,20 @@ class TogetherAISchematicGenerator(SchematicGenerator[T]):
             json_content = normalize_json_output(raw_content)
             json_object = jsonfinder.only_json(json_content)[2]
         except Exception:
-            self._logger.error(
+            self.logger.error(
                 f"Failed to extract JSON returned by {self.model_name}:\n{raw_content}"
             )
             raise
 
         try:
             model_content = self.schema.model_validate(json_object)
+
+            await record_llm_metrics(
+                self.meter,
+                self.model_name,
+                input_tokens=response.usage.prompt_tokens,
+                output_tokens=response.usage.completion_tokens,
+            )
 
             return SchematicGenerationResult(
                 content=model_content,
@@ -162,49 +179,52 @@ class TogetherAISchematicGenerator(SchematicGenerator[T]):
                 ),
             )
         except ValidationError:
-            self._logger.error(
+            self.logger.error(
                 f"JSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
             )
             raise
 
 
 class Llama3_1_8B(TogetherAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
             logger=logger,
+            meter=meter,
         )
 
 
 class Llama3_1_70B(TogetherAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
             logger=logger,
+            meter=meter,
         )
 
 
 class Llama3_1_405B(TogetherAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
             logger=logger,
+            meter=meter,
         )
 
 
 class Llama3_3_70B(TogetherAISchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="meta-llama/Llama-3.3-70B-Instruct-Turbo",
             logger=logger,
+            meter=meter,
         )
 
 
-class TogetherAIEmbedder(Embedder):
-    def __init__(self, model_name: str, logger: Logger) -> None:
-        self.model_name = model_name
+class TogetherAIEmbedder(BaseEmbedder):
+    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
+        super().__init__(logger=logger, meter=meter, model_name=model_name)
 
-        self._logger = logger
         self._client = AsyncTogether(api_key=os.environ.get("TOGETHER_API_KEY"))
 
     @policy(
@@ -221,7 +241,7 @@ class TogetherAIEmbedder(Embedder):
         ]
     )
     @override
-    async def embed(
+    async def do_embed(
         self,
         texts: list[str],
         hints: Mapping[str, Any] = {},
@@ -234,7 +254,7 @@ class TogetherAIEmbedder(Embedder):
                 input=texts,
             )
         except RateLimitError:
-            self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+            self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
 
         vectors = [data_point.embedding for data_point in response.data]
@@ -242,8 +262,12 @@ class TogetherAIEmbedder(Embedder):
 
 
 class M2Bert32K(TogetherAIEmbedder):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="togethercomputer/m2-bert-80M-32k-retrieval", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(
+            model_name="togethercomputer/m2-bert-80M-32k-retrieval",
+            logger=logger,
+            meter=meter,
+        )
         self._estimating_tokenizer = HuggingFaceEstimatingTokenizer(self.model_name)
 
     @property
@@ -270,18 +294,19 @@ class M2Bert32K(TogetherAIEmbedder):
 class CustomTogetherAISchematicGenerator(TogetherAISchematicGenerator[T]):
     """Generic Together AI generator that accepts any model name."""
 
-    def __init__(self, model_name: str, logger: Logger) -> None:
+    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name=model_name,
             logger=logger,
+            meter=meter,
         )
 
 
 class CustomTogetherAIEmbedder(TogetherAIEmbedder):
     """Generic Together AI embedder that accepts any model name."""
 
-    def __init__(self, model_name: str, logger: Logger) -> None:
-        super().__init__(model_name=model_name, logger=logger)
+    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name=model_name, logger=logger, meter=meter)
         self._estimating_tokenizer = HuggingFaceEstimatingTokenizer(model_name)
         self._dimensions = int(os.environ.get("TOGETHER_EMBEDDING_DIMENSIONS", "768"))
 
@@ -338,6 +363,7 @@ Available models can be found at: https://docs.together.ai/docs/inference-models
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self.model_name = os.environ.get(
             "TOGETHER_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo"
@@ -346,6 +372,8 @@ Available models can be found at: https://docs.together.ai/docs/inference-models
             "TOGETHER_EMBEDDING_MODEL", "togethercomputer/m2-bert-80M-32k-retrieval"
         )
         self._logger = logger
+        self._meter = meter
+
         self._logger.info(f"Initialized TogetherService with model: {self.model_name}")
 
     def _get_specialized_generator_class(
@@ -375,17 +403,17 @@ Available models can be found at: https://docs.together.ai/docs/inference-models
         else:
             self._logger.debug(f"Using custom generator for model: {self.model_name}")
             return CustomTogetherAISchematicGenerator[t](  # type: ignore
-                model_name=self.model_name, logger=self._logger
+                model_name=self.model_name, logger=self._logger, meter=self._meter
             )
 
     def _get_specialized_embedder_class(
         self,
         model_name: str,
-    ) -> Callable[[Logger], TogetherAIEmbedder] | None:
+    ) -> Callable[[Logger, Meter], TogetherAIEmbedder] | None:
         """
         Returns the specialized embedder class for known models, or None for custom models.
         """
-        model_to_class: dict[str, Callable[[Logger], TogetherAIEmbedder]] = {
+        model_to_class: dict[str, Callable[[Logger, Meter], TogetherAIEmbedder]] = {
             "togethercomputer/m2-bert-80M-32k-retrieval": M2Bert32K,
         }
 
@@ -397,10 +425,14 @@ Available models can be found at: https://docs.together.ai/docs/inference-models
 
         if specialized_class:
             self._logger.debug(f"Using specialized embedder for model: {self.embedding_model}")
-            return specialized_class(self._logger)
+            return specialized_class(self._logger, self._meter)
         else:
             self._logger.debug(f"Using custom embedder for model: {self.embedding_model}")
-            return CustomTogetherAIEmbedder(model_name=self.embedding_model, logger=self._logger)
+            return CustomTogetherAIEmbedder(
+                model_name=self.embedding_model,
+                logger=self._logger,
+                meter=self._meter,
+            )
 
     @override
     async def get_moderation_service(self) -> ModerationService:

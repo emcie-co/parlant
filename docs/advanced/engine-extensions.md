@@ -26,7 +26,7 @@ async def intercept_message_generation_with_greeting(
 ) -> p.EngineHookResult:
     if await is_only_greeting(ctx.interaction.last_customer_message):
         await ctx.session_event_emitter.emit_message_event(
-            correlation_id=ctx.correlator.correlation_id,
+            trace_id=ctx.tracer.trace_id,
             data="Hello! How can I help you today?",
         )
         return p.EngineHookResult.BAIL  # Intercept the rest of the process

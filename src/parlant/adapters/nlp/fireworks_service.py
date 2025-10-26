@@ -22,13 +22,14 @@ from typing import Any, Mapping
 from typing_extensions import override
 from fireworks.client.error import RateLimitError  # type: ignore
 
-from parlant.adapters.nlp.common import normalize_json_output
+from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.meter import Meter
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
     T,
-    SchematicGenerator,
+    BaseSchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -63,16 +64,18 @@ class FireworksEstimatingTokenizer(EstimatingTokenizer):
         return len(tokens) + 36
 
 
-class FireworksSchematicGenerator(SchematicGenerator[T]):
+class FireworksSchematicGenerator(BaseSchematicGenerator[T]):
     supported_hints = ["temperature", "max_tokens"]
 
     def __init__(
         self,
         model_name: str,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self.model_name = model_name
         self._logger = logger
+        self._meter = meter
         self._client = AsyncFireworks(api_key=os.environ.get("FIREWORKS_API_KEY"))
         self._tokenizer = FireworksEstimatingTokenizer(model_name=self.model_name)
 
@@ -98,14 +101,13 @@ class FireworksSchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.scope("FireworksSchematicGenerator"):
-            with self._logger.operation(f"LLM Request ({self.schema.__name__})"):
-                return await self._do_generate(prompt, hints)
+        with self._logger.scope(f"Fireworks LLM Request ({self.schema.__name__})"):
+            return await self._do_generate(prompt, hints)
 
     async def _do_generate(
         self,
@@ -155,6 +157,13 @@ class FireworksSchematicGenerator(SchematicGenerator[T]):
         try:
             model_content = self.schema.model_validate(json_object)
 
+            await record_llm_metrics(
+                self._meter,
+                self.model_name,
+                input_tokens=response.usage.prompt_tokens,  # type: ignore
+                output_tokens=response.usage.completion_tokens,  # type: ignore
+            )
+
             return SchematicGenerationResult(
                 content=model_content,
                 info=GenerationInfo(
@@ -176,10 +185,11 @@ class FireworksSchematicGenerator(SchematicGenerator[T]):
 
 
 class FireworksLlama3_1_8B(FireworksSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="accounts/fireworks/models/llama-v3p1-8b-instruct",
             logger=logger,
+            meter=meter,
         )
 
     @property
@@ -194,10 +204,11 @@ class FireworksLlama3_1_8B(FireworksSchematicGenerator[T]):
 
 
 class FireworksLlama3_1_70B(FireworksSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="accounts/fireworks/models/llama-v3p1-70b-instruct",
             logger=logger,
+            meter=meter,
         )
 
     @property
@@ -217,10 +228,11 @@ class FireworksLlama3_1_405B(FireworksSchematicGenerator[T]):
     Only suitable for high-performance workloads with significant budget considerations.
     """
 
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="accounts/fireworks/models/llama-v3p1-405b-instruct",
             logger=logger,
+            meter=meter,
         )
 
     @property
@@ -235,10 +247,11 @@ class FireworksLlama3_1_405B(FireworksSchematicGenerator[T]):
 
 
 class FireworksMythoMax(FireworksSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="accounts/fireworks/models/mythomax-l2-13b",
             logger=logger,
+            meter=meter,
         )
 
     @property
@@ -253,10 +266,11 @@ class FireworksMythoMax(FireworksSchematicGenerator[T]):
 
 
 class FireworksGemma2_9B(FireworksSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="accounts/fireworks/models/gemma2-9b-it",
             logger=logger,
+            meter=meter,
         )
 
     @property
@@ -273,10 +287,11 @@ class FireworksGemma2_9B(FireworksSchematicGenerator[T]):
 class CustomFireworksSchematicGenerator(FireworksSchematicGenerator[T]):
     """Generic Fireworks generator that accepts any model name."""
 
-    def __init__(self, model_name: str, logger: Logger) -> None:
+    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name=model_name,
             logger=logger,
+            meter=meter,
         )
 
     @property
@@ -326,6 +341,7 @@ You can get your API key from: https://app.fireworks.ai/settings/users/api-keys
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self._model_name = os.environ.get(
             "FIREWORKS_MODEL", "accounts/fireworks/models/llama-v3p1-8b-instruct"
@@ -334,6 +350,7 @@ You can get your API key from: https://app.fireworks.ai/settings/users/api-keys
             "FIREWORKS_EMBEDDING_MODEL", "accounts/fireworks/models/qwen3-embedding-8b"
         )
         self._logger = logger
+        self._meter = meter
         self._logger.info(f"Initialized FireworksService with {self._model_name}")
 
     def _get_specialized_generator_class(
@@ -370,16 +387,18 @@ You can get your API key from: https://app.fireworks.ai/settings/users/api-keys
 
         if specialized_class:
             self._logger.debug(f"Using specialized generator for model: {self._model_name}")
-            return specialized_class(logger=self._logger, model_name=self._model_name)
+            return specialized_class(
+                model_name=self._model_name, logger=self._logger, meter=self._meter
+            )
         else:
             self._logger.debug(f"Using custom generator for model: {self._model_name}")
             return CustomFireworksSchematicGenerator[t](  # type: ignore
-                model_name=self._model_name, logger=self._logger
+                model_name=self._model_name, logger=self._logger, meter=self._meter
             )
 
     @override
     async def get_embedder(self) -> Embedder:
-        return JinaAIEmbedder()
+        return JinaAIEmbedder(self._logger, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

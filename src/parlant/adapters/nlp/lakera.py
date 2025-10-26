@@ -21,21 +21,22 @@ from parlant.core.loggers import Logger
 from parlant.core.nlp.moderation import (
     CustomerModerationContext,
     ModerationCheck,
-    ModerationService,
+    BaseModerationService,
     ModerationTag,
 )
+from parlant.core.meter import Meter
 
 
-class LakeraGuard(ModerationService):
-    def __init__(self, logger: Logger) -> None:
-        self._logger = logger
+class LakeraGuard(BaseModerationService):
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(logger, meter)
 
     @override
-    async def moderate_customer(self, context: CustomerModerationContext) -> ModerationCheck:
+    async def do_moderate(self, context: CustomerModerationContext) -> ModerationCheck:
         api_key: str | None = os.environ.get("LAKERA_API_KEY")
 
         if not api_key:
-            self._logger.warning(
+            self.logger.warning(
                 "LakeraGuard is enabled but LAKERA_API_KEY is missing. Skipping check..."
             )
             return ModerationCheck(flagged=False, tags=[])
@@ -52,7 +53,7 @@ class LakeraGuard(ModerationService):
 
             return mapping.get(category.replace("/", "_").replace("-", "_"), [])
 
-        with self._logger.operation("Lakera Moderation Request"):
+        with self.logger.scope("Lakera Moderation Request"):
             async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
                 response = await client.post(
                     "https://api.lakera.ai/v2/guard/results",

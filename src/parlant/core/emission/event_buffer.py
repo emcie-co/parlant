@@ -36,13 +36,13 @@ class EventBuffer(EventEmitter):
     @override
     async def emit_status_event(
         self,
-        correlation_id: str,
+        trace_id: str,
         data: StatusEventData,
     ) -> EmittedEvent:
         event = EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.STATUS,
-            correlation_id=correlation_id,
+            trace_id=trace_id,
             data=cast(JSONSerializable, data),
         )
 
@@ -53,7 +53,7 @@ class EventBuffer(EventEmitter):
     @override
     async def emit_message_event(
         self,
-        correlation_id: str,
+        trace_id: str,
         data: str | MessageEventData,
     ) -> EmittedEvent:
         if isinstance(data, str):
@@ -73,7 +73,7 @@ class EventBuffer(EventEmitter):
         event = EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.MESSAGE,
-            correlation_id=correlation_id,
+            trace_id=trace_id,
             data=message_data,
         )
 
@@ -84,13 +84,13 @@ class EventBuffer(EventEmitter):
     @override
     async def emit_tool_event(
         self,
-        correlation_id: str,
+        trace_id: str,
         data: ToolEventData,
     ) -> EmittedEvent:
         event = EmittedEvent(
             source=EventSource.SYSTEM,
             kind=EventKind.TOOL,
-            correlation_id=correlation_id,
+            trace_id=trace_id,
             data=cast(JSONSerializable, data),
         )
 
@@ -101,13 +101,13 @@ class EventBuffer(EventEmitter):
     @override
     async def emit_custom_event(
         self,
-        correlation_id: str,
+        trace_id: str,
         data: JSONSerializable,
     ) -> EmittedEvent:
         event = EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.CUSTOM,
-            correlation_id=correlation_id,
+            trace_id=trace_id,
             data=data,
         )
 

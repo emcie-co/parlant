@@ -23,7 +23,7 @@ import os
 from pydantic import ValidationError
 import tiktoken
 
-from parlant.adapters.nlp.common import normalize_json_output
+from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.core.engines.alpha.canned_response_generator import CannedResponseSelectionSchema
 from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch import (
     DisambiguationGuidelineMatchesSchema,
@@ -32,18 +32,20 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selectio
     JourneyNodeSelectionSchema,
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.loggers import Logger, LogLevel
+from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
-from parlant.core.nlp.embedding import Embedder, EmbeddingResult
+from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
-    SchematicGenerator,
+    BaseSchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.moderation import (
+    BaseModerationService,
     CustomerModerationContext,
     ModerationCheck,
     ModerationService,
@@ -84,7 +86,7 @@ class MistralEstimatingTokenizer(EstimatingTokenizer):
         return len(tokens)
 
 
-class MistralSchematicGenerator(SchematicGenerator[T]):
+class MistralSchematicGenerator(BaseSchematicGenerator[T]):
     supported_mistral_params = ["temperature", "max_tokens"]
     supported_hints = supported_mistral_params
 
@@ -92,9 +94,9 @@ class MistralSchematicGenerator(SchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        meter: Meter,
     ) -> None:
-        self.model_name = model_name
-        self._logger = logger
+        super().__init__(logger=logger, meter=meter, model_name=model_name)
 
         self._client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
         self._tokenizer = MistralEstimatingTokenizer(model_name=self.model_name)
@@ -122,16 +124,13 @@ class MistralSchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.scope("MistralSchematicGenerator"):
-            with self._logger.operation(
-                f"LLM Request ({self.schema.__name__})", level=LogLevel.TRACE
-            ):
-                return await self._do_generate(prompt, hints)
+        with self.logger.scope(f"Mistral LLM Request ({self.schema.__name__})"):
+            return await self._do_generate(prompt, hints)
 
     async def _do_generate(
         self,
@@ -155,13 +154,13 @@ class MistralSchematicGenerator(SchematicGenerator[T]):
             )
         except SDKError as e:
             if "rate" in str(e).lower() or "429" in str(e):
-                self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+                self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
 
         t_end = time.time()
 
         if response.usage:
-            self._logger.trace(
+            self.logger.trace(
                 f"Usage: input_tokens={response.usage.prompt_tokens}, "
                 f"output_tokens={response.usage.completion_tokens}"
             )
@@ -173,14 +172,22 @@ class MistralSchematicGenerator(SchematicGenerator[T]):
             content_str = raw_content if isinstance(raw_content, str) else str(raw_content)
             json_content = json.loads(normalize_json_output(content_str))
         except json.JSONDecodeError:
-            self._logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
+            self.logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
             json_content = jsonfinder.only_json(raw_content)[2]
-            self._logger.warning("Found JSON content within model response; continuing...")
+            self.logger.warning("Found JSON content within model response; continuing...")
 
         try:
             content = self.schema.model_validate(json_content)
 
             assert response.usage
+
+            await record_llm_metrics(
+                self.meter,
+                self.model_name,
+                input_tokens=response.usage.prompt_tokens or 0,
+                output_tokens=response.usage.completion_tokens or 0,
+                cached_input_tokens=0,
+            )
 
             return SchematicGenerationResult(
                 content=content,
@@ -196,15 +203,15 @@ class MistralSchematicGenerator(SchematicGenerator[T]):
             )
 
         except ValidationError as e:
-            self._logger.error(
+            self.logger.error(
                 f"Error: {e.json(indent=2)}\nJSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
             )
             raise
 
 
 class Mistral_Large_2411(MistralSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="mistral-large-2411", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="mistral-large-2411", logger=logger, meter=meter)
 
     @property
     @override
@@ -213,8 +220,8 @@ class Mistral_Large_2411(MistralSchematicGenerator[T]):
 
 
 class Mistral_Medium_2508(MistralSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="mistral-medium-2508", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="mistral-medium-2508", logger=logger, meter=meter)
 
     @property
     @override
@@ -223,8 +230,8 @@ class Mistral_Medium_2508(MistralSchematicGenerator[T]):
 
 
 class Mistral_Small_2506(MistralSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="mistral-small-2506", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="mistral-small-2506", logger=logger, meter=meter)
 
     @property
     @override
@@ -232,10 +239,9 @@ class Mistral_Small_2506(MistralSchematicGenerator[T]):
         return 128 * 1024
 
 
-class MistralEmbedder(Embedder):
-    def __init__(self, logger: Logger) -> None:
-        self.model_name = "mistral-embed"
-        self._logger = logger
+class MistralEmbedder(BaseEmbedder):
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(logger=logger, meter=meter, model_name="mistral-embed")
         self._client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
         self._tokenizer = MistralEstimatingTokenizer(model_name=self.model_name)
 
@@ -271,7 +277,7 @@ class MistralEmbedder(Embedder):
         ]
     )
     @override
-    async def embed(
+    async def do_embed(
         self,
         texts: list[str],
         hints: Mapping[str, Any] = {},
@@ -283,7 +289,7 @@ class MistralEmbedder(Embedder):
             )
         except SDKError as e:
             if "rate" in str(e).lower() or "429" in str(e):
-                self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+                self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
 
         vectors = [
@@ -292,14 +298,15 @@ class MistralEmbedder(Embedder):
         return EmbeddingResult(vectors=vectors)
 
 
-class MistralModerationService(ModerationService):
-    def __init__(self, logger: Logger) -> None:
+class MistralModerationService(BaseModerationService):
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(logger=logger, meter=meter)
+
         self.model_name = "mistral-moderation-2411"
-        self._logger = logger
         self._client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
 
     @override
-    async def moderate_customer(self, context: CustomerModerationContext) -> ModerationCheck:
+    async def do_moderate(self, context: CustomerModerationContext) -> ModerationCheck:
         def extract_tags(category: str) -> list[ModerationTag]:
             mapping: dict[str, list[ModerationTag]] = {
                 "sexual": ["sexual"],
@@ -315,11 +322,10 @@ class MistralModerationService(ModerationService):
 
             return mapping.get(category.replace("-", "_").replace(" ", "_").lower(), [])
 
-        with self._logger.operation("Mistral Moderation Request", level=LogLevel.TRACE):
-            response = await self._client.classifiers.moderate_chat_async(
-                model=self.model_name,
-                inputs=[{"role": "user", "content": context.message}],  # type: ignore[arg-type]
-            )
+        response = await self._client.classifiers.moderate_chat_async(
+            model=self.model_name,
+            inputs=[{"role": "user", "content": context.message}],  # type: ignore[arg-type]
+        )
 
         result = response.results[0]
 
@@ -364,8 +370,10 @@ Please set MISTRAL_API_KEY in your environment before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self._logger = logger
+        self._meter = meter
         self._logger.info("Initialized MistralService")
 
     @override
@@ -380,8 +388,8 @@ Please set MISTRAL_API_KEY in your environment before running Parlant.
 
     @override
     async def get_embedder(self) -> Embedder:
-        return MistralEmbedder(self._logger)
+        return MistralEmbedder(self._logger, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:
-        return MistralModerationService(self._logger)
+        return MistralModerationService(self._logger, self._meter)

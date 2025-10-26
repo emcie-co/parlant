@@ -40,10 +40,12 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
     ToolCallContext,
     ToolCallId,
     ToolInsights,
+    measure_tool_call_batch,
 )
 from parlant.core.glossary import Term
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.services.tools.service_registry import ServiceRegistry
@@ -114,6 +116,7 @@ class SingleToolBatch(ToolCallBatch):
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
         optimization_policy: OptimizationPolicy,
         service_registry: ServiceRegistry,
         schematic_generator: SchematicGenerator[SingleToolBatchSchema],
@@ -121,6 +124,8 @@ class SingleToolBatch(ToolCallBatch):
         context: ToolCallContext,
     ) -> None:
         self._logger = logger
+        self._meter = meter
+
         self._optimization_policy = optimization_policy
         self._service_registry = service_registry
         self._schematic_generator = schematic_generator
@@ -129,23 +134,24 @@ class SingleToolBatch(ToolCallBatch):
 
     @override
     async def process(self) -> ToolCallBatchResult:
-        (
-            generation_info,
-            inference_output,
-            execution_status,
-            missing_data,
-            invalid_data,
-        ) = await self._infer_calls_for_single_tool(
-            agent=self._context.agent,
-            context_variables=self._context.context_variables,
-            interaction_history=self._context.interaction_history,
-            terms=self._context.terms,
-            ordinary_guideline_matches=self._context.ordinary_guideline_matches,
-            journeys=self._context.journeys,
-            candidate_descriptor=self._candidate_tool,
-            reference_tools=[],
-            staged_events=self._context.staged_events,
-        )
+        async with measure_tool_call_batch(self._meter, self):
+            (
+                generation_info,
+                inference_output,
+                execution_status,
+                missing_data,
+                invalid_data,
+            ) = await self._infer_calls_for_single_tool(
+                agent=self._context.agent,
+                context_variables=self._context.context_variables,
+                interaction_history=self._context.interaction_history,
+                terms=self._context.terms,
+                ordinary_guideline_matches=self._context.ordinary_guideline_matches,
+                journeys=self._context.journeys,
+                candidate_descriptor=self._candidate_tool,
+                reference_tools=[],
+                staged_events=self._context.staged_events,
+            )
 
         return ToolCallBatchResult(
             generation_info=generation_info,
@@ -202,39 +208,36 @@ class SingleToolBatch(ToolCallBatch):
             self._get_shot_collection_for_tools(await self.shots(), bool(reference_tools)),
         )
 
-        tool_id, tool, _ = candidate_descriptor
-
         # Send the tool call inference prompt to the LLM
-        with self._logger.operation(f"Evaluation({tool_id})"):
-            generation_attempt_temperatures = (
-                self._optimization_policy.get_tool_calling_batch_retry_temperatures()
-            )
+        generation_attempt_temperatures = (
+            self._optimization_policy.get_tool_calling_batch_retry_temperatures()
+        )
 
-            last_generation_exception: Exception | None = None
+        last_generation_exception: Exception | None = None
 
-            for generation_attempt in range(3):
-                try:
-                    generation_info, inference_output = await self._run_inference(
-                        prompt=inference_prompt,
-                        temperature=generation_attempt_temperatures[generation_attempt],
-                    )
+        for generation_attempt in range(3):
+            try:
+                generation_info, inference_output = await self._run_inference(
+                    prompt=inference_prompt,
+                    temperature=generation_attempt_temperatures[generation_attempt],
+                )
 
-                    # Evaluate the tool calls
-                    (
-                        tool_calls,
-                        evaluations,
-                        missing_data,
-                        invalid_data,
-                    ) = await self._evaluate_tool_calls(inference_output, candidate_descriptor)
+                # Evaluate the tool calls
+                (
+                    tool_calls,
+                    evaluations,
+                    missing_data,
+                    invalid_data,
+                ) = await self._evaluate_tool_calls(inference_output, candidate_descriptor)
 
-                    return generation_info, tool_calls, evaluations, missing_data, invalid_data
+                return generation_info, tool_calls, evaluations, missing_data, invalid_data
 
-                except Exception as exc:
-                    self._logger.warning(
-                        f"SingleToolBatch attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
-                    )
+            except Exception as exc:
+                self._logger.warning(
+                    f"SingleToolBatch attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                )
 
-                    last_generation_exception = exc
+                last_generation_exception = exc
 
         raise ToolCallBatchError() from last_generation_exception
 

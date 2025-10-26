@@ -10,7 +10,10 @@ from typing_extensions import override
 from parlant.core import async_utils
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 
-from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
+from parlant.core.engines.alpha.guideline_matching.common import measure_guideline_matching_batch
+from parlant.core.engines.alpha.guideline_matching.generic.common import (
+    internal_representation,
+)
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch,
 )
@@ -25,6 +28,7 @@ from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
@@ -397,6 +401,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
         guideline_store: GuidelineStore,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[JourneyNodeSelectionSchema],
@@ -406,6 +411,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
         journey_path: Sequence[str | None] = [],
     ) -> None:
         self._logger = logger
+        self._meter = meter
 
         self._guideline_store = guideline_store
 
@@ -415,6 +421,11 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
         self._context = context
         self._examined_journey = examined_journey
         self._previous_path: Sequence[str | None] = journey_path
+
+    @property
+    @override
+    def size(self) -> int:
+        return 1
 
     def auto_return_match(self) -> GuidelineMatchingBatchResult | None:
         if self._previous_path and self._previous_path[-1] in self._node_wrappers:
@@ -470,7 +481,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
             )
         )
 
-        with self._logger.operation(self._examined_journey.title):
+        async with measure_guideline_matching_batch(self._meter, self):
             prompt = self._build_prompt(journey_conditions, shots=await self.shots())
 
             generation_attempt_temperatures = (
@@ -875,7 +886,7 @@ def _make_event(e_id: str, source: EventSource, message: str) -> Event:
         kind=EventKind.MESSAGE,
         creation_utc=datetime.now(timezone.utc),
         offset=0,
-        correlation_id="",
+        trace_id="",
         data={"message": message},
         deleted=False,
     )

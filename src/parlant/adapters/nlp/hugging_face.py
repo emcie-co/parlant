@@ -28,9 +28,11 @@ from huggingface_hub.errors import (  # type: ignore
 
 from tempfile import gettempdir
 
+from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
-from parlant.core.nlp.embedding import Embedder, EmbeddingResult
+from parlant.core.nlp.embedding import BaseEmbedder, EmbeddingResult
 
 
 _TOKENIZER_MODELS: dict[str, AutoTokenizer] = {}
@@ -104,9 +106,10 @@ class HuggingFaceEstimatingTokenizer(EstimatingTokenizer):
         return len(tokens)
 
 
-class HuggingFaceEmbedder(Embedder):
-    def __init__(self, model_name: str) -> None:
-        self.model_name = model_name
+class HuggingFaceEmbedder(BaseEmbedder):
+    def __init__(self, logger: Logger, meter: Meter, model_name: str) -> None:
+        super().__init__(logger=logger, meter=meter, model_name=model_name)
+
         self._model = _create_auto_model(model_name)
         self._tokenizer = HuggingFaceEstimatingTokenizer(model_name=model_name)
 
@@ -139,7 +142,7 @@ class HuggingFaceEmbedder(Embedder):
         ]
     )
     @override
-    async def embed(
+    async def do_embed(
         self,
         texts: list[str],
         hints: Mapping[str, Any] = {},
@@ -156,8 +159,12 @@ class HuggingFaceEmbedder(Embedder):
 
 
 class JinaAIEmbedder(HuggingFaceEmbedder):
-    def __init__(self) -> None:
-        super().__init__("jinaai/jina-embeddings-v2-base-en")
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(
+            logger=logger,
+            meter=meter,
+            model_name="jinaai/jina-embeddings-v2-base-en",
+        )
 
     @property
     @override

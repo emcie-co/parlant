@@ -174,6 +174,14 @@ SessionModeField: TypeAlias = Annotated[
     ),
 ]
 
+SessionMetadataField: TypeAlias = Annotated[
+    Mapping[str, JSONSerializableDTO],
+    Field(
+        description="Metadata for the session",
+        examples=[{"simulation": True, "priority": "high"}],
+    ),
+]
+
 
 session_example: ExampleJson = {
     "id": "sess_123yz",
@@ -183,6 +191,7 @@ session_example: ExampleJson = {
     "title": "Product inquiry session",
     "mode": "auto",
     "consumption_offsets": consumption_offsets_example,
+    "metadata": {"simulation": True, "priority": "high"},
 }
 
 
@@ -199,6 +208,7 @@ class SessionDTO(
     title: SessionTitleField | None = None
     mode: SessionModeField
     consumption_offsets: ConsumptionOffsetsDTO
+    metadata: SessionMetadataField
 
 
 SessionCreationParamsCustomerIdField: TypeAlias = Annotated[
@@ -214,6 +224,7 @@ session_creation_params_example: ExampleJson = {
     "agent_id": "ag_123xyz",
     "customer_id": "cust_123xy",
     "title": "Product inquiry session",
+    "metadata": {"project": "demo", "priority": "high"},
 }
 
 
@@ -226,6 +237,7 @@ class SessionCreationParamsDTO(
     agent_id: SessionAgentIdPath
     customer_id: SessionCreationParamsCustomerIdField = None
     title: SessionTitleField | None = None
+    metadata: SessionMetadataField | None = None
 
 
 message_example = "Hello, I need help with my order"
@@ -331,11 +343,11 @@ EventCreationUTCField: TypeAlias = Annotated[
 ]
 
 
-EventCorrelationIdField: TypeAlias = Annotated[
+EventTraceIdField: TypeAlias = Annotated[
     str,
     Field(
         description="ID linking related events together",
-        examples=["corr_13xyz"],
+        examples=["trace_13xyz"],
     ),
 ]
 
@@ -345,7 +357,7 @@ event_example: ExampleJson = {
     "kind": "message",
     "offset": 0,
     "creation_utc": "2024-03-24T12:00:00Z",
-    "correlation_id": "corr_13xyz",
+    "trace_id": "corr_13xyz",
     "data": {
         "message": "Hello, I need help with my account",
         "participant": {"id": "cust_123xy", "display_name": "John Doe"},
@@ -364,7 +376,7 @@ class EventDTO(
     kind: EventKindDTO
     offset: EventOffsetField
     creation_utc: EventCreationUTCField
-    correlation_id: EventCorrelationIdField
+    trace_id: EventTraceIdField
     data: JSONSerializableDTO
     deleted: bool
 
@@ -378,9 +390,40 @@ class ConsumptionOffsetsUpdateParamsDTO(
     client: ConsumptionOffsetClientField | None = None
 
 
+SessionMetadataUnsetField: TypeAlias = Annotated[
+    Sequence[str],
+    Field(
+        description="Metadata keys to remove from the session",
+        examples=[["simulation", "priority"]],
+    ),
+]
+
+session_metadata_update_params_example: ExampleJson = {
+    "set": {
+        "simulation": False,
+        "priority": "low",
+    },
+    "unset": ["simulation", "priority"],
+}
+
+
+class SessionMetadataUpdateParamsDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": session_metadata_update_params_example},
+):
+    """Parameters for updating a session's metadata."""
+
+    set: SessionMetadataField | None = None
+    unset: SessionMetadataUnsetField | None = None
+
+
 session_update_params_example: ExampleJson = {
     "title": "Updated session title",
     "consumption_offsets": {"client": 42},
+    "metadata": {
+        "set": {"simulation": True, "priority": "low"},
+        "unset": ["old_project"],
+    },
 }
 
 
@@ -395,6 +438,7 @@ class SessionUpdateParamsDTO(
     mode: SessionModeField | None = None
     customer_id: CustomerId | None = None
     agent_id: AgentId | None = None
+    metadata: SessionMetadataUpdateParamsDTO | None = None
 
 
 ToolResultDataField: TypeAlias = Annotated[
@@ -989,7 +1033,7 @@ def event_to_dto(event: Event) -> EventDTO:
         kind=_event_kind_to_event_kind_dto(event.kind),
         offset=event.offset,
         creation_utc=event.creation_utc,
-        correlation_id=event.correlation_id,
+        trace_id=event.trace_id,
         data=cast(JSONSerializableDTO, event.data),
         deleted=event.deleted,
     )
@@ -1124,7 +1168,7 @@ MinOffsetQuery: TypeAlias = Annotated[
     ),
 ]
 
-CorrelationIdQuery: TypeAlias = Annotated[
+TraceIdQuery: TypeAlias = Annotated[
     str,
     Query(
         description="ID linking related events together",
@@ -1273,6 +1317,7 @@ def create_router(
             agent_id=params.agent_id,
             title=params.title,
             allow_greeting=allow_greeting,
+            metadata=params.metadata or {},
         )
 
         return SessionDTO(
@@ -1283,6 +1328,7 @@ def create_router(
             consumption_offsets=ConsumptionOffsetsDTO(client=session.consumption_offsets["client"]),
             title=session.title,
             mode=SessionModeDTO(session.mode),
+            metadata=session.metadata,
         )
 
     @router.get(
@@ -1317,6 +1363,7 @@ def create_router(
                 client=session.consumption_offsets["client"],
             ),
             mode=SessionModeDTO(session.mode),
+            metadata=session.metadata,
         )
 
     @router.get(
@@ -1361,6 +1408,7 @@ def create_router(
                     client=s.consumption_offsets["client"],
                 ),
                 mode=SessionModeDTO(s.mode),
+                metadata=s.metadata,
             )
             for s in sessions
         ]
@@ -1465,6 +1513,19 @@ def create_router(
             if dto.agent_id:
                 params["agent_id"] = dto.agent_id
 
+            if dto.metadata:
+                session = await app.sessions.read(session_id)
+                current_metadata = dict(session.metadata)
+
+                if dto.metadata.set:
+                    current_metadata.update(dto.metadata.set)
+
+                if dto.metadata.unset:
+                    for key in dto.metadata.unset:
+                        current_metadata.pop(key, None)
+
+                params["metadata"] = current_metadata
+
             return params
 
         session = await app.sessions.update(session_id=session_id, params=await from_dto(params))
@@ -1479,6 +1540,7 @@ def create_router(
                 client=session.consumption_offsets["client"],
             ),
             mode=SessionModeDTO(session.mode),
+            metadata=session.metadata,
         )
 
     @router.post(
@@ -1681,7 +1743,7 @@ def create_router(
             kind=_event_kind_to_event_kind_dto(event.kind),
             offset=event.offset,
             creation_utc=event.creation_utc,
-            correlation_id=event.correlation_id,
+            trace_id=event.trace_id,
             data=cast(JSONSerializableDTO, event.data),
             deleted=event.deleted,
         )
@@ -1710,7 +1772,7 @@ def create_router(
             kind=_event_kind_to_event_kind_dto(event.kind),
             offset=event.offset,
             creation_utc=event.creation_utc,
-            correlation_id=event.correlation_id,
+            trace_id=event.trace_id,
             data=cast(JSONSerializableDTO, event.data),
             deleted=event.deleted,
         )
@@ -1741,14 +1803,14 @@ def create_router(
         session_id: SessionIdPath,
         min_offset: MinOffsetQuery | None = None,
         source: EventSourceDTO | None = None,
-        correlation_id: CorrelationIdQuery | None = None,
+        trace_id: TraceIdQuery | None = None,
         kinds: KindsQuery | None = None,
         wait_for_data: int = 60,
     ) -> Sequence[EventDTO]:
         """Lists events from a session with optional filtering and waiting capabilities.
 
         This endpoint retrieves events from a specified session and can:
-        1. Filter events by their offset, source, type, and correlation ID
+        1. Filter events by their offset, source, type, and trace ID
         2. Wait for new events to arrive if requested
         3. Return events in chronological order based on their offset
 
@@ -1776,7 +1838,7 @@ def create_router(
                 min_offset=min_offset or 0,
                 source=event_source,
                 kinds=kind_list,
-                correlation_id=correlation_id,
+                trace_id=trace_id,
                 timeout=Timeout(wait_for_data),
             ):
                 raise HTTPException(
@@ -1789,7 +1851,7 @@ def create_router(
             min_offset=min_offset or 0,
             source=event_source,
             kinds=kind_list,
-            correlation_id=correlation_id,
+            trace_id=trace_id,
         )
 
         return [
@@ -1799,7 +1861,7 @@ def create_router(
                 kind=_event_kind_to_event_kind_dto(e.kind),
                 offset=e.offset,
                 creation_utc=e.creation_utc,
-                correlation_id=e.correlation_id,
+                trace_id=e.trace_id,
                 data=cast(JSONSerializableDTO, e.data),
                 deleted=e.deleted,
             )

@@ -30,6 +30,7 @@ from parlant.core.glossary import Term, TermId
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
 from parlant.core.journeys import Journey, JourneyId, JourneyNodeId
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import EventKind, EventSource, Session, SessionId, SessionStore
 from parlant.core.tags import Tag, TagId
@@ -650,6 +651,7 @@ async def base_test_that_correct_node_is_selected(
 
     journey_node_selector = GenericJourneyNodeSelectionBatch(
         logger=context.logger,
+        meter=context.container[Meter],
         guideline_store=context.container[GuidelineStore],
         schematic_generator=context.schematic_generator,
         examined_journey=journey,
@@ -987,7 +989,7 @@ async def test_that_journey_selector_correctly_advances_based_on_tool_result(
 
     staged_events = [
         EmittedEvent(
-            source=EventSource.AI_AGENT, kind=EventKind.TOOL, correlation_id="", data=tool_result
+            source=EventSource.AI_AGENT, kind=EventKind.TOOL, trace_id="", data=tool_result
         ),
     ]
 
@@ -1303,7 +1305,7 @@ async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_
         EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.TOOL,
-            correlation_id="",
+            trace_id="",
             data=stock_check_result,
         ),
     ]
@@ -1391,7 +1393,7 @@ async def test_that_journey_selector_backtracks_when_customer_changes_much_earli
         EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.TOOL,
-            correlation_id="",
+            trace_id="",
             data=failed_tool_result,
         ),
     ]
@@ -1641,7 +1643,7 @@ async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_
         EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.TOOL,
-            correlation_id="",
+            trace_id="",
             data=failed_tool_result,
         ),
     ]
@@ -2058,7 +2060,7 @@ async def test_that_journey_reexecutes_tool_running_step_even_if_the_tool_ran_be
         EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.TOOL,
-            correlation_id="",
+            trace_id="",
             data=stock_check_result,
         ),
     ]

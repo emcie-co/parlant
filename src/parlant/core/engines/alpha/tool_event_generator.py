@@ -17,8 +17,9 @@ from itertools import chain
 from typing import Mapping, Optional, Sequence
 from parlant.core.customers import Customer
 from parlant.core.engines.alpha.loaded_context import LoadedContext
+from parlant.core.meter import Meter
 from parlant.core.tools import ToolContext
-from parlant.core.contextual_correlator import ContextualCorrelator
+from parlant.core.tracer import Tracer
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.loggers import Logger
 from parlant.core.agents import Agent
@@ -61,14 +62,29 @@ class ToolEventGenerator:
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
+        tracer: Tracer,
         tool_caller: ToolCaller,
-        correlator: ContextualCorrelator,
         service_registry: ServiceRegistry,
     ) -> None:
         self._logger = logger
-        self._correlator = correlator
+        self._tracer = tracer
+        self._meter = meter
         self._service_registry = service_registry
         self._tool_caller = tool_caller
+
+        self._hist_tool_call_duration = self._meter.create_duration_histogram(
+            "tc",
+            description="Duration of tool call requests",
+        )
+        self._hist_tool_call_inference_duration = self._meter.create_duration_histogram(
+            "tc.infer",
+            description="Duration of tool call inference",
+        )
+        self._hist_tool_call_execution_duration = self._meter.create_duration_histogram(
+            "tc.run",
+            description="Duration of tool call execution",
+        )
 
     async def create_preexecution_state(
         self,
@@ -108,7 +124,7 @@ class ToolEventGenerator:
             return ToolEventGenerationResult(generations=[], events=[], insights=ToolInsights())
 
         await context.session_event_emitter.emit_status_event(
-            correlation_id=self._correlator.correlation_id,
+            trace_id=self._tracer.trace_id,
             data={
                 "status": "processing",
                 "data": {"stage": "Fetching data"},
@@ -128,65 +144,68 @@ class ToolEventGenerator:
             staged_events=context.state.tool_events,
         )
 
-        inference_result = await self._tool_caller.infer_tool_calls(
-            context=tool_call_context,
-        )
-
-        tool_calls = list(chain.from_iterable(inference_result.batches))
-
-        if not tool_calls:
-            return ToolEventGenerationResult(
-                generations=inference_result.batch_generations,
-                events=[],
-                insights=inference_result.insights,
-            )
-
-        tool_context = ToolContext(
-            agent_id=context.agent.id,
-            session_id=context.session.id,
-            customer_id=context.customer.id,
-        )
-
-        tool_results = await self._tool_caller.execute_tool_calls(
-            tool_context,
-            tool_calls,
-        )
-
-        if not tool_results:
-            return ToolEventGenerationResult(
-                generations=inference_result.batch_generations,
-                events=[],
-                insights=inference_result.insights,
-            )
-
-        events = []
-        for r in tool_results:
-            event_data: ToolEventData = {
-                "tool_calls": [
-                    {
-                        "tool_id": r.tool_call.tool_id.to_string(),
-                        "arguments": r.tool_call.arguments,
-                        "result": r.result,
-                    }
-                ]
-            }
-            if r.result["control"].get("lifespan", "session") == "session":
-                events.append(
-                    await context.session_event_emitter.emit_tool_event(
-                        correlation_id=self._correlator.correlation_id,
-                        data=event_data,
-                    )
-                )
-            else:
-                events.append(
-                    await context.response_event_emitter.emit_tool_event(
-                        correlation_id=self._correlator.correlation_id,
-                        data=event_data,
-                    )
+        async with self._hist_tool_call_duration.measure():
+            async with self._hist_tool_call_inference_duration.measure():
+                inference_result = await self._tool_caller.infer_tool_calls(
+                    context=tool_call_context,
                 )
 
-        return ToolEventGenerationResult(
-            generations=inference_result.batch_generations,
-            events=events,
-            insights=inference_result.insights,
-        )
+            tool_calls = list(chain.from_iterable(inference_result.batches))
+
+            if not tool_calls:
+                return ToolEventGenerationResult(
+                    generations=inference_result.batch_generations,
+                    events=[],
+                    insights=inference_result.insights,
+                )
+
+            tool_context = ToolContext(
+                agent_id=context.agent.id,
+                session_id=context.session.id,
+                customer_id=context.customer.id,
+            )
+
+            async with self._hist_tool_call_execution_duration.measure():
+                tool_results = await self._tool_caller.execute_tool_calls(
+                    tool_context,
+                    tool_calls,
+                )
+
+            if not tool_results:
+                return ToolEventGenerationResult(
+                    generations=inference_result.batch_generations,
+                    events=[],
+                    insights=inference_result.insights,
+                )
+
+            events = []
+            for r in tool_results:
+                event_data: ToolEventData = {
+                    "tool_calls": [
+                        {
+                            "tool_id": r.tool_call.tool_id.to_string(),
+                            "arguments": r.tool_call.arguments,
+                            "result": r.result,
+                        }
+                    ]
+                }
+                if r.result["control"].get("lifespan", "session") == "session":
+                    events.append(
+                        await context.session_event_emitter.emit_tool_event(
+                            trace_id=self._tracer.trace_id,
+                            data=event_data,
+                        )
+                    )
+                else:
+                    events.append(
+                        await context.response_event_emitter.emit_tool_event(
+                            trace_id=self._tracer.trace_id,
+                            data=event_data,
+                        )
+                    )
+
+            return ToolEventGenerationResult(
+                generations=inference_result.batch_generations,
+                events=events,
+                insights=inference_result.insights,
+            )

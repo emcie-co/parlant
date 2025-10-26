@@ -54,8 +54,6 @@ from parlant.core.sessions import (
     Session,
     SessionStore,
     Event,
-    MessageGenerationInspection,
-    PreparationIteration,
     SessionUpdateParams,
 )
 from parlant.core.services.tools.service_registry import ServiceRegistry
@@ -496,20 +494,6 @@ class EntityCommands:
     ) -> None:
         self._session_store = session_store
         self._context_variable_store = context_variable_store
-
-    async def create_inspection(
-        self,
-        session_id: SessionId,
-        correlation_id: str,
-        message_generations: Sequence[MessageGenerationInspection],
-        preparation_iterations: Sequence[PreparationIteration],
-    ) -> None:
-        await self._session_store.create_inspection(
-            session_id=session_id,
-            correlation_id=correlation_id,
-            preparation_iterations=preparation_iterations,
-            message_generations=message_generations,
-        )
 
     async def update_session(
         self,

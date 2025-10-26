@@ -111,12 +111,12 @@ function openDB(storeName = STORE_NAME) {
 	});
 }
 
-async function getLogs(correlation_id: string): Promise<Log[]> {
+async function getLogs(trace_id: string): Promise<Log[]> {
 	const db = await openDB();
 	return new Promise((resolve, reject) => {
 		const transaction = db.transaction(STORE_NAME, 'readonly');
 		const store = transaction.objectStore(STORE_NAME);
-		const request = store.get(correlation_id);
+		const request = store.get(trace_id);
 		request.onsuccess = () => resolve(request.result?.values || []);
 		request.onerror = () => reject(request.error);
 	});
@@ -128,27 +128,27 @@ export const handleChatLogs = async (log: Log) => {
 	const transaction = db.transaction(STORE_NAME, 'readwrite');
 	const store = transaction.objectStore(STORE_NAME);
 
-	const logEntry = store.get(log.correlation_id);
+	const logEntry = store.get(log.trace_id);
 
 	logEntry.onsuccess = () => {
 		const data = logEntry.result;
 		const timestamp = Date.now();
 		if (!data?.values) {
-			if (!log.message?.trim().startsWith('HTTP') || log.message?.includes('/events')) store.put({timestamp, values: [log]}, log.correlation_id);
+			if (!log.message?.trim().startsWith('HTTP') || log.message?.includes('/events')) store.put({timestamp, values: [log]}, log.trace_id);
 		} else {
 			data.values.push(log);
-			store.put({timestamp, values: data.values}, log.correlation_id);
+			store.put({timestamp, values: data.values}, log.trace_id);
 		}
 	};
 	logEntry.onerror = () => console.error(logEntry.error);
 };
 
-export const getMessageLogs = async (correlation_id: string): Promise<Log[]> => {
-	return getLogs(correlation_id);
+export const getMessageLogs = async (trace_id: string): Promise<Log[]> => {
+	return getLogs(trace_id);
 };
 
-export const getMessageLogsWithFilters = async (correlation_id: string, filters: {level: string; types?: string[]; content?: string[]}): Promise<Log[]> => {
-	const logs = await getMessageLogs(correlation_id);
+export const getMessageLogsWithFilters = async (trace_id: string, filters: {level: string; types?: string[]; content?: string[]}): Promise<Log[]> => {
+	const logs = await getMessageLogs(trace_id);
 	const escapedWords = filters?.content?.map((word) => word.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, '\\$1'));
 	const pattern = escapedWords?.map((word) => `\\[?${word}\\]?`).join('.*?');
 	const levelIndex = filters.level ? logLevels.indexOf(filters.level) : null;

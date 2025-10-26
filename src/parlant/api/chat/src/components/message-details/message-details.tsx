@@ -56,10 +56,10 @@ const MessageDetails = ({
 	regenerateMessageFn,
 	resendMessageFn,
 	flaggedChanged,
-	sameCorrelationMessages,
+	sameTraceMessages: sameTraceMessages,
 }: {
 	event?: EventInterface | null;
-	sameCorrelationMessages?: EventInterface[];
+	sameTraceMessages?: EventInterface[];
 	closeLogs?: VoidFunction;
 	regenerateMessageFn?: (sessionId: string) => void;
 	resendMessageFn?: (sessionId: string) => void;
@@ -93,7 +93,7 @@ const MessageDetails = ({
 			if (logs && filters) {
 				if (!hasFilters && filters) setFilteredLogs(logs);
 				else {
-					const filtered = await getMessageLogsWithFilters(event?.correlation_id as string, filters as {level: string; types?: string[]; content?: string[]});
+					const filtered = await getMessageLogsWithFilters(event?.trace_id as string, filters as {level: string; types?: string[]; content?: string[]});
 					setFilteredLogs(filtered);
 					(setFilterTabs as React.Dispatch<React.SetStateAction<Filter[]>>)((tabFilters: Filter[]) => {
 						if (!tabFilters.length && hasFilters) {
@@ -123,13 +123,13 @@ const MessageDetails = ({
 	}, [event]);
 
 	useEffect(() => {
-		if (!event?.correlation_id) return;
+		if (!event?.trace_id) return;
 		const setLogsFn = async () => {
-			const logs = await getMessageLogs(event.correlation_id);
+			const logs = await getMessageLogs(event.trace_id);
 			setLogs(logs);
 		};
 		setLogsFn();
-	}, [event?.correlation_id]);
+	}, [event?.trace_id]);
 
 	const deleteFilterTab = (id: number | undefined) => {
 		const filterIndex = (filterTabs as Filter[]).findIndex((t) => t.id === id);
@@ -154,14 +154,14 @@ const MessageDetails = ({
 			<MessageDetailsHeader
 				event={event || null}
 				closeLogs={closeLogs}
-				sameCorrelationMessages={sameCorrelationMessages}
+				sameTraceMessages={sameTraceMessages}
 				resendMessageFn={resendMessageFn}
 				regenerateMessageFn={regenerateMessageFn}
 				className={twJoin('shadow-main h-[60px] min-h-[60px]', Object.keys(filters || {}).length ? 'border-[#F3F5F9]' : '')}
 				flaggedChanged={flaggedChanged}
 			/>
 			<div className='ps-[20px] pt-[10px] flex items-center gap-[3px] text-[14px] font-normal bg-white'>
-				<CopyText textToCopy={event?.correlation_id?.split('::')?.[0]} preText='Correlation ID: ' text={`${event?.correlation_id?.split('::')?.[0]}`} className='whitespace-nowrap [&_span]:text-ellipsis [&_span]:overflow-hidden [&_span]:block' />
+				<CopyText textToCopy={event?.trace_id?.split('::')?.[0]} preText='Trace ID: ' text={`${event?.trace_id?.split('::')?.[0]}`} className='whitespace-nowrap [&_span]:text-ellipsis [&_span]:overflow-hidden [&_span]:block' />
 			</div>
 			<ResizablePanelGroup direction='vertical' className={twJoin('w-full h-full overflow-auto flex flex-col justify-start pt-0 pe-0 bg-[#FBFBFB]')}>
 				<ResizablePanel ref={resizableRef} minSize={0} maxSize={isError ? 99 : 0} defaultSize={isError ? 50 : 0}>

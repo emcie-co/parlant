@@ -32,17 +32,18 @@ import os
 from pydantic import ValidationError
 import tiktoken
 
-from parlant.adapters.nlp.common import normalize_json_output
+from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
     T,
-    SchematicGenerator,
+    BaseSchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -63,7 +64,7 @@ class DeepSeekEstimatingTokenizer(EstimatingTokenizer):
         return len(tokens)
 
 
-class DeepSeekSchematicGenerator(SchematicGenerator[T]):
+class DeepSeekSchematicGenerator(BaseSchematicGenerator[T]):
     supported_deepseek_params = ["temperature", "logit_bias", "max_tokens"]
     supported_hints = supported_deepseek_params + ["strict"]
 
@@ -71,9 +72,11 @@ class DeepSeekSchematicGenerator(SchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self.model_name = model_name
         self._logger = logger
+        self._meter = meter
 
         self._client = AsyncClient(
             base_url="https://api.deepseek.com",
@@ -107,12 +110,12 @@ class DeepSeekSchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.operation(f"DeepSeek LLM Request ({self.schema.__name__})"):
+        with self._logger.scope(f"DeepSeek LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     async def _do_generate(
@@ -154,6 +157,18 @@ class DeepSeekSchematicGenerator(SchematicGenerator[T]):
 
             assert response.usage
 
+            await record_llm_metrics(
+                self._meter,
+                self.model_name,
+                input_tokens=response.usage.prompt_tokens,
+                output_tokens=response.usage.completion_tokens,
+                cached_input_tokens=getattr(
+                    response,
+                    "usage.prompt_cache_hit_tokens",
+                    0,
+                ),
+            )
+
             return SchematicGenerationResult(
                 content=content,
                 info=GenerationInfo(
@@ -181,8 +196,8 @@ class DeepSeekSchematicGenerator(SchematicGenerator[T]):
 
 
 class DeepSeek_Chat(DeepSeekSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
-        super().__init__(model_name="deepseek-chat", logger=logger)
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="deepseek-chat", logger=logger, meter=meter)
 
     @property
     @override
@@ -206,17 +221,19 @@ Please set DEEPSEEK_API_KEY in your environment before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         self._logger = logger
+        self._meter = meter
         self._logger.info("Initialized DeepSeekService")
 
     @override
     async def get_schematic_generator(self, t: type[T]) -> DeepSeekSchematicGenerator[T]:
-        return DeepSeek_Chat[t](self._logger)  # type: ignore
+        return DeepSeek_Chat[t](self._logger, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:
-        return JinaAIEmbedder()
+        return JinaAIEmbedder(self._logger, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

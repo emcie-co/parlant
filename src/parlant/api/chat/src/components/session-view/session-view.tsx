@@ -288,7 +288,7 @@ const SessionView = (): ReactElement => {
 												isRegenerateHidden={!!isMissingAgent}
 												event={event}
 												sameTraceMessages={visibleMessages.filter((e) => e.trace_id === event.trace_id)}
-												isContinual={event.trace_id === visibleMessages[i - 1]?.trace_id || (event.source === 'customer' && visibleMessages[i - 1]?.source === 'customer')}
+												isContinual={(event.trace_id === visibleMessages[i - 1]?.trace_id && event.source === visibleMessages[i - 1]?.source) || (event.source === 'customer' && visibleMessages[i - 1]?.source === 'customer')}
 												regenerateMessageFn={regenerateMessageDialog(i)}
 												resendMessageFn={resendMessageDialog(i)}
 												showLogsForMessage={showLogsForMessage}

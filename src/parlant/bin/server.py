@@ -245,7 +245,6 @@ sys.path.append(".")
 
 TRACER = LocalTracer()
 LOGGER = FileLogger(PARLANT_HOME_DIR / "parlant.log", TRACER, LogLevel.INFO)
-BACKGROUND_TASK_SERVICE = BackgroundTaskService(LOGGER)
 
 
 class StartupError(Exception):
@@ -1000,7 +999,7 @@ async def serve_app(
         await server.serve()
         await asyncio.sleep(0)  # Required to trigger the possible cancellation error
     except (KeyboardInterrupt, asyncio.CancelledError):
-        await BACKGROUND_TASK_SERVICE.cancel_all(reason="Server shutting down")
+        await container[BackgroundTaskService].cancel_all(reason="Server shutting down")
     except BaseException as e:
         LOGGER.critical(traceback.format_exc())
         LOGGER.critical(e.__class__.__name__ + ": " + str(e))

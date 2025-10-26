@@ -327,10 +327,11 @@ class Gemini_2_5_Flash(GeminiSchematicGenerator[T]):
 
 
 class Gemini_2_5_Flash_Lite(GeminiSchematicGenerator[T]):
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         super().__init__(
             model_name="gemini-2.5-flash-lite",
             logger=logger,
+            meter=meter,
         )
 
     @override

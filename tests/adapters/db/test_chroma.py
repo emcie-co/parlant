@@ -665,7 +665,7 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
             embedder_type_provider=_no_op_embedder_type_provider,
             allow_migration=True,
         ) as store:
-            docs = chroma_db.chroma_client.get_collection(name="glossary_NoOpEmbedder").get(
+            docs = chroma_db.chroma_client.get_collection(name="glossary_NullEmbedder").get(
                 include=["embeddings", "metadatas"]
             )
 

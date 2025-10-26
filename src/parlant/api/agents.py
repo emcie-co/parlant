@@ -164,14 +164,7 @@ class AgentCreationParamsDTO(
     """
 
     name: AgentNameField
-    id: Annotated[
-        AgentId | None,
-        Field(
-            default=None,
-            description="Custom identifier for the agent. If not provided, an ID will be automatically generated.",
-            examples=["my-custom-agent-id", "agent-prod-001"],
-        ),
-    ] = None
+    id: AgentIdPath | None = None
     description: AgentDescriptionField | None = None
     max_engine_iterations: AgentMaxEngineIterationsField | None = None
     composition_mode: CompositionModeDTO | None = None

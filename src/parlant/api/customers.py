@@ -138,14 +138,7 @@ class CustomerCreationParamsDTO(
     """
 
     name: CustomerNameField
-    id: Annotated[
-        CustomerId | None,
-        Field(
-            default=None,
-            description="Custom identifier for the customer. If not provided, an ID will be automatically generated.",
-            examples=["my-custom-customer-id", "customer-prod-001"],
-        ),
-    ] = None
+    id: CustomerIdPath | None = None
     metadata: CustomerMetadataField | None = None
     tags: TagIdSequenceField | None = None
 

@@ -71,65 +71,6 @@ GuidelineIdPath: TypeAlias = Annotated[
 ]
 
 
-class LegacyGuidelineDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": legacy_guideline_dto_example},
-):
-    """Assigns an id to the condition-action pair"""
-
-    id: GuidelineIdField
-    condition: GuidelineConditionField
-    action: GuidelineActionField
-    enabled: GuidelineEnabledField = True
-
-
-LegacyGuidelineConnectionIndirectField: TypeAlias = Annotated[
-    bool,
-    Field(
-        description="`True` if there is a path from `source` to `target` but no direct connection",
-        examples=[True, False],
-    ),
-]
-
-LegacyGuidelineConnectionIdField: TypeAlias = Annotated[
-    RelationshipId,
-    Field(
-        description="Unique identifier for the guideline connection",
-    ),
-]
-
-legacy_guideline_connection_dto_example: ExampleJson = {
-    "id": "conn_456xyz",
-    "source": {
-        "id": "guid_123xz",
-        "condition": "when the customer asks about pricing",
-        "action": "provide current pricing information",
-        "enabled": True,
-    },
-    "target": {
-        "id": "guid_789yz",
-        "condition": "when providing pricing information",
-        "action": "mention any seasonal discounts",
-        "enabled": True,
-    },
-    "indirect": False,
-}
-
-
-class LegacyGuidelineConnectionDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": legacy_guideline_connection_dto_example},
-):
-    """
-    Represents a connection between two guidelines.
-    """
-
-    id: LegacyGuidelineConnectionIdField
-    source: LegacyGuidelineDTO
-    target: LegacyGuidelineDTO
-    indirect: LegacyGuidelineConnectionIndirectField
-
-
 GuidelineToolAssociationIdField: TypeAlias = Annotated[
     GuidelineToolAssociationId,
     Field(

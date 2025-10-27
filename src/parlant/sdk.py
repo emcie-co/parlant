@@ -379,6 +379,29 @@ class NLPServices:
         return QwenService(container[Logger], container[Meter])
 
     @staticmethod
+    def openrouter(
+        container: Container | None = None,
+        model_name: str | None = None,
+        max_tokens: int | None = None,
+    ) -> NLPService | Callable[[Container], NLPService]:
+        """
+        Returns a callable that creates an OpenRouter NLPService instance using the provided container.
+        If container is None, the callable expects the container to be provided later (by the Server).
+        If model_name or max_tokens are None, environment variables will be used.
+        """
+        from parlant.adapters.nlp.openrouter_service import OpenRouterService
+
+        def factory(c: Container) -> NLPService:
+            if error := OpenRouterService.verify_environment():
+                raise SDKError(error)
+            return OpenRouterService(c[Logger], model_name=model_name, max_tokens=max_tokens)
+
+        if container is not None:
+            return factory(container)
+
+        return factory
+
+    @staticmethod
     def deepseek(container: Container) -> NLPService:
         """Creates a DeepSeek NLPService instance using the provided container."""
         from parlant.adapters.nlp.deepseek_service import DeepSeekService

@@ -15,6 +15,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import hashlib
 import json
 from lagom import Container
@@ -155,8 +156,15 @@ class NullEmbedder(Embedder):
         return 1536  # Standard embedding dimension
 
 
+class EmbedderResultDocument_v0_1_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    vectors: Sequence[Sequence[float]]
+
+
 class EmbedderResultDocument(TypedDict, total=False):
     id: ObjectId
+    creation_utc: str
     version: Version.String
     vectors: Sequence[Sequence[float]]
 
@@ -201,7 +209,17 @@ class BasicEmbeddingCache(EmbeddingCache):
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[EmbedderResultDocument]:
         if doc["version"] == "0.1.0":
+            d = cast(EmbedderResultDocument_v0_1_0, doc)
+            return EmbedderResultDocument(
+                id=d["id"],
+                creation_utc=datetime.now(timezone.utc).isoformat(),
+                version=d["version"],
+                vectors=d["vectors"],
+            )
+
+        if doc["version"] == "0.2.0":
             return cast(EmbedderResultDocument, doc)
+
         return None
 
     async def _get_or_create_collection(

@@ -25,7 +25,7 @@ import pytest
 
 from parlant.adapters.db.json_file import JSONFileDocumentDatabase
 from parlant.adapters.loggers.websocket import WebSocketLogger
-from parlant.adapters.nlp.openai_service import OpenAIService
+from parlant.adapters.nlp.ollama_service import OllamaService
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
 from parlant.api.app import create_api_app, ASGIApplication
 from parlant.api.authorization import AuthorizationPolicy, DevelopmentAuthorizationPolicy
@@ -369,7 +369,7 @@ async def container(
                 event_emitter_factory=container[EventEmitterFactory],
                 logger=container[Logger],
                 correlator=container[ContextualCorrelator],
-                nlp_services_provider=lambda: {"default": OpenAIService(container[Logger])},
+                nlp_services_provider=lambda: {"default": OllamaService(container[Logger])},
             )
         )
 

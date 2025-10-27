@@ -104,6 +104,9 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
                         hints={"temperature": generation_attempt_temperatures[generation_attempt]},
                     )
 
+                    with open("prev applied result.txt", "w") as f:
+                        f.write(inference.content.model_dump_json(indent=2))
+
                 if not inference.content.checks:
                     self._logger.warning("Completion:\nNo checks generated! This shouldn't happen.")
                 else:

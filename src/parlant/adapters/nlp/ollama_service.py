@@ -400,6 +400,15 @@ class OllamaLlama31_405B(OllamaSchematicGenerator[T]):
         )
 
 
+class OllamaCustom(OllamaSchematicGenerator[T]):
+    def __init__(self, logger: Logger, base_url: str = "http://localhost:11434") -> None:
+        super().__init__(
+            model_name="qwen3:14b",
+            logger=logger,
+            base_url=base_url,
+        )
+
+
 class CustomOllamaSchematicGenerator(OllamaSchematicGenerator[T]):
     """Generic Ollama generator that accepts any model name."""
 
@@ -589,7 +598,7 @@ Please set these environment variables before running Parlant.
         logger: Logger,
     ) -> None:
         self.base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
-        self.model_name = os.environ.get("OLLAMA_MODEL", "gemma3:4b")
+        self.model_name = os.environ.get("OLLAMA_MODEL", "custom")
         self.embedding_model = os.environ.get("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
         self.default_timeout = int(
             os.environ.get("OLLAMA_API_TIMEOUT", 300)
@@ -614,6 +623,7 @@ Please set these environment variables before running Parlant.
             "llama3.1:8b": OllamaLlama31_8B[schema_type],  # type: ignore
             "llama3.1:70b": OllamaLlama31_70B[schema_type],  # type: ignore
             "llama3.1:405b": OllamaLlama31_405B[schema_type],  # type: ignore
+            "custom": OllamaCustom[schema_type],  # type: ignore
         }
 
         if generator_class := model_to_class.get(model_name):

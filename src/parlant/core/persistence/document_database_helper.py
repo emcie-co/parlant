@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from datetime import datetime, timezone
 from typing import Awaitable, Callable, Generic, Mapping, Optional, cast
 from typing_extensions import TypedDict, Self
 from parlant.core.common import Version, generate_id
@@ -31,6 +32,7 @@ from parlant.core.persistence.document_database import (
 
 class MetadataDocument(TypedDict, total=False):
     id: ObjectId
+    creation_utc: str
     version: Version.String
 
 
@@ -90,6 +92,7 @@ class DocumentStoreMigrationHelper:
             await metadata_collection.insert_one(
                 {
                     "id": ObjectId(generate_id()),
+                    "creation_utc": datetime.now(timezone.utc).isoformat(),
                     "version": runtime_store_version,
                 }
             )

@@ -34,6 +34,7 @@ from parlant.core.common import Version
 
 class BaseDocument(TypedDict, total=False):
     id: ObjectId
+    creation_utc: str
     version: Version.String
 
 

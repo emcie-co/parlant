@@ -8485,4 +8485,4 @@ vertex = ["anthropic", "google-api-core", "google-auth", "google-genai", "torch"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "a88ac1af52120c60a2d72e944e59ed3d1edc262cb0544cc36d19ac937776c2bc"
+content-hash = "e7dc5bc5be57045cad336dd09f461841405bae08be24b82ffe0fc860876f3820"

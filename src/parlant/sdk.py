@@ -407,6 +407,14 @@ class NLPServices:
 
         return FireworksService(container[Logger])
 
+    @staticmethod
+    def mixed_openai_ollama(container: Container) -> NLPService:
+        from parlant.adapters.nlp.mixed_service import MixedService
+
+        if error := MixedService.verify_environment():
+            raise SDKError(error)
+        return MixedService(container[Logger])
+
 
 class _CachedGuidelineEvaluation(TypedDict, total=False):
     id: ObjectId

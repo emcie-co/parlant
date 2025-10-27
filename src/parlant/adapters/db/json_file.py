@@ -23,6 +23,7 @@ from parlant.core.persistence.common import (
     Where,
     matches_filters,
     ensure_is_total,
+    ObjectId,
 )
 from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.persistence.document_database import (
@@ -33,8 +34,6 @@ from parlant.core.persistence.document_database import (
     DocumentDatabase,
     FindResult,
     InsertResult,
-    SortDirection,
-    Sort,
     TDocument,
     UpdateResult,
     identity_loader,
@@ -242,7 +241,6 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
     async def find(
         self,
         filters: Where,
-        sort: Optional[Sort] = None,
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
     ) -> FindResult[TDocument]:
@@ -250,9 +248,8 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
             # First, filter documents
             filtered_docs = [doc for doc in self.documents if matches_filters(filters, doc)]
 
-            # Apply sorting if specified
-            if sort:
-                filtered_docs = self._apply_sort(filtered_docs, sort)
+            # Always sort by creation_utc (desc) with id as tiebreaker (desc)
+            filtered_docs = self._apply_default_sort(filtered_docs)
 
             # Apply cursor-based pagination if cursor is provided
             if cursor:
@@ -273,8 +270,8 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
                 if result_docs:
                     last_doc = result_docs[-1]
                     next_cursor = Cursor(
-                        creation_utc=last_doc["creation_utc"],
-                        id=last_doc["id"],
+                        creation_utc=str(last_doc.get("creation_utc", "")),
+                        id=ObjectId(str(last_doc.get("id", ""))),
                     )
             else:
                 result_docs = filtered_docs
@@ -286,24 +283,20 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
                 next_cursor=next_cursor,
             )
 
-    def _apply_sort(
+    def _apply_default_sort(
         self,
         documents: list[TDocument],
-        sort: Sort,
     ) -> list[TDocument]:
-        if not sort.fields:
-            return documents
-
         docs = list(documents)  # don't mutate input
 
-        for sf in reversed(sort.fields):
-            fname = str(sf.field)
-
-            # Key ensures: missing values come first in ASC, last in DESC
-            docs.sort(
-                key=lambda d: (d.get(fname) is not None, d.get(fname)),
-                reverse=sf.direction == SortDirection.DESC,
-            )
+        # Always sort by creation_utc (desc) with id as tiebreaker (desc)
+        docs.sort(
+            key=lambda d: (
+                d.get("creation_utc") or "",  # Primary sort: creation_utc (desc)
+                d.get("id") or "",  # Tiebreaker: id (desc)
+            ),
+            reverse=True,  # Descending order
+        )
 
         return docs
 
@@ -312,22 +305,26 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
         documents: list[TDocument],
         cursor: Cursor,
     ) -> list[TDocument]:
-        cursor_creation_utc = cursor["creation_utc"]
-        cursor_id = cursor["id"]
+        cursor_creation_utc = str(cursor["creation_utc"])
+        cursor_id = str(cursor["id"])
 
-        # Find where to start based on the cursor
-        # We want to return documents AFTER the cursor position
-        for i, doc in enumerate(documents):
-            doc_creation_utc = doc.get("creation_utc", "")
-            doc_id = doc.get("id", "")
+        result = []
+        for doc in documents:
+            doc_creation_utc = str(doc.get("creation_utc", ""))
+            doc_id = str(doc.get("id", ""))
 
-            # Check if this is the cursor document
-            if doc_creation_utc == cursor_creation_utc and doc_id == cursor_id:
-                # Return everything after this document
-                return documents[i + 1 :]
+            # For descending order pagination, include documents that come after the cursor
+            # This matches the MongoDB query pattern:
+            # { "$or": [
+            #     { "creation_utc": { "$lt": cursor_creation_utc } },
+            #     { "creation_utc": cursor_creation_utc, "id": { "$lt": cursor_id } }
+            # ]}
+            if doc_creation_utc < cursor_creation_utc or (
+                doc_creation_utc == cursor_creation_utc and doc_id < cursor_id
+            ):
+                result.append(doc)
 
-        # If cursor document not found, return empty list
-        return []
+        return result
 
     @override
     async def find_one(

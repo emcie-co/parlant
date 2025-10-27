@@ -49,21 +49,6 @@ class SortDirection(Enum):
 SortFieldType = str | ObjectId | float | int | bool | None
 
 
-@dataclass(frozen=True)
-class SortField:
-    field: SortFieldType
-    direction: SortDirection = SortDirection.DESC
-
-
-@dataclass(frozen=True)
-class Sort:
-    fields: Sequence[SortField]
-
-    @classmethod
-    def by_field(cls, field: str, direction: SortDirection = SortDirection.DESC) -> Sort:
-        return cls(fields=[SortField(field, direction), SortField("id", direction)])
-
-
 class Cursor(TypedDict, total=True):
     creation_utc: str
     id: ObjectId
@@ -89,7 +74,6 @@ class FindResult(Generic[TDocument]):
         items: Sequence[TDocument],
         total_count: int,
         limit: int,
-        sort: Optional[Sort] = None,
     ) -> FindResult[TDocument]:
         has_more = len(items) == limit and total_count > limit
         next_cursor = None
@@ -191,11 +175,10 @@ class DocumentCollection(ABC, Generic[TDocument]):
     async def find(
         self,
         filters: Where,
-        sort: Optional[Sort] = None,
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
     ) -> FindResult[TDocument]:
-        """Finds documents with optional pagination."""
+        """Finds documents with cursor-based pagination. Results are always sorted by creation_utc (desc) with id as tiebreaker."""
         ...
 
     @abstractmethod

@@ -25,7 +25,6 @@ from parlant.core.persistence.document_database import (
     DocumentDatabase,
     FindResult,
     InsertResult,
-    Sort,
     Cursor,
     TDocument,
     UpdateResult,
@@ -107,18 +106,59 @@ class TransientDocumentCollection(DocumentCollection[TDocument]):
     async def find(
         self,
         filters: Where,
-        sort: Optional[Sort] = None,
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
     ) -> FindResult[TDocument]:
-        result = []
-        for doc in filter(
-            lambda d: matches_filters(filters, d),
-            self._documents,
-        ):
-            result.append(doc)
+        # Filter documents
+        filtered_docs = [doc for doc in self._documents if matches_filters(filters, doc)]
 
-        return FindResult(items=result, total_count=len(result), has_more=False, next_cursor=None)
+        # Always sort by creation_utc (desc) with id as tiebreaker (desc)
+        filtered_docs.sort(
+            key=lambda d: (
+                d.get("creation_utc") or "",  # Primary sort: creation_utc (desc)
+                d.get("id") or "",  # Tiebreaker: id (desc)
+            ),
+            reverse=True,  # Descending order
+        )
+
+        # Apply cursor filtering if provided
+        if cursor:
+            cursor_creation_utc = str(cursor["creation_utc"])
+            cursor_id = str(cursor["id"])
+
+            result = []
+            for doc in filtered_docs:
+                doc_creation_utc = str(doc.get("creation_utc", ""))
+                doc_id = str(doc.get("id", ""))
+
+                # For descending order pagination, include documents that come after the cursor
+                if doc_creation_utc < cursor_creation_utc or (
+                    doc_creation_utc == cursor_creation_utc and doc_id < cursor_id
+                ):
+                    result.append(doc)
+
+            filtered_docs = result
+
+        total_count = len(filtered_docs)
+        has_more = False
+        next_cursor = None
+
+        # Apply limit
+        if limit is not None and len(filtered_docs) > limit:
+            has_more = True
+            filtered_docs = filtered_docs[:limit]
+
+            # Create cursor from last item
+            if filtered_docs:
+                last_doc = filtered_docs[-1]
+                next_cursor = Cursor(
+                    creation_utc=str(last_doc.get("creation_utc", "")),
+                    id=ObjectId(str(last_doc.get("id", ""))),
+                )
+
+        return FindResult(
+            items=filtered_docs, total_count=total_count, has_more=has_more, next_cursor=next_cursor
+        )
 
     @override
     async def find_one(

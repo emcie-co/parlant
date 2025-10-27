@@ -16,14 +16,13 @@ from typing import Any, Awaitable, Callable, Optional
 from bson import CodecOptions
 from typing_extensions import Self
 from parlant.core.loggers import Logger
-from parlant.core.persistence.common import Where
+from parlant.core.persistence.common import Where, ObjectId
 from parlant.core.persistence.document_database import (
     BaseDocument,
     DeleteResult,
     DocumentCollection,
     DocumentDatabase,
     Cursor,
-    Sort,
     FindResult,
     InsertResult,
     TDocument,
@@ -163,14 +162,60 @@ class MongoDocumentCollection(DocumentCollection[TDocument]):
     async def find(
         self,
         filters: Where,
-        sort: Optional[Sort] = None,
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
     ) -> FindResult[TDocument]:
-        mongo_cursor = self._collection.find(filters)
-        result = await mongo_cursor.to_list()
-        await mongo_cursor.close()
-        return FindResult(items=result, total_count=len(result), has_more=False, next_cursor=None)
+        query = dict(filters) if filters else {}
+
+        if cursor is not None:
+            # Apply cursor-based filtering for descending order
+            # This matches the pattern: { "$or": [
+            #     { "creation_utc": { "$lt": cursor_creation_utc } },
+            #     { "creation_utc": cursor_creation_utc, "_id": { "$lt": cursor_id } }
+            # ]}
+            cursor_conditions = [
+                {"creation_utc": {"$lt": cursor["creation_utc"]}},
+                {
+                    "$and": [
+                        {"creation_utc": cursor["creation_utc"]},
+                        {"_id": {"$lt": cursor["id"]}},
+                    ]
+                },
+            ]
+            query["$or"] = cursor_conditions
+
+        # Always sort by creation_utc (desc) with _id as tiebreaker (desc)
+        sort_spec = [("creation_utc", -1), ("_id", -1)]
+
+        # Get one extra document to check if there are more
+        query_limit = (limit + 1) if limit else None
+
+        mongo_cursor = self._collection.find(query).sort(sort_spec)
+        if query_limit:
+            mongo_cursor = mongo_cursor.limit(query_limit)
+
+        items = await mongo_cursor.to_list(length=query_limit)
+
+        # Calculate pagination metadata
+        has_more = False
+        next_cursor = None
+        total_count = len(items)
+
+        if limit and len(items) > limit:
+            has_more = True
+            items = items[:limit]  # Remove the extra item
+
+            # Create cursor from the last item
+            if items:
+                last_item = items[-1]
+                next_cursor = Cursor(
+                    creation_utc=str(last_item.get("creation_utc", "")),
+                    id=ObjectId(str(last_item.get("_id", last_item.get("id", "")))),
+                )
+
+        return FindResult(
+            items=items, total_count=total_count, has_more=has_more, next_cursor=next_cursor
+        )
 
     async def find_one(self, filters: Where) -> TDocument | None:
         result = await self._collection.find_one(filters)

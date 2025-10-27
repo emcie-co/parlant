@@ -14,7 +14,7 @@
 
 import asyncio
 import os
-from typing import Any, AsyncIterator, Optional, cast
+from typing import Any, AsyncIterator, Optional, TypedDict, cast
 from pymongo import AsyncMongoClient
 import pytest
 from typing_extensions import Self
@@ -26,6 +26,7 @@ from parlant.adapters.db.mongo_db import MongoDocumentDatabase
 from parlant.core.persistence.common import MigrationRequired, ObjectId
 from parlant.core.persistence.document_database import (
     BaseDocument,
+    Cursor,
     DocumentCollection,
     FindResult,
     identity_loader,
@@ -65,10 +66,16 @@ class MongoTestDocument(BaseDocument):
 class DummyStore:
     VERSION = Version.from_string("2.0.0")
 
-    class DummyDocumentV1(BaseDocument):
+    class DummyDocumentV1(TypedDict, total=False):
+        id: ObjectId
+        creation_utc: str
+        version: Version.String
         name: str
 
-    class DummyDocumentV2(BaseDocument):
+    class DummyDocumentV2(TypedDict, total=False):
+        id: ObjectId
+        creation_utc: str
+        version: Version.String
         name: str
         additional_field: str
 
@@ -85,9 +92,14 @@ class DummyStore:
                 version=Version.String("2.0.0"),
                 name=doc["name"],
                 additional_field="default_value",
+                creation_utc=str(doc.get("creation_utc", "2023-01-01T00:00:00Z")),
             )
         elif doc["version"] == "2.0.0":
-            return cast(DummyStore.DummyDocumentV2, doc)
+            # Ensure creation_utc field exists for existing documents
+            doc_with_creation = dict(doc)
+            if "creation_utc" not in doc_with_creation:
+                doc_with_creation["creation_utc"] = "2023-01-01T00:00:00Z"
+            return cast(DummyStore.DummyDocumentV2, doc_with_creation)
         return None
 
     async def __aenter__(self) -> Self:
@@ -112,15 +124,22 @@ class DummyStore:
     ) -> None:
         pass
 
-    async def list_dummy(self) -> FindResult[DummyDocumentV2]:
-        return await self._collection.find({})
+    async def list_dummy(
+        self,
+        limit: Optional[int] = None,
+        cursor: Optional[Cursor] = None,
+    ) -> FindResult[DummyDocumentV2]:
+        return await self._collection.find({}, limit=limit, cursor=cursor)
 
     async def create_dummy(self, name: str, additional_field: str = "default") -> DummyDocumentV2:
+        from datetime import datetime, timezone
+
         doc = self.DummyDocumentV2(
             id=ObjectId(f"dummy_{name}"),
             version=Version.String("2.0.0"),
             name=name,
             additional_field=additional_field,
+            creation_utc=datetime.now(timezone.utc).isoformat(),
         )
         await self._collection.insert_one(doc)
         return doc
@@ -140,6 +159,7 @@ class DummyStore:
             version=existing["version"],
             name=name,
             additional_field=existing["additional_field"],
+            creation_utc=existing["creation_utc"],
         )
 
         result = await self._collection.update_one({"id": {"$eq": doc_id}}, updated_doc)
@@ -499,6 +519,139 @@ async def test_that_collections_can_be_deleted(
 
         collections = await test_mongo_client[test_database_name].list_collection_names()
         assert "test_collection" not in collections
+
+
+async def test_that_dummy_documents_can_be_listed_with_pagination_limit(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that dummy documents can be listed with a limit for pagination."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        async with DummyStore(dummy_db) as dummy_store:
+            # Create multiple documents
+            for i in range(5):
+                await dummy_store.create_dummy(f"doc{i}", f"value{i}")
+
+            # List with limit
+            result = await dummy_store.list_dummy(limit=3)
+
+            assert len(result.items) == 3
+            assert result.total_count == 4  # 3 returned items + 1 extra for has_more check
+            assert result.has_more
+            assert result.next_cursor is not None
+
+
+async def test_that_dummy_documents_are_sorted_by_creation_time_descending(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that dummy documents are automatically sorted by creation_utc in descending order."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        async with DummyStore(dummy_db) as dummy_store:
+            # Create documents with small delays to ensure different timestamps
+            import asyncio
+
+            await dummy_store.create_dummy("first", "field1")
+            await asyncio.sleep(0.01)
+            await dummy_store.create_dummy("second", "field2")
+            await asyncio.sleep(0.01)
+            await dummy_store.create_dummy("third", "field3")
+
+            result = await dummy_store.list_dummy()
+
+            assert len(result.items) == 3
+            # Most recent first (descending order)
+            assert result.items[0]["name"] == "third"
+            assert result.items[1]["name"] == "second"
+            assert result.items[2]["name"] == "first"
+
+
+async def test_that_dummy_documents_can_be_paginated_using_cursor(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that dummy documents can be paginated using cursor-based pagination."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        async with DummyStore(dummy_db) as dummy_store:
+            # Create documents with small delays to ensure different timestamps
+            import asyncio
+
+            await dummy_store.create_dummy("first", "field1")
+            await asyncio.sleep(0.01)
+            await dummy_store.create_dummy("second", "field2")
+            await asyncio.sleep(0.01)
+            doc3 = await dummy_store.create_dummy("third", "field3")
+
+            # Create cursor from doc3 (the most recent document, which will be first in desc order)
+            # This should return the documents that come after it in the sorted list
+            cursor = Cursor(creation_utc=doc3["creation_utc"], id=doc3["id"])
+
+            # Find documents after cursor
+            result = await dummy_store.list_dummy(cursor=cursor)
+
+            assert len(result.items) == 2
+            # Should get the documents created before doc3 in descending order (second, then first)
+            assert result.items[0]["name"] == "second"
+            assert result.items[1]["name"] == "first"
+
+
+async def test_that_dummy_documents_support_multi_page_cursor_pagination(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that dummy documents support cursor-based pagination across multiple pages."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        async with DummyStore(dummy_db) as dummy_store:
+            # Create 5 dummy documents with small delays
+            import asyncio
+
+            docs = []
+            for i in range(5):
+                doc = await dummy_store.create_dummy(f"doc{i:02d}", f"field{i}")
+                docs.append(doc)
+                if i < 4:  # Don't sleep after the last one
+                    await asyncio.sleep(0.01)
+
+            # First page: get first 2 documents
+            result1 = await dummy_store.list_dummy(limit=2)
+
+            assert len(result1.items) == 2
+            assert result1.has_more
+            assert result1.next_cursor is not None
+
+            # Second page: use cursor from first page
+            result2 = await dummy_store.list_dummy(limit=2, cursor=result1.next_cursor)
+
+            assert len(result2.items) == 2
+            assert result2.has_more
+            assert result2.next_cursor is not None
+
+            # Third page: use cursor from second page
+            result3 = await dummy_store.list_dummy(limit=2, cursor=result2.next_cursor)
+
+            assert len(result3.items) == 1
+            assert not result3.has_more
+            assert result3.next_cursor is None
 
 
 async def test_that_all_operations_can_be_cleaned_up_properly(

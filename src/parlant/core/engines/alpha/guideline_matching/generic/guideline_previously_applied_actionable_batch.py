@@ -51,6 +51,7 @@ class GenericPreviouslyAppliedActionableBatch(DefaultBaseModel):
     action: str
     condition_met_again: bool
     action_wasnt_taken: Optional[bool] = None
+    rationale: Optional[str] = None
     should_reapply: bool
 
 
@@ -257,6 +258,7 @@ Conditions Can Arise and Resolve Multiple Times:
     A condition may be met more than once over the course of a conversation and may also be resolved multiple times (the action was taken). If the most recent instance of the condition has already been addressed and resolved, there is no need to
     reapply the guideline. However, if the user is still clearly engaging with the same unresolved issue, or if a new instance of the condition arises, reapplying the guideline may be appropriate.
 
+Begin your evaluation by checking whether the condition became true again, based only on the most recent user message. Document your decision under the key "condition_met_again".
 
 The conversation and guidelines will follow. Instructions on how to format your response will be provided after that.
 
@@ -324,6 +326,7 @@ OUTPUT FORMAT
                 "guideline_id": i,
                 "condition": guideline_representations[g.id].condition,
                 "action": guideline_representations[g.id].action,
+                "rationale": "<STR. Reason why the guideline should or should not re-apply. This must always be included>",
                 "condition_met_again": "<BOOL. Whether the condition met again in a new or subtly different context or information>",
                 "action_wasnt_taken": "<BOOL. include only condition_met_again is True if The action wasn't already taken for this new reason>",
                 "should_reapply": "<BOOL>",
@@ -489,6 +492,7 @@ example_1_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the customer initiates a purchase.",
             action="Open a new cart for the customer",
+            rationale="The purchase was already completed; current message is about data security, not initiating a purchase.",
             condition_met_again=False,
             should_reapply=False,
         ),
@@ -496,6 +500,7 @@ example_1_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the customer asks about data security",
             action="Refer the customer to our privacy policy page",
+            rationale="Customer has a new security question about account visibility that hasn't been addressed.",
             condition_met_again=True,
             action_wasnt_taken=True,
             should_reapply=True,
@@ -536,6 +541,7 @@ example_2_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the customer asks about the value of a stock.",
             action="provide the price using the 'check_stock_price' tool",
+            rationale="Customer is asking for an updated S&P500 price, requiring a fresh price check.",
             condition_met_again=True,
             action_wasnt_taken=True,
             should_reapply=True,
@@ -544,11 +550,13 @@ example_2_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the weather at a certain location is discussed.",
             action="check the weather at that location using the 'check_weather' tool",
+            rationale="Current message only discusses stock price, not weather.",
             condition_met_again=False,
             should_reapply=False,
         ),
     ]
 )
+
 
 example_3_events = [
     _make_event("11", EventSource.CUSTOMER, "Can you tell me my current account balance?"),
@@ -597,11 +605,13 @@ example_3_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="The customer asks about their account balance, billing amount, or payment status.",
             action="Provide the current account balance or billing information clearly.",
+            rationale="Customer is asking for contact details, not financial information.",
             condition_met_again=False,
             should_reapply=False,
         ),
     ]
 )
+
 
 example_4_events = [
     _make_event("11", EventSource.CUSTOMER, "Hi there, what is the S&P500 trading at right now?"),
@@ -637,6 +647,7 @@ example_4_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the customer asks about the value of a stock.",
             action="provide the price using the 'check_stock_price' tool",
+            rationale="The stock price question was already answered in the previous agent response.",
             condition_met_again=True,
             action_wasnt_taken=False,
             should_reapply=False,
@@ -645,6 +656,7 @@ example_4_expected = GenericPreviouslyAppliedActionableGuidelineMatchesSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="the weather at a certain location is discussed.",
             action="check the weather at that location using the 'check_weather' tool",
+            rationale="Message is just a thank you, not discussing weather.",
             condition_met_again=False,
             should_reapply=False,
         ),

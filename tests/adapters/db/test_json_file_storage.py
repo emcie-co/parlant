@@ -642,7 +642,6 @@ class DummyStore:
     class DummyDocumentV2(BaseDocument):
         name: str
         additional_field: str
-        creation_utc: str
 
     def __init__(self, database: JSONFileDocumentDatabase, allow_migration: bool = True):
         self._database = database
@@ -980,7 +979,6 @@ class ComplexDummyStore:
         name: str
         priority: int
         score: float
-        creation_utc: str
 
     def __init__(self, database: JSONFileDocumentDatabase):
         self._database = database

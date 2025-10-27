@@ -416,12 +416,14 @@ class NLPServices:
 
 class _CachedGuidelineEvaluation(TypedDict, total=False):
     id: ObjectId
+    creation_utc: str
     version: Version.String
     properties: dict[str, JSONSerializable]
 
 
 class _CachedJourneyEvaluation(TypedDict, total=False):
     id: ObjectId
+    creation_utc: str
     version: Version.String
     node_properties: dict[JourneyStateId, dict[str, JSONSerializable]]
     edge_properties: dict[JourneyTransitionId, dict[str, JSONSerializable]]

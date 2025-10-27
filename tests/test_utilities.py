@@ -417,6 +417,7 @@ TBaseModel = TypeVar("TBaseModel", bound=DefaultBaseModel)
 
 class SchematicGenerationResultDocument(TypedDict, total=False):
     id: ObjectId
+    creation_utc: str
     version: Version.String
     content: JSONSerializable
     info: _GenerationInfoDocument

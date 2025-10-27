@@ -403,7 +403,7 @@ class OllamaLlama31_405B(OllamaSchematicGenerator[T]):
 class OllamaCustom(OllamaSchematicGenerator[T]):
     def __init__(self, logger: Logger, base_url: str = "http://localhost:11434") -> None:
         super().__init__(
-            model_name="qwen3:14b",
+            model_name="prevapp",
             logger=logger,
             base_url=base_url,
         )

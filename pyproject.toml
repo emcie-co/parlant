@@ -59,7 +59,7 @@ types-aiofiles = "^24.1.0.20240626"
 types-cachetools = "^6.0.0.20250525"
 types-croniter = "^4.0.0.20241030"
 types-jsonschema = "^4.22.0.20240610"
-uvicorn = "^0.38.0"
+uvicorn = "^0.32.1"
 
 
 # --- optional packages ---

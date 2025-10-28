@@ -7,14 +7,19 @@ from typing_extensions import Self, override
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
-from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
+from opentelemetry.exporter.otlp.proto.grpc._log_exporter import (
+    OTLPLogExporter as GrpcOTLPLogExporter,
+)
+from opentelemetry.exporter.otlp.proto.http._log_exporter import (
+    OTLPLogExporter as HttpOTLPLogExporter,
+)
 
 from parlant.core.loggers import LogLevel, TracingLogger
 from parlant.core.tracer import Tracer
 
 
 class OpenTelemetryLogger(TracingLogger):
-    """TracingLogger with OpenTelemetry log export via OTLP gRPC."""
+    """TracingLogger with OpenTelemetry log export via OTLP (gRPC or HTTP)."""
 
     def __init__(
         self,
@@ -27,7 +32,7 @@ class OpenTelemetryLogger(TracingLogger):
         self._service_name = os.getenv("OTEL_SERVICE_NAME", "parlant")
 
         self._logger_provider: LoggerProvider
-        self._log_exporter: OTLPLogExporter
+        self._log_exporter: GrpcOTLPLogExporter | HttpOTLPLogExporter
         self._log_processor: BatchLogRecordProcessor
         self._logging_handler: LoggingHandler
 
@@ -36,8 +41,12 @@ class OpenTelemetryLogger(TracingLogger):
 
         endpoint = os.environ["OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"]
         insecure = os.getenv("OTEL_EXPORTER_OTLP_INSECURE", "false").lower() == "true"
+        protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc").lower()
 
-        self._log_exporter = OTLPLogExporter(endpoint=endpoint, insecure=insecure)
+        if protocol == "http":
+            self._log_exporter = HttpOTLPLogExporter(endpoint=endpoint)
+        else:
+            self._log_exporter = GrpcOTLPLogExporter(endpoint=endpoint, insecure=insecure)
         self._logger_provider = LoggerProvider(resource=resource)
         self._log_processor = BatchLogRecordProcessor(
             exporter=self._log_exporter,

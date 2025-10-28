@@ -23,7 +23,12 @@ from opentelemetry import trace, context
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+    OTLPSpanExporter as GrpcOTLPSpanExporter,
+)
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+    OTLPSpanExporter as HttpOTLPSpanExporter,
+)
 from opentelemetry.trace import Status, StatusCode, SpanContext, TraceFlags
 from opentelemetry.trace.span import TraceState
 
@@ -37,7 +42,7 @@ class OpenTelemetryTracer(Tracer):
 
         self._tracer_provider: TracerProvider
         self._span_processor: BatchSpanProcessor
-        self._span_exporter: OTLPSpanExporter
+        self._span_exporter: GrpcOTLPSpanExporter | HttpOTLPSpanExporter
         self._tracer: trace.Tracer
 
         self._spans = contextvars.ContextVar[str](
@@ -77,11 +82,15 @@ class OpenTelemetryTracer(Tracer):
         endpoint = os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
         if endpoint:
             insecure = os.getenv("OTEL_EXPORTER_OTLP_INSECURE", "false").lower() == "true"
+            protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc").lower()
 
-            self._span_exporter = OTLPSpanExporter(
-                endpoint=endpoint,
-                insecure=insecure,
-            )
+            if protocol == "http":
+                self._span_exporter = HttpOTLPSpanExporter(endpoint=endpoint)
+            else:
+                self._span_exporter = GrpcOTLPSpanExporter(
+                    endpoint=endpoint,
+                    insecure=insecure,
+                )
 
             self._span_processor = BatchSpanProcessor(
                 span_exporter=self._span_exporter,

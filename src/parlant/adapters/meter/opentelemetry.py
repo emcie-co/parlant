@@ -15,7 +15,12 @@ from opentelemetry.sdk.metrics.export import (
     PeriodicExportingMetricReader,
 )
 from opentelemetry.sdk.resources import Resource
-from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
+    OTLPMetricExporter as GrpcOTLPMetricExporter,
+)
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+    OTLPMetricExporter as HttpOTLPMetricExporter,
+)
 
 from parlant.core.meter import Counter, DurationHistogram, Meter
 from parlant.core.tracer import Tracer
@@ -85,16 +90,23 @@ class OpenTelemetryMeter(Meter):
 
         self._tracer = tracer
         self._meter: metrics.Meter
-        self._metric_exporter: OTLPMetricExporter
+        self._metric_exporter: GrpcOTLPMetricExporter | HttpOTLPMetricExporter
         self._meter_provider: MeterProvider
 
     async def __aenter__(self) -> Self:
         resource = Resource.create({"service.name": self._service_name})
 
-        self._metric_exporter = OTLPMetricExporter(
-            endpoint=os.environ["OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"],
-            insecure=os.getenv("OTEL_EXPORTER_OTLP_INSECURE", "false").lower() == "true",
-        )
+        endpoint = os.environ["OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"]
+        insecure = os.getenv("OTEL_EXPORTER_OTLP_INSECURE", "false").lower() == "true"
+        protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc").lower()
+
+        if protocol == "http":
+            self._metric_exporter = HttpOTLPMetricExporter(endpoint=endpoint)
+        else:
+            self._metric_exporter = GrpcOTLPMetricExporter(
+                endpoint=endpoint,
+                insecure=insecure,
+            )
 
         metric_reader = PeriodicExportingMetricReader(
             exporter=self._metric_exporter,

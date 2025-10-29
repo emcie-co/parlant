@@ -362,6 +362,9 @@ class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument])
 
         keys_to_exclude = {"__id__", "__metrics__"}
 
+        if await self.find(filters) == []:
+            return []
+
         docs = [
             {key: value for key, value in d.items() if key not in keys_to_exclude}
             for d in self._nano_db.query(

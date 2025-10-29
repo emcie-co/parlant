@@ -342,6 +342,14 @@ EventCreationUTCField: TypeAlias = Annotated[
     Field(description="UTC timestamp of when the event was created"),
 ]
 
+EventCorrelationIdField: TypeAlias = Annotated[
+    str,
+    Field(
+        deprecated=True,
+        description="ID linking related events together",
+        examples=["corr_13xyz"],
+    ),
+]
 
 EventTraceIdField: TypeAlias = Annotated[
     str,
@@ -377,6 +385,7 @@ class EventDTO(
     offset: EventOffsetField
     creation_utc: EventCreationUTCField
     trace_id: EventTraceIdField
+    correlation_id: EventCorrelationIdField
     data: JSONSerializableDTO
     deleted: bool
 
@@ -1034,6 +1043,7 @@ def event_to_dto(event: Event) -> EventDTO:
         offset=event.offset,
         creation_utc=event.creation_utc,
         trace_id=event.trace_id,
+        correlation_id=event.trace_id,
         data=cast(JSONSerializableDTO, event.data),
         deleted=event.deleted,
     )
@@ -1175,6 +1185,16 @@ TraceIdQuery: TypeAlias = Annotated[
         examples=["corr_13xyz"],
     ),
 ]
+
+CorrelationIdQuery: TypeAlias = Annotated[
+    str,
+    Query(
+        deprecated=True,
+        description="ID linking related events together",
+        examples=["corr_13xyz"],
+    ),
+]
+
 
 KindsQuery: TypeAlias = Annotated[
     str,
@@ -1744,6 +1764,7 @@ def create_router(
             offset=event.offset,
             creation_utc=event.creation_utc,
             trace_id=event.trace_id,
+            correlation_id=event.trace_id,
             data=cast(JSONSerializableDTO, event.data),
             deleted=event.deleted,
         )
@@ -1773,6 +1794,7 @@ def create_router(
             offset=event.offset,
             creation_utc=event.creation_utc,
             trace_id=event.trace_id,
+            correlation_id=event.trace_id,
             data=cast(JSONSerializableDTO, event.data),
             deleted=event.deleted,
         )
@@ -1803,6 +1825,7 @@ def create_router(
         session_id: SessionIdPath,
         min_offset: MinOffsetQuery | None = None,
         source: EventSourceDTO | None = None,
+        correlation_id: CorrelationIdQuery | None = None,
         trace_id: TraceIdQuery | None = None,
         kinds: KindsQuery | None = None,
         wait_for_data: int = 60,
@@ -1862,6 +1885,7 @@ def create_router(
                 offset=e.offset,
                 creation_utc=e.creation_utc,
                 trace_id=e.trace_id,
+                correlation_id=e.trace_id,
                 data=cast(JSONSerializableDTO, e.data),
                 deleted=e.deleted,
             )

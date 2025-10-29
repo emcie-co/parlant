@@ -218,4 +218,6 @@ const MessageDetails = ({
 	);
 };
 
-export default memo(MessageDetails, (prev, next) => prev.event === next.event);
+export default memo(MessageDetails, (prev, next) => {
+	return prev.event === next.event && prev.sameTraceMessages === next.sameTraceMessages;
+});

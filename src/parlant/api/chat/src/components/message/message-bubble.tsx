@@ -66,6 +66,7 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 	const colorPallete = getAvatarColor((isCustomer ? customer?.id : agent?.id) || '', isCustomer ? 'customer' : 'agent');
 	const name = isCustomer ? customer?.name : agent?.name;
 	const formattedName = isCustomer && isGuest ? 'Guest' : name;
+	const isEditDisabled = sameTraceMessages?.some((msg) => msg.serverStatus && msg.serverStatus !== 'ready' && msg.serverStatus !== 'error');
 
 	return (
 		<>
@@ -151,7 +152,7 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 										<img src='icons/copy.svg' alt='edit' className='block opacity-50 rounded-[10px] group-hover:bg-[#EBECF0] size-[30px] p-[5px]' />
 									</div>
 								</Tooltip>
-								{isCustomer && (
+								{isCustomer && !isEditDisabled && (
 									<Tooltip value='Edit' side='top'>
 										<div data-testid='edit-button' role='button' onClick={() => setIsEditing?.(true)} className='group cursor-pointer'>
 											<img src='icons/edit-message.svg' alt='edit' className='block opacity-50 rounded-[10px] group-hover:bg-[#EBECF0] size-[30px] p-[5px]' />

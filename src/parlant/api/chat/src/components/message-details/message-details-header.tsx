@@ -1,7 +1,7 @@
 import {dialogAtom, sessionAtom} from '@/store';
 import {EventInterface} from '@/utils/interfaces';
 import {useAtom} from 'jotai';
-import {ClassNameValue, twMerge} from 'tailwind-merge';
+import {ClassNameValue, twJoin, twMerge} from 'tailwind-merge';
 import HeaderWrapper from '../header-wrapper/header-wrapper';
 import {Flag, X} from 'lucide-react';
 import {Button} from '../ui/button';
@@ -42,6 +42,7 @@ const MessageDetailsHeader = ({
 		}
 	}, [event, refreshFlag]);
 
+	const regenerateDisabled = sameTraceMessages?.some((msg) => msg.serverStatus && msg.serverStatus !== 'ready' && msg.serverStatus !== 'error');
 	return (
 		<HeaderWrapper className={twMerge('static', !event && '!border-transparent bg-[#f5f6f8]', className)}>
 			{event && (
@@ -66,14 +67,15 @@ const MessageDetailsHeader = ({
 								<div>{messageFlag ? 'View Comment' : 'Flag'}</div>
 							</Button>
 						)}
-						<div
-							className='group bg-[#006E53] [box-shadow:0px_2px_4px_0px_#00403029,0px_1px_5.5px_0px_#006E5329] hover:bg-[#005C3F] flex  h-[38px] rounded-[5px] ms-[4px] items-center gap-[7px] py-[13px] px-[10px]'
+						<button
+							className={twJoin('group bg-[#006E53] [box-shadow:0px_2px_4px_0px_#00403029,0px_1px_5.5px_0px_#006E5329] hover:bg-[#005C3F] flex  h-[38px] rounded-[5px] ms-[4px] items-center gap-[7px] py-[13px] px-[10px]', regenerateDisabled && 'opacity-50 cursor-not-allowed')}
 							role='button'
+							disabled={regenerateDisabled}
 							onClick={() => (event?.source === 'customer' ? resendMessageFn?.(session?.id as string) : regenerateMessageFn?.(session?.id as string))}>
 							<img src='icons/regenerate.svg' alt='regenerate' className='block' />
 							<div className='text-white text-[14px] font-normal'>{isCustomer ? 'Resend' : 'Regenerate'}</div>
 							{/* <img src={isCustomer ? 'icons/resend-hover.svg' : 'icons/regenerate-arrow-hover.svg'} alt='regenerate' className='hidden group-hover:block' /> */}
-						</div>
+						</button>
 					</div>
 				</div>
 			)}

@@ -103,7 +103,7 @@ class LocalTracer(Tracer):
         current_spans = self._spans.get()
 
         if not current_spans:
-            new_trace_id = generate_id()
+            new_trace_id = generate_id({"strategy": "uuid4"})
             new_spans = span_id
             trace_id_reset_token = self._trace_id.set(new_trace_id)
         else:

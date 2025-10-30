@@ -1081,12 +1081,34 @@ class ToolJourneyState(JourneyState):
         metadata: Mapping[str, JSONSerializable] = {},
     ) -> JourneyTransition[ChatJourneyState]: ...
 
+    @overload
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        tool_instruction: str | None = None,
+        tool_state: ToolEntry,
+        metadata: Mapping[str, JSONSerializable] = {},
+    ) -> JourneyTransition[ToolJourneyState]: ...
+
+    @overload
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        tool_instruction: str | None = None,
+        tool_state: Sequence[ToolEntry],
+        metadata: Mapping[str, JSONSerializable] = {},
+    ) -> JourneyTransition[ToolJourneyState]: ...
+
     async def transition_to(
         self,
         *,
         condition: str | None = None,
         chat_state: str | None = None,
+        tool_instruction: str | None = None,
         state: TState | None = None,
+        tool_state: ToolEntry | Sequence[ToolEntry] = [],
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
     ) -> JourneyTransition[Any]:
@@ -1094,6 +1116,7 @@ class ToolJourneyState(JourneyState):
             condition=condition,
             state=state,
             action=chat_state,
+            tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
             canned_responses=canned_responses,
             metadata=metadata,
         )

@@ -269,6 +269,12 @@ class SingleToolBatch(ToolCallBatch):
                     evaluation.value_as_string,
                 ):
                     all_values_valid = False
+
+                    self._logger.warning(
+                        f'Inference::Completion::InvalidArgument: {tool_id.to_string()}: {evaluation.parameter_name}="{evaluation.value_as_string}"'
+                    )
+
+                    # FIXME: What happens when a hidden parameter is invalid? does it just swallow the error?
                     if not options.hidden:
                         invalid_data.append(
                             InvalidToolData(
@@ -296,10 +302,6 @@ class SingleToolBatch(ToolCallBatch):
                     for evaluation in tc.argument_evaluations or []
                     if evaluation.parameter_name in tool.required
                 ):
-                    self._logger.debug(
-                        f"Inference::Completion::Activated: {tool_id.to_string()}:\n{tc.model_dump_json(indent=2)}"
-                    )
-
                     arguments = {}
 
                     if tool.parameters:  # We check this because sometimes LLMs hallucinate placeholders for no-param tools
@@ -311,6 +313,10 @@ class SingleToolBatch(ToolCallBatch):
                             arguments[evaluation.parameter_name] = evaluation.value_as_string
 
                     if all_values_valid:
+                        self._logger.debug(
+                            f"Inference::Completion::Activated: {tool_id.to_string()}:\n{tc.model_dump_json(indent=2)}"
+                        )
+
                         tool_calls.append(
                             ToolCall(
                                 id=ToolCallId(generate_id()),

@@ -140,7 +140,8 @@ const SessionView = (): ReactElement => {
 		});
 
 		setMessages((messages) => {
-			const last = messages.at(-1);
+			// const last = messages.at(-1);
+			const last = messages.findLast((msg) => msg.source === 'customer');
 			if (last?.source === 'customer' && traceMap?.[last?.trace_id]) {
 				last.serverStatus = traceMap[last.trace_id].at(-1)?.data?.status || last.serverStatus;
 				if (last.serverStatus === 'error') last.error = traceMap[last.trace_id].at(-1)?.data?.data?.exception;

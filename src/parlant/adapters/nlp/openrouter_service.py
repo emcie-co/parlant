@@ -475,6 +475,16 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
         )
         self._logger.info(f"OpenRouter model name: {self.model_name}")
         self._logger.info(f"OpenRouter embedder model name: {self.embedder_model_name}")
+        
+        # Create dynamic embedder class that can be resolved from the container
+        # This captures embedder_model_name in a closure so the container can resolve it
+        embedder_model = self.embedder_model_name
+        
+        class DynamicOpenRouterEmbedder(OpenRouterEmbedder):
+            def __init__(self, logger: Logger, meter: Meter):
+                super().__init__(model_name=embedder_model, logger=logger, meter=meter)
+        
+        self._dynamic_embedder_class = DynamicOpenRouterEmbedder
 
     def _get_specialized_generator_class(
         self,
@@ -545,11 +555,8 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
         if self.embedder_model_name == "openai/text-embedding-3-large":
             return OpenRouterTextEmbedding3Large(logger=self._logger, meter=self._meter)
         else:
-            return OpenRouterEmbedder(
-                model_name=self.embedder_model_name,
-                logger=self._logger,
-                meter=self._meter,
-            )
+            # Return instance of dynamic embedder class that can be resolved from container
+            return self._dynamic_embedder_class(logger=self._logger, meter=self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

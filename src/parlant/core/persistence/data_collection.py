@@ -39,8 +39,8 @@ class DataCollectingSchematicGenerator(SchematicGenerator[T]):
 
         path = self._base_path
 
-        if span_id := self._tracer.span_id:
-            path = path / span_id
+        if scope := self._tracer.get_attribute("scope"):
+            path = path / scope
 
         if self._tracer.get_attribute("session_id"):
             session_id = self._tracer.get_attribute("session_id")

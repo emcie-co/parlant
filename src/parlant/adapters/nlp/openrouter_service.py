@@ -337,6 +337,15 @@ class OpenRouterLlama33_70B(OpenRouterSchematicGenerator[T]):
 class OpenRouterEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
+    # Known embedding model dimensions
+    _KNOWN_DIMENSIONS: dict[str, int] = {
+        "openai/text-embedding-3-large": 3072,
+        "openai/text-embedding-3-small": 1536,
+        "openai/text-embedding-ada-002": 1536,
+        "qwen/qwen3-embedding-8b": 4096,
+        "qwen/qwen-embedding-v2": 1536,
+    }
+
     def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
         super().__init__(logger, meter, model_name)
         self.model_name = model_name
@@ -354,6 +363,8 @@ class OpenRouterEmbedder(BaseEmbedder):
             default_headers=extra_headers if extra_headers else None,
         )
         self._tokenizer = OpenRouterEstimatingTokenizer(model_name=self.model_name)
+        # Cache dimensions after first API call if not known
+        self._cached_dimensions: int | None = None
 
     @property
     @override
@@ -374,15 +385,22 @@ class OpenRouterEmbedder(BaseEmbedder):
     @property
     @override
     def dimensions(self) -> int:
-        # Default dimensions for text-embedding-3-large
-        # For other models, this should be overridden
-        if "text-embedding-3-large" in self.model_name:
-            return 3072
-        elif "text-embedding-3-small" in self.model_name:
-            return 1536
-        else:
-            # Default fallback - most embedding models use 1536 or 3072
-            return 1536
+        # Check environment variable override first
+        if "OPENROUTER_EMBEDDER_DIMENSIONS" in os.environ:
+            return int(os.environ["OPENROUTER_EMBEDDER_DIMENSIONS"])
+        
+        # Return cached dimensions if available
+        if self._cached_dimensions is not None:
+            return self._cached_dimensions
+        
+        # Check known dimensions lookup
+        for model_key, dims in self._KNOWN_DIMENSIONS.items():
+            if model_key in self.model_name:
+                return dims
+        
+        # Default fallback - most embedding models use 1536 or 3072
+        # This will be updated after first API call
+        return 1536
 
     @policy(
         [
@@ -423,6 +441,17 @@ class OpenRouterEmbedder(BaseEmbedder):
             raise
 
         vectors = [data_point.embedding for data_point in response.data]
+        
+        # Cache dimensions from first response if not already cached and not in known list
+        if self._cached_dimensions is None and vectors:
+            actual_dims = len(vectors[0])
+            # Only cache if different from default or if not found in known dimensions
+            if actual_dims != 1536 or not any(key in self.model_name for key in self._KNOWN_DIMENSIONS):
+                self._cached_dimensions = actual_dims
+                self.logger.debug(
+                    f"Detected embedding dimensions for '{self.model_name}': {actual_dims}"
+                )
+        
         return EmbeddingResult(vectors=vectors)
 
 

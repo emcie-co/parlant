@@ -34,14 +34,13 @@ from pydantic import ValidationError
 import tiktoken
 
 from parlant.adapters.nlp.common import normalize_json_output
-from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
-from parlant.core.nlp.embedding import Embedder
+from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
     BaseSchematicGenerator,
@@ -93,10 +92,10 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
 
         # Build extra headers from environment variables
         extra_headers = {}
-        if os.environ.get("OPENROUTER_HTTP_REFERER"):
-            extra_headers["HTTP-Referer"] = os.environ.get("OPENROUTER_HTTP_REFERER")
-        if os.environ.get("OPENROUTER_SITE_NAME"):
-            extra_headers["X-Title"] = os.environ.get("OPENROUTER_SITE_NAME")
+        if "OPENROUTER_HTTP_REFERER" in os.environ:
+            extra_headers["HTTP-Referer"] = os.environ["OPENROUTER_HTTP_REFERER"]
+        if "OPENROUTER_SITE_NAME" in os.environ:
+            extra_headers["X-Title"] = os.environ["OPENROUTER_SITE_NAME"]
 
         self._client = AsyncClient(
             base_url="https://openrouter.ai/api/v1",
@@ -153,7 +152,6 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
         
         # Try with JSON mode first, but catch errors gracefully
         response = None
-        json_mode_error = False
         
         try:
             # Try with JSON mode
@@ -172,7 +170,6 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
                     f"Please switch to a model that supports JSON mode (e.g., 'openai/gpt-4o', 'anthropic/claude-3.5-sonnet').\n"
                     f"Attempting to continue without JSON mode enforcement, but results may be less reliable.\n"
                 )
-                json_mode_error = True
                 # Retry without JSON mode with a system message to instruct JSON output
                 try:
                     # Add system message to instruct the model to output JSON
@@ -236,7 +233,7 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
                 json_content = json.loads(normalize_json_output(raw_content))
                 # Check if parsed JSON is empty
                 if not json_content or json_content == {}:
-                    self._logger.warning(f"Model returned empty JSON object. Attempting to find JSON in response...")
+                    self._logger.warning("Model returned empty JSON object. Attempting to find JSON in response...")
                     # Try to find JSON in the response
                     try:
                         json_content = jsonfinder.only_json(raw_content)[2]
@@ -337,6 +334,113 @@ class OpenRouterLlama33_70B(OpenRouterSchematicGenerator[T]):
         return 8192
 
 
+class OpenRouterEmbedder(BaseEmbedder):
+    supported_arguments = ["dimensions"]
+
+    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
+        super().__init__(logger, meter, model_name)
+        self.model_name = model_name
+
+        # Build extra headers from environment variables
+        extra_headers = {}
+        if "OPENROUTER_HTTP_REFERER" in os.environ:
+            extra_headers["HTTP-Referer"] = os.environ["OPENROUTER_HTTP_REFERER"]
+        if "OPENROUTER_SITE_NAME" in os.environ:
+            extra_headers["X-Title"] = os.environ["OPENROUTER_SITE_NAME"]
+
+        self._client = AsyncClient(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=os.environ["OPENROUTER_API_KEY"],
+            default_headers=extra_headers if extra_headers else None,
+        )
+        self._tokenizer = OpenRouterEstimatingTokenizer(model_name=self.model_name)
+
+    @property
+    @override
+    def id(self) -> str:
+        return f"openrouter/{self.model_name}"
+
+    @property
+    @override
+    def tokenizer(self) -> OpenRouterEstimatingTokenizer:
+        return self._tokenizer
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        # Default max tokens for embedding models
+        return 8192
+
+    @property
+    @override
+    def dimensions(self) -> int:
+        # Default dimensions for text-embedding-3-large
+        # For other models, this should be overridden
+        if "text-embedding-3-large" in self.model_name:
+            return 3072
+        elif "text-embedding-3-small" in self.model_name:
+            return 1536
+        else:
+            # Default fallback - most embedding models use 1536 or 3072
+            return 1536
+
+    @policy(
+        [
+            retry(
+                exceptions=(
+                    APIConnectionError,
+                    APITimeoutError,
+                    ConflictError,
+                    RateLimitError,
+                    APIResponseValidationError,
+                ),
+            ),
+            retry(InternalServerError, max_exceptions=2, wait_times=(1.0, 5.0)),
+        ]
+    )
+    @override
+    async def do_embed(
+        self,
+        texts: list[str],
+        hints: Mapping[str, Any] = {},
+    ) -> EmbeddingResult:
+        filtered_hints = {k: v for k, v in hints.items() if k in self.supported_arguments}
+        try:
+            response = await self._client.embeddings.create(
+                model=self.model_name,
+                input=texts,
+                **filtered_hints,
+            )
+        except RateLimitError:
+            self.logger.error(
+                f"\n⏱️  Rate limit exceeded for embedder model '{self.model_name}'.\n"
+                f"{RATE_LIMIT_ERROR_MESSAGE}\n"
+                f"Consider:\n"
+                f"  - Using a different embedder model\n"
+                f"  - Waiting a moment before retrying\n"
+                f"  - Adding your own API key for higher limits\n"
+            )
+            raise
+
+        vectors = [data_point.embedding for data_point in response.data]
+        return EmbeddingResult(vectors=vectors)
+
+
+class OpenRouterTextEmbedding3Large(OpenRouterEmbedder):
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="openai/text-embedding-3-large", logger=logger, meter=meter)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 8192
+
+    @property
+    @override
+    def dimensions(self) -> int:
+        return 3072
+
+
 class OpenRouterService(NLPService):
     @staticmethod
     def verify_environment() -> str | None:
@@ -356,6 +460,7 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
         meter: Meter,
         model_name: str | None = None,
         max_tokens: int | None = None,
+        embedder_model_name: str | None = None,
     ) -> None:
         self._logger = logger
         self._meter = meter
@@ -363,7 +468,13 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
         # Use provided model_name or fall back to environment variable
         self.model_name = model_name or os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o")
         self._custom_max_tokens = max_tokens
+        # Use provided embedder_model_name or fall back to environment variable or default
+        self.embedder_model_name = (
+            embedder_model_name
+            or os.environ.get("OPENROUTER_EMBEDDER_MODEL", "openai/text-embedding-3-large")
+        )
         self._logger.info(f"OpenRouter model name: {self.model_name}")
+        self._logger.info(f"OpenRouter embedder model name: {self.embedder_model_name}")
 
     def _get_specialized_generator_class(
         self,
@@ -429,8 +540,16 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
 
     @override
     async def get_embedder(self) -> Embedder:
-        # OpenRouter does not support embeddings API, use JinaAI embedder instead
-        return JinaAIEmbedder(logger=self._logger, meter=self._meter)
+        # Use OpenRouter embedder with the configured embedder model name
+        # Default to text-embedding-3-large if not specified
+        if self.embedder_model_name == "openai/text-embedding-3-large":
+            return OpenRouterTextEmbedding3Large(logger=self._logger, meter=self._meter)
+        else:
+            return OpenRouterEmbedder(
+                model_name=self.embedder_model_name,
+                logger=self._logger,
+                meter=self._meter,
+            )
 
     @override
     async def get_moderation_service(self) -> ModerationService:

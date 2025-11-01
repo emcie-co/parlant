@@ -295,7 +295,9 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         batches = []
 
         guidelines_dict = {g.id: g for g in guidelines}
-        batch_size = self._get_optimal_batch_size(guidelines_dict)
+        batch_size = self._get_optimal_batch_size(
+            guidelines_dict, GenericObservationalGuidelineMatchingBatch
+        )
         guidelines_list = list(guidelines_dict.items())
         batch_count = math.ceil(len(guidelines_dict) / batch_size)
 
@@ -355,7 +357,9 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         batches = []
 
         guidelines_dict = {g.id: g for g in guidelines}
-        batch_size = self._get_optimal_batch_size(guidelines_dict)
+        batch_size = self._get_optimal_batch_size(
+            guidelines_dict, GenericPreviouslyAppliedActionableGuidelineMatchingBatch
+        )
         guidelines_list = list(guidelines_dict.items())
         batch_count = math.ceil(len(guidelines_dict) / batch_size)
 
@@ -415,7 +419,10 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         batches = []
 
         guidelines_dict = {g.id: g for g in guidelines}
-        batch_size = self._get_optimal_batch_size(guidelines_dict)
+        batch_size = self._get_optimal_batch_size(
+            guidelines_dict,
+            GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingBatch,
+        )
         guidelines_list = list(guidelines_dict.items())
         batch_count = math.ceil(len(guidelines_dict) / batch_size)
 
@@ -475,7 +482,9 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         batches = []
 
         guidelines_dict = {g.id: g for g in guidelines}
-        batch_size = self._get_optimal_batch_size(guidelines_dict)
+        batch_size = self._get_optimal_batch_size(
+            guidelines_dict, GenericActionableGuidelineMatchingBatch
+        )
         guidelines_list = list(guidelines_dict.items())
         batch_count = math.ceil(len(guidelines_dict) / batch_size)
 
@@ -602,5 +611,12 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
             journey_path=context.journey_paths.get(examined_journey.id, []),
         )
 
-    def _get_optimal_batch_size(self, guidelines: dict[GuidelineId, Guideline]) -> int:
-        return self._optimization_policy.get_guideline_matching_batch_size(len(guidelines))
+    def _get_optimal_batch_size(
+        self,
+        guidelines: dict[GuidelineId, Guideline],
+        batch_type: type[GuidelineMatchingBatch],
+    ) -> int:
+        return self._optimization_policy.get_guideline_matching_batch_size(
+            len(guidelines),
+            hints={"type": batch_type},
+        )

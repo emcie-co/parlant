@@ -1,7 +1,7 @@
 import json
 import os
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, cast
 import aiofiles
 from typing_extensions import override
 
@@ -40,7 +40,7 @@ class DataCollectingSchematicGenerator(SchematicGenerator[T]):
         path = self._base_path
 
         if scope := self._tracer.get_attribute("scope"):
-            path = path / scope
+            path = path / cast(str, scope)
 
         if self._tracer.get_attribute("session_id"):
             session_id = self._tracer.get_attribute("session_id")

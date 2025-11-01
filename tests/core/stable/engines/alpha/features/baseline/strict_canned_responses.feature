@@ -254,16 +254,16 @@ Feature: Strict Canned Response
         And a customer named "Joanna"
         And a guideline to check stock levels in the context variables when a customer makes a specific order
         And an empty session with "Joanna"
-        And a context variable "Merino Wool Skein inventory count" set to "37" for "Joanna" 
+        And a context variable "Merino Wool Skein inventory count" set to "37" for "Joanna"
         And a context variable "Alpaca Blend Yarn inventory count" set to "12" for "Joanna"
         And a guideline to include the current inventory count when confirming orders for yarn products
         And a customer message, "I'd like to order 5 skeins of your Merino Wool, please."
-        And a canned response, "I've added {{generative.quantity}} skeins of Merino Wool to your order. We currently have {{generative.inventory_count}} in stock." 
+        And a canned response, "I've added {{generative.quantity}} skeins of Merino Wool to your order. We currently have {{generative.inventory_count}} in stock."
         And a canned response, "We're currently out of that item. Would you like to place a backorder?"
         And a canned response, "Would you like to view our other yarn options instead?"
         When processing is triggered
         Then a single message event is emitted
-        And the message contains roughly the text "I've added 5 skeins of Merino Wool to your order. We currently have 37 in stock." 
+        And the message contains roughly the text "I've added 5 skeins of Merino Wool to your order. We currently have 37 in stock."
 
     Scenario: The agent adheres to guidelines in field extraction (strict canned response)
         Given an agent whose job is to provide account information
@@ -284,16 +284,16 @@ Feature: Strict Canned Response
         And that the agent uses the canned_strict message composition mode
         And a customer named "Alex Smith"
         And an empty session with "Alex Smith"
-        And a context variable "medical_record" set to "Amoxicillin and Lisinopril" for "Alex Smith" 
+        And a context variable "medical_record" set to "Amoxicillin and Lisinopril" for "Alex Smith"
         And a customer message, "Hi, I need to know what medications I was prescribed during my visit last month. Can you pull up my medical record?"
         And a canned response, "I'm not able to provide personal medical information from your records."
         And a canned response, "I can help you with that. You were prescribed the following medications: {{generative.medication}}"
         When processing is triggered
         Then a single message event is emitted
-        And the message contains no prescription of medications 
+        And the message contains no prescription of medications
         And the message contains the text "I'm not able to provide personal medical information from your records."
 
-    Scenario: The agent ignores a matched agent intention guideline when you doesn't intend to do its condition (strict canned response)
+    Scenario: The agent ignores a matched agent intention guideline when it doesn't intend to do its condition (strict canned response)
         Given a guideline to remind that we have a special sale if they book today when you recommends on flights options
         Given a guideline to suggest only ground based travel options when the customer asks about travel options
         And that the agent uses the canned_strict message composition mode
@@ -307,7 +307,7 @@ Feature: Strict Canned Response
         And the message contains a suggestion to travel with bus or train but not with a flight
         And the message contains the text "I recommend taking a train or a long-distance bus service. It's the most efficient and comfortable option"
 
-     Scenario: Journey returns to earlier step when the conversation justifies doing so (1) (strict canned response) 
+    Scenario: Journey returns to earlier step when the conversation justifies doing so (1) (strict canned response)
         Given an agent whose job is to book taxi rides
         And that the agent uses the canned_strict message composition mode
         Given the journey called "Book Taxi Ride"
@@ -348,13 +348,13 @@ Feature: Strict Canned Response
         And a journey path "[2, 3, 5]" for the journey "Place Food Order"
         When processing is triggered
         Then a single message event is emitted
-        And the message contains asking asking what green base the customer wants for their salad 
+        And the message contains asking asking what green base the customer wants for their salad
 
 
     Scenario: Follow up canned response is selected when relevant (strict canned response)
         Given an agent whose job is to schedule automatic vaccum cleaning services using robots
         And that the agent uses the canned_strict message composition mode
-        And a guideline to ensure that no pets and no children are in the house when a customer asks to schedule a deep-clean in a residential area 
+        And a guideline to ensure that no pets and no children are in the house when a customer asks to schedule a deep-clean in a residential area
         And a customer message, "I need a deep-clean next Wednesday"
         And an agent message, "Great! I can schedule a deep-clean for you. Is it at the location of your last deep-clean?"
         And a customer message, "Yes"
@@ -410,7 +410,7 @@ Feature: Strict Canned Response
         And at least one message contains the text "Your claim has been successfully filed. Your reference number is CLM-2024-789456"
         And at least one message contains the text "The estimated processing time is 5-7 business days"
 
-    Scenario: The agent doesn't send highly similar follow up canned responses instead of one 1 (strict canned response) 
+    Scenario: The agent doesn't send highly similar follow up canned responses instead of one 1 (strict canned response)
         Given the journey called "Book Hotel Journey"
         And that the agent uses the canned_strict message composition mode
         And a customer message, "I need to book a hotel."
@@ -427,7 +427,7 @@ Feature: Strict Canned Response
         And the message contains either "Do you have a preference—single, double, or maybe a suite?" or "What kind of room are you looking for? Single, double, or something fancier?"
 
     # Nearly identical to the previous scenario. We previously saw cases where this fail when the previous did not
-    Scenario: The agent doesn't send highly similar follow up canned responses instead of one 2 (strict canned response) 
+    Scenario: The agent doesn't send highly similar follow up canned responses instead of one 2 (strict canned response)
         Given the journey called "Book Hotel Journey"
         And that the agent uses the canned_strict message composition mode
         And a customer message, "I need to book a hotel."
@@ -443,7 +443,7 @@ Feature: Strict Canned Response
         Then a single message event is emitted
         And the message contains either "Do you have a preference—single, double, or maybe a suite?" or "What kind of room are you looking for? Single, double, or something fancier?"
 
-    Scenario: The agent doesn't send highly similar follow up canned responses instead of one 3 (strict canned response) 
+    Scenario: The agent doesn't send highly similar follow up canned responses instead of one 3 (strict canned response)
         Given the journey called "Book Hotel Journey"
         And an agent whose job is to You're a sympathetic, sarcastically funny agent that helps customers in their hotel booking needs
         And that the agent uses the canned_strict message composition mode
@@ -475,7 +475,7 @@ Feature: Strict Canned Response
         And a canned response, "Great choice! I'll go ahead and book the hotel for you now."
         And a canned response, "How many guests should I book the room for?"
         And a canned response, "You can set your check-in and check-out dates using the date picker at the top right of the booking page."
-        And a canned response, "Any special amenities you'd like me to look for—like breakfast, a pool, or parking?"        
+        And a canned response, "Any special amenities you'd like me to look for—like breakfast, a pool, or parking?"
         And a canned response, "hat kind of room are you looking for? Single, double, or something fancier?"
         And a journey path "[2, 3, 4]" for the journey "Book Hotel Journey"
         When processing is triggered

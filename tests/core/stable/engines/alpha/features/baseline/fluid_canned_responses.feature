@@ -29,7 +29,7 @@ Feature: Fluid Canned Response
         When messages are emitted
         Then the message doesn't contain the text "I do not know"
         And the message mentions the color green
-        
+
     Scenario: Multistep journey is partially followed 1 (fluid canned response)
         Given the journey called "Reset Password Journey"
         And a canned response, "What is the name of your account?"
@@ -142,16 +142,16 @@ Feature: Fluid Canned Response
         And that the agent uses the canned_fluid message composition mode
         And a customer named "Alex Smith"
         And an empty session with "Alex Smith"
-        And a context variable "medical_record" set to "Amoxicillin and Lisinopril" for "Alex Smith" 
+        And a context variable "medical_record" set to "Amoxicillin and Lisinopril" for "Alex Smith"
         And a customer message, "Hi, I need to know what medications I was prescribed during my visit last month. Can you pull up my medical record?"
         And a canned response, "I'm not able to provide personal medical information from your records."
         And a canned response, "I can help you with that. You were prescribed the following medications: {{generative.medication}}"
         When processing is triggered
         Then a single message event is emitted
-        And the message contains no prescription of medications 
+        And the message contains no prescription of medications
         And the message contains explanation that can't provide personal medical information
 
-    Scenario: The agent ignores a matched agent intention guideline when you doesn't intend to do its condition (fluid canned response)
+    Scenario: The agent ignores a matched agent intention guideline when it doesn't intend to do its condition (fluid canned response)
         Given a guideline to remind that we have a special sale if they book today when you recommends on flights options
         Given a guideline to suggest only ground based travel options when the customer asks about travel options
         And that the agent uses the canned_fluid message composition mode
@@ -185,7 +185,7 @@ Feature: Fluid Canned Response
         When processing is triggered
         Then a single tool calls event is emitted
         And the tool calls event contains 1 tool call(s)
-        And the tool calls event contains the tool reset password with username leonardo_barbosa_1982 and email leonardobarbosa@gmail.br 
+        And the tool calls event contains the tool reset password with username leonardo_barbosa_1982 and email leonardobarbosa@gmail.br
         And a single message event is emitted
         And the message contains that the password was reset and an email with instructions was sent to the customer
 
@@ -224,7 +224,7 @@ Feature: Fluid Canned Response
         Then a single message event is emitted
         And the message contains no specific information regarding delivery times, or which delivery service is quicker
 
-    
+
     Scenario: Agent doesn't hallucinate when necessary information is not provided 4 (fluid canned response)
         Given an agent whose job is to assist customers in transferring money and stocks between accounts for HSBC UK
         And that the agent uses the canned_fluid message composition mode

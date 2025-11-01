@@ -121,7 +121,7 @@ Feature: Conversation
         And the message contains no prescription of medications
         And the message contains explanation that can't provide personal medical information
 
-    Scenario: The agent ignores a matched agent intention guideline when you doesn't intend to do its condition
+    Scenario: The agent ignores a matched agent intention guideline when it doesn't intend to do its condition
         Given an agent
         And an empty session
         Given a guideline to remind that we have a special sale if they book today when you recommends on flights options

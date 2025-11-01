@@ -398,7 +398,7 @@ class OpenAITextEmbedding3Small(OpenAIEmbedder):
 
     @property
     def dimensions(self) -> int:
-        return 3072
+        return 1536
 
 
 class OpenAIModerationService(BaseModerationService):

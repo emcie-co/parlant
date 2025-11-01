@@ -124,7 +124,7 @@ Feature: Conversation
     Scenario: The agent ignores a matched agent intention guideline when it doesn't intend to do its condition
         Given an agent
         And an empty session
-        Given a guideline to remind that we have a special sale if they book today when you recommends on flights options
+        Given a guideline to remind that we have a special sale if they book today when you recommend flights options
         Given a guideline to suggest only ground based travel options when the customer asks about travel options
         And a customer message, "Hi, I want to go to California from New york next week. What are my options?"
         When processing is triggered
@@ -135,7 +135,7 @@ Feature: Conversation
     Scenario: The agent follows a regular guideline when it overrides an agent intention guideline
         Given an agent
         And an empty session
-        Given a guideline to suggest direct flights or ground-based transportation when you recommends on travel options
+        Given a guideline to suggest direct flights or ground-based transportation when you recommend travel options
         Given a guideline to suggest only ground-based travel options when the customer asks about domestic US travel options
         And a customer message, "Hi, I want to go to California from New york next week. What are my options?"
         When processing is triggered
@@ -145,7 +145,7 @@ Feature: Conversation
     Scenario: The agent follows an agent intention guideline when it overrides an agent intention guideline 2
         Given an agent
         And an empty session
-        Given a guideline to recommend on our recommended toppings - either pineapple or pepperoni when you recommends on pizza toppings
+        Given a guideline to recommend on our recommended toppings - either pineapple or pepperoni when you recommend pizza toppings
         Given a guideline to recommend from our vegetarian recommended toppings when the customer asks about topping recommendation and the customer is from India
         And a customer message, "Hi, I want to buy pizza. What do you recommend? I'm vegetarian."
         When processing is triggered

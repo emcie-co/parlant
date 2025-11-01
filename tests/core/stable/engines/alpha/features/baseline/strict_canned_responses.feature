@@ -294,7 +294,7 @@ Feature: Strict Canned Response
         And the message contains the text "I'm not able to provide personal medical information from your records."
 
     Scenario: The agent ignores a matched agent intention guideline when it doesn't intend to do its condition (strict canned response)
-        Given a guideline to remind that we have a special sale if they book today when you recommends on flights options
+        Given a guideline to remind that we have a special sale if they book today when you recommend flight options
         Given a guideline to suggest only ground based travel options when the customer asks about travel options
         And that the agent uses the canned_strict message composition mode
         And a customer message, "Hi, I want to go to California from New york next week. What are my options?"

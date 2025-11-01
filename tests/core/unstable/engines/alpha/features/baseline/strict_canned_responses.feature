@@ -30,7 +30,7 @@ Feature: Strict Canned Response
         And the message contains "golden retriever" in the {pet_breed} field
         And the message contains appropriate veterinary services for a middle-aged dog in the {recommended_services} field
 
-    Scenario: Multistep journey is aborted when the journey description requires so (strict canned response) 
+    Scenario: Multistep journey is aborted when the journey description requires so (strict canned response)
         Given the journey called "Reset Password Journey"
         And a journey path "[2, 3, 4]" for the journey "Reset Password Journey"
         And a canned response, "What is the name of your account?"
@@ -51,7 +51,7 @@ Feature: Strict Canned Response
         And the message contains either that the password could not be reset at this time
 
 
-    Scenario: Multistep journey invokes tool calls correctly (strict canned response) 
+    Scenario: Multistep journey invokes tool calls correctly (strict canned response)
         Given the journey called "Reset Password Journey"
         And a journey path "[2, 3, 4]" for the journey "Reset Password Journey"
         And a customer message, "I want to reset my password"
@@ -109,8 +109,8 @@ Feature: Strict Canned Response
         And the message contains no rudeness to tell the user to go away
 
     Scenario: The agent follows a regular guideline when it overrides an agent intention guideline (strict canned response)
-        Given a guideline to suggest direct flights when you recommends on travel options
-        Given a guideline to suggest only ground-based travel options when the customer asks about domestic US travel options 
+        Given a guideline to suggest direct flights when you recommend travel options
+        Given a guideline to suggest only ground-based travel options when the customer asks about domestic US travel options
         And that the agent uses the canned_strict message composition mode
         And a customer message, "Hi, I want to go to California from New york next week. What are my options?"
         And a canned response, "I recommend taking a direct flight. It's the most efficient and comfortable option."
@@ -120,7 +120,7 @@ Feature: Strict Canned Response
         And the message contains the text "I suggest taking a train or a long-distance bus service. It's the most efficient and comfortable option"
 
     Scenario: The agent follows a regular guideline when it overrides an agent intention guideline 2 (strict canned response)
-        Given a guideline to recommend on either pineapple or pepperoni when you recommends on pizza toppings
+        Given a guideline to recommend on either pineapple or pepperoni when you recommend pizza toppings
         Given a guideline to recommend only from the vegetarian toppings options when the customer asks for pizza topping recommendation and they are from India
         And that the agent uses the canned_strict message composition mode
         And a customer message, "Hi, I want to buy pizza. What do you recommend? I'm from India if it matters."
@@ -129,9 +129,9 @@ Feature: Strict Canned Response
         Then a single message event is emitted
         And the message contains the text "I recommend on pineapple."
 
-    Scenario: The agent follows an agent intention guideline when it overrides an agent intention guideline (strict canned response) 
-        Given a guideline to suggest direct flights when you recommends on travel options
-        Given a guideline to suggest only ground-based travel options when you recommends on domestic US travel options 
+    Scenario: The agent follows an agent intention guideline when it overrides an agent intention guideline (strict canned response)
+        Given a guideline to suggest direct flights when you recommend travel options
+        Given a guideline to suggest only ground-based travel options when you recommend domestic US travel options
         And that the agent uses the canned_strict message composition mode
         And a customer message, "Hi, I want to go to California from New york next week. What are my options?"
         And a canned response, "I recommend taking a direct flight. It's the most efficient and comfortable option."
@@ -141,8 +141,8 @@ Feature: Strict Canned Response
         And the message contains the text "I suggest taking a train or a long-distance bus service. It's the most efficient and comfortable option"
 
     Scenario: The agent follows an agent intention guideline when it overrides an agent intention guideline 2 (strict canned response)
-        Given a guideline to recommend on either pineapple or pepperoni when you recommends on pizza toppings
-        Given a guideline to recommend only from the vegetarian toppings options when you recommends on pizza topping and the customer is from India
+        Given a guideline to recommend on either pineapple or pepperoni when you recommend pizza toppings
+        Given a guideline to recommend only from the vegetarian toppings options when you recommend pizza topping and the customer is from India
         And that the agent uses the canned_strict message composition mode
         And a customer message, "Hi, I want to buy pizza. What do you recommend? I'm from India if it matters."
         And a canned response, "I recommend on {{generative.answer}}."
@@ -150,7 +150,7 @@ Feature: Strict Canned Response
         Then a single message event is emitted
         And the message contains the text "I recommend on pineapple."
 
-    Scenario: Guideline and journey are used in unison (strict canned response) 
+    Scenario: Guideline and journey are used in unison (strict canned response)
         Given the journey called "Book Flight"
         And a guideline "Business Adult Only" to know that travelers under the age of 21 are illegible for business class, and may only use economy when a flight is being booked
         And a canned response, "Great. Are you interested in economy or business class?"

@@ -152,7 +152,7 @@ Feature: Fluid Canned Response
         And the message contains explanation that can't provide personal medical information
 
     Scenario: The agent ignores a matched agent intention guideline when it doesn't intend to do its condition (fluid canned response)
-        Given a guideline to remind that we have a special sale if they book today when you recommends on flights options
+        Given a guideline to remind that we have a special sale if they book today when you recommend flights options
         Given a guideline to suggest only ground based travel options when the customer asks about travel options
         And that the agent uses the canned_fluid message composition mode
         And a customer message, "Hi, I want to go to California from New york next week. What are my options?"

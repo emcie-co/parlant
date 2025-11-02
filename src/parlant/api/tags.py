@@ -92,7 +92,7 @@ def create_router(
                 "description": "Tag successfully created. Returns the complete tag object with generated ID.",
                 "content": {"application/json": {"example": tag_example}},
             },
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Invalid tag parameters. Ensure name follows required format."
             },
         },
@@ -179,7 +179,7 @@ def create_router(
                 "content": {"application/json": {"example": tag_example}},
             },
             status.HTTP_404_NOT_FOUND: {"description": "No tag found with the specified ID"},
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Invalid update parameters. Ensure name follows required format."
             },
         },

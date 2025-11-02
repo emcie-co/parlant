@@ -219,7 +219,7 @@ def create_router(
                 "description": "Relationship successfully created. Returns the created relationship.",
                 "content": common.example_json_content(relationship_example),
             },
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in request parameters"
             },
         },
@@ -241,12 +241,12 @@ def create_router(
 
         if params.source_guideline and params.source_tag:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="A relationship cannot have both a source guideline and a source tag",
             )
         elif params.target_guideline and params.target_tag:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="A relationship cannot have both a target guideline and a target tag",
             )
         elif (
@@ -255,7 +255,7 @@ def create_router(
             and params.source_guideline == params.target_guideline
         ) or (params.source_tag and params.target_tag and params.source_tag == params.target_tag):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="source and target cannot be the same entity",
             )
 

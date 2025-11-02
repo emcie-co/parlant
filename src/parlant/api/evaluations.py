@@ -275,7 +275,7 @@ def _payload_from_dto(dto: PayloadDTO) -> Payload:
     if dto.kind == PayloadKindDTO.GUIDELINE:
         if not dto.guideline:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Missing Guideline payload",
             )
 
@@ -285,7 +285,7 @@ def _payload_from_dto(dto: PayloadDTO) -> Payload:
             and not dto.guideline.journey_node_proposition
         ):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="At least one of action_proposition, properties_proposition or journey_node_proposition must be enabled",
             )
 
@@ -306,7 +306,7 @@ def _payload_from_dto(dto: PayloadDTO) -> Payload:
         )
 
     raise HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         detail="Unsupported DTO kind",
     )
 
@@ -351,7 +351,7 @@ def _payload_descriptor_to_dto(descriptor: PayloadDescriptor) -> PayloadDTO:
         )
 
     raise HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         detail="Unsupported descriptor kind",
     )
 
@@ -370,7 +370,7 @@ def _invoice_data_to_dto(
         )
 
     raise HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         detail="Unsupported descriptor kind",
     )
 
@@ -526,7 +526,7 @@ def create_router(
                 "description": "Evaluation successfully created. Returns the initial evaluation state.",
                 "content": common.example_json_content(evaluation_example),
             },
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in evaluation parameters"
             },
         },
@@ -553,7 +553,7 @@ def create_router(
 
         except EvaluationValidationError as exc:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=str(exc),
             )
 
@@ -569,7 +569,7 @@ def create_router(
                 "content": common.example_json_content(evaluation_example),
             },
             status.HTTP_404_NOT_FOUND: {"description": "Evaluation not found"},
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in evaluation parameters"
             },
             status.HTTP_504_GATEWAY_TIMEOUT: {

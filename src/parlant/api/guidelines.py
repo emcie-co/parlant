@@ -424,7 +424,7 @@ def create_router(
                 "description": "Guideline successfully created. Returns the created guideline.",
                 "content": common.example_json_content(guideline_dto_example),
             },
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in request parameters"
             },
         },
@@ -575,7 +575,7 @@ def create_router(
                 "content": common.example_json_content(guideline_with_relationships_example),
             },
             status.HTTP_404_NOT_FOUND: {"description": "Guideline or referenced tool not found"},
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Invalid relationship rules or validation error in update parameters"
             },
         },

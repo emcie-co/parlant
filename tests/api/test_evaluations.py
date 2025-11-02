@@ -113,7 +113,7 @@ async def test_that_an_error_is_returned_when_no_payloads_are_provided(
 ) -> None:
     response = await async_client.post("/evaluations", json={"payloads": []})
 
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     data = response.json()
 
     assert "detail" in data
@@ -253,7 +253,7 @@ async def test_that_error_is_returned_when_no_propositions_are_provided_in_a_pay
         },
     )
 
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     data = response.json()
 
     assert "detail" in data
@@ -289,7 +289,7 @@ async def test_that_error_is_returned_when_all_propositions_are_disabled_in_a_pa
         },
     )
 
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     data = response.json()
 
     assert "detail" in data

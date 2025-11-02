@@ -301,6 +301,13 @@ class AgentDocumentStore(AgentStore):
             # Use provided ID or generate one
             if id is not None:
                 agent_id = id
+
+                # Check if agent with this ID already exists
+                existing = await self._agents_collection.find_one(
+                    filters={"id": {"$eq": agent_id}}
+                )
+                if existing:
+                    raise ValueError(f"Agent with id '{agent_id}' already exists")
             else:
                 agent_checksum = md5_checksum(f"{name}{description}{max_engine_iterations}{tags}")
                 agent_id = AgentId(self._id_generator.generate(agent_checksum))

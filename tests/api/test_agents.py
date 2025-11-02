@@ -353,3 +353,84 @@ async def test_that_an_agent_cannot_be_created_with_a_nonexistent_tag(
     )
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+async def test_that_an_agent_can_be_created_with_custom_id(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    custom_id = "my_custom_agent_id"
+    name = "Custom ID Agent"
+    description = "An agent with a custom ID"
+
+    response = await async_client.post(
+        "/agents",
+        json={
+            "name": name,
+            "description": description,
+            "id": custom_id,
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    agent = response.json()
+    assert agent["id"] == custom_id
+    assert agent["name"] == name
+    assert agent["description"] == description
+
+
+async def test_that_multiple_agents_can_be_created_with_different_custom_ids(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # Create first agent with custom ID
+    response1 = await async_client.post(
+        "/agents",
+        json={
+            "name": "First Agent",
+            "description": "First agent",
+            "id": "agent_1",
+        },
+    )
+    assert response1.status_code == status.HTTP_201_CREATED
+    assert response1.json()["id"] == "agent_1"
+
+    # Create second agent with different custom ID
+    response2 = await async_client.post(
+        "/agents",
+        json={
+            "name": "Second Agent",
+            "description": "Second agent",
+            "id": "agent_2",
+        },
+    )
+    assert response2.status_code == status.HTTP_201_CREATED
+    assert response2.json()["id"] == "agent_2"
+
+
+async def test_that_creating_agent_with_duplicate_custom_id_fails(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    custom_id = "duplicate_agent_id"
+
+    # Create first agent with custom ID
+    response1 = await async_client.post(
+        "/agents",
+        json={
+            "name": "First Agent",
+            "description": "First agent",
+            "id": custom_id,
+        },
+    )
+    assert response1.status_code == status.HTTP_201_CREATED
+    assert response1.json()["id"] == custom_id
+
+    # Try to create second agent with same ID at the store level - should fail
+    agent_store = container[AgentStore]
+    with raises(ValueError, match="already exists"):
+        await agent_store.create_agent(
+            name="Second Agent",
+            description="Second agent",
+            id=custom_id,
+        )

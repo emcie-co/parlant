@@ -18,7 +18,7 @@ import httpx
 from lagom import Container
 from pytest import mark, raises
 
-from parlant.core.agents import AgentStore
+from parlant.core.agents import AgentId, AgentStore
 from parlant.core.common import ItemNotFoundError
 from parlant.core.tags import TagId, TagStore
 
@@ -412,7 +412,7 @@ async def test_that_creating_agent_with_duplicate_custom_id_fails(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    custom_id = "duplicate_agent_id"
+    custom_id = AgentId("duplicate_agent_id")
 
     # Create first agent with custom ID
     response1 = await async_client.post(

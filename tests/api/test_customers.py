@@ -19,7 +19,7 @@ from lagom import Container
 from pytest import raises
 
 from parlant.core.common import ItemNotFoundError
-from parlant.core.customers import CustomerStore
+from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.tags import TagStore
 
 
@@ -342,7 +342,7 @@ async def test_that_creating_customer_with_duplicate_custom_id_fails(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    custom_id = "duplicate_customer_id"
+    custom_id = CustomerId("duplicate_customer_id")
 
     # Create first customer with custom ID
     response1 = await async_client.post(

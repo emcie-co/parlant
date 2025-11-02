@@ -303,9 +303,7 @@ class AgentDocumentStore(AgentStore):
                 agent_id = id
 
                 # Check if agent with this ID already exists
-                existing = await self._agents_collection.find_one(
-                    filters={"id": {"$eq": agent_id}}
-                )
+                existing = await self._agents_collection.find_one(filters={"id": {"$eq": agent_id}})
                 if existing:
                     raise ValueError(f"Agent with id '{agent_id}' already exists")
             else:

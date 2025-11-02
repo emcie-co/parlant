@@ -166,7 +166,7 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
             error_str = str(e)
             if "JSON mode" in error_str or "json_object" in error_str.lower():
                 self._logger.error(
-                    f"\n⚠️  Model '{self.model_name}' does not support JSON mode.\n"
+                    f"\nModel '{self.model_name}' does not support JSON mode.\n"
                     f"Please switch to a model that supports JSON mode (e.g., 'openai/gpt-4o', 'anthropic/claude-3.5-sonnet').\n"
                     f"Attempting to continue without JSON mode enforcement, but results may be less reliable.\n"
                 )
@@ -184,7 +184,7 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
                     )
                 except Exception as retry_error:
                     self._logger.error(
-                        f"\n❌ Failed to use model '{self.model_name}' even without JSON mode.\n"
+                        f"\nFailed to use model '{self.model_name}' even without JSON mode.\n"
                         f"Error: {retry_error}\n"
                         f"Please change your model to one that supports JSON mode or use a different model entirely.\n"
                     )
@@ -195,7 +195,7 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
                 raise
         except RateLimitError as e:
             self._logger.error(
-                f"\n⏱️  Rate limit exceeded for model '{self.model_name}'.\n"
+                f"\nRate limit exceeded for model '{self.model_name}'.\n"
                 f"{RATE_LIMIT_ERROR_MESSAGE}\n"
                 f"Consider:\n"
                 f"  - Using a different model\n"
@@ -205,7 +205,7 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
             raise
         except Exception as e:
             self._logger.error(
-                f"\n❌ OpenRouter API error with model '{self.model_name}': {type(e).__name__}\n"
+                f"\nOpenRouter API error with model '{self.model_name}': {type(e).__name__}\n"
                 f"{e}\n"
                 f"Consider switching to a more compatible model.\n"
             )
@@ -221,7 +221,7 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
         # Check if we got empty response
         if not raw_content.strip() or raw_content.strip() == "{}":
             self._logger.error(
-                f"\n❌ Model '{self.model_name}' returned empty or invalid JSON.\n"
+                f"\nModel '{self.model_name}' returned empty or invalid JSON.\n"
                 f"Response: {raw_content}\n"
                 f"This model may not be compatible with structured output requirements.\n"
                 f"Please switch to a model that supports JSON mode (e.g., 'openai/gpt-4o', 'anthropic/claude-3.5-sonnet').\n"
@@ -249,7 +249,7 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
                     self._logger.warning("Found JSON content within model response; continuing...")
                 except Exception as finder_error:
                     self._logger.error(
-                        f"\n❌ Could not parse JSON from model response.\n"
+                        f"\nCould not parse JSON from model response.\n"
                         f"Raw response: {raw_content}\n"
                         f"Error: {finder_error}\n"
                         f"Model '{self.model_name}' may not be compatible.\n"
@@ -283,7 +283,7 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
             )
         except ValidationError as e:
             self._logger.error(
-                f"\n❌ JSON content returned by '{self.model_name}' does not match expected schema.\n"
+                f"\nJSON content returned by '{self.model_name}' does not match expected schema.\n"
                 f"Schema: {self.schema.__name__}\n"
                 f"Raw response: {raw_content}\n"
                 f"Parsed JSON: {json.dumps(json_content, indent=2) if json_content else 'Empty'}\n"
@@ -431,7 +431,7 @@ class OpenRouterEmbedder(BaseEmbedder):
             )
         except RateLimitError:
             self.logger.error(
-                f"\n⏱️  Rate limit exceeded for embedder model '{self.model_name}'.\n"
+                f"\nRate limit exceeded for embedder model '{self.model_name}'.\n"
                 f"{RATE_LIMIT_ERROR_MESSAGE}\n"
                 f"Consider:\n"
                 f"  - Using a different embedder model\n"

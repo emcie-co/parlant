@@ -553,7 +553,7 @@ def create_router(
                 "description": "Term successfully created. Returns the complete term object including generated ID",
                 "content": common.example_json_content(term_example),
             },
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in request parameters"
             },
         },
@@ -685,7 +685,7 @@ def create_router(
             status.HTTP_404_NOT_FOUND: {
                 "description": "Term not found. The specified `term_id` does not exist"
             },
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in update parameters"
             },
         },

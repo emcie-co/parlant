@@ -383,7 +383,7 @@ def create_router(
                 "description": "Journey successfully created. Returns the complete journey object including generated ID.",
                 "content": example_json_content(journey_example),
             },
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in request parameters"
             },
         },
@@ -547,7 +547,7 @@ def create_router(
             status.HTTP_404_NOT_FOUND: {
                 "description": "Journey not found. the specified `journey_id` does not exist"
             },
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in update parameters"
             },
         },

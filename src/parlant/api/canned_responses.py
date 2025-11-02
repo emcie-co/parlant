@@ -402,7 +402,7 @@ def create_router(
             status.HTTP_404_NOT_FOUND: {
                 "description": "CannedResponse not found. The specified canned_response_id does not exist"
             },
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in update parameters"
             },
         },
@@ -424,7 +424,7 @@ def create_router(
 
         if params.fields and not params.value:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="CannedResponse fields cannot be updated without providing a new value.",
             )
 

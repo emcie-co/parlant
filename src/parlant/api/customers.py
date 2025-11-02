@@ -234,7 +234,7 @@ def create_router(
                 "description": "Customer successfully created. Returns the new customer object.",
                 "content": example_json_content(customer_example),
             },
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in request parameters"
             },
         },
@@ -369,7 +369,7 @@ def create_router(
             status.HTTP_404_NOT_FOUND: {
                 "description": "Customer not found. The specified customer_id does not exist"
             },
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in update parameters"
             },
         },

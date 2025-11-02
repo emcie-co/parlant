@@ -838,7 +838,7 @@ async def test_that_delete_events_raises_if_not_first_of_correlation_id(
     response = await async_client.delete(
         f"/sessions/{session_id}/events?min_offset={second_event['offset']}"
     )
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     assert (
         response.json()["detail"]
         == "Cannot delete events with offset < min_offset unless they are the first event of their correlation ID"
@@ -1206,7 +1206,7 @@ async def test_that_posting_a_human_agent_message_requires_participant_display_n
             "message": "Hello from human.",
         },
     )
-    assert response_no_participant.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response_no_participant.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 async def test_that_status_event_can_be_created(

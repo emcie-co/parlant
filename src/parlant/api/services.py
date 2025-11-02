@@ -304,7 +304,7 @@ def create_router(
                 "content": {"application/json": {"example": service_example}},
             },
             status.HTTP_404_NOT_FOUND: {"description": "No service found with the given name"},
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Invalid service configuration parameters"
             },
         },
@@ -336,19 +336,19 @@ def create_router(
         if params.kind == ToolServiceKindDTO.SDK:
             if not params.sdk:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="Missing SDK parameters",
                 )
 
             if not (params.sdk.url.startswith("http://") or params.sdk.url.startswith("https://")):
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="Service URL is missing schema (http:// or https://)",
                 )
         elif params.kind == ToolServiceKindDTO.OPENAPI:
             if not params.openapi:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="Missing OpenAPI parameters",
                 )
             if not (
@@ -356,18 +356,18 @@ def create_router(
                 or params.openapi.url.startswith("https://")
             ):
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="Service URL is missing schema (http:// or https://)",
                 )
         elif params.kind == ToolServiceKindDTO.MCP:
             if not params.mcp:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="Missing MCP parameters",
                 )
             if not (params.mcp.url.startswith("http://") or params.mcp.url.startswith("https://")):
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="Service URL is missing schema (http:// or https://)",
                 )
         else:

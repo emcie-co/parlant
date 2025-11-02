@@ -18,14 +18,14 @@ aiopenapi3 = "0.8.1"
 aiorwlock = "^1.5.0"
 authlib = "^1.6.5"
 boto3 = "^1.35.70"
-cachetools = "5.5.2"
+cachetools = "^6.0.0"
 click = "^8.1.7"
 colorama = "^0.4.6"
 coloredlogs = "^15.0.1"
 contextvars = "^2.4"
 croniter = "^5.0.1"
-fastapi = "0.115.12"
-fastmcp = "2.12.5"
+fastapi = "^0.120.0"
+fastmcp = "2.13.0"
 httpx = "^0.28.1"
 jinja2 = "^3.1.6"
 jsonfinder = "^0.4.2"
@@ -53,7 +53,7 @@ semver = "^3.0.2"
 structlog = "^24.4.0"
 tabulate = "^0.9.0"
 tiktoken = "^0.11"
-tokenizers = "^0.20"
+tokenizers = "^0.21"
 toml = "^0.10.2"
 types-aiofiles = "^24.1.0.20240626"
 types-cachetools = "^6.0.0.20250525"
@@ -74,7 +74,7 @@ ollama = { version = "^0.5.0", optional = true }
 google-auth = { version = "^2.40.0", optional = true }
 together = { version = "^1.5.26", optional = true }
 torch = { version = "^2.6.0", optional = true }
-transformers = { version = "^4.46.2", optional = true }
+transformers = { version = "^4.53.0", optional = true }
 litellm = { version = "^1.61.16", optional = true }
 pymongo = { version = "^4.11.1", optional = true }
 fireworks-ai = { version = "^0.19.19", optional = true }

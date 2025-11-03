@@ -36,7 +36,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.response_analysis_bat
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     ResponseAnalysisContext,
 )
-from parlant.core.engines.alpha.loaded_context import Interaction, LoadedContext, ResponseState
+from parlant.core.engines.alpha.loaded_context import Interaction, EngineContext, ResponseState
 from parlant.core.engines.alpha.message_generator import MessageGenerator
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.utils import context_variables_to_json
@@ -349,7 +349,7 @@ def when_messages_are_emitted(
         ):
             message_event_composer = context.container[CannedResponseGenerator]
 
-    loaded_context = LoadedContext(
+    loaded_context = EngineContext(
         info=Context(
             session_id=session.id,
             agent_id=agent.id,

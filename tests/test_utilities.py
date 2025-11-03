@@ -59,7 +59,7 @@ from parlant.core.context_variables import (
 )
 from parlant.core.customers import Customer, CustomerId, CustomerStore
 from parlant.core.engines.alpha.hooks import EngineHook, EngineHooks
-from parlant.core.engines.alpha.loaded_context import LoadedContext
+from parlant.core.engines.alpha.loaded_context import EngineContext
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.glossary import GlossaryStore, Term
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
@@ -117,13 +117,13 @@ class SyncAwaiter:
 
 @dataclass(frozen=False)
 class JournalingEngineHooks(EngineHooks):
-    latest_context_per_trace_id: dict[str, LoadedContext] = field(default_factory=dict)
+    latest_context_per_trace_id: dict[str, EngineContext] = field(default_factory=dict)
 
     @override
     async def call_hooks(
         self,
         hooks: Sequence[EngineHook],
-        context: LoadedContext,
+        context: EngineContext,
         payload: Any,
         exc: Optional[Exception] = None,
     ) -> bool:

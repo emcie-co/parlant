@@ -21,7 +21,7 @@ from typing import Optional, Sequence
 
 from parlant.core import async_utils
 from parlant.core.capabilities import Capability
-from parlant.core.engines.alpha.loaded_context import LoadedContext
+from parlant.core.engines.alpha.loaded_context import EngineContext
 from parlant.core.journeys import Journey, JourneyId
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
@@ -207,7 +207,7 @@ class GuidelineMatcher:
 
     async def match_guidelines(
         self,
-        context: LoadedContext,
+        context: EngineContext,
         active_journeys: Sequence[Journey],
         guidelines: Sequence[Guideline],
     ) -> GuidelineMatchingResult:

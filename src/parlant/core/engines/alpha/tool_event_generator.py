@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Mapping, Optional, Sequence
 from parlant.core.customers import Customer
-from parlant.core.engines.alpha.loaded_context import LoadedContext
+from parlant.core.engines.alpha.loaded_context import EngineContext
 from parlant.core.meter import Meter
 from parlant.core.tools import ToolContext
 from parlant.core.tracer import Tracer
@@ -115,7 +115,7 @@ class ToolEventGenerator:
     async def generate_events(
         self,
         preexecution_state: ToolPreexecutionState,
-        context: LoadedContext,
+        context: EngineContext,
     ) -> ToolEventGenerationResult:
         _ = preexecution_state  # Not used for now, but good to have for extensibility
 

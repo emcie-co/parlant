@@ -22,7 +22,7 @@ from parlant.core.tracer import Tracer
 from parlant.core.customers import Customer
 from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import GuidelineMatcher
-from parlant.core.engines.alpha.loaded_context import Interaction, LoadedContext, ResponseState
+from parlant.core.engines.alpha.loaded_context import Interaction, EngineContext, ResponseState
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.engines.types import Context
 from parlant.core.guidelines import GuidelineContent
@@ -327,7 +327,7 @@ async def base_test_that_guideline_with_proposed_action_matched(
 
     session = await context.container[SessionStore].read_session(session_id)
 
-    loaded_context = LoadedContext(
+    loaded_context = EngineContext(
         info=Context(
             session_id=session.id,
             agent_id=agent.id,

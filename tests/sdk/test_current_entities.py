@@ -22,7 +22,7 @@ from tests.sdk.utils import Context, SDKTest
 class Test_that_hooks_can_access_current_sdk_entities(SDKTest):
     async def configure_hooks(self, hooks: p.EngineHooks) -> p.EngineHooks:
         async def on_acknowledged(
-            context: p.LoadedContext, payload: Any, exception: Exception | None
+            context: p.EngineContext, payload: Any, exception: Exception | None
         ) -> p.EngineHookResult:
             self.captured_server = p.Server.current
             self.captured_agent = p.Agent.current

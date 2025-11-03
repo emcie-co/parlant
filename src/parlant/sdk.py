@@ -107,7 +107,12 @@ from parlant.core.customers import (
 from parlant.core.emissions import EmittedEvent, EventEmitterFactory
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder, PromptSection
 from parlant.core.engines.alpha.hooks import EngineHook, EngineHookResult, EngineHooks
-from parlant.core.engines.alpha.loaded_context import LoadedContext, Interaction, InteractionMessage
+from parlant.core.engines.alpha.loaded_context import (
+    EngineContext,
+    LoadedContext,  # type: ignore
+    Interaction,
+    InteractionMessage,
+)
 from parlant.core.engines.alpha.entity_context import EntityContext
 from parlant.core.glossary import GlossaryStore, GlossaryVectorStore, TermId
 from parlant.core.guideline_tool_associations import (
@@ -2544,7 +2549,7 @@ class Server:
             ] = {}
 
             async def on_message_acknowledged(
-                ctx: LoadedContext,
+                ctx: EngineContext,
                 payload: Any,
                 exc: Optional[Exception],
             ) -> EngineHookResult:
@@ -2600,7 +2605,7 @@ class Server:
                 return EngineHookResult.CALL_NEXT
 
             async def on_generating_messages(
-                ctx: LoadedContext,
+                ctx: EngineContext,
                 payload: Any,
                 exc: Optional[Exception],
             ) -> EngineHookResult:
@@ -3247,6 +3252,7 @@ __all__ = [
     "EmbedderFactory",
     "EmbeddingResult",
     "EmittedEvent",
+    "EngineContext",
     "EngineHook",
     "EngineHookResult",
     "EngineHooks",

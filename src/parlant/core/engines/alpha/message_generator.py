@@ -28,7 +28,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.common import (
     GuidelineInternalRepresentation,
     internal_representation,
 )
-from parlant.core.engines.alpha.loaded_context import LoadedContext
+from parlant.core.engines.alpha.loaded_context import EngineContext
 from parlant.core.engines.alpha.message_event_composer import (
     MessageCompositionError,
     MessageEventComposer,
@@ -149,14 +149,14 @@ class MessageGenerator(MessageEventComposer):
     @override
     async def generate_preamble(
         self,
-        context: LoadedContext,
+        context: EngineContext,
     ) -> Sequence[MessageEventComposition]:
         return []
 
     @override
     async def generate_response(
         self,
-        context: LoadedContext,
+        context: EngineContext,
         latch: Optional[CancellationSuppressionLatch] = None,
     ) -> Sequence[MessageEventComposition]:
         with self._logger.scope("MessageEventComposer"):

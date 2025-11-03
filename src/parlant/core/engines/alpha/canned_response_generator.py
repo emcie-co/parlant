@@ -40,7 +40,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.common import (
     internal_representation,
 )
 from parlant.core.engines.alpha.hooks import EngineHooks
-from parlant.core.engines.alpha.loaded_context import LoadedContext
+from parlant.core.engines.alpha.loaded_context import EngineContext
 from parlant.core.engines.alpha.message_event_composer import (
     MessageCompositionError,
     MessageEventComposer,
@@ -79,11 +79,11 @@ DEFAULT_NO_MATCH_CANREP = "Not sure I understand. Could you please say that anot
 
 
 class NoMatchResponseProvider(ABC):
-    async def get_response(self, context: LoadedContext, draft: str | None) -> CannedResponse:
+    async def get_response(self, context: EngineContext, draft: str | None) -> CannedResponse:
         return CannedResponse.create_transient(await self.get_template(context, draft))
 
     @abstractmethod
-    async def get_template(self, context: LoadedContext, draft: str | None) -> str: ...
+    async def get_template(self, context: EngineContext, draft: str | None) -> str: ...
 
 
 class BasicNoMatchResponseProvider(NoMatchResponseProvider):
@@ -91,7 +91,7 @@ class BasicNoMatchResponseProvider(NoMatchResponseProvider):
         self.template = DEFAULT_NO_MATCH_CANREP
 
     @override
-    async def get_template(self, context: LoadedContext, draft: str | None) -> str:
+    async def get_template(self, context: EngineContext, draft: str | None) -> str:
         return self.template
 
 
@@ -557,7 +557,7 @@ class CannedResponseGenerator(MessageEventComposer):
     @override
     async def generate_preamble(
         self,
-        context: LoadedContext,
+        context: EngineContext,
     ) -> Sequence[MessageEventComposition]:
         with self._logger.scope("MessageEventComposer"):
             with self._logger.scope("CannedResponseGenerator"):
@@ -566,7 +566,7 @@ class CannedResponseGenerator(MessageEventComposer):
 
     async def _do_generate_preamble(
         self,
-        context: LoadedContext,
+        context: EngineContext,
     ) -> Sequence[MessageEventComposition]:
         agent = context.agent
 
@@ -736,7 +736,7 @@ You will now be given the current state of the interaction to which you must gen
     @override
     async def generate_response(
         self,
-        context: LoadedContext,
+        context: EngineContext,
         latch: Optional[CancellationSuppressionLatch] = None,
     ) -> Sequence[MessageEventComposition]:
         with self._logger.scope("MessageEventComposer"):
@@ -824,7 +824,7 @@ You will now be given the current state of the interaction to which you must gen
 
     async def _do_generate_events(
         self,
-        loaded_context: LoadedContext,
+        loaded_context: EngineContext,
         latch: Optional[CancellationSuppressionLatch] = None,
     ) -> Sequence[MessageEventComposition]:
         is_first_message_emitted = False
@@ -1529,7 +1529,7 @@ Output a JSON object with three properties:
 
     async def _generate_response(
         self,
-        loaded_context: LoadedContext,
+        loaded_context: EngineContext,
         context: CannedResponseContext,
         canned_responses: Sequence[CannedResponse],
         composition_mode: CompositionMode,

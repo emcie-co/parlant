@@ -160,7 +160,7 @@ class ResponseState:
 
 
 @dataclass
-class LoadedContext:
+class EngineContext:
     """Helper class to access loaded values that are relevant for responding in a particular context"""
 
     info: Context
@@ -231,3 +231,8 @@ class LoadedContext:
                 ),
             )
         )
+
+
+@deprecated("Please use the EngineContext class instead of LoadedContext")
+class LoadedContext(EngineContext):
+    pass

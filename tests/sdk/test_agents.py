@@ -211,7 +211,7 @@ class Test_that_the_output_of_an_agent_can_be_intercepted(SDKTest):
 
     async def configure_hooks(self, hooks: p.EngineHooks) -> p.EngineHooks:
         async def intercept_message(
-            ctx: p.LoadedContext, payload: Any, exc: Exception | None
+            ctx: p.EngineContext, payload: Any, exc: Exception | None
         ) -> p.EngineHookResult:
             _ = payload  # Here is where validations would run (payload is the generated message)
 

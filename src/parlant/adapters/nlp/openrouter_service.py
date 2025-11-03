@@ -105,7 +105,7 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
 
         self._tokenizer = OpenRouterEstimatingTokenizer(model_name=self.model_name)
 
-    @property  
+    @property
     @override
     def id(self) -> str:
         return f"openrouter/{self.model_name}"
@@ -149,10 +149,10 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
         }
 
         t_start = time.time()
-        
+
         # Try with JSON mode first, but catch errors gracefully
         response = None
-        
+
         try:
             # Try with JSON mode
             response = await self._client.chat.completions.create(
@@ -177,7 +177,7 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
                     response = await self._client.chat.completions.create(
                         messages=[
                             {"role": "system", "content": json_instruction},
-                            {"role": "user", "content": prompt}
+                            {"role": "user", "content": prompt},
                         ],
                         model=self.model_name,
                         **openrouter_api_arguments,
@@ -210,14 +210,14 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
                 f"Consider switching to a more compatible model.\n"
             )
             raise
-        
+
         t_end = time.time()
 
         if response.usage:
             self._logger.trace(response.usage.model_dump_json(indent=2))
 
         raw_content = response.choices[0].message.content or "{}"
-        
+
         # Check if we got empty response
         if not raw_content.strip() or raw_content.strip() == "{}":
             self._logger.error(
@@ -233,20 +233,30 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
                 json_content = json.loads(normalize_json_output(raw_content))
                 # Check if parsed JSON is empty
                 if not json_content or json_content == {}:
-                    self._logger.warning("Model returned empty JSON object. Attempting to find JSON in response...")
+                    self._logger.warning(
+                        "Model returned empty JSON object. Attempting to find JSON in response..."
+                    )
                     # Try to find JSON in the response
                     try:
                         json_content = jsonfinder.only_json(raw_content)[2]
                         if json_content and json_content != {}:
-                            self._logger.info("Found valid JSON content within response.")
+                            self._logger.info(
+                                "Found valid JSON content within response."
+                            )
                     except Exception:
-                        self._logger.error(f"Could not extract valid JSON from response: {raw_content}")
+                        self._logger.error(
+                            f"Could not extract valid JSON from response: {raw_content}"
+                        )
             except json.JSONDecodeError as e:
-                self._logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content}")
+                self._logger.warning(
+                    f"Invalid JSON returned by {self.model_name}:\n{raw_content}"
+                )
                 try:
                     # Try to extract JSON using jsonfinder
                     json_content = jsonfinder.only_json(raw_content)[2]
-                    self._logger.warning("Found JSON content within model response; continuing...")
+                    self._logger.warning(
+                        "Found JSON content within model response; continuing..."
+                    )
                 except Exception as finder_error:
                     self._logger.error(
                         f"\nCould not parse JSON from model response.\n"
@@ -316,7 +326,9 @@ class OpenRouterGPT4OMini(OpenRouterSchematicGenerator[T]):
 
 class OpenRouterClaude35Sonnet(OpenRouterSchematicGenerator[T]):
     def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="anthropic/claude-3.5-sonnet", logger=logger, meter=meter)
+        super().__init__(
+            model_name="anthropic/claude-3.5-sonnet", logger=logger, meter=meter
+        )
 
     @property
     @override
@@ -326,7 +338,9 @@ class OpenRouterClaude35Sonnet(OpenRouterSchematicGenerator[T]):
 
 class OpenRouterLlama33_70B(OpenRouterSchematicGenerator[T]):
     def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="meta-llama/llama-3.3-70b-instruct", logger=logger, meter=meter)
+        super().__init__(
+            model_name="meta-llama/llama-3.3-70b-instruct", logger=logger, meter=meter
+        )
 
     @property
     @override
@@ -388,16 +402,16 @@ class OpenRouterEmbedder(BaseEmbedder):
         # Check environment variable override first
         if "OPENROUTER_EMBEDDER_DIMENSIONS" in os.environ:
             return int(os.environ["OPENROUTER_EMBEDDER_DIMENSIONS"])
-        
+
         # Return cached dimensions if available
         if self._cached_dimensions is not None:
             return self._cached_dimensions
-        
+
         # Check known dimensions lookup
         for model_key, dims in self._KNOWN_DIMENSIONS.items():
             if model_key in self.model_name:
                 return dims
-        
+
         # Default fallback - most embedding models use 1536 or 3072
         # This will be updated after first API call
         return 1536
@@ -422,7 +436,9 @@ class OpenRouterEmbedder(BaseEmbedder):
         texts: list[str],
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
-        filtered_hints = {k: v for k, v in hints.items() if k in self.supported_arguments}
+        filtered_hints = {
+            k: v for k, v in hints.items() if k in self.supported_arguments
+        }
         try:
             response = await self._client.embeddings.create(
                 model=self.model_name,
@@ -441,23 +457,27 @@ class OpenRouterEmbedder(BaseEmbedder):
             raise
 
         vectors = [data_point.embedding for data_point in response.data]
-        
+
         # Cache dimensions from first response if not already cached and not in known list
         if self._cached_dimensions is None and vectors:
             actual_dims = len(vectors[0])
             # Only cache if different from default or if not found in known dimensions
-            if actual_dims != 1536 or not any(key in self.model_name for key in self._KNOWN_DIMENSIONS):
+            if actual_dims != 1536 or not any(
+                key in self.model_name for key in self._KNOWN_DIMENSIONS
+            ):
                 self._cached_dimensions = actual_dims
                 self.logger.debug(
                     f"Detected embedding dimensions for '{self.model_name}': {actual_dims}"
                 )
-        
+
         return EmbeddingResult(vectors=vectors)
 
 
 class OpenRouterTextEmbedding3Large(OpenRouterEmbedder):
     def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="openai/text-embedding-3-large", logger=logger, meter=meter)
+        super().__init__(
+            model_name="openai/text-embedding-3-large", logger=logger, meter=meter
+        )
 
     @property
     @override
@@ -495,24 +515,25 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
         self._meter = meter
         self._logger.info("Initialized OpenRouterService")
         # Use provided model_name or fall back to environment variable
-        self.model_name = model_name or os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o")
+        self.model_name = model_name or os.environ.get(
+            "OPENROUTER_MODEL", "openai/gpt-4o"
+        )
         self._custom_max_tokens = max_tokens
         # Use provided embedder_model_name or fall back to environment variable or default
-        self.embedder_model_name = (
-            embedder_model_name
-            or os.environ.get("OPENROUTER_EMBEDDER_MODEL", "openai/text-embedding-3-large")
+        self.embedder_model_name = embedder_model_name or os.environ.get(
+            "OPENROUTER_EMBEDDER_MODEL", "openai/text-embedding-3-large"
         )
         self._logger.info(f"OpenRouter model name: {self.model_name}")
         self._logger.info(f"OpenRouter embedder model name: {self.embedder_model_name}")
-        
+
         # Create dynamic embedder class that can be resolved from the container
         # This captures embedder_model_name in a closure so the container can resolve it
         embedder_model = self.embedder_model_name
-        
+
         class DynamicOpenRouterEmbedder(OpenRouterEmbedder):
             def __init__(self, logger: Logger, meter: Meter):
                 super().__init__(model_name=embedder_model, logger=logger, meter=meter)
-        
+
         self._dynamic_embedder_class = DynamicOpenRouterEmbedder
 
     def _get_specialized_generator_class(
@@ -524,7 +545,9 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
         Returns the specialized generator class for known models.
         For unknown models, creates a dynamic generator that works with any OpenRouter model.
         """
-        model_mapping: dict[str, Callable[[Logger, Meter], OpenRouterSchematicGenerator[T]]] = {
+        model_mapping: dict[
+            str, Callable[[Logger, Meter], OpenRouterSchematicGenerator[T]]
+        ] = {
             "openai/gpt-4o": lambda logger, meter: OpenRouterGPT4O[t](logger, meter),  # type: ignore
             "openai/gpt-4o-mini": lambda logger, meter: OpenRouterGPT4OMini[t](logger, meter),  # type: ignore
             "anthropic/claude-3.5-sonnet": lambda logger, meter: OpenRouterClaude35Sonnet[t](logger, meter),  # type: ignore
@@ -534,7 +557,7 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
         # Check if we have a predefined generator for this model
         if generator_factory := model_mapping.get(model_name):
             return generator_factory
-        
+
         # Create a dynamic generator for any OpenRouter model
         # Get max_tokens from parameter, environment variable, or use sensible defaults based on model name
         if self._custom_max_tokens is not None:
@@ -553,27 +576,31 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
                     max_tokens = 8192
                 else:
                     max_tokens = 8192  # Safe default for unknown models
-        
+
         # Create dynamic generator class with the specific max_tokens
         final_max_tokens = max_tokens
-        
+
         class DynamicOpenRouterGenerator(OpenRouterSchematicGenerator[T]):
             def __init__(self, logger: Logger, meter: Meter):
                 super().__init__(model_name=model_name, logger=logger, meter=meter)
-            
+
             @property
             @override
             def max_tokens(self) -> int:
                 return final_max_tokens
-        
+
         # Return a factory function that creates the properly typed instance
-        def create_generator(logger: Logger, meter: Meter) -> OpenRouterSchematicGenerator[T]:
+        def create_generator(
+            logger: Logger, meter: Meter
+        ) -> OpenRouterSchematicGenerator[T]:
             return DynamicOpenRouterGenerator[t](logger, meter)  # type: ignore
-        
+
         return create_generator
 
     @override
-    async def get_schematic_generator(self, t: type[T]) -> OpenRouterSchematicGenerator[T]:
+    async def get_schematic_generator(
+        self, t: type[T]
+    ) -> OpenRouterSchematicGenerator[T]:
         generator_factory = self._get_specialized_generator_class(self.model_name, t)
         return generator_factory(self._logger, self._meter)
 

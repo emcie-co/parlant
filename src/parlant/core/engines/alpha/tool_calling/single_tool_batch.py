@@ -762,7 +762,7 @@ Candidate tool: ###
     ) -> str:
         all_matches = [
             match
-            for match in chain(ordinary_guideline_matches, tool_id_propositions[1])
+            for match in list(set(chain(ordinary_guideline_matches, tool_id_propositions[1])))
             if internal_representation(match.guideline).action
         ]
 
@@ -771,7 +771,11 @@ Candidate tool: ###
             guidelines = []
 
             for i, p in enumerate(all_matches, start=1):
-                guideline = f"{i}) When {internal_representation(p.guideline).condition}, then {internal_representation(p.guideline).action}"
+                rep = internal_representation(p.guideline)
+                if rep.condition:
+                    guideline = f"{i}) When {rep.condition}, then {rep.action}"
+                else:
+                    guideline = f"{i}) {rep.action}"
                 guidelines.append(guideline)
 
             guideline_list = "\n".join(guidelines)

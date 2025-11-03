@@ -667,8 +667,6 @@ class Test_that_a_journey_is_reevaluated_after_a_skipped_tool_call(SDKTest):
             "Hello", recipient=self.agent, reuse_session=True
         )
 
-        print(first_response)
-
         assert await nlp_test(first_response, "It mentions the date January 1st, 2000")
 
         second_response = await ctx.send_and_receive(
@@ -678,4 +676,38 @@ class Test_that_a_journey_is_reevaluated_after_a_skipped_tool_call(SDKTest):
         assert await nlp_test(second_response, "It offers a Pepsi")
         # Make sure the guideline was not re-applied
         assert await nlp_test(second_response, "It does not mention one million dollars")
-        print(second_response)
+
+
+class Test_that_a_missing_data_is_shown_after_journey_is_reevaluated(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        @tool
+        def get_customer_last_time_drank(context: ToolContext, customer_name: str) -> ToolResult:
+            return ToolResult(data={"last_time_drank": "January 1, 2000"})
+
+        self.agent = await server.create_agent(
+            name="Dummy agent",
+            description="Dummy agent for testing journeys",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Handle Thirsty Customer",
+            conditions=["Customer is thirsty"],
+            description="Help a thirsty customer with a refreshing drink",
+        )
+
+        # Then we want to verify that the journey reaches the chat state
+        # even though the tool call received missing data.
+        self.t1 = await self.journey.initial_state.transition_to(
+            tool_instruction="Check when the customer last drank",
+            tool_state=get_customer_last_time_drank,
+        )
+        self.t2 = await self.t1.target.transition_to(
+            chat_state="Offer the customer a suitable amount of Pepsi based on when they last drank",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        first_response = await ctx.send_and_receive(
+            "I'm really thirsty", recipient=self.agent, reuse_session=True
+        )
+
+        assert await nlp_test(first_response, "It asks for the customer's name")

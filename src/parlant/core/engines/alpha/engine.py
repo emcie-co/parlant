@@ -712,7 +712,17 @@ class AlphaEngine(Engine):
             ) = tool_calling_result
 
             context.state.tool_events += new_tool_events
-            context.state.tool_insights = tool_insights
+            context.state.tool_insights = ToolInsights(
+                evaluations=list(
+                    chain(context.state.tool_insights.evaluations, tool_insights.evaluations)
+                ),
+                missing_data=list(
+                    chain(context.state.tool_insights.missing_data, tool_insights.missing_data)
+                ),
+                invalid_data=list(
+                    chain(context.state.tool_insights.invalid_data, tool_insights.invalid_data)
+                ),
+            )
 
         else:
             tool_event_generation_result = None

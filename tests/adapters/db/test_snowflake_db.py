@@ -75,6 +75,28 @@ def test_where_clause_supports_nested_or_and_in() -> None:
     assert params["param_4"] == 3
 
 
+def test_where_clause_handles_comparisons() -> None:
+    filters = {
+        "creation_utc": {"$lt": "2025-01-01"},
+        "offset": {"$ne": 4},
+        "$and": [
+            {"offset": {"$lte": 10}},
+            {"offset": {"$gt": 2}},
+        ],
+    }
+
+    clause, params = _build_where_clause(filters, {"offset"})
+
+    assert '"OFFSET" !=' in clause
+    assert '"OFFSET" <=' in clause
+    assert '"OFFSET" >' in clause
+    assert 'DATA:"creation_utc" <' in clause
+    assert params["param_0"] == "2025-01-01"
+    assert params["param_1"] == 4
+    assert params["param_2"] == 10
+    assert params["param_3"] == 2
+
+
 @pytest.mark.asyncio
 async def test_insert_one_serializes_document_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
@@ -172,3 +194,91 @@ async def test_load_existing_documents_migrates(monkeypatch: pytest.MonkeyPatch)
     await collection.load_existing_documents(loader)
 
     replace_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_load_existing_documents_persists_failed(monkeypatch: pytest.MonkeyPatch) -> None:
+    db = _make_database()
+    collection = SnowflakeDocumentCollection(db, "sessions", _SessionDocument, _TestLogger())
+    collection._table_ready = True  # type: ignore[attr-defined]
+
+    calls: list[tuple[str, Any, str]] = []
+
+    async def fake_execute(sql: str, params: Any = None, fetch: str = "none") -> Any:
+        calls.append((sql, params, fetch))
+        if sql.startswith("SELECT DATA"):
+            return [{"DATA": {"id": "bad", "version": "0.7.0"}}]
+        return None
+
+    monkeypatch.setattr(db, "_execute", fake_execute)
+    delete_mock = AsyncMock()
+    monkeypatch.setattr(collection, "_delete_documents", delete_mock)
+
+    async def loader(_: Any) -> _SessionDocument | None:
+        return None
+
+    await collection.load_existing_documents(loader)
+
+    assert any("INSERT INTO" in sql and "FAILED_MIGRATIONS" in sql for sql, _, _ in calls)
+    delete_mock.assert_awaited_once_with(["bad"])
+
+
+@pytest.mark.asyncio
+async def test_delete_one_removes_document(monkeypatch: pytest.MonkeyPatch) -> None:
+    db = _make_database()
+    collection = SnowflakeDocumentCollection(db, "sessions", _SessionDocument, _TestLogger())
+
+    doc = {"id": "to-delete"}
+    monkeypatch.setattr(collection, "find_one", AsyncMock(return_value=doc))
+    delete_mock = AsyncMock()
+    monkeypatch.setattr(collection, "_delete_documents", delete_mock)
+
+    result = await collection.delete_one({"id": {"$eq": "to-delete"}})
+
+    delete_mock.assert_awaited_once_with(["to-delete"])
+    assert result.deleted_count == 1
+    assert result.deleted_document == doc
+
+
+@pytest.mark.asyncio
+async def test_delete_one_no_match(monkeypatch: pytest.MonkeyPatch) -> None:
+    db = _make_database()
+    collection = SnowflakeDocumentCollection(db, "sessions", _SessionDocument, _TestLogger())
+
+    monkeypatch.setattr(collection, "find_one", AsyncMock(return_value=None))
+    delete_mock = AsyncMock()
+    monkeypatch.setattr(collection, "_delete_documents", delete_mock)
+
+    result = await collection.delete_one({"id": {"$eq": "missing"}})
+
+    delete_mock.assert_not_called()
+    assert result.deleted_count == 0
+    assert result.deleted_document is None
+
+
+@pytest.mark.asyncio
+async def test_ensure_table_runs_only_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    db = _make_database()
+    collection = SnowflakeDocumentCollection(db, "sessions", _SessionDocument, _TestLogger())
+
+    execute_mock = AsyncMock()
+    monkeypatch.setattr(db, "_execute", execute_mock)
+
+    await collection.ensure_table()
+    await collection.ensure_table()
+
+    assert execute_mock.await_count == 2  # main + failed table
+
+
+@pytest.mark.asyncio
+async def test_delete_collection_drops_tables(monkeypatch: pytest.MonkeyPatch) -> None:
+    db = _make_database()
+
+    execute_mock = AsyncMock()
+    monkeypatch.setattr(db, "_execute", execute_mock)
+
+    await db.delete_collection("sessions")
+
+    drop_statements = [call.args[0] for call in execute_mock.await_args_list]
+    assert 'DROP TABLE IF EXISTS "PARLANT_SESSIONS"' in drop_statements[0]
+    assert 'DROP TABLE IF EXISTS "PARLANT_SESSIONS_FAILED_MIGRATIONS"' in drop_statements[1]

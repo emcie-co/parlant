@@ -639,10 +639,7 @@ class _CachedEvaluator:
 
             self._set_progress(entity_id, evaluation.progress)
 
-            if evaluation.status in [
-                EvaluationStatus.PENDING,
-                EvaluationStatus.RUNNING,
-            ]:
+            if evaluation.status in [EvaluationStatus.PENDING, EvaluationStatus.RUNNING]:
                 await asyncio.sleep(0.5)
                 continue
             elif evaluation.status == EvaluationStatus.FAILED:

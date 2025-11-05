@@ -42,6 +42,7 @@ from rich.text import Text
 from types import TracebackType
 from typing import (
     Any,
+    AsyncContextManager,
     Awaitable,
     Callable,
     Coroutine,
@@ -638,7 +639,10 @@ class _CachedEvaluator:
 
             self._set_progress(entity_id, evaluation.progress)
 
-            if evaluation.status in [EvaluationStatus.PENDING, EvaluationStatus.RUNNING]:
+            if evaluation.status in [
+                EvaluationStatus.PENDING,
+                EvaluationStatus.RUNNING,
+            ]:
                 await asyncio.sleep(0.5)
                 continue
             elif evaluation.status == EvaluationStatus.FAILED:
@@ -3144,16 +3148,19 @@ class Server:
             async def make_persistable_store(t: type[T], spec: Any, name: str, **kwargs: Any) -> T:
                 async def _enter_store(instance: Any) -> T:
                     resolved = await instance if asyncio.iscoroutine(instance) else instance
-                    return await self._exit_stack.enter_async_context(resolved)
+                    resolved_cm = cast(AsyncContextManager[T], resolved)
+                    return await self._exit_stack.enter_async_context(resolved_cm)
 
                 async def _build_store(database: DocumentDatabase) -> T:
-                    return await self._exit_stack.enter_async_context(
+                    store_cm = cast(
+                        AsyncContextManager[T],
                         t(
                             database=database,
                             allow_migration=self._migrate,
                             **kwargs,
-                        )  # type: ignore[arg-type]
+                        ),  # type: ignore[call-arg]
                     )
+                    return await self._exit_stack.enter_async_context(store_cm)
 
                 def _call_factory(factory: Callable[..., Any]) -> Any:
                     signature = inspect.signature(factory)
@@ -3174,16 +3181,19 @@ class Server:
 
                     table_prefix = options.get("table_prefix")
 
-                    return await self._exit_stack.enter_async_context(
+                    snowflake_cm = cast(
+                        AsyncContextManager[SnowflakeDocumentDatabase],
                         SnowflakeDocumentDatabase(
                             logger=c()[Logger],
                             connection_params=cast(Optional[Mapping[str, Any]], connection_params),
                             table_prefix=cast(Optional[str], table_prefix),
                             connection_factory=cast(
-                                Optional[Callable[[Mapping[str, Any]], Any]], connection_factory
+                                Optional[Callable[[Mapping[str, Any]], Any]],
+                                connection_factory,
                             ),
-                        )
+                        ),
                     )
+                    return await self._exit_stack.enter_async_context(snowflake_cm)
 
                 async def build_database_for_type(
                     spec_value: str, options: Mapping[str, Any]
@@ -3232,7 +3242,8 @@ class Server:
                             db_candidate = await db_candidate
                         database: DocumentDatabase = cast(DocumentDatabase, db_candidate)
                         if hasattr(database, "__aenter__"):
-                            database = await self._exit_stack.enter_async_context(database)
+                            database_cm = cast(AsyncContextManager[DocumentDatabase], database)
+                            database = await self._exit_stack.enter_async_context(database_cm)
                         return await _build_store(database)
 
                     type_name = spec.get("type")

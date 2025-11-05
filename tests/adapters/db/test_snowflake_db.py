@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Mapping
+from typing import Any, Mapping, cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -25,6 +25,10 @@ from parlant.adapters.db.snowflake_db import (
     SnowflakeDocumentDatabase,
     _build_where_clause,
 )
+from parlant.core.agents import AgentId
+from parlant.core.common import Version
+from parlant.core.customers import CustomerId
+from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import InsertResult
 from parlant.core.sessions import _SessionDocument
 from tests.test_utilities import _TestLogger
@@ -48,19 +52,42 @@ def _make_database() -> SnowflakeDocumentDatabase:
     )
 
 
-def test_where_clause_supports_nested_or_and_in() -> None:
-    filters = {
-        "$or": [
-            {"agent_id": {"$eq": "agent-1"}},
-            {
-                "$and": [
-                    {"customer_id": {"$eq": "cust-9"}},
-                    {"tag_id": {"$in": ["alpha", "beta"]}},
-                    {"offset": {"$gte": 3}},
-                ]
-            },
-        ]
+def _session_document(
+    *,
+    doc_id: str = "session-1",
+    customer_id: str = "customer-1",
+    agent_id: str = "agent-1",
+) -> _SessionDocument:
+    return {
+        "id": ObjectId(doc_id),
+        "version": Version.String("0.7.0"),
+        "creation_utc": "2025-01-01T00:00:00Z",
+        "customer_id": CustomerId(customer_id),
+        "agent_id": AgentId(agent_id),
+        "title": None,
+        "mode": "auto",
+        "consumption_offsets": {"client": 0},
+        "agent_states": [],
+        "metadata": {},
     }
+
+
+def test_where_clause_supports_nested_or_and_in() -> None:
+    filters: Where = cast(
+        Where,
+        {
+            "$or": [
+                {"agent_id": {"$eq": "agent-1"}},
+                {
+                    "$and": [
+                        {"customer_id": {"$eq": "cust-9"}},
+                        {"tag_id": {"$in": ["alpha", "beta"]}},
+                        {"offset": {"$gte": 3}},
+                    ]
+                },
+            ]
+        },
+    )
 
     clause, params = _build_where_clause(filters, {"agent_id", "customer_id", "offset"})
 
@@ -76,14 +103,17 @@ def test_where_clause_supports_nested_or_and_in() -> None:
 
 
 def test_where_clause_handles_comparisons() -> None:
-    filters = {
-        "creation_utc": {"$lt": "2025-01-01"},
-        "offset": {"$ne": 4},
-        "$and": [
-            {"offset": {"$lte": 10}},
-            {"offset": {"$gt": 2}},
-        ],
-    }
+    filters: Where = cast(
+        Where,
+        {
+            "creation_utc": {"$lt": "2025-01-01"},
+            "offset": {"$ne": 4},
+            "$and": [
+                {"offset": {"$lte": 10}},
+                {"offset": {"$gt": 2}},
+            ],
+        },
+    )
 
     clause, params = _build_where_clause(filters, {"offset"})
 
@@ -106,18 +136,7 @@ async def test_insert_one_serializes_document_payload(monkeypatch: pytest.Monkey
     execute_mock = AsyncMock()
     monkeypatch.setattr(db, "_execute", execute_mock)
 
-    document: _SessionDocument = {
-        "id": "session-1",
-        "version": "0.7.0",
-        "creation_utc": "2025-01-01T00:00:00Z",
-        "customer_id": "customer-1",
-        "agent_id": "agent-1",
-        "title": None,
-        "mode": "auto",
-        "consumption_offsets": {"client": 0},
-        "agent_states": [],
-        "metadata": {},
-    }
+    document = _session_document()
 
     await collection.insert_one(document)
 
@@ -153,18 +172,7 @@ async def test_update_one_upserts_when_missing(monkeypatch: pytest.MonkeyPatch) 
     insert_mock = AsyncMock(return_value=InsertResult(True))
     monkeypatch.setattr(collection, "insert_one", insert_mock)
 
-    payload: _SessionDocument = {
-        "id": "session-9",
-        "version": "0.7.0",
-        "creation_utc": "2025-01-01T00:00:00Z",
-        "customer_id": "customer-9",
-        "agent_id": "agent-9",
-        "title": None,
-        "mode": "auto",
-        "consumption_offsets": {"client": 0},
-        "agent_states": [],
-        "metadata": {},
-    }
+    payload = _session_document(doc_id="session-9", customer_id="customer-9", agent_id="agent-9")
 
     result = await collection.update_one({"id": {"$eq": "session-9"}}, payload, upsert=True)
 
@@ -187,9 +195,7 @@ async def test_load_existing_documents_migrates(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(collection, "_delete_documents", AsyncMock())
 
     async def loader(doc: Any) -> _SessionDocument:
-        migrated = dict(doc)
-        migrated["version"] = "0.7.0"
-        return migrated  # return a new object so the adapter writes it back
+        return _session_document(doc_id=str(doc["id"]))
 
     await collection.load_existing_documents(loader)
 
@@ -228,14 +234,14 @@ async def test_delete_one_removes_document(monkeypatch: pytest.MonkeyPatch) -> N
     db = _make_database()
     collection = SnowflakeDocumentCollection(db, "sessions", _SessionDocument, _TestLogger())
 
-    doc = {"id": "to-delete"}
+    doc = _session_document(doc_id="to-delete")
     monkeypatch.setattr(collection, "find_one", AsyncMock(return_value=doc))
     delete_mock = AsyncMock()
     monkeypatch.setattr(collection, "_delete_documents", delete_mock)
 
     result = await collection.delete_one({"id": {"$eq": "to-delete"}})
 
-    delete_mock.assert_awaited_once_with(["to-delete"])
+    delete_mock.assert_awaited_once_with([ObjectId("to-delete")])
     assert result.deleted_count == 1
     assert result.deleted_document == doc
 
@@ -279,6 +285,9 @@ async def test_delete_collection_drops_tables(monkeypatch: pytest.MonkeyPatch) -
 
     await db.delete_collection("sessions")
 
-    drop_statements = [call.args[0] for call in execute_mock.await_args_list]
-    assert 'DROP TABLE IF EXISTS "PARLANT_SESSIONS"' in drop_statements[0]
-    assert 'DROP TABLE IF EXISTS "PARLANT_SESSIONS_FAILED_MIGRATIONS"' in drop_statements[1]
+    drop_statements = [args.args[0] for args in execute_mock.await_args_list]
+    assert any('DROP TABLE IF EXISTS "PARLANT_SESSIONS"' in stmt for stmt in drop_statements)
+    assert any(
+        'DROP TABLE IF EXISTS "PARLANT_SESSIONS_FAILED_MIGRATIONS"' in stmt
+        for stmt in drop_statements
+    )

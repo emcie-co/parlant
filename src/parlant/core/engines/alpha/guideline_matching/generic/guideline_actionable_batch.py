@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import math
+import os
 import traceback
 from typing_extensions import override
 from parlant.core.common import DefaultBaseModel, JSONSerializable
@@ -55,6 +56,7 @@ class GenericActionableBatch(DefaultBaseModel):
 
 
 class GenericActionableGuidelineMatchesSchema(DefaultBaseModel):
+    # last_customer_message: str
     checks: Sequence[GenericActionableBatch]
 
 
@@ -118,7 +120,8 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
                         self._logger.trace(
                             f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                         )
-
+                    with open("dumps/actionable/output.txt", "a") as f:
+                        f.write(inference.content.model_dump_json(indent=2))
                     matches = []
 
                     for match in inference.content.checks:
@@ -219,7 +222,7 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
         builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
 
         builder.add_section(
-            name="guideline-not-previously-applied-general-instructions",
+            name="actionable-guideline-general-instructions",
             template="""
 GENERAL INSTRUCTIONS
 -----------------
@@ -236,10 +239,10 @@ Each guideline is composed of two parts:
 
 Task Description
 ----------------
-Your task is to evaluate the relevance and applicability of a set of provided 'when' conditions to the most recent state of an interaction between yourself (an AI agent) and a user.
-You examine the applicability of each guideline under the assumption that the action was not taken yet during the interaction.
+Your task is to evaluate the relevance and applicability of each provided CONDITION to the most recent state of an interaction between yourself (an AI agent) and a user.
+In other words, determine whether the condition is SATISFIED given the current context of the interaction. If it is, the guideline should apply, since the associated action represents the behavior defined by the business.
 
-A guideline should be marked as applicable if it is relevant to the latest part of the conversation and in particular the most recent customer message. Do not mark a guideline as
+A guideline should be marked as applicable if it is relevant to the LATEST part of the conversation - in particular the most recent customer message. Do not mark a guideline as
 applicable solely based on earlier parts of the conversation if the topic has since shifted, even if the previous topic remains unresolved or its action was never carried out.
 
 If the conversation moves from a broader issue to a related sub-issue (a related detail or follow-up within the same overall issue), you should still consider the guideline as applicable
@@ -250,6 +253,18 @@ This ensures that applicability is tied to the current context, but still respec
 When evaluating whether the conversation has shifted to a related sub-issue versus a completely different topic, consider whether the customer remains interested in resolving their previous inquiry that fulfilled the condition.
 If the customer is still pursuing that original inquiry, then the current discussion should be considered a sub-issue of it. Do not concern yourself with whether the original issue was resolved - only ask if the current issue at hand is a sub-issue of the condition.
 
+Evaluate each guideline independently and in isolation. Even when there are multiple guidelines to evaluate, assess each one as if it were the only guideline being considered. 
+Each guideline's applicability should be determined solely based on whether its specific condition matches the current conversation state, without regard to other guidelines or their actions. 
+
+Condition may include several criteria. Identify all criteria in the condition. The condition only applies if ALL criteria are true at the current state.
+
+Note: You need to evaluate the guideline based on the entire interaction, including the conversation and also ALL other information that is provided in this prompt, including glossary terms, tool results, capabilities and context variables.
+All of these must be taken into consideration.
+You often ignore this kind of information in your evaluation. Please Correct yourself in the future.
+
+IMPORTANT: It is important to follow the business defined behavior, so the action should be executed whenever the condition is met. We do not need to decide on our own what is right to do.
+Only determine whether the condition itself is satisfied. DO NOT MENTION OR CONSIDER THE ACTION at all, including whether it is possible, reasonable, or aligned with the user’s request. 
+You often ignore this instruction. Please Correct yourself in the future.
 
 The exact format of your response will be provided later in this prompt.
 
@@ -257,7 +272,7 @@ The exact format of your response will be provided later in this prompt.
             props={},
         )
         builder.add_section(
-            name="guideline-matcher-examples-of-not-previously-applied-evaluations",
+            name="guideline-matcher-examples-of-actionable-guideline-evaluations",
             template="""
 Examples of Guideline Match Evaluations:
 -------------------
@@ -286,7 +301,7 @@ Examples of Guideline Match Evaluations:
         )
 
         builder.add_section(
-            name="guideline-not-previously-applied-output-format",
+            name="guideline-actionable-output-format",
             template="""
 IMPORTANT: Please note there are exactly {guidelines_len} guidelines in the list for you to check.
 
@@ -306,7 +321,10 @@ OUTPUT FORMAT
                 "guidelines_len": len(self._guidelines),
             },
         )
+        os.makedirs("dumps/actionable", exist_ok=True)
 
+        with open("dumps/actionable/prompt.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
     def _format_of_guideline_check_json_description(
@@ -317,12 +335,14 @@ OUTPUT FORMAT
             {
                 "guideline_id": i,
                 "condition": guideline_representations[g.id].condition,
-                "rationale": "<Explanation for why the condition is or isn't met when focusing on the most recent interaction>",
+                "rationale": "<Explanation for why the CONDITION is or isn't met when focusing on the most recent interaction>",
                 "applies": "<BOOL>",
             }
             for i, g in self._guidelines.items()
         ]
-        result = {"checks": result_structure}
+        result = {
+            "checks": result_structure,
+        }
         return json.dumps(result, indent=4)
 
 
@@ -465,7 +485,7 @@ example_1_guidelines = [
         action="Provide links or suggestions for flight aggregators and hotel booking platforms.",
     ),
     GuidelineContent(
-        condition="The customer ask for activities recommendations",
+        condition="The customer asks for activities recommendations",
         action="Guide them in refining their preferences and suggest options that match what they're looking for",
     ),
     GuidelineContent(
@@ -475,26 +495,27 @@ example_1_guidelines = [
 ]
 
 example_1_expected = GenericActionableGuidelineMatchesSchema(
+    # last_customer_message="Actually I’m also wondering — do I need any special visas or documents as an American citizen?",
     checks=[
         GenericActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="The customer is looking for flight or accommodation booking assistance",
+            condition=example_1_guidelines[0].condition,
             rationale="There’s no mention of booking logistics like flights or hotels",
             applies=False,
         ),
         GenericActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="The customer ask for activities recommendations",
+            condition=example_1_guidelines[1].condition,
             rationale="The customer has moved from seeking activity recommendations to asking about legal requirements. Since they are no longer pursuing their original inquiry about activities, this represents a new topic rather than a sub-issue",
             applies=False,
         ),
         GenericActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="The customer asks for logistical or legal requirements.",
+            condition=example_1_guidelines[2].condition,
             rationale="The customer now asked about visas and documents which are legal requirements",
             applies=True,
         ),
-    ]
+    ],
 )
 
 example_2_events = [
@@ -542,26 +563,27 @@ example_2_guidelines = [
 ]
 
 example_2_expected = GenericActionableGuidelineMatchesSchema(
+    # last_customer_message="That sounds useful. But I’m also wondering — is the course self-paced? I work full time.",
     checks=[
         GenericActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="The customer mentions a constraint that related to commitment to the course",
+            condition=example_2_guidelines[0].condition,
             rationale="In the most recent message the customer mentions that they work full time which is a constraint",
             applies=True,
         ),
         GenericActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="The user expresses hesitation or self-doubt.",
+            condition=example_2_guidelines[1].condition,
             rationale="In the most recent message the user still sounds hesitating about their fit to the course",
             applies=True,
         ),
         GenericActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="The user asks about certification or course completion benefits.",
+            condition=example_2_guidelines[0].condition,
             rationale="The user didn't ask about certification or course completion benefits",
             applies=False,
         ),
-    ]
+    ],
 )
 
 
@@ -601,14 +623,15 @@ example_3_guidelines = [
 ]
 
 example_3_expected = GenericActionableGuidelineMatchesSchema(
+    # last_customer_message="Yes, I did, but I can't access my mail to complete the reset.",
     checks=[
         GenericActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="When the user is having a problem with login.",
+            condition=example_3_guidelines[0].condition,
             rationale="In the most recent message the customer is still pursuing their login problem, making the mail access problem a sub-issue rather than a new topic",
             applies=True,
         ),
-    ]
+    ],
 )
 
 
@@ -638,14 +661,15 @@ example_4_guidelines = [
 ]
 
 example_4_expected = GenericActionableGuidelineMatchesSchema(
+    # last_customer_message="And what happens if I already wore it once?",
     checks=[
         GenericActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="When the customer asks about how to return an item.",
+            condition=example_4_guidelines[0].condition,
             rationale="In the most recent message the customer asks about what happens when they wore the item, which an inquiry regarding returning an item",
             applies=True,
         ),
-    ]
+    ],
 )
 
 

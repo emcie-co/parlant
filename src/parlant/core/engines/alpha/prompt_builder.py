@@ -302,6 +302,33 @@ Proceed with your task accordingly.
 
         return self
 
+    def add_last_user_message(
+        self,
+        events: Sequence[Event],
+        staged_events: Sequence[EmittedEvent] = [],
+    ) -> PromptBuilder:
+        if events:
+            interaction_events = self._gather_interaction_events(events, staged_events)
+            last_interaction_event = json.loads(interaction_events[-1])
+            if (
+                last_interaction_event["event_kind"] == "message"
+                and last_interaction_event["event_source"] == "user"
+                and last_interaction_event["data"]["participant"] == "customer"
+            ):
+                last_customer_message = last_interaction_event["data"]["message"]
+                template = """
+Reminder: this is the last customer message. Focus on the most recent interaction part in your evaluation:
+Customer: "{last_customer_message}"
+###
+"""
+                self.add_section(
+                    name="last customer message",
+                    template=template,
+                    props={"last_customer_message": last_customer_message},
+                    status=SectionStatus.ACTIVE,
+                )
+        return self
+
     def add_interaction_history_for_message_generation(
         self,
         events: Sequence[Event],

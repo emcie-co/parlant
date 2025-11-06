@@ -58,11 +58,11 @@ GUIDELINES_DICT = {
         "action": "Explain that it's not possible to talk with a manager and that you are here to help",
     },
     "first_order_and_order_more_than_2": {
-        "condition": "When this is the customer first order and they order more than 2 pizzas",
+        "condition": "When the customer is placing their first ever order and that order includes more than 2 pizzas",
         "action": "offer 2 for 1 sale",
     },
     "first_order_and_order_exactly_2": {
-        "condition": "When this is the customer first order and they order exactly 2 pizzas",
+        "condition": "When the customer is placing their first ever order and that order includes exactly 2 pizzas",
         "action": "offer 2 for 1 sale",
     },
     "identify_problem": {
@@ -90,7 +90,7 @@ GUIDELINES_DICT = {
         "action": "Help them cancel it",
     },
     "ordering_sandwich": {
-        "condition": "the customer wants to order a sandwich",
+        "condition": "the customer wants a sandwich and deliberate options",
         "action": "only discuss options which are in stock",
     },
     "unsupported_capability": {
@@ -290,7 +290,7 @@ async def test_that_guideline_whose_condition_was_partially_fulfilled_now_matche
         ),
         (
             EventSource.AI_AGENT,
-            "Cool so I will process your order right away. Anything else?",
+            "Cool so I will process your order right away. Anything else before I complete your order?",
         ),
         (
             EventSource.CUSTOMER,
@@ -332,7 +332,7 @@ async def test_that_guideline_whose_condition_was_initially_not_fulfilled_now_ma
         ),
         (
             EventSource.AI_AGENT,
-            "Cool so I will process your order right away. Anything else?",
+            "Cool I can order that for you right away. Before we proceed, would you like anything else?",
         ),
         (
             EventSource.CUSTOMER,
@@ -374,11 +374,11 @@ async def test_that_guideline_whose_condition_was_initially_not_fulfilled_now_ma
         ),
         (
             EventSource.AI_AGENT,
-            "Cool so I will process your order right away. Anything else?",
+            "Cool I can order that for you right away. Before we proceed, would you like anything else?",
         ),
         (
             EventSource.CUSTOMER,
-            "I went to this other pizza place and they had some great pizza/",
+            "I went to this other pizza place and they had some great pizza",
         ),
         (
             EventSource.AI_AGENT,
@@ -442,7 +442,7 @@ async def test_that_guideline_whose_condition_was_initially_not_fulfilled_now_ma
         ),
         (
             EventSource.AI_AGENT,
-            "Cool so I will process your order right away. Anything else?",
+            "Anything else before proceeding?",
         ),
         (
             EventSource.CUSTOMER,
@@ -704,7 +704,7 @@ async def test_that_previously_applied_guidelines_are_matched_based_on_capabilit
             id=CapabilityId("cap_123"),
             creation_utc=datetime.now(timezone.utc),
             title="Reset Password",
-            description="The ability to send the customer an email with a link to reset their password. The password can only be reset via this link",
+            description="The ability to send the customer an email with a link to reset their password. The password can only be reset via this link.",
             signals=["reset password", "password"],
             tags=[],
         )

@@ -71,7 +71,7 @@ Feature: Supervision
     Scenario: the agent initiates conversation when instructed
         Given the alpha engine
         And an agent
-        And a guideline "initiate_conversation" to greet the customer when the conversation begins
+        And a guideline "initiate_conversation" to greet the customer when the conversation is at its start (no messages sent).
         When processing is triggered
         Then a single message event is emitted
         And the message contains a greeting to the customer

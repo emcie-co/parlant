@@ -6,7 +6,7 @@ Feature: Strict Canned Response
         And an empty session
 
     Scenario: The agent has no option to greet the customer (strict canned response)
-        Given a guideline to greet with 'Howdy' when the session starts
+        Given a guideline to greet with 'Howdy' when the session starts, no interaction events have occurred
         And a canned response, "Your account balance is {{balance}}"
         When processing is triggered
         Then a no-match message is emitted

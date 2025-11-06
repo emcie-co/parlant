@@ -127,7 +127,7 @@ OBSERVATIONAL_GUIDELINES_DICT = {
         "observation": "-",
     },
     "unknown_service": {
-        "condition": "The customer is asking for a service you have no information about within this prompt",
+        "condition": "The customer is asking for a service you don't recognize according to this prompt information",
         "observation": "-",
     },
     "delivery_order": {
@@ -151,7 +151,7 @@ OBSERVATIONAL_GUIDELINES_DICT = {
         "observation": "-",
     },
     "business_class": {
-        "condition": "The customer is currently saying that they want a business class",
+        "condition": "The customer is currently discussing their preference for business class.",
         "observation": "-",
     },
     "book_flight": {
@@ -186,8 +186,7 @@ ACTIONABLE_GUIDELINES_DICT = {
     },
     "issue_resolved": {
         "condition": "the customer previously expressed stress or dissatisfaction, but the issue has been alleviated",
-        "action": "Provide comforting responses and suggest alternatives "
-        "or support to alleviate the customer's mood.",
+        "action": "confirm the issue is fully resolved",
     },
     "class_booking": {
         "condition": "the customer asks about booking a class or an appointment",
@@ -2130,6 +2129,17 @@ async def test_that_observational_guidelines_are_matched_based_on_glossary(
             tags=[Tag.for_agent_id(agent.id)],
         ),
     ]
+
+    capabilities = [
+        Capability(
+            id=CapabilityId("cap_123"),
+            creation_utc=datetime.now(timezone.utc),
+            title="Delivery",
+            description="The ability to deliver orders of pizza",
+            signals=["delivery"],
+            tags=[],
+        )
+    ]
     conversation_context: list[tuple[EventSource, str]] = [
         (
             EventSource.CUSTOMER,
@@ -2167,6 +2177,7 @@ async def test_that_observational_guidelines_are_matched_based_on_glossary(
         conversation_guideline_names,
         relevant_guideline_names,
         terms=terms,
+        capabilities=capabilities,
     )
 
 
@@ -2253,10 +2264,6 @@ async def test_that_observational_guidelines_are_matched_based_on_old_messages(
         (
             EventSource.CUSTOMER,
             "Yes, please email me the prospectus. And what about cryptocurrency investments?",
-        ),
-        (
-            EventSource.AI_AGENT,
-            "I'll email the Technology Sector Fund prospectus to the address we have on file for you. Regarding cryptocurrency, our bank recently launched a Cryptocurrency Investment Platform that allows you to invest in major cryptocurrencies like Bitcoin and Ethereum. This platform requires a minimum investment of $500 and includes educational resources to help you understand this asset class. We also offer a Cryptocurrency Index Fund that provides diversified exposure across multiple digital currencies. Would you like information about either of these options?",
         ),
     ]
     conversation_guideline_names: list[str] = ["lock_card_request_1", "lock_card_request_2"]
@@ -2391,6 +2398,10 @@ async def test_that_observational_guidelines_are_not_matched_based_when_topic_wa
         (
             EventSource.AI_AGENT,
             "Your flight has been booked! A confirmation has been sent to your email.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Thanks.",
         ),
     ]
     conversation_guideline_names: list[str] = ["business_class"]

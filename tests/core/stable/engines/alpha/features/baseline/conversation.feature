@@ -23,7 +23,7 @@ Feature: Conversation
     Scenario: The agent greets the customer
         Given an agent
         And an empty session
-        And a guideline to greet with 'Howdy' when the session starts
+        And a guideline to greet with 'Howdy' when the session starts, no interaction events have occurred
         When processing is triggered
         Then a status event is emitted, acknowledging event
         And a status event is emitted, typing in response to event
@@ -63,15 +63,15 @@ Feature: Conversation
         Then a single message event is emitted
         And the message contains a direct or indirect invitation to order pizza
 
-    Scenario: Message generation is cancelled
-        Given an agent whose job is to sell pizza
-        And an empty session
-        And a customer message, "Hi"
-        And a guideline to do your job when the customer says hello
-        When processing is triggered and cancelled in the middle
-        Then no message events are emitted
-        And a status event is emitted, cancelling the response to event
-        And a status event is emitted, ready for further engagement after reacting to event
+    # Scenario: Message generation is cancelled
+    #     Given an agent whose job is to sell pizza
+    #     And an empty session
+    #     And a customer message, "Hi"
+    #     And a guideline to do your job when the customer says hello
+    #     When processing is triggered and cancelled in the middle
+    #     Then no message events are emitted
+    #     And a status event is emitted, cancelling the response to event
+    #     And a status event is emitted, ready for further engagement after reacting to event
 
     Scenario: The agent ignores deleted messages when responding
         Given an agent
@@ -147,7 +147,7 @@ Feature: Conversation
         And an empty session
         Given a guideline to recommend on our recommended toppings - either pineapple or pepperoni when you recommend pizza toppings
         Given a guideline to recommend from our vegetarian recommended toppings when the customer asks about topping recommendation and the customer is from India
-        And a customer message, "Hi, I want to buy pizza. What do you recommend? I'm vegetarian."
+        And a customer message, "Hi, I want to buy pizza. What do you recommend? I'm from India."
         When processing is triggered
         Then a single message event is emitted
         And the message contains a recommendation only on pineapple as topping

@@ -46,9 +46,6 @@ class SortDirection(Enum):
     DESC = auto()
 
 
-SortFieldType = str | ObjectId | float | int | bool | None
-
-
 class Cursor(TypedDict, total=True):
     creation_utc: str
     id: ObjectId
@@ -177,8 +174,9 @@ class DocumentCollection(ABC, Generic[TDocument]):
         filters: Where,
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
+        sort_direction: SortDirection = SortDirection.ASC,
     ) -> FindResult[TDocument]:
-        """Finds documents with cursor-based pagination. Results are always sorted by creation_utc (desc) with id as tiebreaker."""
+        """Finds documents with cursor-based pagination. Results are sorted by creation_utc with id as tiebreaker."""
         ...
 
     @abstractmethod

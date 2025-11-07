@@ -27,6 +27,8 @@ from parlant.core.persistence.document_database import (
     Cursor,
     DocumentCollection,
     FindResult,
+    SortDirection,
+    identity_loader_for,
 )
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
 from parlant.core.loggers import Logger
@@ -127,7 +129,12 @@ class DummyStore:
         self,
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
+        sort_direction: Optional[SortDirection] = None,
     ) -> FindResult[DummyDocumentV2]:
+        if sort_direction is not None:
+            return await self._collection.find(
+                {}, limit=limit, cursor=cursor, sort_direction=sort_direction
+            )
         return await self._collection.find({}, limit=limit, cursor=cursor)
 
     async def create_dummy(self, name: str, additional_field: str = "default") -> DummyDocumentV2:
@@ -314,7 +321,7 @@ async def test_that_dummy_documents_are_sorted_by_creation_time_descending(
             _ = await store.create_dummy("alice", "field2")
             _ = await store.create_dummy("bob", "field3")
 
-            result = await store.list_dummy()
+            result = await store.list_dummy(sort_direction=SortDirection.DESC)
 
             assert len(result.items) == 3
             assert result.items[0]["name"] == "bob"
@@ -329,21 +336,21 @@ async def test_that_dummy_documents_can_be_paginated_using_cursor(
     async with JSONFileDocumentDatabase(logger, new_file) as db:
         async with DummyStore(db) as store:
             # Create documents with different names for sorting
-            await store.create_dummy("first", "field1")
+            doc1 = await store.create_dummy("first", "field1")
             await store.create_dummy("second", "field2")
-            doc3 = await store.create_dummy("third", "field3")
+            await store.create_dummy("third", "field3")
 
-            # Create cursor from doc3 (the most recent document, which will be first in desc order)
+            # Create cursor from doc1 (the oldest document, which will be first in asc order)
             # This should return the documents that come after it in the sorted list
-            cursor = Cursor(creation_utc=doc3["creation_utc"], id=doc3["id"])
+            cursor = Cursor(creation_utc=doc1["creation_utc"], id=doc1["id"])
 
             # Find documents after cursor
             result = await store.list_dummy(cursor=cursor)
 
             assert len(result.items) == 2
-            # Should get the documents created before doc3 in descending order (second, then first)
+            # Should get the documents created after doc1 in ascending order (second, then third)
             assert result.items[0]["name"] == "second"
-            assert result.items[1]["name"] == "first"
+            assert result.items[1]["name"] == "third"
 
 
 async def test_that_dummy_documents_support_multi_page_cursor_pagination(
@@ -547,3 +554,274 @@ async def test_that_empty_json_files_can_be_loaded_successfully(
             # Verify it was saved
             result = await store.list_dummy()
             assert result.total_count == 1
+
+
+async def test_that_documents_can_be_sorted_in_ascending_order(
+    new_file: Path,
+    logger: Logger,
+) -> None:
+    """Test that documents can be sorted by creation_utc in ascending order (oldest first)."""
+    async with JSONFileDocumentDatabase(logger, new_file) as db:
+        collection = await db.get_or_create_collection(
+            name="test_collection",
+            schema=DummyStore.DummyDocumentV2,
+            document_loader=identity_loader_for(DummyStore.DummyDocumentV2),
+        )
+
+        # Create documents with different timestamps
+        doc1 = DummyStore.DummyDocumentV2(
+            id=ObjectId("doc1"),
+            version=Version.String("2.0.0"),
+            name="first",
+            additional_field="field1",
+            creation_utc="2023-01-01T10:00:00Z",
+        )
+        doc2 = DummyStore.DummyDocumentV2(
+            id=ObjectId("doc2"),
+            version=Version.String("2.0.0"),
+            name="second",
+            additional_field="field2",
+            creation_utc="2023-01-01T11:00:00Z",
+        )
+        doc3 = DummyStore.DummyDocumentV2(
+            id=ObjectId("doc3"),
+            version=Version.String("2.0.0"),
+            name="third",
+            additional_field="field3",
+            creation_utc="2023-01-01T12:00:00Z",
+        )
+
+        await collection.insert_one(doc1)
+        await collection.insert_one(doc2)
+        await collection.insert_one(doc3)
+
+        # Test ascending sort (oldest first)
+        result = await collection.find({}, sort_direction=SortDirection.ASC)
+
+        assert len(result.items) == 3
+        assert result.items[0]["name"] == "first"  # Oldest
+        assert result.items[1]["name"] == "second"  # Middle
+        assert result.items[2]["name"] == "third"  # Newest
+
+
+async def test_that_documents_can_be_sorted_in_descending_order(
+    new_file: Path,
+    logger: Logger,
+) -> None:
+    """Test that documents can be sorted by creation_utc in descending order (newest first)."""
+    async with JSONFileDocumentDatabase(logger, new_file) as db:
+        collection = await db.get_or_create_collection(
+            name="test_collection",
+            schema=DummyStore.DummyDocumentV2,
+            document_loader=identity_loader_for(DummyStore.DummyDocumentV2),
+        )
+
+        # Create documents with different timestamps
+        doc1 = DummyStore.DummyDocumentV2(
+            id=ObjectId("doc1"),
+            version=Version.String("2.0.0"),
+            name="first",
+            additional_field="field1",
+            creation_utc="2023-01-01T10:00:00Z",
+        )
+        doc2 = DummyStore.DummyDocumentV2(
+            id=ObjectId("doc2"),
+            version=Version.String("2.0.0"),
+            name="second",
+            additional_field="field2",
+            creation_utc="2023-01-01T11:00:00Z",
+        )
+        doc3 = DummyStore.DummyDocumentV2(
+            id=ObjectId("doc3"),
+            version=Version.String("2.0.0"),
+            name="third",
+            additional_field="field3",
+            creation_utc="2023-01-01T12:00:00Z",
+        )
+
+        await collection.insert_one(doc1)
+        await collection.insert_one(doc2)
+        await collection.insert_one(doc3)
+
+        # Test descending sort (newest first)
+        result = await collection.find({}, sort_direction=SortDirection.DESC)
+
+        assert len(result.items) == 3
+        assert result.items[0]["name"] == "third"  # Newest
+        assert result.items[1]["name"] == "second"  # Middle
+        assert result.items[2]["name"] == "first"  # Oldest
+
+
+async def test_that_cursor_pagination_works_with_ascending_sort(
+    new_file: Path,
+    logger: Logger,
+) -> None:
+    """Test that cursor-based pagination works correctly with ascending sort."""
+    async with JSONFileDocumentDatabase(logger, new_file) as db:
+        collection = await db.get_or_create_collection(
+            name="test_collection",
+            schema=DummyStore.DummyDocumentV2,
+            document_loader=identity_loader_for(DummyStore.DummyDocumentV2),
+        )
+
+        # Create documents with different timestamps
+        doc1 = DummyStore.DummyDocumentV2(
+            id=ObjectId("doc1"),
+            version=Version.String("2.0.0"),
+            name="first",
+            additional_field="field1",
+            creation_utc="2023-01-01T10:00:00Z",
+        )
+        doc2 = DummyStore.DummyDocumentV2(
+            id=ObjectId("doc2"),
+            version=Version.String("2.0.0"),
+            name="second",
+            additional_field="field2",
+            creation_utc="2023-01-01T11:00:00Z",
+        )
+        doc3 = DummyStore.DummyDocumentV2(
+            id=ObjectId("doc3"),
+            version=Version.String("2.0.0"),
+            name="third",
+            additional_field="field3",
+            creation_utc="2023-01-01T12:00:00Z",
+        )
+
+        await collection.insert_one(doc1)
+        await collection.insert_one(doc2)
+        await collection.insert_one(doc3)
+
+        # Get first page with ascending sort
+        first_page = await collection.find({}, limit=1, sort_direction=SortDirection.ASC)
+
+        assert len(first_page.items) == 1
+        assert first_page.items[0]["name"] == "first"  # Oldest first
+        assert first_page.has_more is True
+        assert first_page.next_cursor is not None
+
+        # Get second page using cursor
+        second_page = await collection.find(
+            {}, limit=1, cursor=first_page.next_cursor, sort_direction=SortDirection.ASC
+        )
+
+        assert len(second_page.items) == 1
+        assert second_page.items[0]["name"] == "second"  # Next oldest
+        assert second_page.has_more is True
+        assert second_page.next_cursor is not None
+
+        # Get third page using cursor
+        third_page = await collection.find(
+            {}, limit=1, cursor=second_page.next_cursor, sort_direction=SortDirection.ASC
+        )
+
+        assert len(third_page.items) == 1
+        assert third_page.items[0]["name"] == "third"  # Newest
+        assert third_page.has_more is False
+        assert third_page.next_cursor is None
+
+
+async def test_that_cursor_pagination_works_with_descending_sort(
+    new_file: Path,
+    logger: Logger,
+) -> None:
+    """Test that cursor-based pagination works correctly with descending sort."""
+    async with JSONFileDocumentDatabase(logger, new_file) as db:
+        collection = await db.get_or_create_collection(
+            name="test_collection",
+            schema=DummyStore.DummyDocumentV2,
+            document_loader=identity_loader_for(DummyStore.DummyDocumentV2),
+        )
+
+        # Create documents with different timestamps
+        doc1 = DummyStore.DummyDocumentV2(
+            id=ObjectId("doc1"),
+            version=Version.String("2.0.0"),
+            name="first",
+            additional_field="field1",
+            creation_utc="2023-01-01T10:00:00Z",
+        )
+        doc2 = DummyStore.DummyDocumentV2(
+            id=ObjectId("doc2"),
+            version=Version.String("2.0.0"),
+            name="second",
+            additional_field="field2",
+            creation_utc="2023-01-01T11:00:00Z",
+        )
+        doc3 = DummyStore.DummyDocumentV2(
+            id=ObjectId("doc3"),
+            version=Version.String("2.0.0"),
+            name="third",
+            additional_field="field3",
+            creation_utc="2023-01-01T12:00:00Z",
+        )
+
+        await collection.insert_one(doc1)
+        await collection.insert_one(doc2)
+        await collection.insert_one(doc3)
+
+        # Get first page with descending sort
+        first_page = await collection.find({}, limit=1, sort_direction=SortDirection.DESC)
+
+        assert len(first_page.items) == 1
+        assert first_page.items[0]["name"] == "third"  # Newest first
+        assert first_page.has_more is True
+        assert first_page.next_cursor is not None
+
+        # Get second page using cursor
+        second_page = await collection.find(
+            {}, limit=1, cursor=first_page.next_cursor, sort_direction=SortDirection.DESC
+        )
+
+        assert len(second_page.items) == 1
+        assert second_page.items[0]["name"] == "second"  # Next newest
+        assert second_page.has_more is True
+        assert second_page.next_cursor is not None
+
+        # Get third page using cursor
+        third_page = await collection.find(
+            {}, limit=1, cursor=second_page.next_cursor, sort_direction=SortDirection.DESC
+        )
+
+        assert len(third_page.items) == 1
+        assert third_page.items[0]["name"] == "first"  # Oldest
+        assert third_page.has_more is False
+        assert third_page.next_cursor is None
+
+
+async def test_that_default_sort_direction_is_ascending(
+    new_file: Path,
+    logger: Logger,
+) -> None:
+    """Test that the default sort direction is ascending (oldest first)."""
+    async with JSONFileDocumentDatabase(logger, new_file) as db:
+        collection = await db.get_or_create_collection(
+            name="test_collection",
+            schema=DummyStore.DummyDocumentV2,
+            document_loader=identity_loader_for(DummyStore.DummyDocumentV2),
+        )
+
+        # Create documents with different timestamps
+        doc1 = DummyStore.DummyDocumentV2(
+            id=ObjectId("doc1"),
+            version=Version.String("2.0.0"),
+            name="first",
+            additional_field="field1",
+            creation_utc="2023-01-01T10:00:00Z",
+        )
+        doc2 = DummyStore.DummyDocumentV2(
+            id=ObjectId("doc2"),
+            version=Version.String("2.0.0"),
+            name="second",
+            additional_field="field2",
+            creation_utc="2023-01-01T11:00:00Z",
+        )
+
+        await collection.insert_one(doc1)
+        await collection.insert_one(doc2)
+
+        # Test default sort (should be ascending)
+        result = await collection.find({})
+
+        assert len(result.items) == 2
+        assert result.items[0]["name"] == "first"  # Older document first (ascending)
+        assert result.items[1]["name"] == "second"  # Newer document second

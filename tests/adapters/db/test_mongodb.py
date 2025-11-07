@@ -29,7 +29,9 @@ from parlant.core.persistence.document_database import (
     Cursor,
     DocumentCollection,
     FindResult,
+    SortDirection,
     identity_loader,
+    identity_loader_for,
 )
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
 from parlant.core.loggers import Logger
@@ -59,7 +61,10 @@ async def test_mongo_client() -> AsyncIterator[AsyncMongoClient[Any]]:
         raise pytest.skip()
 
 
-class MongoTestDocument(BaseDocument):
+class MongoTestDocument(TypedDict, total=False):
+    id: ObjectId
+    creation_utc: str
+    version: Version.String
     name: str
 
 
@@ -128,7 +133,12 @@ class DummyStore:
         self,
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
+        sort_direction: Optional[SortDirection] = None,
     ) -> FindResult[DummyDocumentV2]:
+        if sort_direction is not None:
+            return await self._collection.find(
+                {}, limit=limit, cursor=cursor, sort_direction=sort_direction
+            )
         return await self._collection.find({}, limit=limit, cursor=cursor)
 
     async def create_dummy(self, name: str, additional_field: str = "default") -> DummyDocumentV2:
@@ -395,7 +405,9 @@ async def test_that_migration_is_not_needed_for_new_store(
     async with MongoDocumentDatabase(test_mongo_client, "test_db", logger) as db:
         async with DummyStore(db, allow_migration=False):
             meta_collection = await db.get_or_create_collection(
-                name="metadata", schema=BaseDocument, document_loader=identity_loader
+                name="metadata",
+                schema=BaseDocument,
+                document_loader=identity_loader,
             )
             meta_document = await meta_collection.find_one({})
 
@@ -567,7 +579,7 @@ async def test_that_dummy_documents_are_sorted_by_creation_time_descending(
             await asyncio.sleep(0.01)
             await dummy_store.create_dummy("third", "field3")
 
-            result = await dummy_store.list_dummy()
+            result = await dummy_store.list_dummy(sort_direction=SortDirection.DESC)
 
             assert len(result.items) == 3
             # Most recent first (descending order)
@@ -591,23 +603,23 @@ async def test_that_dummy_documents_can_be_paginated_using_cursor(
             # Create documents with small delays to ensure different timestamps
             import asyncio
 
-            await dummy_store.create_dummy("first", "field1")
+            doc1 = await dummy_store.create_dummy("first", "field1")
             await asyncio.sleep(0.01)
             await dummy_store.create_dummy("second", "field2")
             await asyncio.sleep(0.01)
-            doc3 = await dummy_store.create_dummy("third", "field3")
+            await dummy_store.create_dummy("third", "field3")
 
-            # Create cursor from doc3 (the most recent document, which will be first in desc order)
+            # Create cursor from doc1 (the oldest document, which will be first in asc order)
             # This should return the documents that come after it in the sorted list
-            cursor = Cursor(creation_utc=doc3["creation_utc"], id=doc3["id"])
+            cursor = Cursor(creation_utc=doc1["creation_utc"], id=doc1["id"])
 
             # Find documents after cursor
             result = await dummy_store.list_dummy(cursor=cursor)
 
             assert len(result.items) == 2
-            # Should get the documents created before doc3 in descending order (second, then first)
+            # Should get the documents created after doc1 in ascending order (second, then third)
             assert result.items[0]["name"] == "second"
-            assert result.items[1]["name"] == "first"
+            assert result.items[1]["name"] == "third"
 
 
 async def test_that_dummy_documents_support_multi_page_cursor_pagination(
@@ -706,3 +718,288 @@ async def test_that_all_operations_can_be_cleaned_up_properly(
     except Exception:
         # Database might not exist anymore, which is also acceptable
         pass
+
+
+async def test_that_documents_can_be_sorted_in_ascending_order(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that documents can be sorted by creation_utc in ascending order (oldest first)."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async def mongo_test_document_loader(doc: BaseDocument) -> Optional[MongoTestDocument]:
+        return cast(MongoTestDocument, doc)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        collection = await dummy_db.get_or_create_collection(
+            name="test_collection",
+            schema=MongoTestDocument,
+            document_loader=mongo_test_document_loader,
+        )
+
+        # Create documents with different timestamps
+        doc1 = MongoTestDocument(
+            id=ObjectId("doc1"),
+            creation_utc="2023-01-01T10:00:00Z",
+            version=Version.String("1.0.0"),
+            name="first",
+        )
+        doc2 = MongoTestDocument(
+            id=ObjectId("doc2"),
+            creation_utc="2023-01-01T11:00:00Z",
+            version=Version.String("1.0.0"),
+            name="second",
+        )
+        doc3 = MongoTestDocument(
+            id=ObjectId("doc3"),
+            creation_utc="2023-01-01T12:00:00Z",
+            version=Version.String("1.0.0"),
+            name="third",
+        )
+
+        await collection.insert_one(doc1)
+        await collection.insert_one(doc2)
+        await collection.insert_one(doc3)
+
+        # Test ascending sort (oldest first)
+        result = await collection.find({}, sort_direction=SortDirection.ASC)
+
+        assert len(result.items) == 3
+        assert result.items[0]["name"] == "first"  # Oldest
+        assert result.items[1]["name"] == "second"  # Middle
+        assert result.items[2]["name"] == "third"  # Newest
+
+
+async def test_that_documents_can_be_sorted_in_descending_order(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that documents can be sorted by creation_utc in descending order (newest first)."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        collection = await dummy_db.get_or_create_collection(
+            name="test_collection",
+            schema=MongoTestDocument,
+            document_loader=identity_loader_for(MongoTestDocument),
+        )
+
+        # Create documents with different timestamps
+        doc1 = MongoTestDocument(
+            id=ObjectId("doc1"),
+            creation_utc="2023-01-01T10:00:00Z",
+            version=Version.String("1.0.0"),
+            name="first",
+        )
+        doc2 = MongoTestDocument(
+            id=ObjectId("doc2"),
+            creation_utc="2023-01-01T11:00:00Z",
+            version=Version.String("1.0.0"),
+            name="second",
+        )
+        doc3 = MongoTestDocument(
+            id=ObjectId("doc3"),
+            creation_utc="2023-01-01T12:00:00Z",
+            version=Version.String("1.0.0"),
+            name="third",
+        )
+
+        await collection.insert_one(doc1)
+        await collection.insert_one(doc2)
+        await collection.insert_one(doc3)
+
+        # Test descending sort (newest first)
+        result = await collection.find({}, sort_direction=SortDirection.DESC)
+
+        assert len(result.items) == 3
+        assert result.items[0]["name"] == "third"  # Newest
+        assert result.items[1]["name"] == "second"  # Middle
+        assert result.items[2]["name"] == "first"  # Oldest
+
+
+async def test_that_cursor_pagination_works_with_ascending_sort(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that cursor-based pagination works correctly with ascending sort."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        collection = await dummy_db.get_or_create_collection(
+            name="test_collection",
+            schema=MongoTestDocument,
+            document_loader=identity_loader_for(MongoTestDocument),
+        )
+
+        # Create documents with different timestamps
+        doc1 = MongoTestDocument(
+            id=ObjectId("doc1"),
+            creation_utc="2023-01-01T10:00:00Z",
+            version=Version.String("1.0.0"),
+            name="first",
+        )
+        doc2 = MongoTestDocument(
+            id=ObjectId("doc2"),
+            creation_utc="2023-01-01T11:00:00Z",
+            version=Version.String("1.0.0"),
+            name="second",
+        )
+        doc3 = MongoTestDocument(
+            id=ObjectId("doc3"),
+            creation_utc="2023-01-01T12:00:00Z",
+            version=Version.String("1.0.0"),
+            name="third",
+        )
+
+        await collection.insert_one(doc1)
+        await collection.insert_one(doc2)
+        await collection.insert_one(doc3)
+
+        # Get first page with ascending sort
+        first_page = await collection.find({}, limit=1, sort_direction=SortDirection.ASC)
+
+        assert len(first_page.items) == 1
+        assert first_page.items[0]["name"] == "first"  # Oldest first
+        assert first_page.has_more is True
+        assert first_page.next_cursor is not None
+
+        # Get second page using cursor
+        second_page = await collection.find(
+            {}, limit=1, cursor=first_page.next_cursor, sort_direction=SortDirection.ASC
+        )
+
+        assert len(second_page.items) == 1
+        assert second_page.items[0]["name"] == "second"  # Next oldest
+        assert second_page.has_more is True
+        assert second_page.next_cursor is not None
+
+        # Get third page using cursor
+        third_page = await collection.find(
+            {}, limit=1, cursor=second_page.next_cursor, sort_direction=SortDirection.ASC
+        )
+
+        assert len(third_page.items) == 1
+        assert third_page.items[0]["name"] == "third"  # Newest
+        assert third_page.has_more is False
+        assert third_page.next_cursor is None
+
+
+async def test_that_cursor_pagination_works_with_descending_sort(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that cursor-based pagination works correctly with descending sort."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        collection = await dummy_db.get_or_create_collection(
+            name="test_collection",
+            schema=MongoTestDocument,
+            document_loader=identity_loader_for(MongoTestDocument),
+        )
+
+        # Create documents with different timestamps
+        doc1 = MongoTestDocument(
+            id=ObjectId("doc1"),
+            creation_utc="2023-01-01T10:00:00Z",
+            version=Version.String("1.0.0"),
+            name="first",
+        )
+        doc2 = MongoTestDocument(
+            id=ObjectId("doc2"),
+            creation_utc="2023-01-01T11:00:00Z",
+            version=Version.String("1.0.0"),
+            name="second",
+        )
+        doc3 = MongoTestDocument(
+            id=ObjectId("doc3"),
+            creation_utc="2023-01-01T12:00:00Z",
+            version=Version.String("1.0.0"),
+            name="third",
+        )
+
+        await collection.insert_one(doc1)
+        await collection.insert_one(doc2)
+        await collection.insert_one(doc3)
+
+        # Get first page with descending sort
+        first_page = await collection.find({}, limit=1, sort_direction=SortDirection.DESC)
+
+        assert len(first_page.items) == 1
+        assert first_page.items[0]["name"] == "third"  # Newest first
+        assert first_page.has_more is True
+        assert first_page.next_cursor is not None
+
+        # Get second page using cursor
+        second_page = await collection.find(
+            {}, limit=1, cursor=first_page.next_cursor, sort_direction=SortDirection.DESC
+        )
+
+        assert len(second_page.items) == 1
+        assert second_page.items[0]["name"] == "second"  # Next newest
+        assert second_page.has_more is True
+        assert second_page.next_cursor is not None
+
+        # Get third page using cursor
+        third_page = await collection.find(
+            {}, limit=1, cursor=second_page.next_cursor, sort_direction=SortDirection.DESC
+        )
+
+        assert len(third_page.items) == 1
+        assert third_page.items[0]["name"] == "first"  # Oldest
+        assert third_page.has_more is False
+        assert third_page.next_cursor is None
+
+
+async def test_that_default_sort_direction_is_ascending(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that the default sort direction is ascending (oldest first)."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        collection = await dummy_db.get_or_create_collection(
+            name="test_collection",
+            schema=MongoTestDocument,
+            document_loader=identity_loader_for(MongoTestDocument),
+        )
+
+        # Create documents with different timestamps
+        doc1 = MongoTestDocument(
+            id=ObjectId("doc1"),
+            creation_utc="2023-01-01T10:00:00Z",
+            version=Version.String("1.0.0"),
+            name="first",
+        )
+        doc2 = MongoTestDocument(
+            id=ObjectId("doc2"),
+            creation_utc="2023-01-01T11:00:00Z",
+            version=Version.String("1.0.0"),
+            name="second",
+        )
+
+        await collection.insert_one(doc1)
+        await collection.insert_one(doc2)
+
+        # Test default sort (should be ascending)
+        result = await collection.find({})
+
+        assert len(result.items) == 2
+        assert result.items[0]["name"] == "first"  # Older document first (ascending)
+        assert result.items[1]["name"] == "second"  # Newer document second

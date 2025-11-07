@@ -34,6 +34,7 @@ from parlant.core.persistence.document_database import (
     DocumentDatabase,
     FindResult,
     InsertResult,
+    SortDirection,
     TDocument,
     UpdateResult,
     identity_loader,
@@ -243,17 +244,18 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
         filters: Where,
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
+        sort_direction: SortDirection = SortDirection.ASC,
     ) -> FindResult[TDocument]:
         async with self._lock.reader_lock:
             # First, filter documents
             filtered_docs = [doc for doc in self.documents if matches_filters(filters, doc)]
 
-            # Always sort by creation_utc (desc) with id as tiebreaker (desc)
-            filtered_docs = self._apply_default_sort(filtered_docs)
+            # Sort by creation_utc with id as tiebreaker according to sort_direction
+            filtered_docs = self._apply_sort(filtered_docs, sort_direction)
 
             # Apply cursor-based pagination if cursor is provided
             if cursor:
-                filtered_docs = self._apply_cursor_filter(filtered_docs, cursor)
+                filtered_docs = self._apply_cursor_filter(filtered_docs, cursor, sort_direction)
 
             total_count = len(filtered_docs)
 
@@ -283,19 +285,21 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
                 next_cursor=next_cursor,
             )
 
-    def _apply_default_sort(
+    def _apply_sort(
         self,
         documents: list[TDocument],
+        sort_direction: SortDirection,
     ) -> list[TDocument]:
         docs = list(documents)  # don't mutate input
 
-        # Always sort by creation_utc (desc) with id as tiebreaker (desc)
+        # Sort by creation_utc with id as tiebreaker according to sort_direction
+        reverse_order = sort_direction == SortDirection.DESC
         docs.sort(
             key=lambda d: (
-                d.get("creation_utc") or "",  # Primary sort: creation_utc (desc)
-                d.get("id") or "",  # Tiebreaker: id (desc)
+                d.get("creation_utc") or "",  # Primary sort: creation_utc
+                d.get("id") or "",  # Tiebreaker: id
             ),
-            reverse=True,  # Descending order
+            reverse=reverse_order,
         )
 
         return docs
@@ -304,6 +308,7 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
         self,
         documents: list[TDocument],
         cursor: Cursor,
+        sort_direction: SortDirection,
     ) -> list[TDocument]:
         cursor_creation_utc = str(cursor["creation_utc"])
         cursor_id = str(cursor["id"])
@@ -313,16 +318,27 @@ class JSONFileDocumentCollection(DocumentCollection[TDocument]):
             doc_creation_utc = str(doc.get("creation_utc", ""))
             doc_id = str(doc.get("id", ""))
 
-            # For descending order pagination, include documents that come after the cursor
-            # This matches the MongoDB query pattern:
-            # { "$or": [
-            #     { "creation_utc": { "$lt": cursor_creation_utc } },
-            #     { "creation_utc": cursor_creation_utc, "id": { "$lt": cursor_id } }
-            # ]}
-            if doc_creation_utc < cursor_creation_utc or (
-                doc_creation_utc == cursor_creation_utc and doc_id < cursor_id
-            ):
-                result.append(doc)
+            if sort_direction == SortDirection.DESC:
+                # For descending order pagination, include documents that come after the cursor
+                # This matches the MongoDB query pattern:
+                # { "$or": [
+                #     { "creation_utc": { "$lt": cursor_creation_utc } },
+                #     { "creation_utc": cursor_creation_utc, "id": { "$lt": cursor_id } }
+                # ]}
+                if doc_creation_utc < cursor_creation_utc or (
+                    doc_creation_utc == cursor_creation_utc and doc_id < cursor_id
+                ):
+                    result.append(doc)
+            else:  # SortDirection.ASC
+                # For ascending order pagination, include documents that come after the cursor
+                # { "$or": [
+                #     { "creation_utc": { "$gt": cursor_creation_utc } },
+                #     { "creation_utc": cursor_creation_utc, "id": { "$gt": cursor_id } }
+                # ]}
+                if doc_creation_utc > cursor_creation_utc or (
+                    doc_creation_utc == cursor_creation_utc and doc_id > cursor_id
+                ):
+                    result.append(doc)
 
         return result
 

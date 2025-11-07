@@ -25,6 +25,7 @@ from parlant.core.persistence.document_database import (
     Cursor,
     FindResult,
     InsertResult,
+    SortDirection,
     TDocument,
     UpdateResult,
 )
@@ -164,28 +165,36 @@ class MongoDocumentCollection(DocumentCollection[TDocument]):
         filters: Where,
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
+        sort_direction: SortDirection = SortDirection.ASC,
     ) -> FindResult[TDocument]:
         query = dict(filters) if filters else {}
 
         if cursor is not None:
-            # Apply cursor-based filtering for descending order
-            # This matches the pattern: { "$or": [
-            #     { "creation_utc": { "$lt": cursor_creation_utc } },
-            #     { "creation_utc": cursor_creation_utc, "_id": { "$lt": cursor_id } }
-            # ]}
-            cursor_conditions = [
-                {"creation_utc": {"$lt": cursor["creation_utc"]}},
-                {
-                    "$and": [
-                        {"creation_utc": cursor["creation_utc"]},
-                        {"_id": {"$lt": cursor["id"]}},
-                    ]
-                },
-            ]
+            if sort_direction == SortDirection.DESC:
+                cursor_conditions = [
+                    {"creation_utc": {"$lt": cursor["creation_utc"]}},
+                    {
+                        "$and": [
+                            {"creation_utc": cursor["creation_utc"]},
+                            {"_id": {"$lt": cursor["id"]}},
+                        ]
+                    },
+                ]
+            else:
+                cursor_conditions = [
+                    {"creation_utc": {"$gt": cursor["creation_utc"]}},
+                    {
+                        "$and": [
+                            {"creation_utc": cursor["creation_utc"]},
+                            {"_id": {"$gt": cursor["id"]}},
+                        ]
+                    },
+                ]
             query["$or"] = cursor_conditions
 
-        # Always sort by creation_utc (desc) with _id as tiebreaker (desc)
-        sort_spec = [("creation_utc", -1), ("_id", -1)]
+        # Sort by creation_utc with _id as tiebreaker according to sort_direction
+        sort_order = -1 if sort_direction == SortDirection.DESC else 1
+        sort_spec = [("creation_utc", sort_order), ("_id", sort_order)]
 
         # Get one extra document to check if there are more
         query_limit = (limit + 1) if limit else None

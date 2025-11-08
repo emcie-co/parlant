@@ -42,6 +42,7 @@ from parlant.core.sessions import (
     SessionStatus,
     SessionUpdateParams,
 )
+from parlant.core.persistence.document_database import Cursor, SortDirection
 from parlant.core.canned_responses import CannedResponseId
 
 API_GROUP = "sessions"
@@ -209,6 +210,15 @@ class SessionDTO(
     mode: SessionModeField
     consumption_offsets: ConsumptionOffsetsDTO
     metadata: SessionMetadataField
+
+
+class PaginatedSessionsDTO(DefaultBaseModel):
+    """Paginated response for sessions"""
+
+    sessions: Sequence[SessionDTO]
+    total_count: int
+    has_more: bool
+    next_cursor: str | None = None
 
 
 SessionCreationParamsCustomerIdField: TypeAlias = Annotated[
@@ -1204,6 +1214,60 @@ KindsQuery: TypeAlias = Annotated[
     ),
 ]
 
+LimitQuery: TypeAlias = Annotated[
+    int,
+    Query(
+        description="Maximum number of items to return",
+        ge=1,
+        le=100,
+        examples=[10, 25],
+    ),
+]
+
+CursorQuery: TypeAlias = Annotated[
+    str,
+    Query(
+        description="Pagination cursor for fetching the next page of results",
+        examples=[
+            "eyJjcmVhdGlvbl91dGMiOiIyMDI0LTAzLTI0VDEyOjAwOjAwWiIsImlkIjoiNjVmZjQwNTBiNzU2YjEyMzQ1Njc4OTAyIn0="
+        ],
+    ),
+]
+
+SortQuery: TypeAlias = Annotated[
+    str,
+    Query(
+        description="Sort direction for results",
+        pattern="^(asc|desc)$",
+        examples=["asc", "desc"],
+    ),
+]
+
+
+def _encode_cursor(cursor: Cursor) -> str:
+    """Encode a cursor to a base64 string for API responses"""
+    import base64
+    import json
+
+    cursor_data = {"creation_utc": cursor["creation_utc"], "id": str(cursor["id"])}
+    cursor_json = json.dumps(cursor_data, separators=(",", ":"))
+    return base64.b64encode(cursor_json.encode()).decode()
+
+
+def _decode_cursor(cursor_str: str) -> Cursor | None:
+    """Decode a base64 cursor string from API requests. Returns None if invalid."""
+    import base64
+    import json
+    from parlant.core.persistence.common import ObjectId
+
+    try:
+        cursor_json = base64.b64decode(cursor_str.encode()).decode()
+        cursor_data = json.loads(cursor_json)
+        return Cursor(creation_utc=cursor_data["creation_utc"], id=ObjectId(cursor_data["id"]))
+    except Exception:
+        # Invalid cursor, return None to start from beginning
+        return None
+
 
 def agent_message_guideline_dto_to_utterance_request(
     guideline: AgentMessageGuidelineDTO,
@@ -1389,11 +1453,20 @@ def create_router(
     @router.get(
         "",
         operation_id="list_sessions",
-        response_model=Sequence[SessionDTO],
+        response_model=PaginatedSessionsDTO,
         responses={
             status.HTTP_200_OK: {
-                "description": "List of all matching sessions",
-                "content": {"application/json": {"example": [session_example]}},
+                "description": "Paginated list of sessions matching the specified filters",
+                "content": {
+                    "application/json": {
+                        "example": {
+                            "sessions": [session_example],
+                            "total_count": 1,
+                            "has_more": False,
+                            "next_cursor": None,
+                        }
+                    }
+                },
             },
             status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in request parameters"
@@ -1405,33 +1478,54 @@ def create_router(
         request: Request,
         agent_id: AgentIdQuery | None = None,
         customer_id: CustomerIdQuery | None = None,
-    ) -> Sequence[SessionDTO]:
-        """Lists all sessions matching the specified filters.
+        limit: LimitQuery | None = None,
+        cursor: CursorQuery | None = None,
+        sort: SortQuery | None = None,
+    ) -> PaginatedSessionsDTO:
+        """Lists all sessions matching the specified filters with pagination support.
 
-        Can filter by agent_id and/or customer_id. Returns all sessions if no
-        filters are provided."""
+        Can filter by agent_id and/or customer_id. Supports cursor-based pagination
+        with configurable sort direction."""
         await authorization_policy.authorize(request=request, operation=Operation.LIST_SESSIONS)
 
-        sessions = await app.sessions.find(
+        # Parse sort direction
+        sort_direction = SortDirection.DESC if sort == "desc" else SortDirection.ASC
+
+        # Parse cursor if provided
+        cursor_obj = None
+        if cursor:
+            cursor_obj = _decode_cursor(cursor)
+
+        sessions_result = await app.sessions.find(
             agent_id=agent_id,
             customer_id=customer_id,
+            limit=limit,
+            cursor=cursor_obj,
+            sort_direction=sort_direction,
         )
 
-        return [
-            SessionDTO(
-                id=s.id,
-                agent_id=s.agent_id,
-                creation_utc=s.creation_utc,
-                title=s.title,
-                customer_id=s.customer_id,
-                consumption_offsets=ConsumptionOffsetsDTO(
-                    client=s.consumption_offsets["client"],
-                ),
-                mode=SessionModeDTO(s.mode),
-                metadata=s.metadata,
-            )
-            for s in sessions
-        ]
+        return PaginatedSessionsDTO(
+            sessions=[
+                SessionDTO(
+                    id=s.id,
+                    agent_id=s.agent_id,
+                    creation_utc=s.creation_utc,
+                    title=s.title,
+                    customer_id=s.customer_id,
+                    consumption_offsets=ConsumptionOffsetsDTO(
+                        client=s.consumption_offsets["client"],
+                    ),
+                    mode=SessionModeDTO(s.mode),
+                    metadata=s.metadata,
+                )
+                for s in sessions_result.items
+            ],
+            total_count=sessions_result.total_count,
+            has_more=sessions_result.has_more,
+            next_cursor=_encode_cursor(sessions_result.next_cursor)
+            if sessions_result.next_cursor
+            else None,
+        )
 
     @router.delete(
         "/{session_id}",
@@ -1479,12 +1573,12 @@ def create_router(
         filters are provided."""
         await authorization_policy.authorize(request=request, operation=Operation.DELETE_SESSIONS)
 
-        sessions = await app.sessions.find(
+        sessions_result = await app.sessions.find(
             agent_id=agent_id,
             customer_id=customer_id,
         )
 
-        for s in sessions:
+        for s in sessions_result.items:
             await app.sessions.delete(s.id)
 
     @router.patch(

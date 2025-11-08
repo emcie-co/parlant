@@ -29,6 +29,22 @@ from parlant.core.sessions import (
     SessionUpdateParams,
     StatusEventData,
 )
+from parlant.core.persistence.document_database import (
+    Cursor,
+    SortDirection,
+)
+from dataclasses import dataclass
+from typing import Optional
+
+
+@dataclass(frozen=True)
+class PaginatedSessionsModel:
+    """Paginated result model for sessions at the application layer"""
+
+    items: Sequence[Session]
+    total_count: int
+    has_more: bool
+    next_cursor: Optional[Cursor] = None
 
 
 class Moderation(Enum):
@@ -125,13 +141,24 @@ class SessionModule:
         self,
         agent_id: AgentId | None,
         customer_id: CustomerId | None,
-    ) -> Sequence[Session]:
-        sessions = await self._session_store.list_sessions(
+        limit: int | None = None,
+        cursor: Cursor | None = None,
+        sort_direction: SortDirection = SortDirection.ASC,
+    ) -> PaginatedSessionsModel:
+        result = await self._session_store.list_sessions(
             agent_id=agent_id,
             customer_id=customer_id,
+            limit=limit,
+            cursor=cursor,
+            sort_direction=sort_direction,
         )
 
-        return sessions
+        return PaginatedSessionsModel(
+            items=result.items,
+            total_count=result.total_count,
+            has_more=result.has_more,
+            next_cursor=result.next_cursor,
+        )
 
     async def update(
         self,

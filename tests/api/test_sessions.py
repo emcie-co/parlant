@@ -296,9 +296,9 @@ async def test_that_sessions_can_be_listed(
 
     data = (await async_client.get("/sessions")).raise_for_status().json()
 
-    assert len(data) == len(sessions)
+    assert len(data["sessions"]) == len(sessions)
 
-    for listed_session, created_session in zip(data, sessions):
+    for listed_session, created_session in zip(data["sessions"], sessions):
         assert listed_session["title"] == created_session.title
         assert listed_session["customer_id"] == created_session.customer_id
 
@@ -327,9 +327,9 @@ async def test_that_sessions_can_be_listed_by_agent_id(
             .json()
         )
 
-        assert len(data) == len(agent_sessions)
+        assert len(data["sessions"]) == len(agent_sessions)
 
-        for listed_session, created_session in zip(data, agent_sessions):
+        for listed_session, created_session in zip(data["sessions"], agent_sessions):
             assert listed_session["agent_id"] == agent.id
             assert listed_session["title"] == created_session.title
             assert listed_session["customer_id"] == created_session.customer_id
@@ -352,8 +352,8 @@ async def test_that_sessions_can_be_listed_by_customer_id(
         .json()
     )
 
-    assert len(data) == 1
-    assert data[0]["customer_id"] == "Joe"
+    assert len(data["sessions"]) == 1
+    assert data["sessions"][0]["customer_id"] == "Joe"
 
 
 async def test_that_a_session_is_created_with_zeroed_out_consumption_offsets(
@@ -539,12 +539,14 @@ async def test_that_a_deleted_session_is_removed_from_the_session_list(
     session_id: SessionId,
 ) -> None:
     sessions = (await async_client.get("/sessions")).raise_for_status().json()
-    assert any(session["id"] == str(session_id) for session in sessions)
+    assert any(session["id"] == str(session_id) for session in sessions["sessions"])
 
     (await async_client.delete(f"/sessions/{session_id}")).raise_for_status()
 
     sessions_after_deletion = (await async_client.get("/sessions")).raise_for_status().json()
-    assert not any(session["session_id"] == str(session_id) for session in sessions_after_deletion)
+    assert not any(
+        session["id"] == str(session_id) for session in sessions_after_deletion["sessions"]
+    )
 
 
 async def test_that_all_sessions_related_to_customer_can_be_deleted_in_one_request(

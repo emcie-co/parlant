@@ -180,8 +180,6 @@ class Test_that_deferred_retriever_receives_updated_engine_context_with_guidelin
             condition="the customer asks about Chongas",
         )
 
-        self.engine_context_has_observation = False
-
         async def custom_retriever(ctx: p.RetrieverContext) -> p.DeferredRetriever:
             async def deferred(engine_ctx: p.EngineContext) -> p.RetrieverResult:
                 assert engine_ctx.state is not None

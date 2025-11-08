@@ -19,6 +19,7 @@ from collections import defaultdict
 from contextlib import AsyncExitStack
 import contextvars
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 import enum
 from hashlib import md5
 import importlib.util
@@ -617,6 +618,7 @@ class _CachedEvaluator:
             await self._guideline_collection.insert_one(
                 {
                     "id": ObjectId(_hash),
+                    "creation_utc": datetime.now(timezone.utc).isoformat(),
                     "version": Version.String(VERSION),
                     "properties": cast(InvoiceGuidelineData, invoice.data).properties_proposition
                     or {},
@@ -690,6 +692,7 @@ class _CachedEvaluator:
             await self._journey_collection.insert_one(
                 {
                     "id": ObjectId(_hash),
+                    "creation_utc": datetime.now(timezone.utc).isoformat(),
                     "version": Version.String(VERSION),
                     "node_properties": cast(
                         InvoiceJourneyData, invoice.data

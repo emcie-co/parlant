@@ -252,6 +252,7 @@ class BasicEmbeddingCache(EmbeddingCache):
     ) -> EmbedderResultDocument:
         return EmbedderResultDocument(
             id=ObjectId(id),
+            creation_utc=datetime.now(timezone.utc).isoformat(),
             version=self.VERSION.to_string(),
             vectors=vectors,
         )

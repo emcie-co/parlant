@@ -69,11 +69,13 @@ def test_that_zhipu_schematic_generator_initializes_correctly(
     mock_zhipuai_class: Mock, container: Container
 ) -> None:
     """Test ZhipuSchematicGenerator initialization using GLM_4_Plus class."""
+    from parlant.core.meter import Meter
+
     mock_client = Mock()
     mock_zhipuai_class.return_value = mock_client
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
-        generator: GLM_4_Plus[TestSchema] = GLM_4_Plus(logger=container[Logger])
+        generator: GLM_4_Plus[TestSchema] = GLM_4_Plus(logger=container[Logger], meter=container[Meter])
 
         assert generator.model_name == "glm-4-plus"
         assert generator.id == "zhipu/glm-4-plus"
@@ -85,14 +87,16 @@ def test_that_zhipu_schematic_generator_supports_correct_parameters(
     mock_zhipuai_class: Mock, container: Container
 ) -> None:
     """Test supported Zhipu parameters."""
+    from parlant.core.meter import Meter
+
     mock_client = Mock()
     mock_zhipuai_class.return_value = mock_client
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
-        generator: GLM_4_Plus[TestSchema] = GLM_4_Plus(logger=container[Logger])
+        generator: GLM_4_Plus[TestSchema] = GLM_4_Plus(logger=container[Logger], meter=container[Meter])
 
         expected_params = ["temperature", "max_tokens", "top_p"]
-        assert generator.supported_params == expected_params
+        assert generator.supported_zhipu_params == expected_params
         assert generator.supported_hints == expected_params
 
 
@@ -101,11 +105,13 @@ def test_that_glm_4_plus_initializes_correctly(
     mock_zhipuai_class: Mock, container: Container
 ) -> None:
     """Test GLM_4_Plus initialization and max_tokens."""
+    from parlant.core.meter import Meter
+
     mock_client = Mock()
     mock_zhipuai_class.return_value = mock_client
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
-        generator: GLM_4_Plus[TestSchema] = GLM_4_Plus(logger=container[Logger])
+        generator: GLM_4_Plus[TestSchema] = GLM_4_Plus(logger=container[Logger], meter=container[Meter])
 
         assert generator.model_name == "glm-4-plus"
         assert generator.max_tokens == 128 * 1024
@@ -117,11 +123,13 @@ def test_that_glm_4_flash_initializes_correctly(
     mock_zhipuai_class: Mock, container: Container
 ) -> None:
     """Test GLM_4_Flash initialization and max_tokens."""
+    from parlant.core.meter import Meter
+
     mock_client = Mock()
     mock_zhipuai_class.return_value = mock_client
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
-        generator: GLM_4_Flash[TestSchema] = GLM_4_Flash(logger=container[Logger])
+        generator: GLM_4_Flash[TestSchema] = GLM_4_Flash(logger=container[Logger], meter=container[Meter])
 
         assert generator.model_name == "glm-4-flash"
         assert generator.max_tokens == 128 * 1024
@@ -133,11 +141,13 @@ def test_that_glm_4_air_initializes_correctly(
     mock_zhipuai_class: Mock, container: Container
 ) -> None:
     """Test GLM_4_Air initialization and max_tokens."""
+    from parlant.core.meter import Meter
+
     mock_client = Mock()
     mock_zhipuai_class.return_value = mock_client
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
-        generator: GLM_4_Air[TestSchema] = GLM_4_Air(logger=container[Logger])
+        generator: GLM_4_Air[TestSchema] = GLM_4_Air(logger=container[Logger], meter=container[Meter])
 
         assert generator.model_name == "glm-4-air"
         assert generator.max_tokens == 128 * 1024
@@ -149,11 +159,13 @@ def test_that_zhipu_embedder_initializes_correctly(
     mock_zhipuai_class: Mock, container: Container
 ) -> None:
     """Test ZhipuEmbedder initialization using Embedding_3 class."""
+    from parlant.core.meter import Meter
+
     mock_client = Mock()
     mock_zhipuai_class.return_value = mock_client
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
-        embedder: Embedding_3 = Embedding_3(logger=container[Logger])
+        embedder: Embedding_3 = Embedding_3(logger=container[Logger], meter=container[Meter])
 
         assert embedder.model_name == "embedding-3"
         assert embedder.id == "zhipu/embedding-3"

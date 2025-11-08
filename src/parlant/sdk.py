@@ -1742,6 +1742,24 @@ class RetrieverResult:
     canned_response_fields: Mapping[str, Any] = field(default_factory=dict)
 
 
+DeferredRetriever: TypeAlias = Callable[[EngineContext], Awaitable[RetrieverResult | None]]
+"""A deferred retriever callable that receives a pre-response EngineContext and returns a RetrieverResult or None.
+
+Returning this allows retrievers to start work in parallel during on_acknowledged, but defer the final decision
+of what data to return (or whether to return any data at all) until on_generating_messages, when the
+full EngineContext including matched guidelines and tool insights is available.
+"""
+
+RetrieverFunction: TypeAlias = Callable[
+    [RetrieverContext], Awaitable[RetrieverResult | None | DeferredRetriever]
+]
+"""A retriever function that can either return a result directly, or return a deferred callable.
+
+When a RetrieverResult or None is returned directly, it's used as-is.
+When a DeferredRetriever is returned, it will be called later with the EngineContext to get the final result.
+"""
+
+
 class CompositionMode(enum.Enum):
     """Defines the composition mode for the agent, which determines how responses are generated."""
 
@@ -1799,9 +1817,7 @@ class Agent:
     composition_mode: CompositionMode
     tags: Sequence[TagId]
 
-    retrievers: Mapping[str, Callable[[RetrieverContext], Awaitable[JSONSerializable]]] = field(
-        default_factory=dict
-    )
+    retrievers: Mapping[str, RetrieverFunction] = field(default_factory=dict)
 
     @property
     def experimental_features(self) -> ExperimentalAgentFeatures:
@@ -2091,7 +2107,7 @@ class Agent:
 
     async def attach_retriever(
         self,
-        retriever: Callable[[RetrieverContext], Awaitable[JSONSerializable | RetrieverResult]],
+        retriever: RetrieverFunction,
         id: str | None = None,
     ) -> None:
         """Attaches a retriever function to the agent, allowing it to be used in interactions."""
@@ -2100,7 +2116,7 @@ class Agent:
             id = f"retriever-{len(self.retrievers) + 1}"
 
         cast(
-            dict[str, Callable[[RetrieverContext], Awaitable[JSONSerializable | RetrieverResult]]],
+            dict[str, RetrieverFunction],
             self.retrievers,
         )[id] = retriever
 
@@ -2229,7 +2245,7 @@ class Server:
         self._initialize = initialize_container
         self._retrievers: dict[
             AgentId,
-            dict[str, Callable[[RetrieverContext], Awaitable[JSONSerializable | RetrieverResult]]],
+            dict[str, RetrieverFunction],
         ] = defaultdict(dict)
         self._exit_stack = AsyncExitStack()
 
@@ -2541,11 +2557,11 @@ class Server:
             c: Container,
             agent_id: AgentId,
             retriever_id: str,
-            retriever: Callable[[RetrieverContext], Awaitable[JSONSerializable | RetrieverResult]],
+            retriever: RetrieverFunction,
         ) -> None:
             tasks_for_this_retriever: dict[
                 str,
-                tuple[Timeout, asyncio.Task[JSONSerializable | RetrieverResult]],
+                tuple[Timeout, asyncio.Task[RetrieverResult | None | DeferredRetriever]],
             ] = {}
 
             async def on_message_acknowledged(
@@ -2597,7 +2613,10 @@ class Server:
                 tasks_for_this_retriever[ctx.tracer.trace_id] = (
                     Timeout(600),  # Expiration timeout for garbage collection purposes
                     asyncio.create_task(
-                        cast(Coroutine[Any, Any, JSONSerializable | RetrieverResult], coroutine),
+                        cast(
+                            Coroutine[Any, Any, RetrieverResult | None | DeferredRetriever],
+                            coroutine,
+                        ),
                         name=f"Retriever {retriever_id} for agent {agent_id}",
                     ),
                 )
@@ -2613,15 +2632,21 @@ class Server:
                     _, task = timeout_and_task
                     task_result = await task
 
-                    if isinstance(task_result, RetrieverResult):
-                        retriever_result = task_result
-                    else:
-                        retriever_result = RetrieverResult(
-                            data=task_result,
-                            metadata={},
-                            canned_responses=[],
-                            canned_response_fields={},
-                        )
+                    # Check if the result is a deferred callable
+                    if callable(task_result):
+                        # Call the deferred callable with the EngineContext
+                        final_result = await task_result(ctx)
+                        if final_result is None:
+                            # Deferred callable decided not to return data
+                            return EngineHookResult.CALL_NEXT
+                        task_result = final_result
+
+                    # Handle None result
+                    if task_result is None:
+                        return EngineHookResult.CALL_NEXT
+
+                    # task_result must be a RetrieverResult at this point
+                    retriever_result = task_result
 
                     if not (
                         retriever_result.data
@@ -3299,6 +3324,8 @@ __all__ = [
     "RelationshipId",
     "RelationshipKind",
     "RetrieverContext",
+    "DeferredRetriever",
+    "RetrieverFunction",
     "RetrieverResult",
     "SchematicGenerationResult",
     "SchematicGenerator",

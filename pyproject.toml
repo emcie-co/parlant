@@ -136,11 +136,7 @@ fireworks = ["fireworks-ai"]
 
 mistral = ["mistralai"]
 
-zhipu = ["zhipuai", "tiktoken"]
-
-
-
-
+zhipu = ["zhipuai"]
 
 [build-system]
 build-backend = "poetry.core.masonry.api"

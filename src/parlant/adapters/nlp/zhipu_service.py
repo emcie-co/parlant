@@ -32,7 +32,7 @@ import os
 from pydantic import ValidationError
 import tiktoken
 
-from parlant.adapters.nlp.common import normalize_json_output
+from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.core.engines.alpha.canned_response_generator import (
     CannedResponseDraftSchema,
     CannedResponseSelectionSchema,
@@ -42,15 +42,15 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selectio
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.engines.alpha.tool_calling.single_tool_batch import SingleToolBatchSchema
-from parlant.core.loggers import LogLevel, Logger
+from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import NLPService
-from parlant.core.nlp.embedding import Embedder, EmbeddingResult
+from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
-    SchematicGenerator,
+    BaseSchematicGenerator,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -102,16 +102,17 @@ class ZhipuEstimatingTokenizer(EstimatingTokenizer):
         return len(tokens)
 
 
-class ZhipuSchematicGenerator(SchematicGenerator[T]):
+class ZhipuSchematicGenerator(BaseSchematicGenerator[T]):
     """Base class for Zhipu AI schematic generators that produce structured JSON output."""
 
-    supported_params = ["temperature", "max_tokens", "top_p"]
-    supported_hints = supported_params
+    supported_zhipu_params = ["temperature", "max_tokens", "top_p"]
+    supported_hints = supported_zhipu_params
 
     def __init__(
         self,
         model_name: str,
         logger: Logger,
+        meter: Meter,
         tokenizer_model_name: str | None = None,
     ) -> None:
         """Initialize the Zhipu AI schematic generator.
@@ -119,10 +120,10 @@ class ZhipuSchematicGenerator(SchematicGenerator[T]):
         Args:
             model_name: The name of the Zhipu AI model (e.g., 'glm-4-plus')
             logger: Logger instance for logging operations
+            meter: Meter instance for metrics
             tokenizer_model_name: Optional model name for tokenizer (defaults to model_name)
         """
-        self.model_name = model_name
-        self._logger = logger
+        super().__init__(logger=logger, meter=meter, model_name=model_name)
 
         self._client = ZhipuAI(api_key=os.environ["ZHIPUAI_API_KEY"])
 
@@ -164,7 +165,7 @@ class ZhipuSchematicGenerator(SchematicGenerator[T]):
         ]
     )
     @override
-    async def generate(
+    async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
@@ -178,7 +179,7 @@ class ZhipuSchematicGenerator(SchematicGenerator[T]):
         Returns:
             SchematicGenerationResult containing the parsed content and generation info
         """
-        with self._logger.scope(f"Zhipu LLM Request ({self.schema.__name__})"):
+        with self.logger.scope(f"Zhipu LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     async def _do_generate(
@@ -200,7 +201,7 @@ class ZhipuSchematicGenerator(SchematicGenerator[T]):
             prompt = prompt.build()
 
         # Filter parameters to only include supported ones
-        zhipu_api_arguments = {k: v for k, v in hints.items() if k in self.supported_params}
+        zhipu_api_arguments = {k: v for k, v in hints.items() if k in self.supported_zhipu_params}
 
         # Track response time
         t_start = time.time()
@@ -213,14 +214,14 @@ class ZhipuSchematicGenerator(SchematicGenerator[T]):
                 **zhipu_api_arguments,
             )
         except (APIReachLimitError, APIServerFlowExceedError):
-            self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+            self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
 
         t_end = time.time()
 
         # Log usage information if available
         if hasattr(response, 'usage') and response.usage:
-            self._logger.trace(
+            self.logger.trace(
                 f"Token usage - Input: {response.usage.prompt_tokens}, "
                 f"Output: {response.usage.completion_tokens}, "
                 f"Total: {response.usage.total_tokens}"
@@ -233,19 +234,22 @@ class ZhipuSchematicGenerator(SchematicGenerator[T]):
         try:
             json_content = json.loads(normalize_json_output(raw_content))
         except json.JSONDecodeError:
-            self._logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
+            self.logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
             json_content = jsonfinder.only_json(raw_content)[2]
-            self._logger.warning("Found JSON content within model response; continuing...")
+            self.logger.warning("Found JSON content within model response; continuing...")
 
         # Validate against schema
         try:
             content = self.schema.model_validate(json_content)
 
-            # Build usage info
-            usage_info = UsageInfo(
-                input_tokens=response.usage.prompt_tokens if response.usage else 0,
-                output_tokens=response.usage.completion_tokens if response.usage else 0,
-                extra={},
+            assert response.usage
+
+            await record_llm_metrics(
+                self.meter,
+                self.model_name,
+                input_tokens=response.usage.prompt_tokens or 0,
+                output_tokens=response.usage.completion_tokens or 0,
+                cached_input_tokens=0,
             )
 
             return SchematicGenerationResult(
@@ -254,12 +258,15 @@ class ZhipuSchematicGenerator(SchematicGenerator[T]):
                     schema_name=self.schema.__name__,
                     model=self.id,
                     duration=(t_end - t_start),
-                    usage=usage_info,
+                    usage=UsageInfo(
+                        input_tokens=response.usage.prompt_tokens or 0,
+                        output_tokens=response.usage.completion_tokens or 0,
+                    ),
                 ),
             )
 
         except ValidationError as e:
-            self._logger.error(
+            self.logger.error(
                 f"Error: {e.json(indent=2)}\nJSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
             )
             raise
@@ -268,13 +275,14 @@ class ZhipuSchematicGenerator(SchematicGenerator[T]):
 class GLM_4_Plus(ZhipuSchematicGenerator[T]):
     """GLM-4-Plus model for high-performance tasks."""
 
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         """Initialize GLM-4-Plus model.
 
         Args:
             logger: Logger instance for logging operations
+            meter: Meter instance for metrics
         """
-        super().__init__(model_name="glm-4-plus", logger=logger)
+        super().__init__(model_name="glm-4-plus", logger=logger, meter=meter)
 
     @property
     @override
@@ -290,13 +298,14 @@ class GLM_4_Plus(ZhipuSchematicGenerator[T]):
 class GLM_4_Flash(ZhipuSchematicGenerator[T]):
     """GLM-4-Flash model for fast response tasks."""
 
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         """Initialize GLM-4-Flash model.
 
         Args:
             logger: Logger instance for logging operations
+            meter: Meter instance for metrics
         """
-        super().__init__(model_name="glm-4-flash", logger=logger)
+        super().__init__(model_name="glm-4-flash", logger=logger, meter=meter)
 
     @property
     @override
@@ -312,13 +321,14 @@ class GLM_4_Flash(ZhipuSchematicGenerator[T]):
 class GLM_4_Air(ZhipuSchematicGenerator[T]):
     """GLM-4-Air model for lightweight tasks."""
 
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         """Initialize GLM-4-Air model.
 
         Args:
             logger: Logger instance for logging operations
+            meter: Meter instance for metrics
         """
-        super().__init__(model_name="glm-4-air", logger=logger)
+        super().__init__(model_name="glm-4-air", logger=logger, meter=meter)
 
     @property
     @override
@@ -331,7 +341,7 @@ class GLM_4_Air(ZhipuSchematicGenerator[T]):
         return 128 * 1024
 
 
-class ZhipuEmbedder(Embedder):
+class ZhipuEmbedder(BaseEmbedder):
     """Embedder for generating text embeddings using Zhipu AI models."""
 
     supported_arguments = ["dimensions"]
@@ -340,15 +350,16 @@ class ZhipuEmbedder(Embedder):
         self,
         model_name: str,
         logger: Logger,
+        meter: Meter,
     ) -> None:
         """Initialize the Zhipu AI embedder.
 
         Args:
             model_name: The name of the Zhipu AI embedding model (e.g., 'embedding-3')
             logger: Logger instance for logging operations
+            meter: Meter instance for metrics
         """
-        self.model_name = model_name
-        self._logger = logger
+        super().__init__(logger=logger, meter=meter, model_name=model_name)
 
         self._client = ZhipuAI(api_key=os.environ["ZHIPUAI_API_KEY"])
 
@@ -388,7 +399,7 @@ class ZhipuEmbedder(Embedder):
         ]
     )
     @override
-    async def embed(
+    async def do_embed(
         self,
         texts: list[str],
         hints: Mapping[str, Any] = {},
@@ -402,42 +413,42 @@ class ZhipuEmbedder(Embedder):
         Returns:
             EmbeddingResult containing the list of embedding vectors
         """
-        with self._logger.scope(f"Zhipu Embedding Request ({len(texts)} texts)"):
-            # Filter parameters to only include supported ones
-            zhipu_api_arguments = {k: v for k, v in hints.items() if k in self.supported_arguments}
+        # Filter parameters to only include supported ones
+        zhipu_api_arguments = {k: v for k, v in hints.items() if k in self.supported_arguments}
 
-            try:
-                response = self._client.embeddings.create(
-                    model=self.model_name,
-                    input=texts,
-                    **zhipu_api_arguments,
-                )
-            except (APIReachLimitError, APIServerFlowExceedError):
-                self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
-                raise
+        try:
+            response = self._client.embeddings.create(
+                model=self.model_name,
+                input=texts,
+                **zhipu_api_arguments,
+            )
+        except (APIReachLimitError, APIServerFlowExceedError):
+            self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
+            raise
 
-            # Log usage information if available
-            if hasattr(response, 'usage') and response.usage:
-                self._logger.trace(
-                    f"Token usage - Total: {response.usage.total_tokens}"
-                )
+        # Log usage information if available
+        if hasattr(response, 'usage') and response.usage:
+            self.logger.trace(
+                f"Token usage - Total: {response.usage.total_tokens}"
+            )
 
-            # Extract embeddings from response
-            embeddings = [item.embedding for item in response.data]
+        # Extract embeddings from response
+        embeddings = [item.embedding for item in response.data]
 
-            return EmbeddingResult(vectors=embeddings)
+        return EmbeddingResult(vectors=embeddings)
 
 
 class Embedding_3(ZhipuEmbedder):
     """Embedding-3 model for generating text embeddings."""
 
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: Logger, meter: Meter) -> None:
         """Initialize Embedding-3 model.
 
         Args:
             logger: Logger instance for logging operations
+            meter: Meter instance for metrics
         """
-        super().__init__(model_name="embedding-3", logger=logger)
+        super().__init__(model_name="embedding-3", logger=logger, meter=meter)
 
     @property
     @override
@@ -472,13 +483,30 @@ class ZhipuModerationService(BaseModerationService):
             meter: Meter instance for metrics
         """
         super().__init__(logger, meter)
-        self.model_name = model_name
 
+        self.model_name = model_name
         self._client = ZhipuAI(api_key=os.environ["ZHIPUAI_API_KEY"])
+
+        self._hist_moderation_request_duration = meter.create_duration_histogram(
+            name="moderation",
+            description="Duration of moderation requests in milliseconds",
+        )
 
     @override
     async def do_moderate(self, context: CustomerModerationContext) -> ModerationCheck:
         """Check content for inappropriate material using Zhipu AI moderation API.
+
+        Args:
+            context: The moderation context containing the message to check
+
+        Returns:
+            ModerationCheck object containing flagged status and tags
+        """
+        with self._hist_moderation_request_duration.time():
+            return await self._do_moderate(context)
+
+    async def _do_moderate(self, context: CustomerModerationContext) -> ModerationCheck:
+        """Internal method to handle the actual moderation API call.
 
         Args:
             context: The moderation context containing the message to check
@@ -508,11 +536,10 @@ class ZhipuModerationService(BaseModerationService):
 
             return mapping.get(category.replace("-", "_"), [])
 
-        with self.logger.scope("Zhipu Moderation Request"):
-            response = self._client.moderations.create(
-                model=self.model_name,
-                input=context.message,
-            )
+        response = self._client.moderations.create(
+            model=self.model_name,
+            input=context.message,
+        )
 
         result = response.results[0]
 
@@ -584,7 +611,7 @@ To obtain an API key:
             JourneyNodeSelectionSchema: GLM_4_Plus[JourneyNodeSelectionSchema],
             CannedResponseDraftSchema: GLM_4_Plus[CannedResponseDraftSchema],
             CannedResponseSelectionSchema: GLM_4_Plus[CannedResponseSelectionSchema],
-        }.get(t, GLM_4_Flash[t])(self._logger)  # type: ignore
+        }.get(t, GLM_4_Flash[t])(self._logger, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self) -> Embedder:
@@ -593,7 +620,7 @@ To obtain an API key:
         Returns:
             An Embedding_3 embedder instance
         """
-        return Embedding_3(self._logger)
+        return Embedding_3(self._logger, self._meter)
 
     @override
     async def get_moderation_service(self) -> BaseModerationService:

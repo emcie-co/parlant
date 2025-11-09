@@ -8,6 +8,7 @@ from parlant.core.async_utils import Timeout
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.common import JSONSerializable
 from parlant.core.meter import Meter
+from parlant.core.persistence.common import ObjectId
 from parlant.core.tracer import Tracer
 from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.emissions import EventEmitterFactory
@@ -95,7 +96,7 @@ def decode_cursor(cursor_str: str) -> Cursor | None:
         dt = datetime.fromtimestamp(timestamp_us / 1_000_000, tz=timezone.utc)
         creation_utc = dt.isoformat()
 
-        return Cursor(creation_utc=creation_utc, id=cursor_id_str)
+        return Cursor(creation_utc=creation_utc, id=ObjectId(cursor_id_str))
     except Exception:
         # Invalid cursor, return None to start from beginning
         return None

@@ -318,6 +318,16 @@ class NLPServices:
         return LiteLLMService(container[Logger], container[Meter])
 
     @staticmethod
+    def lmstudio(container: Container) -> NLPService:
+        """Creates a LM Studio NLPService instance using the provided container."""
+        from parlant.adapters.nlp.lmstudio_service import LMStudioService
+
+        if error := LMStudioService.verify_environment():
+            raise SDKError(error)
+
+        return LMStudioService(container[Logger], container[Meter])
+
+    @staticmethod
     def modelscope(container: Container) -> NLPService:
         """Creates a ModelScope NLPService instance using the provided container."""
         from parlant.adapters.nlp.modelscope_service import ModelScopeService

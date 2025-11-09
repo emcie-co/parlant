@@ -22,7 +22,7 @@ from typing import Annotated, Mapping, Sequence, TypeAlias, cast
 from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import GuidelineIdField, ExampleJson, JSONSerializableDTO, apigen_config
 from parlant.api.glossary import TermSynonymsField, TermIdPath, TermNameField, TermDescriptionField
-from parlant.core.app_modules.sessions import Moderation
+from parlant.core.app_modules.sessions import Moderation, encode_cursor, decode_cursor
 from parlant.core.agents import AgentId
 from parlant.core.application import Application
 from parlant.core.async_utils import Timeout
@@ -42,7 +42,7 @@ from parlant.core.sessions import (
     SessionStatus,
     SessionUpdateParams,
 )
-from parlant.core.persistence.document_database import Cursor, SortDirection
+from parlant.core.persistence.document_database import SortDirection
 from parlant.core.canned_responses import CannedResponseId
 
 API_GROUP = "sessions"
@@ -1228,9 +1228,7 @@ CursorQuery: TypeAlias = Annotated[
     str,
     Query(
         description="Pagination cursor for fetching the next page of results",
-        examples=[
-            "eyJjcmVhdGlvbl91dGMiOiIyMDI0LTAzLTI0VDEyOjAwOjAwWiIsImlkIjoiNjVmZjQwNTBiNzU2YjEyMzQ1Njc4OTAyIn0="
-        ],
+        examples=["AAABjnBU9gBl/0BQt1axI0VniQI="],
     ),
 ]
 
@@ -1242,31 +1240,6 @@ SortQuery: TypeAlias = Annotated[
         examples=["asc", "desc"],
     ),
 ]
-
-
-def _encode_cursor(cursor: Cursor) -> str:
-    """Encode a cursor to a base64 string for API responses"""
-    import base64
-    import json
-
-    cursor_data = {"creation_utc": cursor["creation_utc"], "id": str(cursor["id"])}
-    cursor_json = json.dumps(cursor_data, separators=(",", ":"))
-    return base64.b64encode(cursor_json.encode()).decode()
-
-
-def _decode_cursor(cursor_str: str) -> Cursor | None:
-    """Decode a base64 cursor string from API requests. Returns None if invalid."""
-    import base64
-    import json
-    from parlant.core.persistence.common import ObjectId
-
-    try:
-        cursor_json = base64.b64decode(cursor_str.encode()).decode()
-        cursor_data = json.loads(cursor_json)
-        return Cursor(creation_utc=cursor_data["creation_utc"], id=ObjectId(cursor_data["id"]))
-    except Exception:
-        # Invalid cursor, return None to start from beginning
-        return None
 
 
 def agent_message_guideline_dto_to_utterance_request(
@@ -1494,7 +1467,7 @@ def create_router(
         # Parse cursor if provided
         cursor_obj = None
         if cursor:
-            cursor_obj = _decode_cursor(cursor)
+            cursor_obj = decode_cursor(cursor)
 
         sessions_result = await app.sessions.find(
             agent_id=agent_id,
@@ -1522,7 +1495,7 @@ def create_router(
             ],
             total_count=sessions_result.total_count,
             has_more=sessions_result.has_more,
-            next_cursor=_encode_cursor(sessions_result.next_cursor)
+            next_cursor=encode_cursor(sessions_result.next_cursor)
             if sessions_result.next_cursor
             else None,
         )

@@ -147,7 +147,7 @@ Feature: Conversation
         And an empty session
         Given a guideline to recommend on our recommended toppings - either pineapple or pepperoni when you recommend pizza toppings
         Given a guideline to recommend from our vegetarian recommended toppings when the customer asks about topping recommendation and the customer is from India
-        And a customer message, "Hi, I want to buy pizza. What do you recommend? I'm vegetarian."
+        And a customer message, "Hi, I want to buy pizza. What do you recommend? I'm from India."
         When processing is triggered
         Then a single message event is emitted
         And the message contains a recommendation only on pineapple as topping

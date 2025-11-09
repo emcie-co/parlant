@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import math
+import os
 import traceback
 from typing_extensions import override
 from parlant.core.common import DefaultBaseModel, JSONSerializable
@@ -118,6 +119,9 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
                         self._logger.trace(
                             f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                         )
+
+                    with open("dumps/actionable/output.txt", "a") as f:
+                        f.write(inference.content.model_dump_json(indent=2))
 
                     matches = []
 
@@ -244,7 +248,8 @@ applicable solely based on earlier parts of the conversation if the topic has si
 
 If the conversation moves from a broader issue to a related sub-issue (a related detail or follow-up within the same overall issue), you should still consider the guideline as applicable
 if it is relevant to the sub-issue, as it is part of the ongoing discussion.
-In contrast, if the conversation has clearly moved on to an entirely new topic, previous guidelines should not be marked as applicable.
+In contrast, if the conversation has clearly moved on to an entirely new topic, previous guidelines should not be marked as applicable. 
+A guideline should be marked as NOT applicable when the customer explicitly pauses or sets aside their original inquiry to address something else, even if they indicate they may return to it later. 
 This ensures that applicability is tied to the current context, but still respects the continuity of a discussion when diving deeper into subtopics.
 
 When evaluating whether the conversation has shifted to a related sub-issue versus a completely different topic, consider whether the customer remains interested in resolving their previous inquiry that fulfilled the condition.
@@ -306,6 +311,11 @@ OUTPUT FORMAT
                 "guidelines_len": len(self._guidelines),
             },
         )
+
+        os.makedirs("dumps/actionable", exist_ok=True)
+
+        with open("dumps/actionable/prompt.txt", "w") as f:
+            f.write(builder.build())
 
         return builder
 

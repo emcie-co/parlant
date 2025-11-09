@@ -149,7 +149,7 @@ OBSERVATIONAL_GUIDELINES_DICT = {
         "observation": "-",
     },
     "business_class": {
-        "condition": "The customer is currently saying that they want a business class",
+        "condition": "The customer is currently discussing their preference for business class",
         "observation": "-",
     },
     "book_flight": {
@@ -2370,6 +2370,10 @@ async def test_that_observational_guidelines_are_not_matched_based_when_topic_wa
         (
             EventSource.AI_AGENT,
             "Your flight has been booked! A confirmation has been sent to your email.",
+        ),
+        (
+            EventSource.CUSTOMER,
+            "Thanks!",
         ),
     ]
     conversation_guideline_names: list[str] = ["business_class"]

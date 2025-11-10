@@ -411,14 +411,11 @@ class NLPServices:
     @staticmethod
     def openrouter(
         container: Container | None = None,
-        model_name: str | None = None,
-        max_tokens: int | None = None,
-        embedder_model_name: str | None = None,
     ) -> NLPService | Callable[[Container], NLPService]:
         """
         Returns a callable that creates an OpenRouter NLPService instance using the provided container.
         If container is None, the callable expects the container to be provided later (by the Server).
-        If model_name, max_tokens, or embedder_model_name are None, environment variables will be used.
+        All configuration is done via environment variables.
         """
         from parlant.adapters.nlp.openrouter_service import OpenRouterService
 
@@ -428,9 +425,6 @@ class NLPServices:
             return OpenRouterService(
                 c[Logger],
                 c[Meter],
-                model_name=model_name,
-                max_tokens=max_tokens,
-                embedder_model_name=embedder_model_name,
             )
 
         if container is not None:

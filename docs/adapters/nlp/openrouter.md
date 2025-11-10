@@ -35,55 +35,25 @@ async with p.Server(nlp_service=NLPServices.openrouter) as server:
     # 🎉 Ready to use at http://localhost:8800
 ```
 
-## Configuration Options
+## Configuration
 
-### Direct Configuration
-
-Configure models directly in code for maximum flexibility:
-
-```python
-async with p.Server(
-    nlp_service=NLPServices.openrouter(
-        model_name="openai/gpt-4o-mini",          # LLM model name
-        embedder_model_name="openai/text-embedding-3-large",  # Embedding model name
-        max_tokens=128000                        # Model context length
-    )
-) as server:
-    # Your agent code here
-    pass
-```
-
-### Environment-Based Configuration
-
-Use environment variables for configuration:
+All configuration is done via environment variables. Set the required and optional environment variables before running your application:
 
 ```bash
-# LLM Configuration
+# Required: API Key
+export OPENROUTER_API_KEY="your-api-key-here"
+
+# Optional: LLM Configuration
 export OPENROUTER_MODEL="openai/gpt-4o-mini"
 export OPENROUTER_MAX_TOKENS="128000"
 
-# Embedding Configuration
+# Optional: Embedding Configuration
 export OPENROUTER_EMBEDDER_MODEL="qwen/qwen3-embedding-8b"
 export OPENROUTER_EMBEDDER_DIMENSIONS="4096"  # Optional override
 
-# Analytics (optional)
+# Optional: Analytics
 export OPENROUTER_HTTP_REFERER="https://myapp.com"
 export OPENROUTER_SITE_NAME="My Application"
-```
-
-### Mixed Configuration
-
-Combine environment variables and code for flexible setup:
-
-```python
-# Uses OPENROUTER_MODEL from environment
-# But overrides embedder_model_name in code
-async with p.Server(
-    nlp_service=NLPServices.openrouter(
-        embedder_model_name="qwen/qwen3-embedding-8b"
-    )
-) as server:
-    pass
 ```
 
 ## Environment Variables Reference
@@ -144,25 +114,14 @@ The service supports multiple embedding models with automatic dimension detectio
 
 ### Using Any OpenRouter Model
 
-You can use **any model** that OpenRouter supports:
+You can use **any model** that OpenRouter supports by setting the appropriate environment variables:
 
-```python
+```bash
 # LLM Models
-async with p.Server(
-    nlp_service=NLPServices.openrouter(
-        model_name="google/gemini-pro-1.5"
-    )
-) as server:
-    pass
+export OPENROUTER_MODEL="google/gemini-pro-1.5"
 
 # Embedding Models
-async with p.Server(
-    nlp_service=NLPServices.openrouter(
-        model_name="openai/gpt-4o-mini",
-        embedder_model_name="qwen/qwen3-embedding-8b"
-    )
-) as server:
-    pass
+export OPENROUTER_EMBEDDER_MODEL="qwen/qwen3-embedding-8b"
 ```
 
 Check the [OpenRouter Models page](https://openrouter.ai/models) for the full list of available models.
@@ -188,12 +147,12 @@ async with p.Server(nlp_service=NLPServices.openrouter) as server:
 
 Use Claude for text generation:
 
+```bash
+export OPENROUTER_MODEL="anthropic/claude-3.5-sonnet"
+```
+
 ```python
-async with p.Server(
-    nlp_service=NLPServices.openrouter(
-        model_name="anthropic/claude-3.5-sonnet"
-    )
-) as server:
+async with p.Server(nlp_service=NLPServices.openrouter) as server:
     agent = await server.create_agent(
         name="Claude Assistant",
         description="Powered by Claude."
@@ -204,13 +163,13 @@ async with p.Server(
 
 Use a custom embedding model for better multilingual support:
 
+```bash
+export OPENROUTER_MODEL="openai/gpt-4o-mini"
+export OPENROUTER_EMBEDDER_MODEL="qwen/qwen3-embedding-8b"
+```
+
 ```python
-async with p.Server(
-    nlp_service=NLPServices.openrouter(
-        model_name="openai/gpt-4o-mini",
-        embedder_model_name="qwen/qwen3-embedding-8b"
-    )
-) as server:
+async with p.Server(nlp_service=NLPServices.openrouter) as server:
     agent = await server.create_agent(
         name="Multilingual Assistant",
         description="Supports multiple languages."
@@ -221,14 +180,14 @@ async with p.Server(
 
 Optimize for speed and quality:
 
+```bash
+export OPENROUTER_MODEL="openai/gpt-4o-mini"
+export OPENROUTER_EMBEDDER_MODEL="openai/text-embedding-3-large"
+export OPENROUTER_MAX_TOKENS="128000"
+```
+
 ```python
-async with p.Server(
-    nlp_service=NLPServices.openrouter(
-        model_name="openai/gpt-4o-mini",
-        embedder_model_name="openai/text-embedding-3-large",
-        max_tokens=128000
-    )
-) as server:
+async with p.Server(nlp_service=NLPServices.openrouter) as server:
     agent = await server.create_agent(
         name="High-Performance Agent",
         description="Optimized for speed and accuracy."
@@ -239,13 +198,13 @@ async with p.Server(
 
 Balance quality and cost:
 
+```bash
+export OPENROUTER_MODEL="openai/gpt-4o-mini"
+export OPENROUTER_EMBEDDER_MODEL="openai/text-embedding-3-small"
+```
+
 ```python
-async with p.Server(
-    nlp_service=NLPServices.openrouter(
-        model_name="openai/gpt-4o-mini",
-        embedder_model_name="openai/text-embedding-3-small"
-    )
-) as server:
+async with p.Server(nlp_service=NLPServices.openrouter) as server:
     agent = await server.create_agent(
         name="Cost-Optimized Agent",
         description="Optimized for cost-effectiveness."
@@ -311,7 +270,7 @@ Embedders are automatically configured based on the model name:
 3. **Cost Flexibility**: Choose models based on price-performance needs
 4. **Single API**: One integration for multiple providers
 5. **Auto-Optimization**: Automatic configuration for known models
-6. **Flexible Configuration**: Mix environment variables and code configuration
+6. **Environment-Based Configuration**: All configuration via environment variables
 7. **Analytics**: Built-in usage tracking through OpenRouter dashboard
 
 ## Troubleshooting
@@ -488,11 +447,11 @@ Switch to `gpt-4o-mini` for high-volume operations where cost is a concern.
 - Use `qwen3-embedding-8b` for multilingual or high-dimensional needs
 
 ### 4. Set Max Tokens
-Prevent runaway costs by setting appropriate `max_tokens` limits:
+Prevent runaway costs by setting appropriate `max_tokens` limits via environment variable:
 
-```python
-max_tokens=128000  # For long-context models
-max_tokens=8192    # For standard use cases
+```bash
+export OPENROUTER_MAX_TOKENS="128000"  # For long-context models
+export OPENROUTER_MAX_TOKENS="8192"    # For standard use cases
 ```
 
 ### 5. Monitor Costs
@@ -529,19 +488,13 @@ The service will also auto-detect dimensions from the first API response.
 
 ### Combining Multiple Configurations
 
-You can mix different configuration methods:
+All configuration is done via environment variables. Set multiple variables to configure different aspects:
 
-```python
-# Environment variables provide defaults
-# Code overrides specific values
-async with p.Server(
-    nlp_service=NLPServices.openrouter(
-        model_name="anthropic/claude-3.5-sonnet",  # Override env var
-        max_tokens=200000  # Override env var
-        # embedder_model_name uses OPENROUTER_EMBEDDER_MODEL from env
-    )
-) as server:
-    pass
+```bash
+# Set all configuration via environment variables
+export OPENROUTER_MODEL="anthropic/claude-3.5-sonnet"
+export OPENROUTER_MAX_TOKENS="200000"
+export OPENROUTER_EMBEDDER_MODEL="openai/text-embedding-3-large"
 ```
 
 ## Additional Resources
@@ -556,6 +509,14 @@ async with p.Server(
 
 Here's a complete example showing a production-ready setup:
 
+```bash
+# Set environment variables
+export OPENROUTER_API_KEY="your-api-key-here"
+export OPENROUTER_MODEL="openai/gpt-4o-mini"
+export OPENROUTER_EMBEDDER_MODEL="openai/text-embedding-3-large"
+export OPENROUTER_MAX_TOKENS="32768"
+```
+
 ```python
 import parlant.sdk as p
 from parlant.sdk import NLPServices
@@ -566,13 +527,7 @@ async def get_weather(context: p.ToolContext, city: str) -> p.ToolResult:
     return p.ToolResult(f"Sunny, 72°F in {city}")
 
 async def main():
-    async with p.Server(
-        nlp_service=NLPServices.openrouter(
-            model_name="openai/gpt-4o-mini",
-            embedder_model_name="openai/text-embedding-3-large",
-            max_tokens=32768
-        )
-    ) as server:
+    async with p.Server(nlp_service=NLPServices.openrouter) as server:
         agent = await server.create_agent(
             name="Weather Assistant",
             description="Helps users check weather conditions."

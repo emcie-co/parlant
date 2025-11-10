@@ -507,20 +507,16 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
         self,
         logger: Logger,
         meter: Meter,
-        model_name: str | None = None,
-        max_tokens: int | None = None,
-        embedder_model_name: str | None = None,
     ) -> None:
         self._logger = logger
         self._meter = meter
         self._logger.info("Initialized OpenRouterService")
-        # Use provided model_name or fall back to environment variable
-        self.model_name = model_name or os.environ.get(
+        # Get model_name from environment variable
+        self.model_name = os.environ.get(
             "OPENROUTER_MODEL", "openai/gpt-4o"
         )
-        self._custom_max_tokens = max_tokens
-        # Use provided embedder_model_name or fall back to environment variable or default
-        self.embedder_model_name = embedder_model_name or os.environ.get(
+        # Get embedder_model_name from environment variable
+        self.embedder_model_name = os.environ.get(
             "OPENROUTER_EMBEDDER_MODEL", "openai/text-embedding-3-large"
         )
         self._logger.info(f"OpenRouter model name: {self.model_name}")
@@ -559,23 +555,20 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
             return generator_factory
 
         # Create a dynamic generator for any OpenRouter model
-        # Get max_tokens from parameter, environment variable, or use sensible defaults based on model name
-        if self._custom_max_tokens is not None:
-            max_tokens = self._custom_max_tokens
+        # Get max_tokens from environment variable or use sensible defaults based on model name
+        max_tokens_str = os.environ.get("OPENROUTER_MAX_TOKENS")
+        if max_tokens_str:
+            max_tokens = int(max_tokens_str)
         else:
-            max_tokens_str = os.environ.get("OPENROUTER_MAX_TOKENS")
-            if max_tokens_str:
-                max_tokens = int(max_tokens_str)
+            # Provide sensible defaults based on model family
+            if "gpt-4" in model_name:
+                max_tokens = 128 * 1024
+            elif "claude" in model_name:
+                max_tokens = 8192
+            elif "llama" in model_name or "gemma" in model_name:
+                max_tokens = 8192
             else:
-                # Provide sensible defaults based on model family
-                if "gpt-4" in model_name:
-                    max_tokens = 128 * 1024
-                elif "claude" in model_name:
-                    max_tokens = 8192
-                elif "llama" in model_name or "gemma" in model_name:
-                    max_tokens = 8192
-                else:
-                    max_tokens = 8192  # Safe default for unknown models
+                max_tokens = 8192  # Safe default for unknown models
 
         # Create dynamic generator class with the specific max_tokens
         final_max_tokens = max_tokens

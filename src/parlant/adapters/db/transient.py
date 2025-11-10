@@ -109,12 +109,13 @@ class TransientDocumentCollection(DocumentCollection[TDocument]):
         filters: Where,
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
-        sort_direction: SortDirection = SortDirection.ASC,
+        sort_direction: Optional[SortDirection] = None,
     ) -> FindResult[TDocument]:
         # First, filter documents
         filtered_docs = [doc for doc in self._documents if matches_filters(filters, doc)]
 
         # Sort by creation_utc with id as tiebreaker according to sort_direction
+        sort_direction = sort_direction or SortDirection.ASC
         filtered_docs = self._apply_sort(filtered_docs, sort_direction)
 
         # Apply cursor-based pagination if cursor is provided

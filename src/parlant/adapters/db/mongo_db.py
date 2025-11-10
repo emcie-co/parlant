@@ -165,9 +165,10 @@ class MongoDocumentCollection(DocumentCollection[TDocument]):
         filters: Where,
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
-        sort_direction: SortDirection = SortDirection.ASC,
+        sort_direction: Optional[SortDirection] = None,
     ) -> FindResult[TDocument]:
         query = dict(filters) if filters else {}
+        sort_direction = sort_direction or SortDirection.ASC
 
         if cursor is not None:
             if sort_direction == SortDirection.DESC:

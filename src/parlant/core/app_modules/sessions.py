@@ -198,7 +198,7 @@ class SessionModule:
         customer_id: CustomerId | None,
         limit: int | None = None,
         cursor: Cursor | None = None,
-        sort_direction: SortDirection = SortDirection.ASC,
+        sort_direction: SortDirection | None = None,
     ) -> PaginatedSessionsModel:
         result = await self._session_store.list_sessions(
             agent_id=agent_id,

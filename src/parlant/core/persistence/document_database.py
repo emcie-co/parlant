@@ -174,7 +174,7 @@ class DocumentCollection(ABC, Generic[TDocument]):
         filters: Where,
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
-        sort_direction: SortDirection = SortDirection.ASC,
+        sort_direction: Optional[SortDirection] = None,
     ) -> FindResult[TDocument]:
         """Finds documents with cursor-based pagination. Results are sorted by creation_utc with id as tiebreaker."""
         ...

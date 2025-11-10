@@ -14,15 +14,23 @@
 
 from datetime import datetime
 import dateutil.parser
-from fastapi import APIRouter, Path, Request, status
+from fastapi import APIRouter, Path, Query, Request, status
 from pydantic import Field
 from typing import Annotated, Mapping, Sequence, TypeAlias
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
-from parlant.api.common import apigen_config, ExampleJson, example_json_content
+from parlant.api.common import (
+    SortDirectionDTO,
+    apigen_config,
+    ExampleJson,
+    example_json_content,
+    sort_direction_dto_to_sort_direction,
+)
 from parlant.core.app_modules.customers import (
     CustomerMetadataUpdateParams,
     CustomerTagUpdateParams,
+    encode_cursor,
+    decode_cursor,
 )
 from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
@@ -105,6 +113,33 @@ customer_example: ExampleJson = {
 }
 
 
+LimitQuery: TypeAlias = Annotated[
+    int,
+    Query(
+        description="Maximum number of items to return",
+        ge=1,
+        le=100,
+        examples=[10, 25],
+    ),
+]
+
+CursorQuery: TypeAlias = Annotated[
+    str,
+    Query(
+        description="Pagination cursor for fetching the next page of results",
+        examples=["AAABjnBU9gBl/0BQt1axI0VniQI="],
+    ),
+]
+
+SortQuery: TypeAlias = Annotated[
+    SortDirectionDTO,
+    Query(
+        description="Sort direction for results",
+        examples=["asc", "desc"],
+    ),
+]
+
+
 class CustomerDTO(
     DefaultBaseModel,
     json_schema_extra={"example": customer_example},
@@ -121,6 +156,15 @@ class CustomerDTO(
     name: CustomerNameField
     metadata: CustomerMetadataField
     tags: TagIdSequenceField
+
+
+class PaginatedCustomersDTO(DefaultBaseModel):
+    """Paginated response for customers"""
+
+    items: Sequence[CustomerDTO]
+    total_count: int
+    has_more: bool
+    next_cursor: str | None = None
 
 
 class CustomerCreationParamsDTO(
@@ -324,39 +368,89 @@ def create_router(
     @router.get(
         "",
         operation_id="list_customers",
-        response_model=Sequence[CustomerDTO],
+        response_model=PaginatedCustomersDTO | Sequence[CustomerDTO],
         responses={
             status.HTTP_200_OK: {
-                "description": "List of all customers in the system.",
-                "content": example_json_content(customer_example),
+                "description": (
+                    "If a cursor is provided, a paginated list of customers will be returned. "
+                    "Otherwise, the full list of customers will be returned."
+                ),
+                "content": {
+                    "application/json": {
+                        "example": {
+                            "items": [customer_example],
+                            "total_count": 1,
+                            "has_more": False,
+                            "next_cursor": None,
+                        }
+                    }
+                },
+            },
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
+                "description": "Validation error in the request parameters."
             },
         },
         **apigen_config(group_name=API_GROUP, method_name="list"),
     )
-    async def list_customers(request: Request) -> Sequence[CustomerDTO]:
+    async def list_customers(
+        request: Request,
+        limit: LimitQuery | None = None,
+        cursor: CursorQuery | None = None,
+        sort: SortQuery | None = None,
+    ) -> PaginatedCustomersDTO | Sequence[CustomerDTO]:
         """
-        Retrieves a list of all customers in the system.
+        Retrieves a list of customers from the system.
+
+        If a cursor is provided, the results are returned using cursor-based pagination
+        with a configurable sort direction. If no cursor is provided, the full list of
+        customers is returned.
 
         Returns an empty list if no customers exist.
-        Customers are returned in no guaranteed order.
+
+        Note:
+            When using paginated results, the first page will always include the special
+            'guest' customer as first item.
         """
         await authorization_policy.authorize(
             request=request,
             operation=Operation.LIST_CUSTOMERS,
         )
 
-        customers = await app.customers.find()
+        customers_result = await app.customers.find(
+            limit=limit,
+            cursor=decode_cursor(cursor) if cursor else None,
+            sort_direction=sort_direction_dto_to_sort_direction(sort) if sort else None,
+        )
 
-        return [
-            CustomerDTO(
-                id=customer.id,
-                creation_utc=customer.creation_utc,
-                name=customer.name,
-                metadata=customer.extra,
-                tags=customer.tags,
-            )
-            for customer in customers
-        ]
+        if limit is None:
+            return [
+                CustomerDTO(
+                    id=customer.id,
+                    creation_utc=customer.creation_utc,
+                    name=customer.name,
+                    metadata=customer.extra,
+                    tags=customer.tags,
+                )
+                for customer in customers_result.items
+            ]
+
+        return PaginatedCustomersDTO(
+            items=[
+                CustomerDTO(
+                    id=customer.id,
+                    creation_utc=customer.creation_utc,
+                    name=customer.name,
+                    metadata=customer.extra,
+                    tags=customer.tags,
+                )
+                for customer in customers_result.items
+            ],
+            total_count=customers_result.total_count,
+            has_more=customers_result.has_more,
+            next_cursor=encode_cursor(customers_result.next_cursor)
+            if customers_result.next_cursor
+            else None,
+        )
 
     @router.patch(
         "/{customer_id}",

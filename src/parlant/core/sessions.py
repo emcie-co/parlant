@@ -341,7 +341,7 @@ class SessionStore(ABC):
         customer_id: Optional[CustomerId] = None,
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
-        sort_direction: SortDirection = SortDirection.ASC,
+        sort_direction: Optional[SortDirection] = None,
     ) -> ListSessionsResult: ...
 
     @abstractmethod
@@ -1031,7 +1031,7 @@ class SessionDocumentStore(SessionStore):
         customer_id: Optional[CustomerId] = None,
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
-        sort_direction: SortDirection = SortDirection.ASC,
+        sort_direction: Optional[SortDirection] = None,
     ) -> ListSessionsResult:
         async with self._lock.reader_lock:
             filters = {

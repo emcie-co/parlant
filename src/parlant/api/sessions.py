@@ -20,7 +20,14 @@ from typing import Annotated, Mapping, Sequence, TypeAlias, cast
 
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
-from parlant.api.common import GuidelineIdField, ExampleJson, JSONSerializableDTO, apigen_config
+from parlant.api.common import (
+    GuidelineIdField,
+    ExampleJson,
+    JSONSerializableDTO,
+    SortDirectionDTO,
+    apigen_config,
+    sort_direction_dto_to_sort_direction,
+)
 from parlant.api.glossary import TermSynonymsField, TermIdPath, TermNameField, TermDescriptionField
 from parlant.core.app_modules.sessions import Moderation, encode_cursor, decode_cursor
 from parlant.core.agents import AgentId
@@ -42,7 +49,6 @@ from parlant.core.sessions import (
     SessionStatus,
     SessionUpdateParams,
 )
-from parlant.core.persistence.document_database import SortDirection
 from parlant.core.canned_responses import CannedResponseId
 
 API_GROUP = "sessions"
@@ -215,7 +221,7 @@ class SessionDTO(
 class PaginatedSessionsDTO(DefaultBaseModel):
     """Paginated response for sessions"""
 
-    sessions: Sequence[SessionDTO]
+    items: Sequence[SessionDTO]
     total_count: int
     has_more: bool
     next_cursor: str | None = None
@@ -1233,10 +1239,9 @@ CursorQuery: TypeAlias = Annotated[
 ]
 
 SortQuery: TypeAlias = Annotated[
-    str,
+    SortDirectionDTO,
     Query(
         description="Sort direction for results",
-        pattern="^(asc|desc)$",
         examples=["asc", "desc"],
     ),
 ]
@@ -1426,14 +1431,17 @@ def create_router(
     @router.get(
         "",
         operation_id="list_sessions",
-        response_model=PaginatedSessionsDTO,
+        response_model=PaginatedSessionsDTO | Sequence[SessionDTO],
         responses={
             status.HTTP_200_OK: {
-                "description": "Paginated list of sessions matching the specified filters",
+                "description": (
+                    "If a cursor is provided, a paginated list of sessions will be returned. "
+                    "Otherwise, the full list of sessions will be returned."
+                ),
                 "content": {
                     "application/json": {
                         "example": {
-                            "sessions": [session_example],
+                            "items": [session_example],
                             "total_count": 1,
                             "has_more": False,
                             "next_cursor": None,
@@ -1442,7 +1450,7 @@ def create_router(
                 },
             },
             status.HTTP_422_UNPROCESSABLE_CONTENT: {
-                "description": "Validation error in request parameters"
+                "description": "Validation error in the request parameters."
             },
         },
         **apigen_config(group_name=API_GROUP, method_name="list"),
@@ -1454,31 +1462,40 @@ def create_router(
         limit: LimitQuery | None = None,
         cursor: CursorQuery | None = None,
         sort: SortQuery | None = None,
-    ) -> PaginatedSessionsDTO:
+    ) -> PaginatedSessionsDTO | Sequence[SessionDTO]:
         """Lists all sessions matching the specified filters with pagination support.
 
         Can filter by agent_id and/or customer_id. Supports cursor-based pagination
         with configurable sort direction."""
         await authorization_policy.authorize(request=request, operation=Operation.LIST_SESSIONS)
 
-        # Parse sort direction
-        sort_direction = SortDirection.DESC if sort == "desc" else SortDirection.ASC
-
-        # Parse cursor if provided
-        cursor_obj = None
-        if cursor:
-            cursor_obj = decode_cursor(cursor)
-
         sessions_result = await app.sessions.find(
             agent_id=agent_id,
             customer_id=customer_id,
             limit=limit,
-            cursor=cursor_obj,
-            sort_direction=sort_direction,
+            cursor=decode_cursor(cursor) if cursor else None,
+            sort_direction=sort_direction_dto_to_sort_direction(sort) if sort else None,
         )
 
+        if limit is None:
+            return [
+                SessionDTO(
+                    id=s.id,
+                    agent_id=s.agent_id,
+                    creation_utc=s.creation_utc,
+                    title=s.title,
+                    customer_id=s.customer_id,
+                    consumption_offsets=ConsumptionOffsetsDTO(
+                        client=s.consumption_offsets["client"],
+                    ),
+                    mode=SessionModeDTO(s.mode),
+                    metadata=s.metadata,
+                )
+                for s in sessions_result.items
+            ]
+
         return PaginatedSessionsDTO(
-            sessions=[
+            items=[
                 SessionDTO(
                     id=s.id,
                     agent_id=s.agent_id,

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from datetime import datetime, timezone
 from typing import Awaitable, Callable, Generic, Mapping, Optional, cast
 from typing_extensions import TypedDict, Self
 from parlant.core.common import Version, generate_id
@@ -25,13 +26,17 @@ from parlant.core.persistence.document_database import (
     BaseDocument,
     DocumentDatabase,
     TDocument,
-    identity_loader,
 )
 
 
 class MetadataDocument(TypedDict, total=False):
     id: ObjectId
+    creation_utc: str
     version: Version.String
+
+
+async def load_metadata_document(doc: BaseDocument) -> MetadataDocument:
+    return doc
 
 
 class DocumentStoreMigrationHelper:
@@ -76,7 +81,7 @@ class DocumentStoreMigrationHelper:
         metadata_collection = await database.get_or_create_collection(
             "metadata",
             MetadataDocument,
-            identity_loader,
+            load_metadata_document,
         )
 
         if metadata := await metadata_collection.find_one({}):
@@ -90,6 +95,7 @@ class DocumentStoreMigrationHelper:
             await metadata_collection.insert_one(
                 {
                     "id": ObjectId(generate_id()),
+                    "creation_utc": datetime.now(timezone.utc).isoformat(),
                     "version": runtime_store_version,
                 }
             )
@@ -103,7 +109,7 @@ class DocumentStoreMigrationHelper:
         metadata_collection = await database.get_or_create_collection(
             "metadata",
             MetadataDocument,
-            identity_loader,
+            load_metadata_document,
         )
 
         for doc in await metadata_collection.find({}):

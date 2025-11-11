@@ -14,6 +14,7 @@
 
 import asyncio
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 import hashlib
 import json
 import logging
@@ -417,6 +418,7 @@ TBaseModel = TypeVar("TBaseModel", bound=DefaultBaseModel)
 
 class SchematicGenerationResultDocument(TypedDict, total=False):
     id: ObjectId
+    creation_utc: str
     version: Version.String
     content: JSONSerializable
     info: _GenerationInfoDocument
@@ -469,6 +471,7 @@ class CachedSchematicGenerator(SchematicGenerator[TBaseModel]):
 
         return SchematicGenerationResultDocument(
             id=ObjectId(id),
+            creation_utc=datetime.now(tz=timezone.utc).isoformat(),
             version=self.VERSION.to_string(),
             content=result.content.model_dump(mode="json"),
             info=serialize_generation_info(result.info),

@@ -15,14 +15,14 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Mapping, NewType, Optional, Sequence, cast
+from typing import Iterator, Mapping, NewType, Optional, Sequence, cast
 from typing_extensions import override, TypedDict, Self
 
 from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
 from parlant.core.tags import TagId
 from parlant.core.common import ItemNotFoundError, UniqueId, Version, IdGenerator, md5_checksum
-from parlant.core.persistence.common import ObjectId, Where
+from parlant.core.persistence.common import Cursor, ObjectId, SortDirection, Where
 from parlant.core.persistence.document_database import (
     BaseDocument,
     DocumentDatabase,
@@ -39,6 +39,20 @@ class Customer:
     name: str
     extra: Mapping[str, str]
     tags: Sequence[TagId]
+
+
+@dataclass(frozen=True)
+class CustomerListing:
+    items: Sequence[Customer]
+    total_count: int
+    has_more: bool
+    next_cursor: Optional[Cursor] = None
+
+    def __iter__(self) -> Iterator[Customer]:
+        return iter(self.items)
+
+    def __len__(self) -> int:
+        return len(self.items)
 
 
 class CustomerUpdateParams(TypedDict, total=False):
@@ -81,7 +95,10 @@ class CustomerStore(ABC):
     async def list_customers(
         self,
         tags: Optional[Sequence[TagId]] = None,
-    ) -> Sequence[Customer]: ...
+        limit: Optional[int] = None,
+        cursor: Optional[Cursor] = None,
+        sort_direction: Optional[SortDirection] = None,
+    ) -> CustomerListing: ...
 
     @abstractmethod
     async def upsert_tag(
@@ -328,7 +345,10 @@ class CustomerDocumentStore(CustomerStore):
     async def list_customers(
         self,
         tags: Optional[Sequence[TagId]] = None,
-    ) -> Sequence[Customer]:
+        limit: Optional[int] = None,
+        cursor: Optional[Cursor] = None,
+        sort_direction: Optional[SortDirection] = None,
+    ) -> CustomerListing:
         filters: Where = {}
 
         async with self._lock.reader_lock:
@@ -351,14 +371,50 @@ class CustomerDocumentStore(CustomerStore):
                     customer_ids = {assoc["customer_id"] for assoc in tag_associations}
 
                     if not customer_ids:
-                        return [await self.read_customer(CustomerStore.GUEST_ID)]
+                        guest = await self.read_customer(CustomerStore.GUEST_ID)
+                        return CustomerListing(
+                            items=[guest],
+                            total_count=1,
+                            has_more=False,
+                            next_cursor=None,
+                        )
 
                     filters = {"$or": [{"id": {"$eq": id}} for id in customer_ids]}
 
-            return [await self.read_customer(CustomerStore.GUEST_ID)] + [
-                await self._deserialize_customer(c)
-                for c in await self._customers_collection.find(filters=filters)
-            ]
+            # Use the document collection's find method with pagination
+            result = await self._customers_collection.find(
+                filters=filters,
+                limit=limit - 1
+                if limit is not None and cursor is None
+                else None,  # Adjust limit for guest customer
+                cursor=cursor,
+                sort_direction=sort_direction,
+            )
+
+            # Convert documents to Customer objects
+            customers = [await self._deserialize_customer(doc) for doc in result.items]
+
+            # Handle guest customer and total count
+            if tags is None:
+                # Always include guest in total count
+                total_count = result.total_count + 1
+
+                if cursor is None:
+                    # First page: add guest customer at the beginning
+                    guest = await self.read_customer(CustomerStore.GUEST_ID)
+                    customers = [guest] + customers
+            else:
+                # Filtered by tags: no guest customer
+                total_count = result.total_count
+
+            has_more = result.has_more
+
+            return CustomerListing(
+                items=customers,
+                total_count=total_count,
+                has_more=has_more,
+                next_cursor=result.next_cursor,
+            )
 
     @override
     async def delete_customer(

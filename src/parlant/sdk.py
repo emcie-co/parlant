@@ -19,6 +19,7 @@ from collections import defaultdict
 from contextlib import AsyncExitStack
 import contextvars
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 import enum
 from hashlib import md5
 import importlib.util
@@ -416,12 +417,14 @@ class NLPServices:
 
 class _CachedGuidelineEvaluation(TypedDict, total=False):
     id: ObjectId
+    creation_utc: str
     version: Version.String
     properties: dict[str, JSONSerializable]
 
 
 class _CachedJourneyEvaluation(TypedDict, total=False):
     id: ObjectId
+    creation_utc: str
     version: Version.String
     node_properties: dict[JourneyStateId, dict[str, JSONSerializable]]
     edge_properties: dict[JourneyTransitionId, dict[str, JSONSerializable]]
@@ -615,6 +618,7 @@ class _CachedEvaluator:
             await self._guideline_collection.insert_one(
                 {
                     "id": ObjectId(_hash),
+                    "creation_utc": datetime.now(timezone.utc).isoformat(),
                     "version": Version.String(VERSION),
                     "properties": cast(InvoiceGuidelineData, invoice.data).properties_proposition
                     or {},
@@ -688,6 +692,7 @@ class _CachedEvaluator:
             await self._journey_collection.insert_one(
                 {
                     "id": ObjectId(_hash),
+                    "creation_utc": datetime.now(timezone.utc).isoformat(),
                     "version": Version.String(VERSION),
                     "node_properties": cast(
                         InvoiceJourneyData, invoice.data

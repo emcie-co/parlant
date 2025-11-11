@@ -8,6 +8,7 @@ from parlant.core.async_utils import Timeout
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.common import JSONSerializable
 from parlant.core.meter import Meter
+from parlant.core.persistence.common import Cursor, SortDirection
 from parlant.core.tracer import Tracer
 from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.emissions import EventEmitterFactory
@@ -29,6 +30,17 @@ from parlant.core.sessions import (
     SessionUpdateParams,
     StatusEventData,
 )
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class SessionListingModel:
+    """Paginated result model for sessions at the application layer"""
+
+    items: Sequence[Session]
+    total_count: int
+    has_more: bool
+    next_cursor: Cursor | None = None
 
 
 class Moderation(Enum):
@@ -125,13 +137,24 @@ class SessionModule:
         self,
         agent_id: AgentId | None,
         customer_id: CustomerId | None,
-    ) -> Sequence[Session]:
-        sessions = await self._session_store.list_sessions(
+        limit: int | None = None,
+        cursor: Cursor | None = None,
+        sort_direction: SortDirection | None = None,
+    ) -> SessionListingModel:
+        result = await self._session_store.list_sessions(
             agent_id=agent_id,
             customer_id=customer_id,
+            limit=limit,
+            cursor=cursor,
+            sort_direction=sort_direction,
         )
 
-        return sessions
+        return SessionListingModel(
+            items=result.items,
+            total_count=result.total_count,
+            has_more=result.has_more,
+            next_cursor=result.next_cursor,
+        )
 
     async def update(
         self,

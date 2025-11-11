@@ -98,7 +98,7 @@ class ServiceRegistry(ABC):
     ) -> None: ...
 
 
-class _ToolServiceDocument(TypedDict, total=False):
+class _ToolServiceDocument_v0_1_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     name: str
@@ -107,8 +107,18 @@ class _ToolServiceDocument(TypedDict, total=False):
     source: Optional[str]
 
 
+class _ToolServiceDocument(TypedDict, total=False):
+    id: ObjectId
+    creation_utc: str
+    version: Version.String
+    name: str
+    kind: ToolServiceKind
+    url: str
+    source: Optional[str]
+
+
 class ServiceDocumentRegistry(ServiceRegistry):
-    VERSION = Version.from_string("0.1.0")
+    VERSION = Version.from_string("0.2.0")
 
     def __init__(
         self,

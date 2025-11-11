@@ -1,57 +1,21 @@
-import base64
-import struct
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Mapping, Sequence
 
 from parlant.core.agents import AgentId, AgentStore
 from parlant.core.loggers import Logger
-from parlant.core.customers import CustomerId, CustomerStore, Customer, ListCustomersResult
-from parlant.core.persistence.common import ObjectId
-from parlant.core.persistence.document_database import Cursor, SortDirection
+from parlant.core.customers import CustomerId, CustomerStore, Customer, CustomerListing
+from parlant.core.persistence.common import Cursor, SortDirection
 from parlant.core.tags import Tag, TagId, TagStore
 
 
-def encode_cursor(cursor: Cursor) -> str:
-    """Encode a cursor to a compact base64 string for API responses"""
-    # Convert ISO string to microsecond timestamp for compactness
-    # Expected format: 2024-11-09T12:00:00.123456Z or 2024-11-09T12:00:00.123456+00:00
-    dt = datetime.fromisoformat(cursor["creation_utc"].replace("Z", "+00:00"))
-    timestamp_us = int(dt.timestamp() * 1_000_000)
+@dataclass(frozen=True)
+class CustomerListingModel:
+    """Paginated result model for customers at the application layer"""
 
-    # Convert cursor ID to bytes
-    cursor_id_str = str(cursor["id"])
-    cursor_id_bytes = cursor_id_str.encode("utf-8")
-
-    # Pack: 8 bytes timestamp (microseconds) + 1 byte string length + variable string
-    if len(cursor_id_bytes) > 255:
-        raise ValueError("Cursor ID too long for compact encoding")
-
-    packed_data = struct.pack(">QB", timestamp_us, len(cursor_id_bytes)) + cursor_id_bytes
-
-    return base64.b64encode(packed_data).decode("ascii")
-
-
-def decode_cursor(cursor_str: str) -> Cursor | None:
-    """Decode a base64 cursor string from API requests. Returns None if invalid."""
-    try:
-        # Decode base64
-        packed_data = base64.b64decode(cursor_str.encode())
-
-        # Unpack timestamp and string length
-        timestamp_us, id_length = struct.unpack(">QB", packed_data[:9])
-
-        # Extract ID string
-        cursor_id_bytes = packed_data[9 : 9 + id_length]
-        cursor_id = cursor_id_bytes.decode("utf-8")
-
-        # Convert timestamp back to ISO format
-        dt = datetime.fromtimestamp(timestamp_us / 1_000_000)
-        creation_utc = dt.isoformat() + "Z"
-
-        return Cursor(creation_utc=creation_utc, id=ObjectId(cursor_id))
-    except Exception:
-        return None
+    items: Sequence[Customer]
+    total_count: int
+    has_more: bool
+    next_cursor: Cursor | None = None
 
 
 @dataclass(frozen=True)
@@ -115,7 +79,7 @@ class CustomerModule:
         limit: int | None = None,
         cursor: Cursor | None = None,
         sort_direction: SortDirection | None = None,
-    ) -> ListCustomersResult:
+    ) -> CustomerListing:
         result = await self._customer_store.list_customers(
             limit=limit,
             cursor=cursor,

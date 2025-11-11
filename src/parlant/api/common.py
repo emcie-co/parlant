@@ -19,7 +19,7 @@ from typing import Annotated, Any, Mapping, Sequence, TypeAlias
 
 from parlant.core.common import DefaultBaseModel
 from parlant.core.evaluations import PayloadOperation
-from parlant.core.persistence.document_database import SortDirection
+from parlant.core.persistence.common import SortDirection
 from parlant.core.relationships import RelationshipId
 from parlant.core.guidelines import GuidelineId
 from parlant.core.tags import TagId

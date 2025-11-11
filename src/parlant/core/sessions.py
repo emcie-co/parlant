@@ -49,7 +49,7 @@ from parlant.core.persistence.common import (
     ObjectId,
     Where,
 )
-from parlant.core.persistence.document_database import (
+from parlant.core.persistence.common import (
     Cursor,
     SortDirection,
 )
@@ -290,7 +290,7 @@ class SessionUpdateParams(TypedDict, total=False):
 
 
 @dataclass(frozen=True)
-class ListSessionsResult:
+class SessionListing:
     items: Sequence[Session]
     total_count: int
     has_more: bool
@@ -342,7 +342,7 @@ class SessionStore(ABC):
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
         sort_direction: Optional[SortDirection] = None,
-    ) -> ListSessionsResult: ...
+    ) -> SessionListing: ...
 
     @abstractmethod
     async def set_metadata(
@@ -1032,7 +1032,7 @@ class SessionDocumentStore(SessionStore):
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
         sort_direction: Optional[SortDirection] = None,
-    ) -> ListSessionsResult:
+    ) -> SessionListing:
         async with self._lock.reader_lock:
             filters = {
                 **({"agent_id": {"$eq": agent_id}} if agent_id else {}),
@@ -1046,7 +1046,7 @@ class SessionDocumentStore(SessionStore):
                 sort_direction=sort_direction,
             )
 
-            return ListSessionsResult(
+            return SessionListing(
                 items=[self._deserialize_session(d) for d in result.items],
                 total_count=result.total_count,
                 has_more=result.has_more,

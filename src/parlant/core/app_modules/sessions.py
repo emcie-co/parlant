@@ -8,7 +8,7 @@ from parlant.core.async_utils import Timeout
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.common import JSONSerializable
 from parlant.core.meter import Meter
-from parlant.core.persistence.common import ObjectId
+from parlant.core.persistence.common import Cursor, SortDirection
 from parlant.core.tracer import Tracer
 from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.emissions import EventEmitterFactory
@@ -30,76 +30,17 @@ from parlant.core.sessions import (
     SessionUpdateParams,
     StatusEventData,
 )
-from parlant.core.persistence.document_database import (
-    Cursor,
-    SortDirection,
-)
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass(frozen=True)
-class PaginatedSessionsModel:
+class SessionListingModel:
     """Paginated result model for sessions at the application layer"""
 
     items: Sequence[Session]
     total_count: int
     has_more: bool
-    next_cursor: Optional[Cursor] = None
-
-
-def encode_cursor(cursor: Cursor) -> str:
-    """Encode a cursor to a compact base64 string for API responses"""
-    import base64
-    import struct
-
-    # Parse the ISO timestamp to get microseconds since epoch
-    dt = datetime.fromisoformat(cursor["creation_utc"].replace("Z", "+00:00"))
-    timestamp_us = int(dt.timestamp() * 1_000_000)
-
-    # Since ObjectId is just NewType("ObjectId", str), treat it as a string
-    cursor_id_str = str(cursor["id"])
-    cursor_id_bytes = cursor_id_str.encode("utf-8")
-
-    # Pack: 8 bytes for timestamp + length-prefixed string ID
-    # Use variable length encoding: 1 byte for length + ID bytes
-    if len(cursor_id_bytes) > 255:
-        raise ValueError("Cursor ID too long for compact encoding")
-
-    packed_data = struct.pack(">QB", timestamp_us, len(cursor_id_bytes)) + cursor_id_bytes
-
-    return base64.b64encode(packed_data).decode()
-
-
-def decode_cursor(cursor_str: str) -> Cursor | None:
-    """Decode a base64 cursor string from API requests. Returns None if invalid."""
-    import base64
-    import struct
-
-    try:
-        # Decode base64
-        packed_data = base64.b64decode(cursor_str.encode())
-
-        # Unpack: first 8 bytes = timestamp, next 1 byte = ID length, then ID bytes
-        if len(packed_data) < 9:  # Minimum: 8 bytes timestamp + 1 byte length
-            return None
-
-        timestamp_us, id_length = struct.unpack(">QB", packed_data[:9])
-
-        if len(packed_data) != 9 + id_length:
-            return None
-
-        cursor_id_bytes = packed_data[9 : 9 + id_length]
-        cursor_id_str = cursor_id_bytes.decode("utf-8")
-
-        # Convert back to ISO format (preserve +00:00 format)
-        dt = datetime.fromtimestamp(timestamp_us / 1_000_000, tz=timezone.utc)
-        creation_utc = dt.isoformat()
-
-        return Cursor(creation_utc=creation_utc, id=ObjectId(cursor_id_str))
-    except Exception:
-        # Invalid cursor, return None to start from beginning
-        return None
+    next_cursor: Cursor | None = None
 
 
 class Moderation(Enum):
@@ -199,7 +140,7 @@ class SessionModule:
         limit: int | None = None,
         cursor: Cursor | None = None,
         sort_direction: SortDirection | None = None,
-    ) -> PaginatedSessionsModel:
+    ) -> SessionListingModel:
         result = await self._session_store.list_sessions(
             agent_id=agent_id,
             customer_id=customer_id,
@@ -208,7 +149,7 @@ class SessionModule:
             sort_direction=sort_direction,
         )
 
-        return PaginatedSessionsModel(
+        return SessionListingModel(
             items=result.items,
             total_count=result.total_count,
             has_more=result.has_more,

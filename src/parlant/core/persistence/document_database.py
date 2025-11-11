@@ -15,7 +15,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from enum import Enum, auto
 from typing import (
     Awaitable,
     Callable,
@@ -28,7 +27,7 @@ from typing import (
     cast,
 )
 
-from parlant.core.persistence.common import ObjectId, Where
+from parlant.core.persistence.common import Cursor, ObjectId, SortDirection, Where
 from parlant.core.common import Version
 
 
@@ -41,22 +40,12 @@ class BaseDocument(TypedDict, total=False):
 TDocument = TypeVar("TDocument", bound=BaseDocument)
 
 
-class SortDirection(Enum):
-    ASC = auto()
-    DESC = auto()
-
-
-class Cursor(TypedDict, total=True):
-    creation_utc: str
-    id: ObjectId
-
-
 @dataclass(frozen=True)
 class FindResult(Generic[TDocument]):
     items: Sequence[TDocument]
     total_count: int
     has_more: bool
-    next_cursor: Optional[Cursor] = None
+    next_cursor: Cursor | None = None
 
     def __iter__(self) -> Iterator[TDocument]:
         """Allow iteration over the documents in the result."""

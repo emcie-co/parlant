@@ -26,11 +26,10 @@ from parlant.api.common import (
     example_json_content,
     sort_direction_dto_to_sort_direction,
 )
+from parlant.core.app_modules.common import decode_cursor, encode_cursor
 from parlant.core.app_modules.customers import (
     CustomerMetadataUpdateParams,
     CustomerTagUpdateParams,
-    encode_cursor,
-    decode_cursor,
 )
 from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel

@@ -29,7 +29,8 @@ from parlant.api.common import (
     sort_direction_dto_to_sort_direction,
 )
 from parlant.api.glossary import TermSynonymsField, TermIdPath, TermNameField, TermDescriptionField
-from parlant.core.app_modules.sessions import Moderation, encode_cursor, decode_cursor
+from parlant.core.app_modules.common import decode_cursor, encode_cursor
+from parlant.core.app_modules.sessions import Moderation
 from parlant.core.agents import AgentId
 from parlant.core.application import Application
 from parlant.core.async_utils import Timeout
@@ -218,7 +219,7 @@ class SessionDTO(
     metadata: SessionMetadataField
 
 
-class PaginatedSessionsDTO(DefaultBaseModel):
+class SessionListingDTO(DefaultBaseModel):
     """Paginated response for sessions"""
 
     items: Sequence[SessionDTO]
@@ -1431,11 +1432,11 @@ def create_router(
     @router.get(
         "",
         operation_id="list_sessions",
-        response_model=PaginatedSessionsDTO | Sequence[SessionDTO],
+        response_model=SessionListingDTO | Sequence[SessionDTO],
         responses={
             status.HTTP_200_OK: {
                 "description": (
-                    "If a cursor is provided, a paginated list of sessions will be returned. "
+                    "If a limit is provided, a paginated list of sessions will be returned. "
                     "Otherwise, the full list of sessions will be returned."
                 ),
                 "content": {
@@ -1462,7 +1463,7 @@ def create_router(
         limit: LimitQuery | None = None,
         cursor: CursorQuery | None = None,
         sort: SortQuery | None = None,
-    ) -> PaginatedSessionsDTO | Sequence[SessionDTO]:
+    ) -> SessionListingDTO | Sequence[SessionDTO]:
         """Lists all sessions matching the specified filters with pagination support.
 
         Can filter by agent_id and/or customer_id. Supports cursor-based pagination
@@ -1494,7 +1495,7 @@ def create_router(
                 for s in sessions_result.items
             ]
 
-        return PaginatedSessionsDTO(
+        return SessionListingDTO(
             items=[
                 SessionDTO(
                     id=s.id,

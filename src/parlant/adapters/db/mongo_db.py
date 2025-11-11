@@ -16,16 +16,14 @@ from typing import Any, Awaitable, Callable, Optional
 from bson import CodecOptions
 from typing_extensions import Self
 from parlant.core.loggers import Logger
-from parlant.core.persistence.common import Where, ObjectId
+from parlant.core.persistence.common import Cursor, SortDirection, Where, ObjectId
 from parlant.core.persistence.document_database import (
     BaseDocument,
     DeleteResult,
     DocumentCollection,
     DocumentDatabase,
-    Cursor,
     FindResult,
     InsertResult,
-    SortDirection,
     TDocument,
     UpdateResult,
 )
@@ -173,21 +171,21 @@ class MongoDocumentCollection(DocumentCollection[TDocument]):
         if cursor is not None:
             if sort_direction == SortDirection.DESC:
                 cursor_conditions = [
-                    {"creation_utc": {"$lt": cursor["creation_utc"]}},
+                    {"creation_utc": {"$lt": cursor.creation_utc}},
                     {
                         "$and": [
-                            {"creation_utc": cursor["creation_utc"]},
-                            {"_id": {"$lt": cursor["id"]}},
+                            {"creation_utc": cursor.creation_utc},
+                            {"_id": {"$lt": cursor.id}},
                         ]
                     },
                 ]
             else:
                 cursor_conditions = [
-                    {"creation_utc": {"$gt": cursor["creation_utc"]}},
+                    {"creation_utc": {"$gt": cursor.creation_utc}},
                     {
                         "$and": [
-                            {"creation_utc": cursor["creation_utc"]},
-                            {"_id": {"$gt": cursor["id"]}},
+                            {"creation_utc": cursor.creation_utc},
+                            {"_id": {"$gt": cursor.id}},
                         ]
                     },
                 ]

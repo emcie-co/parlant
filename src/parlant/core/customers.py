@@ -22,13 +22,11 @@ from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
 from parlant.core.tags import TagId
 from parlant.core.common import ItemNotFoundError, UniqueId, Version, IdGenerator, md5_checksum
-from parlant.core.persistence.common import ObjectId, Where
+from parlant.core.persistence.common import Cursor, ObjectId, SortDirection, Where
 from parlant.core.persistence.document_database import (
     BaseDocument,
     DocumentDatabase,
     DocumentCollection,
-    Cursor,
-    SortDirection,
 )
 
 CustomerId = NewType("CustomerId", str)
@@ -44,7 +42,7 @@ class Customer:
 
 
 @dataclass(frozen=True)
-class ListCustomersResult:
+class CustomerListing:
     items: Sequence[Customer]
     total_count: int
     has_more: bool
@@ -100,7 +98,7 @@ class CustomerStore(ABC):
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
         sort_direction: Optional[SortDirection] = None,
-    ) -> ListCustomersResult: ...
+    ) -> CustomerListing: ...
 
     @abstractmethod
     async def upsert_tag(
@@ -350,7 +348,7 @@ class CustomerDocumentStore(CustomerStore):
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
         sort_direction: Optional[SortDirection] = None,
-    ) -> ListCustomersResult:
+    ) -> CustomerListing:
         filters: Where = {}
 
         async with self._lock.reader_lock:
@@ -374,7 +372,7 @@ class CustomerDocumentStore(CustomerStore):
 
                     if not customer_ids:
                         guest = await self.read_customer(CustomerStore.GUEST_ID)
-                        return ListCustomersResult(
+                        return CustomerListing(
                             items=[guest],
                             total_count=1,
                             has_more=False,
@@ -411,7 +409,7 @@ class CustomerDocumentStore(CustomerStore):
 
             has_more = result.has_more
 
-            return ListCustomersResult(
+            return CustomerListing(
                 items=customers,
                 total_count=total_count,
                 has_more=has_more,

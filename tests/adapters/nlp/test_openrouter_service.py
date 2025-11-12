@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Generator
 import os
 from lagom import Container
 import pytest
@@ -42,7 +43,7 @@ class SchemaData(DefaultBaseModel):
 
 
 @pytest.fixture(autouse=True)
-def set_api_keys():
+def set_api_keys() -> Generator[None, None, None]:
     """Set API keys for tests that use container fixture."""
     # Container fixture initializes ServiceRegistry which requires OPENAI_API_KEY
     # OpenRouter tests also need OPENROUTER_API_KEY
@@ -148,7 +149,9 @@ def test_that_openrouter_gpt4o_mini_generator_initializes_correctly(container: C
 
 def test_that_openrouter_claude_generator_initializes_correctly(container: Container) -> None:
     """Test OpenRouterClaude35Sonnet initialization."""
-    generator = OpenRouterClaude35Sonnet[SchemaData](logger=container[Logger], meter=container[Meter])
+    generator = OpenRouterClaude35Sonnet[SchemaData](
+        logger=container[Logger], meter=container[Meter]
+    )
     assert generator.model_name == "anthropic/claude-3.5-sonnet"
     assert generator.max_tokens == 8192
 
@@ -161,7 +164,7 @@ def test_that_openrouter_llama_generator_initializes_correctly(container: Contai
 
 
 @patch("parlant.adapters.nlp.openrouter_service.AsyncClient")
-def test_that_openrouter_generator_sets_custom_headers(mock_client_class) -> None:
+def test_that_openrouter_generator_sets_custom_headers(mock_client_class: Mock) -> None:
     """Test that OpenRouter generator sets custom headers from environment."""
     with patch.dict(
         os.environ,
@@ -174,7 +177,7 @@ def test_that_openrouter_generator_sets_custom_headers(mock_client_class) -> Non
     ):
         mock_logger = Mock()
         mock_meter = Mock()
-        generator = OpenRouterSchematicGenerator[SchemaData](
+        _ = OpenRouterSchematicGenerator[SchemaData](
             model_name="openai/gpt-4o",
             logger=mock_logger,
             meter=mock_meter,
@@ -189,12 +192,12 @@ def test_that_openrouter_generator_sets_custom_headers(mock_client_class) -> Non
 
 
 @patch("parlant.adapters.nlp.openrouter_service.AsyncClient")
-def test_that_openrouter_generator_without_custom_headers(mock_client_class) -> None:
+def test_that_openrouter_generator_without_custom_headers(mock_client_class: Mock) -> None:
     """Test OpenRouter generator without custom headers."""
     with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}, clear=True):
         mock_logger = Mock()
         mock_meter = Mock()
-        generator = OpenRouterSchematicGenerator[SchemaData](
+        _ = OpenRouterSchematicGenerator[SchemaData](
             model_name="openai/gpt-4o",
             logger=mock_logger,
             meter=mock_meter,
@@ -207,7 +210,7 @@ def test_that_openrouter_generator_without_custom_headers(mock_client_class) -> 
 
 
 @patch("parlant.adapters.nlp.openrouter_service.AsyncClient")
-async def test_that_openrouter_generator_handles_json_mode_error(mock_client_class) -> None:
+async def test_that_openrouter_generator_handles_json_mode_error(mock_client_class: Mock) -> None:
     """Test that OpenRouter generator handles JSON mode errors gracefully."""
     mock_client = AsyncMock()
     mock_client_class.return_value = mock_client
@@ -216,7 +219,9 @@ async def test_that_openrouter_generator_handles_json_mode_error(mock_client_cla
     from openai import BadRequestError
 
     mock_client.chat.completions.create.side_effect = BadRequestError(
-        "Model does not support JSON mode", body={"error": {"message": "JSON mode error"}}, response=Mock()
+        "Model does not support JSON mode",
+        body={"error": {"message": "JSON mode error"}},
+        response=Mock(),
     )
 
     mock_logger = Mock()
@@ -246,9 +251,7 @@ async def test_that_openrouter_generator_handles_successful_response(
             index=0,
         )
     ]
-    mock_response.usage = CompletionUsage(
-        prompt_tokens=10, completion_tokens=20, total_tokens=30
-    )
+    mock_response.usage = CompletionUsage(prompt_tokens=10, completion_tokens=20, total_tokens=30)
 
     with patch("parlant.adapters.nlp.openrouter_service.AsyncClient") as mock_client_class:
         mock_client = AsyncMock()
@@ -378,10 +381,12 @@ def test_that_openrouter_service_sets_default_max_tokens_for_llama(container: Co
         assert generator.max_tokens == 8192
 
 
-@pytest.mark.skip(reason="Requires network access - embedder initialization may use JinaAIEmbedder fallback")
+@pytest.mark.skip(
+    reason="Requires network access - embedder initialization may use JinaAIEmbedder fallback"
+)
 def test_that_openrouter_service_returns_openrouter_embedder(container: Container) -> None:
     """Test OpenRouterService returns OpenRouter embedder.
-    
+
     Note: This test is skipped because the embedder initialization may require network access
     if the installed version uses a JinaAIEmbedder fallback.
     """
@@ -393,6 +398,7 @@ def test_that_openrouter_service_returns_openrouter_embedder(container: Containe
             OpenRouterEmbedder,
             OpenRouterTextEmbedding3Large,
         )
+
         # Should be either OpenRouterEmbedder or OpenRouterTextEmbedding3Large
         assert isinstance(embedder, (OpenRouterEmbedder, OpenRouterTextEmbedding3Large))
         assert embedder is not None
@@ -404,6 +410,7 @@ def test_that_openrouter_service_returns_no_moderation(container: Container) -> 
         service = OpenRouterService(logger=container[Logger], meter=container[Meter])
         moderation = asyncio.run(service.get_moderation_service())
         from parlant.core.nlp.moderation import NoModeration
+
         assert isinstance(moderation, NoModeration)
 
 
@@ -417,4 +424,3 @@ def test_that_openrouter_generator_supports_correct_parameters(container: Contai
 
     expected_params = ["temperature", "max_tokens"]
     assert generator.supported_openrouter_params == expected_params
-

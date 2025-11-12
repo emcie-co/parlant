@@ -193,7 +193,7 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
                 # Some other BadRequest error - just log it once and raise
                 self._logger.error(f"OpenRouter API BadRequest: {e}")
                 raise
-        except RateLimitError as e:
+        except RateLimitError:
             self._logger.error(
                 f"\nRate limit exceeded for model '{self.model_name}'.\n"
                 f"{RATE_LIMIT_ERROR_MESSAGE}\n"
@@ -240,23 +240,17 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
                     try:
                         json_content = jsonfinder.only_json(raw_content)[2]
                         if json_content and json_content != {}:
-                            self._logger.info(
-                                "Found valid JSON content within response."
-                            )
+                            self._logger.info("Found valid JSON content within response.")
                     except Exception:
                         self._logger.error(
                             f"Could not extract valid JSON from response: {raw_content}"
                         )
-            except json.JSONDecodeError as e:
-                self._logger.warning(
-                    f"Invalid JSON returned by {self.model_name}:\n{raw_content}"
-                )
+            except json.JSONDecodeError:
+                self._logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content}")
                 try:
                     # Try to extract JSON using jsonfinder
                     json_content = jsonfinder.only_json(raw_content)[2]
-                    self._logger.warning(
-                        "Found JSON content within model response; continuing..."
-                    )
+                    self._logger.warning("Found JSON content within model response; continuing...")
                 except Exception as finder_error:
                     self._logger.error(
                         f"\nCould not parse JSON from model response.\n"
@@ -326,9 +320,7 @@ class OpenRouterGPT4OMini(OpenRouterSchematicGenerator[T]):
 
 class OpenRouterClaude35Sonnet(OpenRouterSchematicGenerator[T]):
     def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(
-            model_name="anthropic/claude-3.5-sonnet", logger=logger, meter=meter
-        )
+        super().__init__(model_name="anthropic/claude-3.5-sonnet", logger=logger, meter=meter)
 
     @property
     @override
@@ -338,9 +330,7 @@ class OpenRouterClaude35Sonnet(OpenRouterSchematicGenerator[T]):
 
 class OpenRouterLlama33_70B(OpenRouterSchematicGenerator[T]):
     def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(
-            model_name="meta-llama/llama-3.3-70b-instruct", logger=logger, meter=meter
-        )
+        super().__init__(model_name="meta-llama/llama-3.3-70b-instruct", logger=logger, meter=meter)
 
     @property
     @override
@@ -436,9 +426,7 @@ class OpenRouterEmbedder(BaseEmbedder):
         texts: list[str],
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
-        filtered_hints = {
-            k: v for k, v in hints.items() if k in self.supported_arguments
-        }
+        filtered_hints = {k: v for k, v in hints.items() if k in self.supported_arguments}
         try:
             response = await self._client.embeddings.create(
                 model=self.model_name,
@@ -475,9 +463,7 @@ class OpenRouterEmbedder(BaseEmbedder):
 
 class OpenRouterTextEmbedding3Large(OpenRouterEmbedder):
     def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(
-            model_name="openai/text-embedding-3-large", logger=logger, meter=meter
-        )
+        super().__init__(model_name="openai/text-embedding-3-large", logger=logger, meter=meter)
 
     @property
     @override
@@ -512,9 +498,7 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
         self._meter = meter
         self._logger.info("Initialized OpenRouterService")
         # Get model_name from environment variable
-        self.model_name = os.environ.get(
-            "OPENROUTER_MODEL", "openai/gpt-4o"
-        )
+        self.model_name = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o")
         # Get embedder_model_name from environment variable
         self.embedder_model_name = os.environ.get(
             "OPENROUTER_EMBEDDER_MODEL", "openai/text-embedding-3-large"
@@ -541,13 +525,15 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
         Returns the specialized generator class for known models.
         For unknown models, creates a dynamic generator that works with any OpenRouter model.
         """
-        model_mapping: dict[
-            str, Callable[[Logger, Meter], OpenRouterSchematicGenerator[T]]
-        ] = {
+        model_mapping: dict[str, Callable[[Logger, Meter], OpenRouterSchematicGenerator[T]]] = {
             "openai/gpt-4o": lambda logger, meter: OpenRouterGPT4O[t](logger, meter),  # type: ignore
             "openai/gpt-4o-mini": lambda logger, meter: OpenRouterGPT4OMini[t](logger, meter),  # type: ignore
-            "anthropic/claude-3.5-sonnet": lambda logger, meter: OpenRouterClaude35Sonnet[t](logger, meter),  # type: ignore
-            "meta-llama/llama-3.3-70b-instruct": lambda logger, meter: OpenRouterLlama33_70B[t](logger, meter),  # type: ignore
+            "anthropic/claude-3.5-sonnet": lambda logger, meter: OpenRouterClaude35Sonnet[t](  # type: ignore
+                logger, meter
+            ),
+            "meta-llama/llama-3.3-70b-instruct": lambda logger, meter: OpenRouterLlama33_70B[t](  # type: ignore
+                logger, meter
+            ),
         }
 
         # Check if we have a predefined generator for this model
@@ -583,17 +569,13 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
                 return final_max_tokens
 
         # Return a factory function that creates the properly typed instance
-        def create_generator(
-            logger: Logger, meter: Meter
-        ) -> OpenRouterSchematicGenerator[T]:
+        def create_generator(logger: Logger, meter: Meter) -> OpenRouterSchematicGenerator[T]:
             return DynamicOpenRouterGenerator[t](logger, meter)  # type: ignore
 
         return create_generator
 
     @override
-    async def get_schematic_generator(
-        self, t: type[T]
-    ) -> OpenRouterSchematicGenerator[T]:
+    async def get_schematic_generator(self, t: type[T]) -> OpenRouterSchematicGenerator[T]:
         generator_factory = self._get_specialized_generator_class(self.model_name, t)
         return generator_factory(self._logger, self._meter)
 

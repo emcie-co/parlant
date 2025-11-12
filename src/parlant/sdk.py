@@ -414,6 +414,30 @@ class NLPServices:
 
         return FireworksService(container[Logger], container[Meter])
 
+    @staticmethod
+    def openrouter(
+        container: Container | None = None,
+    ) -> NLPService | Callable[[Container], NLPService]:
+        """
+        Returns a callable that creates an OpenRouter NLPService instance using the provided container.
+        If container is None, the callable expects the container to be provided later (by the Server).
+        All configuration is done via environment variables.
+        """
+        from parlant.adapters.nlp.openrouter_service import OpenRouterService
+
+        def factory(c: Container) -> NLPService:
+            if error := OpenRouterService.verify_environment():
+                raise SDKError(error)
+            return OpenRouterService(
+                c[Logger],
+                c[Meter],
+            )
+
+        if container is not None:
+            return factory(container)
+
+        return factory
+
 
 class _CachedGuidelineEvaluation(TypedDict, total=False):
     id: ObjectId

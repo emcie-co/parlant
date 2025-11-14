@@ -32,7 +32,7 @@ from parlant.core.nlp.embedding import (
     Embedder,
     EmbedderFactory,
     EmbeddingCacheProvider,
-    NullEmbedder,   
+    NullEmbedder,
 )
 from parlant.core.persistence.common import Where, ensure_is_total
 from parlant.core.persistence.vector_database import (
@@ -102,13 +102,21 @@ def _convert_where_to_qdrant_filter(where: Where) -> Optional[Filter]:
                         ]
                     )
                 elif operator == "$gt":
-                    field_conditions.append(FieldCondition(key=field_name, range=Range(gt=filter_value)))
+                    field_conditions.append(
+                        FieldCondition(key=field_name, range=Range(gt=filter_value))
+                    )
                 elif operator == "$gte":
-                    field_conditions.append(FieldCondition(key=field_name, range=Range(gte=filter_value)))
+                    field_conditions.append(
+                        FieldCondition(key=field_name, range=Range(gte=filter_value))
+                    )
                 elif operator == "$lt":
-                    field_conditions.append(FieldCondition(key=field_name, range=Range(lt=filter_value)))
+                    field_conditions.append(
+                        FieldCondition(key=field_name, range=Range(lt=filter_value))
+                    )
                 elif operator == "$lte":
-                    field_conditions.append(FieldCondition(key=field_name, range=Range(lte=filter_value)))
+                    field_conditions.append(
+                        FieldCondition(key=field_name, range=Range(lte=filter_value))
+                    )
                 elif operator == "$in":
                     field_conditions.append(
                         FieldCondition(key=field_name, match=MatchAny(any=list(filter_value)))
@@ -398,7 +406,9 @@ class QdrantDatabase(VectorDatabase):
         unembedded_docs_by_id = {
             cast(str, point.payload["id"]): point
             for point in unembedded_points
-            if point.payload is not None and "id" in point.payload and point.payload["id"] != "__version__"
+            if point.payload is not None
+            and "id" in point.payload
+            and point.payload["id"] != "__version__"
         }
 
         # Get all points from embedded collection
@@ -414,7 +424,9 @@ class QdrantDatabase(VectorDatabase):
         embedded_docs_by_id = {
             cast(str, point.payload["id"]): point
             for point in embedded_points
-            if point.payload is not None and "id" in point.payload and point.payload["id"] != "__version__"
+            if point.payload is not None
+            and "id" in point.payload
+            and point.payload["id"] != "__version__"
         }
 
         # Remove docs from embedded collection that no longer exist in unembedded
@@ -437,11 +449,11 @@ class QdrantDatabase(VectorDatabase):
                     self.qdrant_client.upsert(
                         collection_name=embedded_collection_name,
                         points=[
-                        models.PointStruct(
-                            id=embedded_point.id,  # Keep existing point ID
-                            vector=embeddings[0],
-                            payload=unembedded_doc,
-                        )
+                            models.PointStruct(
+                                id=embedded_point.id,  # Keep existing point ID
+                                vector=embeddings[0],
+                                payload=unembedded_doc,
+                            )
                         ],
                     )
                 unembedded_docs_by_id.pop(doc_id)
@@ -867,7 +879,11 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                     # Filter in memory
                     from parlant.core.persistence.common import matches_filters
 
-                    points = [p for p in all_points if p.payload is not None and matches_filters(filters, p.payload)]
+                    points = [
+                        p
+                        for p in all_points
+                        if p.payload is not None and matches_filters(filters, p.payload)
+                    ]
                 else:
                     points = []
 
@@ -905,7 +921,11 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                     # Filter in memory
                     from parlant.core.persistence.common import matches_filters
 
-                    points = [p for p in all_points if p.payload is not None and matches_filters(filters, p.payload)][:1]
+                    points = [
+                        p
+                        for p in all_points
+                        if p.payload is not None and matches_filters(filters, p.payload)
+                    ][:1]
                 else:
                     points = []
 

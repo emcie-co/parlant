@@ -745,7 +745,7 @@ for i in range(0, len(documents), batch_size):
 5. ✅ **Clean up unused collections**
 6. ✅ **Test migrations** in development first
 7. ✅ **Chunk large documents** for better search results
-8. ✅ **Add metadata** to documents for filtering
+8. ✅ **Add metadata** to documents for filtering 
 
 ---
 

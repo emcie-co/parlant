@@ -18,11 +18,11 @@ import hashlib
 import json
 import sys
 from pathlib import Path
-from typing import Awaitable, Callable, Generic, Optional, Sequence, cast
+from typing import Any, Awaitable, Callable, Generic, Optional, Sequence, cast
 from typing_extensions import override, Self
-from qdrant_client import QdrantClient
-from qdrant_client.http import models
-from qdrant_client.http.models import Filter, FieldCondition, Range, MatchValue, MatchAny
+from qdrant_client import QdrantClient  # type: ignore[import-untyped]
+from qdrant_client.http import models  # type: ignore[import-untyped]
+from qdrant_client.http.models import Filter, FieldCondition, Range, MatchValue, MatchAny  # type: ignore[import-untyped]
 
 
 from parlant.core.async_utils import ReaderWriterLock
@@ -66,9 +66,10 @@ def _convert_where_to_qdrant_filter(where: Where) -> Optional[Filter]:
     if "$and" in where:
         conditions = []
         for sub_filter in where["$and"]:
-            qdrant_filter = _convert_where_to_qdrant_filter(sub_filter)
-            if qdrant_filter:
-                conditions.append(qdrant_filter)
+            if isinstance(sub_filter, dict):
+                qdrant_filter = _convert_where_to_qdrant_filter(cast(Where, sub_filter))
+                if qdrant_filter:
+                    conditions.append(qdrant_filter)
         if conditions:
             return Filter(must=conditions)
         return None
@@ -76,9 +77,10 @@ def _convert_where_to_qdrant_filter(where: Where) -> Optional[Filter]:
     if "$or" in where:
         conditions = []
         for sub_filter in where["$or"]:
-            qdrant_filter = _convert_where_to_qdrant_filter(sub_filter)
-            if qdrant_filter:
-                conditions.append(qdrant_filter)
+            if isinstance(sub_filter, dict):
+                qdrant_filter = _convert_where_to_qdrant_filter(cast(Where, sub_filter))
+                if qdrant_filter:
+                    conditions.append(qdrant_filter)
         if conditions:
             return Filter(should=conditions)
         return None
@@ -97,23 +99,19 @@ def _convert_where_to_qdrant_filter(where: Where) -> Optional[Filter]:
                     conditions.append(
                         FieldCondition(key=field_name, match=MatchValue(value=filter_value))
                     )
-                    return Filter(must_not=[FieldCondition(key=field_name, match=MatchValue(value=filter_value))])
+                    return Filter(
+                        must_not=[
+                            FieldCondition(key=field_name, match=MatchValue(value=filter_value))
+                        ]
+                    )
                 elif operator == "$gt":
-                    conditions.append(
-                        FieldCondition(key=field_name, range=Range(gt=filter_value))
-                    )
+                    conditions.append(FieldCondition(key=field_name, range=Range(gt=filter_value)))
                 elif operator == "$gte":
-                    conditions.append(
-                        FieldCondition(key=field_name, range=Range(gte=filter_value))
-                    )
+                    conditions.append(FieldCondition(key=field_name, range=Range(gte=filter_value)))
                 elif operator == "$lt":
-                    conditions.append(
-                        FieldCondition(key=field_name, range=Range(lt=filter_value))
-                    )
+                    conditions.append(FieldCondition(key=field_name, range=Range(lt=filter_value)))
                 elif operator == "$lte":
-                    conditions.append(
-                        FieldCondition(key=field_name, range=Range(lte=filter_value))
-                    )
+                    conditions.append(FieldCondition(key=field_name, range=Range(lte=filter_value)))
                 elif operator == "$in":
                     conditions.append(
                         FieldCondition(key=field_name, match=MatchAny(any=list(filter_value)))
@@ -138,8 +136,8 @@ class QdrantDatabase(VectorDatabase):
         path: Optional[Path] = None,
         url: Optional[str] = None,
         api_key: Optional[str] = None,
-        embedder_factory: EmbedderFactory = None,
-        embedding_cache_provider: EmbeddingCacheProvider = None,
+        embedder_factory: Optional[EmbedderFactory] = None,
+        embedding_cache_provider: Optional[EmbeddingCacheProvider] = None,
     ) -> None:
         self._path = path
         self._url = url
@@ -164,6 +162,7 @@ class QdrantDatabase(VectorDatabase):
                 except RuntimeError as e:
                     if "already accessed" in str(e) and attempt < max_retries - 1:
                         import asyncio
+
                         # Exponential backoff: 0.05s, 0.1s, 0.15s, 0.2s, 0.25s
                         delay = 0.05 * (attempt + 1)
                         await asyncio.sleep(delay)
@@ -210,6 +209,7 @@ class QdrantDatabase(VectorDatabase):
                     # On Windows, file locks may take a moment to be released by the OS
                     # Even after close(), Windows may need a brief moment to release locks
                     import asyncio
+
                     await asyncio.sleep(0.05)  # Minimal delay for Windows file lock release
 
     def format_collection_name(
@@ -221,6 +221,7 @@ class QdrantDatabase(VectorDatabase):
 
     def _ensure_payload_index(self, collection_name: str, field_name: str) -> None:
         """Ensure a payload index exists for a field."""
+        assert self.qdrant_client is not None, "Qdrant client must be initialized"
         try:
             # Check if index exists
             collection_info = self.qdrant_client.get_collection(collection_name)
@@ -252,6 +253,8 @@ class QdrantDatabase(VectorDatabase):
         embedder_type: type[Embedder],
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> str:
+        assert self.qdrant_client is not None, "Qdrant client must be initialized"
+        assert self._embedder_factory is not None, "Embedder factory must be provided"
         failed_migrations: list[BaseDocument] = []
         embedder = self._embedder_factory.create_embedder(embedder_type)
 
@@ -278,7 +281,7 @@ class QdrantDatabase(VectorDatabase):
                                     models.PointStruct(
                                         id=point.id,
                                         vector=[],
-                                        payload=cast(dict, loaded_doc),
+                                        payload=cast(dict[str, Any], loaded_doc),
                                     )
                                 ],
                             )
@@ -314,7 +317,7 @@ class QdrantDatabase(VectorDatabase):
                             models.PointStruct(
                                 id=point_id,
                                 vector=[0],
-                                payload=cast(dict, failed_doc),
+                                payload=cast(dict[str, Any], failed_doc),
                             )
                         ],
                     )
@@ -324,12 +327,15 @@ class QdrantDatabase(VectorDatabase):
         embedded_version = await self._get_collection_version(embedded_collection_name)
 
         if indexing_required or unembedded_version != embedded_version:
-            await self._index_collection(embedded_collection_name, unembedded_collection_name, embedder)
+            await self._index_collection(
+                embedded_collection_name, unembedded_collection_name, embedder
+            )
 
         return embedded_collection_name
 
     async def _get_collection_version(self, collection_name: str) -> int:
         """Get version from a special version point in the collection."""
+        assert self.qdrant_client is not None, "Qdrant client must be initialized"
         version_point_id = _string_id_to_int("__version__")
         try:
             points = self.qdrant_client.retrieve(
@@ -345,6 +351,7 @@ class QdrantDatabase(VectorDatabase):
 
     async def _set_collection_version(self, collection_name: str, version: int) -> None:
         """Set version in a special version point in the collection."""
+        assert self.qdrant_client is not None, "Qdrant client must be initialized"
         version_point_id = _string_id_to_int("__version__")
 
         # Get collection info to determine vector size
@@ -372,6 +379,7 @@ class QdrantDatabase(VectorDatabase):
         unembedded_collection_name: str,
         embedder: Embedder,
     ) -> None:
+        assert self.qdrant_client is not None, "Qdrant client must be initialized"
         # Get all points from unembedded collection
         unembedded_points = self.qdrant_client.scroll(
             collection_name=unembedded_collection_name,
@@ -383,8 +391,8 @@ class QdrantDatabase(VectorDatabase):
         # Map by document ID (string) from payload, not point ID (integer)
         # Filter out version points and other special points
         unembedded_docs_by_id = {
-            point.payload["id"]: point 
-            for point in unembedded_points 
+            point.payload["id"]: point
+            for point in unembedded_points
             if "id" in point.payload and point.payload["id"] != "__version__"
         }
 
@@ -399,8 +407,8 @@ class QdrantDatabase(VectorDatabase):
         # Map by document ID (string) from payload, not point ID (integer)
         # Filter out version points and other special points
         embedded_docs_by_id = {
-            point.payload["id"]: point 
-            for point in embedded_points 
+            point.payload["id"]: point
+            for point in embedded_points
             if "id" in point.payload and point.payload["id"] != "__version__"
         }
 
@@ -417,11 +425,7 @@ class QdrantDatabase(VectorDatabase):
                 unembedded_doc = unembedded_point.payload
                 if embedded_point.payload.get("checksum") != unembedded_doc.get("checksum"):
                     embeddings = list(
-                        (
-                            await embedder.embed(
-                                [cast(str, unembedded_doc["content"])]
-                            )
-                        ).vectors
+                        (await embedder.embed([cast(str, unembedded_doc["content"])])).vectors
                     )
 
                     self.qdrant_client.upsert(
@@ -430,7 +434,7 @@ class QdrantDatabase(VectorDatabase):
                             models.PointStruct(
                                 id=embedded_point.id,  # Keep existing point ID
                                 vector=embeddings[0],
-                                payload=cast(dict, unembedded_doc),
+                                payload=cast(dict[str, Any], unembedded_doc),
                             )
                         ],
                     )
@@ -438,9 +442,7 @@ class QdrantDatabase(VectorDatabase):
 
         # Add new docs from unembedded to embedded collection
         for doc_id, doc in unembedded_docs_by_id.items():
-            embeddings = list(
-                (await embedder.embed([cast(str, doc["content"])])).vectors
-            )
+            embeddings = list((await embedder.embed([cast(str, doc["content"])])).vectors)
 
             # Convert string ID to integer for Qdrant
             point_id = _string_id_to_int(str(doc_id))
@@ -451,7 +453,7 @@ class QdrantDatabase(VectorDatabase):
                     models.PointStruct(
                         id=point_id,
                         vector=embeddings[0],
-                        payload=cast(dict, doc),
+                        payload=cast(dict[str, Any], doc),
                     )
                 ],
             )
@@ -468,6 +470,11 @@ class QdrantDatabase(VectorDatabase):
         schema: type[TDocument],
         embedder_type: type[Embedder],
     ) -> QdrantCollection[TDocument]:
+        assert self.qdrant_client is not None, "Qdrant client must be initialized"
+        assert self._embedder_factory is not None, "Embedder factory must be provided"
+        assert self._embedding_cache_provider is not None, (
+            "Embedding cache provider must be provided"
+        )
         if name in self._collections:
             raise ValueError(f'Collection "{name}" already exists.')
 
@@ -523,6 +530,11 @@ class QdrantDatabase(VectorDatabase):
         embedder_type: type[Embedder],
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> QdrantCollection[TDocument]:
+        assert self.qdrant_client is not None, "Qdrant client must be initialized"
+        assert self._embedder_factory is not None, "Embedder factory must be provided"
+        assert self._embedding_cache_provider is not None, (
+            "Embedding cache provider must be provided"
+        )
         if collection := self._collections.get(name):
             return cast(QdrantCollection[TDocument], collection)
 
@@ -584,6 +596,11 @@ class QdrantDatabase(VectorDatabase):
         embedder_type: type[Embedder],
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> QdrantCollection[TDocument]:
+        assert self.qdrant_client is not None, "Qdrant client must be initialized"
+        assert self._embedder_factory is not None, "Embedder factory must be provided"
+        assert self._embedding_cache_provider is not None, (
+            "Embedding cache provider must be provided"
+        )
         if collection := self._collections.get(name):
             return cast(QdrantCollection[TDocument], collection)
 
@@ -644,6 +661,7 @@ class QdrantDatabase(VectorDatabase):
         self,
         name: str,
     ) -> None:
+        assert self.qdrant_client is not None, "Qdrant client must be initialized"
         if name not in self._collections:
             raise ValueError(f'Collection "{name}" not found.')
 
@@ -662,6 +680,7 @@ class QdrantDatabase(VectorDatabase):
         key: str,
         value: JSONSerializable,
     ) -> None:
+        assert self.qdrant_client is not None, "Qdrant client must be initialized"
         metadata_collection_name = "metadata"
 
         # Check if metadata collection exists
@@ -695,7 +714,7 @@ class QdrantDatabase(VectorDatabase):
                     models.PointStruct(
                         id=points[0].id,
                         vector=[0],
-                        payload=cast(dict, document),
+                        payload=cast(dict[str, Any], document),
                     )
                 ],
             )
@@ -709,7 +728,7 @@ class QdrantDatabase(VectorDatabase):
                     models.PointStruct(
                         id=metadata_point_id,
                         vector=[0],
-                        payload=cast(dict, document),
+                        payload=cast(dict[str, Any], document),
                     )
                 ],
             )
@@ -719,6 +738,7 @@ class QdrantDatabase(VectorDatabase):
         self,
         key: str,
     ) -> None:
+        assert self.qdrant_client is not None, "Qdrant client must be initialized"
         metadata_collection_name = "metadata"
 
         collections = self.qdrant_client.get_collections().collections
@@ -742,7 +762,7 @@ class QdrantDatabase(VectorDatabase):
                         models.PointStruct(
                             id=points[0].id,
                             vector=[0],
-                            payload=cast(dict, document),
+                            payload=cast(dict[str, Any], document),
                         )
                     ],
                 )
@@ -755,6 +775,7 @@ class QdrantDatabase(VectorDatabase):
     async def read_metadata(
         self,
     ) -> dict[str, JSONSerializable]:
+        assert self.qdrant_client is not None, "Qdrant client must be initialized"
         metadata_collection_name = "metadata"
 
         collections = self.qdrant_client.get_collections().collections
@@ -800,7 +821,9 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
         self._unembedded_collection_name = unembedded_collection_name
         self.embedded_collection_name = embedded_collection_name
         self.qdrant_client = qdrant_client
-        self._database: Optional[QdrantDatabase] = None  # Reference to parent database for version methods
+        self._database: Optional[QdrantDatabase] = (
+            None  # Reference to parent database for version methods
+        )
 
     @override
     async def find(
@@ -809,7 +832,7 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
     ) -> Sequence[TDocument]:
         async with self._lock.reader_lock:
             # Ensure indexes exist for filtering
-            if filters:
+            if filters and self._database:
                 self._database._ensure_payload_index(self.embedded_collection_name, "id")
 
             qdrant_filter = _convert_where_to_qdrant_filter(filters)
@@ -833,6 +856,7 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                     )[0]
                     # Filter in memory
                     from parlant.core.persistence.common import matches_filters
+
                     points = [p for p in all_points if matches_filters(filters, p.payload)]
                 else:
                     points = []
@@ -846,7 +870,7 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
     ) -> Optional[TDocument]:
         async with self._lock.reader_lock:
             # Ensure indexes exist for filtering
-            if filters:
+            if filters and self._database:
                 self._database._ensure_payload_index(self.embedded_collection_name, "id")
 
             qdrant_filter = _convert_where_to_qdrant_filter(filters)
@@ -870,6 +894,7 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                     )[0]
                     # Filter in memory
                     from parlant.core.persistence.common import matches_filters
+
                     points = [p for p in all_points if matches_filters(filters, p.payload)][:1]
                 else:
                     points = []
@@ -912,7 +937,7 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                     models.PointStruct(
                         id=point_id,
                         vector=[0],
-                        payload=cast(dict, document),
+                        payload=cast(dict[str, Any], document),
                     )
                 ],
             )
@@ -924,15 +949,19 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                     models.PointStruct(
                         id=point_id,
                         vector=embeddings[0],
-                        payload=cast(dict, document),
+                        payload=cast(dict[str, Any], document),
                     )
                 ],
             )
 
             # Update version in both collections
             if self._database:
-                await self._database._set_collection_version(self._unembedded_collection_name, self._version)
-                await self._database._set_collection_version(self.embedded_collection_name, self._version)
+                await self._database._set_collection_version(
+                    self._unembedded_collection_name, self._version
+                )
+                await self._database._set_collection_version(
+                    self.embedded_collection_name, self._version
+                )
 
         return InsertResult(acknowledged=True)
 
@@ -956,7 +985,7 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
 
             if points:
                 point = points[0]
-                doc = cast(dict, point.payload)
+                doc = cast(dict[str, Any], point.payload)
 
                 if "content" in params:
                     content = params["content"]
@@ -987,7 +1016,7 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                         models.PointStruct(
                             id=point.id,  # point.id is already an integer
                             vector=[0],
-                            payload=cast(dict, updated_document),
+                            payload=cast(dict[str, Any], updated_document),
                         )
                     ],
                 )
@@ -999,15 +1028,19 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                         models.PointStruct(
                             id=point.id,  # point.id is already an integer
                             vector=embeddings[0],
-                            payload=cast(dict, updated_document),
+                            payload=cast(dict[str, Any], updated_document),
                         )
                     ],
                 )
 
                 # Update version in both collections
                 if self._database:
-                    await self._database._set_collection_version(self._unembedded_collection_name, self._version)
-                    await self._database._set_collection_version(self.embedded_collection_name, self._version)
+                    await self._database._set_collection_version(
+                        self._unembedded_collection_name, self._version
+                    )
+                    await self._database._set_collection_version(
+                        self.embedded_collection_name, self._version
+                    )
 
                 return UpdateResult(
                     acknowledged=True,
@@ -1044,7 +1077,7 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                         models.PointStruct(
                             id=point_id,
                             vector=[0],
-                            payload=cast(dict, params),
+                            payload=cast(dict[str, Any], params),
                         )
                     ],
                 )
@@ -1056,15 +1089,19 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                         models.PointStruct(
                             id=point_id,
                             vector=embeddings[0],
-                            payload=cast(dict, params),
+                            payload=cast(dict[str, Any], params),
                         )
                     ],
                 )
 
                 # Update version in both collections
                 if self._database:
-                    await self._database._set_collection_version(self._unembedded_collection_name, self._version)
-                    await self._database._set_collection_version(self.embedded_collection_name, self._version)
+                    await self._database._set_collection_version(
+                        self._unembedded_collection_name, self._version
+                    )
+                    await self._database._set_collection_version(
+                        self.embedded_collection_name, self._version
+                    )
 
                 return UpdateResult(
                     acknowledged=True,
@@ -1121,8 +1158,12 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
 
                 # Update version in both collections
                 if self._database:
-                    await self._database._set_collection_version(self._unembedded_collection_name, self._version)
-                    await self._database._set_collection_version(self.embedded_collection_name, self._version)
+                    await self._database._set_collection_version(
+                        self._unembedded_collection_name, self._version
+                    )
+                    await self._database._set_collection_version(
+                        self.embedded_collection_name, self._version
+                    )
 
                 return DeleteResult(
                     deleted_count=1,
@@ -1168,4 +1209,3 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                 )
                 for result in search_results
             ]
-

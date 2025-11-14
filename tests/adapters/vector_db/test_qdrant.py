@@ -364,9 +364,9 @@ async def test_that_glossary_qdrant_store_correctly_finds_relevant_terms_from_la
 
     with tempfile.TemporaryDirectory() as temp_dir:
         async with QdrantDatabase(
-            container[Logger],
-            Path(temp_dir),
-            EmbedderFactory(container),
+            logger=container[Logger],
+            path=Path(temp_dir),
+            embedder_factory=EmbedderFactory(container),
             embedding_cache_provider=NullEmbeddingCache,
         ) as qdrant_db:
             async with GlossaryVectorStore(
@@ -685,7 +685,7 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
             docs = await collection.find({})
 
             assert len(docs) == 1
-            assert any(d["id"] == term.id for d in docs)
+            assert any(str(d["id"]) == str(term.id) for d in docs)
 
 
 async def test_that_documents_are_migrated_and_reindexed_for_new_embedder_type(
@@ -845,4 +845,3 @@ async def test_that_in_filter_works_with_single_tag(
             assert len(terms) == 1
             assert terms[0].id == first_term.id
             assert terms[0].name == "Bazoo"
-

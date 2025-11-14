@@ -32,7 +32,7 @@ from parlant.core.nlp.embedding import (
     Embedder,
     EmbedderFactory,
     EmbeddingCacheProvider,
-    NullEmbedder,
+    NullEmbedder,   
 )
 from parlant.core.persistence.common import Where, ensure_is_total
 from parlant.core.persistence.vector_database import (
@@ -64,56 +64,53 @@ def _convert_where_to_qdrant_filter(where: Where) -> Optional[Filter]:
 
     # Handle logical operators
     if "$and" in where:
-        conditions = []
+        and_conditions: list[Filter] = []
         for sub_filter in where["$and"]:
             if isinstance(sub_filter, dict):
-                qdrant_filter = _convert_where_to_qdrant_filter(cast(Where, sub_filter))
+                qdrant_filter = _convert_where_to_qdrant_filter(sub_filter)
                 if qdrant_filter:
-                    conditions.append(qdrant_filter)
-        if conditions:
-            return Filter(must=conditions)
+                    and_conditions.append(qdrant_filter)
+        if and_conditions:
+            return Filter(must=and_conditions)
         return None
 
     if "$or" in where:
-        conditions = []
+        or_conditions: list[Filter] = []
         for sub_filter in where["$or"]:
             if isinstance(sub_filter, dict):
-                qdrant_filter = _convert_where_to_qdrant_filter(cast(Where, sub_filter))
+                qdrant_filter = _convert_where_to_qdrant_filter(sub_filter)
                 if qdrant_filter:
-                    conditions.append(qdrant_filter)
-        if conditions:
-            return Filter(should=conditions)
+                    or_conditions.append(qdrant_filter)
+        if or_conditions:
+            return Filter(should=or_conditions)
         return None
 
     # Handle field conditions
-    conditions = []
+    field_conditions: list[FieldCondition] = []
     for field_name, field_filter in where.items():
         if isinstance(field_filter, dict):
             for operator, filter_value in field_filter.items():
                 if operator == "$eq":
-                    conditions.append(
+                    field_conditions.append(
                         FieldCondition(key=field_name, match=MatchValue(value=filter_value))
                     )
                 elif operator == "$ne":
                     # Qdrant doesn't have $ne, so we use must_not
-                    conditions.append(
-                        FieldCondition(key=field_name, match=MatchValue(value=filter_value))
-                    )
                     return Filter(
                         must_not=[
                             FieldCondition(key=field_name, match=MatchValue(value=filter_value))
                         ]
                     )
                 elif operator == "$gt":
-                    conditions.append(FieldCondition(key=field_name, range=Range(gt=filter_value)))
+                    field_conditions.append(FieldCondition(key=field_name, range=Range(gt=filter_value)))
                 elif operator == "$gte":
-                    conditions.append(FieldCondition(key=field_name, range=Range(gte=filter_value)))
+                    field_conditions.append(FieldCondition(key=field_name, range=Range(gte=filter_value)))
                 elif operator == "$lt":
-                    conditions.append(FieldCondition(key=field_name, range=Range(lt=filter_value)))
+                    field_conditions.append(FieldCondition(key=field_name, range=Range(lt=filter_value)))
                 elif operator == "$lte":
-                    conditions.append(FieldCondition(key=field_name, range=Range(lte=filter_value)))
+                    field_conditions.append(FieldCondition(key=field_name, range=Range(lte=filter_value)))
                 elif operator == "$in":
-                    conditions.append(
+                    field_conditions.append(
                         FieldCondition(key=field_name, match=MatchAny(any=list(filter_value)))
                     )
                 elif operator == "$nin":
@@ -124,8 +121,8 @@ def _convert_where_to_qdrant_filter(where: Where) -> Optional[Filter]:
                         ]
                     )
 
-    if conditions:
-        return Filter(must=conditions)
+    if field_conditions:
+        return Filter(must=field_conditions)  # type: ignore[arg-type]
     return None
 
 
@@ -356,7 +353,15 @@ class QdrantDatabase(VectorDatabase):
 
         # Get collection info to determine vector size
         collection_info = self.qdrant_client.get_collection(collection_name)
-        vector_size = collection_info.config.params.vectors.size
+        vectors = collection_info.config.params.vectors
+        if vectors is None:
+            raise ValueError(f"Collection {collection_name} has no vector configuration")
+        if isinstance(vectors, dict):
+            # Multiple named vectors - use the first one
+            first_vector = next(iter(vectors.values()))
+            vector_size = first_vector.size
+        else:
+            vector_size = vectors.size
 
         # Create zero vector of correct size
         zero_vector = [0.0] * vector_size
@@ -391,9 +396,9 @@ class QdrantDatabase(VectorDatabase):
         # Map by document ID (string) from payload, not point ID (integer)
         # Filter out version points and other special points
         unembedded_docs_by_id = {
-            point.payload["id"]: point
+            cast(str, point.payload["id"]): point
             for point in unembedded_points
-            if "id" in point.payload and point.payload["id"] != "__version__"
+            if point.payload is not None and "id" in point.payload and point.payload["id"] != "__version__"
         }
 
         # Get all points from embedded collection
@@ -407,9 +412,9 @@ class QdrantDatabase(VectorDatabase):
         # Map by document ID (string) from payload, not point ID (integer)
         # Filter out version points and other special points
         embedded_docs_by_id = {
-            point.payload["id"]: point
+            cast(str, point.payload["id"]): point
             for point in embedded_points
-            if "id" in point.payload and point.payload["id"] != "__version__"
+            if point.payload is not None and "id" in point.payload and point.payload["id"] != "__version__"
         }
 
         # Remove docs from embedded collection that no longer exist in unembedded
@@ -423,26 +428,31 @@ class QdrantDatabase(VectorDatabase):
             else:
                 unembedded_point = unembedded_docs_by_id[doc_id]
                 unembedded_doc = unembedded_point.payload
-                if embedded_point.payload.get("checksum") != unembedded_doc.get("checksum"):
-                    embeddings = list(
-                        (await embedder.embed([cast(str, unembedded_doc["content"])])).vectors
-                    )
+                if unembedded_doc is not None and embedded_point.payload is not None:
+                    if embedded_point.payload.get("checksum") != unembedded_doc.get("checksum"):
+                        embeddings = list(
+                            (await embedder.embed([cast(str, unembedded_doc["content"])])).vectors
+                        )
 
                     self.qdrant_client.upsert(
                         collection_name=embedded_collection_name,
                         points=[
-                            models.PointStruct(
-                                id=embedded_point.id,  # Keep existing point ID
-                                vector=embeddings[0],
-                                payload=cast(dict[str, Any], unembedded_doc),
-                            )
+                        models.PointStruct(
+                            id=embedded_point.id,  # Keep existing point ID
+                            vector=embeddings[0],
+                            payload=unembedded_doc,
+                        )
                         ],
                     )
                 unembedded_docs_by_id.pop(doc_id)
 
         # Add new docs from unembedded to embedded collection
-        for doc_id, doc in unembedded_docs_by_id.items():
-            embeddings = list((await embedder.embed([cast(str, doc["content"])])).vectors)
+        for doc_id, unembedded_point in unembedded_docs_by_id.items():
+            doc = unembedded_point.payload
+            if doc is None:
+                continue
+            doc_dict = doc
+            embeddings = list((await embedder.embed([cast(str, doc_dict["content"])])).vectors)
 
             # Convert string ID to integer for Qdrant
             point_id = _string_id_to_int(str(doc_id))
@@ -453,7 +463,7 @@ class QdrantDatabase(VectorDatabase):
                     models.PointStruct(
                         id=point_id,
                         vector=embeddings[0],
-                        payload=cast(dict[str, Any], doc),
+                        payload=doc_dict,
                     )
                 ],
             )
@@ -518,9 +528,9 @@ class QdrantDatabase(VectorDatabase):
             version=1,
         )
         collection._database = self
-        self._collections[name] = collection
+        self._collections[name] = collection  # type: ignore[assignment]
 
-        return cast(QdrantCollection[TDocument], self._collections[name])
+        return collection  # type: ignore[return-value]
 
     @override
     async def get_collection(
@@ -583,8 +593,8 @@ class QdrantDatabase(VectorDatabase):
                 version=1,
             )
             collection._database = self
-            self._collections[name] = collection
-            return cast(QdrantCollection[TDocument], self._collections[name])
+            self._collections[name] = collection  # type: ignore[assignment]
+            return collection  # type: ignore[return-value]
 
         raise ValueError(f'Qdrant collection "{name}" not found.')
 
@@ -652,9 +662,9 @@ class QdrantDatabase(VectorDatabase):
             version=1,
         )
         collection._database = self
-        self._collections[name] = collection
+        self._collections[name] = collection  # type: ignore[assignment]
 
-        return cast(QdrantCollection[TDocument], self._collections[name])
+        return collection  # type: ignore[return-value]
 
     @override
     async def delete_collection(
@@ -857,7 +867,7 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                     # Filter in memory
                     from parlant.core.persistence.common import matches_filters
 
-                    points = [p for p in all_points if matches_filters(filters, p.payload)]
+                    points = [p for p in all_points if p.payload is not None and matches_filters(filters, p.payload)]
                 else:
                     points = []
 
@@ -895,7 +905,7 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                     # Filter in memory
                     from parlant.core.persistence.common import matches_filters
 
-                    points = [p for p in all_points if matches_filters(filters, p.payload)][:1]
+                    points = [p for p in all_points if p.payload is not None and matches_filters(filters, p.payload)][:1]
                 else:
                     points = []
 
@@ -1016,7 +1026,7 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                         models.PointStruct(
                             id=point.id,  # point.id is already an integer
                             vector=[0],
-                            payload=cast(dict[str, Any], updated_document),
+                            payload=updated_document,
                         )
                     ],
                 )
@@ -1028,7 +1038,7 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                         models.PointStruct(
                             id=point.id,  # point.id is already an integer
                             vector=embeddings[0],
-                            payload=cast(dict[str, Any], updated_document),
+                            payload=updated_document,
                         )
                     ],
                 )

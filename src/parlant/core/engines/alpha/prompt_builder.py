@@ -87,6 +87,15 @@ class PromptBuilder:
 
         self._cached_results.add(prompt)
 
+    @property
+    def props(self) -> dict[str, Any]:
+        return {
+            section_name
+            if isinstance(section_name, str)
+            else f"__{section_name.name}__": section.props
+            for section_name, section in self.sections.items()
+        }
+
     def build(self) -> str:
         buffer = StringIO()
 
@@ -587,7 +596,7 @@ These guidelines have already been pre-filtered based on the interaction's conte
         )
         return self
 
-    def add_guideliens_for_canrep_selection(
+    def add_guidelines_for_canrep_selection(
         self, guideline_matches: Sequence[GuidelineMatch]
     ) -> PromptBuilder:
         guideline_representations = {

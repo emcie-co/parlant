@@ -1503,7 +1503,7 @@ Pre-approved reply templates: ###
                 "formatted_canned_responses": formatted_canreps,
             },
         )
-        builder.add_guideliens_for_canrep_selection(
+        builder.add_guidelines_for_canrep_selection(
             list(chain(context.ordinary_guideline_matches, context.tool_enabled_guideline_matches))
         )
         builder.add_section(
@@ -2069,7 +2069,7 @@ Pre-approved reply templates: ###
             },
         )
 
-        builder.add_guideliens_for_canrep_selection(
+        builder.add_guidelines_for_canrep_selection(
             list(chain(context.ordinary_guideline_matches, context.tool_enabled_guideline_matches))
         )
 

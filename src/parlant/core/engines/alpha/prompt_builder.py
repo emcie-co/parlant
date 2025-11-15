@@ -88,7 +88,7 @@ class PromptBuilder:
         self._cached_results.add(prompt)
 
     @property
-    def props(self) -> dict[str, Any]:
+    def props(self) -> dict[str, dict[str, Any]]:
         return {
             section_name
             if isinstance(section_name, str)

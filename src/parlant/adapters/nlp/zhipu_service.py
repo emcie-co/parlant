@@ -502,7 +502,7 @@ class ZhipuModerationService(BaseModerationService):
         Returns:
             ModerationCheck object containing flagged status and tags
         """
-        with self._hist_moderation_request_duration.time():
+        async with self._hist_moderation_request_duration.measure():
             return await self._do_moderate(context)
 
     async def _do_moderate(self, context: CustomerModerationContext) -> ModerationCheck:

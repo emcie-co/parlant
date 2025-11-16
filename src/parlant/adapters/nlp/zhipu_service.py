@@ -220,7 +220,7 @@ class ZhipuSchematicGenerator(BaseSchematicGenerator[T]):
         t_end = time.time()
 
         # Log usage information if available
-        if hasattr(response, 'usage') and response.usage:
+        if hasattr(response, "usage") and response.usage:
             self.logger.trace(
                 f"Token usage - Input: {response.usage.prompt_tokens}, "
                 f"Output: {response.usage.completion_tokens}, "
@@ -427,10 +427,8 @@ class ZhipuEmbedder(BaseEmbedder):
             raise
 
         # Log usage information if available
-        if hasattr(response, 'usage') and response.usage:
-            self.logger.trace(
-                f"Token usage - Total: {response.usage.total_tokens}"
-            )
+        if hasattr(response, "usage") and response.usage:
+            self.logger.trace(f"Token usage - Total: {response.usage.total_tokens}")
 
         # Extract embeddings from response
         embeddings = [item.embedding for item in response.data]
@@ -514,6 +512,7 @@ class ZhipuModerationService(BaseModerationService):
         Returns:
             ModerationCheck object containing flagged status and tags
         """
+
         def extract_tags(category: str) -> list[ModerationTag]:
             """Map Zhipu AI moderation categories to ModerationTag values.
 
@@ -629,4 +628,6 @@ To obtain an API key:
         Returns:
             A ZhipuModerationService instance
         """
-        return ZhipuModerationService(model_name="moderation", logger=self._logger, meter=self._meter)
+        return ZhipuModerationService(
+            model_name="moderation", logger=self._logger, meter=self._meter
+        )

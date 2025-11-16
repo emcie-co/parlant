@@ -75,7 +75,9 @@ def test_that_zhipu_schematic_generator_initializes_correctly(
     mock_zhipuai_class.return_value = mock_client
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
-        generator: GLM_4_Plus[TestSchema] = GLM_4_Plus(logger=container[Logger], meter=container[Meter])
+        generator: GLM_4_Plus[TestSchema] = GLM_4_Plus(
+            logger=container[Logger], meter=container[Meter]
+        )
 
         assert generator.model_name == "glm-4-plus"
         assert generator.id == "zhipu/glm-4-plus"
@@ -93,7 +95,9 @@ def test_that_zhipu_schematic_generator_supports_correct_parameters(
     mock_zhipuai_class.return_value = mock_client
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
-        generator: GLM_4_Plus[TestSchema] = GLM_4_Plus(logger=container[Logger], meter=container[Meter])
+        generator: GLM_4_Plus[TestSchema] = GLM_4_Plus(
+            logger=container[Logger], meter=container[Meter]
+        )
 
         expected_params = ["temperature", "max_tokens", "top_p"]
         assert generator.supported_zhipu_params == expected_params
@@ -111,7 +115,9 @@ def test_that_glm_4_plus_initializes_correctly(
     mock_zhipuai_class.return_value = mock_client
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
-        generator: GLM_4_Plus[TestSchema] = GLM_4_Plus(logger=container[Logger], meter=container[Meter])
+        generator: GLM_4_Plus[TestSchema] = GLM_4_Plus(
+            logger=container[Logger], meter=container[Meter]
+        )
 
         assert generator.model_name == "glm-4-plus"
         assert generator.max_tokens == 128 * 1024
@@ -129,7 +135,9 @@ def test_that_glm_4_flash_initializes_correctly(
     mock_zhipuai_class.return_value = mock_client
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
-        generator: GLM_4_Flash[TestSchema] = GLM_4_Flash(logger=container[Logger], meter=container[Meter])
+        generator: GLM_4_Flash[TestSchema] = GLM_4_Flash(
+            logger=container[Logger], meter=container[Meter]
+        )
 
         assert generator.model_name == "glm-4-flash"
         assert generator.max_tokens == 128 * 1024
@@ -147,7 +155,9 @@ def test_that_glm_4_air_initializes_correctly(
     mock_zhipuai_class.return_value = mock_client
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
-        generator: GLM_4_Air[TestSchema] = GLM_4_Air(logger=container[Logger], meter=container[Meter])
+        generator: GLM_4_Air[TestSchema] = GLM_4_Air(
+            logger=container[Logger], meter=container[Meter]
+        )
 
         assert generator.model_name == "glm-4-air"
         assert generator.max_tokens == 128 * 1024

@@ -37,7 +37,7 @@ more-itertools = ">=10.3.0"
 nano-vectordb = "^0.0.4.3"
 nanoid = "^2.0.0"
 networkx = { extras = ["default"], version = "^3.3" }
-openai = "^1.45.0"
+openai = "^2.8.0"
 openapi3-parser = "1.1.21"
 opentelemetry-api = "^1.37.0"
 opentelemetry-exporter-otlp = "^1.37.0"

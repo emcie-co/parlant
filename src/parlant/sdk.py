@@ -438,6 +438,16 @@ class NLPServices:
 
         return factory
 
+    @staticmethod
+    def zhipu(container: Container) -> NLPService:
+        """Creates a Zhipu AI NLPService instance using the provided container."""
+        from parlant.adapters.nlp.zhipu_service import ZhipuService
+
+        if error := ZhipuService.verify_environment():
+            raise SDKError(error)
+
+        return ZhipuService(container[Logger], container[Meter])
+
 
 class _CachedGuidelineEvaluation(TypedDict, total=False):
     id: ObjectId

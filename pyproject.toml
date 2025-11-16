@@ -80,6 +80,7 @@ litellm = { version = "^1.61.16", optional = true }
 pymongo = { version = "^4.11.1", optional = true }
 fireworks-ai = { version = "^0.19.19", optional = true }
 mistralai = { version = "^1.0.0", optional = true }
+zhipuai = { version = "^2.0.0", optional = true }
 
 
 [tool.poetry.group.dev.dependencies]
@@ -135,8 +136,7 @@ fireworks = ["fireworks-ai"]
 
 mistral = ["mistralai"]
 
-
-
+zhipu = ["zhipuai"]
 
 [build-system]
 build-backend = "poetry.core.masonry.api"

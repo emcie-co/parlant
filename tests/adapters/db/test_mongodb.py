@@ -1001,3 +1001,147 @@ async def test_that_default_sort_direction_is_ascending(
         assert len(result.items) == 2
         assert result.items[0]["name"] == "first"  # Older document first (ascending)
         assert result.items[1]["name"] == "second"  # Newer document second
+
+
+async def test_that_creation_utc_index_is_created_for_new_collections(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that creation_utc field is automatically indexed when creating a new collection."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        collection = await dummy_db.create_collection(
+            name="test_new_collection",
+            schema=MongoTestDocument,
+        )
+
+        # Access the underlying PyMongo collection to check indexes
+        from parlant.adapters.db.mongo_db import MongoDocumentCollection
+
+        mongo_collection = cast(MongoDocumentCollection[MongoTestDocument], collection)
+
+        # Get index information
+        indexes = await mongo_collection._collection.index_information()
+
+        # Check that creation_utc index exists
+        creation_utc_index_found = False
+        for index_name, index_info in indexes.items():
+            if index_name != "_id_":  # Skip the default _id index
+                # Check if this index includes creation_utc field
+                index_keys = index_info.get("key", [])
+                for field_name, _ in index_keys:
+                    if field_name == "creation_utc":
+                        creation_utc_index_found = True
+                        break
+
+        assert creation_utc_index_found, "creation_utc index should be created for new collections"
+
+
+async def test_that_creation_utc_index_is_created_for_existing_collections(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that creation_utc field is automatically indexed when accessing existing collections."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    # First, create a collection directly with PyMongo (without our wrapper)
+    database = test_mongo_client[test_database_name]
+    raw_collection = database["test_existing_collection"]
+
+    # Insert a document to ensure the collection exists
+    await raw_collection.insert_one(
+        {
+            "id": "test_doc",
+            "creation_utc": "2023-01-01T00:00:00Z",
+            "version": "1.0.0",
+            "name": "test",
+        }
+    )
+
+    # Verify there's no creation_utc index initially
+    initial_indexes = await raw_collection.index_information()
+    creation_utc_index_exists_initially = any(
+        any(field_name == "creation_utc" for field_name, _ in index_info.get("key", []))
+        for index_name, index_info in initial_indexes.items()
+        if index_name != "_id_"
+    )
+    assert not creation_utc_index_exists_initially, "creation_utc index should not exist initially"
+
+    # Now access the collection through our wrapper
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        collection = await dummy_db.get_collection(
+            name="test_existing_collection",
+            schema=MongoTestDocument,
+            document_loader=identity_loader_for(MongoTestDocument),
+        )
+
+        # Access the underlying PyMongo collection to check indexes
+        from parlant.adapters.db.mongo_db import MongoDocumentCollection
+
+        mongo_collection = cast(MongoDocumentCollection[MongoTestDocument], collection)
+
+        # Get index information after our wrapper processed the collection
+        indexes = await mongo_collection._collection.index_information()
+
+        # Check that creation_utc index now exists
+        creation_utc_index_found = False
+        for index_name, index_info in indexes.items():
+            if index_name != "_id_":  # Skip the default _id index
+                # Check if this index includes creation_utc field
+                index_keys = index_info.get("key", [])
+                for field_name, _ in index_keys:
+                    if field_name == "creation_utc":
+                        creation_utc_index_found = True
+                        break
+
+        assert creation_utc_index_found, (
+            "creation_utc index should be created for existing collections"
+        )
+
+
+async def test_that_creation_utc_index_is_created_for_get_or_create_collections(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that creation_utc field is automatically indexed when using get_or_create_collection."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        collection = await dummy_db.get_or_create_collection(
+            name="test_get_or_create_collection",
+            schema=MongoTestDocument,
+            document_loader=identity_loader_for(MongoTestDocument),
+        )
+
+        # Access the underlying PyMongo collection to check indexes
+        from parlant.adapters.db.mongo_db import MongoDocumentCollection
+
+        mongo_collection = cast(MongoDocumentCollection[MongoTestDocument], collection)
+
+        # Get index information
+        indexes = await mongo_collection._collection.index_information()
+
+        # Check that creation_utc index exists
+        creation_utc_index_found = False
+        for index_name, index_info in indexes.items():
+            if index_name != "_id_":  # Skip the default _id index
+                # Check if this index includes creation_utc field
+                index_keys = index_info.get("key", [])
+                for field_name, _ in index_keys:
+                    if field_name == "creation_utc":
+                        creation_utc_index_found = True
+                        break
+
+        assert creation_utc_index_found, (
+            "creation_utc index should be created for get_or_create collections"
+        )

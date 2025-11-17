@@ -355,3 +355,70 @@ class Test_that_an_agent_with_null_policy_sends_only_message(SDKTest):
         message_data = agent_messages[0].model_dump().get("data", {})
         message_tags = message_data.get("tags", [])
         assert not any("preamble" in str(tag) for tag in message_tags)
+
+
+class Test_that_agent_can_create_guideline_with_custom_matcher(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Custom Matcher Agent",
+            description="Agent with custom guideline matcher",
+        )
+
+        self.matcher_was_called = False
+
+        async def custom_matcher(
+            ctx: p.GuidelineMatchingContext, guideline: p.Guideline
+        ) -> p.GuidelineMatch:
+            self.matcher_was_called = True
+
+            return p.GuidelineMatch(
+                guideline=guideline,
+                matched=True,
+                rationale="Custom matcher always matches",
+            )
+
+        self.guideline = await self.agent.create_guideline(
+            condition="",
+            action="Offer a banana",
+            matcher=custom_matcher,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        answer = await ctx.send_and_receive(
+            customer_message="Hello, sir.",
+            recipient=self.agent,
+        )
+
+        assert self.matcher_was_called
+        assert await nlp_test(answer, "It offers a banana")
+
+
+class Test_that_custom_matcher_can_return_no_match(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Dummy Agent",
+            description="Dummy agent",
+        )
+
+        async def never_match(
+            ctx: p.GuidelineMatchingContext, guideline: p.Guideline
+        ) -> p.GuidelineMatch:
+            return p.GuidelineMatch(
+                guideline=guideline,
+                matched=False,
+                rationale="Custom matcher never matches",
+            )
+
+        self.guideline = await self.agent.create_guideline(
+            condition="Customer greets you",
+            action="Offer a banana",
+            matcher=never_match,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        answer = await ctx.send_and_receive(
+            customer_message="Hello there!",
+            recipient=self.agent,
+        )
+
+        assert not await nlp_test(answer, "It mentions a banana")

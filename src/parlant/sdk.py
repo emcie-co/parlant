@@ -116,6 +116,18 @@ from parlant.core.engines.alpha.loaded_context import (
     InteractionMessage,
 )
 from parlant.core.engines.alpha.entity_context import EntityContext
+from parlant.core.engines.alpha.guideline_matching.guideline_match import (
+    GuidelineMatch as _GuidelineMatch,
+)
+from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
+    GuidelineMatchingContext,
+)
+from parlant.core.engines.alpha.guideline_matching.generic_guideline_matching_strategy_resolver import (
+    GenericGuidelineMatchingStrategyResolver,
+)
+from parlant.core.engines.alpha.guideline_matching.custom_guideline_matching_strategy import (
+    CustomGuidelineMatchingStrategy,
+)
 from parlant.core.glossary import GlossaryStore, GlossaryVectorStore, TermId
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
@@ -177,6 +189,7 @@ from parlant.core.evaluations import (
     PayloadKind,
 )
 from parlant.core.guidelines import (
+    Guideline as _Guideline,
     GuidelineContent,
     GuidelineDocumentStore,
     GuidelineId,
@@ -777,6 +790,20 @@ class Relationship:
     kind: RelationshipKind
     source: RelationshipEntityId
     target: RelationshipEntityId
+
+
+@dataclass(frozen=True)
+class GuidelineMatch:
+    """Result of a custom guideline matcher."""
+
+    guideline: "Guideline"
+    """The guideline that was evaluated."""
+
+    matched: bool
+    """Whether the guideline matched the current context."""
+
+    rationale: str
+    """Explanation of why the guideline matched or didn't match."""
 
 
 @dataclass(frozen=True)
@@ -1428,6 +1455,8 @@ class Journey:
         tools: Iterable[ToolEntry] = [],
         metadata: dict[str, JSONSerializable] = {},
         canned_responses: Sequence[CannedResponseId] = [],
+        matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
+        | None = None,
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
 
@@ -1454,11 +1483,12 @@ class Journey:
                     tag_id=tag_id,
                 )
 
-        self._server._add_guideline_evaluation(
-            guideline.id,
-            GuidelineContent(condition=condition, action=action),
-            tool_ids,
-        )
+        if matcher is None:
+            self._server._add_guideline_evaluation(
+                guideline.id,
+                GuidelineContent(condition=condition, action=action),
+                tool_ids,
+            )
 
         await self._container[RelationshipStore].create_relationship(
             source=RelationshipEntity(
@@ -1478,7 +1508,7 @@ class Journey:
                 tool_id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
             )
 
-        return Guideline(
+        result_guideline = Guideline(
             id=guideline.id,
             condition=condition,
             action=action,
@@ -1487,6 +1517,31 @@ class Journey:
             _server=self._server,
             _container=self._container,
         )
+
+        if matcher is not None:
+            # Create a shim that translates between SDK and core types
+            async def shim_matcher(
+                ctx: GuidelineMatchingContext, core_guideline: _Guideline
+            ) -> _GuidelineMatch:
+                result = await matcher(ctx, result_guideline)
+
+                return _GuidelineMatch(
+                    guideline=core_guideline,
+                    score=10 if result.matched else 1,
+                    rationale=result.rationale,
+                )
+
+            strategy = CustomGuidelineMatchingStrategy(
+                guideline=guideline,
+                matcher=shim_matcher,
+                logger=self._container[Logger],
+            )
+
+            self._container[GenericGuidelineMatchingStrategyResolver].guideline_overrides[
+                guideline.id
+            ] = strategy
+
+        return result_guideline
 
     async def create_observation(
         self,
@@ -1915,6 +1970,8 @@ class Agent:
         tools: Iterable[ToolEntry] = [],
         metadata: dict[str, JSONSerializable] = {},
         canned_responses: Sequence[CannedResponseId] = [],
+        matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
+        | None = None,
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
         self._server._advance_creation_progress()
@@ -1941,11 +1998,12 @@ class Agent:
                     tag_id=tag_id,
                 )
 
-        self._server._add_guideline_evaluation(
-            guideline.id,
-            GuidelineContent(condition=condition, action=action),
-            tool_ids,
-        )
+        if matcher is None:
+            self._server._add_guideline_evaluation(
+                guideline.id,
+                GuidelineContent(condition=condition, action=action),
+                tool_ids,
+            )
 
         for t in list(tools):
             await self._container[GuidelineToolAssociationStore].create_association(
@@ -1953,7 +2011,7 @@ class Agent:
                 tool_id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
             )
 
-        return Guideline(
+        result_guideline = Guideline(
             id=guideline.id,
             condition=condition,
             action=action,
@@ -1962,6 +2020,31 @@ class Agent:
             _server=self._server,
             _container=self._container,
         )
+
+        if matcher is not None:
+            # Create a shim that translates between SDK and core types
+            async def shim_matcher(
+                ctx: GuidelineMatchingContext, core_guideline: _Guideline
+            ) -> _GuidelineMatch:
+                result = await matcher(ctx, result_guideline)
+
+                return _GuidelineMatch(
+                    guideline=core_guideline,
+                    score=10 if result.matched else 1,
+                    rationale=result.rationale,
+                )
+
+            strategy = CustomGuidelineMatchingStrategy(
+                guideline=guideline,
+                matcher=shim_matcher,
+                logger=self._container[Logger],
+            )
+
+            self._container[GenericGuidelineMatchingStrategyResolver].guideline_overrides[
+                guideline.id
+            ] = strategy
+
+        return result_guideline
 
     async def create_observation(
         self,
@@ -2254,7 +2337,7 @@ class Server:
         initialize_container: A callable to perform additional initialization after the container is set up.
     """
 
-    _current_server_var: contextvars.ContextVar[Optional[Server]] = contextvars.ContextVar(
+    _current_server_var = contextvars.ContextVar[Optional["Server"]](
         "parlant_current_server", default=None
     )
 
@@ -3349,6 +3432,7 @@ __all__ = [
     "FallbackSchematicGenerator",
     "Guideline",
     "GuidelineId",
+    "GuidelineMatchingContext",
     "Interaction",
     "InteractionMessage",
     "JSONSerializable",

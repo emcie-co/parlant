@@ -92,6 +92,19 @@ class PerceivedPerformancePolicy(ABC):
         """
         ...
 
+    @abstractmethod
+    async def is_message_splitting_required(
+        self,
+        context: EngineContext | None = None,
+    ) -> bool:
+        """
+        Determines if messages should be split into multiple parts.
+
+        :param context: The loaded context containing session and interaction details.
+        :return: True if message splitting is required, False otherwise.
+        """
+        ...
+
 
 class BasicPerceivedPerformancePolicy(PerceivedPerformancePolicy):
     """A default implementation of the perceived performance policy that uses reasonable, randomized delays."""
@@ -151,6 +164,13 @@ class BasicPerceivedPerformancePolicy(PerceivedPerformancePolicy):
             return True
 
         return False
+
+    @override
+    async def is_message_splitting_required(
+        self,
+        context: EngineContext | None = None,
+    ) -> bool:
+        return True
 
     def _last_agent_message_is_preamble(self, context: EngineContext) -> bool:
         last_agent_message = next(
@@ -229,6 +249,13 @@ class NullPerceivedPerformancePolicy(PerceivedPerformancePolicy):
     ) -> bool:
         return False
 
+    @override
+    async def is_message_splitting_required(
+        self,
+        context: EngineContext | None = None,
+    ) -> bool:
+        return False
+
 
 class VoiceOptimizedPerceivedPerformancePolicy(NullPerceivedPerformancePolicy):
     @override
@@ -242,8 +269,8 @@ class VoiceOptimizedPerceivedPerformancePolicy(NullPerceivedPerformancePolicy):
 class PerceivedPerformancePolicyProvider:
     """Provides perceived performance policies on a per-agent basis."""
 
-    def __init__(self) -> None:
-        self._default_policy: PerceivedPerformancePolicy = BasicPerceivedPerformancePolicy()
+    def __init__(self, default_policy: PerceivedPerformancePolicy) -> None:
+        self._default_policy: PerceivedPerformancePolicy = default_policy
         self._agent_policies: dict[AgentId, PerceivedPerformancePolicy] = {}
 
     def get_policy(self, agent_id: AgentId) -> PerceivedPerformancePolicy:

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
+import time
 from typing import Any
 from parlant.core.capabilities import CapabilityStore
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
@@ -265,9 +267,6 @@ class Test_that_an_agent_with_basic_policy_sends_preamble_and_message(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        import asyncio
-        import time
-
         session = await ctx.client.sessions.create(
             agent_id=self.agent.id,
             allow_greeting=False,

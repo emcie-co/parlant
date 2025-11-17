@@ -837,7 +837,12 @@ You will now be given the current state of the interaction to which you must gen
             nonlocal is_first_message_emitted
             emitted_events: list[EmittedEvent] = []
             if generation_result is not None:
-                sub_messages = generation_result.message.strip().split("\n\n")
+                policy = self._perceived_performance_policy_provider.get_policy(context.agent.id)
+
+                if await policy.is_message_splitting_required(loaded_context):
+                    sub_messages = generation_result.message.strip().split("\n\n")
+                else:
+                    sub_messages = [generation_result.message.strip()]
 
                 while sub_messages:
                     m = sub_messages.pop(0)

@@ -80,7 +80,13 @@ RATE_LIMIT_ERROR_MESSAGE = (
 class OpenAIEstimatingTokenizer(EstimatingTokenizer):
     def __init__(self, model_name: str) -> None:
         self.model_name = model_name
-        self.encoding = tiktoken.encoding_for_model(model_name)
+
+        if "5.1" in model_name:
+            model_name_query = model_name.replace("5.1", "5")
+        else:
+            model_name_query = model_name
+
+        self.encoding = tiktoken.encoding_for_model(model_name_query)
 
     @override
     async def estimate_token_count(self, prompt: str) -> int:

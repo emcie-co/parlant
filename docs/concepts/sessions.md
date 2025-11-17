@@ -96,55 +96,6 @@ async def main():
 asyncio.run(main())
 ```
 
-### Persisting to Snowflake
-Install the optional dependency (`pip install "parlant[snowflake]"`) or add
-`snowflake-connector-python` to your environment, then provide the standard
-Snowflake credentials:
-
-```
-export SNOWFLAKE_ACCOUNT="<account>"
-export SNOWFLAKE_USER="<user>"
-export SNOWFLAKE_PASSWORD="<password>"  # or SNOWFLAKE_TOKEN for OAuth
-export SNOWFLAKE_WAREHOUSE="PARLANT_WH"
-export SNOWFLAKE_DATABASE="PARLANT_DB"
-export SNOWFLAKE_SCHEMA="PUBLIC"
-```
-
-Now Parlant can persist sessions, events, and inspections directly in Snowflake:
-
-```python
-import asyncio
-import parlant.sdk as p
-
-async def main():
-    async with p.Server(session_store="snowflake") as server:
-        # ...
-
-asyncio.run(main())
-```
-
-You can also provide a configuration dictionary for additional control, such as
-overriding the table prefix or supplying custom connection parameters:
-
-```python
-session_store = {
-    "type": "snowflake",
-    "table_prefix": "MYAPP_",
-    "connection_params": {
-        "account": "<account>",
-        "user": "<user>",
-        "password": "<password>",
-        "warehouse": "PARLANT_WH",
-        "database": "PARLANT_DB",
-        "schema": "PUBLIC",
-    },
-}
-```
-
-Advanced users may instead provide a `store_factory` (returning a `SessionStore`)
-or a `database_factory` (returning a `DocumentDatabase`) within this dictionary
-to plug in bespoke wiring.
-
 ## Event Driven Communication
 
 Think of a session in Parlant as a timeline of everything that's happened in a conversation.

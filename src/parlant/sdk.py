@@ -22,7 +22,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import enum
 from hashlib import md5
-import inspect
 import importlib.util
 from itertools import chain
 from pathlib import Path
@@ -42,7 +41,6 @@ from rich.text import Text
 from types import TracebackType
 from typing import (
     Any,
-    AsyncContextManager,
     Awaitable,
     Callable,
     Coroutine,
@@ -2246,11 +2244,8 @@ class Server:
         port: The port on which the server will run.
         tool_service_port: The port for the integrated tool service.
         nlp_service: A factory function to create an NLP service instance. See `NLPServiceFactories` for available options.
-        session_store: The session store to use for managing sessions. Accepts the built-in strings
-            ("transient", "local", "snowflake"), a MongoDB connection string, a config dict
-            (e.g. {"type": "snowflake", "connection_params": {...}}), or a callable that returns
-            a SessionStore instance.
-        customer_store: The customer store to use for managing customers (same options as session_store).
+        session_store: The session store to use for managing sessions.
+        customer_store: The customer store to use for managing customers.
         log_level: The logging level for the server.
         modules: A list of module names to load for the server.
         migrate: Whether to allow database migrations on startup (if needed).
@@ -2270,27 +2265,9 @@ class Server:
         port: int = 8800,
         tool_service_port: int = 8818,
         nlp_service: Callable[[Container], NLPService] = NLPServices.openai,
-        session_store: (
-            Literal["transient", "local", "snowflake"]
-            | str
-            | Mapping[str, Any]
-            | Callable[[Container], Awaitable[SessionStore] | SessionStore]
-            | SessionStore
-        ) = "transient",
-        customer_store: (
-            Literal["transient", "local", "snowflake"]
-            | str
-            | Mapping[str, Any]
-            | Callable[[Container], Awaitable[CustomerStore] | CustomerStore]
-            | CustomerStore
-        ) = "transient",
-        variable_store: (
-            Literal["transient", "local", "snowflake"]
-            | str
-            | Mapping[str, Any]
-            | Callable[[Container], Awaitable[ContextVariableStore] | ContextVariableStore]
-            | ContextVariableStore
-        ) = "transient",
+        session_store: Literal["transient", "local"] | str | SessionStore = "transient",
+        customer_store: Literal["transient", "local"] | str | CustomerStore = "transient",
+        variable_store: Literal["transient", "local"] | str | ContextVariableStore = "transient",
         log_level: LogLevel = LogLevel.INFO,
         modules: list[str] = [],
         migrate: bool = False,
@@ -3151,129 +3128,42 @@ class Server:
 
                 return db
 
-            async def make_persistable_store(t: type[T], spec: Any, name: str, **kwargs: Any) -> T:
-                async def _enter_store(instance: Any) -> T:
-                    resolved = await instance if asyncio.iscoroutine(instance) else instance
-                    resolved_cm = cast(AsyncContextManager[T], resolved)
-                    return await self._exit_stack.enter_async_context(resolved_cm)
+            async def make_persistable_store(t: type[T], spec: str, name: str, **kwargs: Any) -> T:
+                store: T
 
-                async def _build_store(database: DocumentDatabase) -> T:
-                    store_cm = cast(
-                        AsyncContextManager[T],
+                if spec in ["transient", "local"]:
+                    store = await self._exit_stack.enter_async_context(
                         t(
-                            database=database,
+                            database=await cast(
+                                dict[str, Callable[[], Awaitable[DocumentDatabase]]],
+                                {
+                                    "transient": make_transient_db,
+                                    "local": lambda: make_json_db(
+                                        PARLANT_HOME_DIR / f"{name}.json"
+                                    ),
+                                },
+                            )[spec](),
                             allow_migration=self._migrate,
                             **kwargs,
-                        ),  # type: ignore[call-arg]
+                        )  # type: ignore
                     )
-                    return await self._exit_stack.enter_async_context(store_cm)
 
-                def _call_factory(factory: Callable[..., Any]) -> Any:
-                    signature = inspect.signature(factory)
-                    if not signature.parameters:
-                        return factory()
-                    return factory(c())
-
-                async def make_snowflake_db(
-                    options: Mapping[str, Any],
-                    default_table_prefix: str,
-                ) -> DocumentDatabase:
-                    from parlant.adapters.db.snowflake_db import SnowflakeDocumentDatabase
-
-                    connection_params = options.get("connection_params")
-                    if connection_params is not None and not isinstance(connection_params, Mapping):
-                        raise SDKError("Snowflake connection_params must be a mapping")
-
-                    connection_factory = options.get("connection_factory")
-                    if connection_factory is not None and not callable(connection_factory):
-                        raise SDKError("Snowflake connection_factory must be callable")
-
-                    table_prefix = options.get("table_prefix") or f"{default_table_prefix}"
-
-                    snowflake_cm = cast(
-                        AsyncContextManager[SnowflakeDocumentDatabase],
-                        SnowflakeDocumentDatabase(
-                            logger=c()[Logger],
-                            connection_params=cast(Optional[Mapping[str, Any]], connection_params),
-                            table_prefix=cast(Optional[str], table_prefix),
-                            connection_factory=cast(
-                                Optional[Callable[[Mapping[str, Any]], Any]],
-                                connection_factory,
-                            ),
-                        ),
+                    return store
+                elif spec.startswith("mongodb://") or spec.startswith("mongodb+srv://"):
+                    store = await self._exit_stack.enter_async_context(
+                        t(
+                            database=await make_mongo_db(spec, name),
+                            allow_migration=self._migrate,
+                            **kwargs,
+                        )  # type: ignore
                     )
-                    return await self._exit_stack.enter_async_context(snowflake_cm)
 
-                async def build_database_for_type(
-                    spec_value: str, options: Mapping[str, Any]
-                ) -> DocumentDatabase:
-                    lowered = spec_value.lower()
-
-                    if lowered == "transient":
-                        return await make_transient_db()
-                    if lowered == "local":
-                        path_override = options.get("path")
-                        path = (
-                            Path(path_override)
-                            if path_override
-                            else PARLANT_HOME_DIR / f"{name}.json"
-                        )
-                        return await make_json_db(path)
-                    if lowered == "snowflake":
-                        return await make_snowflake_db(options, f"PARLANT_{name.upper()}_")
-                    if spec_value.startswith("mongodb://") or spec_value.startswith(
-                        "mongodb+srv://"
-                    ):
-                        return await make_mongo_db(spec_value, name)
-                    if lowered == "mongodb":
-                        uri = options.get("uri")
-                        if not isinstance(uri, str):
-                            raise SDKError("MongoDB configuration requires a 'uri' key")
-                        return await make_mongo_db(uri, name)
-
+                    return store
+                else:
                     raise SDKError(
-                        "Invalid session store specification. Expected 'transient', 'local', 'snowflake', "
-                        "a MongoDB connection string, or a configuration mapping."
+                        f"Invalid session store type: {self._session_store}. "
+                        "Expected 'transient', 'local', or a MongoDB connection string."
                     )
-
-                if isinstance(spec, Mapping):
-                    if "store_factory" in spec:
-                        store_candidate = _call_factory(
-                            cast(Callable[..., Any], spec["store_factory"])
-                        )
-                        return await _enter_store(store_candidate)
-
-                    if "database_factory" in spec:
-                        db_candidate = _call_factory(
-                            cast(Callable[..., Any], spec["database_factory"])
-                        )
-                        if asyncio.iscoroutine(db_candidate):
-                            db_candidate = await db_candidate
-                        database: DocumentDatabase = cast(DocumentDatabase, db_candidate)
-                        if hasattr(database, "__aenter__"):
-                            database_cm = cast(AsyncContextManager[DocumentDatabase], database)
-                            database = await self._exit_stack.enter_async_context(database_cm)
-                        return await _build_store(database)
-
-                    type_name = spec.get("type")
-                    if not isinstance(type_name, str):
-                        raise SDKError("Store configuration dictionaries must include a 'type' key")
-
-                    options = {k: v for k, v in spec.items() if k not in {"type"}}
-                    database = await build_database_for_type(type_name, options)
-                    return await _build_store(database)
-
-                if isinstance(spec, str):
-                    database = await build_database_for_type(spec, {})
-                    return await _build_store(database)
-
-                if callable(spec):
-                    store_candidate = _call_factory(spec)
-                    return await _enter_store(store_candidate)
-
-                raise SDKError(
-                    "Unsupported store specification. Provide a string, mapping, callable, or store instance."
-                )
 
             if isinstance(self._session_store, SessionStore):
                 c()[SessionStore] = self._session_store

@@ -33,7 +33,7 @@ from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.moderation import ModerationService, NoModeration
-from parlant.core.nlp.service import NLPService
+from parlant.core.nlp.service import EmbedderHints, ModelSize, NLPService, SchematicGeneratorHints
 from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
@@ -474,15 +474,25 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
         self.logger.info("Initialized GeminiService")
 
     @override
-    async def get_schematic_generator(self, t: type[T]) -> GeminiSchematicGenerator[T]:
-        return FallbackSchematicGenerator[t](  # type: ignore
-            Gemini_2_5_Flash[t](self.logger, self._meter),  # type: ignore
-            Gemini_2_5_Pro[t](self.logger, self._meter),  # type: ignore
-            logger=self.logger,
-        )
+    async def get_schematic_generator(
+        self, t: type[T], hints: SchematicGeneratorHints = {}
+    ) -> GeminiSchematicGenerator[T]:
+        match hints.get("model_size", ModelSize.AUTO):
+            case ModelSize.NANO:
+                return Gemini_2_5_Flash_Lite[t](self.logger, self._meter)  # type: ignore
+            case ModelSize.MINI:
+                return Gemini_2_5_Flash[t](self.logger, self._meter)  # type: ignore
+            case ModelSize.LARGE:
+                return Gemini_2_5_Pro[t](self.logger, self._meter)  # type: ignore
+            case _:
+                return FallbackSchematicGenerator[t](  # type: ignore
+                    Gemini_2_5_Flash[t](self.logger, self._meter),  # type: ignore
+                    Gemini_2_5_Pro[t](self.logger, self._meter),  # type: ignore
+                    logger=self.logger,
+                )
 
     @override
-    async def get_embedder(self) -> Embedder:
+    async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         return GeminiTextEmbedding_001(self.logger, self._meter)
 
     @override

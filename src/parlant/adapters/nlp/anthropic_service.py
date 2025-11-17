@@ -48,7 +48,7 @@ from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.loggers import Logger
 from parlant.core.nlp.moderation import ModerationService, NoModeration
 from parlant.core.nlp.policies import policy, retry
-from parlant.core.nlp.service import NLPService
+from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 
 
@@ -256,7 +256,9 @@ Please set ANTHROPIC_API_KEY in your environment before running Parlant.
         self._logger.info("Initialized AnthropicService")
 
     @override
-    async def get_schematic_generator(self, t: type[T]) -> AnthropicAISchematicGenerator[T]:
+    async def get_schematic_generator(
+        self, t: type[T], hints: SchematicGeneratorHints = {}
+    ) -> AnthropicAISchematicGenerator[T]:
         if (
             t == JourneyNodeSelectionSchema
             or t == DisambiguationGuidelineMatchesSchema
@@ -266,7 +268,7 @@ Please set ANTHROPIC_API_KEY in your environment before running Parlant.
         return Claude_Sonnet_4[t](self._logger, self._meter)  # type: ignore
 
     @override
-    async def get_embedder(self) -> Embedder:
+    async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         return JinaAIEmbedder(self._logger, self._meter)
 
     @override

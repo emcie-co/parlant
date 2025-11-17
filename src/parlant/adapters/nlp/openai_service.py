@@ -47,7 +47,7 @@ from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
-from parlant.core.nlp.service import NLPService
+from parlant.core.nlp.service import EmbedderHints, ModelSize, NLPService, SchematicGeneratorHints
 from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
@@ -318,6 +318,28 @@ class GPT_4o_Mini(OpenAISchematicGenerator[T]):
         return 128 * 1024
 
 
+class GPT_4_1_Mini(OpenAISchematicGenerator[T]):
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="gpt-4.1-mini", logger=logger, meter=meter)
+        self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 128 * 1024
+
+
+class GPT_4_1_Nano(OpenAISchematicGenerator[T]):
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="gpt-4.1-nano", logger=logger, meter=meter)
+        self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 128 * 1024
+
+
 class OpenAIEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
@@ -485,16 +507,26 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
         self._logger.info("Initialized OpenAIService")
 
     @override
-    async def get_schematic_generator(self, t: type[T]) -> OpenAISchematicGenerator[T]:
-        return {
-            SingleToolBatchSchema: GPT_4o[SingleToolBatchSchema],
-            JourneyNodeSelectionSchema: GPT_4_1[JourneyNodeSelectionSchema],
-            CannedResponseDraftSchema: GPT_4_1[CannedResponseDraftSchema],
-            CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
-        }.get(t, GPT_4o_24_08_06[t])(self._logger, self._meter)  # type: ignore
+    async def get_schematic_generator(
+        self, t: type[T], hints: SchematicGeneratorHints = {}
+    ) -> OpenAISchematicGenerator[T]:
+        match hints.get("model_size", ModelSize.AUTO):
+            case ModelSize.AUTO:
+                return {
+                    SingleToolBatchSchema: GPT_4o[SingleToolBatchSchema],
+                    JourneyNodeSelectionSchema: GPT_4_1[JourneyNodeSelectionSchema],
+                    CannedResponseDraftSchema: GPT_4_1[CannedResponseDraftSchema],
+                    CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
+                }.get(t, GPT_4o_24_08_06[t])(self._logger, self._meter)  # type: ignore
+            case ModelSize.NANO:
+                return GPT_4_1_Nano[t](self._logger, self._meter)  # type: ignore
+            case ModelSize.MINI:
+                return GPT_4_1_Mini[t](self._logger, self._meter)  # type: ignore
+            case _:
+                return GPT_4o_24_08_06[t](self._logger, self._meter)  # type: ignore
 
     @override
-    async def get_embedder(self) -> Embedder:
+    async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         return OpenAITextEmbedding3Large(self._logger, self._meter)
 
     @override

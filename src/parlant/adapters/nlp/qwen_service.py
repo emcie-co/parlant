@@ -39,7 +39,7 @@ from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
-from parlant.core.nlp.service import NLPService
+from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
 from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
@@ -352,13 +352,15 @@ Please set DASHSCOPE_API_KEY in your environment before running Parlant.
             return None
 
     @override
-    async def get_schematic_generator(self, t: type[T]) -> QwenSchematicGenerator[T]:
+    async def get_schematic_generator(
+        self, t: type[T], hints: SchematicGeneratorHints = {}
+    ) -> QwenSchematicGenerator[T]:
         qwen_generator = self._get_specialized_generator_class(self.model_name, t)
         assert qwen_generator is not None, f"Unsupported Qwen model: {self.model_name}"
         return qwen_generator(self._logger, self._meter)
 
     @override
-    async def get_embedder(self) -> Embedder:
+    async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         return QwenTextEmbedding_V4(logger=self._logger, meter=self._meter)
 
     @override

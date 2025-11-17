@@ -39,7 +39,7 @@ from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
-from parlant.core.nlp.service import NLPService
+from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
 from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
@@ -575,12 +575,14 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
         return create_generator
 
     @override
-    async def get_schematic_generator(self, t: type[T]) -> OpenRouterSchematicGenerator[T]:
+    async def get_schematic_generator(
+        self, t: type[T], hints: SchematicGeneratorHints = {}
+    ) -> OpenRouterSchematicGenerator[T]:
         generator_factory = self._get_specialized_generator_class(self.model_name, t)
         return generator_factory(self._logger, self._meter)
 
     @override
-    async def get_embedder(self) -> Embedder:
+    async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         # Use OpenRouter embedder with the configured embedder model name
         # Default to text-embedding-3-large if not specified
         if self.embedder_model_name == "openai/text-embedding-3-large":

@@ -13,18 +13,37 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
+from enum import IntEnum
+from typing_extensions import TypedDict, NotRequired
 
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import T, SchematicGenerator
 from parlant.core.nlp.moderation import ModerationService
 
 
+class ModelSize(IntEnum):
+    NANO = 0
+    MINI = 1
+    LARGE = 2
+    AUTO = 99
+
+
+class SchematicGeneratorHints(TypedDict, total=False):
+    model_size: NotRequired[ModelSize]
+
+
+class EmbedderHints(TypedDict, total=False):
+    model_size: NotRequired[ModelSize]
+
+
 class NLPService(ABC):
     @abstractmethod
-    async def get_schematic_generator(self, t: type[T]) -> SchematicGenerator[T]: ...
+    async def get_schematic_generator(
+        self, t: type[T], hints: SchematicGeneratorHints = {}
+    ) -> SchematicGenerator[T]: ...
 
     @abstractmethod
-    async def get_embedder(self) -> Embedder: ...
+    async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder: ...
 
     @abstractmethod
     async def get_moderation_service(self) -> ModerationService: ...

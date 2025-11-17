@@ -36,12 +36,13 @@ from typing import (
 from typing_extensions import Self
 
 from parlant.core.loggers import Logger
-from parlant.core.persistence.common import ObjectId, Where, ensure_is_total
+from parlant.core.persistence.common import Cursor, ObjectId, SortDirection, Where, ensure_is_total
 from parlant.core.persistence.document_database import (
     BaseDocument,
     DeleteResult,
     DocumentCollection,
     DocumentDatabase,
+    FindResult,
     InsertResult,
     TDocument,
     UpdateResult,
@@ -410,12 +411,65 @@ class SnowflakeDocumentCollection(DocumentCollection[TDocument]):
 
             self._loader_done = True
 
-    async def find(self, filters: Where) -> Sequence[TDocument]:
+    async def find(
+        self,
+        filters: Where,
+        limit: Optional[int] = None,
+        cursor: Optional[Cursor] = None,
+        sort_direction: Optional[SortDirection] = None,
+    ) -> FindResult[TDocument]:
         await self.ensure_table()
-        clause, params = _build_where_clause(filters, self.INDEXED_FIELDS)
-        sql = f"SELECT DATA FROM {self._table} {clause} ORDER BY CREATION_UTC"
-        rows = await self._database._execute(sql, params, fetch="all")
-        return [cast(TDocument, self._row_to_document(row)) for row in rows or []]
+
+        sort_direction = sort_direction or SortDirection.ASC
+
+        base_clause, base_params = _build_where_clause(filters, self.INDEXED_FIELDS)
+        params: dict[str, Any] = dict(base_params)
+
+        cursor_clause, cursor_params = _build_cursor_clause(cursor, sort_direction)
+        clause = base_clause
+        if cursor_clause:
+            clause = f"{clause} AND {cursor_clause}" if clause else f"WHERE {cursor_clause}"
+            params.update(cursor_params)
+
+        order_direction = "DESC" if sort_direction == SortDirection.DESC else "ASC"
+        order_by = f"ORDER BY CREATION_UTC {order_direction}, ID {order_direction}"
+
+        query_limit = (limit + 1) if limit else None
+        limit_sql = f" LIMIT {query_limit}" if query_limit else ""
+
+        sql = f"SELECT DATA FROM {self._table}"
+        if clause:
+            sql += f" {clause}"
+        sql += f" {order_by}{limit_sql}"
+
+        rows = await self._database._execute(sql, params or None, fetch="all")
+        documents = [cast(TDocument, self._row_to_document(row)) for row in rows or []]
+
+        total_count = len(documents)
+        has_more = False
+        next_cursor = None
+
+        if limit and len(documents) > limit:
+            has_more = True
+            documents = documents[:limit]
+
+            if documents:
+                last_doc = documents[-1]
+                creation_utc = last_doc.get("creation_utc")
+                identifier = last_doc.get("id")
+
+                if creation_utc is not None and identifier is not None:
+                    next_cursor = Cursor(
+                        creation_utc=str(creation_utc),
+                        id=ObjectId(str(identifier)),
+                    )
+
+        return FindResult(
+            items=documents,
+            total_count=total_count,
+            has_more=has_more,
+            next_cursor=next_cursor,
+        )
 
     async def find_one(self, filters: Where) -> Optional[TDocument]:
         await self.ensure_table()
@@ -569,6 +623,29 @@ def _build_where_clause(filters: Where, indexed_fields: set[str]) -> tuple[str, 
         return "", {}
 
     return f"WHERE {clause}", translator.params
+
+
+def _build_cursor_clause(
+    cursor: Cursor | None,
+    sort_direction: SortDirection,
+) -> tuple[str, Mapping[str, Any]]:
+    if cursor is None:
+        return "", {}
+
+    creation_operator = "<" if sort_direction == SortDirection.DESC else ">"
+    id_operator = "<" if sort_direction == SortDirection.DESC else ">"
+
+    clause = (
+        f"(CREATION_UTC {creation_operator} %(cursor_creation)s "
+        f"OR (CREATION_UTC = %(cursor_creation)s AND ID {id_operator} %(cursor_id)s))"
+    )
+
+    params = {
+        "cursor_creation": cursor.creation_utc,
+        "cursor_id": str(cursor.id),
+    }
+
+    return clause, params
 
 
 class _WhereTranslator:

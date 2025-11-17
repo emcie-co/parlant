@@ -48,7 +48,9 @@ from parlant.core.engines.alpha.message_event_composer import (
 )
 from parlant.core.engines.alpha.message_generator import MessageGenerator
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
-from parlant.core.engines.alpha.perceived_performance_policy import PerceivedPerformancePolicy
+from parlant.core.engines.alpha.perceived_performance_policy import (
+    PerceivedPerformancePolicyProvider,
+)
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.guidelines import GuidelineId
@@ -478,7 +480,7 @@ class CannedResponseGenerator(MessageEventComposer):
         follow_up_canned_response_generator: SchematicGenerator[
             FollowUpCannedResponseSelectionSchema
         ],
-        perceived_performance_policy: PerceivedPerformancePolicy,
+        perceived_performance_policy_provider: PerceivedPerformancePolicyProvider,
         canned_response_store: CannedResponseStore,
         field_extractor: CannedResponseFieldExtractor,
         message_generator: MessageGenerator,
@@ -497,7 +499,7 @@ class CannedResponseGenerator(MessageEventComposer):
         self._canrep_preamble_generator = canned_response_preamble_generator
         self._follow_up_canrep_generator = follow_up_canned_response_generator
         self._canned_response_store = canned_response_store
-        self._perceived_performance_policy = perceived_performance_policy
+        self._perceived_performance_policy_provider = perceived_performance_policy_provider
         self._field_extractor = field_extractor
         self._message_generator = message_generator
         self._cached_response_fields: dict[CannedResponseId, set[str]] = {}
@@ -882,7 +884,12 @@ You will now be given the current state of the interaction to which you must gen
                         return []
 
                     if next_message := sub_messages[0] if sub_messages else None:
-                        await self._perceived_performance_policy.get_follow_up_delay()
+                        policy = self._perceived_performance_policy_provider.get_policy(
+                            context.agent.id
+                        )
+
+                        await policy.get_follow_up_delay()
+
                         await context.event_emitter.emit_status_event(
                             trace_id=self._tracer.trace_id,
                             data={

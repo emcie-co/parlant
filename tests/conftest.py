@@ -70,6 +70,7 @@ from parlant.core.engines.alpha.optimization_policy import (
 from parlant.core.engines.alpha.perceived_performance_policy import (
     NullPerceivedPerformancePolicy,
     PerceivedPerformancePolicy,
+    PerceivedPerformancePolicyProvider,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.guideline_previously_applied_actionable_customer_dependent_batch import (
     GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchesSchema,
@@ -550,6 +551,9 @@ async def container(
         container[MessageGenerator] = Singleton(MessageGenerator)
         container[ToolEventGenerator] = Singleton(ToolEventGenerator)
         container[PerceivedPerformancePolicy] = Singleton(NullPerceivedPerformancePolicy)
+        container[PerceivedPerformancePolicyProvider] = Singleton(
+            PerceivedPerformancePolicyProvider
+        )
         container[OptimizationPolicy] = Singleton(BasicOptimizationPolicy)
 
         hooks = JournalingEngineHooks()

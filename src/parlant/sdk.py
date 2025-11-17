@@ -216,6 +216,7 @@ from parlant.core.engines.alpha.optimization_policy import (
 )
 from parlant.core.engines.alpha.perceived_performance_policy import (
     PerceivedPerformancePolicy,
+    PerceivedPerformancePolicyProvider,
     NullPerceivedPerformancePolicy,
     BasicPerceivedPerformancePolicy,
     VoiceOptimizedPerceivedPerformancePolicy,
@@ -2763,6 +2764,7 @@ class Server:
         max_engine_iterations: int | None = None,
         tags: Sequence[TagId] = [],
         id: str | None = None,
+        perceived_performance_policy: PerceivedPerformancePolicy | None = None,
     ) -> Agent:
         """Creates a new agent with the specified name, description, and composition mode.
 
@@ -2781,6 +2783,8 @@ class Server:
                 automatically generated based on the agent's properties. Custom IDs
                 can be any string format and are useful for maintaining consistent
                 agent identifiers across deployments or integrations.
+            perceived_performance_policy: Optional perceived performance policy for this agent.
+                If not specified, the agent will use the default policy (BasicPerceivedPerformancePolicy).
 
         Returns:
             The created Agent instance.
@@ -2795,6 +2799,11 @@ class Server:
             composition_mode=composition_mode.value,
             id=AgentId(id) if id is not None else None,
         )
+
+        if perceived_performance_policy is not None:
+            self._container[PerceivedPerformancePolicyProvider].set_policy(
+                agent.id, perceived_performance_policy
+            )
 
         return Agent(
             id=agent.id,
@@ -3368,6 +3377,7 @@ __all__ = [
     "Operation",
     "OptimizationPolicy",
     "PerceivedPerformancePolicy",
+    "PerceivedPerformancePolicyProvider",
     "PluginServer",
     "ProductionAuthorizationPolicy",
     "PromptBuilder",

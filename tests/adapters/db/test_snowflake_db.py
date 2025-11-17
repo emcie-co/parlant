@@ -28,8 +28,8 @@ from parlant.adapters.db.snowflake_db import (
 from parlant.core.agents import AgentId
 from parlant.core.common import Version
 from parlant.core.customers import CustomerId
-from parlant.core.persistence.common import ObjectId, Where
-from parlant.core.persistence.document_database import InsertResult
+from parlant.core.persistence.common import Cursor, ObjectId, SortDirection, Where
+from parlant.core.persistence.document_database import FindResult, InsertResult
 from parlant.core.sessions import _SessionDocument
 from tests.test_utilities import _TestLogger
 
@@ -152,14 +152,61 @@ async def test_find_uses_sql_filters(monkeypatch: pytest.MonkeyPatch) -> None:
     collection = SnowflakeDocumentCollection(db, "events", _SessionDocument, _TestLogger())
     collection._table_ready = True  # type: ignore[attr-defined]
 
-    monkeypatch.setattr(db, "_execute", AsyncMock(return_value=[{"DATA": {"id": "1"}}]))
+    execute_mock = AsyncMock(return_value=[{"DATA": {"id": "1"}}])
+    monkeypatch.setattr(db, "_execute", execute_mock)
 
-    documents = await collection.find({"session_id": {"$eq": "abc"}})
+    result = await collection.find({"session_id": {"$eq": "abc"}})
 
-    assert documents[0]["id"] == "1"
-    sql, params = db._execute.call_args[0][0], db._execute.call_args[0][1]  # type: ignore[attr-defined]
+    assert isinstance(result, FindResult)
+    assert result.items[0]["id"] == "1"
+    sql = execute_mock.call_args[0][0]
+    params = execute_mock.call_args[0][1]
     assert 'WHERE "SESSION_ID" =' in sql
+    assert "ORDER BY CREATION_UTC ASC, ID ASC" in sql
     assert params["param_0"] == "abc"
+
+
+@pytest.mark.asyncio
+async def test_find_paginates_and_sets_next_cursor(monkeypatch: pytest.MonkeyPatch) -> None:
+    db = _make_database()
+    collection = SnowflakeDocumentCollection(db, "events", _SessionDocument, _TestLogger())
+    collection._table_ready = True  # type: ignore[attr-defined]
+
+    rows = [
+        {"DATA": {"id": "1", "creation_utc": "2025-01-01"}},
+        {"DATA": {"id": "2", "creation_utc": "2025-01-02"}},
+    ]
+    execute_mock = AsyncMock(return_value=rows)
+    monkeypatch.setattr(db, "_execute", execute_mock)
+
+    result = await collection.find({}, limit=1)
+
+    assert len(result.items) == 1
+    assert result.has_more is True
+    assert result.next_cursor == Cursor(creation_utc="2025-01-01", id=ObjectId("1"))
+    assert result.total_count == 2
+    sql = execute_mock.call_args[0][0]
+    assert "LIMIT 2" in sql
+
+
+@pytest.mark.asyncio
+async def test_find_adds_cursor_clause(monkeypatch: pytest.MonkeyPatch) -> None:
+    db = _make_database()
+    collection = SnowflakeDocumentCollection(db, "events", _SessionDocument, _TestLogger())
+    collection._table_ready = True  # type: ignore[attr-defined]
+
+    execute_mock = AsyncMock(return_value=[])
+    monkeypatch.setattr(db, "_execute", execute_mock)
+
+    cursor = Cursor(creation_utc="2025-01-03", id=ObjectId("abc"))
+    await collection.find({}, cursor=cursor, sort_direction=SortDirection.DESC)
+
+    sql = execute_mock.call_args[0][0]
+    params = execute_mock.call_args[0][1]
+    assert "ORDER BY CREATION_UTC DESC, ID DESC" in sql
+    assert "CREATION_UTC <" in sql
+    assert params["cursor_creation"] == "2025-01-03"
+    assert params["cursor_id"] == "abc"
 
 
 @pytest.mark.asyncio

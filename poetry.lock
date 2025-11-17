@@ -6715,7 +6715,7 @@ description = "JSON Web Token implementation in Python"
 optional = true
 python-versions = ">=3.7"
 groups = ["main"]
-markers = "extra == \"azure\" or extra == \"zhipu\""
+markers = "extra == \"azure\" or extra == \"zhipu\" or extra == \"snowflake\""
 files = [
     {file = "PyJWT-2.8.0-py3-none-any.whl", hash = "sha256:59127c392cc44c2da5bb3192169a91f429924e17aff6534d70fdc02ab3e04320"},
     {file = "PyJWT-2.8.0.tar.gz", hash = "sha256:57e28d156e3d5c10088e0c68abb90bfac3df82b40a71bd0daa20c65ccd5c23de"},
@@ -9395,4 +9395,4 @@ zhipu = ["zhipuai"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "bf80f6c91aa3a1814b258dc6dfca27e210b256ac3a937e1780b12a18c002cd60"
+content-hash = "9eb3cb1edf738fb853e50d90d33caf4fc2b00d4320b6c0078b06937261533e04"

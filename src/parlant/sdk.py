@@ -2312,6 +2312,11 @@ class Server:
         self._creation_progress_k = 0
         self._creation_progress_task_id: TaskID
 
+    @property
+    def container(self) -> Container:
+        """Returns the dependency injection container."""
+        return self._container
+
     def _advance_creation_progress(self) -> None:
         if self._creation_progress is None:
             return

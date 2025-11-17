@@ -272,7 +272,7 @@ class GuidelineMatcher:
 
         return GuidelineMatchingResult(
             total_duration=t_end - t_start,
-            batch_count=len(batches[0]),
+            batch_count=sum(map(len, batches)),
             batch_generations=[result.generation_info for result in batch_results],
             batches=result_batches,
             matches=matches,

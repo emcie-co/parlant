@@ -85,6 +85,7 @@ from parlant.core.agents import (
 from parlant.core.async_utils import Timeout, default_done_callback
 from parlant.core.capabilities import CapabilityId, CapabilityStore, CapabilityVectorStore
 from parlant.core.common import (
+    DefaultBaseModel,
     IdGenerator,
     ItemNotFoundError,
     JSONSerializable,
@@ -3312,6 +3313,7 @@ __all__ = [
     "CustomerId",
     "CustomerModerationContext",
     "CustomerStore",
+    "DefaultBaseModel",
     "DevelopmentAuthorizationPolicy",
     "END_JOURNEY",
     "Variable",

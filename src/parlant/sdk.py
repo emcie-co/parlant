@@ -796,9 +796,6 @@ class Relationship:
 class GuidelineMatch:
     """Result of a custom guideline matcher."""
 
-    guideline: "Guideline"
-    """The guideline that was evaluated."""
-
     matched: bool
     """Whether the guideline matched the current context."""
 
@@ -848,7 +845,6 @@ class GuidelineMatchingContext:
 
 async def _match_always(ctx: GuidelineMatchingContext, g: Guideline) -> GuidelineMatch:
     return GuidelineMatch(
-        guideline=g,
         matched=True,
         rationale="Always relevant",
     )

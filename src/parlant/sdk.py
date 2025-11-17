@@ -190,7 +190,13 @@ from parlant.core.journeys import (
     JourneyVectorStore,
 )
 from parlant.core.loggers import LogLevel, Logger
-from parlant.core.nlp.service import NLPService
+from parlant.core.nlp.service import (
+    EmbedderHints,
+    ModelSize,
+    NLPService,
+    SchematicGeneratorHints,
+)
+
 from parlant.core.nlp.moderation import (
     CustomerModerationContext,
     ModerationCheck,
@@ -3314,13 +3320,12 @@ __all__ = [
     "CustomerModerationContext",
     "CustomerStore",
     "DefaultBaseModel",
+    "DeferredRetriever",
     "DevelopmentAuthorizationPolicy",
     "END_JOURNEY",
-    "Variable",
-    "ContextVariableId",
-    "ControlOptions",
     "Embedder",
     "EmbedderFactory",
+    "EmbedderHints",
     "EmbeddingResult",
     "EmittedEvent",
     "EngineContext",
@@ -3347,6 +3352,7 @@ __all__ = [
     "LogLevel",
     "Logger",
     "MessageEventData",
+    "ModelSize",
     "ModerationCheck",
     "ModerationService",
     "ModerationTag",
@@ -3370,11 +3376,11 @@ __all__ = [
     "RelationshipId",
     "RelationshipKind",
     "RetrieverContext",
-    "DeferredRetriever",
     "RetrieverFunction",
     "RetrieverResult",
     "SchematicGenerationResult",
     "SchematicGenerator",
+    "SchematicGeneratorHints",
     "Server",
     "ServiceRegistry",
     "Session",
@@ -3399,6 +3405,7 @@ __all__ = [
     "ToolParameterType",
     "ToolResult",
     "Tracer",
+    "Variable",
     "Variable",
     "VoiceOptimizedPerceivedPerformancePolicy",
     "tool",

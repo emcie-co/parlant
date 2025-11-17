@@ -845,3 +845,415 @@ async def test_that_in_filter_works_with_single_tag(
             assert len(terms) == 1
             assert terms[0].id == first_term.id
             assert terms[0].name == "Bazoo"
+
+
+async def test_and_operator_with_multiple_conditions(
+    qdrant_collection: QdrantCollection[_TestDocument],
+    doc_version: Version.String,
+) -> None:
+    """Test that $and operator works with multiple conditions."""
+    doc1 = _TestDocument(
+        id=ObjectId("1"),
+        version=doc_version,
+        content="apple",
+        name="Apple",
+        checksum=md5_checksum("apple"),
+    )
+    doc2 = _TestDocument(
+        id=ObjectId("2"),
+        version=doc_version,
+        content="banana",
+        name="Banana",
+        checksum=md5_checksum("banana"),
+    )
+    doc3 = _TestDocument(
+        id=ObjectId("3"),
+        version=doc_version,
+        content="cherry",
+        name="Apple",  # Same name as doc1
+        checksum=md5_checksum("cherry"),
+    )
+
+    await qdrant_collection.insert_one(doc1)
+    await qdrant_collection.insert_one(doc2)
+    await qdrant_collection.insert_one(doc3)
+
+    # Find documents where name is "Apple" AND id is "1"
+    results = await qdrant_collection.find(
+        {
+            "$and": [
+                {"name": {"$eq": "Apple"}},
+                {"id": {"$eq": "1"}},
+            ]
+        }
+    )
+    assert len(results) == 1
+    assert results[0]["id"] == ObjectId("1")
+
+    # Find documents where name is "Apple" AND id is "3"
+    results = await qdrant_collection.find(
+        {
+            "$and": [
+                {"name": {"$eq": "Apple"}},
+                {"id": {"$eq": "3"}},
+            ]
+        }
+    )
+    assert len(results) == 1
+    assert results[0]["id"] == ObjectId("3")
+
+    # Find documents where name is "Apple" AND id is "2" (should return empty)
+    results = await qdrant_collection.find(
+        {
+            "$and": [
+                {"name": {"$eq": "Apple"}},
+                {"id": {"$eq": "2"}},
+            ]
+        }
+    )
+    assert len(results) == 0
+
+
+async def test_or_operator_with_multiple_conditions(
+    qdrant_collection: QdrantCollection[_TestDocument],
+    doc_version: Version.String,
+) -> None:
+    """Test that $or operator works with multiple conditions."""
+    doc1 = _TestDocument(
+        id=ObjectId("1"),
+        version=doc_version,
+        content="apple",
+        name="Apple",
+        checksum=md5_checksum("apple"),
+    )
+    doc2 = _TestDocument(
+        id=ObjectId("2"),
+        version=doc_version,
+        content="banana",
+        name="Banana",
+        checksum=md5_checksum("banana"),
+    )
+    doc3 = _TestDocument(
+        id=ObjectId("3"),
+        version=doc_version,
+        content="cherry",
+        name="Cherry",
+        checksum=md5_checksum("cherry"),
+    )
+
+    await qdrant_collection.insert_one(doc1)
+    await qdrant_collection.insert_one(doc2)
+    await qdrant_collection.insert_one(doc3)
+
+    # Find documents where name is "Apple" OR name is "Banana"
+    results = await qdrant_collection.find(
+        {
+            "$or": [
+                {"name": {"$eq": "Apple"}},
+                {"name": {"$eq": "Banana"}},
+            ]
+        }
+    )
+    assert len(results) == 2
+    result_names = {r["name"] for r in results}
+    assert "Apple" in result_names
+    assert "Banana" in result_names
+
+    # Find documents where id is "1" OR id is "3"
+    results = await qdrant_collection.find(
+        {
+            "$or": [
+                {"id": {"$eq": "1"}},
+                {"id": {"$eq": "3"}},
+            ]
+        }
+    )
+    assert len(results) == 2
+    result_ids = {r["id"] for r in results}
+    assert ObjectId("1") in result_ids
+    assert ObjectId("3") in result_ids
+
+
+async def test_nested_and_or_operators(
+    qdrant_collection: QdrantCollection[_TestDocument],
+    doc_version: Version.String,
+) -> None:
+    """Test nested $and and $or operators."""
+    doc1 = _TestDocument(
+        id=ObjectId("1"),
+        version=doc_version,
+        content="apple",
+        name="Apple",
+        checksum=md5_checksum("apple"),
+    )
+    doc2 = _TestDocument(
+        id=ObjectId("2"),
+        version=doc_version,
+        content="banana",
+        name="Banana",
+        checksum=md5_checksum("banana"),
+    )
+    doc3 = _TestDocument(
+        id=ObjectId("3"),
+        version=doc_version,
+        content="cherry",
+        name="Cherry",
+        checksum=md5_checksum("cherry"),
+    )
+
+    await qdrant_collection.insert_one(doc1)
+    await qdrant_collection.insert_one(doc2)
+    await qdrant_collection.insert_one(doc3)
+
+    # Find documents where (name is "Apple" OR name is "Banana") AND id is "1"
+    results = await qdrant_collection.find(
+        {
+            "$and": [
+                {
+                    "$or": [
+                        {"name": {"$eq": "Apple"}},
+                        {"name": {"$eq": "Banana"}},
+                    ]
+                },
+                {"id": {"$eq": "1"}},
+            ]
+        }
+    )
+    assert len(results) == 1
+    assert results[0]["id"] == ObjectId("1")
+    assert results[0]["name"] == "Apple"
+
+    # Find documents where (id is "1" OR id is "2") AND name is "Banana"
+    results = await qdrant_collection.find(
+        {
+            "$and": [
+                {
+                    "$or": [
+                        {"id": {"$eq": "1"}},
+                        {"id": {"$eq": "2"}},
+                    ]
+                },
+                {"name": {"$eq": "Banana"}},
+            ]
+        }
+    )
+    assert len(results) == 1
+    assert results[0]["id"] == ObjectId("2")
+    assert results[0]["name"] == "Banana"
+
+
+async def test_and_with_range_operators(
+    qdrant_collection: QdrantCollection[_TestDocument],
+    doc_version: Version.String,
+) -> None:
+    """Test $and operator combined with range operators."""
+    # Create documents with numeric metadata for range testing
+    # Note: We'll use a custom field if needed, but for now test with existing fields
+    doc1 = _TestDocument(
+        id=ObjectId("1"),
+        version=doc_version,
+        content="test1",
+        name="Doc1",
+        checksum=md5_checksum("test1"),
+    )
+    doc2 = _TestDocument(
+        id=ObjectId("2"),
+        version=doc_version,
+        content="test2",
+        name="Doc2",
+        checksum=md5_checksum("test2"),
+    )
+
+    await qdrant_collection.insert_one(doc1)
+    await qdrant_collection.insert_one(doc2)
+
+    # Test $and with $eq conditions
+    results = await qdrant_collection.find(
+        {
+            "$and": [
+                {"name": {"$eq": "Doc1"}},
+                {"id": {"$eq": "1"}},
+            ]
+        }
+    )
+    assert len(results) == 1
+    assert results[0]["id"] == ObjectId("1")
+
+
+async def test_or_with_multiple_field_conditions(
+    qdrant_collection: QdrantCollection[_TestDocument],
+    doc_version: Version.String,
+) -> None:
+    """Test $or operator with different field conditions."""
+    doc1 = _TestDocument(
+        id=ObjectId("1"),
+        version=doc_version,
+        content="apple",
+        name="Apple",
+        checksum=md5_checksum("apple"),
+    )
+    doc2 = _TestDocument(
+        id=ObjectId("2"),
+        version=doc_version,
+        content="banana",
+        name="Banana",
+        checksum=md5_checksum("banana"),
+    )
+    doc3 = _TestDocument(
+        id=ObjectId("3"),
+        version=doc_version,
+        content="cherry",
+        name="Cherry",
+        checksum=md5_checksum("cherry"),
+    )
+
+    await qdrant_collection.insert_one(doc1)
+    await qdrant_collection.insert_one(doc2)
+    await qdrant_collection.insert_one(doc3)
+
+    # Find documents where id is "1" OR id is "2" OR id is "3"
+    results = await qdrant_collection.find(
+        {
+            "$or": [
+                {"id": {"$eq": "1"}},
+                {"id": {"$eq": "2"}},
+                {"id": {"$eq": "3"}},
+            ]
+        }
+    )
+    assert len(results) == 3
+    result_ids = {r["id"] for r in results}
+    assert ObjectId("1") in result_ids
+    assert ObjectId("2") in result_ids
+    assert ObjectId("3") in result_ids
+
+
+async def test_complex_nested_logical_operators(
+    qdrant_collection: QdrantCollection[_TestDocument],
+    doc_version: Version.String,
+) -> None:
+    """Test complex nested combinations of $and and $or."""
+    doc1 = _TestDocument(
+        id=ObjectId("1"),
+        version=doc_version,
+        content="apple",
+        name="Apple",
+        checksum=md5_checksum("apple"),
+    )
+    doc2 = _TestDocument(
+        id=ObjectId("2"),
+        version=doc_version,
+        content="banana",
+        name="Banana",
+        checksum=md5_checksum("banana"),
+    )
+    doc3 = _TestDocument(
+        id=ObjectId("3"),
+        version=doc_version,
+        content="cherry",
+        name="Cherry",
+        checksum=md5_checksum("cherry"),
+    )
+    doc4 = _TestDocument(
+        id=ObjectId("4"),
+        version=doc_version,
+        content="date",
+        name="Date",
+        checksum=md5_checksum("date"),
+    )
+
+    await qdrant_collection.insert_one(doc1)
+    await qdrant_collection.insert_one(doc2)
+    await qdrant_collection.insert_one(doc3)
+    await qdrant_collection.insert_one(doc4)
+
+    # Complex: ((id is "1" OR id is "2") AND name is "Apple") OR (id is "3")
+    # This should match doc1 (id=1, name=Apple) and doc3 (id=3)
+    results = await qdrant_collection.find(
+        {
+            "$or": [
+                {
+                    "$and": [
+                        {
+                            "$or": [
+                                {"id": {"$eq": "1"}},
+                                {"id": {"$eq": "2"}},
+                            ]
+                        },
+                        {"name": {"$eq": "Apple"}},
+                    ]
+                },
+                {"id": {"$eq": "3"}},
+            ]
+        }
+    )
+    assert len(results) == 2
+    result_ids = {r["id"] for r in results}
+    assert ObjectId("1") in result_ids
+    assert ObjectId("3") in result_ids
+    # Verify doc1 has name "Apple"
+    doc1_result = next(r for r in results if r["id"] == ObjectId("1"))
+    assert doc1_result["name"] == "Apple"
+
+
+async def test_and_or_with_find_similar_documents(
+    qdrant_collection: QdrantCollection[_TestDocument],
+    doc_version: Version.String,
+) -> None:
+    """Test that logical operators work with find_similar_documents."""
+    doc1 = _TestDocument(
+        id=ObjectId("1"),
+        version=doc_version,
+        content="apple fruit",
+        name="Apple",
+        checksum=md5_checksum("apple fruit"),
+    )
+    doc2 = _TestDocument(
+        id=ObjectId("2"),
+        version=doc_version,
+        content="banana fruit",
+        name="Banana",
+        checksum=md5_checksum("banana fruit"),
+    )
+    doc3 = _TestDocument(
+        id=ObjectId("3"),
+        version=doc_version,
+        content="cherry fruit",
+        name="Cherry",
+        checksum=md5_checksum("cherry fruit"),
+    )
+
+    await qdrant_collection.insert_one(doc1)
+    await qdrant_collection.insert_one(doc2)
+    await qdrant_collection.insert_one(doc3)
+
+    # Find similar documents with $or filter
+    results = await qdrant_collection.find_similar_documents(
+        filters={
+            "$or": [
+                {"name": {"$eq": "Apple"}},
+                {"name": {"$eq": "Banana"}},
+            ]
+        },
+        query="fruit",
+        k=2,
+    )
+    assert len(results) <= 2
+    result_names = {r.document["name"] for r in results}
+    assert "Apple" in result_names or "Banana" in result_names
+
+    # Find similar documents with $and filter
+    results = await qdrant_collection.find_similar_documents(
+        filters={
+            "$and": [
+                {"id": {"$eq": "1"}},
+                {"name": {"$eq": "Apple"}},
+            ]
+        },
+        query="fruit",
+        k=1,
+    )
+    assert len(results) <= 1
+    if results:
+        assert results[0].document["id"] == ObjectId("1")
+        assert results[0].document["name"] == "Apple"

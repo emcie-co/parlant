@@ -339,51 +339,20 @@ class QdrantDatabase(VectorDatabase):
         return embedded_collection_name
 
     async def _get_collection_version(self, collection_name: str) -> int:
-        """Get version from a special version point in the collection."""
+        """Get version from metadata collection."""
         assert self.qdrant_client is not None, "Qdrant client must be initialized"
-        version_point_id = _string_id_to_int("__version__")
+        version_key = f"{collection_name}_version"
         try:
-            points = self.qdrant_client.retrieve(
-                collection_name=collection_name,
-                ids=[version_point_id],
-                with_payload=True,
-            )
-            if points and points[0].payload:
-                return cast(int, points[0].payload.get("version", 1))
+            metadata = await self.read_metadata()
+            return cast(int, metadata.get(version_key, 1))
         except Exception:
-            pass
-        return 1
+            return 1
 
     async def _set_collection_version(self, collection_name: str, version: int) -> None:
-        """Set version in a special version point in the collection."""
+        """Set version in metadata collection."""
         assert self.qdrant_client is not None, "Qdrant client must be initialized"
-        version_point_id = _string_id_to_int("__version__")
-
-        # Get collection info to determine vector size
-        collection_info = self.qdrant_client.get_collection(collection_name)
-        vectors = collection_info.config.params.vectors
-        if vectors is None:
-            raise ValueError(f"Collection {collection_name} has no vector configuration")
-        if isinstance(vectors, dict):
-            # Multiple named vectors - use the first one
-            first_vector = next(iter(vectors.values()))
-            vector_size = first_vector.size
-        else:
-            vector_size = vectors.size
-
-        # Create zero vector of correct size
-        zero_vector = [0.0] * vector_size
-
-        self.qdrant_client.upsert(
-            collection_name=collection_name,
-            points=[
-                models.PointStruct(
-                    id=version_point_id,
-                    vector=zero_vector,
-                    payload={"version": version},
-                )
-            ],
-        )
+        version_key = f"{collection_name}_version"
+        await self.upsert_metadata(version_key, version)
 
     # Syncs embedded collection with unembedded collection
     async def _index_collection(
@@ -402,13 +371,10 @@ class QdrantDatabase(VectorDatabase):
         )[0]
 
         # Map by document ID (string) from payload, not point ID (integer)
-        # Filter out version points and other special points
         unembedded_docs_by_id = {
             cast(str, point.payload["id"]): point
             for point in unembedded_points
-            if point.payload is not None
-            and "id" in point.payload
-            and point.payload["id"] != "__version__"
+            if point.payload is not None and "id" in point.payload
         }
 
         # Get all points from embedded collection
@@ -420,13 +386,10 @@ class QdrantDatabase(VectorDatabase):
         )[0]
 
         # Map by document ID (string) from payload, not point ID (integer)
-        # Filter out version points and other special points
         embedded_docs_by_id = {
             cast(str, point.payload["id"]): point
             for point in embedded_points
-            if point.payload is not None
-            and "id" in point.payload
-            and point.payload["id"] != "__version__"
+            if point.payload is not None and "id" in point.payload
         }
 
         # Remove docs from embedded collection that no longer exist in unembedded
@@ -441,17 +404,23 @@ class QdrantDatabase(VectorDatabase):
                 unembedded_point = unembedded_docs_by_id[doc_id]
                 unembedded_doc = unembedded_point.payload
                 if unembedded_doc is not None and embedded_point.payload is not None:
+                    # Only recompute embeddings if checksum changed
                     if embedded_point.payload.get("checksum") != unembedded_doc.get("checksum"):
                         embeddings = list(
                             (await embedder.embed([cast(str, unembedded_doc["content"])])).vectors
                         )
+                        vector = embeddings[0]
+                    else:
+                        # Use existing vector if checksum hasn't changed
+                        # Cast to list[float] since we're using single vector collections
+                        vector = cast(list[float], embedded_point.vector)
 
                     self.qdrant_client.upsert(
                         collection_name=embedded_collection_name,
                         points=[
                             models.PointStruct(
                                 id=embedded_point.id,  # Keep existing point ID
-                                vector=embeddings[0],
+                                vector=vector,
                                 payload=unembedded_doc,
                             )
                         ],

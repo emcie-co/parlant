@@ -19,7 +19,7 @@ from typing import cast
 from typing_extensions import override
 
 from parlant.core.agents import AgentId
-from parlant.core.engines.alpha.loaded_context import EngineContext
+from parlant.core.engines.alpha.engine_context import EngineContext
 from parlant.core.sessions import EventKind, EventSource, MessageEventData
 from parlant.core.tags import Tag
 

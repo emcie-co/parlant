@@ -109,7 +109,7 @@ from parlant.core.customers import (
 from parlant.core.emissions import EmittedEvent, EventEmitterFactory
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder, PromptSection
 from parlant.core.engines.alpha.hooks import EngineHook, EngineHookResult, EngineHooks
-from parlant.core.engines.alpha.loaded_context import (
+from parlant.core.engines.alpha.engine_context import (
     EngineContext,
     LoadedContext,  # type: ignore
     Interaction,

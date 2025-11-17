@@ -28,7 +28,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.common import (
     GuidelineInternalRepresentation,
     internal_representation,
 )
-from parlant.core.engines.alpha.loaded_context import EngineContext
+from parlant.core.engines.alpha.engine_context import EngineContext
 from parlant.core.engines.alpha.message_event_composer import (
     MessageCompositionError,
     MessageEventComposer,

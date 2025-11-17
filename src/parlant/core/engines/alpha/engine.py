@@ -36,7 +36,7 @@ from parlant.core.context_variables import (
     ContextVariableStore,
 )
 from parlant.core.emission.event_buffer import EventBuffer
-from parlant.core.engines.alpha.loaded_context import (
+from parlant.core.engines.alpha.engine_context import (
     Interaction,
     IterationState,
     EngineContext,

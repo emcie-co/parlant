@@ -346,26 +346,37 @@ class GPT_4_1_Nano(OpenAISchematicGenerator[T]):
         return 128 * 1024
 
 
-class GPT_5_1_Mini(OpenAISchematicGenerator[T]):
+class GPT_5_1(OpenAISchematicGenerator[T]):
     def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="gpt-5.1-mini", logger=logger, meter=meter)
+        super().__init__(model_name="gpt-5.1", logger=logger, meter=meter)
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
     @override
     def max_tokens(self) -> int:
-        return 128 * 1024
+        return 400_000
 
 
-class GPT_5_1_Nano(OpenAISchematicGenerator[T]):
+class GPT_5_Mini(OpenAISchematicGenerator[T]):
     def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="gpt-5.1-nano", logger=logger, meter=meter)
+        super().__init__(model_name="gpt-5-mini", logger=logger, meter=meter)
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
     @override
     def max_tokens(self) -> int:
-        return 128 * 1024
+        return 400_000
+
+
+class GPT_5_Nano(OpenAISchematicGenerator[T]):
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="gpt-5-nano", logger=logger, meter=meter)
+        self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 400_000
 
 
 class OpenAIEmbedder(BaseEmbedder):
@@ -553,13 +564,13 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
                             case "auto" | "standard":
                                 return GPT_4_1_Nano[t](self._logger, self._meter)  # type: ignore
                             case "reasoning":
-                                return GPT_5_1_Nano[t](self._logger, self._meter)  # type: ignore
+                                return GPT_5_Nano[t](self._logger, self._meter)  # type: ignore
                     case "latest":
                         match hints.get("model_type", "auto"):
                             case "standard":
                                 return GPT_4_1_Nano[t](self._logger, self._meter)  # type: ignore
                             case "auto" | "reasoning":
-                                return GPT_5_1_Nano[t](self._logger, self._meter)  # type: ignore
+                                return GPT_5_Nano[t](self._logger, self._meter)  # type: ignore
             case ModelSize.MINI:
                 match hints.get("model_generation", "auto"):
                     case "auto" | "stable":
@@ -567,19 +578,27 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
                             case "auto" | "standard":
                                 return GPT_4_1_Mini[t](self._logger, self._meter)  # type: ignore
                             case "reasoning":
-                                return GPT_5_1_Mini[t](self._logger, self._meter)  # type: ignore
+                                return GPT_5_Mini[t](self._logger, self._meter)  # type: ignore
                     case "latest":
                         match hints.get("model_type", "auto"):
                             case "standard":
                                 return GPT_4_1_Mini[t](self._logger, self._meter)  # type: ignore
                             case "auto" | "reasoning":
-                                return GPT_5_1_Mini[t](self._logger, self._meter)  # type: ignore
+                                return GPT_5_Mini[t](self._logger, self._meter)  # type: ignore
             case _:
-                return GPT_4o_24_08_06[t](self._logger, self._meter)  # type: ignore
+                match hints.get("model_type", "auto"):
+                    case "reasoning":
+                        return GPT_5_1[t](self._logger, self._meter)  # type: ignore
+                    case _:
+                        return GPT_4o_24_08_06[t](self._logger, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return OpenAITextEmbedding3Large(self._logger, self._meter)
+        match hints.get("model_size", ModelSize.AUTO):
+            case ModelSize.AUTO | ModelSize.LARGE:
+                return OpenAITextEmbedding3Large(self._logger, self._meter)
+            case _:
+                return OpenAITextEmbedding3Small(self._logger, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

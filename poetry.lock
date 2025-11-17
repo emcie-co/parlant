@@ -818,7 +818,7 @@ description = "Python bindings for the Brotli compression library"
 optional = true
 python-versions = "*"
 groups = ["main"]
-markers = "platform_python_implementation == \"CPython\" and extra == \"fireworks\""
+markers = "extra == \"fireworks\" and platform_python_implementation == \"CPython\""
 files = [
     {file = "brotli-1.2.0-cp27-cp27m-macosx_10_9_x86_64.whl", hash = "sha256:99cfa69813d79492f0e5d52a20fd18395bc82e671d5d40bd5a91d13e75e468e8"},
     {file = "brotli-1.2.0-cp27-cp27m-manylinux1_i686.whl", hash = "sha256:3ebe801e0f4e56d17cd386ca6600573e3706ce1845376307f5d2cbd32149b69a"},
@@ -929,7 +929,7 @@ description = "Python CFFI bindings to the Brotli library"
 optional = true
 python-versions = ">=3.7"
 groups = ["main"]
-markers = "platform_python_implementation != \"CPython\" and extra == \"fireworks\""
+markers = "extra == \"fireworks\" and platform_python_implementation != \"CPython\""
 files = [
     {file = "brotlicffi-1.1.0.0-cp37-abi3-macosx_10_9_x86_64.whl", hash = "sha256:9b7ae6bd1a3f0df532b6d67ff674099a96d22bc0948955cb338488c31bfb8851"},
     {file = "brotlicffi-1.1.0.0-cp37-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:19ffc919fa4fc6ace69286e0a23b3789b4219058313cf9b45625016bf7ff996b"},
@@ -1040,9 +1040,9 @@ name = "cffi"
 version = "1.17.1"
 description = "Foreign Function Interface for Python calling C code."
 optional = false
-python-versions = ">=3.9"
+python-versions = ">=3.8"
 groups = ["main"]
-markers = "platform_python_implementation != \"PyPy\" or extra == \"fireworks\""
+markers = "platform_python_implementation != \"PyPy\" or extra == \"fireworks\" or extra == \"snowflake\""
 files = [
     {file = "cffi-1.17.1-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:df8b1c11f177bc2313ec4b2d46baec87a5f3e71fc8b45dab2ee7cae86d9aba14"},
     {file = "cffi-1.17.1-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:8f2cdc858323644ab277e9bb925ad72ae0e67f69e804f4898c070998d50b1a67"},
@@ -1628,6 +1628,7 @@ description = "cryptography is a package which provides cryptographic recipes an
 optional = false
 python-versions = "!=3.9.0,!=3.9.1,>=3.8"
 groups = ["main"]
+markers = "python_version < \"3.14\" or platform_python_implementation == \"PyPy\""
 files = [
     {file = "cryptography-46.0.0-cp311-abi3-macosx_10_9_universal2.whl", hash = "sha256:c9c4121f9a41cc3d02164541d986f59be31548ad355a5c96ac50703003c50fb7"},
     {file = "cryptography-46.0.0-cp311-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:4f70cbade61a16f5e238c4b0eb4e258d177a2fcb59aa0aae1236594f7b0ae338"},
@@ -1686,7 +1687,7 @@ files = [
 ]
 
 [package.dependencies]
-cffi = {version = ">=2.0.0", markers = "python_full_version >= \"3.9.0\" and platform_python_implementation != \"PyPy\""}
+cffi = {version = ">=1.14", markers = "python_full_version < \"3.14.0\" and platform_python_implementation != \"PyPy\""}
 typing-extensions = {version = ">=4.13.2", markers = "python_full_version < \"3.11.0\""}
 
 [package.extras]
@@ -6373,7 +6374,7 @@ description = "Python interface for c-ares"
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "extra == \"fireworks\""
+markers = "extra == \"fireworks\" and python_version < \"3.14\""
 files = [
     {file = "pycares-4.11.0-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:87dab618fe116f1936f8461df5970fcf0befeba7531a36b0a86321332ff9c20b"},
     {file = "pycares-4.11.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:3db6b6439e378115572fa317053f3ee6eecb39097baafe9292320ff1a9df73e3"},
@@ -6494,7 +6495,7 @@ description = "C parser in Python"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "(platform_python_implementation != \"PyPy\" or extra == \"fireworks\") and implementation_name != \"PyPy\""
+markers = "platform_python_implementation != \"PyPy\" or extra == \"fireworks\" or extra == \"snowflake\""
 files = [
     {file = "pycparser-2.23-py3-none-any.whl", hash = "sha256:e5c6e8d3fbad53479cab09ac03729e0a9faf2bee3db8208a550daf5af81a5934"},
     {file = "pycparser-2.23.tar.gz", hash = "sha256:78816d4f24add8f10a06d6f05b4d424ad9e96cfebf68a4ddc99c65c0720d00c2"},
@@ -8775,7 +8776,7 @@ description = "Fast implementation of asyncio event loop on top of libuv"
 optional = true
 python-versions = ">=3.8.1"
 groups = ["main"]
-markers = "platform_python_implementation != \"PyPy\" and extra == \"chroma\" and sys_platform != \"win32\" and sys_platform != \"cygwin\""
+markers = "sys_platform != \"win32\" and sys_platform != \"cygwin\" and extra == \"chroma\" and platform_python_implementation != \"PyPy\""
 files = [
     {file = "uvloop-0.22.1-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:ef6f0d4cc8a9fa1f6a910230cd53545d9a14479311e87e3cb225495952eb672c"},
     {file = "uvloop-0.22.1-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:7cd375a12b71d33d46af85a3343b35d98e8116134ba404bd657b3b1d15988792"},
@@ -9395,4 +9396,4 @@ zhipu = ["zhipuai"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "9eb3cb1edf738fb853e50d90d33caf4fc2b00d4320b6c0078b06937261533e04"
+content-hash = "2c73768f86f79de9e010c86c04d85f530d77f0cdfe745f5424bcfb4d39045124"

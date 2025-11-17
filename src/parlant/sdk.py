@@ -3165,7 +3165,10 @@ class Server:
                         return factory()
                     return factory(c())
 
-                async def make_snowflake_db(options: Mapping[str, Any]) -> DocumentDatabase:
+                async def make_snowflake_db(
+                    options: Mapping[str, Any],
+                    default_table_prefix: str,
+                ) -> DocumentDatabase:
                     from parlant.adapters.db.snowflake_db import SnowflakeDocumentDatabase
 
                     connection_params = options.get("connection_params")
@@ -3176,7 +3179,7 @@ class Server:
                     if connection_factory is not None and not callable(connection_factory):
                         raise SDKError("Snowflake connection_factory must be callable")
 
-                    table_prefix = options.get("table_prefix")
+                    table_prefix = options.get("table_prefix") or f"{default_table_prefix}"
 
                     snowflake_cm = cast(
                         AsyncContextManager[SnowflakeDocumentDatabase],
@@ -3208,7 +3211,7 @@ class Server:
                         )
                         return await make_json_db(path)
                     if lowered == "snowflake":
-                        return await make_snowflake_db(options)
+                        return await make_snowflake_db(options, f"PARLANT_{name.upper()}_")
                     if spec_value.startswith("mongodb://") or spec_value.startswith(
                         "mongodb+srv://"
                     ):

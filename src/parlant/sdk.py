@@ -846,9 +846,19 @@ class GuidelineMatchingContext:
         )
 
 
+async def _match_always(ctx: GuidelineMatchingContext, g: Guideline) -> GuidelineMatch:
+    return GuidelineMatch(
+        guideline=g,
+        matched=True,
+        rationale="Always relevant",
+    )
+
+
 @dataclass(frozen=True)
 class Guideline:
     """A guideline that defines a condition and an action to be taken."""
+
+    MATCH_ALWAYS = _match_always
 
     id: GuidelineId
     condition: str

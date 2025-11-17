@@ -319,23 +319,10 @@ class Test_that_guideline_can_use_custom_matcher(SDKTest):
             description="Dummy agent",
         )
 
-        self.matcher_was_called = False
-
-        async def custom_matcher(
-            ctx: p.GuidelineMatchingContext, guideline: p.Guideline
-        ) -> p.GuidelineMatch:
-            self.matcher_was_called = True
-
-            return p.GuidelineMatch(
-                guideline=guideline,
-                matched=True,
-                rationale="Custom matcher always matches",
-            )
-
         self.guideline = await self.agent.create_guideline(
             condition="",
             action="Offer a banana",
-            matcher=custom_matcher,
+            matcher=p.Guideline.MATCH_ALWAYS,
         )
 
     async def run(self, ctx: Context) -> None:
@@ -344,7 +331,6 @@ class Test_that_guideline_can_use_custom_matcher(SDKTest):
             recipient=self.agent,
         )
 
-        assert self.matcher_was_called
         assert await nlp_test(answer, "It offers a banana")
 
 

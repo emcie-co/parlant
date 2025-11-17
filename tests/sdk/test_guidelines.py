@@ -315,8 +315,8 @@ class Test_that_agent_guideline_can_be_created_with_metadata(SDKTest):
 class Test_that_guideline_can_use_custom_matcher(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
-            name="Custom Matcher Agent",
-            description="Agent with custom guideline matcher",
+            name="Dummy Agent",
+            description="Dummy agent",
         )
 
         self.matcher_was_called = False

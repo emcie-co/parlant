@@ -340,6 +340,28 @@ class GPT_4_1_Nano(OpenAISchematicGenerator[T]):
         return 128 * 1024
 
 
+class GPT_5_1_Mini(OpenAISchematicGenerator[T]):
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="gpt-5.1-mini", logger=logger, meter=meter)
+        self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 128 * 1024
+
+
+class GPT_5_1_Nano(OpenAISchematicGenerator[T]):
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="gpt-5.1-nano", logger=logger, meter=meter)
+        self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 128 * 1024
+
+
 class OpenAIEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
@@ -519,9 +541,33 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
                     CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
                 }.get(t, GPT_4o_24_08_06[t])(self._logger, self._meter)  # type: ignore
             case ModelSize.NANO:
-                return GPT_4_1_Nano[t](self._logger, self._meter)  # type: ignore
+                match hints.get("model_generation", "auto"):
+                    case "auto" | "stable":
+                        match hints.get("model_type", "auto"):
+                            case "auto" | "standard":
+                                return GPT_4_1_Nano[t](self._logger, self._meter)  # type: ignore
+                            case "reasoning":
+                                return GPT_5_1_Nano[t](self._logger, self._meter)  # type: ignore
+                    case "latest":
+                        match hints.get("model_type", "auto"):
+                            case "standard":
+                                return GPT_4_1_Nano[t](self._logger, self._meter)  # type: ignore
+                            case "auto" | "reasoning":
+                                return GPT_5_1_Nano[t](self._logger, self._meter)  # type: ignore
             case ModelSize.MINI:
-                return GPT_4_1_Mini[t](self._logger, self._meter)  # type: ignore
+                match hints.get("model_generation", "auto"):
+                    case "auto" | "stable":
+                        match hints.get("model_type", "auto"):
+                            case "auto" | "standard":
+                                return GPT_4_1_Mini[t](self._logger, self._meter)  # type: ignore
+                            case "reasoning":
+                                return GPT_5_1_Mini[t](self._logger, self._meter)  # type: ignore
+                    case "latest":
+                        match hints.get("model_type", "auto"):
+                            case "standard":
+                                return GPT_4_1_Mini[t](self._logger, self._meter)  # type: ignore
+                            case "auto" | "reasoning":
+                                return GPT_5_1_Mini[t](self._logger, self._meter)  # type: ignore
             case _:
                 return GPT_4o_24_08_06[t](self._logger, self._meter)  # type: ignore
 

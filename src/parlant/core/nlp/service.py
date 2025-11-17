@@ -14,7 +14,7 @@
 
 from abc import ABC, abstractmethod
 from enum import IntEnum
-from typing_extensions import TypedDict, NotRequired
+from typing_extensions import TypedDict, NotRequired, TypeAlias, Literal
 
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import T, SchematicGenerator
@@ -28,8 +28,15 @@ class ModelSize(IntEnum):
     AUTO = 99
 
 
+ModelGeneration: TypeAlias = Literal["auto", "stable", "latest"]
+
+ModelType: TypeAlias = Literal["auto", "standard", "reasoning"]
+
+
 class SchematicGeneratorHints(TypedDict, total=False):
     model_size: NotRequired[ModelSize]
+    model_generation: NotRequired[ModelGeneration]
+    model_type: NotRequired[ModelType]
 
 
 class EmbedderHints(TypedDict, total=False):

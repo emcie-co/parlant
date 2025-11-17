@@ -192,7 +192,9 @@ from parlant.core.journeys import (
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.nlp.service import (
     EmbedderHints,
+    ModelGeneration,
     ModelSize,
+    ModelType,
     NLPService,
     SchematicGeneratorHints,
 )
@@ -3352,7 +3354,9 @@ __all__ = [
     "LogLevel",
     "Logger",
     "MessageEventData",
+    "ModelGeneration",
     "ModelSize",
+    "ModelType",
     "ModerationCheck",
     "ModerationService",
     "ModerationTag",

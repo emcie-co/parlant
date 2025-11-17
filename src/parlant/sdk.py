@@ -120,7 +120,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch as _GuidelineMatch,
 )
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
-    GuidelineMatchingContext,
+    GuidelineMatchingContext as _GuidelineMatchingContext,
 )
 from parlant.core.engines.alpha.guideline_matching.generic_guideline_matching_strategy_resolver import (
     GenericGuidelineMatchingStrategyResolver,
@@ -804,6 +804,46 @@ class GuidelineMatch:
 
     rationale: str
     """Explanation of why the guideline matched or didn't match."""
+
+
+@dataclass
+class GuidelineMatchingContext:
+    """Context for custom guideline matchers, providing information about the current interaction."""
+
+    server: "Server"
+    container: Container
+    logger: Logger
+    tracer: Tracer
+    session: "Session"
+    agent: "Agent"
+    customer: "Customer"
+    variables: Mapping["Variable", JSONSerializable]
+    interaction: Interaction
+
+    @classmethod
+    async def _from_core(
+        cls,
+        core_ctx: _GuidelineMatchingContext,
+        server: "Server",
+        container: Container,
+    ) -> "GuidelineMatchingContext":
+        """Convert a core GuidelineMatchingContext to an SDK GuidelineMatchingContext."""
+        agent = await server.get_agent(id=core_ctx.agent.id)
+
+        return cls(
+            server=server,
+            container=container,
+            logger=container[Logger],
+            tracer=container[Tracer],
+            session=core_ctx.session,
+            agent=agent,
+            customer=await server.get_customer(id=core_ctx.customer.id),
+            variables={
+                await agent.get_variable(id=var.id): val.data
+                for var, val in core_ctx.context_variables
+            },
+            interaction=Interaction(core_ctx.interaction_history),
+        )
 
 
 @dataclass(frozen=True)
@@ -1521,9 +1561,14 @@ class Journey:
         if matcher is not None:
             # Create a shim that translates between SDK and core types
             async def shim_matcher(
-                ctx: GuidelineMatchingContext, core_guideline: _Guideline
+                core_ctx: _GuidelineMatchingContext, core_guideline: _Guideline
             ) -> _GuidelineMatch:
-                result = await matcher(ctx, result_guideline)
+                sdk_ctx = await GuidelineMatchingContext._from_core(
+                    core_ctx=core_ctx,
+                    server=self._server,
+                    container=self._container,
+                )
+                result = await matcher(sdk_ctx, result_guideline)
 
                 return _GuidelineMatch(
                     guideline=core_guideline,
@@ -2024,9 +2069,14 @@ class Agent:
         if matcher is not None:
             # Create a shim that translates between SDK and core types
             async def shim_matcher(
-                ctx: GuidelineMatchingContext, core_guideline: _Guideline
+                core_ctx: _GuidelineMatchingContext, core_guideline: _Guideline
             ) -> _GuidelineMatch:
-                result = await matcher(ctx, result_guideline)
+                sdk_ctx = await GuidelineMatchingContext._from_core(
+                    core_ctx=core_ctx,
+                    server=self._server,
+                    container=self._container,
+                )
+                result = await matcher(sdk_ctx, result_guideline)
 
                 return _GuidelineMatch(
                     guideline=core_guideline,

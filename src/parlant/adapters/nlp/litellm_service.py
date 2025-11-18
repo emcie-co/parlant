@@ -74,7 +74,7 @@ class LiteLLMSchematicGenerator(BaseSchematicGenerator[T]):
         "max_tokens",
         "logit_bias",
         "adapter_id",
-        "adapter_soruce",
+        "adapter_source",
     ]
     supported_hints = supported_litellm_params + ["strict"]
 

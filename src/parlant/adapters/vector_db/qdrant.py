@@ -26,7 +26,7 @@ from qdrant_client.http.models import Filter, FieldCondition, Range, MatchValue,
 
 
 from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import JSONSerializable
+from parlant.core.common import JSONSerializable, IdGenerator
 from parlant.core.loggers import Logger
 from parlant.core.nlp.embedding import (
     Embedder,
@@ -46,6 +46,113 @@ from parlant.core.persistence.vector_database import (
     TDocument,
     identity_loader,
 )
+
+
+async def setup_qdrant_for_parlant(
+    container: Any,  # p.Container type
+    qdrant_database: QdrantDatabase,
+) -> Any:
+    """
+    Automatically override all vector stores to use Qdrant instead of transient storage.
+
+    This function should be called from configure_container to ensure all Parlant's
+    built-in vector stores (GlossaryStore, CannedResponseStore, CapabilityStore,
+    JourneyStore) use the provided Qdrant database instead of the default transient storage.
+
+    Args:
+        container: Parlant container instance
+        qdrant_database: Configured QdrantDatabase instance
+
+    Returns:
+        Updated container with Qdrant-backed vector stores
+    """
+    # Import here to avoid circular imports
+    from parlant.core.glossary import GlossaryVectorStore, GlossaryStore
+    from parlant.core.canned_responses import CannedResponseVectorStore, CannedResponseStore
+    from parlant.core.capabilities import CapabilityVectorStore, CapabilityStore
+    from parlant.core.journeys import JourneyVectorStore, JourneyStore
+    from parlant.core.nlp.service import NLPService
+    from parlant.adapters.db.transient import TransientDocumentDatabase
+
+    # Get embedder type provider
+    async def get_embedder_type() -> type[Embedder]:
+        return type(await container[NLPService].get_embedder())
+
+    embedder_factory = EmbedderFactory(container)
+
+    # Override each vector store with Qdrant-backed version
+    vector_stores = [
+        (GlossaryStore, GlossaryVectorStore),
+        (CannedResponseStore, CannedResponseVectorStore),
+        (CapabilityStore, CapabilityVectorStore),
+        (JourneyStore, JourneyVectorStore),
+    ]
+
+    for store_interface, store_implementation in vector_stores:
+        # Create new store instance with Qdrant
+        store_obj = store_implementation(
+            id_generator=container[IdGenerator],
+            vector_db=qdrant_database,
+            document_db=TransientDocumentDatabase(),  # Use transient for non-vector data
+            embedder_factory=embedder_factory,
+            embedder_type_provider=get_embedder_type,
+        )
+
+        # Enter the async context and get the store instance
+        store_instance = await store_obj.__aenter__()  # type: ignore[attr-defined]
+
+        # Override the container registration
+        container[store_interface] = store_instance
+
+    return container
+
+
+async def configure_qdrant_for_parlant(
+    container: Any,  # p.Container type
+    path: Optional[Path] = None,
+    url: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> Any:
+    """
+    CONVENIENCE FUNCTION: One-line Qdrant setup for Parlant.
+
+    This function handles both creating the QdrantDatabase and overriding all vector stores.
+    Use this in your configure_container for a simple one-line Qdrant setup.
+
+    Args:
+        container: Parlant container instance
+        path: Path for local Qdrant storage (use this OR url/api_key)
+        url: Qdrant Cloud URL (use with api_key)
+        api_key: Qdrant Cloud API key (use with url)
+
+    Returns:
+        Updated container with all vector stores using Qdrant
+
+    Example usage in configure_container:
+        async def configure_container(container: p.Container) -> p.Container:
+            return await configure_qdrant_for_parlant(
+                container,
+                url="https://your-cluster.qdrant.io",
+                api_key="your-api-key"
+            )
+    """
+    from parlant.core.loggers import Logger
+    from parlant.core.nlp.embedding import EmbeddingCache
+
+    # Create Qdrant database instance
+    embedder_factory = EmbedderFactory(container)
+
+    qdrant_db = await QdrantDatabase(
+        logger=container[Logger],
+        path=path,
+        url=url,
+        api_key=api_key,
+        embedder_factory=embedder_factory,
+        embedding_cache_provider=lambda: container[EmbeddingCache],
+    ).__aenter__()
+
+    # Auto-setup all vector stores
+    return await setup_qdrant_for_parlant(container, qdrant_db)
 
 
 def _string_id_to_int(doc_id: str) -> int:
@@ -285,7 +392,7 @@ class QdrantDatabase(VectorDatabase):
                                 points=[
                                     models.PointStruct(
                                         id=point.id,
-                                        vector=[],
+                                        vector=[0],
                                         payload=cast(dict[str, Any], loaded_doc),
                                     )
                                 ],
@@ -315,17 +422,8 @@ class QdrantDatabase(VectorDatabase):
                 )
 
                 for failed_doc in failed_migrations:
-                    point_id = _string_id_to_int(str(failed_doc["id"]))
-                    self.qdrant_client.upsert(
-                        collection_name=failed_migrations_collection._unembedded_collection_name,
-                        points=[
-                            models.PointStruct(
-                                id=point_id,
-                                vector=[0],
-                                payload=cast(dict[str, Any], failed_doc),
-                            )
-                        ],
-                    )
+                    # Use the collection interface consistently instead of direct Qdrant operations
+                    await failed_migrations_collection.insert_one(failed_doc)
 
         # Get version from special version point in collections
         unembedded_version = await self._get_collection_version(unembedded_collection_name)
@@ -409,6 +507,11 @@ class QdrantDatabase(VectorDatabase):
                         embeddings = list(
                             (await embedder.embed([cast(str, unembedded_doc["content"])])).vectors
                         )
+                        if not embeddings or len(embeddings[0]) == 0:
+                            self._logger.warning(
+                                f"Empty embedding for document {doc_id}, skipping sync"
+                            )
+                            continue
                         vector = embeddings[0]
                     else:
                         # Use existing vector if checksum hasn't changed
@@ -434,6 +537,10 @@ class QdrantDatabase(VectorDatabase):
                 continue
             doc_dict = doc
             embeddings = list((await embedder.embed([cast(str, doc_dict["content"])])).vectors)
+
+            if not embeddings or len(embeddings[0]) == 0:
+                self._logger.warning(f"Empty embedding for document {doc_id}, skipping")
+                continue
 
             # Convert string ID to integer for Qdrant
             point_id = _string_id_to_int(str(doc_id))
@@ -923,6 +1030,11 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                 vectors=embeddings,
             )
 
+        if not embeddings or len(embeddings[0]) == 0:
+            raise ValueError(
+                f"Empty embedding generated for document content: {document['content'][:50]}..."
+            )
+
         async with self._lock.writer_lock:
             self._version += 1
 
@@ -1004,6 +1116,9 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                         vectors=embeddings,
                     )
 
+                if not embeddings or len(embeddings[0]) == 0:
+                    raise ValueError(f"Empty embedding generated for content: {content[:50]}...")
+
                 updated_document = {**doc, **params}
 
                 self._version += 1
@@ -1062,6 +1177,11 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                         embedder_type=type(self._embedder),
                         texts=[params["content"]],
                         vectors=embeddings,
+                    )
+
+                if not embeddings or len(embeddings[0]) == 0:
+                    raise ValueError(
+                        f"Empty embedding generated for content: {params['content'][:50] if 'content' in params else 'N/A'}..."
                     )
 
                 self._version += 1
@@ -1187,12 +1307,16 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
             query_embeddings = list((await self._embedder.embed([query])).vectors)
             qdrant_filter = _convert_where_to_qdrant_filter(filters)
 
-            search_results = self.qdrant_client.search(
+            if not query_embeddings or len(query_embeddings[0]) == 0:
+                self._logger.warning(f"Empty embedding generated for query: {query}")
+                return []
+
+            search_results = self.qdrant_client.query_points(
                 collection_name=self.embedded_collection_name,
-                query_vector=query_embeddings[0],
+                query=query_embeddings[0],
                 query_filter=qdrant_filter,
                 limit=k,
-            )
+            ).points
 
             if not search_results:
                 return []

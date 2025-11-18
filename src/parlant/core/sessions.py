@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from typing import (
+    Iterator,
     Literal,
     Mapping,
     NewType,
@@ -47,6 +48,10 @@ from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.persistence.common import (
     ObjectId,
     Where,
+)
+from parlant.core.persistence.common import (
+    Cursor,
+    SortDirection,
 )
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -284,6 +289,20 @@ class SessionUpdateParams(TypedDict, total=False):
     metadata: Mapping[str, JSONSerializable]
 
 
+@dataclass(frozen=True)
+class SessionListing:
+    items: Sequence[Session]
+    total_count: int
+    has_more: bool
+    next_cursor: Optional[Cursor] = None
+
+    def __iter__(self) -> Iterator[Session]:
+        return iter(self.items)
+
+    def __len__(self) -> int:
+        return len(self.items)
+
+
 class SessionStore(ABC):
     @abstractmethod
     async def create_session(
@@ -320,7 +339,10 @@ class SessionStore(ABC):
         self,
         agent_id: Optional[AgentId] = None,
         customer_id: Optional[CustomerId] = None,
-    ) -> Sequence[Session]: ...
+        limit: Optional[int] = None,
+        cursor: Optional[Cursor] = None,
+        sort_direction: Optional[SortDirection] = None,
+    ) -> SessionListing: ...
 
     @abstractmethod
     async def set_metadata(
@@ -1007,17 +1029,29 @@ class SessionDocumentStore(SessionStore):
         self,
         agent_id: Optional[AgentId] = None,
         customer_id: Optional[CustomerId] = None,
-    ) -> Sequence[Session]:
+        limit: Optional[int] = None,
+        cursor: Optional[Cursor] = None,
+        sort_direction: Optional[SortDirection] = None,
+    ) -> SessionListing:
         async with self._lock.reader_lock:
             filters = {
                 **({"agent_id": {"$eq": agent_id}} if agent_id else {}),
                 **({"customer_id": {"$eq": customer_id}} if customer_id else {}),
             }
 
-            return [
-                self._deserialize_session(d)
-                for d in await self._session_collection.find(filters=cast(Where, filters))
-            ]
+            result = await self._session_collection.find(
+                filters=cast(Where, filters),
+                limit=limit,
+                cursor=cursor,
+                sort_direction=sort_direction,
+            )
+
+            return SessionListing(
+                items=[self._deserialize_session(d) for d in result.items],
+                total_count=result.total_count,
+                has_more=result.has_more,
+                next_cursor=result.next_cursor,
+            )
 
     @override
     async def set_metadata(

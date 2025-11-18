@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Mapping, Optional, Sequence
 from parlant.core.customers import Customer
-from parlant.core.engines.alpha.loaded_context import EngineContext
+from parlant.core.engines.alpha.engine_context import EngineContext
 from parlant.core.meter import Meter
 from parlant.core.tools import ToolContext
 from parlant.core.tracer import Tracer

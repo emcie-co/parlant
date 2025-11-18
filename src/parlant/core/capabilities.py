@@ -373,7 +373,7 @@ class CapabilityVectorStore(CapabilityStore):
 
             capability = Capability(
                 id=capability_id,
-                creation_utc=datetime.fromisoformat(all_docs[0]["creation_utc"]),
+                creation_utc=datetime.fromisoformat(all_docs.items[0]["creation_utc"]),
                 title=title,
                 description=description,
                 signals=signals,

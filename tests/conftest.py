@@ -549,7 +549,7 @@ async def container(
         container[CannedResponseFieldExtractor] = Singleton(CannedResponseFieldExtractor)
         container[MessageGenerator] = Singleton(MessageGenerator)
         container[ToolEventGenerator] = Singleton(ToolEventGenerator)
-        container[PerceivedPerformancePolicy] = Singleton(NullPerceivedPerformancePolicy)
+        container[PerceivedPerformancePolicy] = NullPerceivedPerformancePolicy
         container[OptimizationPolicy] = Singleton(BasicOptimizationPolicy)
 
         hooks = JournalingEngineHooks()

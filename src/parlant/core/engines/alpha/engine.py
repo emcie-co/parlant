@@ -36,7 +36,7 @@ from parlant.core.context_variables import (
     ContextVariableStore,
 )
 from parlant.core.emission.event_buffer import EventBuffer
-from parlant.core.engines.alpha.loaded_context import (
+from parlant.core.engines.alpha.engine_context import (
     Interaction,
     IterationState,
     EngineContext,
@@ -45,7 +45,9 @@ from parlant.core.engines.alpha.loaded_context import (
 from parlant.core.engines.alpha.entity_context import EntityContext
 from parlant.core.engines.alpha.message_generator import MessageGenerator
 from parlant.core.engines.alpha.hooks import EngineHooks
-from parlant.core.engines.alpha.perceived_performance_policy import PerceivedPerformancePolicy
+from parlant.core.engines.alpha.perceived_performance_policy import (
+    PerceivedPerformancePolicyProvider,
+)
 from parlant.core.engines.alpha.relational_guideline_resolver import RelationalGuidelineResolver
 from parlant.core.engines.alpha.tool_calling.tool_caller import (
     MissingToolData,
@@ -135,7 +137,7 @@ class AlphaEngine(Engine):
         tool_event_generator: ToolEventGenerator,
         fluid_message_generator: MessageGenerator,
         canned_response_generator: CannedResponseGenerator,
-        perceived_performance_policy: PerceivedPerformancePolicy,
+        perceived_performance_policy_provider: PerceivedPerformancePolicyProvider,
         hooks: EngineHooks,
     ) -> None:
         self._logger = logger
@@ -150,7 +152,7 @@ class AlphaEngine(Engine):
         self._tool_event_generator = tool_event_generator
         self._fluid_message_generator = fluid_message_generator
         self._canned_response_generator = canned_response_generator
-        self._perceived_performance_policy = perceived_performance_policy
+        self._perceived_performance_policy_provider = perceived_performance_policy_provider
 
         self._hooks = hooks
 
@@ -523,9 +525,8 @@ class AlphaEngine(Engine):
             if matching_finished:
                 return
 
-            timeout = async_utils.Timeout(
-                await self._perceived_performance_policy.get_extended_processing_indicator_delay()
-            )
+            policy = self._perceived_performance_policy_provider.get_policy(context.agent.id)
+            timeout = async_utils.Timeout(await policy.get_extended_processing_indicator_delay())
 
             while not matching_finished:
                 if await timeout.wait_up_to(0.1):
@@ -824,16 +825,17 @@ class AlphaEngine(Engine):
 
     async def _get_preamble_task(self, context: EngineContext) -> asyncio.Task[bool]:
         async def preamble_task() -> bool:
+            policy = self._perceived_performance_policy_provider.get_policy(context.agent.id)
+
             if (
                 # Only consider a preamble in the first iteration
-                len(context.state.iterations) == 0
-                and await self._perceived_performance_policy.is_preamble_required(context)
+                len(context.state.iterations) == 0 and await policy.is_preamble_required(context)
             ):
                 if not await self._hooks.call_on_generating_preamble(context):
                     return False
 
                 await asyncio.sleep(
-                    await self._perceived_performance_policy.get_preamble_delay(context),
+                    await policy.get_preamble_delay(context),
                 )
 
                 if await self._generate_preamble(context):
@@ -847,9 +849,7 @@ class AlphaEngine(Engine):
                 # Emit a processing event to indicate that the agent is thinking
 
                 await asyncio.sleep(
-                    await self._perceived_performance_policy.get_processing_indicator_delay(
-                        context
-                    ),
+                    await policy.get_processing_indicator_delay(context),
                 )
 
                 await self._emit_processing_event(context, stage="Interpreting")

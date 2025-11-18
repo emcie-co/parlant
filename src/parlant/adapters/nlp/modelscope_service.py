@@ -40,7 +40,7 @@ from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
-from parlant.core.nlp.service import NLPService
+from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
     T,
@@ -226,11 +226,13 @@ Please set MODELSCOPE_API_KEY in your environment before running Parlant.
         self._logger.info("Initialized ModelScopeService")
 
     @override
-    async def get_schematic_generator(self, t: type[T]) -> ModelScopeSchematicGenerator[T]:
+    async def get_schematic_generator(
+        self, t: type[T], hints: SchematicGeneratorHints = {}
+    ) -> ModelScopeSchematicGenerator[T]:
         return ModelScopeChat[t](self._logger, self._meter)  # type: ignore
 
     @override
-    async def get_embedder(self) -> Embedder:
+    async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         return JinaAIEmbedder(self._logger, self._meter)
 
     @override

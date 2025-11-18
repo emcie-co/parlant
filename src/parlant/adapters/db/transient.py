@@ -17,12 +17,20 @@ from typing import Awaitable, Callable, Optional, Sequence, cast
 from typing_extensions import override
 from typing_extensions import get_type_hints
 
-from parlant.core.persistence.common import matches_filters, Where, ObjectId, ensure_is_total
+from parlant.core.persistence.common import (
+    Cursor,
+    SortDirection,
+    matches_filters,
+    Where,
+    ObjectId,
+    ensure_is_total,
+)
 from parlant.core.persistence.document_database import (
     BaseDocument,
     DeleteResult,
     DocumentCollection,
     DocumentDatabase,
+    FindResult,
     InsertResult,
     TDocument,
     UpdateResult,
@@ -104,13 +112,103 @@ class TransientDocumentCollection(DocumentCollection[TDocument]):
     async def find(
         self,
         filters: Where,
-    ) -> Sequence[TDocument]:
+        limit: Optional[int] = None,
+        cursor: Optional[Cursor] = None,
+        sort_direction: Optional[SortDirection] = None,
+    ) -> FindResult[TDocument]:
+        # First, filter documents
+        filtered_docs = [doc for doc in self._documents if matches_filters(filters, doc)]
+
+        # Sort by creation_utc with id as tiebreaker according to sort_direction
+        sort_direction = sort_direction or SortDirection.ASC
+        filtered_docs = self._apply_sort(filtered_docs, sort_direction)
+
+        # Apply cursor-based pagination if cursor is provided
+        if cursor:
+            filtered_docs = self._apply_cursor_filter(filtered_docs, cursor, sort_direction)
+
+        total_count = len(filtered_docs)
+
+        # Apply limit
+        has_more = False
+        next_cursor = None
+
+        if limit is not None and len(filtered_docs) > limit:
+            # There are more items beyond the limit
+            has_more = True
+            result_docs = filtered_docs[:limit]
+
+            # Generate next cursor from the last item if we have results
+            if result_docs:
+                last_doc = result_docs[-1]
+                next_cursor = Cursor(
+                    creation_utc=str(last_doc.get("creation_utc", "")),
+                    id=ObjectId(str(last_doc.get("id", ""))),
+                )
+        else:
+            result_docs = filtered_docs
+
+        return FindResult(
+            items=result_docs,
+            total_count=total_count,
+            has_more=has_more,
+            next_cursor=next_cursor,
+        )
+
+    def _apply_sort(
+        self,
+        documents: list[TDocument],
+        sort_direction: SortDirection,
+    ) -> list[TDocument]:
+        docs = list(documents)  # don't mutate input
+
+        # Sort by creation_utc with id as tiebreaker according to sort_direction
+        reverse_order = sort_direction == SortDirection.DESC
+        docs.sort(
+            key=lambda d: (
+                d.get("creation_utc") or "",  # Primary sort: creation_utc
+                d.get("id") or "",  # Tiebreaker: id
+            ),
+            reverse=reverse_order,
+        )
+
+        return docs
+
+    def _apply_cursor_filter(
+        self,
+        documents: list[TDocument],
+        cursor: Cursor,
+        sort_direction: SortDirection,
+    ) -> list[TDocument]:
+        cursor_creation_utc = str(cursor.creation_utc)
+        cursor_id = str(cursor.id)
+
         result = []
-        for doc in filter(
-            lambda d: matches_filters(filters, d),
-            self._documents,
-        ):
-            result.append(doc)
+        for doc in documents:
+            doc_creation_utc = str(doc.get("creation_utc", ""))
+            doc_id = str(doc.get("id", ""))
+
+            if sort_direction == SortDirection.DESC:
+                # For descending order pagination, include documents that come after the cursor
+                # This matches the MongoDB query pattern:
+                # { "$or": [
+                #     { "creation_utc": { "$lt": cursor_creation_utc } },
+                #     { "creation_utc": cursor_creation_utc, "id": { "$lt": cursor_id } }
+                # ]}
+                if doc_creation_utc < cursor_creation_utc or (
+                    doc_creation_utc == cursor_creation_utc and doc_id < cursor_id
+                ):
+                    result.append(doc)
+            else:  # SortDirection.ASC
+                # For ascending order pagination, include documents that come after the cursor
+                # { "$or": [
+                #     { "creation_utc": { "$gt": cursor_creation_utc } },
+                #     { "creation_utc": cursor_creation_utc, "id": { "$gt": cursor_id } }
+                # ]}
+                if doc_creation_utc > cursor_creation_utc or (
+                    doc_creation_utc == cursor_creation_utc and doc_id > cursor_id
+                ):
+                    result.append(doc)
 
         return result
 

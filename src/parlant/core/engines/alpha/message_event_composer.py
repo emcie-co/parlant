@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Mapping, Optional, Sequence
 
 from parlant.core.common import CancellationSuppressionLatch
-from parlant.core.engines.alpha.loaded_context import EngineContext
+from parlant.core.engines.alpha.engine_context import EngineContext
 from parlant.core.emissions import EmittedEvent
 from parlant.core.nlp.generation_info import GenerationInfo
 

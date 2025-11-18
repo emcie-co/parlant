@@ -138,7 +138,10 @@ from parlant.core.persistence.document_database import (
     DocumentDatabase,
     identity_loader,
 )
-from parlant.core.persistence.document_database_helper import MetadataDocument
+from parlant.core.persistence.document_database_helper import (
+    MetadataDocument,
+    load_metadata_document,
+)
 from parlant.core.tags import Tag
 from parlant.core.canned_responses import (
     CannedResponseDocument,
@@ -1228,7 +1231,7 @@ async def migrate_guideline_relationships_0_1_0_to_0_2_0(
     relationships_metadata_collection = await guideline_relationships_db.get_or_create_collection(
         "metadata",
         MetadataDocument,
-        identity_loader,
+        load_metadata_document,
     )
 
     async with JSONFileDocumentDatabase(
@@ -1259,7 +1262,7 @@ async def migrate_guideline_relationships_0_1_0_to_0_2_0(
         connections_metadata_collection = await guideline_connections_db.get_or_create_collection(
             "metadata",
             MetadataDocument,
-            identity_loader,
+            load_metadata_document,
         )
 
         if metadata_doc := await connections_metadata_collection.find_one(filters={}):
@@ -1298,7 +1301,7 @@ async def migrate_relationships_0_2_0_to_0_3_0(
     relationships_metadata_collection = await relationships_db.get_or_create_collection(
         "metadata",
         MetadataDocument,
-        identity_loader,
+        load_metadata_document,
     )
 
     async with JSONFileDocumentDatabase(
@@ -1334,7 +1337,7 @@ async def migrate_relationships_0_2_0_to_0_3_0(
             await guideline_relationships_db.get_or_create_collection(
                 "metadata",
                 MetadataDocument,
-                identity_loader,
+                load_metadata_document,
             )
         )
 

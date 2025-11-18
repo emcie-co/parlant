@@ -362,3 +362,59 @@ async def test_that_creating_customer_with_duplicate_custom_id_fails(
             name="Second Customer",
             id=custom_id,
         )
+
+
+async def test_that_list_customers_can_be_paginated(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    customer_store = container[CustomerStore]
+
+    # Create several customers to test pagination
+    customers = []
+    for i in range(5):
+        customer = await customer_store.create_customer(
+            name=f"Customer_{i}",
+            extra={"order": str(i)},
+        )
+        customers.append(customer)
+
+    # Test first page with limit
+    response = await async_client.get("/customers?limit=3&sort=asc")
+    assert response.status_code == status.HTTP_200_OK
+
+    first_page = response.json()
+    assert len(first_page["items"]) == 3
+    assert first_page["total_count"] == 6  # 5 created + 1 guest
+    assert first_page["has_more"] is True
+    assert first_page["next_cursor"] is not None
+    # Test second page using cursor
+    next_cursor = first_page["next_cursor"]
+    response = await async_client.get(f"/customers?limit=3&cursor={next_cursor}&sort=asc")
+    assert response.status_code == status.HTTP_200_OK
+
+    second_page = response.json()
+    assert len(second_page["items"]) == 3
+    # Note: total_count behavior on subsequent pages may differ from first page
+    assert second_page["has_more"] is False
+    assert second_page["next_cursor"] is None
+    # Test descending sort
+    response = await async_client.get("/customers?limit=2&sort=desc")
+    assert response.status_code == status.HTTP_200_OK
+
+    data = response.json()
+    assert len(data["items"]) == 2
+    assert data["has_more"] is True
+
+
+async def test_that_list_customers_pagination_with_invalid_cursor(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # Test with invalid cursor
+    response = await async_client.get("/customers?cursor=invalid_cursor")
+    assert response.status_code == status.HTTP_200_OK
+
+    # Should return results as if no cursor was provided
+    data = response.json()
+    assert "items" in data
+    assert data["total_count"] >= 1  # At least guest customer

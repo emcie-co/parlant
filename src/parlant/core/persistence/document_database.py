@@ -19,6 +19,7 @@ from typing import (
     Awaitable,
     Callable,
     Generic,
+    Iterator,
     Optional,
     Sequence,
     TypeVar,
@@ -26,16 +27,53 @@ from typing import (
     cast,
 )
 
-from parlant.core.persistence.common import ObjectId, Where
+from parlant.core.persistence.common import Cursor, ObjectId, SortDirection, Where
 from parlant.core.common import Version
 
 
 class BaseDocument(TypedDict, total=False):
     id: ObjectId
+    creation_utc: str
     version: Version.String
 
 
 TDocument = TypeVar("TDocument", bound=BaseDocument)
+
+
+@dataclass(frozen=True)
+class FindResult(Generic[TDocument]):
+    items: Sequence[TDocument]
+    total_count: int
+    has_more: bool
+    next_cursor: Cursor | None = None
+
+    def __iter__(self) -> Iterator[TDocument]:
+        """Allow iteration over the documents in the result."""
+        return iter(self.items)
+
+    def __bool__(self) -> bool:
+        return self.total_count > 0
+
+    @classmethod
+    def create(
+        cls,
+        items: Sequence[TDocument],
+        total_count: int,
+        limit: int,
+    ) -> FindResult[TDocument]:
+        has_more = len(items) == limit and total_count > limit
+        next_cursor = None
+
+        if has_more and items:
+            # For cursor-based pagination, always use creation_utc (primary) and id (tiebreaker)
+            last_item = items[-1]
+            creation_utc = last_item.get("creation_utc")
+            item_id = last_item.get("id")
+
+            if creation_utc is not None and item_id is not None:
+                next_cursor = Cursor(creation_utc=str(creation_utc), id=ObjectId(str(item_id)))
+
+        return cls(items=items, total_count=total_count, has_more=has_more, next_cursor=next_cursor)
 
 
 @dataclass(frozen=True)
@@ -123,8 +161,11 @@ class DocumentCollection(ABC, Generic[TDocument]):
     async def find(
         self,
         filters: Where,
-    ) -> Sequence[TDocument]:
-        """Finds all documents that match the given filters."""
+        limit: Optional[int] = None,
+        cursor: Optional[Cursor] = None,
+        sort_direction: Optional[SortDirection] = None,
+    ) -> FindResult[TDocument]:
+        """Finds documents with cursor-based pagination. Results are sorted by creation_utc with id as tiebreaker."""
         ...
 
     @abstractmethod

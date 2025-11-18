@@ -314,9 +314,12 @@ class Actions:
     ) -> list[Session]:
         client = cast(ParlantClient, ctx.obj.client)
 
-        return client.sessions.list(
-            agent_id=agent_id,
-            customer_id=customer_id,
+        return cast(
+            list[Session],
+            client.sessions.list(
+                agent_id=agent_id,
+                customer_id=customer_id,
+            ),
         )
 
     @staticmethod
@@ -991,7 +994,7 @@ class Actions:
         ctx: click.Context,
     ) -> list[Customer]:
         client = cast(ParlantClient, ctx.obj.client)
-        return client.customers.list()
+        return cast(list[Customer], client.customers.list())
 
     @staticmethod
     def create_customer(

@@ -12,16 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Awaitable, Callable, Optional, Sequence
+from typing import Any, Awaitable, Callable, Optional
 from bson import CodecOptions
 from typing_extensions import Self
 from parlant.core.loggers import Logger
-from parlant.core.persistence.common import Where
+from parlant.core.persistence.common import Cursor, SortDirection, Where, ObjectId
 from parlant.core.persistence.document_database import (
     BaseDocument,
     DeleteResult,
     DocumentCollection,
     DocumentDatabase,
+    FindResult,
     InsertResult,
     TDocument,
     UpdateResult,
@@ -54,13 +55,15 @@ class MongoDocumentDatabase(DocumentDatabase):
         if self._database is None:
             raise Exception("underlying database missing.")
 
-        self._collections[name] = MongoDocumentCollection(
-            self,
-            await self._database.create_collection(
-                name=name,
-                codec_options=CodecOptions(document_class=schema),
-            ),
+        collection = await self._database.create_collection(
+            name=name,
+            codec_options=CodecOptions(document_class=schema),
         )
+
+        # Create index on creation_utc field
+        await collection.create_index([("creation_utc", 1)])
+
+        self._collections[name] = MongoDocumentCollection(self, collection)
         return self._collections[name]
 
     async def get_collection(
@@ -115,6 +118,9 @@ class MongoDocumentDatabase(DocumentDatabase):
                 )
                 await failed_migration_collection.insert_one(doc)
 
+        # Create index on creation_utc field
+        await result_collection.create_index([("creation_utc", 1)])
+
         self._collections[name] = MongoDocumentCollection(self, result_collection)
         return self._collections[name]
 
@@ -157,11 +163,72 @@ class MongoDocumentCollection(DocumentCollection[TDocument]):
         self._database = mongo_document_database
         self._collection = mongo_collection
 
-    async def find(self, filters: Where) -> Sequence[TDocument]:
-        mongo_cursor = self._collection.find(filters)
-        result = await mongo_cursor.to_list()
-        await mongo_cursor.close()
-        return result
+    async def find(
+        self,
+        filters: Where,
+        limit: Optional[int] = None,
+        cursor: Optional[Cursor] = None,
+        sort_direction: Optional[SortDirection] = None,
+    ) -> FindResult[TDocument]:
+        query = dict(filters) if filters else {}
+        sort_direction = sort_direction or SortDirection.ASC
+
+        if cursor is not None:
+            if sort_direction == SortDirection.DESC:
+                cursor_conditions = [
+                    {"creation_utc": {"$lt": cursor.creation_utc}},
+                    {
+                        "$and": [
+                            {"creation_utc": cursor.creation_utc},
+                            {"_id": {"$lt": cursor.id}},
+                        ]
+                    },
+                ]
+            else:
+                cursor_conditions = [
+                    {"creation_utc": {"$gt": cursor.creation_utc}},
+                    {
+                        "$and": [
+                            {"creation_utc": cursor.creation_utc},
+                            {"_id": {"$gt": cursor.id}},
+                        ]
+                    },
+                ]
+            query["$or"] = cursor_conditions
+
+        # Sort by creation_utc with _id as tiebreaker according to sort_direction
+        sort_order = -1 if sort_direction == SortDirection.DESC else 1
+        sort_spec = [("creation_utc", sort_order), ("_id", sort_order)]
+
+        # Get one extra document to check if there are more
+        query_limit = (limit + 1) if limit else None
+
+        mongo_cursor = self._collection.find(query).sort(sort_spec)
+        if query_limit:
+            mongo_cursor = mongo_cursor.limit(query_limit)
+
+        items = await mongo_cursor.to_list(length=query_limit)
+
+        # Calculate pagination metadata
+        has_more = False
+        next_cursor = None
+        total_count = len(items)
+
+        if limit and len(items) > limit:
+            has_more = True
+            items = items[:limit]  # Remove the extra item
+
+            # Create cursor from the last item
+            if items:
+                last_item = items[-1]
+                next_cursor = Cursor(
+                    creation_utc=str(last_item.get("creation_utc", "")),
+                    id=ObjectId(str(last_item.get("_id", last_item.get("id", "")))),
+                )
+
+        return FindResult(
+            items=items, total_count=total_count, has_more=has_more, next_cursor=next_cursor
+        )
 
     async def find_one(self, filters: Where) -> TDocument | None:
         result = await self._collection.find_one(filters)

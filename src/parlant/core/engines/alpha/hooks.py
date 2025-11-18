@@ -16,8 +16,8 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Any, Awaitable, Callable, Optional, Sequence, TypeAlias, Union
 
-from parlant.core.engines.alpha.loaded_context import EngineContext
-from parlant.core.engines.alpha.loaded_context import LoadedContext  # type: ignore
+from parlant.core.engines.alpha.engine_context import EngineContext
+from parlant.core.engines.alpha.engine_context import LoadedContext  # type: ignore
 
 
 class EngineHookResult(Enum):

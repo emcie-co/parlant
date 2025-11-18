@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from dataclasses import dataclass
+from enum import Enum, auto
 from typing import Any, Callable, Mapping, NewType, Protocol, Union, cast, get_type_hints
 from typing_extensions import Literal, TypedDict
 
@@ -33,6 +35,17 @@ class ServerOutdated(Exception):
 
 class VersionedStore(Protocol):
     VERSION: Version
+
+
+class SortDirection(Enum):
+    ASC = auto()
+    DESC = auto()
+
+
+@dataclass(frozen=True)
+class Cursor:
+    creation_utc: str
+    id: ObjectId
 
 
 # Metadata Query Grammar

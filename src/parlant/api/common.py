@@ -19,6 +19,7 @@ from typing import Annotated, Any, Mapping, Sequence, TypeAlias
 
 from parlant.core.common import DefaultBaseModel
 from parlant.core.evaluations import PayloadOperation
+from parlant.core.persistence.common import SortDirection
 from parlant.core.relationships import RelationshipId
 from parlant.core.guidelines import GuidelineId
 from parlant.core.tags import TagId
@@ -458,6 +459,25 @@ class RelationshipKindDTO(Enum):
     DISAMBIGUATION = "disambiguation"
     OVERLAP = "overlap"
     REEVALUATION = "reevaluation"
+
+
+class SortDirectionDTO(Enum):
+    """The direction to sort results."""
+
+    ASC = "asc"
+    DESC = "desc"
+
+
+def sort_direction_dto_to_sort_direction(
+    dto: SortDirectionDTO,
+) -> SortDirection:
+    match dto:
+        case SortDirectionDTO.ASC:
+            return SortDirection.ASC
+        case SortDirectionDTO.DESC:
+            return SortDirection.DESC
+        case _:
+            raise ValueError(f"Unsupported sort direction: {dto}")
 
 
 class RelationshipDTO(

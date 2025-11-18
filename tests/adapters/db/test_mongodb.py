@@ -13,85 +13,26 @@
 # limitations under the License.
 
 import asyncio
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import os
-from typing import Any, AsyncIterator, Optional, Sequence, cast
+from typing import Any, AsyncIterator, Optional, TypedDict, cast
 from pymongo import AsyncMongoClient
 import pytest
 from typing_extensions import Self
 from lagom import Container
-from pytest import fixture, mark, raises
+from pytest import fixture, raises
 
-from parlant.core.agents import Agent, AgentDocumentStore, AgentId, AgentStore
-from parlant.core.common import IdGenerator, Version
-from parlant.core.context_variables import (
-    ContextVariable,
-    ContextVariableDocumentStore,
-    ContextVariableValue,
-)
-from parlant.core.customers import CustomerDocumentStore, CustomerId
-from parlant.core.evaluations import (
-    Evaluation,
-    EvaluationDocumentStore,
-    GuidelinePayload,
-    PayloadOperation,
-    Invoice,
-    InvoiceData,
-    InvoiceGuidelineData,
-    PayloadDescriptor,
-    PayloadKind,
-)
-from parlant.core.guidelines import (
-    Guideline,
-    GuidelineContent,
-    GuidelineDocumentStore,
-    GuidelineId,
-)
+from parlant.core.common import Version
 from parlant.adapters.db.mongo_db import MongoDocumentDatabase
-from parlant.core.persistence.common import MigrationRequired
+from parlant.core.persistence.common import Cursor, MigrationRequired, ObjectId, SortDirection
 from parlant.core.persistence.document_database import (
     BaseDocument,
     DocumentCollection,
+    FindResult,
     identity_loader,
+    identity_loader_for,
 )
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
-from parlant.core.sessions import Event, EventKind, EventSource, Session, SessionDocumentStore
-from parlant.core.guideline_tool_associations import (
-    GuidelineToolAssociation,
-    GuidelineToolAssociationDocumentStore,
-)
 from parlant.core.loggers import Logger
-from parlant.core.tags import Tag
-from parlant.core.tools import ToolId
-
-from tests.test_utilities import SyncAwaiter
-
-
-@fixture
-def agent_id(
-    container: Container,
-    sync_await: SyncAwaiter,
-) -> AgentId:
-    store = container[AgentStore]
-    agent = sync_await(store.create_agent(name="test-agent", max_engine_iterations=2))
-    return agent.id
-
-
-@dataclass
-class _TestContext:
-    container: Container
-    agent_id: AgentId
-    sync_await: SyncAwaiter
-
-
-@fixture
-def context(
-    container: Container,
-    agent_id: AgentId,
-    sync_await: SyncAwaiter,
-) -> _TestContext:
-    return _TestContext(container, agent_id, sync_await)
 
 
 @fixture
@@ -118,726 +59,26 @@ async def test_mongo_client() -> AsyncIterator[AsyncMongoClient[Any]]:
         raise pytest.skip()
 
 
-class MongoTestDocument(BaseDocument):
+class MongoTestDocument(TypedDict, total=False):
+    id: ObjectId
+    creation_utc: str
+    version: Version.String
     name: str
-
-
-@mark.parametrize(
-    ("agent_configuration"),
-    [
-        ({"name": "Test Agent"}),
-        ({"name": "Test Agent", "description": "You are a test agent"}),
-    ],
-)
-async def test_agent_creation(
-    context: _TestContext,
-    test_mongo_client: AsyncMongoClient[Any],
-    test_database_name: str,
-    agent_configuration: dict[str, Any],
-) -> None:
-    await test_mongo_client.drop_database(test_database_name)
-
-    created_agent: Optional[Agent] = None
-
-    async with MongoDocumentDatabase(
-        test_mongo_client,
-        test_database_name,
-        context.container[Logger],
-    ) as agent_db:
-        async with AgentDocumentStore(IdGenerator(), agent_db) as agent_store:
-            created_agent = await agent_store.create_agent(**agent_configuration)
-
-            agents = list(await agent_store.list_agents())
-            assert len(agents) == 1
-            assert agents[0] == created_agent
-
-    assert created_agent
-
-    async with MongoDocumentDatabase(
-        test_mongo_client,
-        test_database_name,
-        context.container[Logger],
-    ) as agent_db:
-        async with AgentDocumentStore(IdGenerator(), agent_db) as agent_store:
-            actual_agents = await agent_store.list_agents()
-            assert len(actual_agents) == 1
-
-            db_agent = actual_agents[0]
-            assert db_agent.id == created_agent.id
-            assert db_agent.name == created_agent.name
-            assert db_agent.description == created_agent.description
-            assert db_agent.creation_utc == created_agent.creation_utc
-
-
-async def test_session_creation(
-    context: _TestContext,
-    test_mongo_client: AsyncMongoClient[Any],
-    test_database_name: str,
-) -> None:
-    await test_mongo_client.drop_database(test_database_name)
-
-    session: Optional[Session] = None
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as session_db:
-        async with SessionDocumentStore(session_db) as session_store:
-            customer_id = CustomerId("test_customer")
-            utc_now = datetime.now(timezone.utc)
-            session = await session_store.create_session(
-                creation_utc=utc_now,
-                customer_id=customer_id,
-                agent_id=context.agent_id,
-            )
-
-    assert session
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as session_db:
-        async with SessionDocumentStore(session_db) as session_store:
-            actual_sessions = await session_store.list_sessions()
-            assert len(actual_sessions) == 1
-            db_session = actual_sessions[0]
-            assert db_session.id == session.id
-            assert db_session.customer_id == session.customer_id
-            assert db_session.agent_id == context.agent_id
-            assert db_session.consumption_offsets == {
-                "client": 0,
-            }
-
-
-async def test_event_creation(
-    context: _TestContext,
-    test_mongo_client: AsyncMongoClient[Any],
-    test_database_name: str,
-) -> None:
-    await test_mongo_client.drop_database(test_database_name)
-
-    session: Optional[Session] = None
-    event: Optional[Event] = None
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as session_db:
-        async with SessionDocumentStore(session_db) as session_store:
-            customer_id = CustomerId("test_customer")
-            utc_now = datetime.now(timezone.utc)
-            session = await session_store.create_session(
-                creation_utc=utc_now,
-                customer_id=customer_id,
-                agent_id=context.agent_id,
-            )
-
-            event = await session_store.create_event(
-                session_id=session.id,
-                source=EventSource.CUSTOMER,
-                kind=EventKind.MESSAGE,
-                trace_id="<main>",
-                data={"message": "Hello, world!"},
-                creation_utc=datetime.now(timezone.utc),
-            )
-
-    assert session
-    assert event
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as session_db:
-        async with SessionDocumentStore(session_db) as session_store:
-            actual_events = await session_store.list_events(session.id)
-            assert len(actual_events) == 1
-            db_event = actual_events[0]
-            assert db_event.id == event.id
-            assert db_event.kind == event.kind
-            assert db_event.data == event.data
-            assert db_event.source == event.source
-            assert db_event.creation_utc == event.creation_utc
-
-
-async def test_guideline_creation(
-    context: _TestContext,
-    test_mongo_client: AsyncMongoClient[Any],
-    test_database_name: str,
-) -> None:
-    await test_mongo_client.drop_database(test_database_name)
-
-    guideline: Optional[Guideline] = None
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as guideline_db:
-        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
-            guideline = await guideline_store.create_guideline(
-                condition="Creating a guideline with MongoDB implementation",
-                action="Expecting it to be stored in the MongoDB database",
-                tags=[Tag.for_agent_id(context.agent_id)],
-            )
-
-    assert guideline
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as guideline_db:
-        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
-            guidelines = await guideline_store.list_guidelines([Tag.for_agent_id(context.agent_id)])
-            guideline_list = list(guidelines)
-
-            assert len(guideline_list) == 1
-            db_guideline = guideline_list[0]
-            assert db_guideline.id == guideline.id
-            assert db_guideline.content.condition == guideline.content.condition
-            assert db_guideline.content.action == guideline.content.action
-            assert db_guideline.creation_utc == guideline.creation_utc
-
-
-async def test_multiple_guideline_creation(
-    context: _TestContext,
-    test_mongo_client: AsyncMongoClient[Any],
-    test_database_name: str,
-) -> None:
-    await test_mongo_client.drop_database(test_database_name)
-
-    first_guideline: Optional[Guideline] = None
-    second_guideline: Optional[Guideline] = None
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as guideline_db:
-        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
-            first_guideline = await guideline_store.create_guideline(
-                condition="First guideline creation",
-                action="Test entry in MongoDB",
-                tags=[Tag.for_agent_id(context.agent_id)],
-            )
-
-            second_guideline = await guideline_store.create_guideline(
-                condition="Second guideline creation",
-                action="Additional test entry in MongoDB",
-                tags=[Tag.for_agent_id(context.agent_id)],
-            )
-
-    assert first_guideline
-    assert second_guideline
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as guideline_db:
-        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
-            guidelines = list(
-                await guideline_store.list_guidelines([Tag.for_agent_id(context.agent_id)])
-            )
-
-            assert len(guidelines) == 2
-
-            guideline_ids = [g.id for g in guidelines]
-            assert first_guideline.id in guideline_ids
-            assert second_guideline.id in guideline_ids
-
-            for guideline in guidelines:
-                if guideline.id == first_guideline.id:
-                    assert guideline.content.condition == "First guideline creation"
-                    assert guideline.content.action == "Test entry in MongoDB"
-                elif guideline.id == second_guideline.id:
-                    assert guideline.content.condition == "Second guideline creation"
-                    assert guideline.content.action == "Additional test entry in MongoDB"
-
-
-async def test_guideline_retrieval(
-    context: _TestContext,
-    test_mongo_client: AsyncMongoClient[Any],
-    test_database_name: str,
-) -> None:
-    await test_mongo_client.drop_database(test_database_name)
-
-    created_guideline: Optional[Guideline] = None
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as guideline_db:
-        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
-            created_guideline = await guideline_store.create_guideline(
-                condition="Test condition for loading",
-                action="Test content for loading guideline",
-                tags=[Tag.for_agent_id(context.agent_id)],
-            )
-
-            loaded_guidelines = await guideline_store.list_guidelines(
-                [Tag.for_agent_id(context.agent_id)]
-            )
-            loaded_guideline_list = list(loaded_guidelines)
-
-            assert len(loaded_guideline_list) == 1
-            loaded_guideline = loaded_guideline_list[0]
-            assert loaded_guideline.content.condition == "Test condition for loading"
-            assert loaded_guideline.content.action == "Test content for loading guideline"
-            assert loaded_guideline.id == created_guideline.id
-
-
-async def test_customer_creation(
-    context: _TestContext,
-    test_mongo_client: AsyncMongoClient[Any],
-    test_database_name: str,
-) -> None:
-    await test_mongo_client.drop_database(test_database_name)
-
-    created_customer = None
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as customer_db:
-        async with CustomerDocumentStore(IdGenerator(), customer_db) as customer_store:
-            name = "Jane Doe"
-            extra = {"email": "jane.doe@example.com"}
-            created_customer = await customer_store.create_customer(
-                name=name,
-                extra=extra,
-            )
-
-    assert created_customer
-    assert created_customer.name == created_customer.name
-    assert created_customer.extra == created_customer.extra
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as customer_db:
-        async with CustomerDocumentStore(IdGenerator(), customer_db) as customer_store:
-            customers = await customer_store.list_customers()
-
-            customer_list = list(customers)
-            assert len(customer_list) == 2
-
-            retrieved_customer_guest = customer_list[0]
-            assert retrieved_customer_guest
-            assert "guest" in retrieved_customer_guest.name
-
-            retrieved_customer = customer_list[1]
-            assert retrieved_customer.id == created_customer.id
-            assert retrieved_customer.name == created_customer.name
-            assert retrieved_customer.extra == created_customer.extra
-
-
-async def test_customer_retrieval(
-    context: _TestContext,
-    test_mongo_client: AsyncMongoClient[Any],
-    test_database_name: str,
-) -> None:
-    await test_mongo_client.drop_database(test_database_name)
-
-    created_customer = None
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as customer_db:
-        async with CustomerDocumentStore(IdGenerator(), customer_db) as customer_store:
-            name = "John Doe"
-            extra = {"email": "john.doe@example.com"}
-
-            created_customer = await customer_store.create_customer(name=name, extra=extra)
-
-            retrieved_customer = await customer_store.read_customer(created_customer.id)
-
-            assert created_customer == retrieved_customer
-
-
-async def test_context_variable_creation(
-    context: _TestContext,
-    test_mongo_client: AsyncMongoClient[Any],
-    test_database_name: str,
-) -> None:
-    await test_mongo_client.drop_database(test_database_name)
-
-    variable: Optional[ContextVariable] = None
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as context_variable_db:
-        async with ContextVariableDocumentStore(
-            IdGenerator(), context_variable_db
-        ) as context_variable_store:
-            tool_id = ToolId("local", "test_tool")
-            variable = await context_variable_store.create_variable(
-                name="Sample Variable",
-                description="A test variable for persistence.",
-                tool_id=tool_id,
-                freshness_rules=None,
-                tags=[Tag.for_agent_id(context.agent_id)],
-            )
-
-    assert variable
-    assert variable.name == "Sample Variable"
-    assert variable.description == "A test variable for persistence."
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as context_variable_db:
-        async with ContextVariableDocumentStore(
-            IdGenerator(), context_variable_db
-        ) as context_variable_store:
-            variables = list(
-                await context_variable_store.list_variables([Tag.for_agent_id(context.agent_id)])
-            )
-
-            assert len(variables) == 1
-            db_variable = variables[0]
-            assert db_variable.id == variable.id
-            assert db_variable.name == variable.name
-            assert db_variable.description == variable.description
-            assert db_variable.tool_id == variable.tool_id
-
-
-async def test_context_variable_value_update_and_retrieval(
-    context: _TestContext,
-    test_mongo_client: AsyncMongoClient[Any],
-    test_database_name: str,
-) -> None:
-    await test_mongo_client.drop_database(test_database_name)
-
-    variable: Optional[ContextVariable] = None
-    value: Optional[ContextVariableValue] = None
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as context_variable_db:
-        async with ContextVariableDocumentStore(
-            IdGenerator(), context_variable_db
-        ) as context_variable_store:
-            tool_id = ToolId("local", "test_tool")
-            customer_id = CustomerId("test_customer")
-            variable = await context_variable_store.create_variable(
-                name="Sample Variable",
-                description="A test variable for persistence.",
-                tool_id=tool_id,
-                freshness_rules=None,
-                tags=[Tag.for_agent_id(context.agent_id)],
-            )
-
-            test_data = {"key": "value"}
-            await context_variable_store.update_value(
-                key=customer_id,
-                variable_id=variable.id,
-                data=test_data,
-            )
-
-            value = await context_variable_store.read_value(
-                key=customer_id,
-                variable_id=variable.id,
-            )
-
-            assert value
-            assert value.data == test_data
-
-
-async def test_context_variable_listing(
-    context: _TestContext,
-    test_mongo_client: AsyncMongoClient[Any],
-    test_database_name: str,
-) -> None:
-    await test_mongo_client.drop_database(test_database_name)
-
-    var1 = None
-    var2 = None
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as context_variable_db:
-        async with ContextVariableDocumentStore(
-            IdGenerator(), context_variable_db
-        ) as context_variable_store:
-            tool_id = ToolId("local", "test_tool")
-            var1 = await context_variable_store.create_variable(
-                name="Variable One",
-                description="First test variable",
-                tool_id=tool_id,
-                freshness_rules=None,
-                tags=[Tag.for_agent_id(context.agent_id)],
-            )
-
-            var2 = await context_variable_store.create_variable(
-                name="Variable Two",
-                description="Second test variable",
-                tool_id=tool_id,
-                freshness_rules=None,
-                tags=[Tag.for_agent_id(context.agent_id)],
-            )
-
-            variables = list(
-                await context_variable_store.list_variables([Tag.for_agent_id(context.agent_id)])
-            )
-            assert len(variables) == 2
-
-            variable_ids = [v.id for v in variables]
-            assert var1.id in variable_ids
-            assert var2.id in variable_ids
-
-
-async def test_context_variable_deletion(
-    context: _TestContext,
-    test_mongo_client: AsyncMongoClient[Any],
-    test_database_name: str,
-) -> None:
-    await test_mongo_client.drop_database(test_database_name)
-
-    variable = None
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as context_variable_db:
-        async with ContextVariableDocumentStore(
-            IdGenerator(), context_variable_db
-        ) as context_variable_store:
-            tool_id = ToolId("local", "test_tool")
-            variable = await context_variable_store.create_variable(
-                name="Deletable Variable",
-                description="A variable to be deleted.",
-                tool_id=tool_id,
-                freshness_rules=None,
-                tags=[Tag.for_agent_id(context.agent_id)],
-            )
-
-            for k, d in [("k1", "d1"), ("k2", "d2"), ("k3", "d3")]:
-                await context_variable_store.update_value(
-                    key=k,
-                    variable_id=variable.id,
-                    data=d,
-                )
-
-            values = await context_variable_store.list_values(
-                variable_id=variable.id,
-            )
-
-            assert len(values) == 3
-
-            await context_variable_store.delete_variable(
-                variable_id=variable.id,
-            )
-
-            variables = await context_variable_store.list_variables(
-                [Tag.for_agent_id(context.agent_id)]
-            )
-            assert not any(variable.id == v.id for v in variables)
-
-            values = await context_variable_store.list_values(
-                variable_id=variable.id,
-            )
-            assert len(values) == 0
-
-
-async def test_guideline_tool_association_creation(
-    context: _TestContext,
-    test_mongo_client: AsyncMongoClient[Any],
-    test_database_name: str,
-) -> None:
-    await test_mongo_client.drop_database(test_database_name)
-
-    association: Optional[GuidelineToolAssociation] = None
-
-    async with MongoDocumentDatabase(
-        test_mongo_client,
-        test_database_name,
-        context.container[Logger],
-    ) as guideline_tool_association_db:
-        async with GuidelineToolAssociationDocumentStore(
-            IdGenerator(), guideline_tool_association_db
-        ) as guideline_tool_association_store:
-            guideline_id = GuidelineId("guideline-789")
-            tool_id = ToolId("local", "test_tool")
-
-            association = await guideline_tool_association_store.create_association(
-                guideline_id=guideline_id, tool_id=tool_id
-            )
-
-    assert association
-    assert association.guideline_id == association.guideline_id
-    assert association.tool_id == association.tool_id
-
-    async with MongoDocumentDatabase(
-        test_mongo_client,
-        test_database_name,
-        context.container[Logger],
-    ) as guideline_tool_association_db:
-        async with GuidelineToolAssociationDocumentStore(
-            IdGenerator(), guideline_tool_association_db
-        ) as guideline_tool_association_store:
-            associations = list(await guideline_tool_association_store.list_associations())
-
-            assert len(associations) == 1
-            stored_association = associations[0]
-            assert stored_association.id == association.id
-            assert stored_association.guideline_id == association.guideline_id
-            assert stored_association.tool_id == association.tool_id
-
-
-async def test_guideline_tool_association_retrieval(
-    context: _TestContext,
-    test_mongo_client: AsyncMongoClient[Any],
-    test_database_name: str,
-) -> None:
-    await test_mongo_client.drop_database(test_database_name)
-
-    created_association = None
-
-    async with MongoDocumentDatabase(
-        test_mongo_client,
-        test_database_name,
-        context.container[Logger],
-    ) as guideline_tool_association_db:
-        async with GuidelineToolAssociationDocumentStore(
-            IdGenerator(), guideline_tool_association_db
-        ) as guideline_tool_association_store:
-            guideline_id = GuidelineId("test_guideline")
-            tool_id = ToolId("local", "test_tool")
-            creation_utc = datetime.now(timezone.utc)
-
-            created_association = await guideline_tool_association_store.create_association(
-                guideline_id=guideline_id,
-                tool_id=tool_id,
-                creation_utc=creation_utc,
-            )
-
-            associations = list(await guideline_tool_association_store.list_associations())
-            assert len(associations) == 1
-            retrieved_association = associations[0]
-
-            assert retrieved_association.id == created_association.id
-            assert retrieved_association.guideline_id == guideline_id
-            assert retrieved_association.tool_id == tool_id
-            assert retrieved_association.creation_utc == creation_utc
-
-
-async def test_database_initialization(
-    context: _TestContext,
-    test_mongo_client: AsyncMongoClient[Any],
-    test_database_name: str,
-) -> None:
-    await test_mongo_client.drop_database(test_database_name)
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as guideline_db:
-        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
-            await guideline_store.create_guideline(
-                condition="Create a guideline for initialization test",
-                action="Verify it's stored in MongoDB correctly",
-                tags=[Tag.for_agent_id(context.agent_id)],
-            )
-
-    collections = await test_mongo_client[test_database_name].list_collection_names()
-    assert "guidelines" in collections
-
-
-async def test_evaluation_creation(
-    context: _TestContext,
-    test_mongo_client: AsyncMongoClient[Any],
-    test_database_name: str,
-) -> None:
-    await test_mongo_client.drop_database(test_database_name)
-
-    evaluation: Optional[Evaluation] = None
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as evaluation_db:
-        async with EvaluationDocumentStore(evaluation_db) as evaluation_store:
-            payloads = [
-                GuidelinePayload(
-                    content=GuidelineContent(
-                        condition="Test evaluation creation with invoice",
-                        action="Ensure the evaluation with invoice is persisted in MongoDB",
-                    ),
-                    tool_ids=[],
-                    operation=PayloadOperation.ADD,
-                    action_proposition=True,
-                    properties_proposition=True,
-                    journey_node_proposition=False,
-                )
-            ]
-
-            evaluation = await evaluation_store.create_evaluation(
-                payload_descriptors=[PayloadDescriptor(PayloadKind.GUIDELINE, p) for p in payloads],
-            )
-
-    assert evaluation
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as evaluation_db:
-        async with EvaluationDocumentStore(evaluation_db) as evaluation_store:
-            evaluations = await evaluation_store.list_evaluations()
-            evaluations_list = list(evaluations)
-
-            assert len(evaluations_list) == 1
-            db_evaluation = evaluations_list[0]
-            assert db_evaluation.id == evaluation.id
-            assert len(db_evaluation.invoices) == 1
-
-
-async def test_evaluation_update(
-    context: _TestContext,
-    test_mongo_client: AsyncMongoClient[Any],
-    test_database_name: str,
-) -> None:
-    await test_mongo_client.drop_database(test_database_name)
-
-    evaluation = None
-
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as evaluation_db:
-        async with EvaluationDocumentStore(evaluation_db) as evaluation_store:
-            payloads = [
-                GuidelinePayload(
-                    content=GuidelineContent(
-                        condition="Ask for a book recommendation",
-                        action=None,
-                    ),
-                    tool_ids=[],
-                    operation=PayloadOperation.ADD,
-                    action_proposition=True,
-                    properties_proposition=True,
-                    journey_node_proposition=False,
-                )
-            ]
-
-            evaluation = await evaluation_store.create_evaluation(
-                payload_descriptors=[PayloadDescriptor(PayloadKind.GUIDELINE, p) for p in payloads],
-            )
-
-            invoice_data: InvoiceData = InvoiceGuidelineData(
-                properties_proposition={
-                    "continuous": True,
-                    "internal_action": "Provide a list of book recommendations",
-                },
-            )
-
-            invoice = Invoice(
-                kind=PayloadKind.GUIDELINE,
-                payload=payloads[0],
-                state_version="123",
-                checksum="initial_checksum",
-                approved=True,
-                data=invoice_data,
-                error=None,
-            )
-
-            await evaluation_store.update_evaluation(
-                evaluation_id=evaluation.id, params={"invoices": [invoice]}
-            )
-
-            updated_evaluation = await evaluation_store.read_evaluation(evaluation.id)
-            assert updated_evaluation.invoices is not None
-            assert len(updated_evaluation.invoices) == 1
-            assert updated_evaluation.invoices[0].checksum == "initial_checksum"
-            assert updated_evaluation.invoices[0].approved is True
 
 
 class DummyStore:
     VERSION = Version.from_string("2.0.0")
 
-    class DummyDocumentV1(BaseDocument):
+    class DummyDocumentV1(TypedDict, total=False):
+        id: ObjectId
+        creation_utc: str
+        version: Version.String
         name: str
 
-    class DummyDocumentV2(BaseDocument):
+    class DummyDocumentV2(TypedDict, total=False):
+        id: ObjectId
+        creation_utc: str
+        version: Version.String
         name: str
         additional_field: str
 
@@ -854,9 +95,14 @@ class DummyStore:
                 version=Version.String("2.0.0"),
                 name=doc["name"],
                 additional_field="default_value",
+                creation_utc=str(doc.get("creation_utc", "2023-01-01T00:00:00Z")),
             )
         elif doc["version"] == "2.0.0":
-            return cast(DummyStore.DummyDocumentV2, doc)
+            # Ensure creation_utc field exists for existing documents
+            doc_with_creation = dict(doc)
+            if "creation_utc" not in doc_with_creation:
+                doc_with_creation["creation_utc"] = "2023-01-01T00:00:00Z"
+            return cast(DummyStore.DummyDocumentV2, doc_with_creation)
         return None
 
     async def __aenter__(self) -> Self:
@@ -881,12 +127,246 @@ class DummyStore:
     ) -> None:
         pass
 
-    async def list_dummy(self) -> Sequence[DummyDocumentV2]:
-        return await self._collection.find({})
+    async def list_dummy(
+        self,
+        limit: Optional[int] = None,
+        cursor: Optional[Cursor] = None,
+        sort_direction: Optional[SortDirection] = None,
+    ) -> FindResult[DummyDocumentV2]:
+        if sort_direction is not None:
+            return await self._collection.find(
+                {}, limit=limit, cursor=cursor, sort_direction=sort_direction
+            )
+        return await self._collection.find({}, limit=limit, cursor=cursor)
+
+    async def create_dummy(self, name: str, additional_field: str = "default") -> DummyDocumentV2:
+        from datetime import datetime, timezone
+
+        doc = self.DummyDocumentV2(
+            id=ObjectId(f"dummy_{name}"),
+            version=Version.String("2.0.0"),
+            name=name,
+            additional_field=additional_field,
+            creation_utc=datetime.now(timezone.utc).isoformat(),
+        )
+        await self._collection.insert_one(doc)
+        return doc
+
+    async def read_dummy(self, doc_id: str) -> Optional[DummyDocumentV2]:
+        return await self._collection.find_one({"id": {"$eq": doc_id}})
+
+    async def update_dummy(self, doc_id: str, name: str) -> Optional[DummyDocumentV2]:
+        # First get the existing document to preserve other fields
+        existing = await self._collection.find_one({"id": {"$eq": doc_id}})
+        if existing is None:
+            return None
+
+        # Create updated document with changed name
+        updated_doc = self.DummyDocumentV2(
+            id=existing["id"],
+            version=existing["version"],
+            name=name,
+            additional_field=existing["additional_field"],
+            creation_utc=existing["creation_utc"],
+        )
+
+        result = await self._collection.update_one({"id": {"$eq": doc_id}}, updated_doc)
+        return result.updated_document
+
+    async def delete_dummy(self, doc_id: str) -> bool:
+        result = await self._collection.delete_one({"id": {"$eq": doc_id}})
+        return result.acknowledged and result.deleted_count > 0
 
 
-async def test_document_upgrade_during_loading_of_store(
-    context: _TestContext,
+async def test_that_dummy_documents_can_be_created_and_persisted(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    await test_mongo_client.drop_database(test_database_name)
+
+    created_dummy = None
+
+    async with MongoDocumentDatabase(
+        test_mongo_client,
+        test_database_name,
+        container[Logger],
+    ) as dummy_db:
+        async with DummyStore(dummy_db) as dummy_store:
+            created_dummy = await dummy_store.create_dummy(name="test-dummy")
+
+            dummies = await dummy_store.list_dummy()
+            assert dummies.total_count == 1
+            assert dummies.items[0] == created_dummy
+
+    assert created_dummy
+    assert created_dummy["name"] == "test-dummy"
+    assert created_dummy["additional_field"] == "default"
+
+    # Verify persistence after reopening
+    async with MongoDocumentDatabase(
+        test_mongo_client,
+        test_database_name,
+        container[Logger],
+    ) as dummy_db:
+        async with DummyStore(dummy_db) as dummy_store:
+            actual_dummies = await dummy_store.list_dummy()
+            assert actual_dummies.total_count == 1
+
+            db_dummy = actual_dummies.items[0]
+            assert db_dummy["id"] == created_dummy["id"]
+            assert db_dummy["name"] == created_dummy["name"]
+            assert db_dummy["additional_field"] == created_dummy["additional_field"]
+
+
+async def test_that_dummy_documents_can_be_retrieved_by_id(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    await test_mongo_client.drop_database(test_database_name)
+
+    created_dummy = None
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        async with DummyStore(dummy_db) as dummy_store:
+            created_dummy = await dummy_store.create_dummy(
+                name="retrievable_dummy", additional_field="custom_value"
+            )
+
+            retrieved_dummy = await dummy_store.read_dummy(created_dummy["id"])
+
+            assert created_dummy == retrieved_dummy
+
+
+async def test_that_multiple_dummy_documents_can_be_created_and_retrieved(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    await test_mongo_client.drop_database(test_database_name)
+
+    first_dummy = None
+    second_dummy = None
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        async with DummyStore(dummy_db) as dummy_store:
+            first_dummy = await dummy_store.create_dummy(
+                name="first_dummy", additional_field="first_value"
+            )
+
+            second_dummy = await dummy_store.create_dummy(
+                name="second_dummy", additional_field="second_value"
+            )
+
+    assert first_dummy
+    assert second_dummy
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        async with DummyStore(dummy_db) as dummy_store:
+            dummies = await dummy_store.list_dummy()
+            assert dummies.total_count == 2
+
+            dummy_ids = [d["id"] for d in dummies.items]
+            assert first_dummy["id"] in dummy_ids
+            assert second_dummy["id"] in dummy_ids
+
+            for dummy in dummies.items:
+                if dummy["id"] == first_dummy["id"]:
+                    assert dummy["name"] == "first_dummy"
+                    assert dummy["additional_field"] == "first_value"
+                elif dummy["id"] == second_dummy["id"]:
+                    assert dummy["name"] == "second_dummy"
+                    assert dummy["additional_field"] == "second_value"
+
+
+async def test_that_dummy_documents_can_be_updated(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        async with DummyStore(dummy_db) as dummy_store:
+            original_dummy = await dummy_store.create_dummy(
+                name="original_name", additional_field="original_value"
+            )
+
+            updated_dummy = await dummy_store.update_dummy(original_dummy["id"], "updated_name")
+
+            assert updated_dummy
+            assert updated_dummy["id"] == original_dummy["id"]
+            assert updated_dummy["name"] == "updated_name"
+            assert updated_dummy["additional_field"] == "original_value"  # Should remain unchanged
+
+            # Verify the update persisted
+            retrieved_dummy = await dummy_store.read_dummy(original_dummy["id"])
+            assert retrieved_dummy
+            assert retrieved_dummy["name"] == "updated_name"
+
+
+async def test_that_dummy_documents_can_be_deleted(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        async with DummyStore(dummy_db) as dummy_store:
+            dummy_to_delete = await dummy_store.create_dummy(
+                name="deletable_dummy", additional_field="will_be_deleted"
+            )
+
+            # Verify it exists
+            dummies_before = await dummy_store.list_dummy()
+            assert dummies_before.total_count == 1
+
+            # Delete it
+            deletion_result = await dummy_store.delete_dummy(dummy_to_delete["id"])
+            assert deletion_result is True
+
+            # Verify it's gone
+            dummies_after = await dummy_store.list_dummy()
+            assert dummies_after.total_count == 0
+
+            # Verify we can't retrieve it
+            retrieved_dummy = await dummy_store.read_dummy(dummy_to_delete["id"])
+            assert retrieved_dummy is None
+
+
+async def test_that_database_initialization_creates_collections(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        async with DummyStore(dummy_db) as dummy_store:
+            await dummy_store.create_dummy(
+                name="initialization_test", additional_field="test_value"
+            )
+
+    collections = await test_mongo_client[test_database_name].list_collection_names()
+    assert "dummy_collection" in collections
+
+
+async def test_that_document_upgrade_happens_during_loading_of_store(
+    container: Container,
     test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
@@ -898,32 +378,34 @@ async def test_document_upgrade_during_loading_of_store(
         {"id": "dummy_id", "version": "1.0.0", "name": "Test Document"}
     )
 
-    logger = context.container[Logger]
+    logger = container[Logger]
 
     async with MongoDocumentDatabase(test_mongo_client, "test_db", logger) as db:
         async with DummyStore(db, allow_migration=True) as store:
-            documents = await store.list_dummy()
+            result = await store.list_dummy()
 
-            assert len(documents) == 1
-            upgraded_doc = documents[0]
+            assert result.total_count == 1
+            upgraded_doc = result.items[0]
             assert upgraded_doc["version"] == "2.0.0"
             assert upgraded_doc["name"] == "Test Document"
             assert upgraded_doc["additional_field"] == "default_value"
 
 
 async def test_that_migration_is_not_needed_for_new_store(
-    context: _TestContext,
+    container: Container,
     test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
     await test_mongo_client.drop_database(test_database_name)
 
-    logger = context.container[Logger]
+    logger = container[Logger]
 
     async with MongoDocumentDatabase(test_mongo_client, "test_db", logger) as db:
         async with DummyStore(db, allow_migration=False):
             meta_collection = await db.get_or_create_collection(
-                name="metadata", schema=BaseDocument, document_loader=identity_loader
+                name="metadata",
+                schema=BaseDocument,
+                document_loader=identity_loader,
             )
             meta_document = await meta_collection.find_one({})
 
@@ -931,7 +413,7 @@ async def test_that_migration_is_not_needed_for_new_store(
             assert meta_document["version"] == "2.0.0"
 
 
-async def test_failed_migration_collection(
+async def test_that_failed_migrations_are_tracked_in_separate_collection(
     container: Container,
     test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
@@ -952,35 +434,35 @@ async def test_failed_migration_collection(
 
     async with MongoDocumentDatabase(test_mongo_client, "test_db", logger) as db:
         async with DummyStore(db, allow_migration=True) as store:
-            documents = await store.list_dummy()
+            result = await store.list_dummy()
 
-            assert len(documents) == 0
+            assert result.total_count == 0
 
             failed_migrations_collection = await db.get_collection(
                 "test_db_dummy_collection_failed_migrations",
                 BaseDocument,
                 identity_loader,
             )
-            failed_docs = await failed_migrations_collection.find({})
+            result_of_failed_migrations = await failed_migrations_collection.find({})
 
-            assert len(failed_docs) == 1
-            failed_doc = failed_docs[0]
+            assert result_of_failed_migrations.total_count == 1
+            failed_doc = result_of_failed_migrations.items[0]
             assert failed_doc["id"] == "invalid_dummy_id"
             assert failed_doc["version"] == "3.0"
             assert failed_doc.get("name") == "Unmigratable Document"
 
 
 async def test_that_version_mismatch_raises_error_when_migration_is_required_but_disabled(
-    context: _TestContext,
+    container: Container,
     test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
     await test_mongo_client.drop_database(test_database_name)
 
     adb = test_mongo_client[test_database_name]
-    await adb.metadata.insert_one({"id": "meta_id", "version": "NotRealVersion"})
+    await adb.metadata.insert_one({"id": "meta_id", "version": "1.5.0"})
 
-    logger = context.container[Logger]
+    logger = container[Logger]
 
     async with MongoDocumentDatabase(test_mongo_client, "test_db", logger) as db:
         with raises(MigrationRequired) as exc_info:
@@ -991,7 +473,7 @@ async def test_that_version_mismatch_raises_error_when_migration_is_required_but
 
 
 async def test_that_persistence_and_store_version_match_allows_store_to_open_when_migrate_is_disabled(
-    context: _TestContext,
+    container: Container,
     test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
@@ -1000,7 +482,7 @@ async def test_that_persistence_and_store_version_match_allows_store_to_open_whe
     adb = test_mongo_client[test_database_name]
     await adb.metadata.insert_one({"id": "meta_id", "version": "2.0.0"})
 
-    logger = context.container[Logger]
+    logger = container[Logger]
 
     async with MongoDocumentDatabase(test_mongo_client, "test_db", logger) as db:
         async with DummyStore(db, allow_migration=False):
@@ -1015,52 +497,651 @@ async def test_that_persistence_and_store_version_match_allows_store_to_open_whe
             assert meta_document["version"] == "2.0.0"
 
 
-async def test_delete_one_in_collection(
-    context: _TestContext,
+async def test_that_collections_can_be_deleted(
+    container: Container,
     test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
     await test_mongo_client.drop_database(test_database_name)
 
-    async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as guideline_db:
-        async with GuidelineDocumentStore(IdGenerator(), guideline_db) as guideline_store:
-            guideline = await guideline_store.create_guideline(
-                condition="Guideline to be deleted",
-                action="This guideline will be deleted in the test",
-                tags=[Tag.for_agent_id(context.agent_id)],
-            )
+    logger = container[Logger]
 
-            await guideline_store.delete_guideline(guideline.id)
+    async def test_document_loader(doc: BaseDocument) -> Optional[MongoTestDocument]:
+        return cast(MongoTestDocument, doc)
 
-            guidelines = list(
-                await guideline_store.list_guidelines([Tag.for_agent_id(context.agent_id)])
-            )
-            assert len(guidelines) == 0
+    async with MongoDocumentDatabase(test_mongo_client, test_database_name, logger) as mongo_db:
+        # Create a simple collection
+        await mongo_db.get_or_create_collection(
+            name="test_collection",
+            schema=MongoTestDocument,
+            document_loader=test_document_loader,
+        )
+
+        # Insert a test document using the raw pymongo client
+        await test_mongo_client[test_database_name]["test_collection"].insert_one(
+            {"id": "test_id", "version": "1.0.0", "name": "Test Document"}
+        )
+
+        collections = await test_mongo_client[test_database_name].list_collection_names()
+        assert "test_collection" in collections
+
+        await mongo_db.delete_collection("test_collection")
+
+        collections = await test_mongo_client[test_database_name].list_collection_names()
+        assert "test_collection" not in collections
 
 
-async def test_delete_collection(
-    context: _TestContext,
+async def test_that_dummy_documents_can_be_listed_with_pagination_limit(
+    container: Container,
     test_mongo_client: AsyncMongoClient[Any],
     test_database_name: str,
 ) -> None:
+    """Test that dummy documents can be listed with a limit for pagination."""
     await test_mongo_client.drop_database(test_database_name)
 
     async with MongoDocumentDatabase(
-        test_mongo_client, test_database_name, context.container[Logger]
-    ) as mongo_db:
-        async with GuidelineDocumentStore(IdGenerator(), mongo_db) as guideline_store:
-            await guideline_store.create_guideline(
-                condition="Test collection deletion",
-                action="This collection will be deleted",
-                tags=[Tag.for_agent_id(context.agent_id)],
-            )
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        async with DummyStore(dummy_db) as dummy_store:
+            # Create multiple documents
+            for i in range(5):
+                await dummy_store.create_dummy(f"doc{i}", f"value{i}")
 
-        collections = await test_mongo_client[test_database_name].list_collection_names()
-        assert "guidelines" in collections
+            # List with limit
+            result = await dummy_store.list_dummy(limit=3)
 
-        await mongo_db.delete_collection("guidelines")
+            assert len(result.items) == 3
+            assert result.total_count == 4  # 3 returned items + 1 extra for has_more check
+            assert result.has_more
+            assert result.next_cursor is not None
 
-        collections = await test_mongo_client[test_database_name].list_collection_names()
-        assert "guidelines" not in collections
+
+async def test_that_dummy_documents_are_sorted_by_creation_time_descending(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that dummy documents are automatically sorted by creation_utc in descending order."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        async with DummyStore(dummy_db) as dummy_store:
+            # Create documents with small delays to ensure different timestamps
+            import asyncio
+
+            await dummy_store.create_dummy("first", "field1")
+            await asyncio.sleep(0.01)
+            await dummy_store.create_dummy("second", "field2")
+            await asyncio.sleep(0.01)
+            await dummy_store.create_dummy("third", "field3")
+
+            result = await dummy_store.list_dummy(sort_direction=SortDirection.DESC)
+
+            assert len(result.items) == 3
+            # Most recent first (descending order)
+            assert result.items[0]["name"] == "third"
+            assert result.items[1]["name"] == "second"
+            assert result.items[2]["name"] == "first"
+
+
+async def test_that_dummy_documents_can_be_paginated_using_cursor(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that dummy documents can be paginated using cursor-based pagination."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        async with DummyStore(dummy_db) as dummy_store:
+            # Create documents with small delays to ensure different timestamps
+            import asyncio
+
+            doc1 = await dummy_store.create_dummy("first", "field1")
+            await asyncio.sleep(0.01)
+            await dummy_store.create_dummy("second", "field2")
+            await asyncio.sleep(0.01)
+            await dummy_store.create_dummy("third", "field3")
+
+            # Create cursor from doc1 (the oldest document, which will be first in asc order)
+            # This should return the documents that come after it in the sorted list
+            cursor = Cursor(creation_utc=doc1["creation_utc"], id=doc1["id"])
+
+            # Find documents after cursor
+            result = await dummy_store.list_dummy(cursor=cursor)
+
+            assert len(result.items) == 2
+            # Should get the documents created after doc1 in ascending order (second, then third)
+            assert result.items[0]["name"] == "second"
+            assert result.items[1]["name"] == "third"
+
+
+async def test_that_dummy_documents_support_multi_page_cursor_pagination(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that dummy documents support cursor-based pagination across multiple pages."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        async with DummyStore(dummy_db) as dummy_store:
+            # Create 5 dummy documents with small delays
+            import asyncio
+
+            docs = []
+            for i in range(5):
+                doc = await dummy_store.create_dummy(f"doc{i:02d}", f"field{i}")
+                docs.append(doc)
+                if i < 4:  # Don't sleep after the last one
+                    await asyncio.sleep(0.01)
+
+            # First page: get first 2 documents
+            result1 = await dummy_store.list_dummy(limit=2)
+
+            assert len(result1.items) == 2
+            assert result1.has_more
+            assert result1.next_cursor is not None
+
+            # Second page: use cursor from first page
+            result2 = await dummy_store.list_dummy(limit=2, cursor=result1.next_cursor)
+
+            assert len(result2.items) == 2
+            assert result2.has_more
+            assert result2.next_cursor is not None
+
+            # Third page: use cursor from second page
+            result3 = await dummy_store.list_dummy(limit=2, cursor=result2.next_cursor)
+
+            assert len(result3.items) == 1
+            assert not result3.has_more
+            assert result3.next_cursor is None
+
+
+async def test_that_all_operations_can_be_cleaned_up_properly(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that we properly clean up all operations in each test."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        async with DummyStore(dummy_db) as dummy_store:
+            # Create some dummy data
+            dummy1 = await dummy_store.create_dummy("test1", "value1")
+            dummy2 = await dummy_store.create_dummy("test2", "value2")
+            await dummy_store.create_dummy("test3", "value3")
+
+            # Verify creation
+            dummies = await dummy_store.list_dummy()
+            assert dummies.total_count == 3
+
+            # Update one
+            updated = await dummy_store.update_dummy(dummy1["id"], "updated_name")
+            assert updated
+            assert updated["name"] == "updated_name"
+
+            # Delete one
+            deleted = await dummy_store.delete_dummy(dummy2["id"])
+            assert deleted is True
+
+            # Verify final state has 2 items
+            final_dummies = await dummy_store.list_dummy()
+            assert final_dummies.total_count == 2
+
+            # Clean up all remaining items
+            for dummy in final_dummies.items:
+                await dummy_store.delete_dummy(dummy["id"])
+
+            # Verify all cleaned up
+            after_cleanup = await dummy_store.list_dummy()
+            assert after_cleanup.total_count == 0
+
+    # Verify we can drop the database completely
+    await test_mongo_client.drop_database(test_database_name)
+
+    # After drop, database should not exist or be empty
+    try:
+        collections_after_drop = await test_mongo_client[test_database_name].list_collection_names()
+        assert len(collections_after_drop) == 0
+    except Exception:
+        # Database might not exist anymore, which is also acceptable
+        pass
+
+
+async def test_that_documents_can_be_sorted_in_ascending_order(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that documents can be sorted by creation_utc in ascending order (oldest first)."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async def mongo_test_document_loader(doc: BaseDocument) -> Optional[MongoTestDocument]:
+        return cast(MongoTestDocument, doc)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        collection = await dummy_db.get_or_create_collection(
+            name="test_collection",
+            schema=MongoTestDocument,
+            document_loader=mongo_test_document_loader,
+        )
+
+        # Create documents with different timestamps
+        doc1 = MongoTestDocument(
+            id=ObjectId("doc1"),
+            creation_utc="2023-01-01T10:00:00Z",
+            version=Version.String("1.0.0"),
+            name="first",
+        )
+        doc2 = MongoTestDocument(
+            id=ObjectId("doc2"),
+            creation_utc="2023-01-01T11:00:00Z",
+            version=Version.String("1.0.0"),
+            name="second",
+        )
+        doc3 = MongoTestDocument(
+            id=ObjectId("doc3"),
+            creation_utc="2023-01-01T12:00:00Z",
+            version=Version.String("1.0.0"),
+            name="third",
+        )
+
+        await collection.insert_one(doc1)
+        await collection.insert_one(doc2)
+        await collection.insert_one(doc3)
+
+        # Test ascending sort (oldest first)
+        result = await collection.find({}, sort_direction=SortDirection.ASC)
+
+        assert len(result.items) == 3
+        assert result.items[0]["name"] == "first"  # Oldest
+        assert result.items[1]["name"] == "second"  # Middle
+        assert result.items[2]["name"] == "third"  # Newest
+
+
+async def test_that_documents_can_be_sorted_in_descending_order(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that documents can be sorted by creation_utc in descending order (newest first)."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        collection = await dummy_db.get_or_create_collection(
+            name="test_collection",
+            schema=MongoTestDocument,
+            document_loader=identity_loader_for(MongoTestDocument),
+        )
+
+        # Create documents with different timestamps
+        doc1 = MongoTestDocument(
+            id=ObjectId("doc1"),
+            creation_utc="2023-01-01T10:00:00Z",
+            version=Version.String("1.0.0"),
+            name="first",
+        )
+        doc2 = MongoTestDocument(
+            id=ObjectId("doc2"),
+            creation_utc="2023-01-01T11:00:00Z",
+            version=Version.String("1.0.0"),
+            name="second",
+        )
+        doc3 = MongoTestDocument(
+            id=ObjectId("doc3"),
+            creation_utc="2023-01-01T12:00:00Z",
+            version=Version.String("1.0.0"),
+            name="third",
+        )
+
+        await collection.insert_one(doc1)
+        await collection.insert_one(doc2)
+        await collection.insert_one(doc3)
+
+        # Test descending sort (newest first)
+        result = await collection.find({}, sort_direction=SortDirection.DESC)
+
+        assert len(result.items) == 3
+        assert result.items[0]["name"] == "third"  # Newest
+        assert result.items[1]["name"] == "second"  # Middle
+        assert result.items[2]["name"] == "first"  # Oldest
+
+
+async def test_that_cursor_pagination_works_with_ascending_sort(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that cursor-based pagination works correctly with ascending sort."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        collection = await dummy_db.get_or_create_collection(
+            name="test_collection",
+            schema=MongoTestDocument,
+            document_loader=identity_loader_for(MongoTestDocument),
+        )
+
+        # Create documents with different timestamps
+        doc1 = MongoTestDocument(
+            id=ObjectId("doc1"),
+            creation_utc="2023-01-01T10:00:00Z",
+            version=Version.String("1.0.0"),
+            name="first",
+        )
+        doc2 = MongoTestDocument(
+            id=ObjectId("doc2"),
+            creation_utc="2023-01-01T11:00:00Z",
+            version=Version.String("1.0.0"),
+            name="second",
+        )
+        doc3 = MongoTestDocument(
+            id=ObjectId("doc3"),
+            creation_utc="2023-01-01T12:00:00Z",
+            version=Version.String("1.0.0"),
+            name="third",
+        )
+
+        await collection.insert_one(doc1)
+        await collection.insert_one(doc2)
+        await collection.insert_one(doc3)
+
+        # Get first page with ascending sort
+        first_page = await collection.find({}, limit=1, sort_direction=SortDirection.ASC)
+
+        assert len(first_page.items) == 1
+        assert first_page.items[0]["name"] == "first"  # Oldest first
+        assert first_page.has_more is True
+        assert first_page.next_cursor is not None
+
+        # Get second page using cursor
+        second_page = await collection.find(
+            {}, limit=1, cursor=first_page.next_cursor, sort_direction=SortDirection.ASC
+        )
+
+        assert len(second_page.items) == 1
+        assert second_page.items[0]["name"] == "second"  # Next oldest
+        assert second_page.has_more is True
+        assert second_page.next_cursor is not None
+
+        # Get third page using cursor
+        third_page = await collection.find(
+            {}, limit=1, cursor=second_page.next_cursor, sort_direction=SortDirection.ASC
+        )
+
+        assert len(third_page.items) == 1
+        assert third_page.items[0]["name"] == "third"  # Newest
+        assert third_page.has_more is False
+        assert third_page.next_cursor is None
+
+
+async def test_that_cursor_pagination_works_with_descending_sort(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that cursor-based pagination works correctly with descending sort."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        collection = await dummy_db.get_or_create_collection(
+            name="test_collection",
+            schema=MongoTestDocument,
+            document_loader=identity_loader_for(MongoTestDocument),
+        )
+
+        # Create documents with different timestamps
+        doc1 = MongoTestDocument(
+            id=ObjectId("doc1"),
+            creation_utc="2023-01-01T10:00:00Z",
+            version=Version.String("1.0.0"),
+            name="first",
+        )
+        doc2 = MongoTestDocument(
+            id=ObjectId("doc2"),
+            creation_utc="2023-01-01T11:00:00Z",
+            version=Version.String("1.0.0"),
+            name="second",
+        )
+        doc3 = MongoTestDocument(
+            id=ObjectId("doc3"),
+            creation_utc="2023-01-01T12:00:00Z",
+            version=Version.String("1.0.0"),
+            name="third",
+        )
+
+        await collection.insert_one(doc1)
+        await collection.insert_one(doc2)
+        await collection.insert_one(doc3)
+
+        # Get first page with descending sort
+        first_page = await collection.find({}, limit=1, sort_direction=SortDirection.DESC)
+
+        assert len(first_page.items) == 1
+        assert first_page.items[0]["name"] == "third"  # Newest first
+        assert first_page.has_more is True
+        assert first_page.next_cursor is not None
+
+        # Get second page using cursor
+        second_page = await collection.find(
+            {}, limit=1, cursor=first_page.next_cursor, sort_direction=SortDirection.DESC
+        )
+
+        assert len(second_page.items) == 1
+        assert second_page.items[0]["name"] == "second"  # Next newest
+        assert second_page.has_more is True
+        assert second_page.next_cursor is not None
+
+        # Get third page using cursor
+        third_page = await collection.find(
+            {}, limit=1, cursor=second_page.next_cursor, sort_direction=SortDirection.DESC
+        )
+
+        assert len(third_page.items) == 1
+        assert third_page.items[0]["name"] == "first"  # Oldest
+        assert third_page.has_more is False
+        assert third_page.next_cursor is None
+
+
+async def test_that_default_sort_direction_is_ascending(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that the default sort direction is ascending (oldest first)."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        collection = await dummy_db.get_or_create_collection(
+            name="test_collection",
+            schema=MongoTestDocument,
+            document_loader=identity_loader_for(MongoTestDocument),
+        )
+
+        # Create documents with different timestamps
+        doc1 = MongoTestDocument(
+            id=ObjectId("doc1"),
+            creation_utc="2023-01-01T10:00:00Z",
+            version=Version.String("1.0.0"),
+            name="first",
+        )
+        doc2 = MongoTestDocument(
+            id=ObjectId("doc2"),
+            creation_utc="2023-01-01T11:00:00Z",
+            version=Version.String("1.0.0"),
+            name="second",
+        )
+
+        await collection.insert_one(doc1)
+        await collection.insert_one(doc2)
+
+        # Test default sort (should be ascending)
+        result = await collection.find({})
+
+        assert len(result.items) == 2
+        assert result.items[0]["name"] == "first"  # Older document first (ascending)
+        assert result.items[1]["name"] == "second"  # Newer document second
+
+
+async def test_that_creation_utc_index_is_created_for_new_collections(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that creation_utc field is automatically indexed when creating a new collection."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        collection = await dummy_db.create_collection(
+            name="test_new_collection",
+            schema=MongoTestDocument,
+        )
+
+        # Access the underlying PyMongo collection to check indexes
+        from parlant.adapters.db.mongo_db import MongoDocumentCollection
+
+        mongo_collection = cast(MongoDocumentCollection[MongoTestDocument], collection)
+
+        # Get index information
+        indexes = await mongo_collection._collection.index_information()
+
+        # Check that creation_utc index exists
+        creation_utc_index_found = False
+        for index_name, index_info in indexes.items():
+            if index_name != "_id_":  # Skip the default _id index
+                # Check if this index includes creation_utc field
+                index_keys = index_info.get("key", [])
+                for field_name, _ in index_keys:
+                    if field_name == "creation_utc":
+                        creation_utc_index_found = True
+                        break
+
+        assert creation_utc_index_found, "creation_utc index should be created for new collections"
+
+
+async def test_that_creation_utc_index_is_created_for_existing_collections(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that creation_utc field is automatically indexed when accessing existing collections."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    # First, create a collection directly with PyMongo (without our wrapper)
+    database = test_mongo_client[test_database_name]
+    raw_collection = database["test_existing_collection"]
+
+    # Insert a document to ensure the collection exists
+    await raw_collection.insert_one(
+        {
+            "id": "test_doc",
+            "creation_utc": "2023-01-01T00:00:00Z",
+            "version": "1.0.0",
+            "name": "test",
+        }
+    )
+
+    # Verify there's no creation_utc index initially
+    initial_indexes = await raw_collection.index_information()
+    creation_utc_index_exists_initially = any(
+        any(field_name == "creation_utc" for field_name, _ in index_info.get("key", []))
+        for index_name, index_info in initial_indexes.items()
+        if index_name != "_id_"
+    )
+    assert not creation_utc_index_exists_initially, "creation_utc index should not exist initially"
+
+    # Now access the collection through our wrapper
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        collection = await dummy_db.get_collection(
+            name="test_existing_collection",
+            schema=MongoTestDocument,
+            document_loader=identity_loader_for(MongoTestDocument),
+        )
+
+        # Access the underlying PyMongo collection to check indexes
+        from parlant.adapters.db.mongo_db import MongoDocumentCollection
+
+        mongo_collection = cast(MongoDocumentCollection[MongoTestDocument], collection)
+
+        # Get index information after our wrapper processed the collection
+        indexes = await mongo_collection._collection.index_information()
+
+        # Check that creation_utc index now exists
+        creation_utc_index_found = False
+        for index_name, index_info in indexes.items():
+            if index_name != "_id_":  # Skip the default _id index
+                # Check if this index includes creation_utc field
+                index_keys = index_info.get("key", [])
+                for field_name, _ in index_keys:
+                    if field_name == "creation_utc":
+                        creation_utc_index_found = True
+                        break
+
+        assert creation_utc_index_found, (
+            "creation_utc index should be created for existing collections"
+        )
+
+
+async def test_that_creation_utc_index_is_created_for_get_or_create_collections(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    """Test that creation_utc field is automatically indexed when using get_or_create_collection."""
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        collection = await dummy_db.get_or_create_collection(
+            name="test_get_or_create_collection",
+            schema=MongoTestDocument,
+            document_loader=identity_loader_for(MongoTestDocument),
+        )
+
+        # Access the underlying PyMongo collection to check indexes
+        from parlant.adapters.db.mongo_db import MongoDocumentCollection
+
+        mongo_collection = cast(MongoDocumentCollection[MongoTestDocument], collection)
+
+        # Get index information
+        indexes = await mongo_collection._collection.index_information()
+
+        # Check that creation_utc index exists
+        creation_utc_index_found = False
+        for index_name, index_info in indexes.items():
+            if index_name != "_id_":  # Skip the default _id index
+                # Check if this index includes creation_utc field
+                index_keys = index_info.get("key", [])
+                for field_name, _ in index_keys:
+                    if field_name == "creation_utc":
+                        creation_utc_index_found = True
+                        break
+
+        assert creation_utc_index_found, (
+            "creation_utc index should be created for get_or_create collections"
+        )

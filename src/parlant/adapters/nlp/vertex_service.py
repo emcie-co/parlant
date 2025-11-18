@@ -49,7 +49,7 @@ from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.moderation import ModerationService, NoModeration
-from parlant.core.nlp.service import NLPService
+from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
 from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
@@ -743,7 +743,9 @@ class VertexAIService(NLPService):
         return model_name
 
     @override
-    async def get_schematic_generator(self, t: type[T]) -> SchematicGenerator[T]:
+    async def get_schematic_generator(
+        self, t: type[T], hints: SchematicGeneratorHints = {}
+    ) -> SchematicGenerator[T]:
         """Get a schematic generator for the specified type."""
         provider = get_model_provider(self.model_name)
 
@@ -843,7 +845,7 @@ class VertexAIService(NLPService):
             raise ValueError(f"Unsupported model: {self.model_name}")
 
     @override
-    async def get_embedder(self) -> Embedder:
+    async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         """Get an embedder for text embeddings using Google Gen AI."""
         return VertexTextEmbedding004(logger=self._logger, meter=self._meter)
 

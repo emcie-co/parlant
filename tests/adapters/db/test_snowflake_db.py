@@ -15,10 +15,12 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Mapping, cast
 from unittest.mock import AsyncMock
 
 import pytest
+from pytest import fixture
 
 from parlant.adapters.db.snowflake_db import (
     SnowflakeDocumentCollection,
@@ -42,6 +44,13 @@ _SNOWFLAKE_PARAMS: Mapping[str, Any] = {
     "database": "PARLANT",
     "schema": "PUBLIC",
 }
+
+
+@fixture(scope="module", autouse=True)
+def require_snowflake_test_flag() -> None:
+    if not os.environ.get("TEST_SNOWFLAKE_SERVER"):
+        print("could not find `TEST_SNOWFLAKE_SERVER` in environment, skipping snowflake tests...")
+        pytest.skip("Snowflake tests require TEST_SNOWFLAKE_SERVER env variable")
 
 
 def _make_database() -> SnowflakeDocumentDatabase:

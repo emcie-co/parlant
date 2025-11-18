@@ -130,13 +130,14 @@ async def shutdown_snowflake() -> None:
 
 ```python
 async def main() -> None:
-    async with p.Server(
-        nlp_service=p.NLPServices.snowflake,
-        configure_container=configure_container,
-    ) as server:
-        ...
-
-    await shutdown_snowflake()
+    try:
+        async with p.Server(
+            nlp_service=p.NLPServices.snowflake,
+            configure_container=configure_container,
+        ) as server:
+            ...
+    finally:
+        await shutdown_snowflake()
 ```
 
 ## What Gets Persisted?

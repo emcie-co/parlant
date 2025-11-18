@@ -305,7 +305,7 @@ async def _build_mermaid_chart(
     style_lines: list[str] = []
 
     def escape_mermaid(s: str) -> str:
-        def convert_match(match):
+        def convert_match(match: re.Match[str]) -> str:
             number = match.group(1)
             if number.startswith("x"):
                 dec_num = int(number[1:], 16)  # convert hex to decimal

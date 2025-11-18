@@ -100,7 +100,7 @@ JourneyMermaidChartDTO: TypeAlias = Annotated[
     str,
     Field(
         description=(
-            "Mermaid stateDiagram V2 definition (stateDiagram). " "Render with a Mermaid renderer."
+            "Mermaid stateDiagram V2 definition (stateDiagram). Render with a Mermaid renderer."
         ),
         examples=[
             """

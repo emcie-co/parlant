@@ -811,7 +811,7 @@ def test_that_many_guidelines_which_are_all_contradictory_are_detected(
     contradictory_guidelines = [
         GuidelineContent(
             condition="a client asks for the price of a television",
-            action=f"reply that the price is {i*10}$",
+            action=f"reply that the price is {i * 10}$",
         )
         for i in range(n)
     ]

@@ -370,7 +370,7 @@ async def check_guideline(
     )
     assert (
         is_agent_intention == result.is_agent_intention
-    ), f"""Guideline incorrectly marked as {'not ' if is_agent_intention else ''} agent's intention:
+    ), f"""Guideline incorrectly marked as {"not " if is_agent_intention else ""} agent's intention:
 Condition: {guideline.condition}
 Action: {guideline.action}"""
 

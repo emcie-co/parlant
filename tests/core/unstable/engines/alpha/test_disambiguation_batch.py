@@ -346,7 +346,9 @@ async def base_test_that_ambiguity_detected_with_relevant_guidelines(
                     assert await nlp_test(
                         context=f"Here's a clarification message in the form of ask the customer something: {clarification}",
                         condition=f"The message contains {clarification_must_contain}",
-                    ), f"clarification message: '{clarification}', expected to contain: '{clarification_must_contain}'"
+                    ), (
+                        f"clarification message: '{clarification}', expected to contain: '{clarification_must_contain}'"
+                    )
 
 
 # TODO : allow skipping guidelines

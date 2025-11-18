@@ -319,6 +319,7 @@ async def _build_mermaid_chart(
                 return f"#{number};"  # keep decimal as is
 
         html_escaped = escape(s, quote=True)
+
         # apply regex replacement to fix numeric character references for mermaid syntax
         return re.sub(r"&#(x[0-9a-fA-F]+|[0-9]+);", convert_match, html_escaped)
 

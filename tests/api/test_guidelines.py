@@ -171,7 +171,7 @@ async def test_legacy_that_an_unapproved_invoice_is_rejected(
     }
 
     response = await async_client.post("/agents/{agent_id}/guidelines", json=request_data)
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     response_data = response.json()
     assert "detail" in response_data
@@ -527,7 +527,7 @@ async def test_legacy_that_an_indirect_connection_cannot_be_removed_from_a_guide
         },
     )
 
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     stored_relationships = await container[RelationshipStore].list_relationships(
         kind=RelationshipKind.ENTAILMENT,

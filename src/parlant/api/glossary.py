@@ -154,7 +154,7 @@ def create_legacy_router(
                 "description": "Term successfully created. Returns the complete term object including generated ID",
                 "content": common.example_json_content(legacy_term_example),
             },
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in request parameters"
             },
         },
@@ -297,7 +297,7 @@ def create_legacy_router(
             status.HTTP_404_NOT_FOUND: {
                 "description": "Term not found. The specified `agent_id` or `term_id` does not exist"
             },
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in update parameters"
             },
         },

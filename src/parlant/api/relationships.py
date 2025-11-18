@@ -486,7 +486,7 @@ def create_router(
             entity_id = ToolId(service_name, tool_name)
         else:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Either `guideline_id` or `tag_id` or `tool_id` must be provided",
             )
 

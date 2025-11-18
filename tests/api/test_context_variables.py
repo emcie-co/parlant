@@ -181,7 +181,7 @@ async def test_legacy_that_invalid_freshness_rules_raise_error_when_updating_con
         },
     )
 
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     error_response = response.json()
     assert "detail" in error_response
     assert (
@@ -210,7 +210,7 @@ async def test_legacy_that_invalid_freshness_rules_raise_error_when_creating_con
         },
     )
 
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     error_response = response.json()
     assert "detail" in error_response
     assert (

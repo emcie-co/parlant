@@ -137,7 +137,7 @@ class LegacyContextVariableCreationParamsDTO(
                 croniter(value)
             except Exception:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="the provided freshness_rules. contain an invalid cron expression.",
                 )
         return value
@@ -173,7 +173,7 @@ class LegacyContextVariableUpdateParamsDTO(
                 croniter(value)
             except Exception:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="the provided freshness_rules. contain an invalid cron expression.",
                 )
         return value
@@ -344,7 +344,7 @@ def create_legacy_router(
                 "content": common.example_json_content(legacy_context_variable_example),
             },
             status.HTTP_404_NOT_FOUND: {"description": "Agent or tool not found"},
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in request parameters"
             },
         },
@@ -403,7 +403,7 @@ def create_legacy_router(
                 "content": common.example_json_content(legacy_context_variable_example),
             },
             status.HTTP_404_NOT_FOUND: {"description": "Variable or agent not found"},
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in request parameters"
             },
         },
@@ -597,7 +597,7 @@ def create_legacy_router(
                 "content": common.example_json_content(context_variable_value_example),
             },
             status.HTTP_404_NOT_FOUND: {"description": "Variable, agent, or key not found"},
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in request parameters"
             },
         },
@@ -701,7 +701,7 @@ def create_legacy_router(
                 "content": common.example_json_content(legacy_context_variable_read_result_example),
             },
             status.HTTP_404_NOT_FOUND: {"description": "Variable or agent not found"},
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in request parameters"
             },
         },

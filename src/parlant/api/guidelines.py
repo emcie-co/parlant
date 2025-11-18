@@ -397,19 +397,19 @@ class _GuidelineRelationship:
 def _invoice_dto_to_invoice(dto: LegacyInvoiceDTO) -> Invoice:
     if dto.payload.kind != PayloadKindDTO.GUIDELINE:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Only guideline invoices are supported here",
         )
 
     if not dto.approved:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Unapproved invoice",
         )
 
     if not dto.payload.guideline:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Missing guideline payload",
         )
 
@@ -432,7 +432,7 @@ def _invoice_dto_to_invoice(dto: LegacyInvoiceDTO) -> Invoice:
 
     if not dto.data:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Missing invoice data",
         )
 
@@ -474,7 +474,7 @@ def _check_kind_dto_to_check_kind(
 def _invoice_data_dto_to_invoice_data(dto: LegacyInvoiceDataDTO) -> InvoiceGuidelineData:
     if not dto.guideline:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Missing guideline invoice data",
         )
 
@@ -515,7 +515,7 @@ def _invoice_data_dto_to_invoice_data(dto: LegacyInvoiceDataDTO) -> InvoiceGuide
         )
     except Exception:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Invalid invoice guideline data",
         )
 
@@ -677,7 +677,7 @@ def create_legacy_router(
                 "content": common.example_json_content(legacy_guideline_creation_result_example),
             },
             status.HTTP_404_NOT_FOUND: {"description": "Agent not found"},
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in request parameters"
             },
         },
@@ -897,7 +897,7 @@ def create_legacy_router(
             status.HTTP_404_NOT_FOUND: {
                 "description": "Guideline, agent, or referenced tool not found"
             },
-            status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Invalid connection rules or validation error in update parameters"
             },
         },
@@ -952,7 +952,7 @@ def create_legacy_router(
             for req in params.connections.add:
                 if req.source == req.target:
                     raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                         detail="A guideline cannot be connected to itself",
                     )
                 elif req.source == guideline.id:
@@ -1002,7 +1002,7 @@ def create_legacy_router(
                     await relationship_store.delete_relationship(found_relationship.id)
                 else:
                     raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                         detail="Only direct connections may be removed",
                     )
 

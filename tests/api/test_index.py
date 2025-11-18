@@ -400,7 +400,7 @@ async def test_that_an_evaluation_that_failed_due_to_duplicate_guidelines_payloa
         },
     )
 
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     data = response.json()
 
     assert "detail" in data
@@ -447,7 +447,7 @@ async def test_that_an_evaluation_that_failed_due_to_guideline_duplication_with_
         },
     )
 
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     data = response.json()
 
     assert (
@@ -464,7 +464,7 @@ async def test_that_an_error_is_returned_when_no_payloads_are_provided(
         "/index/evaluations", json={"agent_id": agent_id, "payloads": []}
     )
 
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     data = response.json()
 
     assert "detail" in data

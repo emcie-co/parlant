@@ -307,7 +307,7 @@ async def _build_mermaid_chart(
     def escape_mermaid(s: str) -> str:
         def convert_match(match):
             number = match.group(1)
-            if number.startswith('x'):
+            if number.startswith("x"):
                 dec_num = int(number[1:], 16)  # convert hex to decimal
                 return f"#{dec_num};"
             else:
@@ -326,7 +326,7 @@ async def _build_mermaid_chart(
             return
         declared.add(nid)
         m = mermaid_id(nid)
-        state_decls.append(f"    state \"{escape_mermaid(lbl)}\" as {m}")
+        state_decls.append(f'    state "{escape_mermaid(lbl)}" as {m}')
         node = node_by_id.get(nid)
         if node and _is_tool_node(node):
             style_lines.append(f"style {m} {TOOL_STYLE}")

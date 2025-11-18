@@ -107,6 +107,7 @@ from parlant.core.engines.alpha.optimization_policy import (
 from parlant.core.engines.alpha.perceived_performance_policy import (
     BasicPerceivedPerformancePolicy,
     PerceivedPerformancePolicy,
+    PerceivedPerformancePolicyProvider,
 )
 from parlant.core.engines.alpha.relational_guideline_resolver import RelationalGuidelineResolver
 from parlant.core.engines.alpha.tool_calling.overlapping_tools_batch import (
@@ -573,6 +574,7 @@ async def setup_container() -> AsyncIterator[Container]:
     _define_singleton(c, NoMatchResponseProvider, BasicNoMatchResponseProvider)
     _define_singleton(c, MessageGenerator, MessageGenerator)
     _define_singleton(c, PerceivedPerformancePolicy, BasicPerceivedPerformancePolicy)
+    _define_singleton(c, PerceivedPerformancePolicyProvider, PerceivedPerformancePolicyProvider)
     _define_singleton(c, OptimizationPolicy, BasicOptimizationPolicy)
 
     _define_singleton(c, GuidelineActionProposer, GuidelineActionProposer)

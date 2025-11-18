@@ -55,13 +55,15 @@ class MongoDocumentDatabase(DocumentDatabase):
         if self._database is None:
             raise Exception("underlying database missing.")
 
-        self._collections[name] = MongoDocumentCollection(
-            self,
-            await self._database.create_collection(
-                name=name,
-                codec_options=CodecOptions(document_class=schema),
-            ),
+        collection = await self._database.create_collection(
+            name=name,
+            codec_options=CodecOptions(document_class=schema),
         )
+
+        # Create index on creation_utc field
+        await collection.create_index([("creation_utc", 1)])
+
+        self._collections[name] = MongoDocumentCollection(self, collection)
         return self._collections[name]
 
     async def get_collection(
@@ -115,6 +117,9 @@ class MongoDocumentDatabase(DocumentDatabase):
                     f"failed to load document '{doc}' with error: {e}. Added to `{failed_migrations_collection_name}` collection."
                 )
                 await failed_migration_collection.insert_one(doc)
+
+        # Create index on creation_utc field
+        await result_collection.create_index([("creation_utc", 1)])
 
         self._collections[name] = MongoDocumentCollection(self, result_collection)
         return self._collections[name]

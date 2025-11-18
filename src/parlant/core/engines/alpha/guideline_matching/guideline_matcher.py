@@ -21,7 +21,7 @@ from typing import Optional, Sequence
 
 from parlant.core import async_utils
 from parlant.core.capabilities import Capability
-from parlant.core.engines.alpha.loaded_context import EngineContext
+from parlant.core.engines.alpha.engine_context import EngineContext
 from parlant.core.journeys import Journey, JourneyId
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
@@ -272,7 +272,7 @@ class GuidelineMatcher:
 
         return GuidelineMatchingResult(
             total_duration=t_end - t_start,
-            batch_count=len(batches[0]),
+            batch_count=sum(map(len, batches)),
             batch_generations=[result.generation_info for result in batch_results],
             batches=result_batches,
             matches=matches,

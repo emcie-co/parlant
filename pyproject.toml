@@ -43,7 +43,7 @@ opentelemetry-api = "^1.37.0"
 opentelemetry-exporter-otlp = "^1.37.0"
 opentelemetry-instrumentation = "^0.58b0"
 opentelemetry-sdk = "^1.37.0"
-parlant-client = { git = "https://github.com/emcie-co/parlant-client-python.git", tag = "develop.1758804527" }
+parlant-client = { git = "https://github.com/emcie-co/parlant-client-python.git", tag = "develop.1763407089" }
 python = "^3.10"
 python-dateutil = "^2.8.2"
 python-dotenv = "^1.0.1"
@@ -53,7 +53,7 @@ semver = "^3.0.2"
 starlette = "^0.49.0" # Specified for fix vulnerability of lower versions. Can be removed in case of future conflicts.
 structlog = "^24.4.0"
 tabulate = "^0.9.0"
-tiktoken = "^0.11"
+tiktoken = "^0.12"
 tokenizers = "^0.21"
 toml = "^0.10.2"
 types-aiofiles = "^24.1.0.20240626"

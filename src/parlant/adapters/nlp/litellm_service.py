@@ -31,7 +31,7 @@ from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.tokenization import EstimatingTokenizer
-from parlant.core.nlp.service import NLPService
+from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
     T,
@@ -74,7 +74,7 @@ class LiteLLMSchematicGenerator(BaseSchematicGenerator[T]):
         "max_tokens",
         "logit_bias",
         "adapter_id",
-        "adapter_soruce",
+        "adapter_source",
     ]
     supported_hints = supported_litellm_params + ["strict"]
 
@@ -242,11 +242,13 @@ Please set LITELLM_PROVIDER_API_KEY in your environment before running Parlant.
         )
 
     @override
-    async def get_schematic_generator(self, t: type[T]) -> LiteLLMSchematicGenerator[T]:
+    async def get_schematic_generator(
+        self, t: type[T], hints: SchematicGeneratorHints = {}
+    ) -> LiteLLMSchematicGenerator[T]:
         return LiteLLM_Default[t](self._logger, self._meter, self._base_url, self._model_name)  # type: ignore
 
     @override
-    async def get_embedder(self) -> Embedder:
+    async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         return JinaAIEmbedder(self._logger, self._meter)
 
     @override

@@ -42,7 +42,7 @@ from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.loggers import Logger
 from parlant.core.nlp.moderation import ModerationService, NoModeration
 from parlant.core.nlp.policies import policy, retry
-from parlant.core.nlp.service import NLPService
+from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 
 
@@ -220,11 +220,13 @@ Please consider setting the following your environment before running Parlant.
         self._meter = meter
 
     @override
-    async def get_schematic_generator(self, t: type[T]) -> AnthropicBedrockAISchematicGenerator[T]:
+    async def get_schematic_generator(
+        self, t: type[T], hints: SchematicGeneratorHints = {}
+    ) -> AnthropicBedrockAISchematicGenerator[T]:
         return Claude_Sonnet_3_5[t](self._logger, self._meter)  # type: ignore
 
     @override
-    async def get_embedder(self) -> Embedder:
+    async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         return JinaAIEmbedder(self._logger, self._meter)
 
     @override

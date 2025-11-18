@@ -47,7 +47,7 @@ from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
-from parlant.core.nlp.service import NLPService
+from parlant.core.nlp.service import EmbedderHints, ModelSize, NLPService, SchematicGeneratorHints
 from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
@@ -80,7 +80,13 @@ RATE_LIMIT_ERROR_MESSAGE = (
 class OpenAIEstimatingTokenizer(EstimatingTokenizer):
     def __init__(self, model_name: str) -> None:
         self.model_name = model_name
-        self.encoding = tiktoken.encoding_for_model(model_name)
+
+        if "5.1" in model_name:
+            model_name_query = model_name.replace("5.1", "5")
+        else:
+            model_name_query = model_name
+
+        self.encoding = tiktoken.encoding_for_model(model_name_query)
 
     @override
     async def estimate_token_count(self, prompt: str) -> int:
@@ -318,6 +324,61 @@ class GPT_4o_Mini(OpenAISchematicGenerator[T]):
         return 128 * 1024
 
 
+class GPT_4_1_Mini(OpenAISchematicGenerator[T]):
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="gpt-4.1-mini", logger=logger, meter=meter)
+        self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 128 * 1024
+
+
+class GPT_4_1_Nano(OpenAISchematicGenerator[T]):
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="gpt-4.1-nano", logger=logger, meter=meter)
+        self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 128 * 1024
+
+
+class GPT_5_1(OpenAISchematicGenerator[T]):
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="gpt-5.1", logger=logger, meter=meter)
+        self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 400_000
+
+
+class GPT_5_Mini(OpenAISchematicGenerator[T]):
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="gpt-5-mini", logger=logger, meter=meter)
+        self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 400_000
+
+
+class GPT_5_Nano(OpenAISchematicGenerator[T]):
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="gpt-5-nano", logger=logger, meter=meter)
+        self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 400_000
+
+
 class OpenAIEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
@@ -485,17 +546,59 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
         self._logger.info("Initialized OpenAIService")
 
     @override
-    async def get_schematic_generator(self, t: type[T]) -> OpenAISchematicGenerator[T]:
-        return {
-            SingleToolBatchSchema: GPT_4o[SingleToolBatchSchema],
-            JourneyNodeSelectionSchema: GPT_4_1[JourneyNodeSelectionSchema],
-            CannedResponseDraftSchema: GPT_4_1[CannedResponseDraftSchema],
-            CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
-        }.get(t, GPT_4o_24_08_06[t])(self._logger, self._meter)  # type: ignore
+    async def get_schematic_generator(
+        self, t: type[T], hints: SchematicGeneratorHints = {}
+    ) -> OpenAISchematicGenerator[T]:
+        match hints.get("model_size", ModelSize.AUTO):
+            case ModelSize.AUTO:
+                return {
+                    SingleToolBatchSchema: GPT_4o[SingleToolBatchSchema],
+                    JourneyNodeSelectionSchema: GPT_4_1[JourneyNodeSelectionSchema],
+                    CannedResponseDraftSchema: GPT_4_1[CannedResponseDraftSchema],
+                    CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
+                }.get(t, GPT_4o_24_08_06[t])(self._logger, self._meter)  # type: ignore
+            case ModelSize.NANO:
+                match hints.get("model_generation", "auto"):
+                    case "auto" | "stable":
+                        match hints.get("model_type", "auto"):
+                            case "auto" | "standard":
+                                return GPT_4_1_Nano[t](self._logger, self._meter)  # type: ignore
+                            case "reasoning":
+                                return GPT_5_Nano[t](self._logger, self._meter)  # type: ignore
+                    case "latest":
+                        match hints.get("model_type", "auto"):
+                            case "standard":
+                                return GPT_4_1_Nano[t](self._logger, self._meter)  # type: ignore
+                            case "auto" | "reasoning":
+                                return GPT_5_Nano[t](self._logger, self._meter)  # type: ignore
+            case ModelSize.MINI:
+                match hints.get("model_generation", "auto"):
+                    case "auto" | "stable":
+                        match hints.get("model_type", "auto"):
+                            case "auto" | "standard":
+                                return GPT_4_1_Mini[t](self._logger, self._meter)  # type: ignore
+                            case "reasoning":
+                                return GPT_5_Mini[t](self._logger, self._meter)  # type: ignore
+                    case "latest":
+                        match hints.get("model_type", "auto"):
+                            case "standard":
+                                return GPT_4_1_Mini[t](self._logger, self._meter)  # type: ignore
+                            case "auto" | "reasoning":
+                                return GPT_5_Mini[t](self._logger, self._meter)  # type: ignore
+            case _:
+                match hints.get("model_type", "auto"):
+                    case "reasoning":
+                        return GPT_5_1[t](self._logger, self._meter)  # type: ignore
+                    case _:
+                        return GPT_4o_24_08_06[t](self._logger, self._meter)  # type: ignore
 
     @override
-    async def get_embedder(self) -> Embedder:
-        return OpenAITextEmbedding3Large(self._logger, self._meter)
+    async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
+        match hints.get("model_size", ModelSize.AUTO):
+            case ModelSize.AUTO | ModelSize.LARGE:
+                return OpenAITextEmbedding3Large(self._logger, self._meter)
+            case _:
+                return OpenAITextEmbedding3Small(self._logger, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

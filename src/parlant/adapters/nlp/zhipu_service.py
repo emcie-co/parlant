@@ -46,7 +46,7 @@ from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
-from parlant.core.nlp.service import NLPService
+from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
 from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
@@ -596,7 +596,9 @@ To obtain an API key:
         self._logger.info("Initialized ZhipuService")
 
     @override
-    async def get_schematic_generator(self, t: type[T]) -> ZhipuSchematicGenerator[T]:
+    async def get_schematic_generator(
+        self, t: type[T], hints: SchematicGeneratorHints = {}
+    ) -> ZhipuSchematicGenerator[T]:
         """Get the appropriate schematic generator for the given schema type.
 
         Args:
@@ -613,7 +615,7 @@ To obtain an API key:
         }.get(t, GLM_4_Flash[t])(self._logger, self._meter)  # type: ignore
 
     @override
-    async def get_embedder(self) -> Embedder:
+    async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         """Get the embedder instance for generating text embeddings.
 
         Returns:

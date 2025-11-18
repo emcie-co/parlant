@@ -18,7 +18,8 @@ import random
 from typing import cast
 from typing_extensions import override
 
-from parlant.core.engines.alpha.loaded_context import EngineContext
+from parlant.core.agents import AgentId
+from parlant.core.engines.alpha.engine_context import EngineContext
 from parlant.core.sessions import EventKind, EventSource, MessageEventData
 from parlant.core.tags import Tag
 
@@ -91,6 +92,19 @@ class PerceivedPerformancePolicy(ABC):
         """
         ...
 
+    @abstractmethod
+    async def is_message_splitting_required(
+        self,
+        context: EngineContext | None = None,
+    ) -> bool:
+        """
+        Determines if messages should be split into multiple parts.
+
+        :param context: The loaded context containing session and interaction details.
+        :return: True if message splitting is required, False otherwise.
+        """
+        ...
+
 
 class BasicPerceivedPerformancePolicy(PerceivedPerformancePolicy):
     """A default implementation of the perceived performance policy that uses reasonable, randomized delays."""
@@ -150,6 +164,13 @@ class BasicPerceivedPerformancePolicy(PerceivedPerformancePolicy):
             return True
 
         return False
+
+    @override
+    async def is_message_splitting_required(
+        self,
+        context: EngineContext | None = None,
+    ) -> bool:
+        return True
 
     def _last_agent_message_is_preamble(self, context: EngineContext) -> bool:
         last_agent_message = next(
@@ -228,6 +249,13 @@ class NullPerceivedPerformancePolicy(PerceivedPerformancePolicy):
     ) -> bool:
         return False
 
+    @override
+    async def is_message_splitting_required(
+        self,
+        context: EngineContext | None = None,
+    ) -> bool:
+        return False
+
 
 class VoiceOptimizedPerceivedPerformancePolicy(NullPerceivedPerformancePolicy):
     @override
@@ -236,3 +264,29 @@ class VoiceOptimizedPerceivedPerformancePolicy(NullPerceivedPerformancePolicy):
         context: EngineContext | None = None,
     ) -> bool:
         return True
+
+
+class PerceivedPerformancePolicyProvider:
+    """Provides perceived performance policies on a per-agent basis."""
+
+    def __init__(self, default_policy: PerceivedPerformancePolicy) -> None:
+        self._default_policy: PerceivedPerformancePolicy = default_policy
+        self._agent_policies: dict[AgentId, PerceivedPerformancePolicy] = {}
+
+    def get_policy(self, agent_id: AgentId) -> PerceivedPerformancePolicy:
+        """
+        Returns the perceived performance policy for the given agent.
+
+        :param agent_id: The ID of the agent.
+        :return: The perceived performance policy for the agent, or the default policy if none is set.
+        """
+        return self._agent_policies.get(agent_id, self._default_policy)
+
+    def set_policy(self, agent_id: AgentId, policy: PerceivedPerformancePolicy) -> None:
+        """
+        Sets the perceived performance policy for the given agent.
+
+        :param agent_id: The ID of the agent.
+        :param policy: The perceived performance policy to set.
+        """
+        self._agent_policies[agent_id] = policy

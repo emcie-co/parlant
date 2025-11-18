@@ -30,7 +30,7 @@ from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.moderation import ModerationService, NoModeration
-from parlant.core.nlp.service import NLPService
+from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
 from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
@@ -683,7 +683,9 @@ Please set these environment variables before running Parlant.
             )
 
     @override
-    async def get_schematic_generator(self, t: type[T]) -> SchematicGenerator[T]:
+    async def get_schematic_generator(
+        self, t: type[T], hints: SchematicGeneratorHints = {}
+    ) -> SchematicGenerator[T]:
         """Get a schematic generator for the specified type."""
         self._log_model_warnings(self.model_name)
 
@@ -705,7 +707,7 @@ Please set these environment variables before running Parlant.
         return generator
 
     @override
-    async def get_embedder(self) -> Embedder:
+    async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         if "nomic" in self.embedding_model.lower():
             return OllamaNomicEmbedding(self._logger, self._meter)
         elif "mxbai" in self.embedding_model.lower():

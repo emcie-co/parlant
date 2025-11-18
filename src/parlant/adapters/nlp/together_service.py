@@ -42,7 +42,7 @@ from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.loggers import Logger
 from parlant.core.nlp.moderation import ModerationService, NoModeration
 from parlant.core.nlp.policies import policy, retry
-from parlant.core.nlp.service import NLPService
+from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 
 RATE_LIMIT_ERROR_MESSAGE = (
@@ -394,7 +394,9 @@ Available models can be found at: https://docs.together.ai/docs/inference-models
         return model_to_class.get(model_name)
 
     @override
-    async def get_schematic_generator(self, t: type[T]) -> TogetherAISchematicGenerator[T]:
+    async def get_schematic_generator(
+        self, t: type[T], hints: SchematicGeneratorHints = {}
+    ) -> TogetherAISchematicGenerator[T]:
         specialized_class = self._get_specialized_generator_class(self.model_name, schema_type=t)
 
         if specialized_class:
@@ -420,7 +422,7 @@ Available models can be found at: https://docs.together.ai/docs/inference-models
         return model_to_class.get(model_name)
 
     @override
-    async def get_embedder(self) -> Embedder:
+    async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         specialized_class = self._get_specialized_embedder_class(self.embedding_model)
 
         if specialized_class:

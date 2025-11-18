@@ -21,6 +21,7 @@ from parlant.core.tools import ToolContext, ToolResult
 from parlant.core.canned_responses import CannedResponseStore
 import parlant.sdk as p
 from tests.sdk.utils import Context, SDKTest
+from tests.test_utilities import nlp_test
 
 
 class Test_that_guideline_priority_relationship_can_be_created(SDKTest):
@@ -309,3 +310,55 @@ class Test_that_agent_guideline_can_be_created_with_metadata(SDKTest):
 
         assert guideline.metadata["continuous"] is True
         assert guideline.metadata["agent_intention_condition"] == "Test another property"
+
+
+class Test_that_guideline_can_use_custom_matcher(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Dummy Agent",
+            description="Dummy agent",
+        )
+
+        self.guideline = await self.agent.create_guideline(
+            condition="",
+            action="Offer a banana",
+            matcher=p.Guideline.MATCH_ALWAYS,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        answer = await ctx.send_and_receive(
+            customer_message="Hello, sir.",
+            recipient=self.agent,
+        )
+
+        assert await nlp_test(answer, "It offers a banana")
+
+
+class Test_that_custom_matcher_can_return_no_match(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Dummy Agent",
+            description="Dummy agent",
+        )
+
+        async def never_match(
+            ctx: p.GuidelineMatchingContext, guideline: p.Guideline
+        ) -> p.GuidelineMatch:
+            return p.GuidelineMatch(
+                matched=False,
+                rationale="Custom matcher never matches",
+            )
+
+        self.guideline = await self.agent.create_guideline(
+            condition="Customer greets you",
+            action="Offer a banana",
+            matcher=never_match,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        answer = await ctx.send_and_receive(
+            customer_message="Hello there!",
+            recipient=self.agent,
+        )
+
+        assert not await nlp_test(answer, "It mentions a banana")

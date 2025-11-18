@@ -37,7 +37,7 @@ from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
-from parlant.core.nlp.service import NLPService
+from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
 from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
@@ -617,12 +617,14 @@ https://docs.microsoft.com/en-us/python/api/overview/azure/identity-readme
         self._logger = logger
         self._meter = meter
 
-    async def get_schematic_generator(self, t: type[T]) -> AzureSchematicGenerator[T]:
+    async def get_schematic_generator(
+        self, t: type[T], hints: SchematicGeneratorHints = {}
+    ) -> AzureSchematicGenerator[T]:
         if os.environ.get("AZURE_GENERATIVE_MODEL_NAME"):
             return CustomAzureSchematicGenerator[t](logger=self._logger, meter=self._meter)  # type: ignore
         return GPT_4o[t](self._logger, self._meter)  # type: ignore
 
-    async def get_embedder(self) -> Embedder:
+    async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         if os.environ.get("AZURE_EMBEDDING_MODEL_NAME"):
             return CustomAzureEmbedder(self._logger, self._meter)
         return AzureTextEmbedding3Large(self._logger, self._meter)

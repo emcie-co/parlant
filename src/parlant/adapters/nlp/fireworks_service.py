@@ -36,7 +36,7 @@ from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.loggers import Logger
 from parlant.core.nlp.moderation import ModerationService, NoModeration
 from parlant.core.nlp.policies import policy, retry
-from parlant.core.nlp.service import NLPService
+from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 
 
@@ -379,7 +379,9 @@ You can get your API key from: https://app.fireworks.ai/settings/users/api-keys
             )
 
     @override
-    async def get_schematic_generator(self, t: type[T]) -> FireworksSchematicGenerator[T]:
+    async def get_schematic_generator(
+        self, t: type[T], hints: SchematicGeneratorHints = {}
+    ) -> FireworksSchematicGenerator[T]:
         """Get a schematic generator for the specified type."""
         self._log_model_warnings(self._model_name)
 
@@ -397,7 +399,7 @@ You can get your API key from: https://app.fireworks.ai/settings/users/api-keys
             )
 
     @override
-    async def get_embedder(self) -> Embedder:
+    async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         return JinaAIEmbedder(self._logger, self._meter)
 
     @override

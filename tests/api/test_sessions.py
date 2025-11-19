@@ -1531,3 +1531,134 @@ async def test_that_list_sessions_can_be_paginated_with_invalid_cursor(
 
     assert len(invalid_cursor_data["items"]) == 1
     assert invalid_cursor_data["total_count"] == 1
+
+
+async def test_that_customer_message_event_can_be_created_with_metadata(
+    async_client: httpx.AsyncClient,
+    session_id: SessionId,
+) -> None:
+    metadata = {"priority": "high", "channel": "web", "user_id": "12345"}
+
+    response = await async_client.post(
+        f"/sessions/{session_id}/events",
+        json={
+            "kind": "message",
+            "source": "customer",
+            "message": "Hello, I need help!",
+            "metadata": metadata,
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    event = response.json()
+
+    assert event["kind"] == "message"
+    assert event["source"] == "customer"
+    assert event["data"]["message"] == "Hello, I need help!"
+    assert event["metadata"] == metadata
+
+
+async def test_that_human_agent_message_event_can_be_created_with_metadata(
+    async_client: httpx.AsyncClient,
+    session_id: SessionId,
+) -> None:
+    metadata = {"agent_id": "agent_007", "department": "support", "escalation_level": 2}
+
+    response = await async_client.post(
+        f"/sessions/{session_id}/events",
+        json={
+            "kind": "message",
+            "source": "human_agent",
+            "message": "I'll help you with this issue.",
+            "participant": {"id": "agent_007", "display_name": "John Doe"},
+            "metadata": metadata,
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    event = response.json()
+
+    assert event["kind"] == "message"
+    assert event["source"] == "human_agent"
+    assert event["data"]["message"] == "I'll help you with this issue."
+    assert event["data"]["participant"]["display_name"] == "John Doe"
+    assert event["metadata"] == metadata
+
+
+async def test_that_human_agent_on_behalf_of_ai_agent_message_event_can_be_created_with_metadata(
+    async_client: httpx.AsyncClient,
+    session_id: SessionId,
+) -> None:
+    metadata = {"override_reason": "ai_unavailable", "agent_id": "agent_123"}
+
+    response = await async_client.post(
+        f"/sessions/{session_id}/events",
+        json={
+            "kind": "message",
+            "source": "human_agent_on_behalf_of_ai_agent",
+            "message": "The AI is temporarily unavailable, I'll assist you instead.",
+            "metadata": metadata,
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    event = response.json()
+
+    assert event["kind"] == "message"
+    assert event["source"] == "human_agent_on_behalf_of_ai_agent"
+    assert event["data"]["message"] == "The AI is temporarily unavailable, I'll assist you instead."
+    assert event["metadata"] == metadata
+
+
+async def test_that_custom_event_can_be_created_with_metadata(
+    async_client: httpx.AsyncClient,
+    session_id: SessionId,
+) -> None:
+    custom_data = {"action": "button_click", "button_id": "submit", "page": "checkout"}
+    metadata = {"tracking_id": "track_456", "experiment": "new_ui"}
+
+    response = await async_client.post(
+        f"/sessions/{session_id}/events",
+        json={
+            "kind": "custom",
+            "source": "customer_ui",
+            "data": custom_data,
+            "metadata": metadata,
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    event = response.json()
+
+    assert event["kind"] == "custom"
+    assert event["source"] == "customer_ui"
+    assert event["data"] == custom_data
+    assert event["metadata"] == metadata
+
+
+async def test_that_status_event_can_be_created_with_metadata(
+    async_client: httpx.AsyncClient,
+    session_id: SessionId,
+) -> None:
+    status_data = {"stage": "processing_request", "progress": 75}
+    metadata = {"request_id": "req_789", "service": "payment_processor"}
+
+    response = await async_client.post(
+        f"/sessions/{session_id}/events",
+        json={
+            "kind": "status",
+            "source": "system",
+            "status": "processing",
+            "data": status_data,
+            "metadata": metadata,
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    event = response.json()
+
+    assert event["kind"] == "status"
+    assert event["source"] == "system"
+    assert event["data"]["status"] == "processing"
+    assert event["data"]["data"] == status_data
+    assert event["metadata"] == metadata

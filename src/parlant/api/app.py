@@ -50,6 +50,7 @@ from parlant.api.authorization import (
     Operation,
     RateLimitExceededException,
 )
+from parlant.core.version import VERSION
 from parlant.core.meter import Meter
 from parlant.core.tracer import Tracer
 from parlant.core.common import ItemNotFoundError, generate_id
@@ -115,7 +116,11 @@ async def create_api_app(container: Container) -> ASGIApplication:
         description="HTTP Request Duration",
     )
 
-    api_app = FastAPI()
+    api_app = FastAPI(
+        title="Parlant API",
+        description="API documentation for the Parlant server.",
+        version=VERSION,
+    )
 
     @api_app.middleware("http")
     async def handle_cancellation(

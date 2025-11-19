@@ -42,6 +42,7 @@ class Shot:
             offset=0,  # unused in shots
             trace_id="<unused>",  # unused in shots
             data=cast(JSONSerializable, data),
+            metadata={},  # unused in shots
             deleted=False,
         )
 
@@ -55,6 +56,7 @@ class Shot:
             offset=0,  # unused in shots
             trace_id="<unused>",  # unused in shots
             data=cast(JSONSerializable, data),
+            metadata={},  # unused in shots
             deleted=False,
         )
 

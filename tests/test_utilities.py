@@ -356,6 +356,7 @@ async def post_message(
     session_id: SessionId,
     message: str,
     response_timeout: Timeout = Timeout.none(),
+    metadata: Mapping[str, JSONSerializable] | None = None,
 ) -> Event:
     customer_id = (await container[SessionStore].read_session(session_id)).customer_id
     customer = await container[CustomerStore].read_customer(customer_id)
@@ -372,6 +373,7 @@ async def post_message(
         session_id=session_id,
         kind=EventKind.MESSAGE,
         data=data,
+        metadata=metadata,
     )
 
     if response_timeout:

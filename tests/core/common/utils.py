@@ -15,7 +15,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from typing import Optional, cast
+from typing import Mapping, Optional, cast
 from lagom import Container
 
 
@@ -49,6 +49,7 @@ def create_event_message(
     source: EventSource,
     message: str,
     customer: Optional[Customer] = None,
+    metadata: Mapping[str, JSONSerializable] = {},
 ) -> Event:
     message_data: MessageEventData = {
         "message": message,
@@ -64,6 +65,7 @@ def create_event_message(
         offset=offset,
         trace_id="<main>",
         data=cast(JSONSerializable, message_data),
+        metadata=metadata,
         creation_utc=datetime.now(timezone.utc),
         deleted=False,
     )

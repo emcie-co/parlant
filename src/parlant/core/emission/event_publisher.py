@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, cast
+from typing import Any, Mapping, cast
 from typing_extensions import override
 
 from parlant.core.common import JSONSerializable
@@ -50,6 +50,7 @@ class EventPublisher(EventEmitter):
         self,
         trace_id: str | None = None,
         data: StatusEventData | None = None,
+        metadata: Mapping[str, JSONSerializable] | None = None,
         **kwargs: Any,
     ) -> EmittedEvent:
         trace_id = ensure_new_usage_params_and_get_trace_id(trace_id, data, **kwargs)
@@ -59,6 +60,7 @@ class EventPublisher(EventEmitter):
             kind=EventKind.STATUS,
             trace_id=trace_id,
             data=cast(JSONSerializable, data),
+            metadata=metadata,
         )
 
         await self._publish_event(event)
@@ -70,6 +72,7 @@ class EventPublisher(EventEmitter):
         self,
         trace_id: str | None = None,
         data: str | MessageEventData | None = None,
+        metadata: Mapping[str, JSONSerializable] | None = None,
         **kwargs: Any,
     ) -> EmittedEvent:
         trace_id = ensure_new_usage_params_and_get_trace_id(trace_id, data, **kwargs)
@@ -93,6 +96,7 @@ class EventPublisher(EventEmitter):
             kind=EventKind.MESSAGE,
             trace_id=trace_id,
             data=message_data,
+            metadata=metadata,
         )
 
         await self._publish_event(event)
@@ -104,6 +108,7 @@ class EventPublisher(EventEmitter):
         self,
         trace_id: str | None = None,
         data: ToolEventData | None = None,
+        metadata: Mapping[str, JSONSerializable] | None = None,
         **kwargs: Any,
     ) -> EmittedEvent:
         trace_id = ensure_new_usage_params_and_get_trace_id(trace_id, data, **kwargs)
@@ -113,6 +118,7 @@ class EventPublisher(EventEmitter):
             kind=EventKind.TOOL,
             trace_id=trace_id,
             data=cast(JSONSerializable, data),
+            metadata=metadata,
         )
 
         await self._publish_event(event)
@@ -124,6 +130,7 @@ class EventPublisher(EventEmitter):
         self,
         trace_id: str | None = None,
         data: JSONSerializable | None = None,
+        metadata: Mapping[str, JSONSerializable] | None = None,
         **kwargs: Any,
     ) -> EmittedEvent:
         trace_id = ensure_new_usage_params_and_get_trace_id(trace_id, data, **kwargs)
@@ -133,6 +140,7 @@ class EventPublisher(EventEmitter):
             kind=EventKind.CUSTOM,
             trace_id=trace_id,
             data=data,
+            metadata=metadata,
         )
 
         await self._publish_event(event)

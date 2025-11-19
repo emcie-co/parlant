@@ -150,6 +150,7 @@ async def test_that_when_a_client_event_is_posted_then_new_server_events_are_emi
                 "display_name": "Johnny Boy",
             },
         },
+        metadata={},
     )
 
     await context.app.sessions.wait_for_update(
@@ -177,6 +178,7 @@ async def test_that_a_session_update_is_detected_as_soon_as_a_client_event_is_po
                 "display_name": "Johnny Boy",
             },
         },
+        metadata={},
     )
 
     assert await context.app.sessions.wait_for_update(
@@ -207,6 +209,7 @@ async def test_that_when_a_customer_quickly_posts_more_than_one_message_then_onl
                     "display_name": "Johnny Boy",
                 },
             },
+            metadata={},
         )
 
         await asyncio.sleep(1)
@@ -245,6 +248,7 @@ async def test_that_a_response_is_not_generated_automatically_after_a_tool_switc
                 "display_name": "Johnny Boy",
             },
         },
+        metadata={},
     )
 
     await context.app.sessions.wait_for_update(
@@ -269,6 +273,7 @@ async def test_that_a_response_is_not_generated_automatically_after_a_tool_switc
                 "display_name": "Johnny Boy",
             },
         },
+        metadata={},
     )
 
     assert not await context.app.sessions.wait_for_update(

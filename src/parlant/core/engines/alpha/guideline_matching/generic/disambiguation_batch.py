@@ -430,6 +430,7 @@ def _make_event(e_id: str, source: EventSource, message: str) -> Event:
         offset=0,
         trace_id="",
         data={"message": message},
+        metadata={},
         deleted=False,
     )
 

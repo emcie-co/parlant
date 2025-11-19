@@ -23,7 +23,6 @@ from typing import (
     Literal,
     Mapping,
     NewType,
-    Optional,
     Sequence,
     TypeAlias,
     cast,
@@ -119,6 +118,7 @@ class Event:
     offset: int
     trace_id: str
     data: JSONSerializable
+    metadata: Mapping[str, JSONSerializable]
     deleted: bool
 
     def is_from_client(self) -> bool:
@@ -196,7 +196,7 @@ class StatusEventData(TypedDict):
 class GuidelineMatch(TypedDict):
     guideline_id: GuidelineId
     condition: str
-    action: Optional[str]
+    action: str | None
     score: int
     rationale: str
 
@@ -211,7 +211,7 @@ class Term(TypedDict):
 class ContextVariable(TypedDict):
     id: ContextVariableId
     name: str
-    description: Optional[str]
+    description: str | None
     key: str
     value: JSONSerializable
 
@@ -219,7 +219,7 @@ class ContextVariable(TypedDict):
 @dataclass(frozen=True)
 class MessageGenerationInspection:
     generations: Mapping[str, GenerationInfo]
-    messages: Sequence[Optional[str]]
+    messages: Sequence[str | None]
 
 
 @dataclass(frozen=True)
@@ -263,7 +263,7 @@ LifeSpan: TypeAlias = Literal["response", "session"]
 class AgentState:
     trace_id: str
     applied_guideline_ids: Sequence[GuidelineId]
-    journey_paths: Mapping[JourneyId, Sequence[Optional[GuidelineId]]]
+    journey_paths: Mapping[JourneyId, Sequence[GuidelineId | None]]
 
 
 @dataclass(frozen=True)
@@ -273,7 +273,7 @@ class Session:
     customer_id: CustomerId
     agent_id: AgentId
     mode: SessionMode
-    title: Optional[str]
+    title: str | None
     consumption_offsets: Mapping[ConsumerId, int]
     agent_states: Sequence[AgentState]
     metadata: Mapping[str, JSONSerializable]
@@ -283,7 +283,7 @@ class SessionUpdateParams(TypedDict, total=False):
     customer_id: CustomerId
     agent_id: AgentId
     mode: SessionMode
-    title: Optional[str]
+    title: str | None
     consumption_offsets: Mapping[ConsumerId, int]
     agent_states: Sequence[AgentState]
     metadata: Mapping[str, JSONSerializable]
@@ -294,7 +294,7 @@ class SessionListing:
     items: Sequence[Session]
     total_count: int
     has_more: bool
-    next_cursor: Optional[Cursor] = None
+    next_cursor: Cursor | None = None
 
     def __iter__(self) -> Iterator[Session]:
         return iter(self.items)
@@ -309,9 +309,9 @@ class SessionStore(ABC):
         self,
         customer_id: CustomerId,
         agent_id: AgentId,
-        creation_utc: Optional[datetime] = None,
-        title: Optional[str] = None,
-        mode: Optional[SessionMode] = None,
+        creation_utc: datetime | None = None,
+        title: str | None = None,
+        mode: SessionMode | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
     ) -> Session: ...
 
@@ -337,11 +337,11 @@ class SessionStore(ABC):
     @abstractmethod
     async def list_sessions(
         self,
-        agent_id: Optional[AgentId] = None,
-        customer_id: Optional[CustomerId] = None,
-        limit: Optional[int] = None,
-        cursor: Optional[Cursor] = None,
-        sort_direction: Optional[SortDirection] = None,
+        agent_id: AgentId | None = None,
+        customer_id: CustomerId | None = None,
+        limit: int | None = None,
+        cursor: Cursor | None = None,
+        sort_direction: SortDirection | None = None,
     ) -> SessionListing: ...
 
     @abstractmethod
@@ -367,7 +367,8 @@ class SessionStore(ABC):
         kind: EventKind,
         trace_id: str,
         data: JSONSerializable,
-        creation_utc: Optional[datetime] = None,
+        metadata: Mapping[str, JSONSerializable] = {},
+        creation_utc: datetime | None = None,
     ) -> Event: ...
 
     @abstractmethod
@@ -387,10 +388,10 @@ class SessionStore(ABC):
     async def list_events(
         self,
         session_id: SessionId,
-        source: Optional[EventSource] = None,
-        trace_id: Optional[str] = None,
+        source: EventSource | None = None,
+        trace_id: str | None = None,
         kinds: Sequence[EventKind] = [],
-        min_offset: Optional[int] = None,
+        min_offset: int | None = None,
         exclude_deleted: bool = True,
     ) -> Sequence[Event]: ...
 
@@ -402,20 +403,20 @@ class _SessionDocument_v0_4_0(TypedDict, total=False):
     customer_id: CustomerId
     agent_id: AgentId
     mode: SessionMode
-    title: Optional[str]
+    title: str | None
     consumption_offsets: Mapping[ConsumerId, int]
 
 
 class _AgentStateDocument_v0_6_0(TypedDict):
     correlation_id: str
     applied_guideline_ids: Sequence[GuidelineId]
-    journey_paths: Mapping[JourneyId, Sequence[Optional[GuidelineId]]]
+    journey_paths: Mapping[JourneyId, Sequence[GuidelineId | None]]
 
 
 class _AgentStateDocument(TypedDict):
     trace_id: str
     applied_guideline_ids: Sequence[GuidelineId]
-    journey_paths: Mapping[JourneyId, Sequence[Optional[GuidelineId]]]
+    journey_paths: Mapping[JourneyId, Sequence[GuidelineId | None]]
 
 
 class _SessionDocument_v0_5_0(TypedDict, total=False):
@@ -425,7 +426,7 @@ class _SessionDocument_v0_5_0(TypedDict, total=False):
     customer_id: CustomerId
     agent_id: AgentId
     mode: SessionMode
-    title: Optional[str]
+    title: str | None
     consumption_offsets: Mapping[ConsumerId, int]
     agent_state: _AgentStateDocument_v0_6_0
 
@@ -437,7 +438,7 @@ class _SessionDocument_v0_6_0(TypedDict, total=False):
     customer_id: CustomerId
     agent_id: AgentId
     mode: SessionMode
-    title: Optional[str]
+    title: str | None
     consumption_offsets: Mapping[ConsumerId, int]
     agent_states: Sequence[_AgentStateDocument_v0_6_0]
 
@@ -449,7 +450,7 @@ class _SessionDocument(TypedDict, total=False):
     customer_id: CustomerId
     agent_id: AgentId
     mode: SessionMode
-    title: Optional[str]
+    title: str | None
     consumption_offsets: Mapping[ConsumerId, int]
     agent_states: Sequence[_AgentStateDocument]
     metadata: Mapping[str, JSONSerializable]
@@ -468,7 +469,7 @@ class _EventDocument_v0_6_0(TypedDict, total=False):
     deleted: bool
 
 
-class _EventDocument(TypedDict, total=False):
+class _EventDocument_v0_7_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
@@ -481,10 +482,24 @@ class _EventDocument(TypedDict, total=False):
     deleted: bool
 
 
+class _EventDocument(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    session_id: SessionId
+    source: str
+    kind: str
+    offset: int
+    trace_id: str
+    data: JSONSerializable
+    metadata: Mapping[str, JSONSerializable] | None
+    deleted: bool
+
+
 class _UsageInfoDocument(TypedDict):
     input_tokens: int
     output_tokens: int
-    extra: Optional[Mapping[str, int]]
+    extra: Mapping[str, int] | None
 
 
 class _GenerationInfoDocument(TypedDict):
@@ -511,18 +526,18 @@ class _PreparationIterationGenerationsDocument(TypedDict):
 
 class _MessageGenerationInspectionDocument_v0_1_0(TypedDict):
     generation: _GenerationInfoDocument
-    messages: Sequence[Optional[MessageEventData]]
+    messages: Sequence[MessageEventData | None]
 
 
 class _MessageGenerationInspectionDocument_v0_2_0(TypedDict):
     generation: _GenerationInfoDocument
-    messages: Sequence[Optional[str]]
+    messages: Sequence[str | None]
 
 
 class _MessageGenerationInspectionDocument(TypedDict):
     generations: Sequence[_GenerationInfoDocument]
     generation_names: Sequence[str]
-    messages: Sequence[Optional[str]]
+    messages: Sequence[str | None]
 
 
 class _PreparationIterationDocument_v0_2_0(TypedDict):
@@ -608,7 +623,7 @@ class _ToolEventData_v0_5_0(TypedDict):
 
 
 class SessionDocumentStore(SessionStore):
-    VERSION = Version.from_string("0.7.0")
+    VERSION = Version.from_string("0.8.0")
 
     def __init__(self, database: DocumentDatabase, allow_migration: bool = False):
         self._database = database
@@ -618,8 +633,8 @@ class SessionDocumentStore(SessionStore):
 
         self._lock = ReaderWriterLock()
 
-    async def _session_document_loader(self, doc: BaseDocument) -> Optional[_SessionDocument]:
-        async def v0_1_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+    async def _session_document_loader(self, doc: BaseDocument) -> _SessionDocument | None:
+        async def v0_1_0_to_v0_4_0(doc: BaseDocument) -> BaseDocument | None:
             doc = cast(_SessionDocument_v0_4_0, doc)
 
             return _SessionDocument_v0_4_0(
@@ -633,7 +648,7 @@ class SessionDocumentStore(SessionStore):
                 consumption_offsets=doc["consumption_offsets"],
             )
 
-        async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
+        async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> BaseDocument | None:
             doc = cast(_SessionDocument_v0_4_0, doc)
 
             return _SessionDocument_v0_5_0(
@@ -652,7 +667,7 @@ class SessionDocumentStore(SessionStore):
                 ),
             )
 
-        async def v0_5_0_to_v0_6_0(doc: BaseDocument) -> Optional[BaseDocument]:
+        async def v0_5_0_to_v0_6_0(doc: BaseDocument) -> BaseDocument | None:
             doc = cast(_SessionDocument_v0_5_0, doc)
 
             return _SessionDocument(
@@ -667,7 +682,7 @@ class SessionDocumentStore(SessionStore):
                 agent_states=[],
             )
 
-        async def v0_6_0_to_v0_7_0(doc: BaseDocument) -> Optional[BaseDocument]:
+        async def v0_6_0_to_v0_7_0(doc: BaseDocument) -> BaseDocument | None:
             doc = cast(_SessionDocument_v0_6_0, doc)
 
             return _SessionDocument(
@@ -690,6 +705,22 @@ class SessionDocumentStore(SessionStore):
                 metadata={},
             )
 
+        async def v0_7_0_to_v0_8_0(doc: BaseDocument) -> BaseDocument | None:
+            doc = cast(_SessionDocument, doc)
+
+            return _SessionDocument(
+                id=doc["id"],
+                version=Version.String("0.8.0"),
+                creation_utc=doc["creation_utc"],
+                customer_id=doc["customer_id"],
+                agent_id=doc["agent_id"],
+                mode=doc["mode"],
+                title=doc["title"],
+                consumption_offsets=doc["consumption_offsets"],
+                agent_states=doc["agent_states"],
+                metadata=doc["metadata"],
+            )
+
         return await DocumentMigrationHelper[_SessionDocument](
             self,
             {
@@ -699,11 +730,12 @@ class SessionDocumentStore(SessionStore):
                 "0.4.0": v0_4_0_to_v0_5_0,
                 "0.5.0": v0_5_0_to_v0_6_0,
                 "0.6.0": v0_6_0_to_v0_7_0,
+                "0.7.0": v0_7_0_to_v0_8_0,
             },
         ).migrate(doc)
 
-    async def _event_document_loader(self, doc: BaseDocument) -> Optional[_EventDocument]:
-        async def v0_1_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
+    async def _event_document_loader(self, doc: BaseDocument) -> _EventDocument | None:
+        async def v0_1_0_to_v0_5_0(doc: BaseDocument) -> BaseDocument | None:
             doc = cast(_EventDocument_v0_6_0, doc)
 
             return _EventDocument_v0_6_0(
@@ -719,7 +751,7 @@ class SessionDocumentStore(SessionStore):
                 deleted=doc["deleted"],
             )
 
-        async def v0_5_0_to_v0_6_0(doc: BaseDocument) -> Optional[BaseDocument]:
+        async def v0_5_0_to_v0_6_0(doc: BaseDocument) -> BaseDocument | None:
             doc = cast(_EventDocument_v0_6_0, doc)
 
             if doc["kind"] == "message":
@@ -775,7 +807,7 @@ class SessionDocumentStore(SessionStore):
                 deleted=doc["deleted"],
             )
 
-        async def v0_6_0_to_v0_7_0(doc: BaseDocument) -> Optional[BaseDocument]:
+        async def v0_6_0_to_v0_7_0(doc: BaseDocument) -> BaseDocument | None:
             doc = cast(_EventDocument_v0_6_0, doc)
 
             data = doc["data"]
@@ -793,6 +825,23 @@ class SessionDocumentStore(SessionStore):
                 deleted=doc["deleted"],
             )
 
+        async def v0_7_0_to_v0_8_0(doc: BaseDocument) -> BaseDocument | None:
+            doc = cast(_EventDocument_v0_7_0, doc)
+
+            return _EventDocument(
+                id=doc["id"],
+                version=Version.String("0.8.0"),
+                creation_utc=doc["creation_utc"],
+                session_id=doc["session_id"],
+                source=doc["source"],
+                kind=doc["kind"],
+                offset=doc["offset"],
+                trace_id=doc["trace_id"],
+                data=doc["data"],
+                metadata=None,
+                deleted=doc["deleted"],
+            )
+
         return await DocumentMigrationHelper[_EventDocument](
             self,
             {
@@ -802,6 +851,7 @@ class SessionDocumentStore(SessionStore):
                 "0.4.0": v0_1_0_to_v0_5_0,
                 "0.5.0": v0_5_0_to_v0_6_0,
                 "0.6.0": v0_6_0_to_v0_7_0,
+                "0.7.0": v0_7_0_to_v0_8_0,
             },
         ).migrate(doc)
 
@@ -826,9 +876,9 @@ class SessionDocumentStore(SessionStore):
 
     async def __aexit__(
         self,
-        exc_type: Optional[type[BaseException]],
-        exc_value: Optional[BaseException],
-        traceback: Optional[object],
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: object | None,
     ) -> None:
         pass
 
@@ -921,6 +971,7 @@ class SessionDocumentStore(SessionStore):
             offset=event.offset,
             trace_id=event.trace_id,
             data=event.data,
+            metadata=event.metadata if event.metadata else None,
             deleted=event.deleted,
         )
 
@@ -936,6 +987,7 @@ class SessionDocumentStore(SessionStore):
             offset=event_document["offset"],
             trace_id=event_document["trace_id"],
             data=event_document["data"],
+            metadata=cast(Mapping[str, JSONSerializable], event_document["metadata"] or {}),
             deleted=event_document["deleted"],
         )
 
@@ -944,9 +996,9 @@ class SessionDocumentStore(SessionStore):
         self,
         customer_id: CustomerId,
         agent_id: AgentId,
-        creation_utc: Optional[datetime] = None,
-        title: Optional[str] = None,
-        mode: Optional[SessionMode] = None,
+        creation_utc: datetime | None = None,
+        title: str | None = None,
+        mode: SessionMode | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
     ) -> Session:
         async with self._lock.writer_lock:
@@ -1027,11 +1079,11 @@ class SessionDocumentStore(SessionStore):
     @override
     async def list_sessions(
         self,
-        agent_id: Optional[AgentId] = None,
-        customer_id: Optional[CustomerId] = None,
-        limit: Optional[int] = None,
-        cursor: Optional[Cursor] = None,
-        sort_direction: Optional[SortDirection] = None,
+        agent_id: AgentId | None = None,
+        customer_id: CustomerId | None = None,
+        limit: int | None = None,
+        cursor: Cursor | None = None,
+        sort_direction: SortDirection | None = None,
     ) -> SessionListing:
         async with self._lock.reader_lock:
             filters = {
@@ -1121,7 +1173,8 @@ class SessionDocumentStore(SessionStore):
         kind: EventKind,
         trace_id: str,
         data: JSONSerializable,
-        creation_utc: Optional[datetime] = None,
+        metadata: Mapping[str, JSONSerializable] = {},
+        creation_utc: datetime | None = None,
     ) -> Event:
         async with self._lock.writer_lock:
             if not await self._session_collection.find_one(filters={"id": {"$eq": session_id}}):
@@ -1141,6 +1194,7 @@ class SessionDocumentStore(SessionStore):
                 creation_utc=creation_utc,
                 trace_id=trace_id,
                 data=data,
+                metadata=metadata,
                 deleted=False,
             )
 
@@ -1185,10 +1239,10 @@ class SessionDocumentStore(SessionStore):
     async def list_events(
         self,
         session_id: SessionId,
-        source: Optional[EventSource] = None,
-        trace_id: Optional[str] = None,
+        source: EventSource | None = None,
+        trace_id: str | None = None,
         kinds: Sequence[EventKind] = [],
-        min_offset: Optional[int] = None,
+        min_offset: int | None = None,
         exclude_deleted: bool = True,
     ) -> Sequence[Event]:
         async with self._lock.reader_lock:
@@ -1227,9 +1281,9 @@ class SessionListener(ABC):
         self,
         session_id: SessionId,
         kinds: Sequence[EventKind] = [],
-        min_offset: Optional[int] = None,
-        source: Optional[EventSource] = None,
-        trace_id: Optional[str] = None,
+        min_offset: int | None = None,
+        source: EventSource | None = None,
+        trace_id: str | None = None,
         timeout: Timeout = Timeout.infinite(),
     ) -> bool: ...
 
@@ -1243,9 +1297,9 @@ class PollingSessionListener(SessionListener):
         self,
         session_id: SessionId,
         kinds: Sequence[EventKind] = [],
-        min_offset: Optional[int] = None,
-        source: Optional[EventSource] = None,
-        trace_id: Optional[str] = None,
+        min_offset: int | None = None,
+        source: EventSource | None = None,
+        trace_id: str | None = None,
         timeout: Timeout = Timeout.infinite(),
     ) -> bool:
         # Trigger exception if not found

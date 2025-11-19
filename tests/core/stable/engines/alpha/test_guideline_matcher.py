@@ -1147,10 +1147,18 @@ async def test_that_guidelines_are_matched_based_on_staged_tool_calls_and_contex
     )
     staged_tool_events = [
         EmittedEvent(
-            source=EventSource.AI_AGENT, kind=EventKind.TOOL, trace_id="", data=tool_result_1
+            source=EventSource.AI_AGENT,
+            kind=EventKind.TOOL,
+            trace_id="",
+            data=tool_result_1,
+            metadata=None,
         ),
         EmittedEvent(
-            source=EventSource.AI_AGENT, kind=EventKind.TOOL, trace_id="", data=tool_result_2
+            source=EventSource.AI_AGENT,
+            kind=EventKind.TOOL,
+            trace_id="",
+            data=tool_result_2,
+            metadata=None,
         ),
     ]
 
@@ -1236,12 +1244,14 @@ async def test_that_guidelines_are_matched_based_on_staged_tool_calls_without_co
             kind=EventKind.TOOL,
             trace_id="",
             data=tool_result_1,
+            metadata=None,
         ),
         EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.TOOL,
             trace_id="",
             data=tool_result_2,
+            metadata=None,
         ),
     ]
     conversation_guideline_names: list[str] = ["suggest_drink_underage", "suggest_drink_adult"]
@@ -2072,7 +2082,11 @@ async def test_that_observational_guidelines_are_detected_based_on_tool_results(
     )
     staged_events = [
         EmittedEvent(
-            source=EventSource.AI_AGENT, kind=EventKind.TOOL, trace_id="", data=tool_result
+            source=EventSource.AI_AGENT,
+            kind=EventKind.TOOL,
+            trace_id="",
+            data=tool_result,
+            metadata=None,
         ),
     ]
 

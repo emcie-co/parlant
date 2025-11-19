@@ -180,6 +180,7 @@ class SessionModule:
         session_id: SessionId,
         kind: EventKind,
         data: Mapping[str, Any],
+        metadata: Mapping[str, JSONSerializable] | None,
         source: EventSource = EventSource.CUSTOMER,
         trigger_processing: bool = True,
     ) -> Event:
@@ -189,6 +190,7 @@ class SessionModule:
             kind=kind,
             trace_id=self._tracer.trace_id,
             data=data,
+            metadata=metadata or {},
         )
 
         if trigger_processing:
@@ -203,6 +205,7 @@ class SessionModule:
         source: EventSource,
         status: SessionStatus,
         data: JSONSerializable,
+        metadata: Mapping[str, JSONSerializable] | None,
     ) -> Event:
         status_data: StatusEventData = {
             "status": status,
@@ -213,6 +216,7 @@ class SessionModule:
             session_id=session_id,
             kind=EventKind.STATUS,
             data=status_data,
+            metadata=metadata,
             source=source,
             trigger_processing=False,
         )
@@ -224,6 +228,7 @@ class SessionModule:
         message: str,
         source: EventSource,
         trigger_processing: bool,
+        metadata: Mapping[str, JSONSerializable] | None,
     ) -> Event:
         flagged = False
         tags: Set[str] = set()
@@ -267,6 +272,7 @@ class SessionModule:
             data=message_data,
             source=source,
             trigger_processing=trigger_processing,
+            metadata=metadata,
         )
 
     async def create_human_agent_message_event(
@@ -274,6 +280,7 @@ class SessionModule:
         session_id: SessionId,
         message: str,
         participant: Participant,
+        metadata: Mapping[str, JSONSerializable] | None,
     ) -> Event:
         message_data: MessageEventData = {
             "message": message,
@@ -291,6 +298,7 @@ class SessionModule:
             data=message_data,
             source=EventSource.HUMAN_AGENT,
             trigger_processing=False,
+            metadata=metadata,
         )
 
         return event
@@ -299,6 +307,7 @@ class SessionModule:
         self,
         session_id: SessionId,
         message: str,
+        metadata: Mapping[str, JSONSerializable] | None,
     ) -> Event:
         session = await self._session_store.read_session(session_id)
         agent = await self._agent_store.read_agent(session.agent_id)
@@ -317,6 +326,7 @@ class SessionModule:
             data=message_data,
             source=EventSource.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT,
             trigger_processing=False,
+            metadata=metadata,
         )
 
         return event

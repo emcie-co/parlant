@@ -13,7 +13,7 @@ For general Parlant usage, see the [official documentation](https://www.parlant.
 
 ### Simple One-Line Setup (Recommended)
 
-The easiest way to use Qdrant with Parlant:
+The easiest way to use Qdrant with Parlant. This automatically configures all vector stores:
 
 ```python
 import parlant.sdk as p
@@ -51,36 +51,99 @@ The `configure_qdrant_for_parlant()` function automatically:
 
 ### Advanced Setup (Manual)
 
-If you need more control over the QdrantDatabase configuration:
+For more control over configuration, manually set up Qdrant and vector stores using `AsyncExitStack`:
 
 ```python
 import parlant.sdk as p
 from pathlib import Path
-from parlant.adapters.vector_db.qdrant import QdrantDatabase, setup_qdrant_for_parlant
-from parlant.core.nlp.embedding import EmbedderFactory, EmbeddingCache
+from contextlib import AsyncExitStack
+from parlant.adapters.vector_db.qdrant import QdrantDatabase
+from parlant.core.nlp.embedding import EmbedderFactory, EmbeddingCache, Embedder
 from parlant.core.loggers import Logger
+from parlant.core.nlp.service import NLPService
+from parlant.core.glossary import GlossaryVectorStore, GlossaryStore
+from parlant.core.canned_responses import CannedResponseVectorStore, CannedResponseStore
+from parlant.core.capabilities import CapabilityVectorStore, CapabilityStore
+from parlant.core.journeys import JourneyVectorStore, JourneyStore
+from parlant.adapters.db.transient import TransientDocumentDatabase
 
 async def configure_container(container: p.Container) -> p.Container:
-    # Create custom QdrantDatabase instance
-    qdrant_db = await QdrantDatabase(
-        logger=container[Logger],
-        path=Path("./qdrant_data"),  # or url/api_key for cloud
-        embedder_factory=EmbedderFactory(container),
-        embedding_cache_provider=lambda: container[EmbeddingCache],
-        # Add any custom parameters here
-    ).__aenter__()
+    embedder_factory = EmbedderFactory(container)
+
+    async def get_embedder_type() -> type[Embedder]:
+        return type(await container[NLPService].get_embedder())
     
-    # Setup all vector stores to use this Qdrant instance
-    return await setup_qdrant_for_parlant(container, qdrant_db)
+    exit_stack = AsyncExitStack()
+    qdrant_db = await exit_stack.enter_async_context(
+        QdrantDatabase(
+            logger=container[Logger],
+            path=Path("./qdrant_data"),  # or url/api_key for cloud
+            embedder_factory=EmbedderFactory(container),
+            embedding_cache_provider=lambda: container[EmbeddingCache],
+        )
+    )
+    
+    # Configure stores using vector database
+    container[GlossaryStore] = await exit_stack.enter_async_context(
+        GlossaryVectorStore(
+            id_generator=container[p.IdGenerator],
+            vector_db=qdrant_db,
+            document_db=TransientDocumentDatabase(),
+            embedder_factory=embedder_factory,
+            embedder_type_provider=get_embedder_type,
+        )  # type: ignore
+    )
+    
+    container[CannedResponseStore] = await exit_stack.enter_async_context(
+        CannedResponseVectorStore(
+            id_generator=container[p.IdGenerator],
+            vector_db=qdrant_db,
+            document_db=TransientDocumentDatabase(),
+            embedder_factory=embedder_factory,
+            embedder_type_provider=get_embedder_type,
+        )  # type: ignore
+    )
+    
+    container[CapabilityStore] = await exit_stack.enter_async_context(
+        CapabilityVectorStore(
+            id_generator=container[p.IdGenerator],
+            vector_db=qdrant_db,
+            document_db=TransientDocumentDatabase(),
+            embedder_factory=embedder_factory,
+            embedder_type_provider=get_embedder_type,
+        )  # type: ignore
+    )
+    
+    container[JourneyStore] = await exit_stack.enter_async_context(
+        JourneyVectorStore(
+            id_generator=container[p.IdGenerator],
+            vector_db=qdrant_db,
+            document_db=TransientDocumentDatabase(),
+            embedder_factory=embedder_factory,
+            embedder_type_provider=get_embedder_type,
+        )  # type: ignore
+    )
+    
+    return container
+
+async def main():
+    async with p.Server(configure_container=configure_container) as server:
+        agent = await server.create_agent(
+            name="My Agent",
+            description="Agent using Qdrant for persistent storage",
+        )
+        
+        # Test: Create a term to verify Qdrant is working
+        term = await agent.create_term(
+            name="Example Term",
+            description="This is stored in Qdrant",
+        )
+        print(f"Created term: {term.name}")
+        # All vector operations now use Qdrant
 ```
 
-## How It Works
+**Note:** The `AsyncExitStack` ensures proper cleanup of async context managers. The Server automatically manages cleanup when it exits. The `document_db=TransientDocumentDatabase()` is correct for vector stores—it handles non-vector metadata (like tag associations), while vector data goes to Qdrant.
 
-Qdrant uses two collections per data type:
-- **Raw documents** (`{name}_unembedded`): Source of truth
-- **Embedded documents** (`{name}_{EmbedderType}`): For vector search
-
-When you change embedders, only the embedded collection is regenerated. Collections are created and synced automatically.
 
 ## Verification
 
@@ -102,53 +165,17 @@ When Qdrant is properly configured:
 - Data persists across server restarts
 
 ### Test Vector Search
-Create terms and test them:
+Create terms and test persistence:
 ```python
 term = await agent.create_term(
     name="Test Term",
     description="This should be stored in Qdrant",
 )
 # Then chat with agent about "test term" - it should understand via vector search
+
+# Test persistence: close the server and run again
+# The term should still be available after restart
 ```
-
----
-
-## Custom Stores
-
-To create custom vector stores beyond Parlant's built-in stores, accept a `VectorDatabase` in your constructor:
-
-```python
-class MyCustomStore:
-    def __init__(self, vector_db: VectorDatabase):
-        self._vector_db = vector_db
-    
-    async def __aenter__(self):
-        self._collection = await self._vector_db.get_or_create_collection(
-            name="my_collection",
-            schema=MyDocumentSchema,
-            embedder_type=MyEmbedderType,
-            document_loader=my_loader,
-        )
-        return self
-```
-
-Register in `configure_container`:
-
-```python
-async def configure_container(container: p.Container) -> p.Container:
-    # Register Qdrant (as shown above)
-    container[VectorDatabase] = get_qdrant_vector_db
-    
-    # Register custom store
-    async def get_my_store() -> MyCustomStore:
-        vector_db = await container[VectorDatabase]()
-        return await MyCustomStore(vector_db).__aenter__()
-    
-    container[MyCustomStore] = get_my_store
-    return container
-```
-
-**More examples**: [Engine Extensions](https://www.parlant.io/docs/advanced/engine-extensions/#registering-components) and [Quickstart Examples](https://www.parlant.io/docs/quickstart/examples).
 
 ---
 
@@ -187,7 +214,7 @@ Collections auto-sync when embedders or schemas change. Large collections may ta
 When changing embedder types, old embedded collections persist until manually deleted.
 
 ### Performance
-Use Qdrant Cloud or server for production - local mode doesn't support payload indexes.
+Use Qdrant Cloud or server for production - local mode doesn't support payload indexes. You'll see a warning about this when using local Qdrant, which is expected and can be ignored.
 
 ---
 
@@ -205,6 +232,7 @@ Use Qdrant Cloud or server for production - local mode doesn't support payload i
 ### Data Not Persisting
 - Check file path is correct and writable
 - Verify connection settings for remote servers
+- Test by closing the server and restarting—data should persist
 
 ---
 
@@ -217,7 +245,6 @@ Use Qdrant Cloud or server for production - local mode doesn't support payload i
 ## Key Features
 
 - **Persistent storage**: Replaces in-memory storage with production-ready persistence
-- **Dual collections**: Efficient re-indexing when changing embedders or schemas  
-- **Auto-sync**: Collections automatically sync when configurations change
+- **Auto-sync**: Collections automatically sync when embedders or schemas change
 - **Windows support**: Automatic file lock handling
 

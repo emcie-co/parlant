@@ -84,6 +84,7 @@ async def strict_agent_id(
 def make_event_params(
     source: EventSource,
     data: dict[str, Any] = {},
+    metadata: dict[str, JSONSerializable] = {},
     kind: EventKind = EventKind.CUSTOM,
     trace_id: str | None = None,
 ) -> dict[str, Any]:
@@ -93,6 +94,7 @@ def make_event_params(
         "creation_utc": str(datetime.now(timezone.utc)),
         "trace_id": trace_id or generate_id(),
         "data": data,
+        "metadata": metadata,
         "deleted": False,
     }
 
@@ -111,6 +113,7 @@ async def populate_session_id(
             kind=e["kind"],
             trace_id=e["trace_id"],
             data=e["data"],
+            metadata=e["metadata"],
         )
 
 
@@ -625,7 +628,7 @@ async def test_that_events_can_be_listed(
         make_event_params(EventSource.AI_AGENT),
         make_event_params(EventSource.AI_AGENT),
         make_event_params(EventSource.CUSTOMER),
-        make_event_params(EventSource.AI_AGENT),
+        make_event_params(EventSource.AI_AGENT, metadata={"key1": "value1", "key2": 2}),
     ]
 
     await populate_session_id(container, session_id, session_events)
@@ -637,6 +640,8 @@ async def test_that_events_can_be_listed(
     for i, (event_params, listed_event) in enumerate(zip(session_events, data)):
         assert listed_event["offset"] == i
         assert event_is_according_to_params(event=listed_event, params=event_params)
+
+    assert data[-1]["metadata"] == {"key1": "value1", "key2": 2}
 
 
 @mark.parametrize("offset", (0, 2, 4))

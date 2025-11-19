@@ -368,6 +368,14 @@ EventCorrelationIdField: TypeAlias = Annotated[
     ),
 ]
 
+EventMetadataField: TypeAlias = Annotated[
+    Mapping[str, JSONSerializableDTO],
+    Field(
+        description="Metadata associated with the event",
+        examples=[{"key1": "value1", "key2": 2}],
+    ),
+]
+
 EventTraceIdField: TypeAlias = Annotated[
     str,
     Field(
@@ -404,6 +412,7 @@ class EventDTO(
     trace_id: EventTraceIdField
     correlation_id: EventCorrelationIdField
     data: JSONSerializableDTO
+    metadata: EventMetadataField
     deleted: bool
 
 
@@ -1062,6 +1071,7 @@ def event_to_dto(event: Event) -> EventDTO:
         trace_id=event.trace_id,
         correlation_id=event.trace_id,
         data=cast(JSONSerializableDTO, event.data),
+        metadata=event.metadata,
         deleted=event.deleted,
     )
 
@@ -1851,6 +1861,7 @@ def create_router(
             trace_id=event.trace_id,
             correlation_id=event.trace_id,
             data=cast(JSONSerializableDTO, event.data),
+            metadata=event.metadata,
             deleted=event.deleted,
         )
 
@@ -1881,6 +1892,7 @@ def create_router(
             trace_id=event.trace_id,
             correlation_id=event.trace_id,
             data=cast(JSONSerializableDTO, event.data),
+            metadata=event.metadata,
             deleted=event.deleted,
         )
 
@@ -1972,6 +1984,7 @@ def create_router(
                 trace_id=e.trace_id,
                 correlation_id=e.trace_id,
                 data=cast(JSONSerializableDTO, e.data),
+                metadata=e.metadata,
                 deleted=e.deleted,
             )
             for e in events

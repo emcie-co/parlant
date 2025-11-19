@@ -989,7 +989,11 @@ async def test_that_journey_selector_correctly_advances_based_on_tool_result(
 
     staged_events = [
         EmittedEvent(
-            source=EventSource.AI_AGENT, kind=EventKind.TOOL, trace_id="", data=tool_result
+            source=EventSource.AI_AGENT,
+            kind=EventKind.TOOL,
+            trace_id="",
+            data=tool_result,
+            metadata=None,
         ),
     ]
 
@@ -1307,6 +1311,7 @@ async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_
             kind=EventKind.TOOL,
             trace_id="",
             data=stock_check_result,
+            metadata=None,
         ),
     ]
 
@@ -1395,6 +1400,7 @@ async def test_that_journey_selector_backtracks_when_customer_changes_much_earli
             kind=EventKind.TOOL,
             trace_id="",
             data=failed_tool_result,
+            metadata=None,
         ),
     ]
 
@@ -1645,6 +1651,7 @@ async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_
             kind=EventKind.TOOL,
             trace_id="",
             data=failed_tool_result,
+            metadata=None,
         ),
     ]
 
@@ -2062,6 +2069,7 @@ async def test_that_journey_reexecutes_tool_running_step_even_if_the_tool_ran_be
             kind=EventKind.TOOL,
             trace_id="",
             data=stock_check_result,
+            metadata=None,
         ),
     ]
 

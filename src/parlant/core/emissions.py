@@ -14,7 +14,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Mapping
 from typing_extensions import deprecated
 
 from parlant.core.agents import AgentId
@@ -37,6 +37,7 @@ class EmittedEvent:
     kind: EventKind
     trace_id: str
     data: JSONSerializable
+    metadata: Mapping[str, JSONSerializable] | None
 
     @property
     @deprecated("Use 'trace_id' instead")
@@ -52,6 +53,7 @@ class EventEmitter(ABC):
         self,
         trace_id: str | None = None,
         data: StatusEventData | None = None,
+        metadata: Mapping[str, JSONSerializable] | None = None,
         **kwargs: Any,
     ) -> EmittedEvent:
         """Emit a status event with the given trace ID and data."""
@@ -62,6 +64,7 @@ class EventEmitter(ABC):
         self,
         trace_id: str | None = None,
         data: str | MessageEventData | None = None,
+        metadata: Mapping[str, JSONSerializable] | None = None,
         **kwargs: Any,
     ) -> EmittedEvent:
         """Emit a message event with the given trace ID and data."""
@@ -72,6 +75,7 @@ class EventEmitter(ABC):
         self,
         trace_id: str | None,
         data: ToolEventData | None = None,
+        metadata: Mapping[str, JSONSerializable] | None = None,
     ) -> EmittedEvent:
         """Emit a tool event with the given trace ID and data."""
         ...
@@ -81,6 +85,7 @@ class EventEmitter(ABC):
         self,
         trace_id: str | None,
         data: JSONSerializable | None = None,
+        metadata: Mapping[str, JSONSerializable] | None = None,
         **kwargs: Any,
     ) -> EmittedEvent:
         """Emit a custom event with the given trace ID and data."""

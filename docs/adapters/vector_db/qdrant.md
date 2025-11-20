@@ -13,10 +13,6 @@ For general Parlant usage, see the [official documentation](https://www.parlant.
 
 ### Setup (Manual)
 
-Set up Qdrant and vector stores using `AsyncExitStack`:
-
-#### Local Storage
-
 ```python
 import parlant.sdk as p
 from pathlib import Path
@@ -46,6 +42,17 @@ async def configure_container(container: p.Container) -> p.Container:
             embedding_cache_provider=lambda: container[EmbeddingCache],
         )
     )
+    
+    # For Qdrant Cloud, replace the above with:
+    # qdrant_db = await exit_stack.enter_async_context(
+    #     QdrantDatabase(
+    #         logger=container[Logger],
+    #         url="https://your-cluster-id.us-east4-0.gcp.cloud.qdrant.io",
+    #         api_key="your-api-key-here",
+    #         embedder_factory=EmbedderFactory(container),
+    #         embedding_cache_provider=lambda: container[EmbeddingCache],
+    #     )
+    # )
     
     # Configure stores using vector database
     container[GlossaryStore] = await exit_stack.enter_async_context(
@@ -105,99 +112,6 @@ async def main():
         print(f"Created term: {term.name}")
         # All vector operations now use Qdrant
 ```
-
-#### Qdrant Cloud
-
-```python
-import parlant.sdk as p
-from contextlib import AsyncExitStack
-from parlant.adapters.vector_db.qdrant import QdrantDatabase
-from parlant.core.nlp.embedding import EmbedderFactory, EmbeddingCache, Embedder
-from parlant.core.loggers import Logger
-from parlant.core.nlp.service import NLPService
-from parlant.core.glossary import GlossaryVectorStore, GlossaryStore
-from parlant.core.canned_responses import CannedResponseVectorStore, CannedResponseStore
-from parlant.core.capabilities import CapabilityVectorStore, CapabilityStore
-from parlant.core.journeys import JourneyVectorStore, JourneyStore
-from parlant.adapters.db.transient import TransientDocumentDatabase
-
-async def configure_container(container: p.Container) -> p.Container:
-    embedder_factory = EmbedderFactory(container)
-
-    async def get_embedder_type() -> type[Embedder]:
-        return type(await container[NLPService].get_embedder())
-    
-    exit_stack = AsyncExitStack()
-    qdrant_db = await exit_stack.enter_async_context(
-        QdrantDatabase(
-            logger=container[Logger],
-            url="https://your-cluster-id.us-east4-0.gcp.cloud.qdrant.io",
-            api_key="your-api-key-here",
-            embedder_factory=EmbedderFactory(container),
-            embedding_cache_provider=lambda: container[EmbeddingCache],
-        )
-    )
-    
-    # Configure stores using vector database
-    container[GlossaryStore] = await exit_stack.enter_async_context(
-        GlossaryVectorStore(
-            id_generator=container[p.IdGenerator],
-            vector_db=qdrant_db,
-            document_db=TransientDocumentDatabase(),
-            embedder_factory=embedder_factory,
-            embedder_type_provider=get_embedder_type,
-        )  # type: ignore
-    )
-    
-    container[CannedResponseStore] = await exit_stack.enter_async_context(
-        CannedResponseVectorStore(
-            id_generator=container[p.IdGenerator],
-            vector_db=qdrant_db,
-            document_db=TransientDocumentDatabase(),
-            embedder_factory=embedder_factory,
-            embedder_type_provider=get_embedder_type,
-        )  # type: ignore
-    )
-    
-    container[CapabilityStore] = await exit_stack.enter_async_context(
-        CapabilityVectorStore(
-            id_generator=container[p.IdGenerator],
-            vector_db=qdrant_db,
-            document_db=TransientDocumentDatabase(),
-            embedder_factory=embedder_factory,
-            embedder_type_provider=get_embedder_type,
-        )  # type: ignore
-    )
-    
-    container[JourneyStore] = await exit_stack.enter_async_context(
-        JourneyVectorStore(
-            id_generator=container[p.IdGenerator],
-            vector_db=qdrant_db,
-            document_db=TransientDocumentDatabase(),
-            embedder_factory=embedder_factory,
-            embedder_type_provider=get_embedder_type,
-        )  # type: ignore
-    )
-    
-    return container
-
-async def main():
-    async with p.Server(configure_container=configure_container) as server:
-        agent = await server.create_agent(
-            name="My Agent",
-            description="Agent using Qdrant Cloud for persistent storage",
-        )
-        
-        # Test: Create a term to verify Qdrant is working
-        term = await agent.create_term(
-            name="Example Term",
-            description="This is stored in Qdrant Cloud",
-        )
-        print(f"Created term: {term.name}")
-        # All vector operations now use Qdrant Cloud
-```
-
-**Note:** The `AsyncExitStack` ensures proper cleanup of async context managers. The Server automatically manages cleanup when it exits. The `document_db=TransientDocumentDatabase()` is correct for vector stores—it handles non-vector metadata (like tag associations), while vector data goes to Qdrant.
 
 
 ## Verification

@@ -108,60 +108,6 @@ async def _retry_on_timeout_async(
     raise RuntimeError("Retry logic failed unexpectedly")
 
 
-async def _retry_on_timeout_sync(
-    operation: Callable[[], T],
-    max_retries: int = 3,
-    logger: Optional[Logger] = None,
-) -> T:
-    """
-    Retry a synchronous operation on timeout errors with exponential backoff.
-    This is an async function that wraps sync operations for retry logic.
-
-    Args:
-        operation: The synchronous operation to retry (callable that returns T)
-        max_retries: Maximum number of retry attempts
-        logger: Optional logger for warning messages
-
-    Returns:
-        The result of the operation
-
-    Raises:
-        The last exception if all retries fail
-    """
-    last_exception: Exception | None = None
-
-    for attempt in range(max_retries):
-        try:
-            return operation()
-        except (ResponseHandlingException, Exception) as e:
-            # Check if it's a timeout error
-            error_str = str(e).lower()
-            is_timeout = (
-                "timeout" in error_str
-                or "read operation timed out" in error_str
-                or "readtimeout" in error_str
-            )
-
-            if is_timeout and attempt < max_retries - 1:
-                delay = 1.0 * (2**attempt)  # Exponential backoff: 1s, 2s, 4s
-                if logger:
-                    logger.warning(
-                        f"Qdrant operation timed out (attempt {attempt + 1}/{max_retries}). "
-                        f"Retrying in {delay}s..."
-                    )
-                await asyncio.sleep(delay)
-                last_exception = e
-                continue
-            else:
-                # Not a timeout or out of retries
-                raise
-
-    # Should never reach here, but just in case
-    if last_exception:
-        raise last_exception
-    raise RuntimeError("Retry logic failed unexpectedly")
-
-
 def _string_id_to_int(doc_id: str) -> int:
     """Convert a string ID to an integer for Qdrant point IDs."""
     # Use hash to convert string to integer
@@ -1092,8 +1038,9 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
             point_id = _string_id_to_int(str(document["id"]))
 
             # Insert into unembedded collection with retry on timeout
-            await _retry_on_timeout_sync(
-                lambda: self.qdrant_client.upsert(
+            await _retry_on_timeout_async(
+                lambda: asyncio.to_thread(
+                    self.qdrant_client.upsert,
                     collection_name=self._unembedded_collection_name,
                     points=[
                         models.PointStruct(
@@ -1108,8 +1055,9 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
             )
 
             # Insert into embedded collection with retry on timeout
-            await _retry_on_timeout_sync(
-                lambda: self.qdrant_client.upsert(
+            await _retry_on_timeout_async(
+                lambda: asyncio.to_thread(
+                    self.qdrant_client.upsert,
                     collection_name=self.embedded_collection_name,
                     points=[
                         models.PointStruct(
@@ -1189,8 +1137,9 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                 self._version += 1
 
                 # Update unembedded collection with retry on timeout
-                await _retry_on_timeout_sync(
-                    lambda: self.qdrant_client.upsert(
+                await _retry_on_timeout_async(
+                    lambda: asyncio.to_thread(
+                        self.qdrant_client.upsert,
                         collection_name=self._unembedded_collection_name,
                         points=[
                             models.PointStruct(
@@ -1205,8 +1154,9 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                 )
 
                 # Update embedded collection with retry on timeout
-                await _retry_on_timeout_sync(
-                    lambda: self.qdrant_client.upsert(
+                await _retry_on_timeout_async(
+                    lambda: asyncio.to_thread(
+                        self.qdrant_client.upsert,
                         collection_name=self.embedded_collection_name,
                         points=[
                             models.PointStruct(
@@ -1263,8 +1213,9 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                 point_id = _string_id_to_int(str(params["id"]))
 
                 # Insert into unembedded collection with retry on timeout
-                await _retry_on_timeout_sync(
-                    lambda: self.qdrant_client.upsert(
+                await _retry_on_timeout_async(
+                    lambda: asyncio.to_thread(
+                        self.qdrant_client.upsert,
                         collection_name=self._unembedded_collection_name,
                         points=[
                             models.PointStruct(
@@ -1279,8 +1230,9 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                 )
 
                 # Insert into embedded collection with retry on timeout
-                await _retry_on_timeout_sync(
-                    lambda: self.qdrant_client.upsert(
+                await _retry_on_timeout_async(
+                    lambda: asyncio.to_thread(
+                        self.qdrant_client.upsert,
                         collection_name=self.embedded_collection_name,
                         points=[
                             models.PointStruct(

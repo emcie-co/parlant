@@ -41,6 +41,7 @@ _COUNTERS_INITIALIZED = False
 async def record_llm_metrics(
     meter: Meter,
     model_name: str,
+    schema_name: str,
     input_tokens: int,
     output_tokens: int,
     cached_input_tokens: int = 0,
@@ -68,15 +69,15 @@ async def record_llm_metrics(
 
     await _INPUT_TOKENS_COUNTER.increment(
         input_tokens,
-        {"model_name": model_name},
+        {"model_name": model_name, "schema_name": schema_name},
     )
 
     await _OUTPUT_TOKENS_COUNTER.increment(
         output_tokens,
-        {"model_name": model_name},
+        {"model_name": model_name, "schema_name": schema_name},
     )
 
     await _CACHED_TOKENS_COUNTER.increment(
         cached_input_tokens,
-        {"model_name": model_name},
+        {"model_name": model_name, "schema_name": schema_name},
     )

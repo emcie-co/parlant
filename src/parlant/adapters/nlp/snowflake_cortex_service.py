@@ -209,6 +209,7 @@ class CortexSchematicGenerator(BaseSchematicGenerator[T]):
         await record_llm_metrics(
             self._meter,
             self.model_name,
+            schema_name=schema.__name__,
             input_tokens=usage_block.get("prompt_tokens", 0),
             output_tokens=usage_block.get("completion_tokens", 0),
         )

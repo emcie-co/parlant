@@ -162,6 +162,7 @@ class ModelScopeSchematicGenerator(BaseSchematicGenerator[T]):
             await record_llm_metrics(
                 self.meter,
                 self.model_name,
+                schema_name=self.schema.__name__,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 cached_input_tokens=0,

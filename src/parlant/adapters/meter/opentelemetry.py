@@ -102,9 +102,7 @@ class OpenTelemetryMeter(Meter):
 
         match protocol:
             case "http/protobuf":
-                self._metric_exporter = HttpOTLPMetricExporter(
-                    endpoint=endpoint, headers={"Content-Type": "application/x-protobuf"}
-                )
+                self._metric_exporter = HttpOTLPMetricExporter(endpoint=endpoint)
             case "http/json":
                 self._metric_exporter = HttpOTLPMetricExporter(
                     endpoint=endpoint,

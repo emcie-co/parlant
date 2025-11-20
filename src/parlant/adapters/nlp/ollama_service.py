@@ -312,6 +312,7 @@ class OllamaSchematicGenerator(BaseSchematicGenerator[T]):
             await record_llm_metrics(
                 self._meter,
                 self.model_name,
+                schema_name=self.schema.__name__,
                 input_tokens=prompt_eval_count,
                 output_tokens=eval_count,
             )

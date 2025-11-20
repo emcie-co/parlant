@@ -247,6 +247,7 @@ class ZhipuSchematicGenerator(BaseSchematicGenerator[T]):
             await record_llm_metrics(
                 self.meter,
                 self.model_name,
+                schema_name=self.schema.__name__,
                 input_tokens=response.usage.prompt_tokens or 0,
                 output_tokens=response.usage.completion_tokens or 0,
                 cached_input_tokens=0,

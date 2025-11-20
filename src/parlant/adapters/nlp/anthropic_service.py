@@ -171,6 +171,7 @@ class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
             await record_llm_metrics(
                 self._meter,
                 self.model_name,
+                schema_name=self.schema.__name__,
                 input_tokens=response.usage.input_tokens,
                 output_tokens=response.usage.output_tokens,
             )

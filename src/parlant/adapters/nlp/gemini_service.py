@@ -178,6 +178,7 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
             await record_llm_metrics(
                 self.meter,
                 self.model_name,
+                schema_name=self.schema.__name__,
                 input_tokens=response.usage_metadata.prompt_token_count or 0
                 if response.usage_metadata
                 else 0,

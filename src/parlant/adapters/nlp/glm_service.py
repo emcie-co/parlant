@@ -243,6 +243,7 @@ class GLMSchematicGenerator(BaseSchematicGenerator[T]):
             await record_llm_metrics(
                 self._meter,
                 self.model_name,
+                schema_name=self.schema.__name__,
                 input_tokens=response.usage.prompt_tokens,
                 output_tokens=response.usage.completion_tokens,
                 cached_input_tokens=getattr(

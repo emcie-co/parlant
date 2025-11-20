@@ -11,47 +11,9 @@ For general Parlant usage, see the [official documentation](https://www.parlant.
 
 ## Quick Start
 
-### Simple One-Line Setup (Recommended)
+### Setup (Manual)
 
-The easiest way to use Qdrant with Parlant. This automatically configures all vector stores:
-
-```python
-import parlant.sdk as p
-from pathlib import Path
-from parlant.adapters.vector_db.qdrant import configure_qdrant_for_parlant
-
-# Local storage
-async def configure_container(container: p.Container) -> p.Container:
-    return await configure_qdrant_for_parlant(
-        container,
-        path=Path("./qdrant_data")
-    )
-
-# OR Qdrant Cloud  
-async def configure_container(container: p.Container) -> p.Container:
-    return await configure_qdrant_for_parlant(
-        container,
-        url="https://your-cluster-id.us-east4-0.gcp.cloud.qdrant.io",
-        api_key="your-api-key-here"
-    )
-
-async def main():
-    async with p.Server(configure_container=configure_container) as server:
-        agent = await server.create_agent(
-            name="My Agent",
-            description="Agent using Qdrant for persistent storage",
-        )
-        # All vector operations now use Qdrant automatically
-```
-
-The `configure_qdrant_for_parlant()` function automatically:
-- Creates a QdrantDatabase instance  
-- Overrides all 4 built-in vector stores (GlossaryStore, CannedResponseStore, CapabilityStore, JourneyStore)
-- Ensures all vector data goes to Qdrant instead of transient storage
-
-### Advanced Setup (Manual)
-
-For more control over configuration, manually set up Qdrant and vector stores using `AsyncExitStack`:
+Set up Qdrant and vector stores using `AsyncExitStack`:
 
 ```python
 import parlant.sdk as p
@@ -187,22 +149,7 @@ term = await agent.create_term(
 - Vector data appears in `parlant-data` folder
 - Data lost on server restart
 
-**Solution:** Use the `configure_qdrant_for_parlant()` function instead of registering `VectorDatabase`:
-
-```python
-# ❌ This doesn't work (stores already created with transient storage)
-async def configure_container(container: p.Container) -> p.Container:
-    container[VectorDatabase] = my_qdrant_factory
-    return container
-
-# ✅ This works (automatically overrides all vector stores)  
-async def configure_container(container: p.Container) -> p.Container:
-    return await configure_qdrant_for_parlant(
-        container,
-        url="your-cluster-url",
-        api_key="your-api-key"
-    )
-```
+**Solution:** Ensure all vector stores are properly configured with Qdrant in your `configure_container` function. Make sure you're using `AsyncExitStack` to properly manage the Qdrant database and vector stores lifecycle.
 
 ### Windows File Locks
 On Windows, use `async with` context manager. The adapter automatically handles file lock retries.

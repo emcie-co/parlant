@@ -1320,6 +1320,8 @@ class SessionDocumentStore(SessionStore):
                 params=update_params,
             )
 
+        assert result.updated_document
+
         return self._deserialize_event(result.updated_document)
 
 

@@ -13,16 +13,18 @@
 # limitations under the License.
 
 from __future__ import annotations
+import asyncio
 import gc
 import hashlib
 import json
 import sys
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Generic, Optional, Sequence, cast
+from typing import Any, Awaitable, Callable, Generic, Optional, Sequence, TypeVar, cast
 from typing_extensions import override, Self
 from qdrant_client import QdrantClient  # type: ignore[import-untyped]
 from qdrant_client.http import models  # type: ignore[import-untyped]
 from qdrant_client.http.models import Filter, FieldCondition, Range, MatchValue, MatchAny  # type: ignore[import-untyped]
+from qdrant_client.http.exceptions import ResponseHandlingException  # type: ignore[import-untyped]
 
 
 from parlant.core.async_utils import ReaderWriterLock
@@ -48,6 +50,118 @@ from parlant.core.persistence.vector_database import (
 )
 
 
+T = TypeVar("T")
+
+
+async def _retry_on_timeout_async(
+    operation: Callable[[], Awaitable[T]],
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+    logger: Optional[Logger] = None,
+) -> T:
+    """
+    Retry an async operation on timeout errors with exponential backoff.
+
+    Args:
+        operation: The async operation to retry (callable that returns Awaitable[T])
+        max_retries: Maximum number of retry attempts
+        base_delay: Base delay in seconds for exponential backoff
+        logger: Optional logger for warning messages
+
+    Returns:
+        The result of the operation
+
+    Raises:
+        The last exception if all retries fail
+    """
+    last_exception: Exception | None = None
+
+    for attempt in range(max_retries):
+        try:
+            return await operation()
+        except (ResponseHandlingException, Exception) as e:
+            # Check if it's a timeout error
+            error_str = str(e).lower()
+            is_timeout = (
+                "timeout" in error_str
+                or "read operation timed out" in error_str
+                or "readtimeout" in error_str
+            )
+
+            if is_timeout and attempt < max_retries - 1:
+                delay = base_delay * (2**attempt)  # Exponential backoff: 1s, 2s, 4s
+                if logger:
+                    logger.warning(
+                        f"Qdrant operation timed out (attempt {attempt + 1}/{max_retries}). "
+                        f"Retrying in {delay}s..."
+                    )
+                await asyncio.sleep(delay)
+                last_exception = e
+                continue
+            else:
+                # Not a timeout or out of retries
+                raise
+
+    # Should never reach here, but just in case
+    if last_exception:
+        raise last_exception
+    raise RuntimeError("Retry logic failed unexpectedly")
+
+
+async def _retry_on_timeout_sync(
+    operation: Callable[[], T],
+    max_retries: int = 3,
+    logger: Optional[Logger] = None,
+) -> T:
+    """
+    Retry a synchronous operation on timeout errors with exponential backoff.
+    This is an async function that wraps sync operations for retry logic.
+
+    Args:
+        operation: The synchronous operation to retry (callable that returns T)
+        max_retries: Maximum number of retry attempts
+        logger: Optional logger for warning messages
+
+    Returns:
+        The result of the operation
+
+    Raises:
+        The last exception if all retries fail
+    """
+    last_exception: Exception | None = None
+
+    for attempt in range(max_retries):
+        try:
+            return operation()
+        except (ResponseHandlingException, Exception) as e:
+            # Check if it's a timeout error
+            error_str = str(e).lower()
+            is_timeout = (
+                "timeout" in error_str
+                or "read operation timed out" in error_str
+                or "readtimeout" in error_str
+            )
+
+            if is_timeout and attempt < max_retries - 1:
+                delay = 1.0 * (2**attempt)  # Exponential backoff: 1s, 2s, 4s
+                if logger:
+                    logger.warning(
+                        f"Qdrant operation timed out (attempt {attempt + 1}/{max_retries}). "
+                        f"Retrying in {delay}s..."
+                    )
+                await asyncio.sleep(delay)
+                last_exception = e
+                continue
+            else:
+                # Not a timeout or out of retries
+                raise
+
+    # Should never reach here, but just in case
+    if last_exception:
+        raise last_exception
+    raise RuntimeError("Retry logic failed unexpectedly")
+
+
 def _string_id_to_int(doc_id: str) -> int:
     """Convert a string ID to an integer for Qdrant point IDs."""
     # Use hash to convert string to integer
@@ -55,6 +169,37 @@ def _string_id_to_int(doc_id: str) -> int:
     hash_value = int(hashlib.sha256(doc_id.encode()).hexdigest()[:15], 16)
     # Ensure it's within safe int64 range (Qdrant supports int64)
     return hash_value % (2**63 - 1)
+
+
+def _extract_field_names_from_where(where: Where, field_names: set[str]) -> None:
+    """Recursively extract all field names from a Where filter."""
+    if not where:
+        return
+
+    # Handle logical operators
+    if "$and" in where:
+        for sub_filter in where["$and"]:
+            if isinstance(sub_filter, dict):
+                _extract_field_names_from_where(sub_filter, field_names)
+        return
+
+    if "$or" in where:
+        for sub_filter in where["$or"]:
+            if isinstance(sub_filter, dict):
+                _extract_field_names_from_where(sub_filter, field_names)
+        return
+
+    # Handle field conditions
+    for field_name, field_filter in where.items():
+        if isinstance(field_filter, dict):
+            # This is a field with operators
+            field_names.add(field_name)
+            # Recursively check nested filters (for complex nested structures)
+            for operator, filter_value in field_filter.items():
+                if operator in ["$and", "$or"] and isinstance(filter_value, list):
+                    for nested_filter in filter_value:
+                        if isinstance(nested_filter, dict):
+                            _extract_field_names_from_where(nested_filter, field_names)
 
 
 def _convert_where_to_qdrant_filter(where: Where) -> Optional[Filter]:
@@ -174,7 +319,13 @@ class QdrantDatabase(VectorDatabase):
                         continue
                     raise
         elif self._url:
-            self.qdrant_client = QdrantClient(url=self._url, api_key=self._api_key)
+            # Set longer timeout for cloud operations (60 seconds)
+            # This helps with large batch operations and slow network connections
+            self.qdrant_client = QdrantClient(
+                url=self._url,
+                api_key=self._api_key,
+                timeout=60,  # 60 second timeout for cloud operations
+            )
         else:
             # Default to in-memory for testing
             self.qdrant_client = QdrantClient(":memory:")
@@ -822,9 +973,12 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
         filters: Where,
     ) -> Sequence[TDocument]:
         async with self._lock.reader_lock:
-            # Ensure indexes exist for filtering
+            # Ensure indexes exist for all fields used in filtering
             if filters and self._database:
-                self._database._ensure_payload_index(self.embedded_collection_name, "id")
+                field_names: set[str] = set()
+                _extract_field_names_from_where(filters, field_names)
+                for field_name in field_names:
+                    self._database._ensure_payload_index(self.embedded_collection_name, field_name)
 
             qdrant_filter = _convert_where_to_qdrant_filter(filters)
 
@@ -864,9 +1018,12 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
         filters: Where,
     ) -> Optional[TDocument]:
         async with self._lock.reader_lock:
-            # Ensure indexes exist for filtering
+            # Ensure indexes exist for all fields used in filtering
             if filters and self._database:
-                self._database._ensure_payload_index(self.embedded_collection_name, "id")
+                field_names: set[str] = set()
+                _extract_field_names_from_where(filters, field_names)
+                for field_name in field_names:
+                    self._database._ensure_payload_index(self.embedded_collection_name, field_name)
 
             qdrant_filter = _convert_where_to_qdrant_filter(filters)
 
@@ -934,28 +1091,36 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
             # Convert string ID to integer for Qdrant
             point_id = _string_id_to_int(str(document["id"]))
 
-            # Insert into unembedded collection
-            self.qdrant_client.upsert(
-                collection_name=self._unembedded_collection_name,
-                points=[
-                    models.PointStruct(
-                        id=point_id,
-                        vector=[0],
-                        payload=cast(dict[str, Any], document),
-                    )
-                ],
+            # Insert into unembedded collection with retry on timeout
+            await _retry_on_timeout_sync(
+                lambda: self.qdrant_client.upsert(
+                    collection_name=self._unembedded_collection_name,
+                    points=[
+                        models.PointStruct(
+                            id=point_id,
+                            vector=[0],
+                            payload=cast(dict[str, Any], document),
+                        )
+                    ],
+                ),
+                max_retries=3,
+                logger=self._logger,
             )
 
-            # Insert into embedded collection
-            self.qdrant_client.upsert(
-                collection_name=self.embedded_collection_name,
-                points=[
-                    models.PointStruct(
-                        id=point_id,
-                        vector=embeddings[0],
-                        payload=cast(dict[str, Any], document),
-                    )
-                ],
+            # Insert into embedded collection with retry on timeout
+            await _retry_on_timeout_sync(
+                lambda: self.qdrant_client.upsert(
+                    collection_name=self.embedded_collection_name,
+                    points=[
+                        models.PointStruct(
+                            id=point_id,
+                            vector=embeddings[0],
+                            payload=cast(dict[str, Any], document),
+                        )
+                    ],
+                ),
+                max_retries=3,
+                logger=self._logger,
             )
 
             # Update version in both collections
@@ -977,6 +1142,13 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
         upsert: bool = False,
     ) -> UpdateResult[TDocument]:
         async with self._lock.writer_lock:
+            # Ensure indexes exist for all fields used in filtering
+            if filters and self._database:
+                field_names: set[str] = set()
+                _extract_field_names_from_where(filters, field_names)
+                for field_name in field_names:
+                    self._database._ensure_payload_index(self.embedded_collection_name, field_name)
+
             qdrant_filter = _convert_where_to_qdrant_filter(filters)
 
             points = self.qdrant_client.scroll(
@@ -1016,28 +1188,36 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
 
                 self._version += 1
 
-                # Update unembedded collection
-                self.qdrant_client.upsert(
-                    collection_name=self._unembedded_collection_name,
-                    points=[
-                        models.PointStruct(
-                            id=point.id,  # point.id is already an integer
-                            vector=[0],
-                            payload=updated_document,
-                        )
-                    ],
+                # Update unembedded collection with retry on timeout
+                await _retry_on_timeout_sync(
+                    lambda: self.qdrant_client.upsert(
+                        collection_name=self._unembedded_collection_name,
+                        points=[
+                            models.PointStruct(
+                                id=point.id,  # point.id is already an integer
+                                vector=[0],
+                                payload=updated_document,
+                            )
+                        ],
+                    ),
+                    max_retries=3,
+                    logger=self._logger,
                 )
 
-                # Update embedded collection
-                self.qdrant_client.upsert(
-                    collection_name=self.embedded_collection_name,
-                    points=[
-                        models.PointStruct(
-                            id=point.id,  # point.id is already an integer
-                            vector=embeddings[0],
-                            payload=updated_document,
-                        )
-                    ],
+                # Update embedded collection with retry on timeout
+                await _retry_on_timeout_sync(
+                    lambda: self.qdrant_client.upsert(
+                        collection_name=self.embedded_collection_name,
+                        points=[
+                            models.PointStruct(
+                                id=point.id,  # point.id is already an integer
+                                vector=embeddings[0],
+                                payload=updated_document,
+                            )
+                        ],
+                    ),
+                    max_retries=3,
+                    logger=self._logger,
                 )
 
                 # Update version in both collections
@@ -1082,28 +1262,36 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
                 # Convert string ID to integer for Qdrant
                 point_id = _string_id_to_int(str(params["id"]))
 
-                # Insert into unembedded collection
-                self.qdrant_client.upsert(
-                    collection_name=self._unembedded_collection_name,
-                    points=[
-                        models.PointStruct(
-                            id=point_id,
-                            vector=[0],
-                            payload=cast(dict[str, Any], params),
-                        )
-                    ],
+                # Insert into unembedded collection with retry on timeout
+                await _retry_on_timeout_sync(
+                    lambda: self.qdrant_client.upsert(
+                        collection_name=self._unembedded_collection_name,
+                        points=[
+                            models.PointStruct(
+                                id=point_id,
+                                vector=[0],
+                                payload=cast(dict[str, Any], params),
+                            )
+                        ],
+                    ),
+                    max_retries=3,
+                    logger=self._logger,
                 )
 
-                # Insert into embedded collection
-                self.qdrant_client.upsert(
-                    collection_name=self.embedded_collection_name,
-                    points=[
-                        models.PointStruct(
-                            id=point_id,
-                            vector=embeddings[0],
-                            payload=cast(dict[str, Any], params),
-                        )
-                    ],
+                # Insert into embedded collection with retry on timeout
+                await _retry_on_timeout_sync(
+                    lambda: self.qdrant_client.upsert(
+                        collection_name=self.embedded_collection_name,
+                        points=[
+                            models.PointStruct(
+                                id=point_id,
+                                vector=embeddings[0],
+                                payload=cast(dict[str, Any], params),
+                            )
+                        ],
+                    ),
+                    max_retries=3,
+                    logger=self._logger,
                 )
 
                 # Update version in both collections
@@ -1135,6 +1323,13 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
         filters: Where,
     ) -> DeleteResult[TDocument]:
         async with self._lock.writer_lock:
+            # Ensure indexes exist for all fields used in filtering
+            if filters and self._database:
+                field_names: set[str] = set()
+                _extract_field_names_from_where(filters, field_names)
+                for field_name in field_names:
+                    self._database._ensure_payload_index(self.embedded_collection_name, field_name)
+
             qdrant_filter = _convert_where_to_qdrant_filter(filters)
 
             points = self.qdrant_client.scroll(
@@ -1197,6 +1392,13 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
         k: int,
     ) -> Sequence[SimilarDocumentResult[TDocument]]:
         async with self._lock.reader_lock:
+            # Ensure indexes exist for all fields used in filtering
+            if filters and self._database:
+                field_names: set[str] = set()
+                _extract_field_names_from_where(filters, field_names)
+                for field_name in field_names:
+                    self._database._ensure_payload_index(self.embedded_collection_name, field_name)
+
             query_embeddings = list((await self._embedder.embed([query])).vectors)
             qdrant_filter = _convert_where_to_qdrant_filter(filters)
 

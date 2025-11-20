@@ -84,13 +84,23 @@ class OpenTelemetryTracer(Tracer):
             insecure = os.getenv("OTEL_EXPORTER_OTLP_INSECURE", "false").lower() == "true"
             protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc").lower()
 
-            if protocol == "http":
-                self._span_exporter = HttpOTLPSpanExporter(endpoint=endpoint)
-            else:
-                self._span_exporter = GrpcOTLPSpanExporter(
-                    endpoint=endpoint,
-                    insecure=insecure,
-                )
+            match protocol:
+                case "http/protobuf":
+                    self._span_exporter = HttpOTLPSpanExporter(
+                        endpoint=endpoint, headers={"Content-Type": "application/x-protobuf"}
+                    )
+                case "http/json":
+                    self._span_exporter = HttpOTLPSpanExporter(
+                        endpoint=endpoint,
+                        headers={"Content-Type": "application/json"},
+                    )
+                case "grpc":
+                    self._span_exporter = GrpcOTLPSpanExporter(
+                        endpoint=endpoint,
+                        insecure=insecure,
+                    )
+                case _:
+                    raise ValueError(f"Unsupported OTLP protocol: {protocol}")
 
             self._span_processor = BatchSpanProcessor(
                 span_exporter=self._span_exporter,

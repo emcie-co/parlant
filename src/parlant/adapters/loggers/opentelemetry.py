@@ -43,10 +43,24 @@ class OpenTelemetryLogger(TracingLogger):
         insecure = os.getenv("OTEL_EXPORTER_OTLP_INSECURE", "false").lower() == "true"
         protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc").lower()
 
-        if protocol == "http":
-            self._log_exporter = HttpOTLPLogExporter(endpoint=endpoint)
-        else:
-            self._log_exporter = GrpcOTLPLogExporter(endpoint=endpoint, insecure=insecure)
+        match protocol:
+            case "http/protobuf":
+                self._log_exporter = HttpOTLPLogExporter(
+                    endpoint=endpoint, headers={"Content-Type": "application/x-protobuf"}
+                )
+            case "http/json":
+                self._log_exporter = HttpOTLPLogExporter(
+                    endpoint=endpoint,
+                    headers={"Content-Type": "application/json"},
+                )
+            case "grpc":
+                self._log_exporter = GrpcOTLPLogExporter(
+                    endpoint=endpoint,
+                    insecure=insecure,
+                )
+            case _:
+                raise ValueError(f"Unsupported OTLP protocol: {protocol}")
+
         self._logger_provider = LoggerProvider(resource=resource)
         self._log_processor = BatchLogRecordProcessor(
             exporter=self._log_exporter,

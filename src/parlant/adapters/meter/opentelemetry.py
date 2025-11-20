@@ -100,13 +100,23 @@ class OpenTelemetryMeter(Meter):
         insecure = os.getenv("OTEL_EXPORTER_OTLP_INSECURE", "false").lower() == "true"
         protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc").lower()
 
-        if protocol == "http":
-            self._metric_exporter = HttpOTLPMetricExporter(endpoint=endpoint)
-        else:
-            self._metric_exporter = GrpcOTLPMetricExporter(
-                endpoint=endpoint,
-                insecure=insecure,
-            )
+        match protocol:
+            case "http/protobuf":
+                self._metric_exporter = HttpOTLPMetricExporter(
+                    endpoint=endpoint, headers={"Content-Type": "application/x-protobuf"}
+                )
+            case "http/json":
+                self._metric_exporter = HttpOTLPMetricExporter(
+                    endpoint=endpoint,
+                    headers={"Content-Type": "application/json"},
+                )
+            case "grpc":
+                self._metric_exporter = GrpcOTLPMetricExporter(
+                    endpoint=endpoint,
+                    insecure=insecure,
+                )
+            case _:
+                raise ValueError(f"Unsupported OTLP protocol: {protocol}")
 
         metric_reader = PeriodicExportingMetricReader(
             exporter=self._metric_exporter,

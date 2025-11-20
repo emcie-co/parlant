@@ -49,12 +49,12 @@ from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationStore,
 )
 from parlant.core.glossary import GlossaryStore, Term
+from parlant.core.app_modules.sessions import SessionUpdateParamsModel
 from parlant.core.sessions import (
     SessionId,
     Session,
     SessionStore,
     Event,
-    SessionUpdateParams,
 )
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tags import Tag
@@ -498,7 +498,7 @@ class EntityCommands:
     async def update_session(
         self,
         session_id: SessionId,
-        params: SessionUpdateParams,
+        params: SessionUpdateParamsModel,
     ) -> None:
         await self._session_store.update_session(session_id, params)
 

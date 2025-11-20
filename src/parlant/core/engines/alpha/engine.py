@@ -66,6 +66,7 @@ from parlant.core.journey_guideline_projection import (
 )
 from parlant.core.journeys import Journey, JourneyId
 from parlant.core.meter import Meter
+from parlant.core.app_modules.sessions import SessionUpdateParamsModel
 from parlant.core.sessions import (
     AgentState,
     ContextVariable as StoredContextVariable,
@@ -76,7 +77,6 @@ from parlant.core.sessions import (
     PreparationIteration,
     PreparationIterationGenerations,
     Session,
-    SessionUpdateParams,
     Term as StoredTerm,
     ToolEventData,
 )
@@ -1740,7 +1740,7 @@ class AlphaEngine(Engine):
 
         await self._entity_commands.update_session(
             session_id=session.id,
-            params=SessionUpdateParams(
+            params=SessionUpdateParamsModel(
                 agent_states=list(session.agent_states)
                 + [
                     AgentState(

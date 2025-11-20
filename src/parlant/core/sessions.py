@@ -289,6 +289,10 @@ class SessionUpdateParams(TypedDict, total=False):
     metadata: Mapping[str, JSONSerializable]
 
 
+class EventUpdateParams(TypedDict, total=False):
+    metadata: Mapping[str, JSONSerializable]
+
+
 @dataclass(frozen=True)
 class SessionListing:
     items: Sequence[Session]
@@ -394,6 +398,14 @@ class SessionStore(ABC):
         min_offset: int | None = None,
         exclude_deleted: bool = True,
     ) -> Sequence[Event]: ...
+
+    @abstractmethod
+    async def update_event(
+        self,
+        session_id: SessionId,
+        event_id: EventId,
+        params: EventUpdateParams,
+    ) -> Event: ...
 
 
 class _SessionDocument_v0_4_0(TypedDict, total=False):
@@ -1273,6 +1285,42 @@ class SessionDocumentStore(SessionStore):
                 )
 
         return [self._deserialize_event(d) for d in event_documents]
+
+    @override
+    async def update_event(
+        self,
+        session_id: SessionId,
+        event_id: EventId,
+        params: EventUpdateParams,
+    ) -> Event:
+        async with self._lock.writer_lock:
+            event_document = await self._event_collection.find_one(
+                filters={
+                    "id": {"$eq": ObjectId(event_id)},
+                    "session_id": {"$eq": session_id},
+                    "deleted": {"$ne": True},
+                }
+            )
+
+            if not event_document:
+                raise ItemNotFoundError(item_id=UniqueId(event_id), message="Event not found")
+
+            update_params: _EventDocument = {}
+            if "metadata" in params:
+                update_params["metadata"] = params["metadata"] if params["metadata"] else None
+
+            if not update_params:
+                return self._deserialize_event(event_document)
+
+            result = await self._event_collection.update_one(
+                filters={
+                    "id": {"$eq": ObjectId(event_id)},
+                    "session_id": {"$eq": session_id},
+                },
+                params=update_params,
+            )
+
+        return self._deserialize_event(result.updated_document)
 
 
 class SessionListener(ABC):

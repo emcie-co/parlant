@@ -17,20 +17,50 @@ from parlant.core.loggers import Logger
 from parlant.core.nlp.moderation import CustomerModerationContext, ModerationService
 from parlant.core.nlp.service import NLPService
 from parlant.core.sessions import (
+    AgentState,
+    ConsumerId,
     Event,
+    EventId,
     EventKind,
     EventSource,
+    EventUpdateParams,
     MessageEventData,
     Participant,
     Session,
     SessionId,
     SessionListener,
+    SessionMode,
     SessionStatus,
     SessionStore,
-    SessionUpdateParams,
     StatusEventData,
 )
 from dataclasses import dataclass
+from typing_extensions import TypedDict
+
+
+class SessionUpdateParamsModel(TypedDict, total=False):
+    """Parameters for updating a session."""
+
+    customer_id: CustomerId
+    agent_id: AgentId
+    mode: SessionMode
+    title: str | None
+    consumption_offsets: Mapping[ConsumerId, int]
+    agent_states: Sequence[AgentState]
+    metadata: Mapping[str, JSONSerializable]
+
+
+class EventMetadataUpdateParamsModel(TypedDict, total=False):
+    """Parameters for updating event metadata with granular control."""
+
+    set: Mapping[str, JSONSerializable]
+    unset: Sequence[str]
+
+
+class EventUpdateParamsModel(TypedDict, total=False):
+    """Parameters for updating an event."""
+
+    metadata: EventMetadataUpdateParamsModel
 
 
 @dataclass(frozen=True)
@@ -159,7 +189,7 @@ class SessionModule:
     async def update(
         self,
         session_id: SessionId,
-        params: SessionUpdateParams,
+        params: SessionUpdateParamsModel,
     ) -> Session:
         session = await self._session_store.update_session(
             session_id=session_id,
@@ -470,4 +500,49 @@ class SessionModule:
         await self._session_store.update_session(
             session_id=session_id,
             params={"agent_states": agent_states},
+        )
+
+    async def read_event(
+        self,
+        session_id: SessionId,
+        event_id: EventId,
+    ) -> Event:
+        """Reads a single event by ID."""
+        return await self._session_store.read_event(
+            session_id=session_id,
+            event_id=event_id,
+        )
+
+    async def update_event(
+        self,
+        session_id: SessionId,
+        event_id: EventId,
+        params: EventUpdateParamsModel,
+    ) -> Event:
+        """Updates an event. Currently supports updating metadata, but extensible for future properties."""
+        # Convert from app_modules EventUpdateParamsModel to store EventUpdateParams
+        store_params: EventUpdateParams = {}
+
+        if "metadata" in params and params["metadata"]:
+            # For metadata updates, we need to get current event and apply set/unset operations
+            current_event = await self.read_event(session_id, event_id)
+            current_metadata = dict(current_event.metadata)
+
+            metadata_params = params["metadata"]
+
+            # Apply set operations
+            if "set" in metadata_params and metadata_params["set"]:
+                current_metadata.update(metadata_params["set"])
+
+            # Apply unset operations
+            if "unset" in metadata_params and metadata_params["unset"]:
+                for key in metadata_params["unset"]:
+                    current_metadata.pop(key, None)
+
+            store_params["metadata"] = current_metadata
+
+        return await self._session_store.update_event(
+            session_id=session_id,
+            event_id=event_id,
+            params=store_params,
         )

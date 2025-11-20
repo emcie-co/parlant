@@ -1662,3 +1662,111 @@ async def test_that_status_event_can_be_created_with_metadata(
     assert event["data"]["status"] == "processing"
     assert event["data"]["data"] == status_data
     assert event["metadata"] == metadata
+
+
+async def test_that_event_metadata_key_can_be_set(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    session_id: SessionId,
+) -> None:
+    # Create an event with initial metadata
+    initial_metadata: dict[str, JSONSerializable] = {"priority": "low", "category": "support"}
+
+    session_events = [
+        make_event_params(
+            EventSource.CUSTOMER,
+            metadata=initial_metadata,
+            kind=EventKind.CUSTOM,
+        ),
+    ]
+
+    await populate_session_id(container, session_id, session_events)
+
+    # Get the created event to get its ID
+    events_response = await async_client.get(f"/sessions/{session_id}/events")
+    events = events_response.json()
+    assert len(events) == 1
+    event_id = events[0]["id"]
+
+    # Verify initial metadata
+    assert events[0]["metadata"] == initial_metadata
+
+    # Set metadata by adding a new key
+    update_response = await async_client.patch(
+        f"/sessions/{session_id}/events/{event_id}",
+        json={
+            "metadata": {
+                "set": {"agent_id": "agent_123", "urgency": "high"},
+            }
+        },
+    )
+
+    assert update_response.status_code == status.HTTP_200_OK
+    updated_event = update_response.json()
+
+    # Verify the metadata now includes both old and new keys
+    expected_metadata = {
+        "priority": "low",
+        "category": "support",
+        "agent_id": "agent_123",
+        "urgency": "high",
+    }
+    assert updated_event["metadata"] == expected_metadata
+
+    # Verify via GET request as well
+    get_response = await async_client.get(f"/sessions/{session_id}/events")
+    events = get_response.json()
+    assert len(events) == 1
+    assert events[0]["metadata"] == expected_metadata
+
+
+async def test_that_event_metadata_key_can_be_unset(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    session_id: SessionId,
+) -> None:
+    # Create an event with initial metadata
+    initial_metadata: dict[str, JSONSerializable] = {
+        "priority": "high",
+        "category": "billing",
+        "temp_flag": "remove_me",
+        "agent_id": "agent_456",
+    }
+
+    session_events = [
+        make_event_params(
+            EventSource.CUSTOMER,
+            metadata=initial_metadata,
+            kind=EventKind.CUSTOM,
+        ),
+    ]
+
+    await populate_session_id(container, session_id, session_events)
+
+    # Get the created event to get its ID
+    events_response = await async_client.get(f"/sessions/{session_id}/events")
+    events = events_response.json()
+    assert len(events) == 1
+    event_id = events[0]["id"]
+
+    # Verify initial metadata
+    assert events[0]["metadata"] == initial_metadata
+
+    # Unset metadata by removing keys
+    update_response = await async_client.patch(
+        f"/sessions/{session_id}/events/{event_id}",
+        json={"metadata": {"unset": ["temp_flag", "category"]}},
+    )
+
+    assert update_response.status_code == status.HTTP_200_OK
+    updated_event = update_response.json()
+
+    # Verify the specified keys were unset
+    expected_metadata = {"priority": "high", "agent_id": "agent_456"}
+    assert updated_event["metadata"] == expected_metadata
+
+    # Verify via GET request as well
+    get_response = await async_client.get(f"/sessions/{session_id}/events")
+    events = get_response.json()
+    assert len(events) == 1
+    assert events[0]["metadata"] == expected_metadata

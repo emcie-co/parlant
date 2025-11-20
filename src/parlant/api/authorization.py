@@ -115,6 +115,7 @@ class Operation(Enum):
     CREATE_CUSTOM_EVENT = "create_custom_event"
     LIST_EVENTS = "list_events"
     DELETE_EVENTS = "delete_events"
+    UPDATE_EVENT = "update_event"
 
     CREATE_TAG = "create_tag"
     READ_TAG = "read_tag"

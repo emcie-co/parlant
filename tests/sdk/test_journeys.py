@@ -748,3 +748,30 @@ class Test_that_metadata_can_be_set_to_a_journey_state(SDKTest):
             state.metadata.get("internal_action")
             == "Provide detailed information about our services"
         )
+
+
+class Test_that_journey_can_have_a_scoped_guideline(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Dummy Agent",
+            description="Dummy agent",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Order Something",
+            conditions=["The customer wants to order something"],
+            description="Help the customer place an order",
+        )
+
+        self.guideline = await self.journey.create_guideline(
+            condition="The customer wants to order a banana",
+            action="Ask them if they'd like green or yellow bananas",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive(
+            "Can I order a banana?",
+            recipient=self.agent,
+        )
+
+        assert "green" in response.lower()

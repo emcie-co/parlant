@@ -12,12 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Any, Awaitable, Callable, Optional, Sequence, TypeAlias, Union
 
 from parlant.core.engines.alpha.engine_context import EngineContext
 from parlant.core.engines.alpha.engine_context import LoadedContext  # type: ignore
+from parlant.core.engines.alpha.guideline_matching.guideline_matching_context import (
+    GuidelineMatchingContext,
+)
+from parlant.core.guidelines import GuidelineId
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 
 
 class EngineHookResult(Enum):
@@ -89,6 +95,11 @@ class EngineHooks:
 
     on_messages_emitted: list[EngineHook] = field(default_factory=list)
     """Called right after all messages were emitted into the session"""
+
+    guideline_match_handlers: dict[
+        GuidelineId, list[Callable[[GuidelineMatchingContext, GuidelineMatch], Awaitable[None]]]
+    ] = field(default_factory=lambda: defaultdict(list))
+    """Map from GuidelineId to list of handlers called when that guideline matches"""
 
     async def call_on_error(self, context: EngineContext, exception: Exception) -> bool:
         return await self.call_hooks(self.on_error, context, None, exception)

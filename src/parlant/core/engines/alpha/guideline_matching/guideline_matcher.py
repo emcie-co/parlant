@@ -17,12 +17,14 @@ from dataclasses import dataclass
 from functools import cached_property
 from itertools import chain
 import time
-from typing import Optional, Sequence
+from typing import Sequence
 
 from parlant.core import async_utils
-from parlant.core.capabilities import Capability
 from parlant.core.engines.alpha.engine_context import EngineContext
-from parlant.core.journeys import Journey, JourneyId
+from parlant.core.engines.alpha.guideline_matching.guideline_matching_context import (
+    GuidelineMatchingContext,
+)
+from parlant.core.journeys import Journey
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.agents import Agent
@@ -30,14 +32,13 @@ from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent
 from parlant.core.nlp.generation_info import GenerationInfo
-
-
+from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch,
     AnalyzedGuideline,
 )
 from parlant.core.glossary import Term
-from parlant.core.guidelines import Guideline, GuidelineId
+from parlant.core.guidelines import Guideline
 from parlant.core.sessions import Event, Session
 from parlant.core.loggers import Logger
 
@@ -50,20 +51,6 @@ class GuidelineMatchingBatchError(Exception):
 class ResponseAnalysisBatchError(Exception):
     def __init__(self, message: str = "Response Analysis Batch failed") -> None:
         super().__init__(message)
-
-
-@dataclass(frozen=True)
-class GuidelineMatchingContext:
-    agent: Agent
-    session: Session
-    customer: Customer
-    context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]]
-    interaction_history: Sequence[Event]
-    terms: Sequence[Term]
-    capabilities: Sequence[Capability]
-    staged_events: Sequence[EmittedEvent]
-    active_journeys: Sequence[Journey]
-    journey_paths: dict[JourneyId, list[Optional[GuidelineId]]]
 
 
 @dataclass(frozen=True)
@@ -162,10 +149,12 @@ class GuidelineMatcher:
         logger: Logger,
         meter: Meter,
         strategy_resolver: GuidelineMatchingStrategyResolver,
+        engine_hooks: EngineHooks,
     ) -> None:
         self._logger = logger
         self._meter = meter
         self.strategy_resolver = strategy_resolver
+        self._engine_hooks = engine_hooks
 
         self._hist_match_duration = meter.create_duration_histogram(
             name="gm.match",
@@ -234,22 +223,24 @@ class GuidelineMatcher:
                         guideline_strategies[strategy.__class__.__name__] = (strategy, [])
                     guideline_strategies[strategy.__class__.__name__][1].append(guideline)
 
+                matching_context = GuidelineMatchingContext(
+                    agent=context.agent,
+                    session=context.session,
+                    customer=context.customer,
+                    context_variables=context.state.context_variables,
+                    interaction_history=context.interaction.history,
+                    terms=list(context.state.glossary_terms),
+                    capabilities=context.state.capabilities,
+                    staged_events=context.state.tool_events,
+                    active_journeys=active_journeys,
+                    journey_paths=context.state.journey_paths,
+                )
+
                 batches = await async_utils.safe_gather(
                     *[
                         strategy.create_matching_batches(
                             guidelines,
-                            context=GuidelineMatchingContext(
-                                agent=context.agent,
-                                session=context.session,
-                                customer=context.customer,
-                                context_variables=context.state.context_variables,
-                                interaction_history=context.interaction.history,
-                                terms=list(context.state.glossary_terms),
-                                capabilities=context.state.capabilities,
-                                staged_events=context.state.tool_events,
-                                active_journeys=active_journeys,
-                                journey_paths=context.state.journey_paths,
-                            ),
+                            context=matching_context,
                         )
                         for _, (strategy, guidelines) in guideline_strategies.items()
                     ]
@@ -269,6 +260,16 @@ class GuidelineMatcher:
 
         for strategy, _ in guideline_strategies.values():
             matches = await strategy.transform_matches(matches)
+
+        handler_tasks = [
+            handler(matching_context, match)
+            for match in matches
+            if match.guideline.id in self._engine_hooks.guideline_match_handlers
+            for handler in self._engine_hooks.guideline_match_handlers[match.guideline.id]
+        ]
+
+        if handler_tasks:
+            await async_utils.safe_gather(*handler_tasks)
 
         return GuidelineMatchingResult(
             total_duration=t_end - t_start,

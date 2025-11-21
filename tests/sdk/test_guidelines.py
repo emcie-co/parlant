@@ -13,6 +13,13 @@
 # limitations under the License.
 
 import pytest
+from parlant.core.engines.alpha.hooks import EngineHooks
+from parlant.core.engines.alpha.guideline_matching.guideline_match import (
+    GuidelineMatch as _GuidelineMatch,
+)
+from parlant.core.engines.alpha.guideline_matching.guideline_matching_context import (
+    GuidelineMatchingContext as _GuidelineMatchingContext,
+)
 from parlant.core.guidelines import GuidelineStore
 from parlant.core.relationships import RelationshipKind, RelationshipStore
 from parlant.core.services.tools.plugins import tool
@@ -385,3 +392,155 @@ class Test_that_guideline_description_affects_agent_behavior(SDKTest):
         )
 
         assert await nlp_test(answer, "It mentions the concept of a boomerang")
+
+
+class Test_that_guideline_match_handler_is_called_when_guideline_matches(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Match Handler Agent",
+            description="Agent for testing match handlers",
+        )
+
+        self.captured_guideline_id = None
+
+        async def match_handler(ctx: p.GuidelineMatchingContext, match: p.GuidelineMatch) -> None:
+            self.captured_guideline_id = match.id
+
+        self.guideline = await self.agent.create_guideline(
+            condition="Customer says hello",
+            action="Greet the customer warmly",
+            on_match=match_handler,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive(
+            customer_message="Hello there!",
+            recipient=self.agent,
+        )
+
+        assert self.captured_guideline_id == self.guideline.id, (
+            "Should capture correct guideline ID"
+        )
+
+
+class Test_that_multiple_match_handlers_can_be_registered_for_same_guideline(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Multiple Handlers Agent",
+            description="Agent for testing multiple handlers",
+        )
+
+        self.handler1_count = 0
+        self.handler2_count = 0
+
+        async def handler1(ctx: p.GuidelineMatchingContext, match: p.GuidelineMatch) -> None:
+            self.handler1_count += 1
+
+        async def handler2(ctx: p.GuidelineMatchingContext, match: p.GuidelineMatch) -> None:
+            self.handler2_count += 1
+
+        self.guideline = await self.agent.create_guideline(
+            condition="Customer asks for help",
+            action="Offer assistance",
+            on_match=handler1,
+        )
+
+        async def shim_handler2(
+            core_ctx: _GuidelineMatchingContext,
+            core_match: _GuidelineMatch,
+        ) -> None:
+            sdk_ctx = await p.GuidelineMatchingContext._from_core(
+                core_ctx=core_ctx,
+                server=self.agent._server,
+                container=self.agent._container,
+            )
+            sdk_match = p.GuidelineMatch(
+                id=core_match.guideline.id,
+                matched=True,
+                rationale=core_match.rationale,
+            )
+            await handler2(sdk_ctx, sdk_match)
+
+        server.container[EngineHooks].guideline_match_handlers[self.guideline.id].append(
+            shim_handler2
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive(
+            customer_message="I need help please",
+            recipient=self.agent,
+        )
+
+        assert self.handler1_count == 1, "Handler 1 should be called once"
+        assert self.handler2_count == 1, "Handler 2 should be called once"
+
+
+class Test_that_match_handlers_for_different_guidelines_are_independent(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Independent Handlers Agent",
+            description="Agent for testing independent handlers",
+        )
+
+        self.guideline1_handler_called = False
+        self.guideline2_handler_called = False
+
+        async def handler1(ctx: p.GuidelineMatchingContext, match: p.GuidelineMatch) -> None:
+            self.guideline1_handler_called = True
+
+        async def handler2(ctx: p.GuidelineMatchingContext, match: p.GuidelineMatch) -> None:
+            self.guideline2_handler_called = True
+
+        self.guideline1 = await self.agent.create_guideline(
+            condition="Customer mentions pizza",
+            action="Recommend pizza toppings",
+            on_match=handler1,
+        )
+
+        self.guideline2 = await self.agent.create_guideline(
+            condition="Customer mentions pasta",
+            action="Recommend pasta dishes",
+            on_match=handler2,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive(
+            customer_message="I'd like to order some pizza",
+            recipient=self.agent,
+        )
+
+        assert self.guideline1_handler_called, "Guideline 1 handler should be called"
+        assert not self.guideline2_handler_called, "Guideline 2 handler should NOT be called"
+
+
+class Test_that_match_handler_on_journey_guideline_works(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Journey Match Handler Agent",
+            description="Agent for testing journey guideline handlers",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Order Something",
+            description="Journey to handle orders",
+            conditions=["Customer wants to order something"],
+        )
+
+        self.handler_called = False
+
+        async def match_handler(ctx: p.GuidelineMatchingContext, match: p.GuidelineMatch) -> None:
+            self.handler_called = True
+
+        self.guideline = await self.journey.create_guideline(
+            condition="Customer wants to order a banana",
+            action="Tell them it's an excellent choice",
+            on_match=match_handler,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive(
+            customer_message="I'd like to order a banana",
+            recipient=self.agent,
+        )
+
+        assert self.handler_called, "Journey guideline handler should have been called"

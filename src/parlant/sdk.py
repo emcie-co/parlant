@@ -119,7 +119,7 @@ from parlant.core.engines.alpha.entity_context import EntityContext
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch as _GuidelineMatch,
 )
-from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
+from parlant.core.engines.alpha.guideline_matching.guideline_matching_context import (
     GuidelineMatchingContext as _GuidelineMatchingContext,
 )
 from parlant.core.engines.alpha.guideline_matching.generic_guideline_matching_strategy_resolver import (
@@ -1508,6 +1508,8 @@ class Journey:
         canned_responses: Sequence[CannedResponseId] = [],
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
         | None = None,
+        on_match: Callable[[GuidelineMatchingContext, GuidelineMatch], Awaitable[None]]
+        | None = None,
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
 
@@ -1593,10 +1595,30 @@ class Journey:
                 matcher=shim_matcher,
                 logger=self._container[Logger],
             )
-
             self._container[GenericGuidelineMatchingStrategyResolver].guideline_overrides[
                 guideline.id
             ] = strategy
+
+        if on_match is not None:
+            # Create a shim that translates between SDK and core types
+            async def shim_handler(
+                core_ctx: _GuidelineMatchingContext,
+                core_match: _GuidelineMatch,
+            ) -> None:
+                sdk_ctx = await GuidelineMatchingContext._from_core(
+                    core_ctx=core_ctx,
+                    server=self._server,
+                    container=self._container,
+                )
+                sdk_match = GuidelineMatch(
+                    id=core_match.guideline.id,
+                    matched=True,
+                    rationale=core_match.rationale,
+                )
+                await on_match(sdk_ctx, sdk_match)
+
+            engine_hooks = self._container[EngineHooks]
+            engine_hooks.guideline_match_handlers[guideline.id].append(shim_handler)
 
         return result_guideline
 
@@ -1605,11 +1627,16 @@ class Journey:
         condition: str,
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
+        on_match: Callable[[GuidelineMatchingContext, GuidelineMatch], Awaitable[None]]
+        | None = None,
     ) -> Guideline:
         """A shorthand for creating an observational guideline with the specified condition."""
 
         return await self.create_guideline(
-            condition=condition, description=description, canned_responses=canned_responses
+            condition=condition,
+            description=description,
+            canned_responses=canned_responses,
+            on_match=on_match,
         )
 
     async def attach_tool(
@@ -2033,6 +2060,8 @@ class Agent:
         canned_responses: Sequence[CannedResponseId] = [],
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
         | None = None,
+        on_match: Callable[[GuidelineMatchingContext, GuidelineMatch], Awaitable[None]]
+        | None = None,
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
         self._server._advance_creation_progress()
@@ -2111,6 +2140,27 @@ class Agent:
                 guideline.id
             ] = strategy
 
+        if on_match is not None:
+            # Create a shim that translates between SDK and core types
+            async def shim_handler(
+                core_ctx: _GuidelineMatchingContext,
+                core_match: _GuidelineMatch,
+            ) -> None:
+                sdk_ctx = await GuidelineMatchingContext._from_core(
+                    core_ctx=core_ctx,
+                    server=self._server,
+                    container=self._container,
+                )
+                sdk_match = GuidelineMatch(
+                    id=core_match.guideline.id,
+                    matched=True,
+                    rationale=core_match.rationale,
+                )
+                await on_match(sdk_ctx, sdk_match)
+
+            engine_hooks = self._container[EngineHooks]
+            engine_hooks.guideline_match_handlers[guideline.id].append(shim_handler)
+
         return result_guideline
 
     async def create_observation(
@@ -2118,11 +2168,16 @@ class Agent:
         condition: str,
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
+        on_match: Callable[[GuidelineMatchingContext, GuidelineMatch], Awaitable[None]]
+        | None = None,
     ) -> Guideline:
         """A shorthand for creating an observational guideline with the specified condition."""
 
         return await self.create_guideline(
-            condition=condition, description=description, canned_responses=canned_responses
+            condition=condition,
+            description=description,
+            canned_responses=canned_responses,
+            on_match=on_match,
         )
 
     async def attach_tool(

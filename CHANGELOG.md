@@ -26,6 +26,7 @@ All notable changes to Parlant will be documented here.
 - Expose IoC container in server object
 - Support code-based, custom guideline matchers
 - Added guideline descriptions
+- Add guideline on_match() hooks
 
 ## [3.0.3] - 2025-10-23
 

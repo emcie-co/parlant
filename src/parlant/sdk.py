@@ -810,14 +810,14 @@ class GuidelineMatch:
 class GuidelineMatchingContext:
     """Context for custom guideline matchers, providing information about the current interaction."""
 
-    server: "Server"
+    server: Server
     container: Container
     logger: Logger
     tracer: Tracer
-    session: "Session"
-    agent: "Agent"
-    customer: "Customer"
-    variables: Mapping["Variable", JSONSerializable]
+    session: Session
+    agent: Agent
+    customer: Customer
+    variables: Mapping[Variable, JSONSerializable]
     interaction: Interaction
 
     @classmethod

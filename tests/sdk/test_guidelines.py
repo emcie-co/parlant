@@ -345,6 +345,7 @@ class Test_that_custom_matcher_can_return_no_match(SDKTest):
             ctx: p.GuidelineMatchingContext, guideline: p.Guideline
         ) -> p.GuidelineMatch:
             return p.GuidelineMatch(
+                id=guideline.id,
                 matched=False,
                 rationale="Custom matcher never matches",
             )

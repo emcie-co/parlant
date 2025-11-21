@@ -796,6 +796,9 @@ class Relationship:
 class GuidelineMatch:
     """Result of a custom guideline matcher."""
 
+    id: GuidelineId
+    """The ID of the guideline that was matched."""
+
     matched: bool
     """Whether the guideline matched the current context."""
 
@@ -823,7 +826,7 @@ class GuidelineMatchingContext:
         core_ctx: _GuidelineMatchingContext,
         server: "Server",
         container: Container,
-    ) -> "GuidelineMatchingContext":
+    ) -> GuidelineMatchingContext:
         """Convert a core GuidelineMatchingContext to an SDK GuidelineMatchingContext."""
         agent = await server.get_agent(id=core_ctx.agent.id)
 
@@ -845,6 +848,7 @@ class GuidelineMatchingContext:
 
 async def _match_always(ctx: GuidelineMatchingContext, g: Guideline) -> GuidelineMatch:
     return GuidelineMatch(
+        id=g.id,
         matched=True,
         rationale="Always relevant",
     )

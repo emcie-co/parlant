@@ -83,6 +83,14 @@ GuidelineActionField: TypeAlias = Annotated[
     ),
 ]
 
+GuidelineDescriptionField: TypeAlias = Annotated[
+    str,
+    Field(
+        description="Optional description providing additional context for the guideline",
+        examples=["This applies only to premium customers with active subscriptions."],
+    ),
+]
+
 guideline_content_example: ExampleJson = {
     "condition": "User asks about product pricing",
     "action": "Provide current price list and any active discounts",
@@ -217,6 +225,7 @@ class GuidelineDTO(
     id: GuidelineIdField
     condition: GuidelineConditionField
     action: GuidelineActionField | None = None
+    description: GuidelineDescriptionField | None = None
     enabled: GuidelineEnabledField = True
     tags: GuidelineTagsField
     metadata: GuidelineMetadataField

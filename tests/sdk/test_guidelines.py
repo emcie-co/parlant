@@ -362,3 +362,25 @@ class Test_that_custom_matcher_can_return_no_match(SDKTest):
         )
 
         assert not await nlp_test(answer, "It mentions a banana")
+
+
+class Test_that_guideline_description_affects_agent_behavior(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Dummy Agent",
+            description="Dummy agent",
+        )
+
+        self.guideline = await self.agent.create_guideline(
+            condition="Customer asks about Cachookas",
+            action="Explain what Cachookas are",
+            description="Cachookas are a type of ancient boomerang used to repel flies",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        answer = await ctx.send_and_receive(
+            customer_message="What are Cachookas?",
+            recipient=self.agent,
+        )
+
+        assert await nlp_test(answer, "It mentions the concept of a boomerang")

@@ -23,10 +23,12 @@ from parlant.core.journeys import JourneyEdgeId, JourneyNodeId
 class GuidelineInternalRepresentation:
     condition: str
     action: Optional[str]
+    description: Optional[str]
 
 
 def internal_representation(g: Guideline) -> GuidelineInternalRepresentation:
     action, condition = g.content.action, g.content.condition
+    description = g.content.description
 
     if agent_intention_condition := g.metadata.get("agent_intention_condition"):
         condition = cast(str, agent_intention_condition) or condition
@@ -34,7 +36,7 @@ def internal_representation(g: Guideline) -> GuidelineInternalRepresentation:
     if internal_action := g.metadata.get("internal_action"):
         action = cast(str, internal_action) or action
 
-    return GuidelineInternalRepresentation(condition, action)
+    return GuidelineInternalRepresentation(condition, action, description)
 
 
 def format_journey_node_guideline_id(

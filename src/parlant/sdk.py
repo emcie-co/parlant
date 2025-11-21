@@ -1498,6 +1498,7 @@ class Journey:
         self,
         condition: str,
         action: str | None = None,
+        description: str | None = None,
         tools: Iterable[ToolEntry] = [],
         metadata: dict[str, JSONSerializable] = {},
         canned_responses: Sequence[CannedResponseId] = [],
@@ -1518,6 +1519,7 @@ class Journey:
         guideline = await self._container[GuidelineStore].create_guideline(
             condition=condition,
             action=action,
+            description=description,
             metadata=metadata,
         )
 
@@ -1597,11 +1599,14 @@ class Journey:
     async def create_observation(
         self,
         condition: str,
+        description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
     ) -> Guideline:
         """A shorthand for creating an observational guideline with the specified condition."""
 
-        return await self.create_guideline(condition=condition, canned_responses=canned_responses)
+        return await self.create_guideline(
+            condition=condition, description=description, canned_responses=canned_responses
+        )
 
     async def attach_tool(
         self,
@@ -2018,6 +2023,7 @@ class Agent:
         self,
         condition: str,
         action: str | None = None,
+        description: str | None = None,
         tools: Iterable[ToolEntry] = [],
         metadata: dict[str, JSONSerializable] = {},
         canned_responses: Sequence[CannedResponseId] = [],
@@ -2037,6 +2043,7 @@ class Agent:
         guideline = await self._container[GuidelineStore].create_guideline(
             condition=condition,
             action=action,
+            description=description,
             tags=[_Tag.for_agent_id(self.id)],
             metadata=metadata,
         )
@@ -2105,11 +2112,14 @@ class Agent:
     async def create_observation(
         self,
         condition: str,
+        description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
     ) -> Guideline:
         """A shorthand for creating an observational guideline with the specified condition."""
 
-        return await self.create_guideline(condition=condition, canned_responses=canned_responses)
+        return await self.create_guideline(
+            condition=condition, description=description, canned_responses=canned_responses
+        )
 
     async def attach_tool(
         self,

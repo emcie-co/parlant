@@ -25,6 +25,7 @@ All notable changes to Parlant will be documented here.
 - Allow controlling perceived performance policy per agent
 - Expose IoC container in server object
 - Support code-based, custom guideline matchers
+- Added guideline descriptions
 
 ## [3.0.3] - 2025-10-23
 

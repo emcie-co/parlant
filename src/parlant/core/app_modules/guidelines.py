@@ -83,6 +83,7 @@ class GuidelineModule:
         self,
         condition: str,
         action: str | None,
+        description: str | None,
         metadata: Mapping[str, JSONSerializable] | None,
         enabled: bool | None,
         tags: Sequence[TagId] | None,
@@ -96,6 +97,7 @@ class GuidelineModule:
         guideline = await self._guideline_store.create_guideline(
             condition=condition,
             action=action,
+            description=description,
             metadata=metadata or {},
             enabled=enabled or True,
             tags=tags,
@@ -125,6 +127,7 @@ class GuidelineModule:
         guideline_id: GuidelineId,
         condition: str | None,
         action: str | None,
+        description: str | None,
         tool_associations: GuidelineToolAssociationUpdateParams | None,
         enabled: bool | None,
         tags: GuidelineTagsUpdateParams | None,
@@ -132,12 +135,14 @@ class GuidelineModule:
     ) -> Guideline:
         _ = await self._guideline_store.read_guideline(guideline_id=guideline_id)
 
-        if condition or action or enabled is not None:
+        if condition or action or description is not None or enabled is not None:
             update_params: GuidelineUpdateParams = {}
             if condition:
                 update_params["condition"] = condition
             if action:
                 update_params["action"] = action
+            if description is not None:
+                update_params["description"] = description
             if enabled is not None:
                 update_params["enabled"] = enabled
 

@@ -735,3 +735,91 @@ async def test_that_guideline_with_relationships_can_be_deleted(
 
     response = await async_client.get(f"/guidelines/{guideline.id}")
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+async def test_that_a_guideline_can_be_created_with_description(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/guidelines",
+        json={
+            "condition": "the customer asks about premium features",
+            "action": "explain the premium features available",
+            "description": "Premium features are only available to customers with active subscriptions",
+            "enabled": True,
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    guideline = response.json()
+    assert guideline["condition"] == "the customer asks about premium features"
+    assert guideline["action"] == "explain the premium features available"
+    assert (
+        guideline["description"]
+        == "Premium features are only available to customers with active subscriptions"
+    )
+    assert guideline["enabled"] is True
+
+    guideline_id = guideline["id"]
+    item = (await async_client.get(f"/guidelines/{guideline_id}")).raise_for_status().json()
+
+    assert item["guideline"]["id"] == guideline_id
+    assert (
+        item["guideline"]["description"]
+        == "Premium features are only available to customers with active subscriptions"
+    )
+
+
+async def test_that_a_guideline_description_can_be_updated(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer asks about refunds",
+        action="explain the refund policy",
+        metadata={},
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json={
+            "description": "Refunds are only available within 30 days of purchase",
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_guideline = response.json()["guideline"]
+
+    assert updated_guideline["id"] == guideline.id
+    assert (
+        updated_guideline["description"] == "Refunds are only available within 30 days of purchase"
+    )
+
+
+async def test_that_a_guideline_description_can_be_updated_to_none(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer asks about shipping",
+        action="explain shipping options",
+        metadata={},
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json={
+            "description": None,
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_guideline = response.json()["guideline"]
+
+    assert updated_guideline["id"] == guideline.id
+    assert updated_guideline["description"] is None

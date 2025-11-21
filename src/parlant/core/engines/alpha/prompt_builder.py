@@ -533,6 +533,9 @@ you don't need to specifically double-check if you followed or broke any guideli
                         f"Guideline #{i}) {guideline_representations[p.guideline.id].action}"
                     )
 
+                if guideline_representations[p.guideline.id].description:
+                    guideline += f"\n      - Description: {guideline_representations[p.guideline.id].description}"
+
                 if p.rationale:
                     guideline += f"\n      - Rationale: {p.rationale}"
 

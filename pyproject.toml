@@ -69,6 +69,7 @@ anthropic = { version = "^0.60.0", optional = true }
 azure-identity = { version = "^1.20.0", optional = true }
 cerebras-cloud-sdk = { version = "^1.25.0", optional = true }
 chromadb = { version = "^1.1.1", optional = true }
+qdrant-client = { version = "^1.7.0", optional = true }
 google-api-core = { version = "^2.24.2", optional = true }
 google-genai = { version = "^1.36.0", optional = true }
 ollama = { version = "^0.5.0", optional = true }
@@ -102,6 +103,7 @@ pytest-xdist = "^3.6.1"
 
 [tool.poetry.extras]
 chroma = ["chromadb"]
+qdrant = ["qdrant-client"]
 mongo = ["pymongo"]
 
 anthropic = ["anthropic", "torch", "transformers"]

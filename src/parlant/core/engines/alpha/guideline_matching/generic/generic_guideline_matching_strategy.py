@@ -209,6 +209,8 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                     *[
                         self._create_batch_journey_step_selection(examined_journey, steps, context)
                         for examined_journey, steps in journey_step_selection_journeys.items()
+                        if len(steps)
+                        > 1  # In case journey has only one (root) step, no need to evaluate
                     ]
                 )
             )

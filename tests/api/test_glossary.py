@@ -358,3 +358,61 @@ async def test_that_adding_nonexistent_tag_to_term_returns_404(
     )
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+async def test_that_a_term_can_be_created_with_custom_id(
+    async_client: httpx.AsyncClient,
+) -> None:
+    name = "Custom Term"
+    description = "A term with a custom ID"
+    synonyms = ["custom", "test"]
+    custom_id = "custom-term-123"
+
+    response = await async_client.post(
+        "/terms",
+        json={
+            "name": name,
+            "description": description,
+            "synonyms": synonyms,
+            "id": custom_id,
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    data = response.json()
+
+    assert data["id"] == custom_id
+    assert data["name"] == name
+    assert data["description"] == description
+    assert data["synonyms"] == synonyms
+    assert data["tags"] == []
+
+
+async def test_that_creating_term_with_duplicate_id_returns_422(
+    async_client: httpx.AsyncClient,
+) -> None:
+    custom_id = "duplicate-term-id"
+
+    # Create first term with custom ID
+    response1 = await async_client.post(
+        "/terms",
+        json={
+            "name": "First Term",
+            "description": "First term",
+            "id": custom_id,
+        },
+    )
+    assert response1.status_code == status.HTTP_201_CREATED
+
+    # Try to create second term with same ID
+    response2 = await async_client.post(
+        "/terms",
+        json={
+            "name": "Second Term",
+            "description": "Second term",
+            "id": custom_id,
+        },
+    )
+    assert response2.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert "already exists" in response2.json()["detail"]

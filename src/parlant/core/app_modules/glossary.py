@@ -38,6 +38,7 @@ class GlossaryModule:
         description: str,
         synonyms: Sequence[str],
         tags: Sequence[TagId] | None,
+        id: TermId | None = None,
     ) -> Term:
         if tags:
             for tag_id in tags:
@@ -50,6 +51,7 @@ class GlossaryModule:
             description=description,
             synonyms=synonyms,
             tags=tags or None,
+            id=id,
         )
 
         return term

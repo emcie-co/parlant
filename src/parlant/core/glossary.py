@@ -80,6 +80,7 @@ class GlossaryStore:
         creation_utc: Optional[datetime] = None,
         synonyms: Optional[Sequence[str]] = None,
         tags: Optional[Sequence[TagId]] = None,
+        id: Optional[TermId] = None,
     ) -> Term: ...
 
     @abstractmethod
@@ -285,6 +286,7 @@ class GlossaryVectorStore(GlossaryStore):
         creation_utc: Optional[datetime] = None,
         synonyms: Optional[Sequence[str]] = None,
         tags: Optional[Sequence[TagId]] = None,
+        id: Optional[TermId] = None,
     ) -> Term:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
@@ -295,10 +297,18 @@ class GlossaryVectorStore(GlossaryStore):
                 synonyms=synonyms,
             )
 
-            term_checksum = md5_checksum(f"{name}{description}{synonyms}")
+            if id is not None:
+                # Check if term with this ID already exists
+                existing_term = await self._collection.find_one(filters={"id": {"$eq": id}})
+                if existing_term:
+                    raise ValueError(f"Term with ID '{id}' already exists")
+                term_id = id
+            else:
+                term_checksum = md5_checksum(f"{name}{description}{synonyms}")
+                term_id = TermId(self._id_generator.generate(term_checksum))
 
             term = Term(
-                id=TermId(self._id_generator.generate(term_checksum)),
+                id=term_id,
                 creation_utc=creation_utc,
                 name=name,
                 description=description,

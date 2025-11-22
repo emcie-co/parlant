@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from fastapi import APIRouter, Path, Query, Request, status
+from fastapi import APIRouter, HTTPException, Path, Query, Request, status
 from typing import Annotated, Sequence, TypeAlias
 from pydantic import Field
 
@@ -103,6 +103,7 @@ class TermCreationParamsDTO(
     description: TermDescriptionField
     synonyms: TermSynonymsField = []
     tags: TermTagsField | None = None
+    id: TermId | None = None
 
 
 term_example: ExampleJson = {
@@ -243,12 +244,19 @@ def create_router(
         """
         await authorization_policy.authorize(request, Operation.CREATE_TERM)
 
-        term = await app.glossary.create(
-            name=params.name,
-            description=params.description,
-            synonyms=params.synonyms,
-            tags=params.tags,
-        )
+        try:
+            term = await app.glossary.create(
+                name=params.name,
+                description=params.description,
+                synonyms=params.synonyms,
+                tags=params.tags,
+                id=params.id,
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(e),
+            )
 
         return TermDTO(
             id=term.id,

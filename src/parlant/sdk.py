@@ -2053,6 +2053,7 @@ class Agent:
         name: str,
         description: str,
         synonyms: Sequence[str] = [],
+        id: Optional[TermId] = None,
     ) -> Term:
         """Creates a glossary term with the specified name, description, and synonyms."""
 
@@ -2063,6 +2064,7 @@ class Agent:
             description=description,
             synonyms=synonyms,
             tags=[_Tag.for_agent_id(self.id)],
+            id=id,
         )
 
         return Term(

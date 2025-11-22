@@ -20,10 +20,12 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import Guidel
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingBatch,
     GuidelineMatchingBatchResult,
-    GuidelineMatchingContext,
     GuidelineMatchingStrategy,
     ResponseAnalysisBatch,
     ResponseAnalysisContext,
+)
+from parlant.core.engines.alpha.guideline_matching.guideline_matching_context import (
+    GuidelineMatchingContext,
 )
 from parlant.core.guidelines import Guideline
 from parlant.core.loggers import Logger

@@ -31,8 +31,10 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import (
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingBatch,
     GuidelineMatchingBatchResult,
-    GuidelineMatchingContext,
     GuidelineMatchingBatchError,
+)
+from parlant.core.engines.alpha.guideline_matching.guideline_matching_context import (
+    GuidelineMatchingContext,
 )
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
@@ -311,7 +313,7 @@ Each guideline is composed of two parts:
 
 Task Description
 ----------------
-During your interaction with the customer, they may express a need or problem that could potentially be handled by multiple guidelines, creating ambiguity. 
+During your interaction with the customer, they may express a need or problem that could potentially be handled by multiple guidelines, creating ambiguity.
 This occurs when multiple guideline conditions might apply, but insufficient information is available to determine which one should apply.
 In such cases, we need to identify the potentially relevant guidelines, and to ask the customer which one they intended to apply.
 

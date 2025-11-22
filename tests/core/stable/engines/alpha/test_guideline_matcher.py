@@ -31,6 +31,9 @@ from parlant.core.context_variables import (
     ContextVariableValue,
     ContextVariableValueId,
 )
+from parlant.core.engines.alpha.guideline_matching.guideline_matching_context import (
+    GuidelineMatchingContext,
+)
 from parlant.core.meter import Meter
 from parlant.core.tracer import Tracer
 from parlant.core.customers import Customer
@@ -47,7 +50,6 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatcher,
     GuidelineMatchingBatch,
     GuidelineMatchingBatchResult,
-    GuidelineMatchingContext,
     ResponseAnalysisBatch,
     ResponseAnalysisBatchResult,
     ResponseAnalysisContext,

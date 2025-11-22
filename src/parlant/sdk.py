@@ -1923,12 +1923,13 @@ class Agent:
         title: str,
         description: str,
         conditions: list[str | Guideline],
+        id: JourneyId | None = None,
     ) -> Journey:
         """Creates a new journey with the specified title, description, and conditions."""
 
         self._server._advance_creation_progress()
 
-        journey = await self._server.create_journey(title, description, conditions)
+        journey = await self._server.create_journey(title, description, conditions, id=id)
 
         await self.attach_journey(journey)
 
@@ -3126,6 +3127,7 @@ class Server:
         description: str,
         conditions: list[str | Guideline],
         tags: Sequence[TagId] = [],
+        id: JourneyId | None = None,
     ) -> Journey:
         """Creates a new journey with the specified title, description, and conditions."""
 
@@ -3163,6 +3165,7 @@ class Server:
             description=description,
             conditions=[c.id for c in condition_guidelines],
             tags=[],
+            id=id,
         )
 
         journey = Journey(

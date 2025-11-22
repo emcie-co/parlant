@@ -148,6 +148,7 @@ class JourneyCreationParamsDTO(
     title: JourneyTitleField
     description: str
     conditions: Sequence[JourneyConditionField]
+    id: JourneyIdPath | None = None
     tags: JourneyTagsField | None = None
 
 
@@ -415,12 +416,16 @@ def create_router(
         Creates a new journey in the system.
 
         The journey will be initialized with the provided title, description, and conditions.
-        A unique identifier will be automatically generated.
+        A unique identifier will be automatically generated unless a custom ID is provided.
         """
         await authorization_policy.authorize(request=request, operation=Operation.CREATE_JOURNEY)
 
         journey, guidelines = await app.journeys.create(
-            params.title, params.description, params.conditions, params.tags
+            title=params.title,
+            description=params.description,
+            conditions=params.conditions,
+            tags=params.tags,
+            id=params.id,
         )
 
         return JourneyDTO(

@@ -763,6 +763,10 @@ class Test_that_journey_can_have_a_scoped_guideline(SDKTest):
             description="Help the customer place an order",
         )
 
+        await self.journey.initial_state.transition_to(
+            chat_state="greet the customer",
+        )
+
         self.guideline = await self.journey.create_guideline(
             condition="The customer wants to order a banana",
             action="Ask them if they'd like green or yellow bananas",
@@ -775,3 +779,63 @@ class Test_that_journey_can_have_a_scoped_guideline(SDKTest):
         )
 
         assert "green" in response.lower()
+
+
+class Test_that_journey_can_be_created_with_custom_id(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        from parlant.core.journeys import JourneyId
+
+        self.agent = await server.create_agent(
+            name="Custom ID Agent",
+            description="Agent for testing custom journey IDs",
+        )
+
+        self.custom_id = JourneyId("custom-journey-123")
+
+        self.journey = await self.agent.create_journey(
+            title="Custom ID Journey",
+            conditions=["Customer needs help"],
+            description="Journey with custom ID",
+            id=self.custom_id,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        journey_store = ctx.container[JourneyStore]
+
+        journey = await journey_store.read_journey(journey_id=self.custom_id)
+
+        assert journey.id == self.custom_id
+        assert journey.title == "Custom ID Journey"
+        assert journey.description == "Journey with custom ID"
+
+
+class Test_that_journey_creation_fails_with_duplicate_id(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        from parlant.core.journeys import JourneyId
+
+        self.agent = await server.create_agent(
+            name="Duplicate ID Agent",
+            description="Agent for testing duplicate journey IDs",
+        )
+
+        self.duplicate_id = JourneyId("duplicate-journey-456")
+
+        # Create the first journey
+        self.first_journey = await self.agent.create_journey(
+            title="First Journey",
+            conditions=["First condition"],
+            description="First journey with duplicate ID",
+            id=self.duplicate_id,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        # Attempt to create a second journey with the same ID should fail
+        with pytest.raises(
+            ValueError, match="Journey with id 'duplicate-journey-456' already exists"
+        ):
+            await self.agent.create_journey(
+                title="Second Journey",
+                conditions=["Second condition"],
+                description="Second journey with duplicate ID",
+                id=self.duplicate_id,
+            )

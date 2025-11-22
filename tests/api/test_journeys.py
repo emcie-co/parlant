@@ -111,6 +111,64 @@ async def test_that_a_journey_can_be_created_with_tags(
     assert set(journey_dto["tags"]) == {tag1.id, tag2.id}
 
 
+async def test_that_a_journey_can_be_created_with_custom_id(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    """Test that a journey can be created with a custom ID."""
+    guideline_store = container[GuidelineStore]
+    custom_id = "custom-journey-id-123"
+
+    payload = {
+        "id": custom_id,
+        "title": "Custom ID Journey",
+        "description": "Journey with a custom identifier",
+        "conditions": ["Custom ID condition"],
+    }
+    response = await async_client.post("/journeys", json=payload)
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    journey = response.json()
+
+    # Verify that the custom ID was used
+    assert journey["id"] == custom_id
+    assert journey["title"] == payload["title"]
+    assert journey["description"] == payload["description"]
+    assert journey["tags"] == []
+
+    assert len(journey["conditions"]) == 1
+    guideline = await guideline_store.read_guideline(guideline_id=journey["conditions"][0])
+    assert guideline.id == journey["conditions"][0]
+
+
+async def test_that_creating_journey_with_duplicate_id_fails(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    """Test that creating a journey with a duplicate ID fails appropriately."""
+    custom_id = "duplicate-id-test"
+
+    payload = {
+        "id": custom_id,
+        "title": "First Journey",
+        "description": "First journey with this ID",
+        "conditions": ["First condition"],
+    }
+
+    # Create first journey
+    response1 = await async_client.post("/journeys", json=payload)
+    assert response1.status_code == status.HTTP_201_CREATED
+
+    # Try to create second journey with same ID
+    payload["title"] = "Second Journey"
+    payload["description"] = "This should fail due to duplicate ID"
+
+    response2 = await async_client.post("/journeys", json=payload)
+    # Should fail due to duplicate ID
+    assert response2.status_code != status.HTTP_201_CREATED
+
+
 async def test_that_journeys_can_be_listed(
     async_client: httpx.AsyncClient,
     container: Container,

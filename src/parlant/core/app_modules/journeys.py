@@ -50,6 +50,7 @@ class JourneyModule:
         description: str,
         conditions: Sequence[str],
         tags: Sequence[TagId] | None,
+        id: JourneyId | None = None,
     ) -> tuple[Journey, Sequence[Guideline]]:
         guidelines = [
             await self._guideline_store.create_guideline(
@@ -65,6 +66,7 @@ class JourneyModule:
             description=description,
             conditions=[g.id for g in guidelines],
             tags=tags,
+            id=id,
         )
 
         for guideline in guidelines:

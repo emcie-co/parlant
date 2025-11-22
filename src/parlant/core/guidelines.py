@@ -94,6 +94,7 @@ class GuidelineStore(ABC):
         creation_utc: Optional[datetime] = None,
         enabled: bool = True,
         tags: Optional[Sequence[TagId]] = None,
+        id: Optional[GuidelineId] = None,
     ) -> Guideline: ...
 
     @abstractmethod
@@ -382,14 +383,25 @@ class GuidelineDocumentStore(GuidelineStore):
         creation_utc: Optional[datetime] = None,
         enabled: bool = True,
         tags: Optional[Sequence[TagId]] = None,
+        id: Optional[GuidelineId] = None,
     ) -> Guideline:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            guideline_checksum = md5_checksum(f"{condition}{action or ''}{enabled}{metadata}")
+            # Use provided ID or generate one
+            if id is not None:
+                guideline_id = id
+
+                # Check if guideline with this ID already exists
+                existing = await self._collection.find_one(filters={"id": {"$eq": guideline_id}})
+                if existing:
+                    raise ValueError(f"Guideline with id '{guideline_id}' already exists")
+            else:
+                guideline_checksum = md5_checksum(f"{condition}{action or ''}{enabled}{metadata}")
+                guideline_id = GuidelineId(self._id_generator.generate(guideline_checksum))
 
             guideline = Guideline(
-                id=GuidelineId(self._id_generator.generate(guideline_checksum)),
+                id=guideline_id,
                 creation_utc=creation_utc,
                 content=GuidelineContent(
                     condition=condition,

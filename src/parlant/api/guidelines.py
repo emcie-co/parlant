@@ -214,6 +214,7 @@ class GuidelineCreationParamsDTO(
     """Parameters for creating a new guideline."""
 
     condition: GuidelineConditionField
+    id: GuidelineIdPath | None = None
     action: GuidelineActionField | None = None
     description: common.GuidelineDescriptionField | None = None
     metadata: GuidelineMetadataField | None = None
@@ -441,18 +442,28 @@ def create_router(
         """
         Creates a new guideline.
 
+        The guideline will be initialized with the provided condition and optional action and settings.
+        A unique identifier will be automatically generated unless a custom ID is provided.
+
         See the [documentation](https://parlant.io/docs/concepts/customization/guidelines) for more information.
         """
         await authorization_policy.authorize(request=request, operation=Operation.CREATE_GUIDELINE)
 
-        guideline = await app.guidelines.create(
-            condition=params.condition,
-            action=params.action or None,
-            description=params.description or None,
-            metadata=params.metadata or {},
-            enabled=params.enabled or True,
-            tags=params.tags,
-        )
+        try:
+            guideline = await app.guidelines.create(
+                condition=params.condition,
+                action=params.action or None,
+                description=params.description or None,
+                metadata=params.metadata or {},
+                enabled=params.enabled or True,
+                tags=params.tags,
+                id=params.id,
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(e),
+            )
 
         return GuidelineDTO(
             id=guideline.id,

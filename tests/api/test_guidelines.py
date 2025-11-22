@@ -102,6 +102,66 @@ async def test_that_a_guideline_can_be_created_without_an_action(
     assert guideline["action"] is None
 
 
+async def test_that_a_guideline_can_be_created_with_custom_id(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """Test that a guideline can be created with a custom ID."""
+    custom_id = "custom-guideline-id-456"
+
+    response = await async_client.post(
+        "/guidelines",
+        json={
+            "id": custom_id,
+            "condition": "the customer mentions a custom requirement",
+            "action": "provide personalized assistance",
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    guideline = response.json()
+
+    # Verify that the custom ID was used
+    assert guideline["id"] == custom_id
+    assert guideline["condition"] == "the customer mentions a custom requirement"
+    assert guideline["action"] == "provide personalized assistance"
+    assert guideline["enabled"] is True
+    assert guideline["tags"] == []
+    assert guideline["metadata"] == {}
+
+
+async def test_that_creating_guideline_with_duplicate_id_fails(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """Test that creating a guideline with a duplicate ID fails appropriately."""
+    custom_id = "duplicate-guideline-id"
+
+    # Create first guideline
+    response1 = await async_client.post(
+        "/guidelines",
+        json={
+            "id": custom_id,
+            "condition": "first condition",
+            "action": "first action",
+        },
+    )
+    assert response1.status_code == status.HTTP_201_CREATED
+
+    # Try to create second guideline with same ID
+    response2 = await async_client.post(
+        "/guidelines",
+        json={
+            "id": custom_id,
+            "condition": "second condition",
+            "action": "second action",
+        },
+    )
+
+    # Should fail due to duplicate ID
+    assert response2.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert "already exists" in response2.text
+
+
 async def test_that_a_guideline_can_be_created_with_tags(
     async_client: httpx.AsyncClient,
     container: Container,

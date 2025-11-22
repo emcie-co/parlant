@@ -544,3 +544,66 @@ class Test_that_match_handler_on_journey_guideline_works(SDKTest):
         )
 
         assert self.handler_called, "Journey guideline handler should have been called"
+
+
+class Test_that_guideline_can_be_created_with_custom_id(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        from parlant.core.guidelines import GuidelineId
+
+        self.agent = await server.create_agent(
+            name="Custom ID Agent",
+            description="Agent for testing custom ID functionality",
+        )
+
+        self.custom_id = GuidelineId("custom-guideline-789")
+
+        self.guideline = await self.agent.create_guideline(
+            condition="Customer mentions custom ID requirement",
+            action="Provide custom ID assistance",
+            id=self.custom_id,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        # Verify the guideline was created with the custom ID
+        assert self.guideline.id == self.custom_id
+
+        # Verify it can be retrieved from the store
+        guideline_store = ctx.container[GuidelineStore]
+        stored_guideline = await guideline_store.read_guideline(self.custom_id)
+
+        assert stored_guideline.id == self.custom_id
+        assert stored_guideline.content.condition == "Customer mentions custom ID requirement"
+        assert stored_guideline.content.action == "Provide custom ID assistance"
+
+
+class Test_that_guideline_creation_fails_with_duplicate_id(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        from parlant.core.guidelines import GuidelineId
+
+        self.agent = await server.create_agent(
+            name="Duplicate ID Agent",
+            description="Agent for testing duplicate ID handling",
+        )
+
+        self.duplicate_id = GuidelineId("duplicate-guideline-101")
+
+        # Create the first guideline
+        self.first_guideline = await self.agent.create_guideline(
+            condition="First guideline condition",
+            action="First guideline action",
+            id=self.duplicate_id,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        # Verify the first guideline was created
+        assert self.first_guideline.id == self.duplicate_id
+
+        # Try to create a second guideline with the same ID
+        with pytest.raises(
+            ValueError, match=f"Guideline with id '{self.duplicate_id}' already exists"
+        ):
+            await self.agent.create_guideline(
+                condition="Second guideline condition",
+                action="Second guideline action",
+                id=self.duplicate_id,
+            )

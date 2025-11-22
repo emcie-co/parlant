@@ -1510,6 +1510,7 @@ class Journey:
         | None = None,
         on_match: Callable[[GuidelineMatchingContext, GuidelineMatch], Awaitable[None]]
         | None = None,
+        id: GuidelineId | None = None,
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
         return await self._server._create_guideline(
@@ -1523,6 +1524,7 @@ class Journey:
             on_match=on_match,
             tags=None,
             relationship_target_tag_id=_Tag.for_journey_id(self.id),
+            id=id,
         )
 
     async def create_observation(
@@ -1966,6 +1968,7 @@ class Agent:
         | None = None,
         on_match: Callable[[GuidelineMatchingContext, GuidelineMatch], Awaitable[None]]
         | None = None,
+        id: GuidelineId | None = None,
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
         return await self._server._create_guideline(
@@ -1979,6 +1982,7 @@ class Agent:
             on_match=on_match,
             tags=[_Tag.for_agent_id(self.id)],
             relationship_target_tag_id=None,
+            id=id,
         )
 
     async def create_observation(
@@ -2441,6 +2445,7 @@ class Server:
         on_match: Callable[[GuidelineMatchingContext, GuidelineMatch], Awaitable[None]] | None,
         tags: Sequence[TagId] | None,
         relationship_target_tag_id: TagId | None,
+        id: GuidelineId | None = None,
     ) -> Guideline:
         """Internal method to create a guideline with common logic."""
         self._advance_creation_progress()
@@ -2457,14 +2462,15 @@ class Server:
             action=action,
             description=description,
             metadata=metadata,
+            id=id,
         )
 
         if canned_responses:
             tag_id = _Tag.for_guideline_id(guideline.id)
 
-            for id in canned_responses:
+            for canrep_id in canned_responses:
                 await self.container[CannedResponseStore].upsert_tag(
-                    canned_response_id=id,
+                    canned_response_id=canrep_id,
                     tag_id=tag_id,
                 )
 

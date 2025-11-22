@@ -87,6 +87,7 @@ class GuidelineModule:
         metadata: Mapping[str, JSONSerializable] | None,
         enabled: bool | None,
         tags: Sequence[TagId] | None,
+        id: GuidelineId | None = None,
     ) -> Guideline:
         if tags:
             for tag_id in tags:
@@ -101,6 +102,7 @@ class GuidelineModule:
             metadata=metadata or {},
             enabled=enabled or True,
             tags=tags,
+            id=id,
         )
 
         return guideline

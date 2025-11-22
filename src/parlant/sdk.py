@@ -1512,115 +1512,18 @@ class Journey:
         | None = None,
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
-
-        self._server._advance_creation_progress()
-
-        tool_ids = [
-            ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name) for t in tools
-        ]
-
-        for t in list(tools):
-            await self._server._plugin_server.enable_tool(t)
-
-        guideline = await self._container[GuidelineStore].create_guideline(
+        return await self._server._create_guideline(
             condition=condition,
             action=action,
             description=description,
+            tools=tools,
             metadata=metadata,
+            canned_responses=canned_responses,
+            matcher=matcher,
+            on_match=on_match,
+            tags=None,
+            relationship_target_tag_id=_Tag.for_journey_id(self.id),
         )
-
-        if canned_responses:
-            tag_id = _Tag.for_guideline_id(guideline.id)
-            for id in canned_responses:
-                await self._container[CannedResponseStore].upsert_tag(
-                    canned_response_id=id,
-                    tag_id=tag_id,
-                )
-
-        if matcher is None:
-            self._server._add_guideline_evaluation(
-                guideline.id,
-                GuidelineContent(condition=condition, action=action),
-                tool_ids,
-            )
-
-        await self._container[RelationshipStore].create_relationship(
-            source=RelationshipEntity(
-                id=guideline.id,
-                kind=RelationshipEntityKind.GUIDELINE,
-            ),
-            target=RelationshipEntity(
-                id=_Tag.for_journey_id(self.id),
-                kind=RelationshipEntityKind.TAG,
-            ),
-            kind=RelationshipKind.DEPENDENCY,
-        )
-
-        for t in list(tools):
-            await self._container[GuidelineToolAssociationStore].create_association(
-                guideline_id=guideline.id,
-                tool_id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
-            )
-
-        result_guideline = Guideline(
-            id=guideline.id,
-            condition=condition,
-            action=action,
-            tags=guideline.tags,
-            metadata=guideline.metadata,
-            _server=self._server,
-            _container=self._container,
-        )
-
-        if matcher is not None:
-            # Create a shim that translates between SDK and core types
-            async def shim_matcher(
-                core_ctx: _GuidelineMatchingContext, core_guideline: _Guideline
-            ) -> _GuidelineMatch:
-                sdk_ctx = await GuidelineMatchingContext._from_core(
-                    core_ctx=core_ctx,
-                    server=self._server,
-                    container=self._container,
-                )
-                result = await matcher(sdk_ctx, result_guideline)
-
-                return _GuidelineMatch(
-                    guideline=core_guideline,
-                    score=10 if result.matched else 1,
-                    rationale=result.rationale,
-                )
-
-            strategy = CustomGuidelineMatchingStrategy(
-                guideline=guideline,
-                matcher=shim_matcher,
-                logger=self._container[Logger],
-            )
-            self._container[GenericGuidelineMatchingStrategyResolver].guideline_overrides[
-                guideline.id
-            ] = strategy
-
-        if on_match is not None:
-            # Create a shim that translates between SDK and core types
-            async def shim_handler(
-                core_ctx: _GuidelineMatchingContext,
-                core_match: _GuidelineMatch,
-            ) -> None:
-                sdk_ctx = await GuidelineMatchingContext._from_core(
-                    core_ctx=core_ctx,
-                    server=self._server,
-                    container=self._container,
-                )
-                sdk_match = GuidelineMatch(
-                    id=core_match.guideline.id,
-                    matched=True,
-                    rationale=core_match.rationale,
-                )
-                await on_match(sdk_ctx, sdk_match)
-
-            engine_hooks = self._container[EngineHooks]
-            engine_hooks.guideline_match_handlers[guideline.id].append(shim_handler)
-
-        return result_guideline
 
     async def create_observation(
         self,
@@ -2064,104 +1967,18 @@ class Agent:
         | None = None,
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
-        self._server._advance_creation_progress()
-
-        tool_ids = [
-            ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name) for t in tools
-        ]
-
-        for t in list(tools):
-            await self._server._plugin_server.enable_tool(t)
-
-        guideline = await self._container[GuidelineStore].create_guideline(
+        return await self._server._create_guideline(
             condition=condition,
             action=action,
             description=description,
-            tags=[_Tag.for_agent_id(self.id)],
+            tools=tools,
             metadata=metadata,
+            canned_responses=canned_responses,
+            matcher=matcher,
+            on_match=on_match,
+            tags=[_Tag.for_agent_id(self.id)],
+            relationship_target_tag_id=None,
         )
-
-        if canned_responses:
-            tag_id = _Tag.for_guideline_id(guideline.id)
-            for id in canned_responses:
-                await self._container[CannedResponseStore].upsert_tag(
-                    canned_response_id=id,
-                    tag_id=tag_id,
-                )
-
-        if matcher is None:
-            self._server._add_guideline_evaluation(
-                guideline.id,
-                GuidelineContent(condition=condition, action=action),
-                tool_ids,
-            )
-
-        for t in list(tools):
-            await self._container[GuidelineToolAssociationStore].create_association(
-                guideline_id=guideline.id,
-                tool_id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
-            )
-
-        result_guideline = Guideline(
-            id=guideline.id,
-            condition=condition,
-            action=action,
-            tags=guideline.tags,
-            metadata=guideline.metadata,
-            _server=self._server,
-            _container=self._container,
-        )
-
-        if matcher is not None:
-            # Create a shim that translates between SDK and core types
-            async def shim_matcher(
-                core_ctx: _GuidelineMatchingContext, core_guideline: _Guideline
-            ) -> _GuidelineMatch:
-                sdk_ctx = await GuidelineMatchingContext._from_core(
-                    core_ctx=core_ctx,
-                    server=self._server,
-                    container=self._container,
-                )
-                result = await matcher(sdk_ctx, result_guideline)
-
-                return _GuidelineMatch(
-                    guideline=core_guideline,
-                    score=10 if result.matched else 1,
-                    rationale=result.rationale,
-                )
-
-            strategy = CustomGuidelineMatchingStrategy(
-                guideline=guideline,
-                matcher=shim_matcher,
-                logger=self._container[Logger],
-            )
-
-            self._container[GenericGuidelineMatchingStrategyResolver].guideline_overrides[
-                guideline.id
-            ] = strategy
-
-        if on_match is not None:
-            # Create a shim that translates between SDK and core types
-            async def shim_handler(
-                core_ctx: _GuidelineMatchingContext,
-                core_match: _GuidelineMatch,
-            ) -> None:
-                sdk_ctx = await GuidelineMatchingContext._from_core(
-                    core_ctx=core_ctx,
-                    server=self._server,
-                    container=self._container,
-                )
-                sdk_match = GuidelineMatch(
-                    id=core_match.guideline.id,
-                    matched=True,
-                    rationale=core_match.rationale,
-                )
-                await on_match(sdk_ctx, sdk_match)
-
-            engine_hooks = self._container[EngineHooks]
-            engine_hooks.guideline_match_handlers[guideline.id].append(shim_handler)
-
-        return result_guideline
 
     async def create_observation(
         self,
@@ -2610,6 +2427,134 @@ class Server:
         journey: Journey,
     ) -> None:
         self._journey_evaluations[journey.id] = ((journey,), self._evaluator.evaluate_journey)
+
+    async def _create_guideline(
+        self,
+        condition: str,
+        action: str | None,
+        description: str | None,
+        tools: Iterable[ToolEntry],
+        metadata: dict[str, JSONSerializable],
+        canned_responses: Sequence[CannedResponseId],
+        matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]] | None,
+        on_match: Callable[[GuidelineMatchingContext, GuidelineMatch], Awaitable[None]] | None,
+        tags: Sequence[TagId] | None,
+        relationship_target_tag_id: TagId | None,
+    ) -> Guideline:
+        """Internal method to create a guideline with common logic."""
+        self._advance_creation_progress()
+
+        tool_ids = [
+            ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name) for t in tools
+        ]
+
+        for t in list(tools):
+            await self._plugin_server.enable_tool(t)
+
+        guideline = await self.container[GuidelineStore].create_guideline(
+            condition=condition,
+            action=action,
+            description=description,
+            metadata=metadata,
+        )
+
+        if canned_responses:
+            tag_id = _Tag.for_guideline_id(guideline.id)
+
+            for id in canned_responses:
+                await self.container[CannedResponseStore].upsert_tag(
+                    canned_response_id=id,
+                    tag_id=tag_id,
+                )
+
+        # Evaluate what matcher to use if custom matcher isn't specified
+        if matcher is None:
+            self._add_guideline_evaluation(
+                guideline.id,
+                GuidelineContent(condition=condition, action=action),
+                tool_ids,
+            )
+
+        # Create relationship if target tag specified
+        if relationship_target_tag_id is not None:
+            await self.container[RelationshipStore].create_relationship(
+                source=RelationshipEntity(
+                    id=guideline.id,
+                    kind=RelationshipEntityKind.GUIDELINE,
+                ),
+                target=RelationshipEntity(
+                    id=relationship_target_tag_id,
+                    kind=RelationshipEntityKind.TAG,
+                ),
+                kind=RelationshipKind.DEPENDENCY,
+            )
+
+        for t in list(tools):
+            await self.container[GuidelineToolAssociationStore].create_association(
+                guideline_id=guideline.id,
+                tool_id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
+            )
+
+        result_guideline = Guideline(
+            id=guideline.id,
+            condition=condition,
+            action=action,
+            tags=guideline.tags,
+            metadata=guideline.metadata,
+            _server=self,
+            _container=self.container,
+        )
+
+        if matcher is not None:
+            # Create a shim that translates between SDK and core types
+            async def shim_matcher(
+                core_ctx: _GuidelineMatchingContext, core_guideline: _Guideline
+            ) -> _GuidelineMatch:
+                sdk_ctx = await GuidelineMatchingContext._from_core(
+                    core_ctx=core_ctx,
+                    server=self,
+                    container=self.container,
+                )
+                result = await matcher(sdk_ctx, result_guideline)
+
+                return _GuidelineMatch(
+                    guideline=core_guideline,
+                    score=10 if result.matched else 1,
+                    rationale=result.rationale,
+                )
+
+            strategy = CustomGuidelineMatchingStrategy(
+                guideline=guideline,
+                matcher=shim_matcher,
+                logger=self.container[Logger],
+            )
+
+            self.container[GenericGuidelineMatchingStrategyResolver].guideline_overrides[
+                guideline.id
+            ] = strategy
+
+        if on_match is not None:
+            # Create a shim that translates between SDK and core types
+            async def shim_handler(
+                core_ctx: _GuidelineMatchingContext,
+                core_match: _GuidelineMatch,
+            ) -> None:
+                sdk_ctx = await GuidelineMatchingContext._from_core(
+                    core_ctx=core_ctx,
+                    server=self,
+                    container=self.container,
+                )
+                sdk_match = GuidelineMatch(
+                    id=core_match.guideline.id,
+                    matched=True,
+                    rationale=core_match.rationale,
+                )
+                await on_match(sdk_ctx, sdk_match)
+
+            engine_hooks = self.container[EngineHooks]
+            engine_hooks.guideline_match_handlers[guideline.id].append(shim_handler)
+
+        return result_guideline
 
     async def _render_guideline(self, guideline_id: GuidelineId) -> str:
         guideline = await self._container[GuidelineStore].read_guideline(guideline_id)

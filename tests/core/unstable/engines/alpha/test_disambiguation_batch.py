@@ -189,13 +189,16 @@ def create_context_variable(
 ) -> tuple[ContextVariable, ContextVariableValue]:
     return ContextVariable(
         id=ContextVariableId("-"),
+        creation_utc=datetime.now(timezone.utc),
         name=name,
         description="",
         tool_id=None,
         freshness_rules=None,
         tags=tags,
     ), ContextVariableValue(
-        ContextVariableValueId("-"), last_modified=datetime.now(timezone.utc), data=data
+        id=ContextVariableValueId("-"),
+        last_modified=datetime.now(timezone.utc),
+        data=data,
     )
 
 

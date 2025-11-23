@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from itertools import chain
 import json
-from typing import Any, Awaitable, Callable, NewType, Optional, Sequence, cast
+from typing import Any, Awaitable, Callable, Mapping, NewType, Optional, Sequence, cast
 import jinja2
 from typing_extensions import override, TypedDict, Self, Required
 
@@ -42,7 +42,14 @@ from parlant.core.persistence.vector_database_helper import (
     query_chunks,
 )
 from parlant.core.tags import TagId
-from parlant.core.common import ItemNotFoundError, UniqueId, Version, IdGenerator, md5_checksum
+from parlant.core.common import (
+    ItemNotFoundError,
+    JSONSerializable,
+    UniqueId,
+    Version,
+    IdGenerator,
+    md5_checksum,
+)
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -73,6 +80,7 @@ class CannedResponse:
             creation_utc=datetime.now(),
             tags=[],
             signals=[],
+            metadata={},
         )
 
     TRANSIENT_ID = CannedResponseId("<transient>")
@@ -83,6 +91,7 @@ class CannedResponse:
     value: str
     fields: Sequence[CannedResponseField]
     signals: Sequence[str]
+    metadata: Mapping[str, JSONSerializable]
     tags: Sequence[TagId]
 
     def __hash__(self) -> int:
@@ -99,6 +108,7 @@ class CannedResponseUpdateParams(TypedDict, total=False):
     value: str
     fields: Sequence[CannedResponseField]
     signals: Sequence[str]
+    metadata: Mapping[str, JSONSerializable]
 
 
 class CannedResponseStore(ABC):
@@ -109,6 +119,7 @@ class CannedResponseStore(ABC):
         fields: Optional[Sequence[CannedResponseField]] = None,
         signals: Optional[Sequence[str]] = None,
         creation_utc: Optional[datetime] = None,
+        metadata: Mapping[str, JSONSerializable] = {},
         tags: Optional[Sequence[TagId]] = None,
     ) -> CannedResponse: ...
 
@@ -197,6 +208,15 @@ class UtteranceDocument_v0_3_0(TypedDict, total=False):
     queries: str
 
 
+class CannedResponseDocument_v0_4_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    value: str
+    fields: str
+    signals: Sequence[str]
+
+
 class CannedResponseDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
@@ -204,6 +224,7 @@ class CannedResponseDocument(TypedDict, total=False):
     value: str
     fields: str
     signals: Sequence[str]
+    metadata: Mapping[str, JSONSerializable]
 
 
 class CannedResponseVectorDocument(TypedDict, total=False):
@@ -231,7 +252,7 @@ class CannedResponseTagAssociationDocument(TypedDict, total=False):
 
 
 class CannedResponseVectorStore(CannedResponseStore):
-    VERSION = Version.from_string("0.4.0")
+    VERSION = Version.from_string("0.5.0")
 
     def __init__(
         self,
@@ -266,12 +287,24 @@ class CannedResponseVectorStore(CannedResponseStore):
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
 
+        async def v0_4_0_to_v0_5_0(doc: VectorDocument) -> Optional[VectorDocument]:
+            doc = cast(CannedResponseVectorDocument, doc)
+
+            return CannedResponseVectorDocument(
+                id=doc["id"],
+                canned_response_id=doc["canned_response_id"],
+                version=Version.String("0.5.0"),
+                content=doc["content"],
+                checksum=doc["checksum"],
+            )
+
         return await VectorDocumentMigrationHelper[CannedResponseVectorDocument](
             self,
             {
                 "0.1.0": v0_1_0_to_v0_4_0,
                 "0.2.0": v0_1_0_to_v0_4_0,
                 "0.3.0": v0_1_0_to_v0_4_0,
+                "0.4.0": v0_4_0_to_v0_5_0,
             },
         ).migrate(doc)
 
@@ -281,12 +314,26 @@ class CannedResponseVectorStore(CannedResponseStore):
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
 
+        async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(CannedResponseDocument, doc)
+
+            return CannedResponseDocument(
+                id=doc["id"],
+                version=Version.String("0.5.0"),
+                creation_utc=doc["creation_utc"],
+                value=doc["value"],
+                fields=doc["fields"],
+                signals=doc["signals"],
+                metadata={},
+            )
+
         return await DocumentMigrationHelper[CannedResponseDocument](
             self,
             {
                 "0.1.0": v0_1_0_to_v0_4_0,
                 "0.2.0": v0_1_0_to_v0_4_0,
                 "0.3.0": v0_1_0_to_v0_4_0,
+                "0.4.0": v0_4_0_to_v0_5_0,
             },
         ).migrate(doc)
 
@@ -320,12 +367,24 @@ class CannedResponseVectorStore(CannedResponseStore):
                 tag_id=TagId(doc["tag_id"]),
             )
 
+        async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(CannedResponseTagAssociationDocument, doc)
+
+            return CannedResponseTagAssociationDocument(
+                id=doc["id"],
+                version=Version.String("0.5.0"),
+                creation_utc=doc["creation_utc"],
+                canned_response_id=CannedResponseId(doc["canned_response_id"]),
+                tag_id=TagId(doc["tag_id"]),
+            )
+
         return await DocumentMigrationHelper[CannedResponseTagAssociationDocument](
             self,
             {
                 "0.1.0": v0_1_0_to_v0_2_0,
                 "0.2.0": v0_2_0_to_v0_3_0,
                 "0.3.0": v0_3_0_to_v0_4_0,
+                "0.4.0": v0_4_0_to_v0_5_0,
             },
         ).migrate(doc)
 
@@ -389,6 +448,7 @@ class CannedResponseVectorStore(CannedResponseStore):
                 ]
             ),
             signals=canned_response_id.signals,
+            metadata=canned_response_id.metadata,
         )
 
     async def _deserialize_canned_response(
@@ -411,6 +471,7 @@ class CannedResponseVectorStore(CannedResponseStore):
                 )
                 for d in json.loads(canned_response_document["fields"])
             ],
+            metadata=canned_response_document["metadata"],
             tags=tags,
             signals=canned_response_document["signals"],
         )
@@ -419,7 +480,8 @@ class CannedResponseVectorStore(CannedResponseStore):
         return [canned_response.value, *canned_response.signals]
 
     async def _insert_canned_response(
-        self, canned_response: CannedResponse
+        self,
+        canned_response: CannedResponse,
     ) -> CannedResponseDocument:
         insertion_tasks = []
 
@@ -448,6 +510,7 @@ class CannedResponseVectorStore(CannedResponseStore):
         fields: Optional[Sequence[CannedResponseField]] = None,
         signals: Optional[Sequence[str]] = None,
         creation_utc: Optional[datetime] = None,
+        metadata: Mapping[str, JSONSerializable] = {},
         tags: Optional[Sequence[TagId]] = None,
     ) -> CannedResponse:
         self._validate_template(value)
@@ -463,6 +526,7 @@ class CannedResponseVectorStore(CannedResponseStore):
                 value=value,
                 fields=fields or [],
                 creation_utc=creation_utc,
+                metadata=metadata,
                 tags=tags or [],
                 signals=signals or [],
             )
@@ -511,6 +575,9 @@ class CannedResponseVectorStore(CannedResponseStore):
         canned_response_id: CannedResponseId,
         params: CannedResponseUpdateParams,
     ) -> CannedResponse:
+        if "value" in params:
+            self._validate_template(params["value"])
+
         async with self._lock.writer_lock:
             doc = await self._canreps_collection.find_one(
                 filters={"id": {"$eq": canned_response_id}}
@@ -525,18 +592,20 @@ class CannedResponseVectorStore(CannedResponseStore):
             existing_value = await self._deserialize_canned_response(doc)
 
             for v_doc in all_vector_docs:
-                await self._canreps_collection.delete_one(filters={"id": {"$eq": v_doc["id"]}})
+                await self._canreps_vector_collection.delete_one(
+                    filters={"id": {"$eq": v_doc["id"]}}
+                )
 
-            value = params.get("value", existing_value.value)
-            fields = params.get("fields", existing_value.fields)
-            signals = params.get("signals", existing_value.signals)
+            # Delete the existing main document
+            await self._canreps_collection.delete_one(filters={"id": {"$eq": canned_response_id}})
 
             canrep = CannedResponse(
                 id=CannedResponseId(canned_response_id),
                 creation_utc=datetime.fromisoformat(doc["creation_utc"]),
-                value=value,
-                fields=fields,
-                signals=signals,
+                value=params.get("value", existing_value.value),
+                fields=params.get("fields", existing_value.fields),
+                signals=params.get("signals", existing_value.signals),
+                metadata=params.get("metadata", existing_value.metadata),
                 tags=existing_value.tags,
             )
 

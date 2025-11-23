@@ -502,3 +502,181 @@ async def test_that_journey_tags_can_be_removed_from_a_canned_response(
 
     assert journey_tag not in canrep_after_update["tags"]
     assert tag1.id in canrep_after_update["tags"]
+
+
+async def test_that_a_canned_response_can_be_created_with_metadata(
+    async_client: httpx.AsyncClient,
+) -> None:
+    payload = {
+        "value": "Your account balance is {{balance}}",
+        "fields": [
+            {
+                "name": "balance",
+                "description": "Account's balance",
+                "examples": ["9000"],
+            }
+        ],
+        "metadata": {"priority": "high", "category": "finance"},
+    }
+
+    response = await async_client.post("/canned_responses", json=payload)
+    assert response.status_code == status.HTTP_201_CREATED
+
+    canned_response = response.json()
+
+    assert canned_response["value"] == payload["value"]
+    assert canned_response["fields"] == payload["fields"]
+    assert canned_response["metadata"] == {"priority": "high", "category": "finance"}
+
+    assert "id" in canned_response
+    assert "creation_utc" in canned_response
+
+
+async def test_that_canned_response_metadata_can_be_updated(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    canned_response_store = container[CannedResponseStore]
+
+    canned_response = await canned_response_store.create_canned_response(
+        value="Your balance is {{balance}}",
+        fields=[
+            CannedResponseField(name="balance", description="Account balance", examples=["5000"])
+        ],
+        metadata={"old_key": "old_value", "category": "finance"},
+    )
+
+    response = await async_client.patch(
+        f"/canned_responses/{canned_response.id}",
+        json={
+            "metadata": {
+                "set": {
+                    "priority": "high",
+                    "category": "support",
+                },
+                "unset": ["old_key"],
+            }
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_canned_response = response.json()
+
+    assert updated_canned_response["id"] == canned_response.id
+    assert updated_canned_response["metadata"] == {"priority": "high", "category": "support"}
+
+
+async def test_that_canned_response_metadata_can_be_set_without_unset(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    canned_response_store = container[CannedResponseStore]
+
+    canned_response = await canned_response_store.create_canned_response(
+        value="Your balance is {{balance}}",
+        fields=[
+            CannedResponseField(name="balance", description="Account balance", examples=["5000"])
+        ],
+        metadata={"existing_key": "existing_value"},
+    )
+
+    response = await async_client.patch(
+        f"/canned_responses/{canned_response.id}",
+        json={
+            "metadata": {
+                "set": {
+                    "priority": "high",
+                    "category": "support",
+                }
+            }
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_canned_response = response.json()
+
+    assert updated_canned_response["id"] == canned_response.id
+    assert updated_canned_response["metadata"] == {
+        "existing_key": "existing_value",
+        "priority": "high",
+        "category": "support",
+    }
+
+
+async def test_that_canned_response_metadata_can_be_unset_without_set(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    canned_response_store = container[CannedResponseStore]
+
+    canned_response = await canned_response_store.create_canned_response(
+        value="Your balance is {{balance}}",
+        fields=[
+            CannedResponseField(name="balance", description="Account balance", examples=["5000"])
+        ],
+        metadata={"key1": "value1", "key2": "value2", "key3": "value3"},
+    )
+
+    response = await async_client.patch(
+        f"/canned_responses/{canned_response.id}",
+        json={"metadata": {"unset": ["key2", "key3"]}},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_canned_response = response.json()
+
+    assert updated_canned_response["id"] == canned_response.id
+    assert updated_canned_response["metadata"] == {"key1": "value1"}
+
+
+async def test_that_canned_response_metadata_can_handle_empty_operations(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    canned_response_store = container[CannedResponseStore]
+
+    canned_response = await canned_response_store.create_canned_response(
+        value="Your balance is {{balance}}",
+        fields=[
+            CannedResponseField(name="balance", description="Account balance", examples=["5000"])
+        ],
+        metadata={"existing": "value"},
+    )
+
+    # Test with empty set and unset
+    response = await async_client.patch(
+        f"/canned_responses/{canned_response.id}",
+        json={"metadata": {"set": {}, "unset": []}},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_canned_response = response.json()
+
+    assert updated_canned_response["id"] == canned_response.id
+    assert updated_canned_response["metadata"] == {"existing": "value"}
+
+
+async def test_that_canned_response_metadata_unset_nonexistent_key_is_ignored(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    canned_response_store = container[CannedResponseStore]
+
+    canned_response = await canned_response_store.create_canned_response(
+        value="Your balance is {{balance}}",
+        fields=[
+            CannedResponseField(name="balance", description="Account balance", examples=["5000"])
+        ],
+        metadata={"key1": "value1"},
+    )
+
+    response = await async_client.patch(
+        f"/canned_responses/{canned_response.id}",
+        json={"metadata": {"set": {"key2": "value2"}, "unset": ["nonexistent_key"]}},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_canned_response = response.json()
+
+    assert updated_canned_response["id"] == canned_response.id
+    assert updated_canned_response["metadata"] == {"key1": "value1", "key2": "value2"}

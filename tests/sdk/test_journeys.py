@@ -21,7 +21,7 @@ from parlant.core.services.tools.plugins import tool
 from parlant.core.tags import Tag
 from parlant.core.tools import ToolContext, ToolId, ToolResult
 from parlant.core.canned_responses import CannedResponseStore
-from tests.sdk.utils import Context, SDKTest
+from tests.sdk.utils import Context, SDKTest, get_message
 from tests.test_utilities import nlp_test
 
 from parlant import sdk as p
@@ -605,7 +605,10 @@ class Test_that_journey_state_can_have_its_own_canned_responses(SDKTest):
             description="Greet customers with personalized responses",
         )
 
-        self.canrep1 = await server.create_canned_response(template="How can I assist you?")
+        self.canrep1 = await server.create_canned_response(
+            template="How can I assist you?",
+            metadata={"mood": "friendly"},
+        )
         self.canrep2 = await server.create_canned_response(template="Welcome to our store!")
 
         self.initial_transition = await self.journey.initial_state.transition_to(
@@ -627,9 +630,10 @@ class Test_that_journey_state_can_have_its_own_canned_responses(SDKTest):
         assert Tag.for_journey_node_id(self.initial_transition.target.id) in stored_canrep1.tags
         assert Tag.for_journey_node_id(self.second_transition.target.id) in stored_canrep2.tags
 
-        response = await ctx.send_and_receive("Hello", recipient=self.agent)
+        response = await ctx.send_and_message_event("Hello", recipient=self.agent)
 
-        assert response == "How can I assist you?"
+        assert get_message(response) == "How can I assist you?"
+        assert response.metadata == {"mood": "friendly"}
 
 
 class Test_that_a_journey_is_reevaluated_after_a_skipped_tool_call(SDKTest):

@@ -228,11 +228,11 @@ GuidelineMetadataUnsetField: TypeAlias = Annotated[
 ]
 
 guideline_metadata_update_params_example: ExampleJson = {
-    "add": {
+    "set": {
         "key1": "value1",
         "key2": "value2",
     },
-    "remove": ["key3", "key4"],
+    "unset": ["key3", "key4"],
 }
 
 
@@ -252,11 +252,11 @@ guideline_update_params_example: ExampleJson = {
     "enabled": True,
     "tags": ["tag1", "tag2"],
     "metadata": {
-        "add": {
+        "set": {
             "key1": "value1",
             "key2": "value2",
         },
-        "remove": ["key3", "key4"],
+        "unset": ["key3", "key4"],
     },
     "tool_associations": {
         "add": [

@@ -157,6 +157,7 @@ class EventPublisher(EventEmitter):
             kind=event.kind,
             trace_id=event.trace_id,
             data=event.data,
+            metadata=event.metadata or {},
         )
 
 

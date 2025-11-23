@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections import defaultdict
+from collections import defaultdict, deque
 from contextlib import AsyncExitStack
 import contextvars
 from dataclasses import dataclass, field
@@ -1067,6 +1067,7 @@ class JourneyState:
         state: TState | None = None,
         action: str | None = None,
         tools: Sequence[ToolEntry] = [],
+        journey: Journey | None = None,
         fork: bool = False,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
@@ -1114,6 +1115,8 @@ class JourneyState:
                 ForkJourneyState,
                 metadata=metadata,
             )
+        elif journey:
+            actual_state = await self._transition_to_sub_journey(journey=journey)
 
         transitions = [t for t in self._journey.transitions if t.source == self]
 
@@ -1137,6 +1140,146 @@ class JourneyState:
         cast(list[JourneyTransition[JourneyState]], self._journey.transitions).append(transition)
 
         return transition
+
+    async def _transition_to_sub_journey(
+        self,
+        journey: Journey,
+    ) -> JourneyState:
+        if not self._journey:
+            raise SDKError(
+                "Cannot transition to sub-journey from a state without a parent journey."
+            )
+
+        # Create mappings for states and transitions, similar to your projection approach
+        state_mapping: dict[JourneyStateId, JourneyState] = {}
+        transitions_by_source: dict[JourneyStateId, list[JourneyTransition[JourneyState]]] = (
+            defaultdict(list)
+        )
+
+        # Group transitions by source for easy lookup
+        for transition in journey.transitions:
+            transitions_by_source[transition.source.id].append(transition)
+
+        # Create merge fork state for leaf nodes
+        fork_state = await self._journey._create_state(
+            ForkJourneyState,
+            metadata={"sub_journey_id": journey.id, "merge_point": True},
+        )
+
+        # Traverse the journey starting from the root, similar to your projection approach
+        queue: deque[tuple[JourneyStateId, JourneyState | None]] = deque()
+        queue.append((journey._start_state_id, self))  # Root maps to current state
+        visited: set[JourneyStateId] = set()
+
+        async def create_mapped_state(state: JourneyState) -> JourneyState:
+            """Helper to create a new state with sub_journey_id metadata"""
+            if not self._journey:
+                raise SDKError("Journey is None")
+
+            metadata = dict(state.metadata)
+            metadata["sub_journey_id"] = journey.id
+
+            if state.tools:
+                return cast(
+                    JourneyState,
+                    await self._journey._create_state(
+                        ToolJourneyState,
+                        action=state.action,
+                        tools=state.tools,
+                        metadata=metadata,
+                    ),
+                )
+            elif (
+                isinstance(state.metadata.get("journey_node"), dict)
+                and cast(dict[str, JSONSerializable], state.metadata.get("journey_node")).get(
+                    "kind"
+                )
+                == "fork"
+            ):
+                return cast(
+                    JourneyState,
+                    await self._journey._create_state(
+                        ForkJourneyState,
+                        metadata=metadata,
+                    ),
+                )
+            else:
+                return cast(
+                    JourneyState,
+                    await self._journey._create_state(
+                        ChatJourneyState,
+                        action=state.action,
+                        tools=[],
+                        metadata=metadata,
+                    ),
+                )
+
+        while queue:
+            current_state_id, mapped_source_state = queue.popleft()
+
+            if current_state_id in visited:
+                continue
+            visited.add(current_state_id)
+
+            # Get the current state from the sub-journey
+            current_state = next((s for s in journey.states if s.id == current_state_id), None)
+            if not current_state:
+                continue
+
+            # Process all transitions from this state
+            for transition in transitions_by_source[current_state_id]:
+                target_state_id = transition.target.id
+
+                # Handle END_JOURNEY transitions - connect to fork
+                if target_state_id == END_JOURNEY.id:
+                    if mapped_source_state and mapped_source_state != self:
+                        # Only create transition if source is not the root (self handles root transitions)
+                        new_transition = await self._journey.create_transition(
+                            condition=transition.condition,
+                            source=mapped_source_state,
+                            target=fork_state,
+                        )
+                        cast(
+                            list[JourneyTransition[JourneyState]], self._journey.transitions
+                        ).append(cast(JourneyTransition[JourneyState], new_transition))
+                    elif mapped_source_state == self:
+                        # Root state transitions to END become transitions to fork
+                        new_transition = await self._journey.create_transition(
+                            condition=transition.condition,
+                            source=self,
+                            target=fork_state,
+                        )
+                        cast(
+                            list[JourneyTransition[JourneyState]], self._journey.transitions
+                        ).append(cast(JourneyTransition[JourneyState], new_transition))
+                    continue
+
+                # Get or create the target state
+                if target_state_id not in state_mapping:
+                    target_state = next(
+                        (s for s in journey.states if s.id == target_state_id), None
+                    )
+                    if target_state:
+                        new_state = await create_mapped_state(target_state)
+                        state_mapping[target_state_id] = new_state
+                        cast(list[JourneyState], self._journey.states).append(new_state)
+
+                # Create the transition
+                target_mapped_state = state_mapping[target_state_id]
+                if mapped_source_state:
+                    new_transition = await self._journey.create_transition(
+                        condition=transition.condition,
+                        source=mapped_source_state,
+                        target=cast(ForkJourneyState, target_mapped_state),
+                    )
+                    cast(list[JourneyTransition[JourneyState]], self._journey.transitions).append(
+                        cast(JourneyTransition[JourneyState], new_transition)
+                    )
+
+                # Add target to queue for further processing
+                queue.append((target_state_id, target_mapped_state))
+
+        return fork_state
 
 
 END_JOURNEY = JourneyState(
@@ -1196,6 +1339,14 @@ class InitialJourneyState(JourneyState):
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
+    @overload
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        journey: Journey,
+    ) -> JourneyTransition[ForkJourneyState]: ...
+
     async def transition_to(
         self,
         *,
@@ -1204,6 +1355,7 @@ class InitialJourneyState(JourneyState):
         tool_instruction: str | None = None,
         state: TState | None = None,
         tool_state: ToolEntry | Sequence[ToolEntry] = [],
+        journey: Journey | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
@@ -1213,6 +1365,7 @@ class InitialJourneyState(JourneyState):
             state=state,
             action=chat_state or tool_instruction,
             tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
+            journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
             on_match=on_match,
@@ -1266,6 +1419,14 @@ class ToolJourneyState(JourneyState):
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
+    @overload
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        journey: Journey,
+    ) -> JourneyTransition[ForkJourneyState]: ...
+
     async def transition_to(
         self,
         *,
@@ -1274,6 +1435,7 @@ class ToolJourneyState(JourneyState):
         tool_instruction: str | None = None,
         state: TState | None = None,
         tool_state: ToolEntry | Sequence[ToolEntry] = [],
+        journey: Journey | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
@@ -1283,6 +1445,7 @@ class ToolJourneyState(JourneyState):
             state=state,
             action=chat_state,
             tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
+            journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
             on_match=on_match,
@@ -1339,6 +1502,14 @@ class ChatJourneyState(JourneyState):
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
+    @overload
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        journey: Journey,
+    ) -> JourneyTransition[ForkJourneyState]: ...
+
     async def transition_to(
         self,
         *,
@@ -1347,6 +1518,7 @@ class ChatJourneyState(JourneyState):
         tool_instruction: str | None = None,
         state: TState | None = None,
         tool_state: ToolEntry | Sequence[ToolEntry] = [],
+        journey: Journey | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
@@ -1356,6 +1528,7 @@ class ChatJourneyState(JourneyState):
             state=state,
             action=chat_state or tool_instruction,
             tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
+            journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
             on_match=on_match,
@@ -1412,14 +1585,23 @@ class ForkJourneyState(JourneyState):
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
+    @overload
     async def transition_to(
         self,
         *,
-        condition: str,
+        condition: str | None = None,
+        journey: Journey,
+    ) -> JourneyTransition[ForkJourneyState]: ...
+
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
         chat_state: str | None = None,
         tool_instruction: str | None = None,
         state: TState | None = None,
         tool_state: ToolEntry | Sequence[ToolEntry] = [],
+        journey: Journey | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
@@ -1429,6 +1611,7 @@ class ForkJourneyState(JourneyState):
             state=state,
             action=chat_state or tool_instruction,
             tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
+            journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
             on_match=on_match,

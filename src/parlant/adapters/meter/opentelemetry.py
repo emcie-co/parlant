@@ -23,12 +23,10 @@ from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
 )
 
 from parlant.core.meter import Counter, DurationHistogram, Meter
-from parlant.core.tracer import Tracer
 
 
 class OpenTelemetryCounter(Counter):
-    def __init__(self, tracer: Tracer, otel_counter: OTelCounter) -> None:
-        self._tracer = tracer
+    def __init__(self, otel_counter: OTelCounter) -> None:
         self._otel_counter = otel_counter
 
     @override
@@ -37,21 +35,11 @@ class OpenTelemetryCounter(Counter):
         value: int,
         attributes: Mapping[str, str] | None = None,
     ) -> None:
-        if self._tracer.trace_id != "<main>":
-            attributes = {
-                **(attributes or {}),
-                "trace_id": self._tracer.trace_id,
-            }
-
-        self._otel_counter.add(
-            value,
-            {**attributes} if attributes else None,
-        )
+        self._otel_counter.add(value, attributes)
 
 
 class OpenTelemetryHistogram(DurationHistogram):
-    def __init__(self, tracer: Tracer, otel_histogram: OTelHistogram) -> None:
-        self._tracer = tracer
+    def __init__(self, otel_histogram: OTelHistogram) -> None:
         self._otel_histogram = otel_histogram
 
     @override
@@ -60,13 +48,7 @@ class OpenTelemetryHistogram(DurationHistogram):
         value: float,
         attributes: Mapping[str, str] | None = None,
     ) -> None:
-        if self._tracer.trace_id != "<main>":
-            attributes = {
-                **(attributes or {}),
-                "trace_id": self._tracer.trace_id,
-            }
-
-        self._otel_histogram.record(value, {**attributes} if attributes else None)
+        self._otel_histogram.record(value, attributes)
 
     @override
     @asynccontextmanager
@@ -85,10 +67,9 @@ class OpenTelemetryHistogram(DurationHistogram):
 
 
 class OpenTelemetryMeter(Meter):
-    def __init__(self, tracer: Tracer) -> None:
+    def __init__(self) -> None:
         self._service_name = os.getenv("OTEL_SERVICE_NAME", "parlant")
 
-        self._tracer = tracer
         self._meter: metrics.Meter
         self._metric_exporter: GrpcOTLPMetricExporter | HttpOTLPMetricExporter
         self._meter_provider: MeterProvider
@@ -152,7 +133,7 @@ class OpenTelemetryMeter(Meter):
             description=description,
         )
 
-        return OpenTelemetryCounter(self._tracer, otel_counter)
+        return OpenTelemetryCounter(otel_counter)
 
     @override
     def create_custom_histogram(
@@ -166,7 +147,7 @@ class OpenTelemetryMeter(Meter):
             description=description,
             unit=unit,
         )
-        return OpenTelemetryHistogram(self._tracer, otel_histogram)
+        return OpenTelemetryHistogram(otel_histogram)
 
     @override
     def create_duration_histogram(

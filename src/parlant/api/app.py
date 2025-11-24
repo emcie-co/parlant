@@ -180,7 +180,6 @@ async def create_api_app(container: Container) -> ASGIApplication:
         ):
             async with _hist_http_request_duration.measure(
                 {
-                    "request_id": request_id,
                     "http.request.operation": operation_id,
                     "http.method": request.method,
                 },

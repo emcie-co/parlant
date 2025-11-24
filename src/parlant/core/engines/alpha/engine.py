@@ -180,10 +180,8 @@ class AlphaEngine(Engine):
             return True
 
         try:
-            async with self._hist_engine_process_duration.measure(
-                {"session_id": context.session_id},
-            ):
-                with self._tracer.span("process", {"session_id": context.session_id}):
+            with self._tracer.span("process", {"session_id": context.session_id}):
+                async with self._hist_engine_process_duration.measure():
                     await self._do_process(loaded_context)
             return True
         except asyncio.CancelledError:

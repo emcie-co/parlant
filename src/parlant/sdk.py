@@ -98,6 +98,9 @@ from parlant.core.context_variables import (
     ContextVariableId,
     ContextVariableStore,
 )
+from parlant.core.engines.alpha.guideline_matching.generic.common import (
+    format_journey_node_guideline_id,
+)
 from parlant.core.meter import Meter
 from parlant.core.tracer import Tracer
 from parlant.core.customers import (
@@ -202,6 +205,7 @@ from parlant.core.journeys import (
     JourneyStore,
     JourneyVectorStore,
 )
+
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.nlp.service import (
     EmbedderHints,
@@ -854,6 +858,23 @@ async def _match_always(ctx: GuidelineMatchingContext, g: Guideline) -> Guidelin
     )
 
 
+@dataclass
+class JourneyStateMatch:
+    """Result of a journey state transition match."""
+
+    state_id: JourneyStateId
+    """The ID of the journey state that was matched."""
+
+    transition_id: JourneyTransitionId
+    """The ID of the journey transition that was matched."""
+
+    matched: bool
+    """Whether the journey state transition matched the current context."""
+
+    rationale: str | None
+    """Explanation of why the state transition matched or didn't match."""
+
+
 @dataclass(frozen=True)
 class Guideline:
     """A guideline that defines a condition and an action to be taken."""
@@ -1047,6 +1068,7 @@ class JourneyState:
         fork: bool = False,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[JourneyState]:
         if not self._journey:
             raise SDKError("EndState cannot be connected to any other states.")
@@ -1099,7 +1121,7 @@ class JourneyState:
             )
 
         transition = await self._journey.create_transition(
-            condition=condition, source=self, target=actual_state or END_JOURNEY
+            condition=condition, source=self, target=actual_state or END_JOURNEY, on_match=on_match
         )
 
         if actual_state:
@@ -1136,6 +1158,7 @@ class InitialJourneyState(JourneyState):
         state: TState,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[TState]: ...
 
     @overload
@@ -1146,6 +1169,7 @@ class InitialJourneyState(JourneyState):
         chat_state: str,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
@@ -1156,6 +1180,7 @@ class InitialJourneyState(JourneyState):
         tool_instruction: str | None = None,
         tool_state: ToolEntry,
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1166,6 +1191,7 @@ class InitialJourneyState(JourneyState):
         tool_instruction: str | None = None,
         tool_state: Sequence[ToolEntry],
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     async def transition_to(
@@ -1178,6 +1204,7 @@ class InitialJourneyState(JourneyState):
         tool_state: ToolEntry | Sequence[ToolEntry] = [],
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[Any]:
         return await self._transition(
             condition=condition,
@@ -1186,6 +1213,7 @@ class InitialJourneyState(JourneyState):
             tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
             canned_responses=canned_responses,
             metadata=metadata,
+            on_match=on_match,
         )
 
 
@@ -1200,6 +1228,7 @@ class ToolJourneyState(JourneyState):
         state: TState,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[TState]: ...
 
     @overload
@@ -1210,6 +1239,7 @@ class ToolJourneyState(JourneyState):
         chat_state: str,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
@@ -1220,6 +1250,7 @@ class ToolJourneyState(JourneyState):
         tool_instruction: str | None = None,
         tool_state: ToolEntry,
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1230,6 +1261,7 @@ class ToolJourneyState(JourneyState):
         tool_instruction: str | None = None,
         tool_state: Sequence[ToolEntry],
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     async def transition_to(
@@ -1242,6 +1274,7 @@ class ToolJourneyState(JourneyState):
         tool_state: ToolEntry | Sequence[ToolEntry] = [],
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[Any]:
         return await self._transition(
             condition=condition,
@@ -1250,6 +1283,7 @@ class ToolJourneyState(JourneyState):
             tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
             canned_responses=canned_responses,
             metadata=metadata,
+            on_match=on_match,
         )
 
     async def fork(self) -> JourneyTransition[ForkJourneyState]:
@@ -1267,6 +1301,7 @@ class ChatJourneyState(JourneyState):
         state: TState,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[TState]: ...
 
     @overload
@@ -1277,6 +1312,7 @@ class ChatJourneyState(JourneyState):
         chat_state: str,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
@@ -1287,6 +1323,7 @@ class ChatJourneyState(JourneyState):
         tool_instruction: str | None = None,
         tool_state: ToolEntry,
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1297,6 +1334,7 @@ class ChatJourneyState(JourneyState):
         tool_instruction: str | None = None,
         tool_state: Sequence[ToolEntry],
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     async def transition_to(
@@ -1309,6 +1347,7 @@ class ChatJourneyState(JourneyState):
         tool_state: ToolEntry | Sequence[ToolEntry] = [],
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[Any]:
         return await self._transition(
             condition=condition,
@@ -1317,6 +1356,7 @@ class ChatJourneyState(JourneyState):
             tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
             canned_responses=canned_responses,
             metadata=metadata,
+            on_match=on_match,
         )
 
     async def fork(self) -> JourneyTransition[ForkJourneyState]:
@@ -1334,6 +1374,7 @@ class ForkJourneyState(JourneyState):
         state: TState,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[TState]: ...
 
     @overload
@@ -1344,6 +1385,7 @@ class ForkJourneyState(JourneyState):
         chat_state: str,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
@@ -1354,6 +1396,7 @@ class ForkJourneyState(JourneyState):
         tool_instruction: str | None = None,
         tool_state: ToolEntry,
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1364,6 +1407,7 @@ class ForkJourneyState(JourneyState):
         tool_instruction: str | None = None,
         tool_state: Sequence[ToolEntry],
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     async def transition_to(
@@ -1376,6 +1420,7 @@ class ForkJourneyState(JourneyState):
         tool_state: ToolEntry | Sequence[ToolEntry] = [],
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[Any]:
         return await self._transition(
             condition=condition,
@@ -1384,6 +1429,7 @@ class ForkJourneyState(JourneyState):
             tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
             canned_responses=canned_responses,
             metadata=metadata,
+            on_match=on_match,
         )
 
 
@@ -1464,6 +1510,7 @@ class Journey:
         condition: str | None,
         source: JourneyState,
         target: TState,
+        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[TState]:
         """Creates a transition between two states in the journey."""
 
@@ -1490,6 +1537,30 @@ class Journey:
             condition=condition,
         )
 
+        # Register on_match handler if provided
+        if on_match is not None and target is not None and target.id != END_JOURNEY.id:
+            # Compute the guideline ID for this journey edge
+            guideline_id = format_journey_node_guideline_id(target.id, transition.id)
+
+            # Create shim handler that translates core types to SDK types
+            async def shim_handler(
+                core_ctx: EngineContext,
+                core_match: _GuidelineMatch,
+            ) -> None:
+                # Build SDK journey state match
+                sdk_match = JourneyStateMatch(
+                    state_id=target.id,
+                    matched=True,
+                    rationale=core_match.rationale,
+                    transition_id=transition.id,
+                )
+
+                await on_match(core_ctx, sdk_match)
+
+            # Register handler with engine hooks
+            engine_hooks = self._container[EngineHooks]
+            engine_hooks.guideline_match_handlers[guideline_id].append(shim_handler)
+
         return JourneyTransition[TState](
             id=transition.id,
             condition=condition,
@@ -1508,8 +1579,7 @@ class Journey:
         canned_responses: Sequence[CannedResponseId] = [],
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
         | None = None,
-        on_match: Callable[[GuidelineMatchingContext, GuidelineMatch], Awaitable[None]]
-        | None = None,
+        on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         id: GuidelineId | None = None,
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
@@ -1532,8 +1602,7 @@ class Journey:
         condition: str,
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
-        on_match: Callable[[GuidelineMatchingContext, GuidelineMatch], Awaitable[None]]
-        | None = None,
+        on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
     ) -> Guideline:
         """A shorthand for creating an observational guideline with the specified condition."""
 
@@ -1966,8 +2035,7 @@ class Agent:
         canned_responses: Sequence[CannedResponseId] = [],
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
         | None = None,
-        on_match: Callable[[GuidelineMatchingContext, GuidelineMatch], Awaitable[None]]
-        | None = None,
+        on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         id: GuidelineId | None = None,
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
@@ -1990,8 +2058,7 @@ class Agent:
         condition: str,
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
-        on_match: Callable[[GuidelineMatchingContext, GuidelineMatch], Awaitable[None]]
-        | None = None,
+        on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
     ) -> Guideline:
         """A shorthand for creating an observational guideline with the specified condition."""
 
@@ -2444,7 +2511,7 @@ class Server:
         metadata: dict[str, JSONSerializable],
         canned_responses: Sequence[CannedResponseId],
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]] | None,
-        on_match: Callable[[GuidelineMatchingContext, GuidelineMatch], Awaitable[None]] | None,
+        on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None,
         tags: Sequence[TagId] | None,
         relationship_target_tag_id: TagId | None,
         id: GuidelineId | None = None,
@@ -2545,20 +2612,15 @@ class Server:
         if on_match is not None:
             # Create a shim that translates between SDK and core types
             async def shim_handler(
-                core_ctx: _GuidelineMatchingContext,
+                core_ctx: EngineContext,
                 core_match: _GuidelineMatch,
             ) -> None:
-                sdk_ctx = await GuidelineMatchingContext._from_core(
-                    core_ctx=core_ctx,
-                    server=self,
-                    container=self.container,
-                )
                 sdk_match = GuidelineMatch(
                     id=core_match.guideline.id,
                     matched=True,
                     rationale=core_match.rationale,
                 )
-                await on_match(sdk_ctx, sdk_match)
+                await on_match(core_ctx, sdk_match)
 
             engine_hooks = self.container[EngineHooks]
             engine_hooks.guideline_match_handlers[guideline.id].append(shim_handler)
@@ -3521,6 +3583,7 @@ __all__ = [
     "JourneyId",
     "JourneyState",
     "JourneyStateId",
+    "JourneyStateMatch",
     "JourneyTransition",
     "JourneyTransitionId",
     "Lifespan",

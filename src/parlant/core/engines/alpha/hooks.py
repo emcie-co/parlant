@@ -19,9 +19,6 @@ from typing import Any, Awaitable, Callable, Optional, Sequence, TypeAlias, Unio
 
 from parlant.core.engines.alpha.engine_context import EngineContext
 from parlant.core.engines.alpha.engine_context import LoadedContext  # type: ignore
-from parlant.core.engines.alpha.guideline_matching.guideline_matching_context import (
-    GuidelineMatchingContext,
-)
 from parlant.core.guidelines import GuidelineId
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 
@@ -97,9 +94,9 @@ class EngineHooks:
     """Called right after all messages were emitted into the session"""
 
     guideline_match_handlers: dict[
-        GuidelineId, list[Callable[[GuidelineMatchingContext, GuidelineMatch], Awaitable[None]]]
+        GuidelineId, list[Callable[[EngineContext, GuidelineMatch], Awaitable[None]]]
     ] = field(default_factory=lambda: defaultdict(list))
-    """Map from GuidelineId to list of handlers called when that guideline matches"""
+    """Map from GuidelineId to list of handlers called when that guideline is resolved"""
 
     async def call_on_error(self, context: EngineContext, exception: Exception) -> bool:
         return await self.call_hooks(self.on_error, context, None, exception)

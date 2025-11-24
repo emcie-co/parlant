@@ -17,9 +17,6 @@ from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch as _GuidelineMatch,
 )
-from parlant.core.engines.alpha.guideline_matching.guideline_matching_context import (
-    GuidelineMatchingContext as _GuidelineMatchingContext,
-)
 from parlant.core.guidelines import GuidelineStore
 from parlant.core.relationships import RelationshipKind, RelationshipStore
 from parlant.core.services.tools.plugins import tool
@@ -403,7 +400,7 @@ class Test_that_guideline_match_handler_is_called_when_guideline_matches(SDKTest
 
         self.captured_guideline_id = None
 
-        async def match_handler(ctx: p.GuidelineMatchingContext, match: p.GuidelineMatch) -> None:
+        async def match_handler(ctx: p.EngineContext, match: p.GuidelineMatch) -> None:
             self.captured_guideline_id = match.id
 
         self.guideline = await self.agent.create_guideline(
@@ -433,10 +430,10 @@ class Test_that_multiple_match_handlers_can_be_registered_for_same_guideline(SDK
         self.handler1_count = 0
         self.handler2_count = 0
 
-        async def handler1(ctx: p.GuidelineMatchingContext, match: p.GuidelineMatch) -> None:
+        async def handler1(ctx: p.EngineContext, match: p.GuidelineMatch) -> None:
             self.handler1_count += 1
 
-        async def handler2(ctx: p.GuidelineMatchingContext, match: p.GuidelineMatch) -> None:
+        async def handler2(ctx: p.EngineContext, match: p.GuidelineMatch) -> None:
             self.handler2_count += 1
 
         self.guideline = await self.agent.create_guideline(
@@ -446,20 +443,15 @@ class Test_that_multiple_match_handlers_can_be_registered_for_same_guideline(SDK
         )
 
         async def shim_handler2(
-            core_ctx: _GuidelineMatchingContext,
+            core_ctx: p.EngineContext,
             core_match: _GuidelineMatch,
         ) -> None:
-            sdk_ctx = await p.GuidelineMatchingContext._from_core(
-                core_ctx=core_ctx,
-                server=self.agent._server,
-                container=self.agent._container,
-            )
             sdk_match = p.GuidelineMatch(
                 id=core_match.guideline.id,
                 matched=True,
                 rationale=core_match.rationale,
             )
-            await handler2(sdk_ctx, sdk_match)
+            await handler2(core_ctx, sdk_match)
 
         server.container[EngineHooks].guideline_match_handlers[self.guideline.id].append(
             shim_handler2
@@ -485,10 +477,10 @@ class Test_that_match_handlers_for_different_guidelines_are_independent(SDKTest)
         self.guideline1_handler_called = False
         self.guideline2_handler_called = False
 
-        async def handler1(ctx: p.GuidelineMatchingContext, match: p.GuidelineMatch) -> None:
+        async def handler1(ctx: p.EngineContext, match: p.GuidelineMatch) -> None:
             self.guideline1_handler_called = True
 
-        async def handler2(ctx: p.GuidelineMatchingContext, match: p.GuidelineMatch) -> None:
+        async def handler2(ctx: p.EngineContext, match: p.GuidelineMatch) -> None:
             self.guideline2_handler_called = True
 
         self.guideline1 = await self.agent.create_guideline(
@@ -528,7 +520,7 @@ class Test_that_match_handler_on_journey_guideline_works(SDKTest):
 
         self.handler_called = False
 
-        async def match_handler(ctx: p.GuidelineMatchingContext, match: p.GuidelineMatch) -> None:
+        async def match_handler(ctx: p.EngineContext, match: p.GuidelineMatch) -> None:
             self.handler_called = True
 
         self.guideline = await self.journey.create_guideline(
@@ -607,3 +599,89 @@ class Test_that_guideline_creation_fails_with_duplicate_id(SDKTest):
                 action="Second guideline action",
                 id=self.duplicate_id,
             )
+
+
+class Test_that_journey_state_match_handler_is_called(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.handler_called = False
+        self.captured_state_id = None
+
+        async def state_match_handler(ctx: p.EngineContext, match: p.JourneyStateMatch) -> None:
+            self.handler_called = True
+            self.captured_state_id = match.state_id
+
+        self.agent = await server.create_agent(
+            name="Order Agent",
+            description="Agent for testing journey state match handlers",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Order Something",
+            description="Journey to handle orders",
+            conditions=["Customer wants to order something"],
+        )
+
+        self.state = await self.journey.initial_state.transition_to(
+            condition="Customer confirmed order",
+            chat_state="Great! Your order is confirmed.",
+            on_match=state_match_handler,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive(
+            customer_message="I want to order something. Yes, confirmed!",
+            recipient=self.agent,
+        )
+
+        assert self.handler_called, "State match handler should have been called"
+        assert self.captured_state_id == self.state.target.id, (
+            f"Expected state ID {self.state.target.id}, got {self.captured_state_id}"
+        )
+
+
+class Test_that_only_prioritized_guideline_handler_is_called_when_both_match(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Priority Test Agent",
+            description="Agent for testing priority with handlers",
+        )
+
+        self.general_handler_called = False
+        self.specific_handler_called = False
+
+        async def general_handler(ctx: p.EngineContext, match: p.GuidelineMatch) -> None:
+            self.general_handler_called = True
+
+        async def specific_handler(ctx: p.EngineContext, match: p.GuidelineMatch) -> None:
+            self.specific_handler_called = True
+
+        # Create general guideline that would match any help request
+        self.general_guideline = await self.agent.create_guideline(
+            condition="Customer asks for help",
+            action="Provide general help information",
+            on_match=general_handler,
+        )
+
+        # Create more specific guideline that should take priority
+        self.specific_guideline = await self.agent.create_guideline(
+            condition="Customer asks for help with billing",
+            action="Provide billing-specific help",
+            on_match=specific_handler,
+        )
+
+        # Make specific guideline prioritize over general guideline
+        await self.specific_guideline.prioritize_over(self.general_guideline)
+
+    async def run(self, ctx: Context) -> None:
+        # Send a message that would match both guidelines
+        await ctx.send_and_receive(
+            customer_message="I need help with billing please",
+            recipient=self.agent,
+        )
+
+        # Only the specific (prioritized) guideline's handler should be called
+        assert self.specific_handler_called, "Specific guideline handler should have been called"
+        assert not self.general_handler_called, (
+            "General guideline handler should NOT have been called "
+            "because it was de-prioritized during resolution"
+        )

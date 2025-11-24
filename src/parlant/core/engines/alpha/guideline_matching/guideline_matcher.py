@@ -261,16 +261,6 @@ class GuidelineMatcher:
         for strategy, _ in guideline_strategies.values():
             matches = await strategy.transform_matches(matches)
 
-        handler_tasks = [
-            handler(matching_context, match)
-            for match in matches
-            if match.guideline.id in self._engine_hooks.guideline_match_handlers
-            for handler in self._engine_hooks.guideline_match_handlers[match.guideline.id]
-        ]
-
-        if handler_tasks:
-            await async_utils.safe_gather(*handler_tasks)
-
         return GuidelineMatchingResult(
             total_duration=t_end - t_start,
             batch_count=sum(map(len, batches)),

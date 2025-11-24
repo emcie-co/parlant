@@ -547,6 +547,17 @@ class AlphaEngine(Engine):
 
             matching_finished = True
 
+            # Call on_match handlers for resolved guidelines
+            handler_tasks = [
+                handler(context, match)
+                for match in guideline_and_journey_matching_result.resolved_guidelines
+                if match.guideline.id in self._hooks.guideline_match_handlers
+                for handler in self._hooks.guideline_match_handlers[match.guideline.id]
+            ]
+
+            if handler_tasks:
+                await async_utils.safe_gather(*handler_tasks)
+
             context.state.journeys = guideline_and_journey_matching_result.journeys
         finally:
             await extended_thinking_status_task

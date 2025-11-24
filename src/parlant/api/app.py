@@ -171,11 +171,12 @@ async def create_api_app(container: Container) -> ASGIApplication:
 
         request_id = generate_id()
         with tracer.span(
-            f"{request.method} {request.url.path}",
+            f"{request.method} {getattr(request.scope.get('route'), 'path', request.url.path)}",
             {
                 "request_id": request_id,
                 "http.request.operation": operation_id,
                 "http.request.method": request.method,
+                **request.path_params,
             },
         ):
             async with _hist_http_request_duration.measure(

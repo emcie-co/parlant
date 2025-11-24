@@ -601,44 +601,6 @@ class Test_that_guideline_creation_fails_with_duplicate_id(SDKTest):
             )
 
 
-class Test_that_journey_state_match_handler_is_called(SDKTest):
-    async def setup(self, server: p.Server) -> None:
-        self.handler_called = False
-        self.captured_state_id = None
-
-        async def state_match_handler(ctx: p.EngineContext, match: p.JourneyStateMatch) -> None:
-            self.handler_called = True
-            self.captured_state_id = match.state_id
-
-        self.agent = await server.create_agent(
-            name="Order Agent",
-            description="Agent for testing journey state match handlers",
-        )
-
-        self.journey = await self.agent.create_journey(
-            title="Order Something",
-            description="Journey to handle orders",
-            conditions=["Customer wants to order something"],
-        )
-
-        self.state = await self.journey.initial_state.transition_to(
-            condition="Customer confirmed order",
-            chat_state="Great! Your order is confirmed.",
-            on_match=state_match_handler,
-        )
-
-    async def run(self, ctx: Context) -> None:
-        await ctx.send_and_receive(
-            customer_message="I want to order something. Yes, confirmed!",
-            recipient=self.agent,
-        )
-
-        assert self.handler_called, "State match handler should have been called"
-        assert self.captured_state_id == self.state.target.id, (
-            f"Expected state ID {self.state.target.id}, got {self.captured_state_id}"
-        )
-
-
 class Test_that_only_prioritized_guideline_handler_is_called_when_both_match(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(

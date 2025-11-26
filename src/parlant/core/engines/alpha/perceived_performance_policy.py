@@ -95,7 +95,8 @@ class PerceivedPerformancePolicy(ABC):
     @abstractmethod
     async def is_message_splitting_required(
         self,
-        context: EngineContext | None = None,
+        context: EngineContext,
+        message: str,
     ) -> bool:
         """
         Determines if messages should be split into multiple parts.
@@ -168,7 +169,8 @@ class BasicPerceivedPerformancePolicy(PerceivedPerformancePolicy):
     @override
     async def is_message_splitting_required(
         self,
-        context: EngineContext | None = None,
+        context: EngineContext,
+        message: str,
     ) -> bool:
         return True
 
@@ -252,7 +254,8 @@ class NullPerceivedPerformancePolicy(PerceivedPerformancePolicy):
     @override
     async def is_message_splitting_required(
         self,
-        context: EngineContext | None = None,
+        context: EngineContext,
+        message: str,
     ) -> bool:
         return False
 

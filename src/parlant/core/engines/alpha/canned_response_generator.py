@@ -839,7 +839,9 @@ You will now be given the current state of the interaction to which you must gen
             if generation_result is not None:
                 policy = self._perceived_performance_policy_provider.get_policy(context.agent.id)
 
-                if await policy.is_message_splitting_required(loaded_context):
+                if await policy.is_message_splitting_required(
+                    loaded_context, generation_result.message
+                ):
                     sub_messages = generation_result.message.strip().split("\n\n")
                 else:
                     sub_messages = [generation_result.message.strip()]

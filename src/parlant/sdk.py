@@ -431,15 +431,17 @@ class NLPServices:
 
         return SnowflakeCortexService(container[Logger], container[Meter])
 
-    @staticmethod
-    def fireworks(container: Container) -> NLPService:
-        """Creates a Fireworks NLPService instance using the provided container."""
-        from parlant.adapters.nlp.fireworks_service import FireworksService
-
-        if error := FireworksService.verify_environment():
-            raise SDKError(error)
-
-        return FireworksService(container[Logger], container[Meter])
+    # @staticmethod
+    # def fireworks(container: Container) -> NLPService:
+    #     """Creates a Fireworks NLPService instance using the provided container."""
+    #     from parlant.adapters.nlp.fireworks_service import FireworksService
+    #
+    #     if error := FireworksService.verify_environment():
+    #         raise SDKError(error)
+    #
+    #     return FireworksService(container[Logger], container[Meter])
+    # NOTE: Fireworks method is temporarily disabled due to fireworks-ai dependency
+    # pinning protobuf=5.29.3 which has security vulnerability CVE-2025-4565
 
     @staticmethod
     def openrouter(

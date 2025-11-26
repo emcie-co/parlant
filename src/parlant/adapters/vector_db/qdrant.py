@@ -1360,7 +1360,7 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
 
             search_results = self.qdrant_client.query_points(
                 collection_name=self.embedded_collection_name,
-                query=query_embeddings[0],
+                query=list(query_embeddings[0]),
                 query_filter=qdrant_filter,
                 limit=k,
             ).points

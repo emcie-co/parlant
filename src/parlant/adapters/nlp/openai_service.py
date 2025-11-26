@@ -112,7 +112,9 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
 
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
 
-        self._tokenizer = OpenAIEstimatingTokenizer(model_name=tokenizer_model_name or self.model_name)
+        self._tokenizer = OpenAIEstimatingTokenizer(
+            model_name=tokenizer_model_name or self.model_name
+        )
 
     @property
     @override
@@ -155,7 +157,11 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
             if self.model_name.startswith(prefix) and k in excluded
         ]
 
-        return {k: v for k, v in hints.items() if k in self.supported_openai_params and k not in exclude_params}
+        return {
+            k: v
+            for k, v in hints.items()
+            if k in self.supported_openai_params and k not in exclude_params
+        }
 
     async def _do_generate(
         self,
@@ -209,7 +215,10 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
                     usage=UsageInfo(
                         input_tokens=response.usage.prompt_tokens,
                         output_tokens=response.usage.completion_tokens,
-                        extra={"cached_input_tokens": response.usage.prompt_tokens_details.cached_tokens or 0},
+                        extra={
+                            "cached_input_tokens": response.usage.prompt_tokens_details.cached_tokens
+                            or 0
+                        },
                     ),
                 ),
             )
@@ -264,7 +273,10 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
                         usage=UsageInfo(
                             input_tokens=response.usage.prompt_tokens,
                             output_tokens=response.usage.completion_tokens,
-                            extra={"cached_input_tokens": response.usage.prompt_tokens_details.cached_tokens or 0},
+                            extra={
+                                "cached_input_tokens": response.usage.prompt_tokens_details.cached_tokens
+                                or 0
+                            },
                         ),
                     ),
                 )
@@ -623,7 +635,13 @@ class OpenAIModerationService(BaseModerationService):
         return ModerationCheck(
             flagged=result.flagged,
             tags=list(
-                set(chain.from_iterable(extract_tags(category) for category, detected in result.categories if detected))
+                set(
+                    chain.from_iterable(
+                        extract_tags(category)
+                        for category, detected in result.categories
+                        if detected
+                    )
+                )
             ),
         )
 

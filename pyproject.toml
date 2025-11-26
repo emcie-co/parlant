@@ -44,7 +44,7 @@ opentelemetry-exporter-otlp = "^1.37.0"
 opentelemetry-instrumentation = "^0.58b0"
 opentelemetry-sdk = "^1.37.0"
 parlant-client = { git = "https://github.com/emcie-co/parlant-client-python.git", tag = "develop.1763631946" }
-python = "^3.10"
+python = ">=3.10,<3.14"  # Restricted for torch 2.8+ compatibility with triton
 python-dateutil = "^2.8.2"
 python-dotenv = "^1.0.1"
 requests = "^2.32.5"
@@ -75,7 +75,7 @@ google-genai = { version = "^1.36.0", optional = true }
 ollama = { version = "^0.5.0", optional = true }
 google-auth = { version = "^2.40.0", optional = true }
 together = { version = "^1.5.26", optional = true }
-torch = { version = "^2.7.1", optional = true }
+torch = { version = "^2.8.0", optional = true }
 transformers = { version = "^4.53.0", optional = true }
 litellm = { version = "^1.61.16", optional = true }
 pymongo = { version = "^4.11.1", optional = true }

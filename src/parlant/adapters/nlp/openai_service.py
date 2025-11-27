@@ -38,8 +38,14 @@ from parlant.core.engines.alpha.canned_response_generator import (
     CannedResponseDraftSchema,
     CannedResponseSelectionSchema,
 )
+from parlant.core.engines.alpha.guideline_matching.generic.guideline_actionable_batch import (
+    GenericActionableGuidelineMatchesSchema,
+)
 from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
     JourneyNodeSelectionSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.observational_batch import (
+    GenericObservationalGuidelineMatchesSchema,
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.engines.alpha.tool_calling.single_tool_batch import SingleToolBatchSchema
@@ -318,6 +324,17 @@ class GPT_4o_Mini(OpenAISchematicGenerator[T]):
         return 128 * 1024
 
 
+class GPT_5_Mini(OpenAISchematicGenerator[T]):
+    def __init__(self, logger: Logger, meter: Meter) -> None:
+        super().__init__(model_name="gpt-5-mini-2025-08-07", logger=logger, meter=meter)
+        self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 128 * 1024
+
+
 class OpenAIEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
@@ -491,6 +508,12 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
             JourneyNodeSelectionSchema: GPT_4_1[JourneyNodeSelectionSchema],
             CannedResponseDraftSchema: GPT_4_1[CannedResponseDraftSchema],
             CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
+            GenericActionableGuidelineMatchesSchema: GPT_4o_Mini[
+                GenericActionableGuidelineMatchesSchema
+            ],
+            GenericObservationalGuidelineMatchesSchema: GPT_4o_Mini[
+                GenericObservationalGuidelineMatchesSchema
+            ],
         }.get(t, GPT_4o_24_08_06[t])(self._logger, self._meter)  # type: ignore
 
     @override

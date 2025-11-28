@@ -29,7 +29,14 @@ from parlant.core.engines.alpha.guideline_matching.generic.common import (
     internal_representation,
 )
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
-from parlant.core.sessions import Event, EventKind, EventSource, MessageEventData, ToolEventData
+from parlant.core.sessions import (
+    Event,
+    EventKind,
+    EventSource,
+    MessageEventData,
+    Session,
+    ToolEventData,
+)
 from parlant.core.glossary import Term
 from parlant.core.engines.alpha.utils import (
     context_variables_to_json,
@@ -224,6 +231,7 @@ The following is a description of your background and personality: ###
     def add_customer_identity(
         self,
         customer: Customer,
+        session: Session,
     ) -> PromptBuilder:
         self.add_section(
             name=BuiltInSection.CUSTOMER_IDENTITY,
@@ -232,6 +240,7 @@ The user you're interacting with is called {customer_name}.
 """,
             props={
                 "customer_name": customer.name,
+                "session_id": session.id,
             },
             status=SectionStatus.ACTIVE,
         )

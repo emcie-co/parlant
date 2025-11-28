@@ -369,6 +369,7 @@ Examples of ...:
         builder.add_agent_identity(self._context.agent)
         builder.add_context_variables(self._context.context_variables)
         builder.add_glossary(self._context.terms)
+        builder.add_customer_identity(self._context.customer, self._context.session)
         builder.add_interaction_history(
             self._context.interaction_history,
             staged_events=self._context.staged_message_events,

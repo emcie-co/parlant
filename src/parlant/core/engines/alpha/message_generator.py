@@ -48,7 +48,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import Guidel
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.glossary import Term
 from parlant.core.emissions import EmittedEvent, EventEmitter
-from parlant.core.sessions import Event, EventKind, EventSource
+from parlant.core.sessions import Event, EventKind, EventSource, Session
 from parlant.core.common import CancellationSuppressionLatch, DefaultBaseModel
 from parlant.core.loggers import Logger
 from parlant.core.shots import Shot, ShotCollection
@@ -167,6 +167,7 @@ class MessageGenerator(MessageEventComposer):
                             event_emitter=context.session_event_emitter,
                             agent=context.agent,
                             customer=context.customer,
+                            session=context.session,
                             context_variables=context.state.context_variables,
                             interaction_history=context.interaction.history,
                             terms=list(context.state.glossary_terms),
@@ -199,6 +200,7 @@ class MessageGenerator(MessageEventComposer):
         event_emitter: EventEmitter,
         agent: Agent,
         customer: Customer,
+        session: Session,
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
@@ -225,6 +227,7 @@ class MessageGenerator(MessageEventComposer):
             agent=agent,
             context_variables=context_variables,
             customer=customer,
+            session=session,
             interaction_history=interaction_history,
             terms=terms,
             ordinary_guideline_matches=ordinary_guideline_matches,
@@ -306,6 +309,7 @@ class MessageGenerator(MessageEventComposer):
         self,
         agent: Agent,
         customer: Customer,
+        session: Session,
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
@@ -339,7 +343,7 @@ Later in this prompt, you'll be provided with behavioral guidelines and other co
         )
 
         builder.add_agent_identity(agent)
-        builder.add_customer_identity(customer)
+        builder.add_customer_identity(customer, session)
         builder.add_section(
             name="message-generator-task-description",
             template="""

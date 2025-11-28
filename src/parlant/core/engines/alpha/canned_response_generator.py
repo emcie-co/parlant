@@ -69,6 +69,7 @@ from parlant.core.sessions import (
     EventSource,
     MessageEventData,
     Participant,
+    Session,
     ToolCall,
     ToolEventData,
 )
@@ -163,6 +164,7 @@ class CannedResponseContext:
     event_emitter: EventEmitter
     agent: Agent
     customer: Customer
+    session: Session
     context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]]
     interaction_history: Sequence[Event]
     terms: Sequence[Term]
@@ -340,7 +342,7 @@ class GenerativeFieldExtraction(CannedResponseFieldExtractionMethod):
         )
 
         builder.add_agent_identity(context.agent)
-        builder.add_customer_identity(context.customer)
+        builder.add_customer_identity(context.customer, context.session)
         builder.add_context_variables(context.context_variables)
 
         all_guideline_matches = list(
@@ -576,6 +578,7 @@ class CannedResponseGenerator(MessageEventComposer):
             event_emitter=context.session_event_emitter,
             agent=agent,
             customer=context.customer,
+            session=context.session,
             context_variables=context.state.context_variables,
             interaction_history=context.interaction.history,
             terms=list(context.state.glossary_terms),
@@ -935,6 +938,7 @@ You will now be given the current state of the interaction to which you must gen
         event_emitter = loaded_context.session_event_emitter
         agent = loaded_context.agent
         customer = loaded_context.customer
+        session = loaded_context.session
         context_variables = loaded_context.state.context_variables
         interaction_history = loaded_context.interaction.history
         terms = list(loaded_context.state.glossary_terms)
@@ -960,6 +964,7 @@ You will now be given the current state of the interaction to which you must gen
             event_emitter=event_emitter,
             agent=agent,
             customer=customer,
+            session=session,
             context_variables=context_variables,
             interaction_history=interaction_history,
             terms=terms,
@@ -1174,6 +1179,7 @@ Example {i} - {shot.description}: ###
         self,
         agent: Agent,
         customer: Customer,
+        session: Session,
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         interaction_history: Sequence[Event],
         terms: Sequence[Term],
@@ -1210,7 +1216,7 @@ Later in this prompt, you'll be provided with behavioral guidelines and other co
         )
 
         builder.add_agent_identity(agent)
-        builder.add_customer_identity(customer)
+        builder.add_customer_identity(customer, session)
         builder.add_section(
             name="canned-response-generator-draft-task-description",
             template="""
@@ -1499,7 +1505,7 @@ Produce a valid JSON object according to the following spec. Use the values prov
         )
 
         builder.add_agent_identity(context.agent)
-        builder.add_customer_identity(context.customer)
+        builder.add_customer_identity(context.customer, context.session)
         builder.add_glossary(context.terms)
         builder.add_interaction_history_for_message_generation(
             context.interaction_history,
@@ -1559,6 +1565,7 @@ Output a JSON object with three properties:
             agent=context.agent,
             context_variables=context.context_variables,
             customer=context.customer,
+            session=context.session,
             interaction_history=context.interaction_history,
             terms=context.terms,
             ordinary_guideline_matches=context.ordinary_guideline_matches,
@@ -2055,7 +2062,7 @@ EXAMPLES
         )
 
         builder.add_agent_identity(context.agent)
-        builder.add_customer_identity(context.customer)
+        builder.add_customer_identity(context.customer, context.session)
         builder.add_interaction_history(
             context.interaction_history,
             staged_events=context.staged_message_events,

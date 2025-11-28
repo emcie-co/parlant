@@ -1087,6 +1087,13 @@ class JourneyState:
         if not self._journey:
             raise SDKError("EndState cannot be connected to any other states.")
 
+        transitions = [t for t in self._journey.transitions if t.source == self]
+
+        if len(transitions) > 0 and (not condition or any(not e.condition for e in transitions)):
+            raise SDKError(
+                "Cannot connect a new state without a condition if there are already connected states without conditions."
+            )
+
         actual_state: JourneyState | None = None
 
         if state is not None:
@@ -1133,13 +1140,14 @@ class JourneyState:
                 composition_mode=composition_mode,
             )
         elif journey:
-            actual_state = await self._transition_to_sub_journey(journey=journey)
+            if canned_responses:
+                raise SDKError(
+                    "Canned responses cannot be associated when transitioning to a sub-journey."
+                )
 
-        transitions = [t for t in self._journey.transitions if t.source == self]
-
-        if len(transitions) > 0 and (not condition or any(not e.condition for e in transitions)):
-            raise SDKError(
-                "Cannot connect a new state without a condition if there are already connected states without conditions."
+            return await self._transition_to_sub_journey(
+                journey=journey,
+                condition=condition,
             )
 
         transition = await self._journey.create_transition(
@@ -1166,8 +1174,9 @@ class JourneyState:
     async def _transition_to_sub_journey(
         self,
         journey: Journey,
-    ) -> JourneyState:
-        if not self._journey:
+        condition: str | None = None,
+    ) -> JourneyTransition[JourneyState]:
+        if self._journey is None:
             raise SDKError(
                 "Cannot transition to sub-journey from a state without a parent journey."
             )
@@ -1185,18 +1194,15 @@ class JourneyState:
         # Create merge fork state for leaf nodes
         fork_state = await self._journey._create_state(
             ForkJourneyState,
-            metadata={"sub_journey_id": journey.id, "merge_point": True},
+            metadata={"sub_journey_id": journey.id},
         )
 
-        # Traverse the journey starting from the root, similar to your projection approach
+        # Traverse the journey starting from the root
         queue: deque[tuple[JourneyStateId, JourneyState | None]] = deque()
-        queue.append((journey._start_state_id, self))  # Root maps to current state
         visited: set[JourneyStateId] = set()
 
         async def create_mapped_state(state: JourneyState) -> JourneyState:
-            """Helper to create a new state with sub_journey_id metadata"""
-            if not self._journey:
-                raise SDKError("Journey is None")
+            assert self._journey  # We already checked this above
 
             metadata = dict(state.metadata)
             metadata["sub_journey_id"] = journey.id
@@ -1236,11 +1242,18 @@ class JourneyState:
                     ),
                 )
 
+        # Skip the root state and start with its target states
+        # Add all transitions from root to the queue, with self as the source
+        root_transitions = transitions_by_source.get(journey._start_state_id, [])
+        for transition in root_transitions:
+            queue.append((transition.target.id, self))
+
         while queue:
             current_state_id, mapped_source_state = queue.popleft()
 
             if current_state_id in visited:
                 continue
+
             visited.add(current_state_id)
 
             # Get the current state from the sub-journey
@@ -1254,21 +1267,10 @@ class JourneyState:
 
                 # Handle END_JOURNEY transitions - connect to fork
                 if target_state_id == END_JOURNEY.id:
-                    if mapped_source_state and mapped_source_state != self:
-                        # Only create transition if source is not the root (self handles root transitions)
+                    if mapped_source_state:
                         new_transition = await self._journey.create_transition(
                             condition=transition.condition,
                             source=mapped_source_state,
-                            target=fork_state,
-                        )
-                        cast(
-                            list[JourneyTransition[JourneyState]], self._journey.transitions
-                        ).append(cast(JourneyTransition[JourneyState], new_transition))
-                    elif mapped_source_state == self:
-                        # Root state transitions to END become transitions to fork
-                        new_transition = await self._journey.create_transition(
-                            condition=transition.condition,
-                            source=self,
                             target=fork_state,
                         )
                         cast(
@@ -1294,6 +1296,7 @@ class JourneyState:
                         source=mapped_source_state,
                         target=cast(ForkJourneyState, target_mapped_state),
                     )
+
                     cast(list[JourneyTransition[JourneyState]], self._journey.transitions).append(
                         cast(JourneyTransition[JourneyState], new_transition)
                     )
@@ -1301,7 +1304,17 @@ class JourneyState:
                 # Add target to queue for further processing
                 queue.append((target_state_id, target_mapped_state))
 
-        return fork_state
+        # Create and return a transition from self to fork_state with the provided condition
+        final_transition = await self._journey.create_transition(
+            condition=condition,
+            source=self,
+            target=fork_state,
+        )
+        cast(list[JourneyTransition[JourneyState]], self._journey.transitions).append(
+            cast(JourneyTransition[JourneyState], final_transition)
+        )
+
+        return cast(JourneyTransition[JourneyState], final_transition)
 
 
 END_JOURNEY = JourneyState(

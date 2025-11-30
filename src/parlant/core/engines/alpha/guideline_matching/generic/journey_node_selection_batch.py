@@ -436,36 +436,41 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                 last_visited_node.kind == JourneyNodeKind.TOOL
                 and len(last_visited_node.outgoing_edges) == 1
             ):
-                generation_info = GenerationInfo(
-                    schema_name="No inference performed",
-                    model="No inference performed",
-                    duration=0.0,
-                    usage=UsageInfo(
-                        input_tokens=0,
-                        output_tokens=0,
-                        extra={},
-                    ),
-                )
-                if last_visited_node.outgoing_edges[0].target_guideline:
+                current_node = self._node_wrappers[
+                    last_visited_node.outgoing_edges[0].target_node_index
+                ]
+                journey_path = [last_visited_node.id, current_node.id]
+                while current_node and current_node.kind == JourneyNodeKind.FORK:
+                    if len(current_node.outgoing_edges) != 1:
+                        return None
+                    current_node = self._node_wrappers[
+                        current_node.outgoing_edges[0].target_node_index
+                    ]
+                    journey_path.append(current_node.id)
+                if current_node.incoming_edges[0].target_guideline:
                     return GuidelineMatchingBatchResult(
                         matches=[
                             GuidelineMatch(
-                                guideline=last_visited_node.outgoing_edges[0].target_guideline,
+                                guideline=current_node.incoming_edges[0].target_guideline,
                                 score=10,
                                 rationale="This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. It was automatically selected as the only viable follow up for the last step that was executed",
                                 metadata={
-                                    "journey_path": [
-                                        last_visited_node.id,
-                                        last_visited_node.outgoing_edges[0].target_node_index,
-                                    ],
+                                    "journey_path": journey_path,
                                     "step_selection_journey_id": self._examined_journey.id,
                                 },
                             )
                         ],
-                        generation_info=generation_info,
+                        generation_info=GenerationInfo(
+                            schema_name="No inference performed",
+                            model="No inference performed",
+                            duration=0.0,
+                            usage=UsageInfo(
+                                input_tokens=0,
+                                output_tokens=0,
+                                extra={},
+                            ),
+                        ),
                     )
-                else:
-                    return GuidelineMatchingBatchResult(matches=[], generation_info=generation_info)
         return None
 
     @override

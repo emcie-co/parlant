@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import pytest
 
 from parlant.core.guidelines import GuidelineStore
@@ -1137,12 +1138,27 @@ class Test_that_journey_can_link_to_another_journey_with_validation(SDKTest):
         self.agent = await server.create_agent(
             name="Hotel Booking Agent",
             description="Agent for handling hotel bookings with user validation",
+            composition_mode=p.CompositionMode.STRICT,
+        )
+
+        # Create canned responses for deterministic testing
+        self.room_choice_response = await server.create_canned_response(
+            template="Would you like the red room or the blue room?"
+        )
+        self.name_request_response = await server.create_canned_response(
+            template="Please provide your name for verification."
+        )
+        self.booking_confirmed_response = await server.create_canned_response(
+            template="Great! Your hotel booking has been confirmed."
+        )
+        self.not_confirmed_response = await server.create_canned_response(
+            template="I'm sorry, but we cannot proceed with the booking without proper validation."
         )
 
         # Create validation tool that always returns True
         @tool
         def validate_by_name(context: ToolContext, customer_name: str) -> ToolResult:
-            return ToolResult(data={"is_valid": True, "validated_name": customer_name})
+            return ToolResult(data={"is_valid": True})
 
         # Create the user validation journey
         self.validate_user_journey = await self.agent.create_journey(
@@ -1154,11 +1170,12 @@ class Test_that_journey_can_link_to_another_journey_with_validation(SDKTest):
         # First state: ask for name
         self.ask_name_transition = await self.validate_user_journey.initial_state.transition_to(
             chat_state="Ask the customer for their name to verify their identity",
+            canned_responses=[self.name_request_response],
         )
 
         # Second state: validate using the tool
         self.validate_transition = await self.ask_name_transition.target.transition_to(
-            tool_instruction="Validate the customer by their name",
+            tool_instruction="Validate customer",
             tool_state=validate_by_name,
         )
 
@@ -1166,50 +1183,55 @@ class Test_that_journey_can_link_to_another_journey_with_validation(SDKTest):
         self.book_hotel_journey = await self.agent.create_journey(
             title="Book Hotel",
             conditions=["Customer wants to book a hotel"],
-            description="Handle hotel booking with user validation",
+            description="Booking a hotel room for the customer",
         )
 
         # Second state: transition to validation journey
-        self.validation_transition = await self.book_hotel_journey.initial_state.transition_to(
+        self.room_type = await self.book_hotel_journey.initial_state.transition_to(
+            chat_state="Ask the customer if he wants the red or blue room",
+            canned_responses=[self.room_choice_response],
+        )
+
+        # Third state: transition to validation journey
+        self.validation_transition = await self.room_type.target.transition_to(
             journey=self.validate_user_journey,
         )
 
-        # Third state: conditional booking based on validation
+        # Fourth state: conditional booking based on validation
         self.book_success_transition = await self.validation_transition.target.transition_to(
             condition="if validation is successful",
-            chat_state="Proceed with hotel booking and confirm the reservation",
+            chat_state="Let him know we confirm the hotel booking",
+            canned_responses=[self.booking_confirmed_response],
         )
 
         # Alternative state: apologize if validation fails
         self.apologize_transition = await self.validation_transition.target.transition_to(
             condition="if validation fails",
             chat_state="Apologize and explain that booking cannot proceed without validation",
+            canned_responses=[self.not_confirmed_response],
         )
 
     async def run(self, ctx: Context) -> None:
         # Test the complete flow
         response1 = await ctx.send_and_receive(
-            "I want to book a hotel room", recipient=self.agent, reuse_session=True
+            "I want to book a hotel room",
+            recipient=self.agent,
+            reuse_session=True,
         )
+        assert response1 == "Would you like the red room or the blue room?"
 
-        # Should ask for name as part of validation process
-        assert await nlp_test(
-            context=response1,
-            condition="The response asks for the customer's name or requests identity verification",
-        )
+        # await asyncio.sleep(2)  # Ensure some time passes before the next message
 
         response2 = await ctx.send_and_receive(
+            "I want the red room",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert response2 == "Please provide your name for verification."
+
+        await asyncio.sleep(2)  # Ensure some time passes before the next message
+
+        response3 = await ctx.send_and_receive(
             "My name is John Smith", recipient=self.agent, reuse_session=True
         )
-
-        # Should proceed with booking since validation always returns True
-        assert await nlp_test(
-            context=response2,
-            condition="The response confirms hotel booking or reservation",
-        )
-
-        # Verify that we don't get an apology (which would indicate validation failure)
-        assert not await nlp_test(
-            context=response2,
-            condition="The response contains an apology about booking not proceeding",
-        )
+        assert response3 == "Great! Your hotel booking has been confirmed."

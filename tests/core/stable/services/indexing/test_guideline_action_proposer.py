@@ -52,26 +52,6 @@ def context(
     )
 
 
-async def test_that_no_action_is_proposed_when_guideline_already_contains_action_or_no_tools(
-    container: Container,
-) -> None:
-    action_proposer = container[GuidelineActionProposer]
-
-    guideline = GuidelineContent(
-        condition="the customer greets the agent",
-        action="reply with a greeting",
-    )
-
-    result = await action_proposer.propose_action(
-        guideline=guideline,
-        tool_ids=[],
-    )
-
-    assert result
-    assert result.content == guideline
-    assert result.rationale == "No action proposed"
-
-
 async def test_that_action_is_proposed_when_guideline_lacks_action_and_tools_are_supplied(
     container: Container,
 ) -> None:

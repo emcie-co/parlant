@@ -29,7 +29,7 @@ from typing_extensions import override
 from parlant.core import async_utils
 from parlant.core.agents import Agent, AgentId, CompositionMode
 from parlant.core.capabilities import Capability
-from parlant.core.common import CancellationSuppressionLatch, JSONSerializable
+from parlant.core.common import JSONSerializable
 from parlant.core.context_variables import (
     ContextVariable,
     ContextVariableValue,
@@ -313,7 +313,10 @@ class AlphaEngine(Engine):
                 missing_data=[p for p in problematic_data if isinstance(p, MissingToolData)],
                 invalid_data=[p for p in problematic_data if isinstance(p, InvalidToolData)],
             )
-            with CancellationSuppressionLatch() as latch:
+
+            async def uncancellable_section(
+                latch: async_utils.CancellationSuppressionLatch[None],
+            ) -> None:
                 # Money time: communicate with the customer given
                 # all of the information we have prepared.
                 _ = await self._generate_messages(context, latch)
@@ -333,6 +336,8 @@ class AlphaEngine(Engine):
                 )
 
                 await self._hooks.call_on_messages_emitted(context)
+
+            await async_utils.latched_shield(uncancellable_section)
 
         except asyncio.CancelledError:
             # Task was cancelled. This usually happens for 1 of 2 reasons:
@@ -363,10 +368,14 @@ class AlphaEngine(Engine):
                 await self._utterance_requests_to_guideline_matches(requests)
             )
 
-            # Money time: communicate with the customer given the
-            # specified utterance requests.
-            with CancellationSuppressionLatch() as latch:
+            async def uncancellable_section(
+                latch: async_utils.CancellationSuppressionLatch[None],
+            ) -> None:
+                # Money time: communicate with the customer given the
+                # specified utterance requests.
                 _ = await self._generate_messages(context, latch)
+
+            await async_utils.latched_shield(uncancellable_section)
 
         except asyncio.CancelledError:
             self._logger.warning("Uttering cancelled")
@@ -887,7 +896,7 @@ class AlphaEngine(Engine):
     async def _generate_messages(
         self,
         context: EngineContext,
-        latch: CancellationSuppressionLatch,
+        latch: async_utils.CancellationSuppressionLatch[None],
     ) -> Sequence[MessageGenerationInspection]:
         message_generation_inspections = []
 

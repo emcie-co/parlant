@@ -12,66 +12,107 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
 import asyncio
-from pytest import raises
+import pytest
 
-from parlant.core.common import CancellationSuppressionLatch
-
-
-async def test_that_function_returns_value_when_cancelled_error_is_raised_latch_enabled() -> None:
-    async def get_value(latch: CancellationSuppressionLatch) -> str:
-        latch.enable()
-        await asyncio.sleep(0.2)
-        return "Task completed"
-
-    with CancellationSuppressionLatch() as latch:
-        task = asyncio.create_task(get_value(latch))
-        await asyncio.sleep(0.1)
-        task.cancel()
-
-        result = await task
-        await asyncio.sleep(0.3)
-        assert result == "Task completed"
+from parlant.core.async_utils import (
+    CancellationSuppressionLatch,
+    latched_shield,
+)
 
 
-async def test_that_function_raises_cancelled_error_when_cancelled_before_latch_is_enabled() -> (
-    None
-):
-    async def get_value() -> str:
-        await asyncio.sleep(0.3)
-        return "Task completed"
-
-    with CancellationSuppressionLatch():
-        task = asyncio.create_task(get_value())
-        await asyncio.sleep(0.1)
-        task.cancel()
-
-        with raises(asyncio.CancelledError):
-            await task
-
-
-async def test_latch_behavior_with_immediate_cancellation() -> None:
+async def test_latch_behavior_with_no_cancellation() -> None:
     """Test latch behavior when task is cancelled but latch suppresses it."""
     execution_log = []
 
-    async def immediate_cancel_task() -> str:
-        with CancellationSuppressionLatch() as latch:
-            execution_log.append("started")
-            # Enable latch immediately
-            latch.enable()
-            execution_log.append("enabled")
-            # This sleep will be cancelled, but suppressed
-            await asyncio.sleep(1.0)
-            execution_log.append("should_execute_since_suppression_latch_enabled")
+    async def shielded_task(suppression_latch: CancellationSuppressionLatch[str]) -> str:
+        execution_log.append("started")
+        suppression_latch.enable()
+        await asyncio.sleep(0.1)  # Simulate some work
+        execution_log.append("finished")
+        return "done"
 
-        return "completed"
+    async def test_task() -> str:
+        return await latched_shield(shielded_task)
 
-    task = asyncio.create_task(immediate_cancel_task())
-    # Cancel very quickly
-    await asyncio.sleep(0.01)
-    task.cancel()
-    result = await task
+    t = asyncio.create_task(test_task())
+    assert (await t) == "done"
 
     # When latch is enabled and cancellation is suppressed, ALL code should execute
-    assert execution_log == ["started", "enabled", "should_execute_since_suppression_latch_enabled"]
-    assert result == "completed"
+    assert execution_log == ["started", "finished"]
+
+
+async def test_latch_behavior_with_cancellation_after_suppression() -> None:
+    """Test latch behavior when task is cancelled but latch suppresses it."""
+    ready_to_cancel = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    execution_log = []
+
+    async def shielded_task(suppression_latch: CancellationSuppressionLatch[None]) -> None:
+        execution_log.append("started")
+        suppression_latch.enable()
+        ready_to_cancel.set()  # Trigger cancellation suppression
+        await cancelled.wait()
+        await asyncio.sleep(0.1)  # Simulate some work
+        execution_log.append("finished")
+
+    async def test_task() -> None:
+        await latched_shield(shielded_task)
+
+    t = asyncio.create_task(test_task())
+
+    # Wait for shielded task to start
+    await ready_to_cancel.wait()
+    # Cancel it
+    t.cancel()
+    cancelled.set()
+    # Wait for task to complete
+    await t
+
+    # When latch is enabled and cancellation is suppressed, ALL code should execute
+    assert execution_log == ["started", "finished"]
+
+
+async def test_latch_behavior_with_cancellation_before_suppression() -> None:
+    """Test latch behavior when task is cancelled but latch suppresses it."""
+    ready_to_cancel = asyncio.Event()
+    cancelled = asyncio.Event()
+    cancellation_raised_at_expected_point = False
+
+    execution_log = []
+
+    async def shielded_task(suppression_latch: CancellationSuppressionLatch[None]) -> None:
+        nonlocal cancellation_raised_at_expected_point
+
+        execution_log.append("started")
+
+        try:
+            ready_to_cancel.set()  # Trigger cancellation suppression
+            await cancelled.wait()
+        except asyncio.CancelledError:
+            cancellation_raised_at_expected_point = True
+            raise
+
+        suppression_latch.enable()
+        await asyncio.sleep(0.1)  # Simulate some work
+        execution_log.append("finished")
+
+    async def test_task() -> None:
+        await latched_shield(shielded_task)
+
+    t = asyncio.create_task(test_task())
+
+    # Wait for shielded task to start
+    await ready_to_cancel.wait()
+    # Cancel it
+    t.cancel()
+    cancelled.set()
+    # Wait for task to complete
+    with pytest.raises(asyncio.CancelledError):
+        await t
+
+    # When latch is enabled and cancellation is suppressed, ALL code should execute
+    assert execution_log == ["started"]
+    assert cancellation_raised_at_expected_point

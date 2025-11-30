@@ -28,7 +28,7 @@ import traceback
 from typing import Any, Iterable, Mapping, Optional, Sequence, cast
 from typing_extensions import override
 
-from parlant.core.async_utils import safe_gather
+from parlant.core.async_utils import safe_gather, CancellationSuppressionLatch
 from parlant.core.capabilities import Capability
 from parlant.core.meter import DurationHistogram, Meter
 from parlant.core.tracer import Tracer
@@ -73,7 +73,7 @@ from parlant.core.sessions import (
     ToolCall,
     ToolEventData,
 )
-from parlant.core.common import CancellationSuppressionLatch, DefaultBaseModel, JSONSerializable
+from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.loggers import Logger
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import ToolId
@@ -742,7 +742,7 @@ You will now be given the current state of the interaction to which you must gen
     async def generate_response(
         self,
         context: EngineContext,
-        latch: Optional[CancellationSuppressionLatch] = None,
+        latch: Optional[CancellationSuppressionLatch[None]] = None,
     ) -> Sequence[MessageEventComposition]:
         with self._logger.scope("MessageEventComposer"):
             with self._logger.scope("CannedResponseGenerator"):
@@ -830,7 +830,7 @@ You will now be given the current state of the interaction to which you must gen
     async def _do_generate_events(
         self,
         loaded_context: EngineContext,
-        latch: Optional[CancellationSuppressionLatch] = None,
+        latch: Optional[CancellationSuppressionLatch[None]] = None,
     ) -> Sequence[MessageEventComposition]:
         is_first_message_emitted = False
 

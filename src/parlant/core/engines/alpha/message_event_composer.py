@@ -16,7 +16,7 @@ from abc import abstractmethod
 from dataclasses import dataclass
 from typing import Mapping, Optional, Sequence
 
-from parlant.core.common import CancellationSuppressionLatch
+from parlant.core.async_utils import CancellationSuppressionLatch
 from parlant.core.engines.alpha.engine_context import EngineContext
 from parlant.core.emissions import EmittedEvent
 from parlant.core.nlp.generation_info import GenerationInfo
@@ -44,5 +44,5 @@ class MessageEventComposer:
     async def generate_response(
         self,
         context: EngineContext,
-        latch: Optional[CancellationSuppressionLatch] = None,
+        latch: Optional[CancellationSuppressionLatch[None]] = None,
     ) -> Sequence[MessageEventComposition]: ...

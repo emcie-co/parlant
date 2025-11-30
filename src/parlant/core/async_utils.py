@@ -20,6 +20,7 @@ from typing import (
     Awaitable,
     Callable,
     Coroutine,
+    Generic,
     Iterable,
     TypeVar,
     overload,
@@ -198,15 +199,15 @@ def completed_task(value: _TResult0 | None = None) -> asyncio.Task[_TResult0 | N
 
 def default_done_callback(
     logger: Logger | None = None,
-) -> Callable[[asyncio.Task[_TResult0]], object]:
-    def done_callback(task: asyncio.Task[_TResult0]) -> object:
+) -> Callable[[asyncio.Future[_TResult0]], object]:
+    def done_callback(fut: asyncio.Future[_TResult0]) -> object:
         try:
-            return task.result()
+            return fut.result()
         except asyncio.CancelledError:
             return None
         except Exception as e:
             if logger:
-                logger.error(f"Exception encountered in background task {task.get_name()}: {e}")
+                logger.error(f"Exception encountered in background task: {e}")
             return None
 
     return done_callback
@@ -235,3 +236,81 @@ class ReaderWriterLock:
                 yield
 
         return _writer_cm()
+
+
+class CancellationSuppressionLatch(Generic[_TResult0]):
+    def __init__(
+        self, func: Callable[[CancellationSuppressionLatch[_TResult0]], Awaitable[_TResult0]]
+    ) -> None:
+        self._func: Callable[[CancellationSuppressionLatch[_TResult0]], Awaitable[_TResult0]] = func
+        self._unshielded_task: asyncio.Future[None]
+        self._shielded_task: asyncio.Future[None] | None = None
+        self._cancellation_error: asyncio.CancelledError | None = None
+        self._exception: BaseException | None = None
+        self._enabled = False
+        self._done = asyncio.Event()
+        self._result: _TResult0
+
+    async def __aenter__(self) -> CancellationSuppressionLatch[_TResult0]:
+        async def unshielded_shim() -> None:
+            self._result = await self._func(self)
+
+        self._unshielded_task = asyncio.create_task(unshielded_shim())
+        self._unshielded_task.add_done_callback(default_done_callback())
+
+        async def task_shim() -> None:
+            try:
+                await self._unshielded_task
+            except (Exception, asyncio.CancelledError) as exc:
+                self._exception = exc
+            finally:
+                self._done.set()
+
+        self._shielded_task = asyncio.shield(task_shim())
+        self._shielded_task.add_done_callback(default_done_callback())
+
+        try:
+            await self._shielded_task
+        except asyncio.CancelledError as exc:
+            self._cancellation_error = exc
+
+            if not self._enabled:
+                self._unshielded_task.cancel()
+
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException],
+        exc_val: Exception | None,
+        exc_tb: Any,
+    ) -> None:
+        assert self._shielded_task is not None
+
+        if self._cancellation_error and not self._enabled:
+            await self._shielded_task
+            raise asyncio.CancelledError() from self._cancellation_error
+
+    def enable(self) -> None:
+        self._enabled = True
+
+    async def _get_result(self) -> _TResult0:
+        if self._exception is not None:
+            if isinstance(self._exception, Exception):
+                raise Exception("Task failed") from self._exception
+            elif isinstance(self._exception, BaseException):
+                raise BaseException("Task failed") from self._exception
+            else:
+                raise self._exception
+
+        await self._done.wait()
+        return self._result
+
+
+async def latched_shield(
+    func: Callable[[CancellationSuppressionLatch[_TResult0]], Awaitable[_TResult0]],
+) -> _TResult0:
+    async with CancellationSuppressionLatch(func) as latch:
+        pass
+
+    return await latch._get_result()

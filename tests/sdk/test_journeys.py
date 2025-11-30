@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import asyncio
 import pytest
 
 from parlant.core.guidelines import GuidelineStore
@@ -1220,8 +1219,6 @@ class Test_that_journey_can_link_to_another_journey_with_validation(SDKTest):
         )
         assert response1 == "Would you like the red room or the blue room?"
 
-        # await asyncio.sleep(2)  # Ensure some time passes before the next message
-
         response2 = await ctx.send_and_receive(
             "I want the red room",
             recipient=self.agent,
@@ -1229,9 +1226,144 @@ class Test_that_journey_can_link_to_another_journey_with_validation(SDKTest):
         )
         assert response2 == "Please provide your name for verification."
 
-        await asyncio.sleep(2)  # Ensure some time passes before the next message
-
         response3 = await ctx.send_and_receive(
             "My name is John Smith", recipient=self.agent, reuse_session=True
         )
         assert response3 == "Great! Your hotel booking has been confirmed."
+
+
+class Test_that_journey_can_conditionally_link_to_different_sub_journeys(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Multi-Journey Agent",
+            description="Agent that can link to different sub-journeys based on conditions",
+            composition_mode=p.CompositionMode.STRICT,
+        )
+
+        # Create canned responses for deterministic testing
+        self.service_type_response = await server.create_canned_response(
+            template="What type of service do you need: technical support or billing help?"
+        )
+        self.tech_greeting_response = await server.create_canned_response(
+            template="Welcome to technical support! Please describe your issue."
+        )
+        self.billing_greeting_response = await server.create_canned_response(
+            template="Welcome to billing support! How can I help with your account?"
+        )
+        self.tech_resolved_response = await server.create_canned_response(
+            template="Your technical issue has been resolved. Is there anything else?"
+        )
+        self.billing_resolved_response = await server.create_canned_response(
+            template="Your billing inquiry has been handled. Anything else I can help with?"
+        )
+        self.final_response = await server.create_canned_response(
+            template="Thank you for contacting support. Have a great day!"
+        )
+
+        # Create tools for both support types
+        @tool
+        def resolve_tech_issue(context: ToolContext, issue_description: str) -> ToolResult:
+            return ToolResult(data={"status": "resolved", "solution": "Issue fixed"})
+
+        @tool
+        def resolve_billing_issue(context: ToolContext, billing_question: str) -> ToolResult:
+            return ToolResult(data={"status": "resolved", "account_updated": True})
+
+        # Create technical support sub-journey
+        self.tech_support_journey = await self.agent.create_journey(
+            title="Technical Support",
+            conditions=[],
+            description="Handle technical support requests",
+        )
+
+        self.tech_greeting = await self.tech_support_journey.initial_state.transition_to(
+            chat_state="Greet customer and ask for technical issue details",
+            canned_responses=[self.tech_greeting_response],
+        )
+
+        self.tech_resolution = await self.tech_greeting.target.transition_to(
+            tool_instruction="Resolve the technical issue",
+            tool_state=resolve_tech_issue,
+        )
+
+        self.tech_completion = await self.tech_resolution.target.transition_to(
+            chat_state="Confirm technical issue resolution",
+            canned_responses=[self.tech_resolved_response],
+        )
+
+        # Create billing support sub-journey
+        self.billing_support_journey = await self.agent.create_journey(
+            title="Billing Support",
+            conditions=[],
+            description="Handle billing and account inquiries",
+        )
+
+        self.billing_greeting = await self.billing_support_journey.initial_state.transition_to(
+            chat_state="Greet customer and ask for billing question",
+            canned_responses=[self.billing_greeting_response],
+        )
+
+        self.billing_resolution = await self.billing_greeting.target.transition_to(
+            tool_instruction="Resolve the billing issue",
+            tool_state=resolve_billing_issue,
+        )
+
+        self.billing_completion = await self.billing_resolution.target.transition_to(
+            chat_state="Confirm billing issue resolution",
+            canned_responses=[self.billing_resolved_response],
+        )
+
+        # Create main customer service journey
+        self.main_journey = await self.agent.create_journey(
+            title="Customer Service",
+            conditions=["Customer needs support"],
+            description="Route customers to appropriate support channels",
+        )
+
+        # Initial state: ask what type of service they need
+        self.service_inquiry = await self.main_journey.initial_state.transition_to(
+            chat_state="Ask customer what type of service they need",
+            canned_responses=[self.service_type_response],
+        )
+
+        # Conditional transitions to different sub-journeys
+        self.tech_transition = await self.service_inquiry.target.transition_to(
+            condition="if customer needs technical support",
+            journey=self.tech_support_journey,
+        )
+
+        self.billing_transition = await self.service_inquiry.target.transition_to(
+            condition="if customer needs billing help",
+            journey=self.billing_support_journey,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        # Test technical support path
+        response1 = await ctx.send_and_receive(
+            "I need some help",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert response1 == "What type of service do you need: technical support or billing help?"
+
+        response2 = await ctx.send_and_receive(
+            "I need technical support",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert response2 == "Welcome to technical support! Please describe your issue."
+
+        # Test billing support path with new session
+        response3 = await ctx.send_and_receive(
+            "I need some help",
+            recipient=self.agent,
+            reuse_session=False,  # Start new session
+        )
+        assert response3 == "What type of service do you need: technical support or billing help?"
+
+        response4 = await ctx.send_and_receive(
+            "I have a billing question",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert response4 == "Welcome to billing support! How can I help with your account?"

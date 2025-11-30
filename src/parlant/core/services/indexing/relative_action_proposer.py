@@ -224,8 +224,6 @@ Expected output (JSON):
             props={"result_structure_text": self._format_text(step_guidelines)},
         )
 
-        with open("dumps/relative_action_proposer/prompt.txt", "w") as f:
-            f.write(builder.build())
         return builder
 
     def _format_text(
@@ -268,9 +266,6 @@ Expected output (JSON):
             prompt=prompt,
             hints={"temperature": temperature},
         )
-
-        with open("dumps/relative_action_proposer/output.txt", "w") as f:
-            f.write(response.content.model_dump_json(indent=2))
 
         return response.content
 

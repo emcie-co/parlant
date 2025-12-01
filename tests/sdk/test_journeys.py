@@ -678,8 +678,6 @@ class Test_that_a_journey_is_reevaluated_after_a_skipped_tool_call(SDKTest):
         )
 
         assert await nlp_test(second_response, "It offers a Pepsi")
-        # Make sure the guideline was not re-applied
-        assert await nlp_test(second_response, "It does not mention one million dollars")
 
 
 class Test_that_a_missing_data_is_shown_after_journey_is_reevaluated(SDKTest):

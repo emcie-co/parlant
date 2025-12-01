@@ -1060,6 +1060,59 @@ class AlphaEngine(Engine):
             context.state.tool_events,
         )
 
+    def _add_matches_events_to_tracer(
+        self,
+        matches: Sequence[GuidelineMatch],
+    ) -> None:
+        for match in matches:
+            if match.guideline.metadata.get("journey_node"):
+                self._tracer.add_event(
+                    "journey.state.activate",
+                    attributes={
+                        "node_id": extract_node_id_from_journey_node_guideline_id(
+                            match.guideline.id
+                        ),
+                        "condition": match.guideline.content.condition,
+                        "action": match.guideline.content.action or "",
+                        "rationale": match.rationale,
+                        "journey_id": cast(
+                            str,
+                            cast(
+                                dict[str, JSONSerializable],
+                                match.guideline.metadata["journey_node"],
+                            )["journey_id"],
+                        ),
+                        **(
+                            {
+                                "sub_journey_id": cast(
+                                    str,
+                                    cast(
+                                        dict[str, JSONSerializable],
+                                        match.guideline.metadata["journey_node"],
+                                    )["sub_journey_id"],
+                                )
+                            }
+                            if "sub_journey_id"
+                            in cast(
+                                dict[str, JSONSerializable],
+                                match.guideline.metadata["journey_node"],
+                            )
+                            else {}
+                        ),
+                    },
+                )
+
+            else:
+                self._tracer.add_event(
+                    "gm.activate",
+                    attributes={
+                        "guideline_id": match.guideline.id,
+                        "condition": match.guideline.content.condition,
+                        "action": match.guideline.content.action or "",
+                        "rationale": match.rationale,
+                    },
+                )
+
     async def _load_matched_guidelines_and_journeys(
         self,
         context: EngineContext,
@@ -1099,6 +1152,8 @@ class AlphaEngine(Engine):
             guidelines=relevant_guidelines,
         )
 
+        self._add_matches_events_to_tracer(matching_result.matches)
+
         # Step 5: Filter the journeys that are activated by the matched guidelines.
         match_ids = set(map(lambda g: g.guideline.id, matching_result.matches))
         journeys = self._filter_activated_journeys(context, match_ids, sorted_journeys_by_relevance)
@@ -1128,6 +1183,8 @@ class AlphaEngine(Engine):
                 batches=batches,
                 matches=matches,
             )
+
+            self._add_matches_events_to_tracer(second_match_result.matches)
 
         # Step 7: Build the set of matched guidelines as follows:
         # 1. Collect all previously matched guidelines.
@@ -1192,6 +1249,8 @@ class AlphaEngine(Engine):
             guidelines=guidelines_to_reevaluate,
         )
 
+        self._add_matches_events_to_tracer(matching_result.matches)
+
         # Step 5: Filter the journeys that are activated by the matched guidelines.
         # If a journey was already active in a previous iteration, we still retrieve its steps
         # to support cases where multiple steps should be processed in a single engine run.
@@ -1222,6 +1281,7 @@ class AlphaEngine(Engine):
                 batches=batches,
                 matches=matches,
             )
+            self._add_matches_events_to_tracer(second_match_result.matches)
 
         # Step 7: Build the final set of matched guidelines:
         all_activated_journeys = list(context.state.journeys + activated_journeys)
@@ -1292,12 +1352,14 @@ class AlphaEngine(Engine):
             if context.state.journey_paths[j_id][-1] is not None
         }
 
-        return list(
+        active_journeys = list(
             set(
                 active_journeys_by_conditions
                 + [j for j in all_journeys if j.id in last_interaction_active_journeys]
             )
         )
+
+        return active_journeys
 
     async def _build_matched_guidelines(
         self,

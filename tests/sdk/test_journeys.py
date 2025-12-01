@@ -179,7 +179,7 @@ class Test_that_a_created_journey_is_followed(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        response = await ctx.send_and_receive("Hello there", recipient=self.agent)
+        response = await ctx.send_and_receive_message("Hello there", recipient=self.agent)
 
         assert await nlp_test(
             context=response,
@@ -630,7 +630,7 @@ class Test_that_journey_state_can_have_its_own_canned_responses(SDKTest):
         assert Tag.for_journey_node_id(self.initial_transition.target.id) in stored_canrep1.tags
         assert Tag.for_journey_node_id(self.second_transition.target.id) in stored_canrep2.tags
 
-        response = await ctx.send_and_message_event("Hello", recipient=self.agent)
+        response = await ctx.send_and_receive_message_event("Hello", recipient=self.agent)
 
         assert get_message(response) == "How can I assist you?"
         assert response.metadata == {"mood": "friendly"}
@@ -671,13 +671,13 @@ class Test_that_a_journey_is_reevaluated_after_a_skipped_tool_call(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        first_response = await ctx.send_and_receive(
+        first_response = await ctx.send_and_receive_message(
             "Hello", recipient=self.agent, reuse_session=True
         )
 
         assert await nlp_test(first_response, "It mentions the date January 1st, 2000")
 
-        second_response = await ctx.send_and_receive(
+        second_response = await ctx.send_and_receive_message(
             "I'm really thirsty", recipient=self.agent, reuse_session=True
         )
 
@@ -714,7 +714,7 @@ class Test_that_a_missing_data_is_shown_after_journey_is_reevaluated(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        first_response = await ctx.send_and_receive(
+        first_response = await ctx.send_and_receive_message(
             "I'm really thirsty", recipient=self.agent, reuse_session=True
         )
 
@@ -777,7 +777,7 @@ class Test_that_journey_can_have_a_scoped_guideline(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        response = await ctx.send_and_receive(
+        response = await ctx.send_and_receive_message(
             "Can I order a banana?",
             recipient=self.agent,
         )
@@ -891,13 +891,13 @@ class Test_that_end_journey_match_handlers_are_called(SDKTest):
 
     async def run(self, ctx: Context) -> None:
         # Start the journey
-        await ctx.send_and_receive(
+        await ctx.send_and_receive_message(
             customer_message="I want to place an order",
             recipient=self.agent,
         )
 
         # Trigger the success exit path
-        await ctx.send_and_receive(
+        await ctx.send_and_receive_message(
             customer_message="Yes, please confirm my order",
             recipient=self.agent,
             reuse_session=True,
@@ -935,7 +935,7 @@ class Test_that_journey_state_match_handler_is_called(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        await ctx.send_and_receive(
+        await ctx.send_and_receive_message(
             customer_message="I want to order something. Yes, confirmed!",
             recipient=self.agent,
         )

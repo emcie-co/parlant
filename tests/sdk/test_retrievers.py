@@ -32,7 +32,7 @@ class Test_that_a_custom_retriever_can_be_used_to_add_data_to_message_context(SD
         await self.agent.attach_retriever(custom_retriever)
 
     async def run(self, ctx: Context) -> None:
-        response = await ctx.send_and_receive(
+        response = await ctx.send_and_receive_message(
             customer_message="What is an orange eggplant?",
             recipient=self.agent,
         )
@@ -60,7 +60,7 @@ class Test_that_multiple_custom_retrievers_can_be_used_to_add_data_to_message_co
         await self.agent.attach_retriever(custom_retriever_2)
 
     async def run(self, ctx: Context) -> None:
-        response = await ctx.send_and_receive(
+        response = await ctx.send_and_receive_message(
             customer_message="What's the name of he/she who is known to love tomatoes?",
             recipient=self.agent,
         )
@@ -87,7 +87,7 @@ class Test_that_a_retriever_can_return_a_canned_response(SDKTest):
         await self.agent.attach_retriever(custom_retriever)
 
     async def run(self, ctx: Context) -> None:
-        response = await ctx.send_and_receive(
+        response = await ctx.send_and_receive_message(
             customer_message="Hello",
             recipient=self.agent,
         )
@@ -112,7 +112,7 @@ class Test_that_retriever_can_return_direct_result_immediately(SDKTest):
         await self.agent.attach_retriever(custom_retriever)
 
     async def run(self, ctx: Context) -> None:
-        response = await ctx.send_and_receive(
+        response = await ctx.send_and_receive_message(
             customer_message="What is an orange eggplant?",
             recipient=self.agent,
         )
@@ -150,7 +150,7 @@ class Test_that_retriever_can_return_deferred_callable_that_receives_engine_cont
         await self.agent.attach_retriever(custom_retriever)
 
     async def run(self, ctx: Context) -> None:
-        response = await ctx.send_and_receive(
+        response = await ctx.send_and_receive_message(
             customer_message="What is a purple tomato?",
             recipient=self.agent,
         )
@@ -198,7 +198,7 @@ class Test_that_deferred_retriever_receives_updated_engine_context_with_guidelin
         await self.agent.attach_retriever(custom_retriever)
 
     async def run(self, ctx: Context) -> None:
-        response = await ctx.send_and_receive(
+        response = await ctx.send_and_receive_message(
             customer_message="What are chongas?",
             recipient=self.agent,
         )
@@ -232,7 +232,7 @@ class Test_that_deferred_retriever_can_return_none_based_on_engine_context(SDKTe
         await self.agent.attach_retriever(custom_retriever)
 
     async def run(self, ctx: Context) -> None:
-        response = await ctx.send_and_receive(
+        response = await ctx.send_and_receive_message(
             customer_message="Hello there",
             recipient=self.agent,
         )

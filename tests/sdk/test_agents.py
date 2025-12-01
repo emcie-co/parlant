@@ -199,7 +199,7 @@ class Test_that_an_agent_can_be_found_using_tool_context(SDKTest):
         await self.agent.attach_tool(check_what_is_spatio, condition="the user asks about spatio")
 
     async def run(self, ctx: Context) -> None:
-        answer = await ctx.send_and_receive(
+        answer = await ctx.send_and_receive_message(
             customer_message="What is spatio?",
             recipient=self.agent,
         )
@@ -232,7 +232,7 @@ class Test_that_the_output_of_an_agent_can_be_intercepted(SDKTest):
         self.agent = await server.create_agent(name="Dummy Agent", description="")
 
     async def run(self, ctx: Context) -> None:
-        answer = await ctx.send_and_receive(customer_message="Hello", recipient=self.agent)
+        answer = await ctx.send_and_receive_message(customer_message="Hello", recipient=self.agent)
         assert answer == "Bananas! More bananas!"
 
 

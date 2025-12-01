@@ -44,7 +44,7 @@ class Context:
     container: p.Container
     _session_id: str | None = None
 
-    async def send_and_message_event(
+    async def send_and_receive_message_event(
         self,
         customer_message: str,
         recipient: p.Agent,
@@ -77,13 +77,13 @@ class Context:
 
         return agent_messages[0]
 
-    async def send_and_receive(
+    async def send_and_receive_message(
         self,
         customer_message: str,
         recipient: p.Agent,
         reuse_session: bool = False,
     ) -> str:
-        agent_message = await self.send_and_message_event(
+        agent_message = await self.send_and_receive_message_event(
             customer_message=customer_message,
             recipient=recipient,
             reuse_session=reuse_session,

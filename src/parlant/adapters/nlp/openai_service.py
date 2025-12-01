@@ -95,7 +95,7 @@ class OpenAIEstimatingTokenizer(EstimatingTokenizer):
 
 
 class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
-    supported_openai_params = ["temperature", "logit_bias", "max_tokens"]
+    supported_openai_params = ["temperature", "logit_bias", "max_tokens", "reasoning_effort"]
     supported_hints = supported_openai_params + ["strict"]
     unsupported_params_by_model: dict[str, list[str]] = {
         "gpt-5": ["temperature"],
@@ -508,10 +508,10 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
             JourneyNodeSelectionSchema: GPT_4_1[JourneyNodeSelectionSchema],
             CannedResponseDraftSchema: GPT_4_1[CannedResponseDraftSchema],
             CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
-            GenericActionableGuidelineMatchesSchema: GPT_4o_Mini[
+            GenericActionableGuidelineMatchesSchema: GPT_5_Mini[
                 GenericActionableGuidelineMatchesSchema
             ],
-            GenericObservationalGuidelineMatchesSchema: GPT_4o_Mini[
+            GenericObservationalGuidelineMatchesSchema: GPT_5_Mini[
                 GenericObservationalGuidelineMatchesSchema
             ],
         }.get(t, GPT_4o_24_08_06[t])(self._logger, self._meter)  # type: ignore

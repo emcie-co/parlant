@@ -109,7 +109,7 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
                         prompt=prompt,
                         hints={
                             "temperature": generation_attempt_temperatures[generation_attempt],
-                            "reasoning": {"effort": "none"},
+                            "reasoning_effort": "minimal",
                         },
                     )
 
@@ -124,6 +124,9 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
 
                     with open("dumps/observational/output.txt", "a") as f:
                         f.write(inference.content.model_dump_json(indent=2))
+                        f.write(
+                            f"Time: {inference.info.duration}\noutput tokens: {inference.info.usage.output_tokens}"
+                        )
 
                     matches = []
 

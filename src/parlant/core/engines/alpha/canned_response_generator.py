@@ -788,6 +788,8 @@ You will now be given the current state of the interaction to which you must gen
                 ),
             )
 
+            self._tracer.add_event("canrep.preamble_generated")
+
             return [
                 MessageEventComposition(
                     generation_info={"message": canrep.info},

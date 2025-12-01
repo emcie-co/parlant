@@ -1283,6 +1283,8 @@ class JourneyState:
 
         # Create entry point - either self directly or via a condition fork
         entry_state: JourneyState
+        entry_transition_to_return: JourneyTransition[JourneyState] | None = None
+
         if condition:
             # Create a fork state for the condition
             entry_fork = await self._journey._create_state(
@@ -1301,6 +1303,7 @@ class JourneyState:
                 cast(JourneyTransition[JourneyState], entry_transition)
             )
             entry_state = entry_fork
+            entry_transition_to_return = cast(JourneyTransition[JourneyState], entry_transition)
         else:
             entry_state = self
 
@@ -1334,7 +1337,7 @@ class JourneyState:
                     new_transition = await self._journey.create_transition(
                         condition=root_transition.condition,
                         source=entry_state,
-                        target=new_state,
+                        target=cast(ForkJourneyState, new_state),
                     )
                     cast(list[JourneyTransition[JourneyState]], self._journey.transitions).append(
                         cast(JourneyTransition[JourneyState], new_transition)
@@ -1418,15 +1421,17 @@ class JourneyState:
                 # Add target to queue for further processing
                 queue.append((target_state_id, target_mapped_state))
 
-        # Create a transition from entry_state to fork_state to return as the result
-        # This represents the overall sub-journey transition
-        result_transition = await self._journey.create_transition(
-            condition=None,  # No condition needed since this represents the sub-journey completion
-            source=entry_state,
-            target=fork_state,
-        )
-
-        return cast(JourneyTransition[JourneyState], result_transition)
+        # Return the entry transition if we have one, otherwise create a transition to fork_state
+        if entry_transition_to_return:
+            return entry_transition_to_return
+        else:
+            # When no condition, create a direct transition to the fork state
+            result_transition = await self._journey.create_transition(
+                condition=None,
+                source=entry_state,
+                target=fork_state,
+            )
+            return cast(JourneyTransition[JourneyState], result_transition)
 
 
 END_JOURNEY = JourneyState(

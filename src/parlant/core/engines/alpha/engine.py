@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from itertools import chain
+import json
 from pprint import pformat
 import traceback
 from typing import Awaitable, Callable, Optional, Sequence, cast
@@ -613,6 +614,8 @@ class AlphaEngine(Engine):
             context.state.tool_events += new_tool_events
             context.state.tool_insights = tool_insights
 
+            self._add_tool_events_to_tracer(new_tool_events)
+
         else:
             tool_event_generation_result = None
             new_tool_events = []
@@ -742,6 +745,8 @@ class AlphaEngine(Engine):
                     chain(context.state.tool_insights.invalid_data, tool_insights.invalid_data)
                 ),
             )
+
+            self._add_tool_events_to_tracer(new_tool_events)
 
         else:
             tool_event_generation_result = None
@@ -1059,6 +1064,22 @@ class AlphaEngine(Engine):
             context.state.tool_enabled_guideline_matches,
             context.state.tool_events,
         )
+
+    def _add_tool_events_to_tracer(
+        self,
+        tool_events: Sequence[EmittedEvent],
+    ) -> None:
+        for tool_event in tool_events:
+            tool_calls = cast(ToolEventData, tool_event.data)["tool_calls"]
+            for tool_call in tool_calls:
+                self._tracer.add_event(
+                    "tc",
+                    attributes={
+                        "tool_id": tool_call["tool_id"],
+                        "arguments": json.dumps(tool_call["arguments"]),
+                        "result": json.dumps(tool_call["result"]),
+                    },
+                )
 
     def _add_matches_events_to_tracer(
         self,

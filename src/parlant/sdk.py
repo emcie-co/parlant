@@ -1181,13 +1181,11 @@ class JourneyState:
                 "Cannot transition to sub-journey from a state without a parent journey."
             )
 
-        # Create mappings for states and transitions, similar to your projection approach
+        # Create mappings for states and transitions for easy lookup
         state_mapping: dict[JourneyStateId, JourneyState] = {}
         transitions_by_source: dict[JourneyStateId, list[JourneyTransition[JourneyState]]] = (
             defaultdict(list)
         )
-
-        # Group transitions by source for easy lookup
         for transition in journey.transitions:
             transitions_by_source[transition.source.id].append(transition)
 
@@ -1289,7 +1287,7 @@ class JourneyState:
             # Create a fork state for the condition
             entry_fork = await self._journey._create_state(
                 ForkJourneyState,
-                metadata={"sub_journey_id": journey.id, "entry_point": True},
+                metadata={"sub_journey_id": journey.id},
             )
             cast(list[JourneyState], self._journey.states).append(entry_fork)
 
@@ -1324,11 +1322,11 @@ class JourneyState:
                 cast(list[JourneyTransition[JourneyState]], self._journey.transitions).append(
                     cast(JourneyTransition[JourneyState], new_transition)
                 )
-                # Transition to fork created
             else:
                 # Create the target state and add it to processing queue
-                target_state = next((s for s in journey.states if s.id == target_state_id), None)
-                if target_state:
+                if target_state := next(
+                    (s for s in journey.states if s.id == target_state_id), None
+                ):
                     new_state = await create_mapped_state(target_state)
                     state_mapping[target_state_id] = new_state
                     cast(list[JourneyState], self._journey.states).append(new_state)

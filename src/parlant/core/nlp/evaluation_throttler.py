@@ -12,13 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
 import asyncio
-import time
-from abc import ABC, abstractmethod
-from collections import deque
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Mapping, Protocol
 
+from limits import RateLimitItemPerMinute, RateLimitItemPerHour, RateLimitItemPerDay
+from limits.storage import MemoryStorage
+from limits.strategies import MovingWindowRateLimiter
 
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
@@ -36,9 +37,7 @@ class RateLimits:
     - TPM (tokens per minute)
     - RPH (requests per hour)
     - RPD (requests per day)
-    - RPM_MONTHLY (requests per month)
     - TPD (tokens per day)
-    - TPM_MONTHLY (tokens per month)
     - MAX_CONCURRENT (maximum concurrent requests)
 
     None values mean no limit for that metric.
@@ -56,90 +55,57 @@ class RateLimits:
     # Requests per day
     rpd: int | None = None
 
-    # Requests per month (30 days)
-    rpm_monthly: int | None = None
-
     # Tokens per day
     tpd: int | None = None
-
-    # Tokens per month (30 days)
-    tpm_monthly: int | None = None
 
     # Maximum concurrent requests
     max_concurrent: int | None = None
 
-    @classmethod
-    def create_custom(
-        cls,
-        rpm: int | None = None,
-        tpm: int | None = None,
-        rph: int | None = None,
-        rpd: int | None = None,
-        rpm_monthly: int | None = None,
-        tpd: int | None = None,
-        tpm_monthly: int | None = None,
-        max_concurrent: int | None = None,
-    ) -> "RateLimits":
-        """Create custom rate limits with specified parameters."""
-        return cls(
-            rpm=rpm,
-            tpm=tpm,
-            rph=rph,
-            rpd=rpd,
-            rpm_monthly=rpm_monthly,
-            tpd=tpd,
-            tpm_monthly=tpm_monthly,
-            max_concurrent=max_concurrent,
-        )
 
-    @classmethod
-    def free_tier(cls) -> "RateLimits":
-        """Predefined free tier limits (similar to OpenAI free tier)."""
-        return cls(
-            rpm=3,
-            tpm=40_000,
-            rph=200,
-            rpd=1_000,
-            max_concurrent=1,
-        )
+class RateLimiterProtocol(Protocol):
+    """Protocol for rate limiting implementations."""
 
-    @classmethod
-    def basic_tier(cls) -> "RateLimits":
-        """Predefined basic tier limits."""
-        return cls(
-            rpm=60,
-            tpm=60_000,
-            rph=3_600,
-            rpd=50_000,
-            max_concurrent=5,
-        )
+    async def can_make_request(self, estimated_tokens: int = 1) -> tuple[bool, float | None]:
+        """Check if a request can be made within the current limits.
 
-    @classmethod
-    def premium_tier(cls) -> "RateLimits":
-        """Predefined premium tier limits."""
-        return cls(
-            rpm=5_000,
-            tpm=300_000,
-            rph=300_000,
-            rpd=1_000_000,
-            max_concurrent=20,
-        )
+        Args:
+            estimated_tokens: Estimated number of tokens for this request
 
-    @classmethod
-    def enterprise_tier(cls) -> "RateLimits":
-        """Predefined enterprise tier limits."""
-        return cls(
-            rpm=10_000,
-            tpm=2_000_000,
-            rph=600_000,
-            rpd=5_000_000,
-            max_concurrent=100,
-        )
+        Returns:
+            tuple: (can_make_request, retry_after_seconds)
+        """
+        ...
+
+    async def record_request_start(self, tokens: int = 1) -> None:
+        """Record the start of a request (for concurrent tracking)."""
+        ...
+
+    async def record_request_end(self) -> None:
+        """Record the end of a request."""
+        ...
+
+
+class NullRateLimiter:
+    """A no-op rate limiter that allows all requests through."""
+
+    def __init__(self, limits: RateLimits | None = None) -> None:
+        """Initialize null rate limiter (limits parameter ignored)."""
+        pass
+
+    async def can_make_request(self, estimated_tokens: int = 1) -> tuple[bool, float | None]:
+        """Always allows requests through."""
+        return True, None
+
+    async def record_request_start(self, tokens: int = 1) -> None:
+        """No-op implementation."""
+        pass
+
+    async def record_request_end(self) -> None:
+        """No-op implementation."""
+        pass
 
 
 class ThrottlingException(Exception):
-    """Exception raised when evaluation requests are throttled due to rate limits."""
-
     def __init__(self, message: str, rate_limits: RateLimits, retry_after: float | None = None):
         super().__init__(message)
         self.rate_limits = rate_limits
@@ -147,141 +113,114 @@ class ThrottlingException(Exception):
 
 
 class ServiceExhaustedException(Exception):
-    """Exception raised when the underlying NLP service is exhausted or unavailable."""
-
     def __init__(self, message: str, service_id: str, retry_after: float | None = None):
         super().__init__(message)
         self.service_id = service_id
         self.retry_after = retry_after
 
 
-class SlidingWindow:
-    """Efficient sliding window for tracking requests and tokens in a time period."""
+class RateLimiter:
+    """Active rate limiter using the limits package for sophisticated rate limiting."""
 
-    def __init__(self, window_seconds: float):
-        self.window_seconds = window_seconds
-        self.requests: deque[tuple[float, int]] = deque()  # (timestamp, token_count)
-        self.request_count = 0
-        self.token_count = 0
-
-    def add_request(self, timestamp: float, tokens: int) -> None:
-        """Add a request to the sliding window."""
-        self._expire_old_requests(timestamp)
-        self.requests.append((timestamp, tokens))
-        self.request_count += 1
-        self.token_count += tokens
-
-    def can_add_request(
-        self, timestamp: float, tokens: int, max_requests: int | None, max_tokens: int | None
-    ) -> tuple[bool, float | None]:
-        """Check if a request can be added without exceeding limits."""
-        self._expire_old_requests(timestamp)
-
-        # Check request limit
-        if max_requests is not None and self.request_count >= max_requests:
-            if self.requests:
-                oldest_timestamp = self.requests[0][0]
-                retry_after = self.window_seconds - (timestamp - oldest_timestamp)
-                return False, max(retry_after, 0.1)
-            return False, self.window_seconds
-
-        # Check token limit
-        if max_tokens is not None and self.token_count + tokens > max_tokens:
-            if self.requests:
-                oldest_timestamp = self.requests[0][0]
-                retry_after = self.window_seconds - (timestamp - oldest_timestamp)
-                return False, max(retry_after, 0.1)
-            return False, self.window_seconds
-
-        return True, None
-
-    def _expire_old_requests(self, current_time: float) -> None:
-        """Remove requests outside the sliding window."""
-        cutoff = current_time - self.window_seconds
-        while self.requests and self.requests[0][0] <= cutoff:
-            _, tokens = self.requests.popleft()
-            self.request_count -= 1
-            self.token_count -= tokens
-
-
-class RateLimitTracker:
-    """Efficient sliding window-based rate limit tracker."""
-
-    def __init__(self) -> None:
-        self._minute_window = SlidingWindow(60.0)  # 1 minute
-        self._hour_window = SlidingWindow(3600.0)  # 1 hour
-        self._day_window = SlidingWindow(86400.0)  # 1 day
-        self._month_window = SlidingWindow(30 * 86400.0)  # 30 days
+    def __init__(self, limits: RateLimits, storage: MemoryStorage | None = None) -> None:
+        self._limits = limits
+        self._storage = storage or MemoryStorage()
+        self._limiter = MovingWindowRateLimiter(self._storage)
         self._concurrent_count = 0
         self._lock = asyncio.Lock()
 
-    async def can_make_request(
-        self, limits: RateLimits, estimated_tokens: int = 1
-    ) -> tuple[bool, float | None]:
+    async def can_make_request(self, estimated_tokens: int = 1) -> tuple[bool, float | None]:
         """Check if a request can be made within the current limits.
 
         Args:
-            limits: The rate limits to check against
             estimated_tokens: Estimated number of tokens for this request
 
         Returns:
             tuple: (can_make_request, retry_after_seconds)
         """
         async with self._lock:
-            current_time = time.time()
-
             # Check concurrent requests
             if (
-                limits.max_concurrent is not None
-                and self._concurrent_count >= limits.max_concurrent
+                self._limits.max_concurrent is not None
+                and self._concurrent_count >= self._limits.max_concurrent
             ):
                 return False, 1.0  # Retry after 1 second
 
             # Check minute limits (RPM and TPM)
-            if limits.rpm is not None or limits.tpm is not None:
-                can_add, retry_after = self._minute_window.can_add_request(
-                    current_time, estimated_tokens, limits.rpm, limits.tpm
-                )
-                if not can_add:
-                    return False, retry_after
+            if self._limits.rpm is not None:
+                rpm_item = RateLimitItemPerMinute(self._limits.rpm)
+                # Test first without consuming the limit
+                if not self._limiter.test(rpm_item, "rpm"):
+                    # Rate limit exceeded - for moving window, retry after a shorter interval
+                    # Since we don't know exactly when the window will clear, use a reasonable estimate
+                    return False, min(
+                        60.0 / self._limits.rpm, 60.0
+                    )  # At most 1 minute, but usually much less
+                # If test passed, actually consume the limit
+                self._limiter.hit(rpm_item, "rpm")
+
+            if self._limits.tpm is not None:
+                tpm_item = RateLimitItemPerMinute(self._limits.tpm)
+                # For tokens, check if we have enough quota for all estimated tokens
+                # We approximate by testing multiple times
+                tokens_can_fit = 0
+                for _ in range(estimated_tokens):
+                    if self._limiter.test(tpm_item, "tpm"):
+                        tokens_can_fit += 1
+                    else:
+                        break
+
+                if tokens_can_fit < estimated_tokens:
+                    # Not enough token quota - calculate smart retry
+                    tokens_needed = estimated_tokens - tokens_can_fit
+                    retry_time = min(60.0 * tokens_needed / self._limits.tpm, 60.0)
+                    return False, max(retry_time, 1.0)  # At least 1 second
+
+                # We have enough quota, consume the tokens
+                for _ in range(estimated_tokens):
+                    self._limiter.hit(tpm_item, "tpm")
 
             # Check hour limits (RPH)
-            if limits.rph is not None:
-                can_add, retry_after = self._hour_window.can_add_request(
-                    current_time, estimated_tokens, limits.rph, None
-                )
-                if not can_add:
-                    return False, retry_after
+            if self._limits.rph is not None:
+                rph_item = RateLimitItemPerHour(self._limits.rph)
+                if not self._limiter.test(rph_item, "rph"):
+                    # For hourly limits, use a smarter retry - typically much less than full hour
+                    return False, min(3600.0 / self._limits.rph, 300.0)  # At most 5 minutes
+                self._limiter.hit(rph_item, "rph")
 
             # Check day limits (RPD and TPD)
-            if limits.rpd is not None or limits.tpd is not None:
-                can_add, retry_after = self._day_window.can_add_request(
-                    current_time, estimated_tokens, limits.rpd, limits.tpd
-                )
-                if not can_add:
-                    return False, retry_after
+            if self._limits.rpd is not None:
+                rpd_item = RateLimitItemPerDay(self._limits.rpd)
+                if not self._limiter.test(rpd_item, "rpd"):
+                    # For daily limits, use smarter retry - usually much less than full day
+                    return False, min(86400.0 / self._limits.rpd, 3600.0)  # At most 1 hour
+                self._limiter.hit(rpd_item, "rpd")
 
-            # Check monthly limits (RPM_monthly and TPM_monthly)
-            if limits.rpm_monthly is not None or limits.tpm_monthly is not None:
-                can_add, retry_after = self._month_window.can_add_request(
-                    current_time, estimated_tokens, limits.rpm_monthly, limits.tpm_monthly
-                )
-                if not can_add:
-                    return False, retry_after
+            if self._limits.tpd is not None:
+                tpd_item = RateLimitItemPerDay(self._limits.tpd)
+                # Check token availability for the day
+                tokens_can_fit = 0
+                for _ in range(estimated_tokens):
+                    if self._limiter.test(tpd_item, "tpd"):
+                        tokens_can_fit += 1
+                    else:
+                        break
+
+                if tokens_can_fit < estimated_tokens:
+                    # Not enough daily token quota
+                    tokens_needed = estimated_tokens - tokens_can_fit
+                    retry_time = min(86400.0 * tokens_needed / self._limits.tpd, 3600.0)
+                    return False, max(retry_time, 1.0)
+
+                # Consume the daily token quota
+                for _ in range(estimated_tokens):
+                    self._limiter.hit(tpd_item, "tpd")
 
             return True, None
 
     async def record_request_start(self, tokens: int = 1) -> None:
-        """Record the start of a request with token count."""
+        """Record the start of a request (for concurrent tracking)."""
         async with self._lock:
-            current_time = time.time()
-
-            # Add to all relevant sliding windows
-            self._minute_window.add_request(current_time, tokens)
-            self._hour_window.add_request(current_time, tokens)
-            self._day_window.add_request(current_time, tokens)
-            self._month_window.add_request(current_time, tokens)
-
             self._concurrent_count += 1
 
     async def record_request_end(self) -> None:
@@ -290,72 +229,18 @@ class RateLimitTracker:
             self._concurrent_count = max(0, self._concurrent_count - 1)
 
 
-class UserProvider(ABC):
-    """Abstract interface for providing user information."""
-
-    @abstractmethod
-    async def get_user_id(self, hints: Mapping[str, Any]) -> str | None:
-        """Extract user ID from hints."""
-        pass
-
-    @abstractmethod
-    async def get_user_limits(self, user_id: str) -> RateLimits:
-        """Get rate limits for a specific user."""
-        pass
-
-
-class DefaultUserProvider(UserProvider):
-    """Default user provider that uses hints to determine user limits."""
-
-    def __init__(self, default_limits: RateLimits | None = None):
-        self._default_limits = default_limits or RateLimits.free_tier()
-
-    async def get_user_id(self, hints: Mapping[str, Any]) -> str | None:
-        """Extract user ID from hints."""
-        return hints.get("user_id") or hints.get("customer_id") or hints.get("session_id")
-
-    async def get_user_limits(self, user_id: str) -> RateLimits:
-        """Get rate limits for a specific user. Override this method to integrate with your user management system."""
-        return self._default_limits
-
-
-class EvaluationThrottler(SchematicGenerator[T]):
+class ThrottledSchematicGenerator(SchematicGenerator[T]):
     """A throttling wrapper for SchematicGenerator that enforces flexible rate limits."""
-
-    _shared_global_tracker: RateLimitTracker | None = None
 
     def __init__(
         self,
         generator: SchematicGenerator[T],
-        user_provider: UserProvider,
-        logger: Logger,
-        global_limits: RateLimits | None = None,
-        shared_global_tracker: RateLimitTracker | None = None,
+        rate_limiter: RateLimiterProtocol,
+        logger: Logger | None = None,
     ) -> None:
         self._generator = generator
-        self._user_provider = user_provider
+        self._rate_limiter = rate_limiter
         self._logger = logger
-        self._global_limits = global_limits
-        self._user_trackers: dict[str, RateLimitTracker] = {}
-
-        # Use shared global tracker if provided, otherwise create a new one
-        if shared_global_tracker is not None:
-            self._global_tracker = shared_global_tracker
-        elif global_limits is not None:
-            # Create a class-level shared tracker if one doesn't exist
-            if EvaluationThrottler._shared_global_tracker is None:
-                EvaluationThrottler._shared_global_tracker = RateLimitTracker()
-            self._global_tracker = EvaluationThrottler._shared_global_tracker
-        else:
-            self._global_tracker = RateLimitTracker()
-        self._lock = asyncio.Lock()
-
-    async def _get_user_tracker(self, user_id: str) -> RateLimitTracker:
-        """Get or create a rate limit tracker for a user."""
-        async with self._lock:
-            if user_id not in self._user_trackers:
-                self._user_trackers[user_id] = RateLimitTracker()
-            return self._user_trackers[user_id]
 
     async def _estimate_tokens(self, prompt: str | PromptBuilder) -> int:
         """Estimate the number of tokens in a prompt."""
@@ -375,46 +260,20 @@ class EvaluationThrottler(SchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        user_id = await self._user_provider.get_user_id(hints)
-
-        if not user_id:
-            self._logger.warning("No user ID found in hints, using anonymous user")
-            user_id = "anonymous"
-
-        # Get user limits
-        user_limits = await self._user_provider.get_user_limits(user_id)
-        user_tracker = await self._get_user_tracker(user_id)
-
         # Estimate tokens for this request
         estimated_tokens = await self._estimate_tokens(prompt)
 
-        # Check user limits
-        can_proceed, retry_after = await user_tracker.can_make_request(
-            user_limits, estimated_tokens
-        )
+        # Check rate limits
+        can_proceed, retry_after = await self._rate_limiter.can_make_request(estimated_tokens)
         if not can_proceed:
             raise ThrottlingException(
-                f"User {user_id} rate limit exceeded",
-                user_limits,
+                "Rate limit exceeded",
+                getattr(self._rate_limiter, "_limits", RateLimits()),
                 retry_after,
             )
 
-        # Check global limits if configured
-        if self._global_limits:
-            can_proceed, retry_after = await self._global_tracker.can_make_request(
-                self._global_limits, estimated_tokens
-            )
-            if not can_proceed:
-                raise ServiceExhaustedException(
-                    "Global service rate limit exceeded",
-                    self._generator.id,
-                    retry_after,
-                )
-
         # Record request start
-        await user_tracker.record_request_start(estimated_tokens)
-        if self._global_limits:
-            await self._global_tracker.record_request_start(estimated_tokens)
+        await self._rate_limiter.record_request_start(estimated_tokens)
 
         try:
             # Make the actual request
@@ -422,9 +281,7 @@ class EvaluationThrottler(SchematicGenerator[T]):
             return result
         finally:
             # Record request end
-            await user_tracker.record_request_end()
-            if self._global_limits:
-                await self._global_tracker.record_request_end()
+            await self._rate_limiter.record_request_end()
 
     @property
     def schema(self) -> type[T]:
@@ -444,30 +301,18 @@ class EvaluationThrottler(SchematicGenerator[T]):
         return self._generator.tokenizer
 
 
-class EmbedderThrottler(Embedder):
+class ThrottledEmbedder(Embedder):
     """A throttling wrapper for Embedder that enforces flexible rate limits."""
 
     def __init__(
         self,
         embedder: Embedder,
-        user_provider: UserProvider,
-        logger: Logger,
-        global_limits: RateLimits | None = None,
+        rate_limiter: RateLimiterProtocol,
+        logger: Logger | None = None,
     ) -> None:
         self._embedder = embedder
-        self._user_provider = user_provider
+        self._rate_limiter = rate_limiter
         self._logger = logger
-        self._global_limits = global_limits
-        self._user_trackers: dict[str, RateLimitTracker] = {}
-        self._global_tracker = RateLimitTracker()
-        self._lock = asyncio.Lock()
-
-    async def _get_user_tracker(self, user_id: str) -> RateLimitTracker:
-        """Get or create a rate limit tracker for a user."""
-        async with self._lock:
-            if user_id not in self._user_trackers:
-                self._user_trackers[user_id] = RateLimitTracker()
-            return self._user_trackers[user_id]
 
     async def _estimate_tokens(self, texts: list[str]) -> int:
         """Estimate the total number of tokens for embedding texts."""
@@ -484,46 +329,20 @@ class EmbedderThrottler(Embedder):
         texts: list[str],
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
-        user_id = await self._user_provider.get_user_id(hints)
-
-        if not user_id:
-            self._logger.warning("No user ID found in hints, using anonymous user")
-            user_id = "anonymous"
-
-        # Get user limits
-        user_limits = await self._user_provider.get_user_limits(user_id)
-        user_tracker = await self._get_user_tracker(user_id)
-
         # Estimate tokens for this request
         estimated_tokens = await self._estimate_tokens(texts)
 
-        # Check user limits
-        can_proceed, retry_after = await user_tracker.can_make_request(
-            user_limits, estimated_tokens
-        )
+        # Check rate limits
+        can_proceed, retry_after = await self._rate_limiter.can_make_request(estimated_tokens)
         if not can_proceed:
             raise ThrottlingException(
-                f"User {user_id} rate limit exceeded",
-                user_limits,
+                "Rate limit exceeded",
+                getattr(self._rate_limiter, "_limits", RateLimits()),
                 retry_after,
             )
 
-        # Check global limits if configured
-        if self._global_limits:
-            can_proceed, retry_after = await self._global_tracker.can_make_request(
-                self._global_limits, estimated_tokens
-            )
-            if not can_proceed:
-                raise ServiceExhaustedException(
-                    "Global service rate limit exceeded",
-                    self._embedder.id,
-                    retry_after,
-                )
-
         # Record request start
-        await user_tracker.record_request_start(estimated_tokens)
-        if self._global_limits:
-            await self._global_tracker.record_request_start(estimated_tokens)
+        await self._rate_limiter.record_request_start(estimated_tokens)
 
         try:
             # Make the actual request
@@ -531,9 +350,7 @@ class EmbedderThrottler(Embedder):
             return result
         finally:
             # Record request end
-            await user_tracker.record_request_end()
-            if self._global_limits:
-                await self._global_tracker.record_request_end()
+            await self._rate_limiter.record_request_end()
 
     @property
     def id(self) -> str:
@@ -552,26 +369,107 @@ class EmbedderThrottler(Embedder):
         return self._embedder.dimensions
 
 
-# Convenience functions for creating throttlers with predefined limits
+# Convenience functions for creating rate limiters and throttled generators
 
 
-def create_throttled_generator(
+def create_rate_limiter(
+    rpm: int | None = None,
+    tpm: int | None = None,
+    rph: int | None = None,
+    rpd: int | None = None,
+    tpd: int | None = None,
+    max_concurrent: int | None = None,
+) -> RateLimiterProtocol:
+    """Create a rate limiter with the specified limits.
+
+    Args:
+        rpm: Requests per minute
+        tpm: Tokens per minute
+        rph: Requests per hour
+        rpd: Requests per day
+        tpd: Tokens per day
+        max_concurrent: Maximum concurrent requests
+
+    Returns:
+        RateLimiter: Ready to use for throttling
+    """
+    rate_limits = RateLimits(
+        rpm=rpm,
+        tpm=tpm,
+        rph=rph,
+        rpd=rpd,
+        tpd=tpd,
+        max_concurrent=max_concurrent,
+    )
+
+    # If no limits are specified, return a null limiter
+    if all(limit is None for limit in [rpm, tpm, rph, rpd, tpd, max_concurrent]):
+        return NullRateLimiter(rate_limits)
+
+    return RateLimiter(rate_limits)
+
+
+def create_null_rate_limiter() -> RateLimiterProtocol:
+    """Create a no-op rate limiter that allows all requests through.
+
+    Returns:
+        RateLimiter: A null rate limiter
+    """
+    return NullRateLimiter(RateLimits())
+
+
+def throttle_generator(
     generator: SchematicGenerator[T],
-    logger: Logger,
-    rate_limits: RateLimits | None = None,
-    global_limits: RateLimits | None = None,
-) -> EvaluationThrottler[T]:
-    """Create a throttled generator with default user provider."""
-    user_provider = DefaultUserProvider(rate_limits or RateLimits.free_tier())
-    return EvaluationThrottler(generator, user_provider, logger, global_limits)
+    rate_limiter: RateLimiterProtocol,
+    logger: Logger | None = None,
+) -> ThrottledSchematicGenerator[T]:
+    """Wrap a generator with throttling.
+
+    Example:
+        # Create rate limiter with 10 RPM, 1000 TPM
+        limiter = create_rate_limiter(rpm=10, tpm=1000)
+
+        # Wrap generator
+        throttled = throttle_generator(my_generator, limiter)
+    """
+    return ThrottledSchematicGenerator(generator, rate_limiter, logger)
 
 
-def create_throttled_embedder(
+def throttle_embedder(
     embedder: Embedder,
-    logger: Logger,
-    rate_limits: RateLimits | None = None,
-    global_limits: RateLimits | None = None,
-) -> EmbedderThrottler:
-    """Create a throttled embedder with default user provider."""
-    user_provider = DefaultUserProvider(rate_limits or RateLimits.free_tier())
-    return EmbedderThrottler(embedder, user_provider, logger, global_limits)
+    rate_limiter: RateLimiterProtocol,
+    logger: Logger | None = None,
+) -> ThrottledEmbedder:
+    """Wrap an embedder with throttling.
+
+    Example:
+        # Create rate limiter with 100 RPM
+        limiter = create_rate_limiter(rpm=100)
+
+        # Wrap embedder
+        throttled = throttle_embedder(my_embedder, limiter)
+    """
+    return ThrottledEmbedder(embedder, rate_limiter, logger)
+
+
+# Predefined common rate limit configurations
+
+
+def openai_free_tier_limits() -> RateLimiterProtocol:
+    """OpenAI free tier typical limits (approximate)."""
+    return create_rate_limiter(rpm=3, tpm=40_000, rpd=200)
+
+
+def openai_tier_1_limits() -> RateLimiterProtocol:
+    """OpenAI Tier 1 typical limits (approximate)."""
+    return create_rate_limiter(rpm=500, tpm=200_000, rpd=10_000)
+
+
+def openai_tier_2_limits() -> RateLimiterProtocol:
+    """OpenAI Tier 2 typical limits (approximate)."""
+    return create_rate_limiter(rpm=5_000, tpm=450_000, rpd=None)
+
+
+def conservative_limits() -> RateLimiterProtocol:
+    """Conservative limits suitable for most development scenarios."""
+    return create_rate_limiter(rpm=10, tpm=50_000, max_concurrent=3)

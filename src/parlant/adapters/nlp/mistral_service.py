@@ -28,7 +28,7 @@ from parlant.core.engines.alpha.canned_response_generator import CannedResponseS
 from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch import (
     DisambiguationGuidelineMatchesSchema,
 )
-from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
     JourneyNodeSelectionSchema,
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder

@@ -1420,6 +1420,110 @@ END_JOURNEY = JourneyState(
 """A special state used to indicate the end of a journey."""
 
 
+def _validate_transition_parameters(
+    *,
+    condition: str | None = None,
+    chat_state: str | None = None,
+    tool_instruction: str | None = None,
+    state: Any = None,
+    tool_state: Any = None,
+    journey: Any = None,
+    canned_responses: Sequence[CannedResponseId] = [],
+    metadata: Mapping[str, JSONSerializable] = {},
+    on_match: Any = None,
+    is_fork_state: bool = False,
+) -> None:
+    """Validate transition parameters against overload signatures."""
+
+    # Determine which target parameter is being used
+    target_param = None
+    has_tool_state = tool_state and (
+        isinstance(tool_state, ToolEntry)
+        or (isinstance(tool_state, Sequence) and len(tool_state) > 0)
+    )
+
+    if state is not None:
+        target_param = "state"
+    elif chat_state is not None:
+        target_param = "chat_state"
+    elif has_tool_state:
+        target_param = "tool_state"
+    elif journey is not None:
+        target_param = "journey"
+    else:
+        raise SDKError(
+            "Must provide at least one target parameter: chat_state, state, tool_state, or journey."
+        )
+
+    # Check for multiple target parameters
+    target_count = 0
+    if state is not None:
+        target_count += 1
+    if chat_state is not None:
+        target_count += 1
+    if has_tool_state:
+        target_count += 1
+    if journey is not None:
+        target_count += 1
+
+    if target_count > 1:
+        provided = []
+        if state is not None:
+            provided.append("state")
+        if chat_state is not None:
+            provided.append("chat_state")
+        if has_tool_state:
+            provided.append("tool_state")
+        if journey is not None:
+            provided.append("journey")
+        raise SDKError(
+            f"Cannot provide multiple target parameters simultaneously: {', '.join(provided)}. "
+            "Please specify only one of: chat_state, state, tool_state, or journey."
+        )
+
+    # Validate parameter combinations based on overload signatures
+    if target_param == "journey":
+        # Journey overload: only condition and journey allowed
+        invalid_params = []
+        if canned_responses:
+            invalid_params.append("canned_responses")
+        if metadata:
+            invalid_params.append("metadata")
+        if on_match is not None:
+            invalid_params.append("on_match")
+        if tool_instruction is not None:
+            invalid_params.append("tool_instruction")
+
+        if invalid_params:
+            raise SDKError(
+                f"Journey transitions do not support the following parameters: {', '.join(invalid_params)}. "
+                "Only 'condition' and 'journey' are allowed for journey transitions."
+            )
+
+    elif target_param == "tool_state":
+        # Tool state overloads: tool_instruction is optional but other params should be allowed
+        if tool_instruction is not None:
+            # This is valid - tool_instruction + tool_state combination
+            pass
+        # canned_responses, metadata, on_match are all allowed for tool_state transitions
+
+    elif target_param in ["state", "chat_state"]:
+        # State and chat_state overloads: tool_instruction not allowed
+        if tool_instruction is not None:
+            raise SDKError(
+                f"tool_instruction cannot be used with {target_param}. "
+                "tool_instruction is only valid when using tool_state."
+            )
+        # canned_responses, metadata, on_match are all allowed
+
+    # Special validation for ForkJourneyState
+    if is_fork_state and target_param != "journey":
+        if condition is None:
+            raise SDKError(
+                "ForkJourneyState requires a condition (except when transition to a journey)."
+            )
+
+
 class InitialJourneyState(JourneyState):
     """A special state used to indicate the initial state of a journey."""
 
@@ -1488,6 +1592,20 @@ class InitialJourneyState(JourneyState):
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[Any]:
+        # Validate parameters against overload signatures
+        _validate_transition_parameters(
+            condition=condition,
+            chat_state=chat_state,
+            tool_instruction=tool_instruction,
+            state=state,
+            tool_state=tool_state,
+            journey=journey,
+            canned_responses=canned_responses,
+            metadata=metadata,
+            on_match=on_match,
+            is_fork_state=False,
+        )
+
         return await self._transition(
             condition=condition,
             state=state,
@@ -1568,6 +1686,20 @@ class ToolJourneyState(JourneyState):
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[Any]:
+        # Validate parameters against overload signatures
+        _validate_transition_parameters(
+            condition=condition,
+            chat_state=chat_state,
+            tool_instruction=tool_instruction,
+            state=state,
+            tool_state=tool_state,
+            journey=journey,
+            canned_responses=canned_responses,
+            metadata=metadata,
+            on_match=on_match,
+            is_fork_state=False,
+        )
+
         return await self._transition(
             condition=condition,
             state=state,
@@ -1651,6 +1783,20 @@ class ChatJourneyState(JourneyState):
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[Any]:
+        # Validate parameters against overload signatures
+        _validate_transition_parameters(
+            condition=condition,
+            chat_state=chat_state,
+            tool_instruction=tool_instruction,
+            state=state,
+            tool_state=tool_state,
+            journey=journey,
+            canned_responses=canned_responses,
+            metadata=metadata,
+            on_match=on_match,
+            is_fork_state=False,
+        )
+
         return await self._transition(
             condition=condition,
             state=state,
@@ -1734,6 +1880,20 @@ class ForkJourneyState(JourneyState):
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[Any]:
+        # Validate parameters against overload signatures
+        _validate_transition_parameters(
+            condition=condition,
+            chat_state=chat_state,
+            tool_instruction=tool_instruction,
+            state=state,
+            tool_state=tool_state,
+            journey=journey,
+            canned_responses=canned_responses,
+            metadata=metadata,
+            on_match=on_match,
+            is_fork_state=True,
+        )
+
         return await self._transition(
             condition=condition,
             state=state,

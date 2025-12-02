@@ -8,7 +8,7 @@ import styles from '../message/message.module.scss';
 import {twMerge} from 'tailwind-merge';
 
 function preserveBlankLines(md: string): string {
-	return md?.replace?.(/\\n/g, '\n')?.replace(/\n/g, '  <br/>') || md;
+	return md?.replace?.(/\\n/g, '\n')?.replace(/\n(?!-)/g, '<br/>\n') || md;
 }
 
 const Markdown = ({children, className}: {children: string; className?: string}) => {

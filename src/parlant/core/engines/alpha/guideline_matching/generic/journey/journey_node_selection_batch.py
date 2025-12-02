@@ -1,0 +1,191 @@
+from collections.abc import Sequence
+from enum import Enum
+from typing import Any, cast
+from typing_extensions import override
+from parlant.core import async_utils
+
+from parlant.core.common import JSONSerializable
+from parlant.core.engines.alpha.guideline_matching.common import measure_guideline_matching_batch
+
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
+    JourneyBacktrackNodeSelection,
+    JourneyNodeSelectionSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_step_selection import (
+    JourneyNextStepSelection,
+    JourneyNextStepSelectionSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.guideline_match import (
+    GuidelineMatch,
+)
+from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
+    GuidelineMatchingBatch,
+    GuidelineMatchingBatchResult,
+    GuidelineMatchingContext,
+)
+from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
+from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
+from parlant.core.journeys import Journey
+from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
+from parlant.core.nlp.generation import SchematicGenerator
+from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
+
+
+class JourneyNodeKind(Enum):
+    FORK = "fork"
+    CHAT = "chat"
+    TOOL = "tool"
+    NA = "NA"
+
+
+class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
+    def __init__(
+        self,
+        logger: Logger,
+        meter: Meter,
+        guideline_store: GuidelineStore,
+        optimization_policy: OptimizationPolicy,
+        schematic_generator_journey_node_selection: SchematicGenerator[JourneyNodeSelectionSchema],
+        schematic_generator_next_step_selection: SchematicGenerator[JourneyNextStepSelectionSchema],
+        examined_journey: Journey,
+        context: GuidelineMatchingContext,
+        node_guidelines: Sequence[Guideline] = [],
+        journey_path: Sequence[str | None] = [],
+    ) -> None:
+        self._logger = logger
+        self._meter = meter
+
+        self._guideline_store = guideline_store
+
+        self._optimization_policy = optimization_policy
+        self._schematic_generator_journey_node_selection = (
+            schematic_generator_journey_node_selection
+        )
+        self._schematic_generator_next_step_selection = schematic_generator_next_step_selection
+        self._context = context
+        self._examined_journey = examined_journey
+        self._node_guidelines = node_guidelines
+        self._previous_path: Sequence[str | None] = journey_path
+
+    @property
+    @override
+    def size(self) -> int:
+        return 1
+
+    def auto_return_match(self) -> GuidelineMatchingBatchResult | None:
+        def _get_guideline_node_index(guideline: Guideline) -> str:
+            return str(
+                cast(dict[str, JSONSerializable], guideline.metadata["journey_node"]).get(
+                    "index", "-1"
+                ),
+            )
+
+        node_index_to_guideline: dict[str, Guideline] = {
+            _get_guideline_node_index(g): g for g in self._node_guidelines
+        }
+        guideline_id_to_node_index: dict[GuidelineId, str] = {
+            g.id: _get_guideline_node_index(g) for g in self._node_guidelines
+        }
+
+        if self._previous_path and self._previous_path[-1]:
+            last_visited_node_index = self._previous_path[-1]
+            last_visited_guideline = node_index_to_guideline[last_visited_node_index]
+            kind = JourneyNodeKind(
+                cast(dict[str, Any], last_visited_guideline.metadata.get("journey_node", {})).get(
+                    "kind", "NA"
+                )
+            )
+            outgoing_edges = cast(
+                dict[str, Sequence[GuidelineId]],
+                last_visited_guideline.metadata.get("journey_node", {}),
+            ).get("follow_ups", [])
+            if kind == JourneyNodeKind.TOOL and len(outgoing_edges) == 1:
+                generation_info = GenerationInfo(
+                    schema_name="No inference performed",
+                    model="No inference performed",
+                    duration=0.0,
+                    usage=UsageInfo(
+                        input_tokens=0,
+                        output_tokens=0,
+                        extra={},
+                    ),
+                )
+                next_node = guideline_id_to_node_index[GuidelineId(outgoing_edges[0])]
+                if next_node:
+                    return GuidelineMatchingBatchResult(
+                        matches=[
+                            GuidelineMatch(
+                                guideline=node_index_to_guideline[next_node],
+                                score=10,
+                                rationale="This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. It was automatically selected as the only viable follow up for the last step that was executed",
+                                metadata={
+                                    "journey_path": [
+                                        last_visited_node_index,
+                                        next_node,
+                                    ],
+                                    "step_selection_journey_id": self._examined_journey.id,
+                                },
+                            )
+                        ],
+                        generation_info=generation_info,
+                    )
+                else:
+                    return GuidelineMatchingBatchResult(matches=[], generation_info=generation_info)
+        return None
+
+    @override
+    async def process(self) -> GuidelineMatchingBatchResult:
+        automatic_match = self.auto_return_match()
+        if automatic_match:
+            return automatic_match  # TODO fix this
+
+        journey_conditions = list(
+            await async_utils.safe_gather(
+                *[
+                    self._guideline_store.read_guideline(c)
+                    for c in self._examined_journey.conditions
+                ]
+            )
+        )
+
+        async with measure_guideline_matching_batch(self._meter, self):
+            if not self._previous_path:
+                next_step_selector = JourneyNextStepSelection(
+                    logger=self._logger,
+                    guideline_store=self._guideline_store,
+                    optimization_policy=self._optimization_policy,
+                    schematic_generator=self._schematic_generator_next_step_selection,
+                    examined_journey=self._examined_journey,
+                    context=self._context,
+                    node_guidelines=self._node_guidelines,
+                    journey_path=self._previous_path,
+                    journey_conditions=journey_conditions,
+                )
+                return await next_step_selector.process()  # TODO catch error??
+            elif self._previous_path and self._previous_path[-1]:  # TODO run backward check
+                next_step_selector = JourneyNextStepSelection(
+                    logger=self._logger,
+                    guideline_store=self._guideline_store,
+                    optimization_policy=self._optimization_policy,
+                    schematic_generator=self._schematic_generator_next_step_selection,
+                    examined_journey=self._examined_journey,
+                    context=self._context,
+                    node_guidelines=self._node_guidelines,
+                    journey_path=self._previous_path,
+                    journey_conditions=journey_conditions,
+                )
+                return await next_step_selector.process()
+            else:
+                node_selector = JourneyBacktrackNodeSelection(
+                    logger=self._logger,
+                    guideline_store=self._guideline_store,
+                    optimization_policy=self._optimization_policy,
+                    schematic_generator=self._schematic_generator_journey_node_selection,
+                    examined_journey=self._examined_journey,
+                    context=self._context,
+                    node_guidelines=self._node_guidelines,
+                    journey_path=self._previous_path,
+                    journey_conditions=journey_conditions,
+                )
+                return await node_selector.process()

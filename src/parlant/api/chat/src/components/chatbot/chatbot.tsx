@@ -84,13 +84,13 @@ export default function Chatbot(): ReactElement {
 						) : (
 							<div className='flex-1 flex flex-col gap-[27px] items-center justify-center'>
 								<img className='pointer-events-none' src='select-session.svg' fetchPriority='high' alt='' />
-								<p className='text-[#3C8C71] select-none font-light text-[18px] flex flex-col gap-[10px] items-center'>
+								<div className='text-[#3C8C71] select-none font-light text-[18px] flex flex-col gap-[10px] items-center'>
 									{showMessage && !sessions.length ? 'Start a session to begin chatting' : 'Select or start a session to begin chatting'}
 									<div className='group'>
 										<img src='buttons/new-session.svg' alt='add session' className='shadow-main cursor-pointer group-hover:hidden w-[76px]' tabIndex={1} role='button' onKeyDown={spaceClick} onClick={createNewSession} />
 										<img src='buttons/new-session-hover.svg' alt='add session' className='shadow-main cursor-pointer hidden group-hover:block w-[76px]' tabIndex={1} role='button' onKeyDown={spaceClick} onClick={createNewSession} />
 									</div>
-								</p>
+								</div>
 							</div>
 						)}
 					</div>

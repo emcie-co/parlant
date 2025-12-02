@@ -16,7 +16,6 @@ from __future__ import annotations
 import base64
 from collections import defaultdict
 from enum import Enum
-import asyncio
 import hashlib
 
 from typing import (
@@ -32,11 +31,10 @@ from typing import (
     Callable,
 )
 from uuid import uuid4
-from typing_extensions import Self
 
 import nanoid  # type: ignore
 from pydantic import BaseModel, ConfigDict
-import semver  # type: ignore
+import semver
 
 
 _ClassPropertyReturnType = TypeVar("_ClassPropertyReturnType")
@@ -147,32 +145,6 @@ class ItemNotFoundError(Exception):
             super().__init__(f"{message} (id='{item_id}')")
         else:
             super().__init__(f"Item '{item_id}' not found")
-
-
-class CancellationSuppressionLatch:
-    def __init__(self) -> None:
-        self._suppressed = False
-        self._task = None
-
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(
-        self,
-        exc_type: Optional[type[BaseException]],
-        exc_value: Optional[BaseException],
-        traceback: Optional[object],
-    ) -> bool:
-        if (
-            self._suppressed
-            and exc_type is not None
-            and issubclass(exc_type, asyncio.CancelledError)
-        ):
-            return True
-        return False
-
-    def enable(self) -> None:
-        self._suppressed = True
 
 
 id_generation_alphabet: str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"

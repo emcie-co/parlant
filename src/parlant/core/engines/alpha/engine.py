@@ -100,6 +100,13 @@ from parlant.core.entity_cq import EntityQueries, EntityCommands
 from parlant.core.tools import ToolContext, ToolId
 
 
+_PREPARATION_ITERATION_SPAN_NAME = "preparation_iteration_{iteration_number}"
+_GUIDELINE_MATCHER_SPAN_NAME = "guideline_matcher"
+_RESPONSE_ANALYSIS_SPAN_NAME = "response_analysis"
+_MESSAGE_GENERATION_SPAN_NAME = "message_generation"
+_TOOL_CALLER_SPAN_NAME = "tool_caller"
+
+
 class _PreparationIterationResolution(Enum):
     COMPLETED = "continue"
     """Continue with the next preparation iteration"""
@@ -325,7 +332,8 @@ class AlphaEngine(Engine):
 
                 # Money time: communicate with the customer given
                 # all of the information we have prepared.
-                _ = await self._generate_messages(context, latch)
+                with self._tracer.span(_MESSAGE_GENERATION_SPAN_NAME):
+                    _ = await self._generate_messages(context, latch)
 
                 # Mark that the agent is ready to receive and respond to new events.
                 await self._emit_ready_event(context)
@@ -467,7 +475,11 @@ class AlphaEngine(Engine):
         context: EngineContext,
         preamble_task: asyncio.Task[bool],
     ) -> _PreparationIterationResult:
-        with self._tracer.attributes({"engine_iteration": len(context.state.iterations) + 1}):
+        with self._tracer.span(
+            _PREPARATION_ITERATION_SPAN_NAME.format(
+                iteration_number=len(context.state.iterations) + 1
+            )
+        ):
             if len(context.state.iterations) == 0:
                 # This is the first iteration, so we need to run the initial preparation iteration.
                 result = await self._run_initial_preparation_iteration(context, preamble_task)
@@ -1167,11 +1179,12 @@ class AlphaEngine(Engine):
         )
 
         # Step 4: Filter the best matches out of those.
-        matching_result = await self._guideline_matcher.match_guidelines(
-            context=context,
-            active_journeys=high_prob_journeys,  # Only consider the top K journeys
-            guidelines=relevant_guidelines,
-        )
+        with self._tracer.span(_GUIDELINE_MATCHER_SPAN_NAME, attributes={"phase": "initial"}):
+            matching_result = await self._guideline_matcher.match_guidelines(
+                context=context,
+                active_journeys=high_prob_journeys,  # Only consider the top K journeys
+                guidelines=relevant_guidelines,
+            )
 
         self._add_matches_events_to_tracer(matching_result.matches)
 
@@ -1264,11 +1277,12 @@ class AlphaEngine(Engine):
         )
 
         # Step 4: Reevaluate those guidelines using the latest context.
-        matching_result = await self._guideline_matcher.match_guidelines(
-            context=context,
-            active_journeys=context.state.journeys,
-            guidelines=guidelines_to_reevaluate,
-        )
+        with self._tracer.span(_GUIDELINE_MATCHER_SPAN_NAME, attributes={"phase": "reevaluation"}):
+            matching_result = await self._guideline_matcher.match_guidelines(
+                context=context,
+                active_journeys=context.state.journeys,
+                guidelines=guidelines_to_reevaluate,
+            )
 
         self._add_matches_events_to_tracer(matching_result.matches)
 
@@ -1609,11 +1623,14 @@ class AlphaEngine(Engine):
                 if id in activated_low_priority_related_ids or id in journey_conditions
             ]
 
-            return await self._guideline_matcher.match_guidelines(
-                context=context,
-                active_journeys=activated_journeys,
-                guidelines=additional_matching_guidelines,
-            )
+            with self._tracer.span(
+                _GUIDELINE_MATCHER_SPAN_NAME, attributes={"phase": "low_priority_journeys"}
+            ):
+                return await self._guideline_matcher.match_guidelines(
+                    context=context,
+                    active_journeys=activated_journeys,
+                    guidelines=additional_matching_guidelines,
+                )
 
         return None
 
@@ -1642,11 +1659,15 @@ class AlphaEngine(Engine):
                 g for g in additional_matching_guidelines if g.id not in already_examined_guidelines
             ]
 
-            return await self._guideline_matcher.match_guidelines(
-                context=context,
-                active_journeys=activated_journeys,
-                guidelines=filtered_guidelines,
-            )
+            with self._tracer.span(
+                _GUIDELINE_MATCHER_SPAN_NAME,
+                attributes={"phase": "reevaluated_dependent_guidelines"},
+            ):
+                return await self._guideline_matcher.match_guidelines(
+                    context=context,
+                    active_journeys=activated_journeys,
+                    guidelines=filtered_guidelines,
+                )
 
         return None
 
@@ -1754,7 +1775,8 @@ class AlphaEngine(Engine):
         context: EngineContext,
         preexecution_state: ToolPreexecutionState,
     ) -> tuple[ToolEventGenerationResult, list[EmittedEvent], ToolInsights] | None:
-        result = await self._tool_event_generator.generate_events(preexecution_state, context)
+        with self._tracer.span(_TOOL_CALLER_SPAN_NAME):
+            result = await self._tool_event_generator.generate_events(preexecution_state, context)
 
         tool_events = [e for e in result.events if e] if result else []
 

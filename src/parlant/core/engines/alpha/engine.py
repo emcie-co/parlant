@@ -1873,17 +1873,18 @@ class AlphaEngine(Engine):
 
         self._todo_add_associated_guidelines(matches_to_analyze)
 
-        result = await self._guideline_matcher.analyze_response(
-            agent=context.agent,
-            session=session,
-            customer=context.customer,
-            context_variables=context.state.context_variables,
-            interaction_history=context.interaction.history,
-            terms=list(context.state.glossary_terms),
-            staged_tool_events=context.state.tool_events,
-            staged_message_events=context.state.message_events,
-            guideline_matches=matches_to_analyze,
-        )
+        with self._tracer.span(_RESPONSE_ANALYSIS_SPAN_NAME):
+            result = await self._guideline_matcher.analyze_response(
+                agent=context.agent,
+                session=session,
+                customer=context.customer,
+                context_variables=context.state.context_variables,
+                interaction_history=context.interaction.history,
+                terms=list(context.state.glossary_terms),
+                staged_tool_events=context.state.tool_events,
+                staged_message_events=context.state.message_events,
+                guideline_matches=matches_to_analyze,
+            )
 
         new_applied_guideline_ids = [
             a.guideline.id for a in result.analyzed_guidelines if a.is_previously_applied

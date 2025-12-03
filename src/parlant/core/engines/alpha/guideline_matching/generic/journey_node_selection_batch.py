@@ -83,6 +83,7 @@ class _JourneyNode:  # Refactor after node type is implemented
     outgoing_edges: list[_JourneyEdge]
     kind: JourneyNodeKind
     customer_dependent_action: bool
+    description: Optional[str] = None
     customer_action_description: Optional[str] = None
     agent_dependent_action: Optional[bool] = None
     agent_action_description: Optional[str] = None
@@ -193,6 +194,7 @@ def build_node_wrappers(guidelines: Sequence[Guideline]) -> dict[str, _JourneyNo
                 outgoing_edges=[],
                 kind=kind,
                 customer_dependent_action=customer_dependent_action,
+                description=internal_representation(g).description,
                 customer_action_description=cast(
                     dict[str, str | None], g.metadata.get("customer_dependent_action_data", {})
                 ).get("customer_action", None),
@@ -384,8 +386,9 @@ def get_journey_transition_map_text(
         elif node.id != ROOT_INDEX:
             flags_str += "- NOT PREVIOUSLY EXECUTED: This step was not previously executed. You may not backtrack to this step.\n"
         if print_node:
+            description_str = f"\nDescription: {node.description}" if node.description else ""
             nodes_str += f"""
-STEP {node_index}: {displayed_node_action}
+STEP {node_index}: {displayed_node_action}{description_str}
 {flags_str}
 TRANSITIONS:
 {get_node_transition_text(node)}

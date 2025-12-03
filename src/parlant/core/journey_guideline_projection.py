@@ -98,6 +98,7 @@ class JourneyGuidelineProjection:
                 content=GuidelineContent(
                     condition=edge.condition if edge and edge.condition else "",
                     action=node.action,
+                    description=node.description,
                 ),
                 creation_utc=datetime.now(timezone.utc),
                 enabled=True,

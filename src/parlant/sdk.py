@@ -1041,6 +1041,7 @@ class JourneyState:
     action: str | None
     tools: Sequence[ToolEntry]
     metadata: Mapping[str, JSONSerializable]
+    description: str | None
 
     _journey: Journey | None
 
@@ -1066,6 +1067,7 @@ class JourneyState:
         condition: str | None = None,
         state: TState | None = None,
         action: str | None = None,
+        description: str | None = None,
         tools: Sequence[ToolEntry] = [],
         fork: bool = False,
         canned_responses: Sequence[CannedResponseId] = [],
@@ -1083,6 +1085,7 @@ class JourneyState:
             actual_state = await self._journey._create_state(
                 ToolJourneyState,
                 action=action,
+                description=description,
                 tools=tools,
                 metadata=metadata,
             )
@@ -1106,12 +1109,14 @@ class JourneyState:
             actual_state = await self._journey._create_state(
                 ChatJourneyState,
                 action=action,
+                description=description,
                 tools=[],
                 metadata=metadata,
             )
         elif fork:
             actual_state = await self._journey._create_state(
                 ForkJourneyState,
+                description=description,
                 metadata=metadata,
             )
 
@@ -1144,6 +1149,7 @@ END_JOURNEY = JourneyState(
     action=None,
     tools=[],
     metadata={},
+    description=None,
     _journey=None,
 )
 """A special state used to indicate the end of a journey."""
@@ -1158,6 +1164,7 @@ class InitialJourneyState(JourneyState):
         *,
         condition: str | None = None,
         state: TState,
+        description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
@@ -1169,6 +1176,7 @@ class InitialJourneyState(JourneyState):
         *,
         condition: str | None = None,
         chat_state: str,
+        description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
@@ -1181,6 +1189,7 @@ class InitialJourneyState(JourneyState):
         condition: str | None = None,
         tool_instruction: str | None = None,
         tool_state: ToolEntry,
+        description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
@@ -1192,6 +1201,7 @@ class InitialJourneyState(JourneyState):
         condition: str | None = None,
         tool_instruction: str | None = None,
         tool_state: Sequence[ToolEntry],
+        description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
@@ -1204,6 +1214,7 @@ class InitialJourneyState(JourneyState):
         tool_instruction: str | None = None,
         state: TState | None = None,
         tool_state: ToolEntry | Sequence[ToolEntry] = [],
+        description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
@@ -1212,6 +1223,7 @@ class InitialJourneyState(JourneyState):
             condition=condition,
             state=state,
             action=chat_state or tool_instruction,
+            description=description,
             tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
             canned_responses=canned_responses,
             metadata=metadata,
@@ -1228,6 +1240,7 @@ class ToolJourneyState(JourneyState):
         *,
         condition: str | None = None,
         state: TState,
+        description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
@@ -1239,6 +1252,7 @@ class ToolJourneyState(JourneyState):
         *,
         condition: str | None = None,
         chat_state: str,
+        description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
@@ -1251,6 +1265,7 @@ class ToolJourneyState(JourneyState):
         condition: str | None = None,
         tool_instruction: str | None = None,
         tool_state: ToolEntry,
+        description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
@@ -1262,6 +1277,7 @@ class ToolJourneyState(JourneyState):
         condition: str | None = None,
         tool_instruction: str | None = None,
         tool_state: Sequence[ToolEntry],
+        description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
@@ -1274,6 +1290,7 @@ class ToolJourneyState(JourneyState):
         tool_instruction: str | None = None,
         state: TState | None = None,
         tool_state: ToolEntry | Sequence[ToolEntry] = [],
+        description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
@@ -1282,6 +1299,7 @@ class ToolJourneyState(JourneyState):
             condition=condition,
             state=state,
             action=chat_state,
+            description=description,
             tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
             canned_responses=canned_responses,
             metadata=metadata,
@@ -1301,6 +1319,7 @@ class ChatJourneyState(JourneyState):
         *,
         condition: str | None = None,
         state: TState,
+        description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
@@ -1312,6 +1331,7 @@ class ChatJourneyState(JourneyState):
         *,
         condition: str | None = None,
         chat_state: str,
+        description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
@@ -1324,6 +1344,7 @@ class ChatJourneyState(JourneyState):
         condition: str | None = None,
         tool_instruction: str | None = None,
         tool_state: ToolEntry,
+        description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
@@ -1335,6 +1356,7 @@ class ChatJourneyState(JourneyState):
         condition: str | None = None,
         tool_instruction: str | None = None,
         tool_state: Sequence[ToolEntry],
+        description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
@@ -1347,6 +1369,7 @@ class ChatJourneyState(JourneyState):
         tool_instruction: str | None = None,
         state: TState | None = None,
         tool_state: ToolEntry | Sequence[ToolEntry] = [],
+        description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
@@ -1355,6 +1378,7 @@ class ChatJourneyState(JourneyState):
             condition=condition,
             state=state,
             action=chat_state or tool_instruction,
+            description=description,
             tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
             canned_responses=canned_responses,
             metadata=metadata,
@@ -1374,6 +1398,7 @@ class ForkJourneyState(JourneyState):
         *,
         condition: str,
         state: TState,
+        description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
@@ -1385,6 +1410,7 @@ class ForkJourneyState(JourneyState):
         *,
         condition: str,
         chat_state: str,
+        description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
@@ -1397,6 +1423,7 @@ class ForkJourneyState(JourneyState):
         condition: str,
         tool_instruction: str | None = None,
         tool_state: ToolEntry,
+        description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
@@ -1408,6 +1435,7 @@ class ForkJourneyState(JourneyState):
         condition: str,
         tool_instruction: str | None = None,
         tool_state: Sequence[ToolEntry],
+        description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
@@ -1420,6 +1448,7 @@ class ForkJourneyState(JourneyState):
         tool_instruction: str | None = None,
         state: TState | None = None,
         tool_state: ToolEntry | Sequence[ToolEntry] = [],
+        description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
@@ -1428,6 +1457,7 @@ class ForkJourneyState(JourneyState):
             condition=condition,
             state=state,
             action=chat_state or tool_instruction,
+            description=description,
             tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
             canned_responses=canned_responses,
             metadata=metadata,
@@ -1462,6 +1492,7 @@ class Journey:
         self,
         state_type: type[TState],
         action: str | None = None,
+        description: str | None = None,
         tools: Sequence[ToolEntry] = [],
         metadata: Mapping[str, JSONSerializable] = {},
     ) -> TState:
@@ -1484,6 +1515,7 @@ class Journey:
                 ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name)
                 for t in tools
             ],
+            description=description,
         )
 
         node = await self._container[JourneyStore].set_node_metadata(
@@ -1504,6 +1536,7 @@ class Journey:
             action=action,
             tools=tools,
             metadata=node.metadata,
+            description=node.description,
             _journey=self,
         )
 
@@ -1528,7 +1561,11 @@ class Journey:
 
             self._server._add_state_evaluation(
                 target.id,
-                GuidelineContent(condition=condition or "", action=target._internal_action),
+                GuidelineContent(
+                    condition=condition or "",
+                    action=target._internal_action,
+                    description=target.description,
+                ),
                 list(target_tool_ids.values()),
             )
 
@@ -3261,6 +3298,7 @@ class Server:
                 action=start_state.action,
                 tools=[],
                 metadata=start_state.metadata,
+                description=start_state.description,
                 _journey=journey,
             )
         )

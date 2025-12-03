@@ -62,6 +62,7 @@ class JourneyNode:
     action: Optional[str]
     tools: Sequence[ToolId]
     metadata: Mapping[str, JSONSerializable]
+    description: Optional[str] = None
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -102,6 +103,7 @@ class JourneyUpdateParams(TypedDict, total=False):
 class JourneyNodeUpdateParams(TypedDict, total=False):
     action: Optional[str]
     tools: Optional[Sequence[ToolId]]
+    description: Optional[str]
 
 
 class JourneyEdgeUpdateParams(TypedDict, total=False):
@@ -195,6 +197,7 @@ class JourneyStore(ABC):
         journey_id: JourneyId,
         action: Optional[str],
         tools: Sequence[ToolId],
+        description: Optional[str] = None,
     ) -> JourneyNode: ...
 
     @abstractmethod
@@ -340,6 +343,7 @@ class JourneyNodeAssociationDocument(TypedDict, total=False):
     action: Optional[str]
     tools: Sequence[ToolId]
     metadata: Mapping[str, JSONSerializable]
+    description: Optional[str]
 
 
 class JourneyEdgeAssociationDocument(TypedDict, total=False):
@@ -598,6 +602,7 @@ class JourneyVectorStore(JourneyStore):
             action=node.action,
             tools=node.tools,
             metadata=node.metadata,
+            description=node.description,
         )
 
     def _deserialize_node(self, doc: JourneyNodeAssociationDocument) -> JourneyNode:
@@ -607,6 +612,7 @@ class JourneyVectorStore(JourneyStore):
             action=doc["action"],
             tools=doc["tools"],
             metadata=doc["metadata"],
+            description=doc.get("description"),
         )
 
     def _serialize_edge(
@@ -678,6 +684,7 @@ class JourneyVectorStore(JourneyStore):
                 action=None,
                 tools=[],
                 metadata={},
+                description=None,
             )
 
             await self._node_association_collection.insert_one(
@@ -1029,6 +1036,7 @@ class JourneyVectorStore(JourneyStore):
         journey_id: JourneyId,
         action: Optional[str],
         tools: Sequence[ToolId],
+        description: Optional[str] = None,
         creation_utc: Optional[datetime] = None,
     ) -> JourneyNode:
         creation_utc = creation_utc or datetime.now(timezone.utc)
@@ -1042,6 +1050,7 @@ class JourneyVectorStore(JourneyStore):
                 action=action,
                 tools=tools,
                 metadata={},
+                description=description,
             )
 
             await self._node_association_collection.insert_one(
@@ -1133,6 +1142,7 @@ class JourneyVectorStore(JourneyStore):
                 action=None,
                 tools=[],
                 metadata={},
+                description=None,
             )
         ]
 

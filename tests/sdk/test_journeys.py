@@ -938,3 +938,108 @@ class Test_that_journey_state_match_handler_is_called(SDKTest):
         assert self.captured_state_id == self.state.target.id, (
             f"Expected state ID {self.state.target.id}, got {self.captured_state_id}"
         )
+
+
+class Test_that_journey_state_can_be_created_with_description(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Pizza Agent",
+            description="Agent for testing journey state descriptions",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Pizza Ordering",
+            description="Handle pizza orders",
+            conditions=["Customer wants to order pizza"],
+        )
+
+        self.transition = await self.journey.initial_state.transition_to(
+            condition="Customer confirms toppings",
+            chat_state="Process the order",
+            description="At this point we've confirmed the pizza toppings and are ready to finalize",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        journey_store = ctx.container[JourneyStore]
+
+        # Read the created state/node from the store
+        node = await journey_store.read_node(node_id=self.transition.target.id)
+
+        assert (
+            node.description
+            == "At this point we've confirmed the pizza toppings and are ready to finalize"
+        )
+
+
+class Test_that_journey_state_description_affects_agent_behavior(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Spaceship Agent",
+            description="Agent for testing journey state description behavior",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Spaceship Maintenance",
+            description="Handle spaceship maintenance requests",
+            conditions=["Customer asks about spaceship maintenance"],
+        )
+
+        await self.journey.initial_state.transition_to(
+            condition="Customer needs thruster calibration",
+            chat_state="Explain the calibration process",
+            description="First you peel the banana, then you stick it in the thruster",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        answer = await ctx.send_and_receive(
+            customer_message="I need help with spaceship maintenance. Specifically thruster calibration.",
+            recipient=self.agent,
+        )
+
+        assert await nlp_test(answer, "It mentions a banana")
+
+
+class Test_that_different_state_types_support_description(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Multi-State Agent",
+            description="Agent for testing descriptions across state types",
+        )
+
+        @tool
+        def check_inventory(context: ToolContext) -> ToolResult:
+            return ToolResult(data={"status": "available"})
+
+        self.journey = await self.agent.create_journey(
+            title="Order Processing",
+            description="Process customer orders",
+            conditions=["Customer wants to place an order"],
+        )
+
+        # ChatJourneyState with description
+        self.chat_transition = await self.journey.initial_state.transition_to(
+            condition="Customer provides item name",
+            chat_state="Confirm the item selection",
+            description="This is where we confirm what item the customer wants to order",
+        )
+
+        # ToolJourneyState with description
+        self.tool_transition = await self.chat_transition.target.transition_to(
+            condition="Need to check inventory",
+            tool_state=check_inventory,
+            description="Check if the item is in stock using our inventory system",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        journey_store = ctx.container[JourneyStore]
+
+        # Verify ChatJourneyState has description
+        chat_node = await journey_store.read_node(node_id=self.chat_transition.target.id)
+        assert (
+            chat_node.description
+            == "This is where we confirm what item the customer wants to order"
+        )
+
+        # Verify ToolJourneyState has description
+        tool_node = await journey_store.read_node(node_id=self.tool_transition.target.id)
+        assert tool_node.description == "Check if the item is in stock using our inventory system"

@@ -365,31 +365,30 @@ class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument])
         if await self.find(filters) == []:
             return []
 
-        docs = [
-            {key: value for key, value in d.items() if key not in keys_to_exclude}
-            for d in self._nano_db.query(
-                query=vector,
-                top_k=k,
-                filter_lambda=self._build_filter_lambda(filters),
+        query_result = self._nano_db.query(
+            query=vector,
+            top_k=len(self._documents),
+            filter_lambda=self._build_filter_lambda(filters),
+        )
+
+        docs_and_similarities = [
+            (
+                {key: value for key, value in d.items() if key not in keys_to_exclude},
+                float(d["__metrics__"]),
             )
+            for d in query_result
         ]
 
-        self._logger.trace(f"Similar documents found\n{json.dumps(docs, indent=2)}")
+        self._logger.trace(
+            f"Similar documents found\n{json.dumps(docs_and_similarities[0], indent=2)}"
+        )
 
-        # FIXME: Distances here are fake (rank → normalized 0–0.8).
-        # Proper cosine distance should be computed.
-        # Currently NanoDB doesn’t return similarity scores or embeddings, so
-        # this is only a placeholder for ordering. Replace once real scores
-        # are implemented in the database client.
-        n = len(docs)
-
-        def distance_formula(i: int) -> float:
-            return ((i / (n - 1)) * 0.8) if n > 1 else 0.8
-
-        return [
+        results = [
             SimilarDocumentResult(
                 document=cast(TDocument, d),
-                distance=distance_formula(i),
+                distance=1 - abs(sim),
             )
-            for i, d in enumerate(docs)
+            for d, sim in docs_and_similarities
         ]
+
+        return results

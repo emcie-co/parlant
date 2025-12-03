@@ -33,6 +33,7 @@ All notable changes to Parlant will be documented here.
 - Allow specifying custom IDs when creating glossary via SDK and API
 - Add Qdrant VectorDatabase adapter
 - Fix critical bug with cancellation during response analysis
+- Fix critical similarity calculation error in TransientVectorDatabase
 
 ## [3.0.3] - 2025-10-23
 

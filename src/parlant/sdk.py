@@ -2724,7 +2724,10 @@ class Server:
         self._creation_progress.__exit__(None, None, None)
         self._creation_progress = None
 
-        with self._container[Tracer].attributes({"scope": "Evaluations"}):
+        with self._container[Tracer].span(
+            "startup.evaluations",
+            attributes={"scope": "Evaluations"},
+        ):
             await self._process_evaluations()
 
         await self._setup_retrievers()

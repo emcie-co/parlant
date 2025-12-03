@@ -508,6 +508,8 @@ class CannedResponseGenerator(MessageEventComposer):
         self._entity_queries = entity_queries
         self._no_match_provider = no_match_provider
         self._follow_ups_enabled = True
+        self.candidate_similarity_threshold = 0.5
+
         self._define_histograms()
 
     def _define_histograms(self) -> None:
@@ -1654,13 +1656,16 @@ Output a JSON object with three properties:
 
         # Step 2: Select the most relevant canned response templates based on the draft message
         async with self._hist_retrieval_duration.measure():
+            relevance_scores = await self._canned_response_store.filter_relevant_canned_responses(
+                query=draft_message,
+                available_canned_responses=canned_responses,
+                max_count=30,
+            )
+
             relevant_canreps = set(
                 r.canned_response
-                for r in await self._canned_response_store.filter_relevant_canned_responses(
-                    query=draft_message,
-                    available_canned_responses=canned_responses,
-                    max_count=30,
-                )
+                for r in relevance_scores
+                if r.score >= self.candidate_similarity_threshold
             )
 
             # Filtering based on similarity will have taken out all transient
@@ -1674,6 +1679,20 @@ Output a JSON object with three properties:
                     guidelines=[m.guideline for m in context.guideline_matches]
                 )
             )
+
+            if not relevant_canreps and composition_mode != CompositionMode.CANNED_STRICT:
+                self._logger.debug(
+                    "Skipping canned response selection; no relevant canned responses found"
+                )
+
+                return {
+                    "draft": draft_response.info,
+                }, _CannedResponseSelectionResult(
+                    message=draft_message,
+                    draft=None,
+                    rendered_canned_responses=[],
+                    chosen_canned_responses=[],
+                )
 
         # Step 3: Pre-render these templates so that matching works better
         async with self._hist_render_duration.measure():

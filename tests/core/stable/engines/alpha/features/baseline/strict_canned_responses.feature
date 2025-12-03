@@ -40,10 +40,10 @@ Feature: Strict Canned Response
         And the tool "get_qualification_info"
         And an association between "retrieve_qualification_info" and "get_qualification_info"
         And a customer message, "What are the requirements for the developer position?"
-        And a canned response, "The requirement is {{qualification_info}}."
+        And a canned response, "In terms of years of experience, the requirement is {{qualification_info}}."
         When processing is triggered
         Then a single message event is emitted
-        And the message contains the text "The requirement is 5+ years of experience."
+        And the message contains the text "In terms of years of experience, the requirement is 5+ years of experience."
 
     Scenario: Uttering agent and customer names (strict canned response)
         Given an agent named "Bozo" whose job is to sell pizza

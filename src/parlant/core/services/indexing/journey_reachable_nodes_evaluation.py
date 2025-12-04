@@ -20,6 +20,7 @@ from parlant.core.shots import Shot, ShotCollection
 
 PRE_ROOT_INDEX = "0"
 ROOT_INDEX = "1"
+ACTION_COMPLETION_REMINDER = "<str, condition that says the current action completed, if exists. Reminder: if it requires the customer to do something, phrase it as 'The customer ...' if it only requires the agent. phrase it as 'The agent..'>"
 
 
 class JourneyNodeKind(Enum):
@@ -94,7 +95,10 @@ class JourneyReachableNodesEvaluationShot(Shot):
     expected_result: ReachableNodesEvaluationSchema
 
 
-class ReachableNodesEvaluator:
+# TODO use internal representation
+
+
+class JourneyReachableNodesEvaluator:
     def __init__(
         self,
         logger: Logger,
@@ -309,7 +313,11 @@ class ReachableNodesEvaluator:
                     dfs(neighbor)
             order.append(node)
 
-        dfs(PRE_ROOT_INDEX)
+        if PRE_ROOT_INDEX in graph:
+            dfs(PRE_ROOT_INDEX)
+        else:
+            dfs(ROOT_INDEX)
+
         for node in graph:
             if node not in visited:
                 dfs(node)
@@ -373,7 +381,8 @@ class ReachableNodesEvaluator:
                 path = [duplicate_to_orig_id.get(id, id) for id in r.path]
                 result.append((r.condition, path))
 
-            node_to_reachable_follow_ups[node_idx] = result
+            if node_idx not in duplicate_to_orig_id:
+                node_to_reachable_follow_ups[node_idx] = result
 
         return ReachableNodesEvaluation(node_to_reachable_follow_ups=node_to_reachable_follow_ups)
 
@@ -391,12 +400,12 @@ Current node action:
         else:
             desc += """
     There is no action to take in this node"""
-        if node.customer_dependent_action and node.customer_action_description:
-            desc += f"""
-It is completed if the following action was completed: "{node.customer_action_description}"""
-        if node.agent_dependent_action and node.agent_action_description:
-            desc += f"""
-It is completed if the following action was completed: "{node.agent_action_description}"""
+        if node.customer_dependent_action:
+            desc += """
+- CUSTOMER DEPENDENT: This action requires an action from the customer to be considered complete. Mark it as complete if the customer answered the question in the action, if there is one."""
+        if node.agent_dependent_action:
+            desc += """
+- REQUIRES AGENT ACTION: This step requires from the agent to say something for it to be completed."""
 
         if children_info:
             for id, info in children_info.items():
@@ -503,9 +512,13 @@ state the complementary condition.
 
 So eventually we will get all possible options to continue from the current node.
 
-Notes:
-- Action completion - Actions requiring customer responses (e.g., "Ask the customer which type of pizza they want") , it was completed if the customer provided the requested information, whether explicitly requested by the agent or volunteered unprompted.
+Action completion:
+You will be asked to phrase the condition that says that an action was / wasn't completed. Notice the CUSTOMER DEPENDENT and REQUIRES AGENT ACTION and follow those rules:
+CUSTOMER DEPENDENT: Actions requiring customer responses (e.g., "Ask the customer which type of pizza they want") , it was completed if the customer provided the requested information, whether explicitly requested by the agent or volunteered unprompted.
     So the action completed phrasing should be "The customer chose which type of pizza they want" and not "The agent asked the customer which type of pizza they want" (If they said without asking it is still completed).
+REQUIRES AGENT ACTION: If action requires the agent to say something, we describe it as completed if the agent did their part. The correct phrasing should be "The agent informed the customer that.." and node "The customer was informed.
+
+Notes:
 - Make sure that the condition is well described and can be understood without having more information about the steps and transition, such that given a conversation with a customer it will be possible to determine if the condition 
 holds or not.
 - If action contains options, for example, "ask the customer if they want Margarita, Pepperoni or vegan" don't just describe the action that was taken by "the customer chose the type of pizza", include all relevant details in the condition
@@ -606,7 +619,7 @@ OUTPUT FORMAT
 ```json
 {{
     "step_action": "{node.action if node.action else ""}",
-    "step_action_completed": "{"<str, condition that says that current action completed, if exists>" if node.action else ""}",{_get_children_condition()}
+    "step_action_completed": "{ACTION_COMPLETION_REMINDER if node.action else ""}",{_get_children_condition()}
 }}
 ```
 """

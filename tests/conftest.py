@@ -33,6 +33,9 @@ from parlant.api.authorization import AuthorizationPolicy, DevelopmentAuthorizat
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.common import IdGenerator
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
+    JourneyBacktrackCheckSchema,
+)
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
     JourneyNodeSelectionSchema,
 )
@@ -198,7 +201,10 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
 )
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.types import Engine
-from parlant.core.services.indexing.behavioral_change_evaluation import GuidelineEvaluator
+from parlant.core.services.indexing.behavioral_change_evaluation import (
+    GuidelineEvaluator,
+    JourneyEvaluator,
+)
 
 
 from parlant.core.loggers import LogLevel, Logger, StdoutLogger
@@ -487,6 +493,7 @@ async def container(
             JourneyNextStepSelectionSchema,
             RelativeActionSchema,
             ReachableNodesEvaluationSchema,
+            JourneyBacktrackCheckSchema,
         ):
             container[SchematicGenerator[generation_schema]] = await make_schematic_generator(  # type: ignore
                 container,
@@ -548,6 +555,7 @@ async def container(
         container[ResponseAnalysisBatch] = Singleton(GenericResponseAnalysisBatch)
         container[GuidelineMatcher] = Singleton(GuidelineMatcher)
         container[GuidelineEvaluator] = Singleton(GuidelineEvaluator)
+        container[JourneyEvaluator] = Singleton(JourneyEvaluator)
 
         container[DefaultToolCallBatcher] = Singleton(DefaultToolCallBatcher)
         container[ToolCallBatcher] = lambda container: container[DefaultToolCallBatcher]

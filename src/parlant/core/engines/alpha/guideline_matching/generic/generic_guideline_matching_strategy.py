@@ -38,6 +38,9 @@ from parlant.core.engines.alpha.guideline_matching.generic.guideline_previously_
     GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchesSchema,
     GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingBatch,
 )
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
+    JourneyBacktrackCheckSchema,
+)
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
     JourneyNodeSelectionSchema,
 )
@@ -103,6 +106,9 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         journey_next_step_selection_schematic_generator: SchematicGenerator[
             JourneyNextStepSelectionSchema
         ],
+        journey_backtrack_check_schematic_generator: SchematicGenerator[
+            JourneyBacktrackCheckSchema
+        ],
         response_analysis_schematic_generator: SchematicGenerator[GenericResponseAnalysisSchema],
     ) -> None:
         self._logger = logger
@@ -133,6 +139,9 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         )
         self._journey_next_step_selection_schematic_generator = (
             journey_next_step_selection_schematic_generator
+        )
+        self._journey_backtrack_check_schematic_generator = (
+            journey_backtrack_check_schematic_generator
         )
         self._response_analysis_schematic_generator = response_analysis_schematic_generator
 
@@ -611,6 +620,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
             optimization_policy=self._optimization_policy,
             schematic_generator_journey_node_selection=self._journey_node_selection_schematic_generator,
             schematic_generator_next_step_selection=self._journey_next_step_selection_schematic_generator,
+            schematic_generator_journey_backtrack_check=self._journey_backtrack_check_schematic_generator,
             examined_journey=examined_journey,
             context=GuidelineMatchingContext(
                 agent=context.agent,

@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Sequence
 from enum import Enum
 from typing import Any, cast
@@ -7,6 +8,10 @@ from parlant.core import async_utils
 from parlant.core.common import JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.common import measure_guideline_matching_batch
 
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
+    JourneyBacktrackCheck,
+    JourneyBacktrackCheckSchema,
+)
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
     JourneyBacktrackNodeSelection,
     JourneyNodeSelectionSchema,
@@ -48,6 +53,9 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
         optimization_policy: OptimizationPolicy,
         schematic_generator_journey_node_selection: SchematicGenerator[JourneyNodeSelectionSchema],
         schematic_generator_next_step_selection: SchematicGenerator[JourneyNextStepSelectionSchema],
+        schematic_generator_journey_backtrack_check: SchematicGenerator[
+            JourneyBacktrackCheckSchema
+        ],
         examined_journey: Journey,
         context: GuidelineMatchingContext,
         node_guidelines: Sequence[Guideline] = [],
@@ -63,6 +71,9 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
             schematic_generator_journey_node_selection
         )
         self._schematic_generator_next_step_selection = schematic_generator_next_step_selection
+        self._schematic_generator_journey_backtrack_check = (
+            schematic_generator_journey_backtrack_check
+        )
         self._context = context
         self._examined_journey = examined_journey
         self._node_guidelines = node_guidelines
@@ -150,7 +161,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
         )
 
         async with measure_guideline_matching_batch(self._meter, self):
-            if not self._previous_path:
+            if not self._previous_path or all(p is None for p in self._previous_path):
                 next_step_selector = JourneyNextStepSelection(
                     logger=self._logger,
                     guideline_store=self._guideline_store,
@@ -159,11 +170,26 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                     examined_journey=self._examined_journey,
                     context=self._context,
                     node_guidelines=self._node_guidelines,
-                    journey_path=self._previous_path,
+                    journey_path=[],
                     journey_conditions=journey_conditions,
                 )
                 return await next_step_selector.process()  # TODO catch error??
-            elif self._previous_path and self._previous_path[-1]:  # TODO run backward check
+            elif (
+                self._previous_path
+                and not all(p is None for p in self._previous_path)
+                and self._previous_path[-1]
+            ):  # TODO run backtrack check
+                backtrack_checker = JourneyBacktrackCheck(
+                    logger=self._logger,
+                    guideline_store=self._guideline_store,
+                    optimization_policy=self._optimization_policy,
+                    schematic_generator=self._schematic_generator_journey_backtrack_check,
+                    examined_journey=self._examined_journey,
+                    context=self._context,
+                    node_guidelines=self._node_guidelines,
+                    journey_path=self._previous_path,
+                    journey_conditions=journey_conditions,
+                )
                 next_step_selector = JourneyNextStepSelection(
                     logger=self._logger,
                     guideline_store=self._guideline_store,
@@ -175,17 +201,33 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                     journey_path=self._previous_path,
                     journey_conditions=journey_conditions,
                 )
-                return await next_step_selector.process()
+
+                backtrack_task = asyncio.create_task(backtrack_checker.process())
+                next_step_task = asyncio.create_task(next_step_selector.process())
+
+                backtrack_result = await backtrack_task
+
+                if backtrack_result.requires_backtracking:
+                    next_step_task.cancel()
+                    try:
+                        await next_step_task
+                    except asyncio.CancelledError:
+                        pass
+
+                    node_selector = JourneyBacktrackNodeSelection(
+                        logger=self._logger,
+                        guideline_store=self._guideline_store,
+                        optimization_policy=self._optimization_policy,
+                        schematic_generator=self._schematic_generator_journey_node_selection,
+                        examined_journey=self._examined_journey,
+                        context=self._context,
+                        node_guidelines=self._node_guidelines,
+                        journey_path=self._previous_path,
+                        journey_conditions=journey_conditions,
+                    )
+                    return await node_selector.process()
+                else:
+                    return await next_step_task
             else:
-                node_selector = JourneyBacktrackNodeSelection(
-                    logger=self._logger,
-                    guideline_store=self._guideline_store,
-                    optimization_policy=self._optimization_policy,
-                    schematic_generator=self._schematic_generator_journey_node_selection,
-                    examined_journey=self._examined_journey,
-                    context=self._context,
-                    node_guidelines=self._node_guidelines,
-                    journey_path=self._previous_path,
-                    journey_conditions=journey_conditions,
-                )
-                return await node_selector.process()
+                # run next step selection in parallel to backtrack_checker
+                return None

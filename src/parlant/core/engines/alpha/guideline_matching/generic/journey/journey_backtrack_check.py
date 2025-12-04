@@ -28,6 +28,7 @@ from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, Gu
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
+from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
 
@@ -53,6 +54,7 @@ class JourneyBacktrackCheckShot(Shot):
 class BacktrackCheckResult(DefaultBaseModel):
     requires_backtracking: bool
     backtrack_to_same_journey_process: bool
+    generation_info: GenerationInfo
 
 
 class JourneyBacktrackCheck:
@@ -334,11 +336,13 @@ class JourneyBacktrackCheck:
                     return BacktrackCheckResult(
                         requires_backtracking=inference.content.requires_backtracking,
                         backtrack_to_same_journey_process=False,
+                        generation_info=inference.info,
                     )
                 else:
                     return BacktrackCheckResult(
                         requires_backtracking=inference.content.requires_backtracking,
                         backtrack_to_same_journey_process=inference.content.backtrack_to_same_journey_process,
+                        generation_info=inference.info,
                     )
 
             except Exception as exc:

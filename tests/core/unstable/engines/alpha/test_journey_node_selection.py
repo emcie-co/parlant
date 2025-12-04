@@ -3,6 +3,9 @@ from pytest import fixture
 from parlant.core.agents import Agent
 from parlant.core.customers import Customer
 
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
+    JourneyBacktrackCheckSchema,
+)
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
     JourneyNodeSelectionSchema,
 )
@@ -40,6 +43,9 @@ def context(
         ],
         journey_reachable_nodes_evaluation_schematic_generator=container[
             SchematicGenerator[ReachableNodesEvaluationSchema]
+        ],
+        journey_backtrack_check_schematic_generator=container[
+            SchematicGenerator[JourneyBacktrackCheckSchema]
         ],
     )
 

@@ -124,14 +124,14 @@ class JourneyNextStepSelection:
 
     def build_node_wrappers(
         self,
-    ) -> tuple[_JourneyNode, dict[str, _JourneyEdge], dict[str, list[str]]]:
+    ) -> tuple[_JourneyNode, dict[str, _JourneyEdge], dict[str, Sequence[str]]]:
         def _get_reachable_follow_ups(
             guideline_id: GuidelineId,
             guideline_id_to_guideline: dict[GuidelineId, Guideline],
-        ) -> list[tuple[str, list[str]]]:
+        ) -> list[dict[str, JSONSerializable]]:
             guideline = guideline_id_to_guideline[guideline_id]
             return cast(
-                list[tuple[str, list[str]]],
+                list[dict[str, JSONSerializable]],
                 cast(dict[str, JSONSerializable], guideline.metadata["journey_node"]).get(
                     "reachable_follow_ups", []
                 ),
@@ -182,16 +182,13 @@ class JourneyNextStepSelection:
             return node
 
         if not self._previous_path:
-            root_g = self._guideline_id_to_guideline[
-                self._node_index_to_guideline_id[PRE_ROOT_INDEX]
-            ]
+            root_g = self._guideline_id_to_guideline[self._node_index_to_guideline_id[ROOT_INDEX]]
             follow_ups = cast(
                 dict[str, Sequence[GuidelineId]], root_g.metadata.get("journey_node", {})
             ).get("follow_ups", [])
-            if (
-                len(follow_ups) == 1
-            ):  # Root has a single follow up, so that follow up is first to be executed
-                current_g_id = self._node_index_to_guideline_id[follow_ups[0]]
+            if (not root_g.content.action) and len(follow_ups) == 1:
+                # Root has a single follow up, so that follow up is first to be executed
+                current_g_id = follow_ups[0]
             else:
                 current_g_id = root_g.id
         else:
@@ -206,11 +203,12 @@ class JourneyNextStepSelection:
             current_g_id, self._guideline_id_to_guideline
         )
 
-        condition_to_path: dict[str, list[str]] = {}
+        condition_to_path: dict[str, Sequence[str]] = {}
 
-        for i, (transition_condition, journey_node_path) in enumerate(
-            reachable_follow_ups, start=1
-        ):
+        for i, follow_up in enumerate(reachable_follow_ups, start=1):
+            journey_node_path: Sequence[str] = cast(Sequence[str], follow_up["path"])
+            transition_condition: str = cast(str, follow_up["condition"])
+
             target_node_action = None
 
             if journey_node_path[-1] in self._node_index_to_guideline_id:
@@ -267,7 +265,9 @@ class JourneyNextStepSelection:
                                     score=10,
                                     rationale=f"This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. Use this rationale to better understand how the conversation got to its current point. The rationale for choosing this specific step in the journey was: {inference.content.rationale}",
                                     metadata={
-                                        "journey_path": self._previous_path,
+                                        "journey_path": self._previous_path
+                                        if self._previous_path
+                                        else [self._current_node.id],
                                         "step_selection_journey_id": self._examined_journey.id,
                                     },
                                 )
@@ -292,7 +292,13 @@ class JourneyNextStepSelection:
                                     generation_info=inference.info,
                                 )
                             else:
-                                journey_path = list(self._previous_path) + list(next_path)
+                                if not self._previous_path:
+                                    # we started from the root and root was completed, so include it in journey path
+                                    journey_path = cast(
+                                        list[str | None], [self._current_node.id] + list(next_path)
+                                    )
+                                else:
+                                    journey_path = [self._previous_path[-1]] + list(next_path)
                                 matched_guideline = self._guideline_id_to_guideline[
                                     self._node_index_to_guideline_id[next_node]
                                 ]
@@ -805,6 +811,8 @@ example_3_expected = JourneyNextStepSelectionSchema(
     current_step_completed=True,
     applied_condition_id="4",
 )
+
+
 _baseline_shots: Sequence[JourneyNextStepSelectionShot] = [
     JourneyNextStepSelectionShot(
         description="Example 1 - Stay on current step",

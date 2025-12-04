@@ -39,7 +39,7 @@ from parlant.core.journey_guideline_projection import (
     JourneyGuidelineProjection,
     extract_node_id_from_journey_node_guideline_id,
 )
-from parlant.core.journeys import Journey, JourneyId, JourneyStore
+from parlant.core.journeys import Journey, JourneyId, JourneyNodeId, JourneyStore
 from parlant.core.services.indexing.common import EvaluationError, ProgressReport
 from parlant.core.services.indexing.customer_dependent_action_detector import (
     CustomerDependentActionDetector,
@@ -59,6 +59,10 @@ from parlant.core.services.indexing.guideline_continuous_proposer import (
 )
 from parlant.core.loggers import Logger
 from parlant.core.entity_cq import EntityQueries
+from parlant.core.services.indexing.journey_reachable_nodes_evaluation import (
+    JourneyReachableNodesEvaluator,
+    ReachableNodesEvaluation,
+)
 from parlant.core.services.indexing.relative_action_proposer import (
     RelativeActionProposer,
     RelativeActionProposition,
@@ -82,18 +86,21 @@ class JourneyEvaluator:
         journey_store: JourneyStore,
         journey_guideline_projection: JourneyGuidelineProjection,
         relative_action_proposer: RelativeActionProposer,
+        journey_reachable_node_evaluator: JourneyReachableNodesEvaluator,
     ) -> None:
         self._logger = logger
 
         self._guideline_store = guideline_store
         self._journey_store = journey_store
         self._journey_guideline_projection = journey_guideline_projection
+        self._journey_reachable_node_evaluator = journey_reachable_node_evaluator
 
         self._relative_action_proposer = relative_action_proposer
 
     async def _build_invoice_data(
         self,
         relative_action_propositions: Sequence[RelativeActionProposition],
+        reachable_nodes_evaluations: Sequence[ReachableNodesEvaluation],
         journey_projections: dict[JourneyId, tuple[Journey, Sequence[Guideline], tuple[Guideline]]],
     ) -> Sequence[InvoiceJourneyData]:
         index_to_node_ids = {
@@ -108,16 +115,32 @@ class JourneyEvaluator:
 
         result = []
 
-        for proposition, journey_id in zip(
-            relative_action_propositions, journey_projections.keys()
+        for action_proposition, reachable_node_evaluation, journey_id in zip(
+            relative_action_propositions, reachable_nodes_evaluations, journey_projections.keys()
         ):
+            node_properties_proposition: dict[JourneyNodeId, dict[str, JSONSerializable]] = {}
+            for a in action_proposition.actions:
+                node_id = index_to_node_ids[journey_id][a.index]
+                if node_id not in node_properties_proposition:
+                    node_properties_proposition[node_id] = {}
+                node_properties_proposition[node_id]["internal_action"] = a.rewritten_actions
+
+            for index, r in reachable_node_evaluation.node_to_reachable_follow_ups.items():
+                node_id = index_to_node_ids[journey_id][index]
+                if node_id not in node_properties_proposition:
+                    node_properties_proposition[node_id] = {}
+                if "journey_node" not in node_properties_proposition[node_id]:
+                    node_properties_proposition[node_id]["journey_node"] = {}
+                node_properties_proposition[node_id]["journey_node"] = {
+                    **cast(
+                        dict[str, JSONSerializable],
+                        node_properties_proposition[node_id]["journey_node"],
+                    ),
+                    "reachable_follow_ups": [{"condition": c, "path": p} for c, p in r],
+                }
+
             invoice_data = InvoiceJourneyData(
-                node_properties_proposition={
-                    index_to_node_ids[journey_id][r.index]: {
-                        "internal_action": r.rewritten_actions,
-                    }
-                    for r in proposition.actions
-                },
+                node_properties_proposition=node_properties_proposition,
                 edge_properties_proposition={},
             )
 
@@ -171,8 +194,14 @@ class JourneyEvaluator:
             progress_report,
         )
 
+        reachable_nodes_evaluations = await self._evaluate_reachable_nodes(
+            journey_projections,
+            progress_report,
+        )
+
         invoices = await self._build_invoice_data(
             relative_action_propositions,
+            reachable_nodes_evaluations,
             journey_projections,
         )
 
@@ -199,6 +228,34 @@ class JourneyEvaluator:
                         examined_journey=journey,
                         step_guidelines=step_guidelines,
                         journey_conditions=journey_conditions,
+                        progress_report=progress_report,
+                    )
+                )
+            )
+
+        sparse_results = list(await async_utils.safe_gather(*tasks))
+
+        return sparse_results
+
+    async def _evaluate_reachable_nodes(
+        self,
+        journey_projections: dict[JourneyId, tuple[Journey, Sequence[Guideline], tuple[Guideline]]],
+        progress_report: Optional[ProgressReport] = None,
+    ) -> Sequence[ReachableNodesEvaluation]:
+        tasks: list[asyncio.Task[ReachableNodesEvaluation]] = []
+
+        for journey_id, (
+            journey,
+            step_guidelines,
+            journey_conditions,
+        ) in journey_projections.items():
+            if not step_guidelines:
+                continue
+
+            tasks.append(
+                asyncio.create_task(
+                    self._journey_reachable_node_evaluator.evaluate_reachable_follow_ups(
+                        node_guidelines=step_guidelines,
                         progress_report=progress_report,
                     )
                 )
@@ -496,6 +553,7 @@ class BehavioralChangeEvaluator:
         agent_intention_proposer: AgentIntentionProposer,
         tool_running_action_detector: ToolRunningActionDetector,
         relative_action_proposer: RelativeActionProposer,
+        journey_reachable_node_evaluator: JourneyReachableNodesEvaluator,
     ) -> None:
         self._logger = logger
         self._background_task_service = background_task_service
@@ -521,6 +579,7 @@ class BehavioralChangeEvaluator:
             journey_store=journey_store,
             journey_guideline_projection=journey_guideline_projection,
             relative_action_proposer=relative_action_proposer,
+            journey_reachable_node_evaluator=journey_reachable_node_evaluator,
         )
 
     async def validate_payloads(

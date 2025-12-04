@@ -17,6 +17,9 @@ from parlant.core.context_variables import (
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent
 
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
+    JourneyBacktrackCheckSchema,
+)
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
     JourneyNodeKind,
     JourneyNodeSelectionSchema,
@@ -39,7 +42,7 @@ from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.services.indexing.journey_reachable_nodes_evaluation import (
     ReachableNodesEvaluationSchema,
-    ReachableNodesEvaluator,
+    JourneyReachableNodesEvaluator,
 )
 from parlant.core.sessions import EventKind, EventSource, Session, SessionId, SessionStore
 from parlant.core.tags import Tag, TagId
@@ -58,6 +61,7 @@ class ContextOfTest:
     journey_reachable_nodes_evaluation_schematic_generator: SchematicGenerator[
         ReachableNodesEvaluationSchema
     ]
+    journey_backtrack_check_schematic_generator: SchematicGenerator[JourneyBacktrackCheckSchema]
     logger: Logger
 
 
@@ -98,6 +102,9 @@ def context(
         ],
         journey_reachable_nodes_evaluation_schematic_generator=container[
             SchematicGenerator[ReachableNodesEvaluationSchema]
+        ],
+        journey_backtrack_check_schematic_generator=container[
+            SchematicGenerator[JourneyBacktrackCheckSchema]
         ],
     )
 
@@ -982,6 +989,13 @@ async def create_journey(
         for node in nodes
     ]
 
+    index_to_g: dict[str, Guideline] = {
+        cast(
+            str, cast(dict[str, JSONSerializable], g.metadata["journey_node"]).get("index", "-1")
+        ): g
+        for g in node_guidelines
+    }
+
     journey = Journey(
         id=journey_id,
         root_id=JourneyNodeId(root_guideline.id),
@@ -991,6 +1005,18 @@ async def create_journey(
         title=title,
         tags=[],
     )
+
+    result = await JourneyReachableNodesEvaluator(
+        logger=context.logger,
+        optimization_policy=context.container[OptimizationPolicy],
+        schematic_generator=context.journey_reachable_nodes_evaluation_schematic_generator,
+    ).evaluate_reachable_follow_ups(node_guidelines=node_guidelines)
+
+    for id, r in result.node_to_reachable_follow_ups.items():
+        metadata = cast(dict[str, JSONSerializable], index_to_g[id].metadata)
+        journey_node = cast(dict[str, JSONSerializable], metadata["journey_node"])
+
+        journey_node["reachable_follow_ups"] = [{"condition": c, "path": p} for c, p in r]
 
     return journey, [root_guideline] + list(node_guidelines)
 
@@ -1027,18 +1053,13 @@ async def base_test_that_correct_node_is_selected(
         description=JOURNEYS_DICT[journey_name].description,
     )
 
-    await ReachableNodesEvaluator(
-        logger=context.logger,
-        optimization_policy=context.container[OptimizationPolicy],
-        schematic_generator=context.journey_reachable_nodes_evaluation_schematic_generator,
-    ).evaluate_reachable_follow_ups(node_guidelines=journey_node_guidelines)
-
     journey_node_selector = GenericJourneyNodeSelectionBatch(
         logger=context.logger,
         meter=context.container[Meter],
         guideline_store=context.container[GuidelineStore],
         schematic_generator_journey_node_selection=context.journey_node_selection_schematic_generator,
         schematic_generator_next_step_selection=context.journey_next_step_selection_schematic_generator,
+        schematic_generator_journey_backtrack_check=context.journey_backtrack_check_schematic_generator,
         examined_journey=journey,
         node_guidelines=journey_node_guidelines,
         journey_path=journey_previous_path,
@@ -1839,7 +1860,7 @@ async def test_that_multinode_advancement_is_stopped_at_node_that_requires_sayin
         conversation_context=conversation_context,
         journey_name="compliment_customer_journey",
         journey_previous_path=["1", "2"],
-        expected_path=["1", "2", "3", "4", "5"],
+        expected_path=["2", "3", "4", "5"],
         expected_next_node_index="5",
     )
 
@@ -2466,7 +2487,7 @@ async def test_that_journey_reexecutes_tool_running_step_even_if_the_tool_ran_be
         conversation_context=conversation_context,
         journey_name="calzone_journey",
         journey_previous_path=["1", "2", "7", "8"],
-        expected_path=["1", "2", "7", "8", "9", "10"],
+        expected_path=["8", "9", "10"],
         expected_next_node_index="10",  # Should check stock again
         staged_events=staged_events,
     )

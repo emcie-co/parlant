@@ -39,7 +39,7 @@ class Test_that_hooks_can_access_current_sdk_entities(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        await ctx.send_and_receive("Hello", self.agent)
+        await ctx.send_and_receive_message("Hello", self.agent)
 
         assert self.captured_server == ctx.server
 

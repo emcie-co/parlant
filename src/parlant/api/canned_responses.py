@@ -19,7 +19,10 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import Field
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
-from parlant.core.app_modules.canned_responses import CannedResponseTagUpdateParamsModel
+from parlant.core.app_modules.canned_responses import (
+    CannedResponseTagUpdateParamsModel,
+    CannedResponseMetadataUpdateParamsModel,
+)
 from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
 from parlant.core.canned_responses import (
@@ -27,7 +30,7 @@ from parlant.core.canned_responses import (
     CannedResponseField,
 )
 from parlant.core.tags import TagId
-from parlant.api.common import ExampleJson, apigen_config, example_json_content
+from parlant.api.common import ExampleJson, JSONSerializableDTO, apigen_config, example_json_content
 
 
 API_GROUP = "canned_responses"
@@ -112,6 +115,22 @@ CannedResponseSignalSequenceField: TypeAlias = Annotated[
     ),
 ]
 
+CannedResponseMetadataField: TypeAlias = Annotated[
+    dict[str, JSONSerializableDTO],
+    Field(
+        description="Additional metadata associated with the canned response.",
+        examples=[{"category": "greeting", "priority": 1}],
+    ),
+]
+
+CannedResponseMetadataUnsetField: TypeAlias = Annotated[
+    Sequence[str],
+    Field(
+        description="Metadata keys to remove from the canned response",
+        examples=[["old_key", "deprecated_field"]],
+    ),
+]
+
 CannedResponseIdField: TypeAlias = Annotated[
     CannedResponseId,
     Field(
@@ -143,6 +162,8 @@ canned_response_example: ExampleJson = {
     "value": "Your account balance is {balance}",
     "fields": [{"name": "balance", "description": "Account's balance", "examples": [9000]}],
     "tags": ["private", "office"],
+    "signals": ["What is your balance?", "How much money do I have?"],
+    "metadata": {"category": "account", "priority": 1},
 }
 
 
@@ -156,6 +177,7 @@ class CannedResponseDTO(
     fields: CannedResponseFieldSequenceField
     tags: TagIdSequenceField
     signals: CannedResponseSignalSequenceField
+    metadata: CannedResponseMetadataField
 
 
 canned_response_creation_params_example: ExampleJson = {
@@ -167,6 +189,7 @@ canned_response_creation_params_example: ExampleJson = {
             "examples": ["9000"],
         }
     ],
+    "metadata": {"category": "account", "priority": 1},
 }
 
 
@@ -180,6 +203,7 @@ class CannedResponseCreationParamsDTO(
     fields: CannedResponseFieldSequenceField
     tags: TagIdSequenceField | None = None
     signals: CannedResponseSignalSequenceField | None = None
+    metadata: CannedResponseMetadataField | None = None
 
 
 CannedResponseTagUpdateAddField: TypeAlias = Annotated[
@@ -223,6 +247,26 @@ class CannedResponseTagUpdateParamsDTO(
     remove: CannedResponseTagUpdateRemoveField | None = None
 
 
+canned_response_metadata_update_params_example: ExampleJson = {
+    "set": {
+        "category": "account",
+        "priority": 2,
+        "version": "1.1",
+    },
+    "unset": ["old_category", "deprecated_field"],
+}
+
+
+class CannedResponseMetadataUpdateParamsDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": canned_response_metadata_update_params_example},
+):
+    """Parameters for updating the metadata of a canned response."""
+
+    set: CannedResponseMetadataField | None = None
+    unset: CannedResponseMetadataUnsetField | None = None
+
+
 canned_response_update_params_example: ExampleJson = {
     "value": "Your updated balance is {balance}",
     "fields": [
@@ -232,6 +276,13 @@ canned_response_update_params_example: ExampleJson = {
             "examples": ["10000"],
         },
     ],
+    "metadata": {
+        "set": {
+            "category": "account",
+            "priority": 2,
+        },
+        "unset": ["old_field"],
+    },
 }
 
 
@@ -244,6 +295,7 @@ class CannedResponseUpdateParamsDTO(
     value: CannedResponseValueField | None = None
     fields: CannedResponseFieldSequenceField | None = None
     tags: CannedResponseTagUpdateParamsDTO | None = None
+    metadata: CannedResponseMetadataUpdateParamsDTO | None = None
 
 
 def _dto_to_canned_response_field(dto: CannedResponseFieldDTO) -> CannedResponseField:
@@ -300,6 +352,7 @@ def create_router(
             fields=[_dto_to_canned_response_field(s) for s in params.fields],
             tags=params.tags or None,
             signals=params.signals or None,
+            metadata=params.metadata or {},
         )
 
         return CannedResponseDTO(
@@ -309,6 +362,7 @@ def create_router(
             fields=[_canned_response_field_to_dto(s) for s in canrep.fields],
             tags=canrep.tags,
             signals=canrep.signals,
+            metadata=canrep.metadata,
         )
 
     @router.get(
@@ -342,6 +396,7 @@ def create_router(
             fields=[_canned_response_field_to_dto(s) for s in canrep.fields],
             tags=canrep.tags,
             signals=canrep.signals,
+            metadata=canrep.metadata,
         )
 
     @router.get(
@@ -372,6 +427,7 @@ def create_router(
                 fields=[_canned_response_field_to_dto(s) for s in f.fields],
                 tags=f.tags,
                 signals=f.signals,
+                metadata=f.metadata,
             )
             for f in canreps
         ]
@@ -414,6 +470,13 @@ def create_router(
                 detail="CannedResponse fields cannot be updated without providing a new value.",
             )
 
+        metadata_params = None
+        if params.metadata:
+            metadata_params = CannedResponseMetadataUpdateParamsModel(
+                set=params.metadata.set,
+                unset=params.metadata.unset,
+            )
+
         canrep = await app.canned_responses.update(
             canned_response_id=canned_response_id,
             value=params.value,
@@ -423,6 +486,7 @@ def create_router(
             tags=CannedResponseTagUpdateParamsModel(add=params.tags.add, remove=params.tags.remove)
             if params.tags
             else None,
+            metadata=metadata_params,
         )
 
         return CannedResponseDTO(
@@ -432,6 +496,7 @@ def create_router(
             fields=[_canned_response_field_to_dto(s) for s in canrep.fields],
             tags=canrep.tags,
             signals=canrep.signals,
+            metadata=canrep.metadata,
         )
 
     @router.delete(

@@ -330,7 +330,7 @@ class Test_that_guideline_can_use_custom_matcher(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        answer = await ctx.send_and_receive(
+        answer = await ctx.send_and_receive_message(
             customer_message="Hello, sir.",
             recipient=self.agent,
         )
@@ -361,7 +361,7 @@ class Test_that_custom_matcher_can_return_no_match(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        answer = await ctx.send_and_receive(
+        answer = await ctx.send_and_receive_message(
             customer_message="Hello there!",
             recipient=self.agent,
         )
@@ -383,7 +383,7 @@ class Test_that_guideline_description_affects_agent_behavior(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        answer = await ctx.send_and_receive(
+        answer = await ctx.send_and_receive_message(
             customer_message="What are Cachookas?",
             recipient=self.agent,
         )
@@ -410,7 +410,7 @@ class Test_that_guideline_match_handler_is_called_when_guideline_matches(SDKTest
         )
 
     async def run(self, ctx: Context) -> None:
-        await ctx.send_and_receive(
+        await ctx.send_and_receive_message(
             customer_message="Hello there!",
             recipient=self.agent,
         )
@@ -458,7 +458,7 @@ class Test_that_multiple_match_handlers_can_be_registered_for_same_guideline(SDK
         )
 
     async def run(self, ctx: Context) -> None:
-        await ctx.send_and_receive(
+        await ctx.send_and_receive_message(
             customer_message="I need help please",
             recipient=self.agent,
         )
@@ -496,7 +496,7 @@ class Test_that_match_handlers_for_different_guidelines_are_independent(SDKTest)
         )
 
     async def run(self, ctx: Context) -> None:
-        await ctx.send_and_receive(
+        await ctx.send_and_receive_message(
             customer_message="I'd like to order some pizza",
             recipient=self.agent,
         )
@@ -530,7 +530,7 @@ class Test_that_match_handler_on_journey_guideline_works(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        await ctx.send_and_receive(
+        await ctx.send_and_receive_message(
             customer_message="I'd like to order a banana",
             recipient=self.agent,
         )
@@ -636,7 +636,7 @@ class Test_that_only_prioritized_guideline_handler_is_called_when_both_match(SDK
 
     async def run(self, ctx: Context) -> None:
         # Send a message that would match both guidelines
-        await ctx.send_and_receive(
+        await ctx.send_and_receive_message(
             customer_message="I need help with billing please",
             recipient=self.agent,
         )

@@ -33,6 +33,7 @@ from tests.test_utilities import get_random_port
 def get_message(event: ClientEvent) -> str:
     if message := event.model_dump().get("data", {}).get("message", ""):
         return cast(str, message)
+
     raise ValueError("Event does not contain a message in its data.")
 
 
@@ -43,12 +44,12 @@ class Context:
     container: p.Container
     _session_id: str | None = None
 
-    async def send_and_receive(
+    async def send_and_receive_message_event(
         self,
         customer_message: str,
         recipient: p.Agent,
         reuse_session: bool = False,
-    ) -> str:
+    ) -> ClientEvent:
         if (not self._session_id) or (not reuse_session):
             self._session_id = (
                 await self.client.sessions.create(
@@ -74,7 +75,21 @@ class Context:
 
         assert len(agent_messages) >= 1
 
-        return get_message(agent_messages[0])
+        return agent_messages[0]
+
+    async def send_and_receive_message(
+        self,
+        customer_message: str,
+        recipient: p.Agent,
+        reuse_session: bool = False,
+    ) -> str:
+        agent_message = await self.send_and_receive_message_event(
+            customer_message=customer_message,
+            recipient=recipient,
+            reuse_session=reuse_session,
+        )
+
+        return get_message(agent_message)
 
 
 class SDKTest:

@@ -1,7 +1,8 @@
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Sequence, Mapping
 
 from parlant.core.agents import AgentId, AgentStore
+from parlant.core.common import JSONSerializable
 from parlant.core.canned_responses import (
     CannedResponse,
     CannedResponseField,
@@ -18,6 +19,12 @@ from parlant.core.tags import Tag, TagId, TagStore
 class CannedResponseTagUpdateParamsModel:
     add: Sequence[TagId] | None = None
     remove: Sequence[TagId] | None = None
+
+
+@dataclass(frozen=True)
+class CannedResponseMetadataUpdateParamsModel:
+    set: Mapping[str, JSONSerializable] | None = None
+    unset: Sequence[str] | None = None
 
 
 class CannedResponseModule:
@@ -49,6 +56,7 @@ class CannedResponseModule:
         fields: Sequence[CannedResponseField],
         signals: Sequence[str] | None,
         tags: Sequence[TagId] | None,
+        metadata: Mapping[str, JSONSerializable] | None = None,
     ) -> CannedResponse:
         if tags:
             for tag_id in tags:
@@ -59,6 +67,7 @@ class CannedResponseModule:
             fields=fields,
             signals=signals,
             tags=tags if tags else None,
+            metadata=metadata or {},
         )
 
         return canrep
@@ -83,13 +92,34 @@ class CannedResponseModule:
         value: str | None,
         fields: Sequence[CannedResponseField],
         tags: CannedResponseTagUpdateParamsModel | None,
+        metadata: CannedResponseMetadataUpdateParamsModel | None = None,
     ) -> CannedResponse:
-        if value:
-            update_params: CannedResponseUpdateParams = {
-                "value": value,
-                "fields": fields,
-            }
+        update_params: CannedResponseUpdateParams = {}
+        needs_update = False
 
+        if value:
+            update_params["value"] = value
+            update_params["fields"] = fields
+            needs_update = True
+
+        if metadata:
+            # Get current canned response to merge metadata
+            current_canrep = await self._canrep_store.read_canned_response(canned_response_id)
+            current_metadata = dict(current_canrep.metadata) if current_canrep.metadata else {}
+
+            # Apply set operations
+            if metadata.set:
+                current_metadata.update(metadata.set)
+
+            # Apply unset operations
+            if metadata.unset:
+                for key in metadata.unset:
+                    current_metadata.pop(key, None)
+
+            update_params["metadata"] = current_metadata
+            needs_update = True
+
+        if needs_update:
             await self._canrep_store.update_canned_response(canned_response_id, update_params)
 
         if tags:

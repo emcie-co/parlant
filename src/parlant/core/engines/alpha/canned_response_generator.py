@@ -155,7 +155,7 @@ class _CannedResponseRenderResult:
 class _CannedResponseSelectionResult:
     message: str
     draft: str | None
-    rendered_canned_responses: Sequence[tuple[CannedResponseId, str]]
+    rendered_canned_responses: Sequence[tuple[CannedResponse, str]]
     chosen_canned_responses: list[tuple[CannedResponseId, str]]
 
 
@@ -844,6 +844,16 @@ You will now be given the current state of the interaction to which you must gen
             if generation_result is not None:
                 policy = self._perceived_performance_policy_provider.get_policy(context.agent.id)
 
+                chosen_canrep = next(
+                    iter(
+                        canrep
+                        for canrep, _ in generation_result.rendered_canned_responses
+                        if generation_result.chosen_canned_responses[0][0] == canrep.id
+                    ),
+                    None,
+                )
+                metadata = chosen_canrep.metadata if chosen_canrep else {}
+
                 if await policy.is_message_splitting_required(
                     loaded_context, generation_result.message
                 ):
@@ -870,6 +880,7 @@ You will now be given the current state of the interaction to which you must gen
                                 message=m,
                                 participant=Participant(id=agent.id, display_name=agent.name),
                             ),
+                            metadata=metadata,
                         )
                         if not is_first_message_emitted:
                             self._tracer.add_event("canrep.ttfm")
@@ -1480,7 +1491,7 @@ Produce a valid JSON object according to the following spec. Use the values prov
         self,
         context: CannedResponseContext,
         draft_message: str,
-        canned_responses: Sequence[tuple[CannedResponseId, str]],
+        canned_responses: Sequence[tuple[CannedResponse, str]],
     ) -> PromptBuilder:
         builder = PromptBuilder(
             on_build=lambda prompt: self._logger.trace(
@@ -1489,7 +1500,7 @@ Produce a valid JSON object according to the following spec. Use the values prov
         )
 
         formatted_canreps = "\n".join(
-            [f'Template ID: {canrep[0]} """\n{canrep[1]}\n"""' for canrep in canned_responses]
+            [f'Template ID: {canrep[0].id} """\n{canrep[1]}\n"""' for canrep in canned_responses]
         )
 
         builder.add_section(
@@ -1697,7 +1708,7 @@ Output a JSON object with three properties:
         # Step 3: Pre-render these templates so that matching works better
         async with self._hist_render_duration.measure():
             rendered_canreps = [
-                (r.response.id, str(r.rendered_text))
+                (r.response, str(r.rendered_text))
                 for r in await self._render_responses(
                     context=context,
                     responses=relevant_canreps,
@@ -1796,7 +1807,7 @@ Output a JSON object with three properties:
         # Step 5.3: Assuming a high-quality match or a partial match in strict mode
         selected_canrep_id = CannedResponseId(selection_response.content.chosen_template_id)
         rendered_canned_response = next(
-            (value for crid, value in rendered_canreps if crid == selected_canrep_id),
+            (value for canrep, value in rendered_canreps if canrep.id == selected_canrep_id),
             None,
         )
 
@@ -2150,18 +2161,18 @@ Output a JSON object with three properties:
 
         try:
             outputted_canreps_ids = [
-                crid for (crid, canrep) in last_response_generation.chosen_canned_responses
+                cid for cid, value in last_response_generation.chosen_canned_responses
             ]
 
-            filtered_rendered_canreps: Sequence[tuple[CannedResponseId, str]] = [
-                (cid, canrep)
-                for cid, canrep in last_response_generation.rendered_canned_responses
-                if cid not in outputted_canreps_ids
+            filtered_rendered_canreps: Sequence[tuple[CannedResponse, str]] = [
+                (canrep, value)
+                for canrep, value in last_response_generation.rendered_canned_responses
+                if canrep.id not in outputted_canreps_ids
             ]  # removes outputted response/s
 
             chronological_id_rendered_canreps = {
-                str(i): (cid, canrep)
-                for i, (cid, canrep) in enumerate(filtered_rendered_canreps, start=1)
+                str(i): (canrep, value)
+                for i, (canrep, value) in enumerate(filtered_rendered_canreps, start=1)
             }
 
             prompt = self._build_follow_up_canned_response_prompt(
@@ -2200,7 +2211,7 @@ Output a JSON object with three properties:
                         message=chosen_canrep[1],
                         draft=response.content.remaining_message_draft,
                         rendered_canned_responses=filtered_rendered_canreps,
-                        chosen_canned_responses=[chosen_canrep],
+                        chosen_canned_responses=[(chosen_canrep[0].id, chosen_canrep[1])],
                     )
                     if chosen_canrep
                     else None

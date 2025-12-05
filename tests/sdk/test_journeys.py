@@ -995,7 +995,7 @@ class Test_that_journey_state_description_affects_agent_behavior(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        answer = await ctx.send_and_receive(
+        answer = await ctx.send_and_receive_message(
             customer_message="I need help with spaceship maintenance. Specifically thruster calibration.",
             recipient=self.agent,
         )

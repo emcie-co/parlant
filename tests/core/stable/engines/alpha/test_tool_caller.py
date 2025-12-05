@@ -24,7 +24,7 @@ from typing_extensions import override
 from ast import literal_eval
 
 from parlant.core.agents import Agent
-from parlant.core.common import generate_id
+from parlant.core.common import Criticality, generate_id
 from parlant.core.customers import Customer, CustomerStore, CustomerId
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.tool_calling.tool_caller import (
@@ -123,6 +123,7 @@ def create_guideline_match(
             condition=condition,
             action=action,
         ),
+        criticality=Criticality.MEDIUM,
         enabled=True,
         tags=tags,
         metadata={},

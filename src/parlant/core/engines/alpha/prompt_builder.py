@@ -14,14 +14,19 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
+import dataclasses
 from enum import Enum, auto
 from io import StringIO
 from itertools import chain
 import json
-from typing import Any, Callable, Mapping, Optional, Sequence, cast
+from typing import Any, Callable, Generic, Mapping, Optional, Sequence, TypeVar, cast
+
+from pydantic import BaseModel
+import pydantic
 
 from parlant.core.agents import Agent
 from parlant.core.capabilities import Capability
+from parlant.core.common import JSONSerializable
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
 from parlant.core.engines.alpha.guideline_matching.generic.common import (
@@ -44,6 +49,8 @@ from parlant.core.engines.alpha.utils import (
 from parlant.core.emissions import EmittedEvent
 from parlant.core.guidelines import Guideline, GuidelineId
 from parlant.core.tools import ToolId
+
+_T = TypeVar("_T")
 
 
 class BuiltInSection(Enum):
@@ -94,12 +101,39 @@ class PromptBuilder:
 
         self._cached_results.add(prompt)
 
+    def _prop_to_dict(self, prop: Any) -> Any:
+        class CustomTypeAdapter(pydantic.BaseModel, Generic[_T]):
+            obj: _T
+
+            __pydantic_config__ = pydantic.ConfigDict(
+                json_encoders={
+                    JSONSerializable: lambda v: v,  # type: ignore
+                }
+            )
+
+        if isinstance(prop, (str, int, float, bool)) or prop is None:
+            return prop
+        elif isinstance(prop, dict):
+            return {k: self._prop_to_dict(v) for k, v in prop.items()}
+        elif isinstance(prop, list):
+            return [self._prop_to_dict(i) for i in prop]
+        elif dataclasses.is_dataclass(prop):
+            return CustomTypeAdapter(obj=prop).model_dump(mode="json")["obj"]
+        elif isinstance(prop, BaseModel):
+            return prop.model_dump(mode="json")
+        elif isinstance(prop, Enum):
+            return prop.value
+        else:
+            raise ValueError(f"Unsupported prop type: {type(prop)}")
+
     @property
-    def props(self) -> dict[str, dict[str, Any]]:
+    def props(self, keys: list[str] | None = None) -> dict[str, dict[str, Any]]:
         return {
-            section_name
-            if isinstance(section_name, str)
-            else f"__{section_name.name}__": section.props
+            section_name if isinstance(section_name, str) else f"__{section_name.name}__": {
+                k: self._prop_to_dict(v)
+                for k, v in section.props.items()
+                if keys is None or k in keys
+            }
             for section_name, section in self.sections.items()
         }
 

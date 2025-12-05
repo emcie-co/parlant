@@ -20,7 +20,7 @@ from typing import Mapping, Optional, Sequence, cast
 from typing_extensions import override
 
 from parlant.core import async_utils
-from parlant.core.common import JSONSerializable, generate_id
+from parlant.core.common import Criticality, JSONSerializable, generate_id
 from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
 from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch import (
     DisambiguationGuidelineMatchesSchema,
@@ -270,6 +270,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                                     ],
                                 ),
                             ),
+                            criticality=Criticality.MEDIUM,
                             enabled=True,
                             tags=[],
                             metadata={},

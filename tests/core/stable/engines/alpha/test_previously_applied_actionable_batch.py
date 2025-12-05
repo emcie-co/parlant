@@ -19,7 +19,7 @@ from lagom import Container
 from pytest import fixture
 from parlant.core.agents import Agent
 from parlant.core.capabilities import Capability, CapabilityId
-from parlant.core.common import generate_id
+from parlant.core.common import Criticality, generate_id
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent
@@ -134,6 +134,7 @@ def create_guideline(
             condition=condition,
             action=action,
         ),
+        criticality=Criticality.MEDIUM,
         enabled=True,
         tags=tags,
         metadata={},

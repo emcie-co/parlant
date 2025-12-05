@@ -108,17 +108,26 @@ class Interaction:
     @property
     def last_customer_message(self) -> Optional[InteractionMessage]:
         """Returns the last customer message in the interaction session, if it exists"""
+        if event := self.last_customer_message_event:
+            message_data = cast(MessageEventData, event.data)
+
+            return InteractionMessage(
+                source=event.source,
+                participant=message_data["participant"],
+                trace_id=event.trace_id,
+                content=message_data["message"],
+                creation_utc=event.creation_utc,
+            )
+
+        return None
+
+    @property
+    def last_customer_message_event(self) -> Optional[Event]:
+        """Returns the last customer message in the interaction session, if it exists"""
         for event in reversed(self.history):
             if event.kind == EventKind.MESSAGE and event.source == EventSource.CUSTOMER:
-                message_data = cast(MessageEventData, event.data)
+                return event
 
-                return InteractionMessage(
-                    source=event.source,
-                    participant=message_data["participant"],
-                    trace_id=event.trace_id,
-                    content=message_data["message"],
-                    creation_utc=event.creation_utc,
-                )
         return None
 
     history: Sequence[Event]

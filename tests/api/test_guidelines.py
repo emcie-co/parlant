@@ -883,3 +883,75 @@ async def test_that_a_guideline_description_can_be_updated_to_none(
 
     assert updated_guideline["id"] == guideline.id
     assert updated_guideline["description"] is None
+
+
+async def test_that_guideline_can_be_created_with_criticality_via_api(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/guidelines",
+        json={
+            "condition": "Customer reports a critical security issue",
+            "action": "Escalate to security team immediately",
+            "criticality": "high",
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    guideline = response.json()
+    assert guideline["condition"] == "Customer reports a critical security issue"
+    assert guideline["action"] == "Escalate to security team immediately"
+    assert guideline["criticality"] == "high"
+
+
+async def test_that_guideline_defaults_to_medium_criticality_via_api(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/guidelines",
+        json={
+            "condition": "Customer asks about product features",
+            "action": "Provide detailed feature information",
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    guideline = response.json()
+    assert guideline["condition"] == "Customer asks about product features"
+    assert guideline["action"] == "Provide detailed feature information"
+    assert guideline["criticality"] == "medium"
+
+
+async def test_that_guideline_criticality_can_be_updated_via_api(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    # Create a guideline with LOW criticality
+    create_response = await async_client.post(
+        "/guidelines",
+        json={
+            "condition": "Customer has a minor question",
+            "action": "Provide basic information",
+            "criticality": "low",
+        },
+    )
+
+    assert create_response.status_code == status.HTTP_201_CREATED
+    guideline = create_response.json()
+    guideline_id = guideline["id"]
+
+    # Update criticality to HIGH
+    update_response = await async_client.patch(
+        f"/guidelines/{guideline_id}",
+        json={
+            "criticality": "high",
+        },
+    )
+
+    assert update_response.status_code == status.HTTP_200_OK
+    updated_guideline = update_response.json()["guideline"]
+
+    assert updated_guideline["id"] == guideline_id
+    assert updated_guideline["criticality"] == "high"

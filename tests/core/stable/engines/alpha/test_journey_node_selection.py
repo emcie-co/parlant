@@ -7,7 +7,7 @@ from pytest import fixture
 
 from parlant.core.agents import Agent
 from parlant.core.capabilities import Capability
-from parlant.core.common import JSONSerializable
+from parlant.core.common import Criticality, JSONSerializable
 from parlant.core.context_variables import (
     ContextVariable,
     ContextVariableId,
@@ -567,6 +567,7 @@ async def create_journey(
         id=GuidelineId("root"),
         creation_utc=datetime.now(timezone.utc),
         content=GuidelineContent(condition="", action=None),
+        criticality=Criticality.MEDIUM,
         enabled=True,
         tags=[],
         metadata={
@@ -586,6 +587,7 @@ async def create_journey(
                 condition=node.condition or "",
                 action=node.action,
             ),
+            criticality=Criticality.MEDIUM,
             enabled=False,
             tags=[],
             metadata={

@@ -91,6 +91,25 @@ GuidelineDescriptionField: TypeAlias = Annotated[
     ),
 ]
 
+
+class CriticalityDTO(Enum):
+    """
+    The criticality level of a guideline.
+    """
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+GuidelineCriticalityField: TypeAlias = Annotated[
+    CriticalityDTO,
+    Field(
+        description="The criticality level of the guideline",
+        examples=["high"],
+    ),
+]
+
 guideline_content_example: ExampleJson = {
     "condition": "User asks about product pricing",
     "action": "Provide current price list and any active discounts",
@@ -226,6 +245,7 @@ class GuidelineDTO(
     condition: GuidelineConditionField
     action: GuidelineActionField | None = None
     description: GuidelineDescriptionField | None = None
+    criticality: GuidelineCriticalityField = CriticalityDTO.MEDIUM
     enabled: GuidelineEnabledField = True
     tags: GuidelineTagsField
     metadata: GuidelineMetadataField

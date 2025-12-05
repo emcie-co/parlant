@@ -201,3 +201,16 @@ def to_json_dict(d: Mapping[str, Any]) -> Mapping[str, Any]:
         return v
 
     return {k: adapt_value(v) for k, v in d.items()}
+
+
+class Criticality(Enum):
+    """Enumeration of guideline criticality levels."""
+
+    LOW = "low"
+    """Low priority guideline."""
+
+    MEDIUM = "medium"
+    """Medium priority guideline (default)."""
+
+    HIGH = "high"
+    """High priority guideline."""

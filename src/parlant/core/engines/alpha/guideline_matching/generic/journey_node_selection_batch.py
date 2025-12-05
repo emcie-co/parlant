@@ -8,7 +8,7 @@ import traceback
 from typing import Any, Optional, cast
 from typing_extensions import override
 from parlant.core import async_utils
-from parlant.core.common import DefaultBaseModel, JSONSerializable
+from parlant.core.common import Criticality, DefaultBaseModel, JSONSerializable
 
 from parlant.core.engines.alpha.guideline_matching.common import measure_guideline_matching_batch
 from parlant.core.engines.alpha.guideline_matching.generic.common import (
@@ -603,6 +603,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                             condition=c,
                             action=None,
                         ),
+                        criticality=Criticality.MEDIUM,
                         enabled=False,
                         tags=[],
                     )

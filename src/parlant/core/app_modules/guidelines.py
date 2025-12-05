@@ -3,7 +3,7 @@ from itertools import chain
 from typing import Mapping, Sequence, cast
 
 from parlant.core.agents import AgentId, AgentStore
-from parlant.core.common import ItemNotFoundError, JSONSerializable, UniqueId
+from parlant.core.common import Criticality, ItemNotFoundError, JSONSerializable, UniqueId
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociation,
     GuidelineToolAssociationStore,
@@ -84,6 +84,7 @@ class GuidelineModule:
         condition: str,
         action: str | None,
         description: str | None,
+        criticality: Criticality | None,
         metadata: Mapping[str, JSONSerializable] | None,
         enabled: bool | None,
         tags: Sequence[TagId] | None,
@@ -99,6 +100,7 @@ class GuidelineModule:
             condition=condition,
             action=action,
             description=description,
+            criticality=criticality,
             metadata=metadata or {},
             enabled=enabled or True,
             tags=tags,
@@ -130,6 +132,7 @@ class GuidelineModule:
         condition: str | None,
         action: str | None,
         description: str | None,
+        criticality: Criticality | None,
         tool_associations: GuidelineToolAssociationUpdateParams | None,
         enabled: bool | None,
         tags: GuidelineTagsUpdateParams | None,
@@ -137,7 +140,13 @@ class GuidelineModule:
     ) -> Guideline:
         _ = await self._guideline_store.read_guideline(guideline_id=guideline_id)
 
-        if condition or action or description is not None or enabled is not None:
+        if (
+            condition
+            or action
+            or description is not None
+            or criticality is not None
+            or enabled is not None
+        ):
             update_params: GuidelineUpdateParams = {}
             if condition:
                 update_params["condition"] = condition
@@ -145,6 +154,8 @@ class GuidelineModule:
                 update_params["action"] = action
             if description is not None:
                 update_params["description"] = description
+            if criticality is not None:
+                update_params["criticality"] = criticality
             if enabled is not None:
                 update_params["enabled"] = enabled
 

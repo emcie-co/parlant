@@ -4,6 +4,7 @@ from typing import Mapping, Sequence
 from lagom import Container
 from pytest import fixture
 
+from parlant.core.common import Criticality
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.journeys import Journey, JourneyId, JourneyNodeId
 from parlant.core.loggers import Logger
@@ -68,6 +69,7 @@ def create_journey(
             id=GuidelineId(f"c-{i}"),
             creation_utc=datetime.now(timezone.utc),
             content=GuidelineContent(condition=condition, action=None),
+            criticality=Criticality.MEDIUM,
             enabled=False,
             tags=[],
             metadata={},
@@ -79,6 +81,7 @@ def create_journey(
         id=GuidelineId("root"),
         creation_utc=datetime.now(timezone.utc),
         content=GuidelineContent(condition="", action=None),
+        criticality=Criticality.MEDIUM,
         enabled=True,
         tags=[],
         metadata={
@@ -98,6 +101,7 @@ def create_journey(
                 condition=step.condition or "",
                 action=step.action,
             ),
+            criticality=Criticality.MEDIUM,
             enabled=False,
             tags=[],
             metadata={

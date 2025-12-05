@@ -85,6 +85,7 @@ from parlant.core.agents import (
 from parlant.core.async_utils import Timeout, default_done_callback
 from parlant.core.capabilities import CapabilityId, CapabilityStore, CapabilityVectorStore
 from parlant.core.common import (
+    Criticality,
     DefaultBaseModel,
     IdGenerator,
     ItemNotFoundError,
@@ -1616,6 +1617,7 @@ class Journey:
         tools: Iterable[ToolEntry] = [],
         metadata: dict[str, JSONSerializable] = {},
         canned_responses: Sequence[CannedResponseId] = [],
+        criticality: Criticality = Criticality.MEDIUM,
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
         | None = None,
         on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
@@ -1629,6 +1631,7 @@ class Journey:
             tools=tools,
             metadata=metadata,
             canned_responses=canned_responses,
+            criticality=criticality,
             matcher=matcher,
             on_match=on_match,
             tags=None,
@@ -2074,6 +2077,7 @@ class Agent:
         tools: Iterable[ToolEntry] = [],
         metadata: dict[str, JSONSerializable] = {},
         canned_responses: Sequence[CannedResponseId] = [],
+        criticality: Criticality = Criticality.MEDIUM,
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
         | None = None,
         on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
@@ -2087,6 +2091,7 @@ class Agent:
             tools=tools,
             metadata=metadata,
             canned_responses=canned_responses,
+            criticality=criticality,
             matcher=matcher,
             on_match=on_match,
             tags=[_Tag.for_agent_id(self.id)],
@@ -2099,6 +2104,7 @@ class Agent:
         condition: str,
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
+        criticality: Criticality = Criticality.MEDIUM,
         on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
     ) -> Guideline:
         """A shorthand for creating an observational guideline with the specified condition."""
@@ -2108,6 +2114,7 @@ class Agent:
             description=description,
             canned_responses=canned_responses,
             on_match=on_match,
+            criticality=criticality,
         )
 
     async def attach_tool(
@@ -2552,6 +2559,7 @@ class Server:
         description: str | None,
         tools: Iterable[ToolEntry],
         metadata: dict[str, JSONSerializable],
+        criticality: Criticality,
         canned_responses: Sequence[CannedResponseId],
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]] | None,
         on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None,
@@ -2573,6 +2581,7 @@ class Server:
             condition=condition,
             action=action,
             description=description,
+            criticality=criticality,
             metadata=metadata,
             id=id,
         )
@@ -3598,6 +3607,7 @@ __all__ = [
     "ContextVariableId",
     "ContextVariableStore",
     "ControlOptions",
+    "Criticality",
     "Customer",
     "CustomerId",
     "CustomerModerationContext",

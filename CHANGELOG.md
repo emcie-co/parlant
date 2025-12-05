@@ -34,6 +34,7 @@ All notable changes to Parlant will be documented here.
 - Add Qdrant VectorDatabase adapter
 - Fix critical bug with cancellation during response analysis
 - Fix critical similarity calculation error in TransientVectorDatabase
+- Add guideline criticality level
 
 ## [3.0.3] - 2025-10-23
 

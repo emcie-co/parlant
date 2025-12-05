@@ -39,6 +39,7 @@ from parlant.core.app_modules.guidelines import (
 )
 from parlant.core.application import Application
 from parlant.core.common import (
+    Criticality,
     DefaultBaseModel,
 )
 from parlant.api.common import (
@@ -213,10 +214,11 @@ class GuidelineCreationParamsDTO(
 ):
     """Parameters for creating a new guideline."""
 
-    condition: GuidelineConditionField
     id: GuidelineIdPath | None = None
+    condition: GuidelineConditionField
     action: GuidelineActionField | None = None
     description: common.GuidelineDescriptionField | None = None
+    criticality: common.CriticalityDTO | None = None
     metadata: GuidelineMetadataField | None = None
     enabled: GuidelineEnabledField | None = None
     tags: GuidelineTagsField | None = None
@@ -284,6 +286,7 @@ class GuidelineUpdateParamsDTO(
     condition: GuidelineConditionField | None = None
     action: GuidelineActionField | None = None
     description: common.GuidelineDescriptionField | None = None
+    criticality: common.CriticalityDTO | None = None
     tool_associations: GuidelineToolAssociationUpdateParamsDTO | None = None
     enabled: GuidelineEnabledField | None = None
     tags: GuidelineTagsUpdateParamsDTO | None = None
@@ -337,6 +340,30 @@ class GuidelineWithRelationshipsAndToolAssociationsDTO(
     tool_associations: Sequence[GuidelineToolAssociationDTO]
 
 
+def _criticality_to_dto(criticality: Criticality) -> common.CriticalityDTO:
+    match criticality:
+        case Criticality.LOW:
+            return common.CriticalityDTO.LOW
+        case Criticality.MEDIUM:
+            return common.CriticalityDTO.MEDIUM
+        case Criticality.HIGH:
+            return common.CriticalityDTO.HIGH
+        case _:
+            raise ValueError(f"Invalid criticality: {criticality.value}")
+
+
+def _criticality_from_dto(dto: common.CriticalityDTO) -> Criticality:
+    match dto:
+        case common.CriticalityDTO.LOW:
+            return Criticality.LOW
+        case common.CriticalityDTO.MEDIUM:
+            return Criticality.MEDIUM
+        case common.CriticalityDTO.HIGH:
+            return Criticality.HIGH
+        case _:
+            raise ValueError(f"Invalid criticality DTO: {dto.value}")
+
+
 def _guideline_relationship_kind_to_dto(
     kind: RelationshipKind,
 ) -> RelationshipKindDTO:
@@ -376,6 +403,7 @@ def _guideline_relationship_to_dto(
             condition=rel_source_guideline.content.condition,
             action=rel_source_guideline.content.action,
             description=rel_source_guideline.content.description,
+            criticality=_criticality_to_dto(rel_source_guideline.criticality),
             enabled=rel_source_guideline.enabled,
             tags=rel_source_guideline.tags,
             metadata=rel_source_guideline.metadata,
@@ -395,6 +423,7 @@ def _guideline_relationship_to_dto(
             condition=rel_target_guideline.content.condition,
             action=rel_target_guideline.content.action,
             description=rel_target_guideline.content.description,
+            criticality=_criticality_to_dto(rel_target_guideline.criticality),
             enabled=rel_target_guideline.enabled,
             tags=rel_target_guideline.tags,
             metadata=rel_target_guideline.metadata,
@@ -454,6 +483,9 @@ def create_router(
                 condition=params.condition,
                 action=params.action or None,
                 description=params.description or None,
+                criticality=_criticality_from_dto(params.criticality)
+                if params.criticality
+                else None,
                 metadata=params.metadata or {},
                 enabled=params.enabled or True,
                 tags=params.tags,
@@ -470,6 +502,7 @@ def create_router(
             condition=guideline.content.condition,
             action=guideline.content.action,
             description=guideline.content.description,
+            criticality=_criticality_to_dto(guideline.criticality),
             metadata=guideline.metadata,
             enabled=guideline.enabled,
             tags=guideline.tags,
@@ -508,6 +541,7 @@ def create_router(
                 condition=guideline.content.condition,
                 action=guideline.content.action,
                 description=guideline.content.description,
+                criticality=_criticality_to_dto(guideline.criticality),
                 metadata=guideline.metadata,
                 enabled=guideline.enabled,
                 tags=guideline.tags,
@@ -563,6 +597,7 @@ def create_router(
                 condition=guideline.content.condition,
                 action=guideline.content.action,
                 description=guideline.content.description,
+                criticality=_criticality_to_dto(guideline.criticality),
                 metadata=guideline.metadata,
                 enabled=guideline.enabled,
                 tags=guideline.tags,
@@ -626,6 +661,7 @@ def create_router(
             condition=params.condition,
             action=params.action,
             description=params.description,
+            criticality=_criticality_from_dto(params.criticality) if params.criticality else None,
             tool_associations=GuidelineToolAssociationUpdateParams(
                 add=[
                     ToolId(service_name=t.service_name, tool_name=t.tool_name)
@@ -665,6 +701,7 @@ def create_router(
                 condition=updated_guideline.content.condition,
                 action=updated_guideline.content.action,
                 description=updated_guideline.content.description,
+                criticality=_criticality_to_dto(updated_guideline.criticality),
                 metadata=updated_guideline.metadata,
                 enabled=updated_guideline.enabled,
                 tags=updated_guideline.tags,

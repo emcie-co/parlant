@@ -647,3 +647,92 @@ class Test_that_only_prioritized_guideline_handler_is_called_when_both_match(SDK
             "General guideline handler should NOT have been called "
             "because it was de-prioritized during resolution"
         )
+
+
+class Test_that_guideline_can_be_created_with_criticality(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        from parlant.core.common import Criticality
+
+        self.agent = await server.create_agent(
+            name="Criticality Test Agent",
+            description="Agent for testing guideline criticality",
+        )
+
+        self.guideline = await self.agent.create_guideline(
+            condition="Customer asks about high priority issue",
+            action="Escalate immediately to senior support",
+            criticality=Criticality.HIGH,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        from parlant.core.common import Criticality
+
+        guideline_store = ctx.container[GuidelineStore]
+        stored_guideline = await guideline_store.read_guideline(guideline_id=self.guideline.id)
+
+        assert stored_guideline.criticality == Criticality.HIGH
+
+
+class Test_that_guideline_defaults_to_medium_criticality_when_not_provided(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Default Criticality Test Agent",
+            description="Agent for testing default criticality",
+        )
+
+        self.guideline = await self.agent.create_guideline(
+            condition="Customer asks a general question",
+            action="Provide standard information",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        from parlant.core.common import Criticality
+
+        guideline_store = ctx.container[GuidelineStore]
+        stored_guideline = await guideline_store.read_guideline(guideline_id=self.guideline.id)
+
+        assert stored_guideline.criticality == Criticality.MEDIUM
+
+
+class Test_that_observation_can_be_created_with_criticality(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        from parlant.core.common import Criticality
+
+        self.agent = await server.create_agent(
+            name="Observation Criticality Test Agent",
+            description="Agent for testing observation criticality",
+        )
+
+        self.observation = await self.agent.create_observation(
+            condition="Customer shows signs of extreme frustration",
+            description="High priority observation requiring immediate attention",
+            criticality=Criticality.HIGH,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        from parlant.core.common import Criticality
+
+        guideline_store = ctx.container[GuidelineStore]
+        stored_observation = await guideline_store.read_guideline(guideline_id=self.observation.id)
+
+        assert stored_observation.criticality == Criticality.HIGH
+
+
+class Test_that_observation_defaults_to_medium_criticality_when_not_provided(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Default Observation Criticality Test Agent",
+            description="Agent for testing default observation criticality",
+        )
+
+        self.observation = await self.agent.create_observation(
+            condition="Customer asks about store hours",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        from parlant.core.common import Criticality
+
+        guideline_store = ctx.container[GuidelineStore]
+        stored_observation = await guideline_store.read_guideline(guideline_id=self.observation.id)
+
+        assert stored_observation.criticality == Criticality.MEDIUM

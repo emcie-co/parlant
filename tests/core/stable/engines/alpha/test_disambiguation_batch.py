@@ -21,7 +21,7 @@ from pytest import fixture
 
 from parlant.core.agents import Agent
 from parlant.core.capabilities import Capability
-from parlant.core.common import JSONSerializable, generate_id
+from parlant.core.common import Criticality, JSONSerializable, generate_id
 from parlant.core.context_variables import (
     ContextVariable,
     ContextVariableId,
@@ -242,6 +242,7 @@ async def create_guideline(
             condition=condition,
             action=action,
         ),
+        criticality=Criticality.MEDIUM,
         enabled=True,
         tags=tags,
         metadata=metadata,

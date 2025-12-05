@@ -1177,3 +1177,107 @@ class Test_that_journey_can_conditionally_link_to_different_sub_journeys(SDKTest
             reuse_session=True,
         )
         assert response4 == "Welcome to billing support! How can I help with your account?"
+
+
+class Test_that_three_journeys_can_be_concatenated(SDKTest):
+    STARTUP_TIMEOUT = 120
+
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Three Journey Agent",
+            description="Agent that links three journeys in sequence",
+            composition_mode=p.CompositionMode.STRICT,
+        )
+
+        # Create canned responses
+        self.step1_response = await server.create_canned_response(
+            template="Please tell me your name."
+        )
+        self.step2_response = await server.create_canned_response(
+            template="What's your favorite color?"
+        )
+        self.step3_response = await server.create_canned_response(
+            template="All done! Thank you for completing all steps."
+        )
+
+        # Journey 1: Collect name
+        self.journey1 = await self.agent.create_journey(
+            title="Journey 1 - Name Collection",
+            conditions=[],
+            description="First journey to collect name",
+        )
+
+        self.name_transition = await self.journey1.initial_state.transition_to(
+            chat_state="Ask for name",
+            canned_responses=[self.step1_response],
+        )
+
+        # Journey 2: Collect favorite color
+        self.journey2 = await self.agent.create_journey(
+            title="Journey 2 - Color Collection",
+            conditions=[],
+            description="Second journey to collect favorite color",
+        )
+
+        self.color_transition = await self.journey2.initial_state.transition_to(
+            chat_state="Ask for favorite color",
+            canned_responses=[self.step2_response],
+        )
+
+        # Journey 3: Final completion
+        self.journey3 = await self.agent.create_journey(
+            title="Journey 3 - Completion",
+            conditions=[],
+            description="Third journey to complete process",
+        )
+
+        self.completion_transition = await self.journey3.initial_state.transition_to(
+            chat_state="Complete the process",
+            canned_responses=[self.step3_response],
+        )
+
+        # Main journey that chains all three journeys
+        self.main_journey = await self.agent.create_journey(
+            title="Main Journey",
+            conditions=["Customer wants to start process"],
+            description="Main journey that connects the three sub-journeys",
+        )
+
+        # Chain the journeys at the main level: Main -> Journey1 -> Journey2 -> Journey3
+        # First transition: Main -> Journey 1 (name collection)
+        self.link1 = await self.main_journey.initial_state.transition_to(
+            journey=self.journey1,
+        )
+
+        # Second transition: After name collected -> Journey 2 (color collection)
+        self.link2 = await self.link1.target.transition_to(
+            journey=self.journey2,
+        )
+
+        # Third transition: After color collected -> Journey 3 (completion)
+        self.link3 = await self.link2.target.transition_to(
+            journey=self.journey3,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        # Test the complete flow through all three journeys
+        response1 = await ctx.send_and_receive(
+            "I want to start the process",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert response1 == "Please tell me your name."
+
+        response2 = await ctx.send_and_receive(
+            "My name is Alice",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert response2 == "What's your favorite color?"
+
+        response3 = await ctx.send_and_receive(
+            "Blue",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert response3 == "All done! Thank you for completing all steps."

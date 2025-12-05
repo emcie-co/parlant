@@ -1336,7 +1336,7 @@ class JourneyState:
                 continue
 
             # Check if this state has no outgoing transitions (leaf state)
-            state_transitions = transitions_by_source[current_state_id]
+            state_transitions = transitions_by_source.get(current_state_id, [])
             if (
                 not state_transitions
                 and mapped_source_state
@@ -1373,29 +1373,41 @@ class JourneyState:
 
                 # Get or create the target state
                 if target_state_id not in state_mapping:
-                    target_state = next(
+                    if target_state := next(
                         (s for s in journey.states if s.id == target_state_id), None
-                    )
-                    if target_state:
+                    ):
                         new_state = await create_mapped_state(target_state)
                         state_mapping[target_state_id] = new_state
                         cast(list[JourneyState], self._journey.states).append(new_state)
 
-                # Create the transition
-                target_mapped_state = state_mapping[target_state_id]
-                if mapped_source_state:
-                    new_transition = await self._journey.create_transition(
-                        condition=transition.condition,
-                        source=mapped_source_state,
-                        target=cast(ForkJourneyState, target_mapped_state),
-                    )
+                # Create the transition only if target state is in mapping
+                if target_state_id in state_mapping:
+                    target_mapped_state = state_mapping[target_state_id]
+                    if mapped_source_state:
+                        new_transition = await self._journey.create_transition(
+                            condition=transition.condition,
+                            source=mapped_source_state,
+                            target=cast(ForkJourneyState, target_mapped_state),
+                        )
 
-                    cast(list[JourneyTransition[JourneyState]], self._journey.transitions).append(
-                        cast(JourneyTransition[JourneyState], new_transition)
-                    )
+                        cast(
+                            list[JourneyTransition[JourneyState]], self._journey.transitions
+                        ).append(cast(JourneyTransition[JourneyState], new_transition))
 
-                # Add target to queue for further processing
-                queue.append((target_state_id, target_mapped_state))
+                    # Add target to queue for further processing
+                    queue.append((target_state_id, target_mapped_state))
+                else:
+                    # Target state not in mapping - this is a transition to another journey
+                    # Connect the source state to the fork state to exit this sub-journey
+                    if mapped_source_state:
+                        new_transition = await self._journey.create_transition(
+                            condition=transition.condition,
+                            source=mapped_source_state,
+                            target=fork_state,
+                        )
+                        cast(
+                            list[JourneyTransition[JourneyState]], self._journey.transitions
+                        ).append(cast(JourneyTransition[JourneyState], new_transition))
 
         # Return the entry transition if we have one, otherwise create a transition to fork_state
         if entry_transition_to_return:

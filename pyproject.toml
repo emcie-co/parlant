@@ -87,6 +87,7 @@ snowflake-connector-python = { version = "^3.12.0", optional = true }
 
 [tool.poetry.group.dev.dependencies]
 ipython = "^8.26.0"
+moto = {extras = ["s3"], version = "^5.0.0"}
 mypy = "^1.18.1"
 pep8-naming = "^0.13.3"
 pytest = "^8.0.0"

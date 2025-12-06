@@ -63,7 +63,7 @@ async def _retry_on_timeout_async(
 
     Args:
         operation: The async operation to retry (callable that returns Awaitable[T])
-        max_retries: Maximum number of retry attempts
+        max_retries: Maximum number of retry attempts (total attempts will be max_retries + 1)
         base_delay: Base delay in seconds for exponential backoff
         logger: Optional logger for warning messages
 
@@ -74,8 +74,9 @@ async def _retry_on_timeout_async(
         The last exception if all retries fail
     """
     last_exception: Exception | None = None
+    total_attempts = max_retries + 1  # Initial attempt + retries
 
-    for attempt in range(max_retries):
+    for attempt in range(total_attempts):
         try:
             return await operation()
         except (WeaviateBaseError, Exception) as e:
@@ -88,18 +89,25 @@ async def _retry_on_timeout_async(
                 or "connection" in error_str
             )
 
-            if is_timeout and attempt < max_retries - 1:
+            # Only retry if it's a timeout and we haven't exhausted all attempts
+            # attempt is 0-indexed, so attempt < total_attempts - 1 means we have more attempts left
+            if is_timeout and attempt < total_attempts - 1:
                 delay = base_delay * (2**attempt)  # Exponential backoff: 1s, 2s, 4s
                 if logger:
                     logger.warning(
-                        f"Weaviate operation timed out (attempt {attempt + 1}/{max_retries}). "
+                        f"Weaviate operation timed out (attempt {attempt + 1}/{total_attempts}). "
                         f"Retrying in {delay}s..."
                     )
                 await asyncio.sleep(delay)
                 last_exception = e
                 continue
             else:
-                # Not a timeout or out of retries
+                # Not a timeout or out of retries - raise the exception
+                if is_timeout and logger:
+                    logger.error(
+                        f"Weaviate operation timed out on final attempt ({attempt + 1}/{total_attempts}). "
+                        f"Giving up."
+                    )
                 raise
 
     # Should never reach here, but just in case
@@ -326,7 +334,9 @@ class WeaviateDatabase(VectorDatabase):
 
         # Get all objects from unembedded collection
         unembedded_collection = self.weaviate_client.collections.get(unembedded_collection_name)
-        unembedded_objects = unembedded_collection.query.fetch_objects(limit=10000).objects
+        unembedded_objects = await asyncio.to_thread(
+            lambda: unembedded_collection.query.fetch_objects(limit=10000).objects
+        )
 
         indexing_required = False
 
@@ -502,10 +512,12 @@ class WeaviateDatabase(VectorDatabase):
                 vector=embeddings[0],
             )
 
-        # Update version in unembedded collection
+        # Update version in both collections to reflect reindexing
         unembedded_version = await self._get_collection_version(unembedded_collection_name)
-        await self._set_collection_version(unembedded_collection_name, unembedded_version)
-        await self._set_collection_version(embedded_collection_name, unembedded_version)
+        # Increment version to indicate that reindexing has occurred
+        new_version = unembedded_version + 1
+        await self._set_collection_version(unembedded_collection_name, new_version)
+        await self._set_collection_version(embedded_collection_name, new_version)
 
     @override
     async def create_collection(
@@ -831,6 +843,8 @@ class WeaviateDatabase(VectorDatabase):
 
             if objects:
                 document = cast(dict[str, JSONSerializable], objects[0].properties)
+                if key not in document:
+                    raise ValueError(f'Metadata with key "{key}" not found.')
                 document.pop(key)
 
                 await asyncio.to_thread(

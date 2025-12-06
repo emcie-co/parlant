@@ -63,6 +63,9 @@ from parlant.core.engines.alpha.guideline_matching.generic import (
 from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch import (
     DisambiguationGuidelineMatchesSchema,
 )
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
+    JourneyBacktrackCheckSchema,
+)
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
     JourneyNodeSelectionSchema,
 )
@@ -147,6 +150,9 @@ from parlant.core.services.indexing.guideline_action_proposer import (
 from parlant.core.services.indexing.guideline_continuous_proposer import (
     GuidelineContinuousProposer,
     GuidelineContinuousPropositionSchema,
+)
+from parlant.core.services.indexing.journey_reachable_nodes_evaluation import (
+    ReachableNodesEvaluationSchema,
 )
 from parlant.core.services.indexing.relative_action_proposer import RelativeActionSchema
 from parlant.core.services.indexing.tool_running_action_detector import (
@@ -852,7 +858,9 @@ async def initialize_container(
         DisambiguationGuidelineMatchesSchema,
         JourneyNodeSelectionSchema,
         JourneyNextStepSelectionSchema,
+        JourneyBacktrackCheckSchema,
         RelativeActionSchema,
+        ReachableNodesEvaluationSchema,
     ):
         generator = await nlp_service_instance.get_schematic_generator(schema)
 

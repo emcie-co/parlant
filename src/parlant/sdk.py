@@ -3409,6 +3409,24 @@ class Server:
 
                 return db
 
+            async def make_s3_db(bucket_name: str) -> DocumentDatabase:
+                if importlib.util.find_spec("boto3") is None:
+                    raise SDKError(
+                        "S3 requires an additional package to be installed. "
+                        "Please install parlant[aws] to use S3."
+                    )
+
+                from parlant.adapters.db.s3 import S3DocumentDatabase
+
+                db = await self._exit_stack.enter_async_context(
+                    S3DocumentDatabase(
+                        logger=c()[Logger],
+                        bucket_name=bucket_name,
+                    )
+                )
+
+                return db
+
             async def make_persistable_store(t: type[T], spec: str, name: str, **kwargs: Any) -> T:
                 store: T
 
@@ -3440,10 +3458,20 @@ class Server:
                     )
 
                     return store
+                elif spec.startswith("s3://"):
+                    store = await self._exit_stack.enter_async_context(
+                        t(
+                            database=await make_s3_db(spec[5:]),
+                            allow_migration=self._migrate,
+                            **kwargs,
+                        )  # type: ignore
+                    )
+
+                    return store
                 else:
                     raise SDKError(
                         f"Invalid session store type: {self._session_store}. "
-                        "Expected 'transient', 'local', or a MongoDB connection string."
+                        "Expected 'transient', 'local', 's3://...', or a MongoDB connection string."
                     )
 
             if isinstance(self._session_store, SessionStore):

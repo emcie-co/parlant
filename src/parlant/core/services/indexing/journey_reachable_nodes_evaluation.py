@@ -15,7 +15,6 @@ from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 
 from parlant.core.services.indexing.common import EvaluationError, ProgressReport
-from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.shots import Shot, ShotCollection
 
 
@@ -105,13 +104,11 @@ class JourneyReachableNodesEvaluator:
         logger: Logger,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[ReachableNodesEvaluationSchema],
-        service_registry: ServiceRegistry,
     ) -> None:
         self._logger = logger
         self._optimization_policy = optimization_policy
 
         self._schematic_generator = schematic_generator
-        self._service_registry = service_registry
 
     def _build_node_wrappers(self, guidelines: Sequence[Guideline]) -> dict[str, _JourneyNode]:
         def _get_guideline_node_index(guideline: Guideline) -> str:

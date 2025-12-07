@@ -17,6 +17,7 @@ from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch as _GuidelineMatch,
 )
+from parlant.core.common import Criticality
 from parlant.core.guidelines import GuidelineStore
 from parlant.core.relationships import RelationshipKind, RelationshipStore
 from parlant.core.services.tools.plugins import tool
@@ -540,14 +541,12 @@ class Test_that_match_handler_on_journey_guideline_works(SDKTest):
 
 class Test_that_guideline_can_be_created_with_custom_id(SDKTest):
     async def setup(self, server: p.Server) -> None:
-        from parlant.core.guidelines import GuidelineId
-
         self.agent = await server.create_agent(
             name="Custom ID Agent",
             description="Agent for testing custom ID functionality",
         )
 
-        self.custom_id = GuidelineId("custom-guideline-789")
+        self.custom_id = p.GuidelineId("custom-guideline-789")
 
         self.guideline = await self.agent.create_guideline(
             condition="Customer mentions custom ID requirement",
@@ -570,14 +569,12 @@ class Test_that_guideline_can_be_created_with_custom_id(SDKTest):
 
 class Test_that_guideline_creation_fails_with_duplicate_id(SDKTest):
     async def setup(self, server: p.Server) -> None:
-        from parlant.core.guidelines import GuidelineId
-
         self.agent = await server.create_agent(
             name="Duplicate ID Agent",
             description="Agent for testing duplicate ID handling",
         )
 
-        self.duplicate_id = GuidelineId("duplicate-guideline-101")
+        self.duplicate_id = p.GuidelineId("duplicate-guideline-101")
 
         # Create the first guideline
         self.first_guideline = await self.agent.create_guideline(
@@ -651,8 +648,6 @@ class Test_that_only_prioritized_guideline_handler_is_called_when_both_match(SDK
 
 class Test_that_guideline_can_be_created_with_criticality(SDKTest):
     async def setup(self, server: p.Server) -> None:
-        from parlant.core.common import Criticality
-
         self.agent = await server.create_agent(
             name="Criticality Test Agent",
             description="Agent for testing guideline criticality",
@@ -665,8 +660,6 @@ class Test_that_guideline_can_be_created_with_criticality(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        from parlant.core.common import Criticality
-
         guideline_store = ctx.container[GuidelineStore]
         stored_guideline = await guideline_store.read_guideline(guideline_id=self.guideline.id)
 
@@ -686,8 +679,6 @@ class Test_that_guideline_defaults_to_medium_criticality_when_not_provided(SDKTe
         )
 
     async def run(self, ctx: Context) -> None:
-        from parlant.core.common import Criticality
-
         guideline_store = ctx.container[GuidelineStore]
         stored_guideline = await guideline_store.read_guideline(guideline_id=self.guideline.id)
 
@@ -696,8 +687,6 @@ class Test_that_guideline_defaults_to_medium_criticality_when_not_provided(SDKTe
 
 class Test_that_observation_can_be_created_with_criticality(SDKTest):
     async def setup(self, server: p.Server) -> None:
-        from parlant.core.common import Criticality
-
         self.agent = await server.create_agent(
             name="Observation Criticality Test Agent",
             description="Agent for testing observation criticality",
@@ -710,8 +699,6 @@ class Test_that_observation_can_be_created_with_criticality(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        from parlant.core.common import Criticality
-
         guideline_store = ctx.container[GuidelineStore]
         stored_observation = await guideline_store.read_guideline(guideline_id=self.observation.id)
 
@@ -730,8 +717,6 @@ class Test_that_observation_defaults_to_medium_criticality_when_not_provided(SDK
         )
 
     async def run(self, ctx: Context) -> None:
-        from parlant.core.common import Criticality
-
         guideline_store = ctx.container[GuidelineStore]
         stored_observation = await guideline_store.read_guideline(guideline_id=self.observation.id)
 

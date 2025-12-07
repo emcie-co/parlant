@@ -412,10 +412,21 @@ class JourneyBacktrackNodeSelection:
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
         self._node_wrappers: dict[str, _JourneyNode] = build_node_wrappers(node_guidelines)
+        self._root_guideline = self._get_root(node_guidelines)
         self._context = context
         self._examined_journey = examined_journey
         self._previous_path: Sequence[str | None] = journey_path
         self._journey_conditions = journey_conditions
+
+    def _get_root(self, node_guidelines: Sequence[Guideline]) -> Guideline:
+        def _get_guideline_node_index(guideline: Guideline) -> str:
+            return str(
+                cast(dict[str, JSONSerializable], guideline.metadata["journey_node"]).get(
+                    "index", "-1"
+                ),
+            )
+
+        return next(g for g in node_guidelines if _get_guideline_node_index(g) == ROOT_INDEX)
 
     async def process(self) -> GuidelineMatchingBatchResult:
         prompt = self._build_prompt(shots=await self.shots())
@@ -457,7 +468,6 @@ class JourneyBacktrackNodeSelection:
                             .incoming_edges[0]
                             .target_guideline
                         )
-                # TODO how do we return the path if we're exiting the journey?
                 return GuidelineMatchingBatchResult(
                     matches=[
                         GuidelineMatch(
@@ -470,8 +480,18 @@ class JourneyBacktrackNodeSelection:
                             },
                         )
                     ]
-                    if matched_guideline  # If either 'None' or an illegal step was returned, don't activate guidelines
-                    else [],
+                    if matched_guideline  # If either 'None' or an illegal step was returned, return root guideline, a place holder for "exit journey"
+                    else [
+                        GuidelineMatch(
+                            guideline=self._root_guideline,
+                            score=10,
+                            rationale=f"Root guideline was selected indicating should exit the journey, the rational for this choice: {inference.content.rationale}",
+                            metadata={
+                                "journey_path": journey_path,
+                                "step_selection_journey_id": self._examined_journey.id,
+                            },
+                        )
+                    ],
                     generation_info=inference.info,
                 )
             except Exception as exc:

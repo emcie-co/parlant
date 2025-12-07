@@ -253,7 +253,19 @@ class JourneyNextStepSelection:
                     if inference.content.applied_condition_id == "None":
                         journey_path = list(self._previous_path) + [None]
                         return GuidelineMatchingBatchResult(
-                            matches=[],
+                            matches=[
+                                GuidelineMatch(
+                                    guideline=self._guideline_id_to_guideline[
+                                        self._node_index_to_guideline_id[ROOT_INDEX]
+                                    ],
+                                    score=10,
+                                    rationale=f"Root guideline was selected indicating should exit the journey, the rational for this choice: {inference.content.rationale}",
+                                    metadata={
+                                        "journey_path": journey_path,
+                                        "step_selection_journey_id": self._examined_journey.id,
+                                    },
+                                )
+                            ],
                             generation_info=inference.info,
                         )
                     elif inference.content.applied_condition_id == "0":
@@ -288,9 +300,23 @@ class JourneyNextStepSelection:
                                     self._node_index_to_guideline_id[next_node]
                                 ].content.action
                                 is None
-                            ):  # TODO - save the path also when exit journey
+                            ):
+                                journey_path = list(self._previous_path) + [None]
+
                                 return GuidelineMatchingBatchResult(
-                                    matches=[],
+                                    matches=[
+                                        GuidelineMatch(
+                                            guideline=self._guideline_id_to_guideline[
+                                                self._node_index_to_guideline_id[ROOT_INDEX]
+                                            ],
+                                            score=10,
+                                            rationale=f"Root guideline was selected indicating should exit the journey, the rational for this choice: {inference.content.rationale}",
+                                            metadata={
+                                                "journey_path": journey_path,
+                                                "step_selection_journey_id": self._examined_journey.id,
+                                            },
+                                        )
+                                    ],
                                     generation_info=inference.info,
                                 )
                             else:

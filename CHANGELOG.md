@@ -6,6 +6,29 @@ All notable changes to Parlant will be documented here.
 
 TBD
 
+## [3.0.4] - 2025-11-18
+
+### Fixed
+
+- Fix bug where NanoDB query failed when no filters matched
+- Extend tool insights across iterations
+- Fix deprecated status.HTTP_422_UNPROCESSABLE_ENTITY to status.HTTP_422_UNPROCESSABLE_CONTENT
+- Fix broken CLI by adding missing websocket-client dependency
+- Added specific classes for embedder initialisation
+- Make base url once in OllamaEmbedder
+- Update dependencies for security, upgrade FastAPI, fix mypy in hugging_face.py
+- Bump torch for fixing vulnerability
+
+## [3.0.3] - 2025-10-24
+
+### Fixed
+
+- Fix installation issue in some environments, failing due to an older FastMCP version
+- Bump versions of OpenTelemetry and Uvicorn
+- Made ChromaDB an extra package parlant[chroma]
+- Update NPM dependencies for integrated UI
+- Fix defaults of API types to avoid triggering Pydantic warnings
+
 ## [3.0.2] - 2025-08-27
 
 ### Added

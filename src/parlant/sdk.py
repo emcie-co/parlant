@@ -3641,6 +3641,17 @@ class Server:
                         if k not in node.metadata or node.metadata[k] is None
                     }
 
+                    journey_node_properties = {
+                        **(
+                            cast(dict[str, JSONSerializable], properties.get("journey_node", {}))
+                            if properties
+                            else {}
+                        ),
+                        **cast(dict[str, JSONSerializable], node.metadata.get("journey_node")),
+                    }
+                    if journey_node_properties:
+                        properties_to_add["journey_node"] = journey_node_properties
+
                     for key, value in properties_to_add.items():
                         await self._container[JourneyStore].set_node_metadata(
                             node_id=node_id,

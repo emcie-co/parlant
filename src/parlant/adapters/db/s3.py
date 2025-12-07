@@ -226,17 +226,6 @@ class S3DocumentCollection(DocumentCollection[TDocument]):
             return None
 
     async def _handle_failed_migration(self, doc: BaseDocument) -> None:
-        # Save to failed_migrations collection
-        # We use a direct S3 write to avoid recursion or complex dependency
-        failed_collection_name = f"{self._database.bucket_name}_failed_migrations"
-        # Actually, standard pattern is usually "failed_migrations" collection in the same DB
-        # But to match other adapters, we should probably use a standard name.
-        # Mongo adapter uses: f"{self.database_name}_{name}_failed_migrations" ?
-        # No, it uses "failed_migrations" usually or specific name.
-        # Let's check the test expectation.
-        # Test expects: db.get_collection("failed_migrations", ...)
-        
-        # We can just write to "failed_migrations/{id}.json"
         doc_id = doc.get("id")
         if doc_id:
             key = f"failed_migrations/{doc_id}.json"

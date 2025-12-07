@@ -251,6 +251,7 @@ class JourneyNextStepSelection:
 
                 if inference.content.applied_condition_id:
                     if inference.content.applied_condition_id == "None":
+                        # Exit journey
                         journey_path = list(self._previous_path) + [None]
                         return GuidelineMatchingBatchResult(
                             matches=[
@@ -269,6 +270,7 @@ class JourneyNextStepSelection:
                             generation_info=inference.info,
                         )
                     elif inference.content.applied_condition_id == "0":
+                        # Stay in the same node
                         matched_guideline = self._guideline_id_to_guideline[
                             self._node_index_to_guideline_id[self._current_node.id]
                         ]
@@ -326,7 +328,7 @@ class JourneyNextStepSelection:
                                         list[str | None], [self._current_node.id] + list(next_path)
                                     )
                                 else:
-                                    journey_path = [self._previous_path[-1]] + list(next_path)
+                                    journey_path = list(self._previous_path) + list(next_path)
                                 matched_guideline = self._guideline_id_to_guideline[
                                     self._node_index_to_guideline_id[next_node]
                                 ]

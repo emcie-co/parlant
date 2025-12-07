@@ -475,7 +475,7 @@ class JourneyBacktrackNodeSelection:
                             score=10,
                             rationale=f"This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. Use this rationale to better understand how the conversation got to its current point. The rationale for choosing this specific step in the journey was: {inference.content.rationale}",
                             metadata={
-                                "journey_path": journey_path,
+                                "journey_path": list(self._previous_path) + journey_path,
                                 "step_selection_journey_id": self._examined_journey.id,
                             },
                         )
@@ -487,7 +487,7 @@ class JourneyBacktrackNodeSelection:
                             score=10,
                             rationale=f"Root guideline was selected indicating should exit the journey, the rational for this choice: {inference.content.rationale}",
                             metadata={
-                                "journey_path": journey_path,
+                                "journey_path": list(self._previous_path) + journey_path,
                                 "step_selection_journey_id": self._examined_journey.id,
                             },
                         )

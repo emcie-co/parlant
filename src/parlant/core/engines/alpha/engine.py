@@ -1340,11 +1340,7 @@ class AlphaEngine(Engine):
         new_journey_paths = self._list_journey_paths_from_guideline_matches(context)
 
         for journey_id, path in new_journey_paths.items():
-            if journey_paths and journey_paths.get(journey_id):
-                if path != [None] or journey_paths[journey_id][-1] is not None:
-                    journey_paths[journey_id].extend(path)
-            elif path != [None]:
-                journey_paths[journey_id] = path
+            journey_paths[journey_id] = path
 
         return journey_paths
 

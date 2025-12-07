@@ -1770,3 +1770,61 @@ async def test_that_event_metadata_key_can_be_unset(
     events = get_response.json()
     assert len(events) == 1
     assert events[0]["metadata"] == expected_metadata
+
+
+async def test_that_customer_message_uses_provided_participant_override(
+    async_client: httpx.AsyncClient,
+    session_id: SessionId,
+    container: Container,
+) -> None:
+    """Test that when participant is provided, it overrides the default customer info."""
+
+    # Create a customer message with custom participant info
+    response = await async_client.post(
+        f"/sessions/{session_id}/events",
+        json={
+            "kind": "message",
+            "source": "customer",
+            "message": "Hello with custom participant",
+            "participant": {"id": "custom_participant_id", "display_name": "Custom Display Name"},
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    event = response.json()
+
+    # Verify the participant info matches what we provided (not from DB)
+    assert event["data"]["participant"]["id"] == "custom_participant_id"
+    assert event["data"]["participant"]["display_name"] == "Custom Display Name"
+
+
+async def test_that_customer_message_fetches_participant_from_db_when_not_provided(
+    async_client: httpx.AsyncClient,
+    session_id: SessionId,
+    container: Container,
+) -> None:
+    """Test that when participant is NOT provided, it fetches from customer DB as before."""
+
+    # Get the session to know the customer_id
+    session_store = container[SessionStore]
+    session = await session_store.read_session(session_id)
+
+    # Create a customer message WITHOUT custom participant
+    response = await async_client.post(
+        f"/sessions/{session_id}/events",
+        json={
+            "kind": "message",
+            "source": "customer",
+            "message": "Hello without custom participant",
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    event = response.json()
+
+    # Verify the participant info comes from the customer in the DB
+    assert event["data"]["participant"]["id"] == session.customer_id
+    # The display_name should be fetched from customer store (or fallback to customer_id)
+    assert event["data"]["participant"]["display_name"] is not None

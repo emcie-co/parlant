@@ -100,7 +100,6 @@ class JourneyNextStepSelection:
 
         self._context = context
         self._examined_journey = examined_journey
-        self._previous_path: Sequence[str | None] = journey_path
         self._journey_conditions = journey_conditions
 
         self._guideline_id_to_guideline: dict[GuidelineId, Guideline] = {
@@ -113,9 +112,12 @@ class JourneyNextStepSelection:
             self._guideline_id_to_node_index[id]: id for id in self._guideline_id_to_node_index
         }
 
-        self._current_node, self._follow_up_conditions, self._condition_to_path = (
-            self.build_node_wrappers()
-        )
+        (
+            self._current_node,
+            self._follow_up_conditions,
+            self._condition_to_path,
+            self._previous_path,
+        ) = self.build_node_wrappers(journey_path)
 
     def _get_guideline_node_index(self, guideline: Guideline) -> str:
         return str(
@@ -126,7 +128,10 @@ class JourneyNextStepSelection:
 
     def build_node_wrappers(
         self,
-    ) -> tuple[_JourneyNode, dict[str, _JourneyEdge], dict[str, Sequence[str]]]:
+        previous_path: Sequence[str | None],
+    ) -> tuple[
+        _JourneyNode, dict[str, _JourneyEdge], dict[str, Sequence[str]], Sequence[str | None]
+    ]:
         def _get_reachable_follow_ups(
             guideline_id: GuidelineId,
             guideline_id_to_guideline: dict[GuidelineId, Guideline],
@@ -183,7 +188,7 @@ class JourneyNextStepSelection:
             )
             return node
 
-        if not self._previous_path:
+        if not previous_path:
             root_g = self._guideline_id_to_guideline[self._node_index_to_guideline_id[ROOT_INDEX]]
             follow_ups = cast(
                 dict[str, Sequence[GuidelineId]], root_g.metadata.get("journey_node", {})
@@ -194,8 +199,11 @@ class JourneyNextStepSelection:
             else:
                 current_g_id = root_g.id
         else:
-            if self._previous_path[-1]:
-                current_g_id = self._node_index_to_guideline_id[self._previous_path[-1]]
+            if previous_path[-1]:
+                current_g_id = self._node_index_to_guideline_id[previous_path[-1]]
+            else:
+                current_g_id = self._node_index_to_guideline_id[ROOT_INDEX]
+                previous_path = []
 
         current_node = _create_node(current_g_id)
 
@@ -225,7 +233,7 @@ class JourneyNextStepSelection:
             )
             condition_to_path[str(i)] = journey_node_path
 
-        return current_node, follow_up_conditions, condition_to_path
+        return current_node, follow_up_conditions, condition_to_path, previous_path
 
     async def process(self) -> GuidelineMatchingBatchResult:
         prompt = self._build_prompt(shots=await self.shots())

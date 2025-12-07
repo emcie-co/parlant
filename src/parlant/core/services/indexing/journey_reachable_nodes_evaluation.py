@@ -15,6 +15,7 @@ from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 
 from parlant.core.services.indexing.common import EvaluationError, ProgressReport
+from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.shots import Shot, ShotCollection
 
 
@@ -104,13 +105,13 @@ class JourneyReachableNodesEvaluator:
         logger: Logger,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[ReachableNodesEvaluationSchema],
-        # service_registry: ServiceRegistry,
+        service_registry: ServiceRegistry,
     ) -> None:
         self._logger = logger
         self._optimization_policy = optimization_policy
 
         self._schematic_generator = schematic_generator
-        # self._service_registry = service_registry
+        self._service_registry = service_registry
 
     def _build_node_wrappers(self, guidelines: Sequence[Guideline]) -> dict[str, _JourneyNode]:
         def _get_guideline_node_index(guideline: Guideline) -> str:
@@ -331,8 +332,10 @@ class JourneyReachableNodesEvaluator:
         max_depth: int = 3,
         max_transitions: int = 10,
     ) -> ReachableNodesEvaluation:
-        # Want to run the evaluation in topological order, so first need to find cycles and remove them by duplicate nodes
+        if progress_report:
+            await progress_report.stretch(1)
 
+        # Want to run the evaluation in topological order, so first need to find cycles and remove them by duplicate nodes
         graph: dict[str, _JourneyNode] = self._build_node_wrappers(guidelines=node_guidelines)
 
         cycles = self._find_cycles(graph)
@@ -370,6 +373,10 @@ class JourneyReachableNodesEvaluator:
                     edge_condition=e.condition,
                     id_to_reachable_follow_ups=truncated_follow_ups,
                 )
+
+            if progress_report:
+                await progress_report.increment(1)
+
             reachable_follow_ups = await self.do_node_evaluation(
                 new_graph,
                 node_idx,

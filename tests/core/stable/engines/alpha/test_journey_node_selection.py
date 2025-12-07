@@ -44,6 +44,7 @@ from parlant.core.services.indexing.journey_reachable_nodes_evaluation import (
     ReachableNodesEvaluationSchema,
     JourneyReachableNodesEvaluator,
 )
+from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import EventKind, EventSource, Session, SessionId, SessionStore
 from parlant.core.tags import Tag, TagId
 from tests.core.common.utils import create_event_message
@@ -1010,6 +1011,7 @@ async def create_journey(
         logger=context.logger,
         optimization_policy=context.container[OptimizationPolicy],
         schematic_generator=context.journey_reachable_nodes_evaluation_schematic_generator,
+        service_registry=context.container[ServiceRegistry],
     ).evaluate_reachable_follow_ups(node_guidelines=node_guidelines)
 
     for id, r in result.node_to_reachable_follow_ups.items():

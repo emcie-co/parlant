@@ -384,11 +384,9 @@ class JourneyBacktrackCheck:
     Analyze the current conversation state and determine if need to backtrack to journey step that was already executed.
 
     Backtracking scenarios:
-        During journey execution:
-            If the customer has changed a previous decision that requires returning to an earlier step. Will need to retake a step we already visited before, and change the things we've done there. 
-        After journey was finished:
-            - If the customer wants to perform the journey process again, for a different purpose. That means that we will re-perform the journey from the beginning. 
-            - If the customer wants to resume to a journey process that was stopped in the middle. That means that we will continue the journey from the last executed step.
+        The customer has changed a previous decision that requires returning to an earlier step. Will need to retake a step we already visited before, and change the things we've done there. 
+        The customer wants to perform the journey process again, for a different purpose. That means that we will backtrack to the beginning and re-perform the journey. 
+        The customer wants to resume to a journey process that was stopped in the middle. That means that we will continue the journey from the last executed step.
 
     - If return to previous step (or take the journey from the beginning) is needed, set `requires_backtracking` to `true`.
         - Only steps marked with PREVIOUSLY EXECUTED flags are eligible for backtracking

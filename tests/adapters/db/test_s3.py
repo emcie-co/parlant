@@ -497,3 +497,41 @@ async def test_that_collections_can_be_deleted(
         s3 = boto3.client("s3", region_name="us-east-1")
         response = s3.list_objects_v2(Bucket=s3_bucket, Prefix="dummy_collection/")
         assert "Contents" not in response
+
+
+async def test_that_s3_can_be_initialized_with_explicit_credentials(
+    logger: Logger,
+) -> None:
+    """Test that S3 can be initialized with explicit credentials."""
+    with mock_aws():
+        # Create a bucket in a specific region
+        s3 = boto3.client("s3", region_name="us-west-2")
+        s3.create_bucket(
+            Bucket="creds-bucket",
+            CreateBucketConfiguration={"LocationConstraint": "us-west-2"},
+        )
+
+        # Initialize DB with explicit credentials
+        async with S3DocumentDatabase(
+            logger,
+            "creds-bucket",
+            aws_access_key_id="fake_key",
+            aws_secret_access_key="fake_secret",
+            region_name="us-west-2",
+        ) as db:
+            # Verify we can perform operations
+            async with DummyStore(db) as store:
+                await store.create_dummy("creds_test")
+                
+            # Verify object exists in the correct region/bucket
+            s3_chk = boto3.client(
+                "s3",
+                region_name="us-west-2",
+                aws_access_key_id="fake_key",
+                aws_secret_access_key="fake_secret"
+            )
+            response = s3_chk.get_object(
+                Bucket="creds-bucket", 
+                Key="dummy_collection/dummy_creds_test.json"
+            )
+            assert response["Body"] is not None

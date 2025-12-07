@@ -46,6 +46,9 @@ class JourneyNodeKind(Enum):
     NA = "NA"
 
 
+ROOT_INDEX = "1"
+
+
 class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
     def __init__(
         self,
@@ -94,25 +97,36 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                 ),
             )
 
+        def _get_follow_ups(guideline: Guideline) -> Sequence[GuidelineId]:
+            return cast(
+                dict[str, Sequence[GuidelineId]],
+                guideline.metadata.get("journey_node", {}),
+            ).get("follow_ups", [])
+
+        def _get_kind(guideline: Guideline) -> JourneyNodeKind:
+            return JourneyNodeKind(
+                cast(dict[str, Any], guideline.metadata.get("journey_node", {})).get("kind", "NA")
+            )
+
         node_index_to_guideline: dict[str, Guideline] = {
             _get_guideline_node_index(g): g for g in self._node_guidelines
         }
         guideline_id_to_node_index: dict[GuidelineId, str] = {
             g.id: _get_guideline_node_index(g) for g in self._node_guidelines
         }
+        guideline_id_to_guideline: dict[GuidelineId, Guideline] = {
+            g.id: g for g in self._node_guidelines
+        }
+        root_guideline = next(
+            g for g in self._node_guidelines if _get_guideline_node_index(g) == ROOT_INDEX
+        )
 
         if self._previous_path and self._previous_path[-1]:
             last_visited_node_index = self._previous_path[-1]
             last_visited_guideline = node_index_to_guideline[last_visited_node_index]
-            kind = JourneyNodeKind(
-                cast(dict[str, Any], last_visited_guideline.metadata.get("journey_node", {})).get(
-                    "kind", "NA"
-                )
-            )
-            outgoing_edges = cast(
-                dict[str, Sequence[GuidelineId]],
-                last_visited_guideline.metadata.get("journey_node", {}),
-            ).get("follow_ups", [])
+            kind = _get_kind(last_visited_guideline)
+            outgoing_edges = _get_follow_ups(last_visited_guideline)
+
             if kind == JourneyNodeKind.TOOL and len(outgoing_edges) == 1:
                 generation_info = GenerationInfo(
                     schema_name="No inference performed",
@@ -124,19 +138,28 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                         extra={},
                     ),
                 )
-                next_node = guideline_id_to_node_index[GuidelineId(outgoing_edges[0])]
-                if next_node:
+                current_node: GuidelineId = outgoing_edges[0]
+                journey_path = [last_visited_node_index, current_node]
+                while (
+                    current_node
+                    and _get_kind(guideline_id_to_guideline[current_node]) == JourneyNodeKind.FORK
+                ):
+                    if len(_get_follow_ups(guideline_id_to_guideline[current_node])) != 1:
+                        return None
+                    current_node = GuidelineId(
+                        _get_follow_ups(guideline_id_to_guideline[current_node])[0]
+                    )
+                    journey_path.append(guideline_id_to_node_index[current_node])
+
+                if guideline_id_to_guideline[current_node]:
                     return GuidelineMatchingBatchResult(
                         matches=[
                             GuidelineMatch(
-                                guideline=node_index_to_guideline[next_node],
+                                guideline=guideline_id_to_guideline[current_node],
                                 score=10,
                                 rationale="This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. It was automatically selected as the only viable follow up for the last step that was executed",
                                 metadata={
-                                    "journey_path": [
-                                        last_visited_node_index,
-                                        next_node,
-                                    ],
+                                    "journey_path": journey_path,
                                     "step_selection_journey_id": self._examined_journey.id,
                                 },
                             )
@@ -144,7 +167,20 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                         generation_info=generation_info,
                     )
                 else:
-                    return GuidelineMatchingBatchResult(matches=[], generation_info=generation_info)
+                    return GuidelineMatchingBatchResult(
+                        matches=[
+                            GuidelineMatch(
+                                guideline=root_guideline,
+                                score=10,
+                                rationale="Root guideline returned to indicate exit journey",
+                                metadata={
+                                    "journey_path": journey_path,
+                                    "step_selection_journey_id": self._examined_journey.id,
+                                },
+                            )
+                        ],
+                        generation_info=generation_info,
+                    )
         return None
 
     @override

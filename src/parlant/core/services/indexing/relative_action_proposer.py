@@ -32,7 +32,7 @@ class RelativeActionProposition(DefaultBaseModel):
 
 class RelativeActionBatch(DefaultBaseModel):
     index: str
-    conditions: str
+    conditions: Sequence[str] | None = None
     action: str
     needs_rewrite_rational: str
     needs_rewrite: bool
@@ -223,6 +223,7 @@ Expected output (JSON):
 """,
             props={"result_structure_text": self._format_text(step_guidelines)},
         )
+
         return builder
 
     def _format_text(
@@ -234,7 +235,7 @@ Expected output (JSON):
         result_structure = [
             {
                 "index": idx,
-                "conditions": str([edge.condition for edge in node.incoming_edges]),
+                "conditions": [edge.condition for edge in node.incoming_edges if edge.condition],
                 "action": node.action,
                 "needs_rewrite_rational": "<Brief explanation of is it refer to something that is not mentioned in the current step>",
                 "needs_rewrite": "<BOOL>",
@@ -543,36 +544,44 @@ example_1_shot = RelativeActionShot(
         actions=[
             RelativeActionBatch(
                 index="1",
-                conditions=str(
-                    [edge.condition for edge in book_hotel_shot_journey_steps["1"].incoming_edges]
-                ),
+                conditions=[
+                    edge.condition
+                    for edge in book_hotel_shot_journey_steps["1"].incoming_edges
+                    if edge.condition
+                ],
                 action=book_hotel_shot_journey_steps["1"].action or "",
                 needs_rewrite_rational="The action is self-contained and clearly specifies what to ask the customer.",
                 needs_rewrite=False,
             ),
             RelativeActionBatch(
                 index="2",
-                conditions=str(
-                    [edge.condition for edge in book_hotel_shot_journey_steps["2"].incoming_edges]
-                ),
+                conditions=[
+                    edge.condition
+                    for edge in book_hotel_shot_journey_steps["2"].incoming_edges
+                    if edge.condition
+                ],
                 action=book_hotel_shot_journey_steps["2"].action or "",
                 needs_rewrite_rational="The action is self-contained. 'them' refers to the customer so it's not ambiguous and no need to rewrite.",
                 needs_rewrite=False,
             ),
             RelativeActionBatch(
                 index="3",
-                conditions=str(
-                    [edge.condition for edge in book_hotel_shot_journey_steps["3"].incoming_edges]
-                ),
+                conditions=[
+                    edge.condition
+                    for edge in book_hotel_shot_journey_steps["3"].incoming_edges
+                    if edge.condition
+                ],
                 action=book_hotel_shot_journey_steps["3"].action or "",
                 needs_rewrite_rational="The action is self-contained and clearly specifies what to ask the customer.",
                 needs_rewrite=False,
             ),
             RelativeActionBatch(
                 index="4",
-                conditions=str(
-                    [edge.condition for edge in book_hotel_shot_journey_steps["4"].incoming_edges]
-                ),
+                conditions=[
+                    edge.condition
+                    for edge in book_hotel_shot_journey_steps["4"].incoming_edges
+                    if edge.condition
+                ],
                 action=book_hotel_shot_journey_steps["4"].action or "",
                 needs_rewrite_rational="The action does not specify what availability to check based on the condition alone.",
                 needs_rewrite=True,
@@ -581,9 +590,11 @@ example_1_shot = RelativeActionShot(
             ),
             RelativeActionBatch(
                 index="5",
-                conditions=str(
-                    [edge.condition for edge in book_hotel_shot_journey_steps["5"].incoming_edges]
-                ),
+                conditions=[
+                    edge.condition
+                    for edge in book_hotel_shot_journey_steps["5"].incoming_edges
+                    if edge.condition
+                ],
                 action=book_hotel_shot_journey_steps["5"].action or "",
                 needs_rewrite_rational="The action does not specify what to book based on the condition alone.",
                 needs_rewrite=True,
@@ -592,27 +603,33 @@ example_1_shot = RelativeActionShot(
             ),
             RelativeActionBatch(
                 index="6",
-                conditions=str(
-                    [edge.condition for edge in book_hotel_shot_journey_steps["6"].incoming_edges]
-                ),
+                conditions=[
+                    edge.condition
+                    for edge in book_hotel_shot_journey_steps["6"].incoming_edges
+                    if edge.condition
+                ],
                 action=book_hotel_shot_journey_steps["6"].action or "",
                 needs_rewrite_rational="'it' refers to the fact that the availability check failed. I'ts clear that need to explain that the availability check failed, given the condition",
                 needs_rewrite=False,
             ),
             RelativeActionBatch(
                 index="7",
-                conditions=str(
-                    [edge.condition for edge in book_hotel_shot_journey_steps["7"].incoming_edges]
-                ),
+                conditions=[
+                    edge.condition
+                    for edge in book_hotel_shot_journey_steps["7"].incoming_edges
+                    if edge.condition
+                ],
                 action=book_hotel_shot_journey_steps["7"].action or "",
                 needs_rewrite_rational="The action is self-contained and clearly specifies what to ask the customer and why.",
                 needs_rewrite=False,
             ),
             RelativeActionBatch(
                 index="8",
-                conditions=str(
-                    [edge.condition for edge in book_hotel_shot_journey_steps["8"].incoming_edges]
-                ),
+                conditions=[
+                    edge.condition
+                    for edge in book_hotel_shot_journey_steps["8"].incoming_edges
+                    if edge.condition
+                ],
                 action=book_hotel_shot_journey_steps["8"].action or "",
                 needs_rewrite_rational="The action does not specify what to send based on the condition alone.",
                 needs_rewrite=True,
@@ -621,18 +638,22 @@ example_1_shot = RelativeActionShot(
             ),
             RelativeActionBatch(
                 index="9",
-                conditions=str(
-                    [edge.condition for edge in book_hotel_shot_journey_steps["9"].incoming_edges]
-                ),
+                conditions=[
+                    edge.condition
+                    for edge in book_hotel_shot_journey_steps["9"].incoming_edges
+                    if edge.condition
+                ],
                 action=book_hotel_shot_journey_steps["9"].action or "",
                 needs_rewrite_rational="The action is self-contained. 'them' refers to the customer so it's not ambiguous and no need to rewrite",
                 needs_rewrite=False,
             ),
             RelativeActionBatch(
                 index="10",
-                conditions=str(
-                    [edge.condition for edge in book_hotel_shot_journey_steps["10"].incoming_edges]
-                ),
+                conditions=[
+                    edge.condition
+                    for edge in book_hotel_shot_journey_steps["10"].incoming_edges
+                    if edge.condition
+                ],
                 action=book_hotel_shot_journey_steps["10"].action or "",
                 needs_rewrite_rational="The action is self-contained and clearly specifies what to ask the customer.",
                 needs_rewrite=False,

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import pytest
 from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
@@ -21,6 +22,7 @@ from parlant.core.common import Criticality
 from parlant.core.guidelines import GuidelineStore
 from parlant.core.relationships import RelationshipKind, RelationshipStore
 from parlant.core.services.tools.plugins import tool
+from parlant.core.sessions import EventSource
 from parlant.core.tags import Tag
 from parlant.core.tools import ToolContext, ToolResult
 from parlant.core.canned_responses import CannedResponseStore
@@ -454,7 +456,7 @@ class Test_that_multiple_match_handlers_can_be_registered_for_same_guideline(SDK
             )
             await handler2(core_ctx, sdk_match)
 
-        server.container[EngineHooks].guideline_match_handlers[self.guideline.id].append(
+        server.container[EngineHooks].on_guideline_match_handlers[self.guideline.id].append(
             shim_handler2
         )
 
@@ -721,3 +723,78 @@ class Test_that_observation_defaults_to_medium_criticality_when_not_provided(SDK
         stored_observation = await guideline_store.read_guideline(guideline_id=self.observation.id)
 
         assert stored_observation.criticality == Criticality.MEDIUM
+
+
+class Test_that_on_message_handler_is_called_when_guideline_generates_message(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Message Handler Test Agent",
+            description="Agent for testing on_message handler",
+        )
+
+        self.handler_called = False
+        self.captured_message_count = 0
+        self.captured_guideline_id = None
+
+        async def message_handler(ctx: p.EngineContext, match: p.GuidelineMatch) -> None:
+            self.handler_called = True
+            # Verify we can access messages from context
+            self.captured_message_count = len(
+                [e for e in ctx.state.message_events if e.source == EventSource.AI_AGENT]
+            )
+            # Verify we receive the match parameter
+            self.captured_guideline_id = match.id
+
+        self.guideline = await self.agent.create_guideline(
+            condition="Customer says hello",
+            action="Greet the customer warmly",
+            on_message=message_handler,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="Hello there!",
+            recipient=self.agent,
+        )
+
+        await asyncio.sleep(5)
+
+        assert self.handler_called, "on_message handler should be called"
+        assert self.captured_message_count > 0, "Handler should see messages in context"
+        assert self.captured_guideline_id == self.guideline.id, (
+            "Handler should receive correct guideline match"
+        )
+
+
+class Test_that_on_message_handler_is_not_called_when_guideline_does_not_match(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Non-matching Handler Test Agent",
+            description="Agent for testing on_message handler when guideline doesn't match",
+        )
+
+        self.handler_called = False
+
+        async def message_handler(ctx: p.EngineContext, match: p.GuidelineMatch) -> None:
+            self.handler_called = True
+
+        self.guideline = await self.agent.create_guideline(
+            condition="Customer asks about pizza",
+            action="Recommend pizza toppings",
+            on_message=message_handler,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="I want to talk about bananas",
+            recipient=self.agent,
+        )
+
+        # Wait to ensure handler is not called
+        import asyncio
+
+        await asyncio.sleep(5)
+
+        assert not self.handler_called, (
+            "on_message handler should not be called when guideline doesn't match"
+        )

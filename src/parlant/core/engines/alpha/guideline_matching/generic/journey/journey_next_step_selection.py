@@ -256,6 +256,12 @@ class JourneyNextStepSelection:
 
                 with open("dumps/journey/journey next step/output.txt", "w") as f:
                     f.write(inference.content.model_dump_json(indent=2))
+                with open("dumps/journey/journey next step/input tokens.txt", "a") as f:
+                    f.write(f"{inference.info.usage.input_tokens}\n")
+                with open("dumps/journey/journey next step/output tokens.txt", "a") as f:
+                    f.write(f"{inference.info.usage.output_tokens}\n")
+                with open("dumps/journey/journey next step/duration.txt", "a") as f:
+                    f.write(f"{inference.info.duration}\n")
 
                 if inference.content.applied_condition_id:
                     if inference.content.applied_condition_id == "None":
@@ -444,7 +450,7 @@ OUTPUT FORMAT
 
 ```json
 {
-"rationale": "<str, explanation for which condition holds and why>",
+"rationale": "<str, explanation for which condition holds and why. Reminder: include all the information provided in current and former messages>",
 "journey_continues: <bool, whether the journey should continued. Reminder: If you are already executing journey steps (i.e., there is a "last_step"), the journey almost always continues. The activation condition is ONLY for starting new journeys, NOT for validating ongoing ones.>,
 "current_step_completed": <bool, whether the current step completed.>,
 "applied_condition_id": "<str, id of the applied condition, '0' if current step hasn't completed or 'None' if the journey should not continue>"
@@ -564,8 +570,6 @@ OUTPUT FORMAT
     - For TOOL EXECUTION steps: The tool was executed, and its result will appear as a staged event. Need to evaluate what condition applies for the nex transition.
         Note that the tool execution is the final action in the interaction, meaning all message exchanges occurred beforehand. Make sure to consider this order in your evaluation.
 
-    Important - You tend to ignore customer actions completions when many are available. It's important to notice all the customer message in details. Please correct yourself in the future.
-
     ## 3: Journey Advancement
     If the journey continues AND the current step is complete, choose the next step by:
 
@@ -577,6 +581,10 @@ OUTPUT FORMAT
    **Select the condition ID that best matches**
    - Only ONE transition should be the best fit
    - Return its ID as `applied_condition_id`
+
+    Important - You tend to ignore customer actions completions when many are available. It's important to notice all the customer message in details. Please correct yourself in the future.
+
+    Note that even if the condition requires asking the customer a question, it is considered fulfilled if the customer provides the information without being asked.
 
     You will be given a description of the current step, which is the previously 
     """,
@@ -844,7 +852,7 @@ example_3_follow_up_nodes = {
 }
 
 example_3_expected = JourneyNextStepSelectionSchema(
-    rationale="The customer want a loan for their restaurant, making it a business loan. They also already specified the amount of the loan and stocks as collateral which are digital. "
+    rationale="The customer want a loan for their restaurant, making it a business loan. They also already specified in previous messages the amount of the loan and stocks as collateral which are digital. "
     "The agent hasn't reviewed and confirmed the application so condition 4 is most appropriate",
     journey_continues=True,
     current_step_completed=True,

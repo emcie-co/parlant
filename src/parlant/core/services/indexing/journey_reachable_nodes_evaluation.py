@@ -22,6 +22,7 @@ from parlant.core.shots import Shot, ShotCollection
 PRE_ROOT_INDEX = "0"
 ROOT_INDEX = "1"
 ACTION_COMPLETION_REMINDER = "<str, condition that says the current action completed, if exists. Reminder: if it requires the customer to do something, phrase it as 'The customer ...' if it only requires the agent. phrase it as 'The agent..'>"
+REMINDER_OF_ACTION_TYPE = "Reminder: when stating the child_action hasn't completed consider if action is CUSTOMER DEPENDENT or REQUIRES AGENT ACTION"
 
 
 class JourneyNodeKind(Enum):
@@ -408,9 +409,15 @@ Current node action:
         if node.customer_dependent_action:
             desc += """
 - CUSTOMER DEPENDENT: This action requires an action from the customer to be considered complete. Mark it as complete if the customer answered the question in the action, if there is one."""
+        if node.customer_action_description:
+            desc += f"""
+- The action is completed if: {node.customer_action_description}"""
         if node.agent_dependent_action:
             desc += """
 - REQUIRES AGENT ACTION: This step requires from the agent to say something for it to be completed."""
+        if node.agent_action_description:
+            desc += f"""
+- The action is completed if: {node.agent_action_description}"""
 
         if children_info:
             for id, info in children_info.items():
@@ -494,10 +501,11 @@ TASK DESCRIPTION
 -----------------
 You will be given a journey step and information about each of it's outgoing directed steps (children), and your task is to write the condition that describes the transition to each child.
 The information you will have for each of the children steps is:
-1. The condition of the transition from them to each child (if exists).
+1. The condition of the transition from current step to each child (if exists).
 2. The conditions that describe the transitions from them onward. 
 
 The rule for creating the conditions for the given node is as follows:
+
 1. **condition_to_child_and_stop**: The transition condition to reach the child is satisfied AND the child's action has NOT been completed yet
 
 2. **condition_to_child_then_to_path**: For each possible path forward from the child, combine:
@@ -506,9 +514,10 @@ The rule for creating the conditions for the given node is as follows:
    - path_condition - The path condition from the child onward  
 * Do not include that current step condition was completed.
 * Note that condition_to_child_then_to_path may be long, it's ok! It's important to include all condition parts to get well defined transitions.
+
 If the current node has no children:
-- **step_action_completed ** - The condition that the current step action was completed
-- No children_conditions array is needed
+    - **step_action_completed ** - The condition that the current step action was completed
+    - No children_conditions array is needed
 
 Condition to child:
 If a node has one child and the condition_to_child is unspecified, there is no condition to include.
@@ -518,10 +527,21 @@ state the complementary condition.
 So eventually we will get all possible options to continue from the current node.
 
 Action completion:
-You will be asked to phrase the condition that says that an action was / wasn't completed. Notice the CUSTOMER DEPENDENT and REQUIRES AGENT ACTION and follow those rules:
-CUSTOMER DEPENDENT: Actions requiring customer responses (e.g., "Ask the customer which type of pizza they want") , it was completed if the customer provided the requested information, whether explicitly requested by the agent or volunteered unprompted.
-    So the action completed phrasing should be "The customer chose which type of pizza they want" and not "The agent asked the customer which type of pizza they want" (If they said without asking it is still completed).
-REQUIRES AGENT ACTION: If action requires the agent to say something, we describe it as completed if the agent did their part. The correct phrasing should be "The agent informed the customer that.." and node "The customer was informed.
+You will be asked to phrase conditions stating whether an action was or wasn't completed. Pay close attention to the following rules based on action type:
+
+**CUSTOMER DEPENDENT ACTIONS:** 
+For actions requiring customer responses (e.g., "Ask the customer which type of pizza they want"), the action is completed when the customer provided the requested information—whether the agent explicitly requested it OR the customer volunteered it unprompted.
+
+Always phrase completion from the CUSTOMER'S perspective, not the agent's.
+- CORRECT: "The customer chose which type of pizza they want"
+- WRONG: "The agent asked the customer which type of pizza they want"
+
+The action is complete when the INFORMATION EXISTS, regardless of whether the agent asked for it.
+
+**REQUIRES AGENT ACTION:** 
+For actions requiring the agent to communicate something, describe completion based on whether the agent fulfilled their responsibility.
+- CORRECT: "The agent informed the customer that..."
+- WRONG: "The customer was informed that..."
 
 Notes:
 - Make sure that the condition is well described and can be understood without having more information about the steps and transition, such that given a conversation with a customer it will be possible to determine if the condition 
@@ -589,7 +609,7 @@ Example section is over. The following is the real data you need to use for your
             "child_id": "{id}",
             "child_action": "{info.action if info.action else "There is no action to perform in this child step"}",
             "condition_to_child": "{info.edge_condition if info.edge_condition else "<str.There is no condition associated with the transition to this child, if there are other children state here the complementary condition of ALL children>"}",
-            "condition_to_child_and_stop": {"<str, condition_to_child (if exists) AND that child_action hasn't completed (if exists)>" if info.action or info.edge_condition else ""},"""
+            "condition_to_child_and_stop": {f"<str, condition_to_child (if exists) AND that child_action hasn't completed (if exists).{REMINDER_OF_ACTION_TYPE}>" if info.action or info.edge_condition else ""},"""
 
                 conditions_to_child_and_forward = ""
                 for path_id, r in info.id_to_reachable_follow_ups.items():
@@ -597,7 +617,7 @@ Example section is over. The following is the real data you need to use for your
                 {{
                     "id": "{path_id}",
                     "path_condition": "{r.condition}",
-                    "condition_to_child_then_to_path": "<str, child_action completed (if exists) AND condition_to_child (if exists) AND path_condition>",
+                    "condition_to_child_then_to_path": "<str, child_action completed (if exists) AND condition_to_child (if exists) AND path_condition {REMINDER_OF_ACTION_TYPE}>",
                 }},"""
                 if conditions_to_child_and_forward:
                     child_desc += f"""
@@ -658,6 +678,8 @@ OUTPUT FORMAT
 
                 with open("dumps/journey/journey reachable evaluation/output.txt", "w") as f:
                     f.write(inference.content.model_dump_json(indent=2))
+                with open("dumps/journey/journey reachable evaluation/duration.txt", "a") as f:
+                    f.write(f"{inference.info.duration}\n")
 
                 reachable_follow_ups = []
 

@@ -9,7 +9,6 @@ from parlant.core.engines.alpha.guideline_matching.generic.common import interna
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
     DEFAULT_ROOT_ACTION,
     ELSE_CONDITION_STR,
-    EXIT_JOURNEY_INSTRUCTION,
     PRE_ROOT_INDEX,
     ROOT_INDEX,
     SINGLE_FOLLOW_UP_CONDITION_STR,
@@ -35,6 +34,7 @@ from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
 
 FORK_NODE_ACTION_STR = "No action to perform in this node"
+EXIT_JOURNEY_INSTRUCTION = "There are no further transitions."
 
 
 class JourneyBacktrackCheckSchema(DefaultBaseModel):
@@ -228,6 +228,8 @@ class JourneyBacktrackCheck:
                             for e in node.outgoing_edges
                         ]
                     )
+                else:
+                    result = EXIT_JOURNEY_INSTRUCTION
             return result
 
         unpruned_nodes = (

@@ -266,7 +266,7 @@ class JourneyReachableNodesEvaluator:
 
             dup_id = f"{start.id}_{list(duplicate_to_orig_id.values()).count(start.id) + 1}"
             new_edge = _JourneyEdge(
-                condition=edge.condition,
+                condition=edge.condition if edge else None,
                 source_node_index=end.id,
                 target_node_index=dup_id,
             )

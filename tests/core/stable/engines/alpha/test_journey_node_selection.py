@@ -503,6 +503,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Ask them how many calzones they want",
                 follow_up_ids=["3", "7"],
                 customer_dependent_action=True,
+                customer_action="The customer specified how many calzones they want",
                 kind=JourneyNodeKind.CHAT,
                 reachable_follow_ups=[
                     (

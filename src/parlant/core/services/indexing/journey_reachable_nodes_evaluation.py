@@ -251,7 +251,7 @@ class JourneyReachableNodesEvaluator:
     ) -> tuple[dict[str, _JourneyNode], dict[str, str]]:
         new_graph = copy.deepcopy(graph)
 
-        duplicate_to_orig_id = {}
+        duplicate_to_orig_id: dict[str, str] = {}
 
         def break_cycle(cycle: list[str]) -> None:
             # For example if we have 1->2->1 it will become 1->2->1_duplicate
@@ -263,10 +263,8 @@ class JourneyReachableNodesEvaluator:
                 if e.target_node_index == start.id:
                     edge = e
                     break
-            if not edge:  # TODO throw exception?
-                raise BaseException("No edge from last to first node in the cycle was found!")
 
-            dup_id = f"{start.id}_2"  # TODO change the id??
+            dup_id = f"{start.id}_{list(duplicate_to_orig_id.values()).count(start.id) + 1}"
             new_edge = _JourneyEdge(
                 condition=edge.condition,
                 source_node_index=end.id,

@@ -21,6 +21,7 @@ import contextvars
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import enum
+from functools import partial
 from hashlib import md5
 import importlib.util
 from itertools import chain
@@ -1566,6 +1567,23 @@ class Journey:
             _journey=self,
         )
 
+    @staticmethod
+    async def _create_journey_state_handler_shim(
+        user_callback: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]],
+        state_id: JourneyStateId,
+        transition_id: JourneyEdgeId,
+        core_ctx: EngineContext,
+        core_match: _GuidelineMatch,
+    ) -> None:
+        """Generic shim that translates core types to SDK JourneyStateMatch and calls user callback."""
+        sdk_match = JourneyStateMatch(
+            state_id=state_id,
+            matched=True,
+            rationale=core_match.rationale,
+            transition_id=transition_id,
+        )
+        await user_callback(core_ctx, sdk_match)
+
     async def create_transition(
         self,
         condition: str | None,
@@ -1603,53 +1621,31 @@ class Journey:
             condition=condition,
         )
 
-        # Register on_match handler if provided
-        if on_match is not None and target is not None and target.id != END_JOURNEY.id:
-            # Compute the guideline ID for this journey edge
-            guideline_id = format_journey_node_guideline_id(target.id, transition.id)
+        # Register handlers if provided
+        if target is not None and target.id != END_JOURNEY.id:
+            if on_match is not None or on_message is not None:
+                guideline_id = format_journey_node_guideline_id(target.id, transition.id)
+                engine_hooks = self._container[EngineHooks]
 
-            # Create shim handler that translates core types to SDK types
-            async def shim_handler(
-                core_ctx: EngineContext,
-                core_match: _GuidelineMatch,
-            ) -> None:
-                # Build SDK journey state match
-                sdk_match = JourneyStateMatch(
-                    state_id=target.id,
-                    matched=True,
-                    rationale=core_match.rationale,
-                    transition_id=transition.id,
-                )
+                if on_match is not None:
+                    # Use partial to create specialized handler for on_match
+                    shim = partial(
+                        Journey._create_journey_state_handler_shim,
+                        on_match,
+                        target.id,
+                        transition.id,
+                    )
+                    engine_hooks.on_guideline_match_handlers[guideline_id].append(shim)
 
-                await on_match(core_ctx, sdk_match)
-
-            # Register handler with engine hooks
-            engine_hooks = self._container[EngineHooks]
-            engine_hooks.on_guideline_match_handlers[guideline_id].append(shim_handler)
-
-        # Register on_message handler if provided
-        if on_message is not None and target is not None and target.id != END_JOURNEY.id:
-            # Compute the guideline ID for this journey edge
-            guideline_id = format_journey_node_guideline_id(target.id, transition.id)
-
-            # Create shim handler that translates core types to SDK types
-            async def shim_message_handler(
-                core_ctx: EngineContext,
-                core_match: _GuidelineMatch,
-            ) -> None:
-                # Build SDK journey state match
-                sdk_match = JourneyStateMatch(
-                    state_id=target.id,
-                    matched=True,
-                    rationale=core_match.rationale,
-                    transition_id=transition.id,
-                )
-
-                await on_message(core_ctx, sdk_match)
-
-            # Register handler with engine hooks
-            engine_hooks = self._container[EngineHooks]
-            engine_hooks.on_guideline_message_handlers[guideline_id].append(shim_message_handler)
+                if on_message is not None:
+                    # Use partial to create specialized handler for on_message
+                    shim = partial(
+                        Journey._create_journey_state_handler_shim,
+                        on_message,
+                        target.id,
+                        transition.id,
+                    )
+                    engine_hooks.on_guideline_message_handlers[guideline_id].append(shim)
 
         return JourneyTransition[TState](
             id=transition.id,
@@ -2606,6 +2602,21 @@ class Server:
     ) -> None:
         self._journey_evaluations[journey.id] = ((journey,), self._evaluator.evaluate_journey)
 
+    @staticmethod
+    async def _create_guideline_handler_shim(
+        user_callback: Callable[[EngineContext, GuidelineMatch], Awaitable[None]],
+        guideline_id: GuidelineId,
+        core_ctx: EngineContext,
+        core_match: _GuidelineMatch,
+    ) -> None:
+        """Generic shim that translates core types to SDK GuidelineMatch and calls user callback."""
+        sdk_match = GuidelineMatch(
+            id=guideline_id,
+            matched=True,
+            rationale=core_match.rationale,
+        )
+        await user_callback(core_ctx, sdk_match)
+
     async def _create_guideline(
         self,
         condition: str,
@@ -2639,6 +2650,7 @@ class Server:
             criticality=criticality,
             metadata=metadata,
             id=id,
+            tags=tags,
         )
 
         if canned_responses:
@@ -2716,37 +2728,26 @@ class Server:
                 guideline.id
             ] = strategy
 
-        if on_match is not None:
-            # Create a shim that translates between SDK and core types
-            async def shim_handler(
-                core_ctx: EngineContext,
-                core_match: _GuidelineMatch,
-            ) -> None:
-                sdk_match = GuidelineMatch(
-                    id=core_match.guideline.id,
-                    matched=True,
-                    rationale=core_match.rationale,
-                )
-                await on_match(core_ctx, sdk_match)
-
+        if on_match is not None or on_message is not None:
             engine_hooks = self.container[EngineHooks]
-            engine_hooks.on_guideline_match_handlers[guideline.id].append(shim_handler)
 
-        if on_message is not None:
-            # Create a shim that translates between SDK and core types
-            async def shim_message_handler(
-                core_ctx: EngineContext,
-                core_match: _GuidelineMatch,
-            ) -> None:
-                sdk_match = GuidelineMatch(
-                    id=core_match.guideline.id,
-                    matched=True,
-                    rationale=core_match.rationale,
+            if on_match is not None:
+                # Use partial to create specialized handler for on_match
+                shim = partial(
+                    Server._create_guideline_handler_shim,
+                    on_match,
+                    guideline.id,
                 )
-                await on_message(core_ctx, sdk_match)
+                engine_hooks.on_guideline_match_handlers[guideline.id].append(shim)
 
-            engine_hooks = self.container[EngineHooks]
-            engine_hooks.on_guideline_message_handlers[guideline.id].append(shim_message_handler)
+            if on_message is not None:
+                # Use partial to create specialized handler for on_message
+                shim = partial(
+                    Server._create_guideline_handler_shim,
+                    on_message,
+                    guideline.id,
+                )
+                engine_hooks.on_guideline_message_handlers[guideline.id].append(shim)
 
         return result_guideline
 

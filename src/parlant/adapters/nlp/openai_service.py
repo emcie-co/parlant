@@ -44,7 +44,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selectio
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.engines.alpha.tool_calling.single_tool_batch import SingleToolBatchSchema
 from parlant.core.loggers import Logger
-from parlant.core.meter import Meter, NullMeter
+from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import EmbedderHints, ModelSize, NLPService, SchematicGeneratorHints
@@ -405,7 +405,7 @@ class CustomOpenAISchematicGenerator(BaseSchematicGenerator[T]):
         tokenizer_model_name: str | None = None,
         max_tokens: int | None = None,
     ) -> None:
-        super().__init__(logger=logger, meter=meter or NullMeter(), model_name=model_name)
+        super().__init__(logger=logger, meter=meter, model_name=model_name)
 
         # Use custom base URL if provided, otherwise use default OpenAI
         client_kwargs = {}

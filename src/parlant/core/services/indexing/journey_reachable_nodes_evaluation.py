@@ -582,8 +582,8 @@ Example section is over. The following is the real data you need to use for your
 
         os.makedirs("dumps/journey/journey reachable evaluation", exist_ok=True)
 
-        with open("dumps/journey/journey reachable evaluation/prompt.txt", "w") as f:
-            f.write(builder.build())
+        # with open("dumps/journey/journey reachable evaluation/prompt.txt", "w") as f:
+        #     f.write(builder.build())
         return builder
 
     def _sort_by_transition_condition(
@@ -676,10 +676,10 @@ OUTPUT FORMAT
 
                 self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
-                with open("dumps/journey/journey reachable evaluation/output.txt", "w") as f:
-                    f.write(inference.content.model_dump_json(indent=2))
-                with open("dumps/journey/journey reachable evaluation/duration.txt", "a") as f:
-                    f.write(f"{inference.info.duration}\n")
+                # with open("dumps/journey/journey reachable evaluation/output.txt", "w") as f:
+                #     f.write(inference.content.model_dump_json(indent=2))
+                # with open("dumps/journey/journey reachable evaluation/duration.txt", "a") as f:
+                #     f.write(f"{inference.info.duration}\n")
 
                 reachable_follow_ups = []
 

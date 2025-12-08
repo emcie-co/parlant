@@ -254,14 +254,14 @@ class JourneyNextStepSelection:
                 )
                 self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
-                with open("dumps/journey/journey next step/output.txt", "w") as f:
-                    f.write(inference.content.model_dump_json(indent=2))
-                with open("dumps/journey/journey next step/input tokens.txt", "a") as f:
-                    f.write(f"{inference.info.usage.input_tokens}\n")
-                with open("dumps/journey/journey next step/output tokens.txt", "a") as f:
-                    f.write(f"{inference.info.usage.output_tokens}\n")
-                with open("dumps/journey/journey next step/duration.txt", "a") as f:
-                    f.write(f"{inference.info.duration}\n")
+                # with open("dumps/journey/journey next step/output.txt", "w") as f:
+                #     f.write(inference.content.model_dump_json(indent=2))
+                # with open("dumps/journey/journey next step/input tokens.txt", "a") as f:
+                #     f.write(f"{inference.info.usage.input_tokens}\n")
+                # with open("dumps/journey/journey next step/output tokens.txt", "a") as f:
+                #     f.write(f"{inference.info.usage.output_tokens}\n")
+                # with open("dumps/journey/journey next step/duration.txt", "a") as f:
+                #     f.write(f"{inference.info.duration}\n")
 
                 if inference.content.applied_condition_id:
                     if inference.content.applied_condition_id == "None":
@@ -627,8 +627,8 @@ OUTPUT FORMAT
         )
         os.makedirs("dumps/journey/journey next step", exist_ok=True)
 
-        with open("dumps/journey/journey next step/prompt.txt", "w") as f:
-            f.write(builder.build())
+        # with open("dumps/journey/journey next step/prompt.txt", "w") as f:
+        #     f.write(builder.build())
         return builder
 
 

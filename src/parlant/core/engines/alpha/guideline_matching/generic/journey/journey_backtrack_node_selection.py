@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 import json
+import os
 import traceback
 from typing import Any, Optional, cast
 from parlant.core.common import DefaultBaseModel, JSONSerializable
@@ -447,6 +448,20 @@ class JourneyBacktrackNodeSelection:
                 )
                 self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
+                # with open("dumps/journey/journey backtrack node selection/output.txt", "w") as f:
+                #     f.write(inference.content.model_dump_json(indent=2))
+
+                # with open(
+                #     "dumps/journey/journey backtrack node selection/input tokens.txt", "a"
+                # ) as f:
+                #     f.write(f"{inference.info.usage.input_tokens}\n")
+                # with open(
+                #     "dumps/journey/journey backtrack node selection/output tokens.txt", "a"
+                # ) as f:
+                #     f.write(f"{inference.info.usage.output_tokens}\n")
+                # with open("dumps/journey/journey backtrack node selection/duration.txt", "a") as f:
+                #     f.write(f"{inference.info.duration}\n")
+
                 journey_path = self._get_verified_node_advancement(inference.content)
 
                 # Get correct guideline to return based on the transition into next_step  TODO consider surrounding with try catch specifically
@@ -798,6 +813,10 @@ Example section is over. The following is the real data you need to use for your
             name="journey-general_reminder-section",
             template="""Reminder - carefully consider all restraints and instructions. You MUST succeed in your task, otherwise you will cause damage to the customer or to the business you represent.""",
         )
+        os.makedirs("dumps/journey/journey backtrack node selection", exist_ok=True)
+
+        # with open("dumps/journey/journey backtrack node selection/prompt.txt", "w") as f:
+        #     f.write(builder.build())
         return builder
 
     def _get_output_format_section(self) -> str:

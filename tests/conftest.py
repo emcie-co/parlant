@@ -375,7 +375,6 @@ async def container(
                     "default": EmcieService(
                         container[Logger],
                         container[Meter],
-                        base_url=os.environ.get("EMCIE_API_URL", "http://localhost:8000"),
                         model_tier=os.environ.get("EMCIE_MODEL_TIER", "jackal"),  # type: ignore
                         model_role=os.environ.get("EMCIE_MODEL_ROLE", "teacher"),  # type: ignore
                     )

@@ -112,17 +112,19 @@ class S3DocumentDatabase(DocumentDatabase):
         schema: type[TDocument],
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> S3DocumentCollection[TDocument]:
-        # Check if collection "exists" by checking if any objects exist with prefix
         exists = await self._collection_exists(name)
         if not exists and name not in self._collections:
             raise ValueError(f'Collection "{name}" does not exists')
 
         if name not in self._collections:
+            # Run upfront migration
+            await self._migrate_collection_documents(name, document_loader)
+            
             self._collections[name] = S3DocumentCollection(
                 database=self,
                 name=name,
                 schema=schema,
-                document_loader=document_loader,
+                document_loader=identity_loader,
             )
         return cast(S3DocumentCollection[TDocument], self._collections[name])
 
@@ -134,11 +136,15 @@ class S3DocumentDatabase(DocumentDatabase):
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> S3DocumentCollection[TDocument]:
         if name not in self._collections:
+            exists = await self._collection_exists(name)
+            if exists:
+                await self._migrate_collection_documents(name, document_loader)
+            
             self._collections[name] = S3DocumentCollection(
                 database=self,
                 name=name,
                 schema=schema,
-                document_loader=document_loader,
+                document_loader=identity_loader,
             )
         return cast(S3DocumentCollection[TDocument], self._collections[name])
 
@@ -168,7 +174,6 @@ class S3DocumentDatabase(DocumentDatabase):
             for page in pages:
                 if "Contents" in page:
                     objects = [{"Key": obj["Key"]} for obj in page["Contents"]]
-                    # Delete in batches of 1000 (S3 limit)
                     for i in range(0, len(objects), 1000):
                         batch = objects[i : i + 1000]
                         self._s3_client.delete_objects(
@@ -176,6 +181,88 @@ class S3DocumentDatabase(DocumentDatabase):
                         )
 
         await asyncio.to_thread(delete)
+
+    async def _migrate_collection_documents(
+        self,
+        collection_name: str,
+        document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
+    ) -> Sequence[TDocument]:
+        """Migrate all documents in a collection upfront.
+        
+        Returns successfully migrated documents.
+        Failed migrations are stored in failed_migrations/{collection_name}/ prefix.
+        """
+        failed_migrations_prefix = f"failed_migrations/{collection_name}"
+        if await self._collection_exists(failed_migrations_prefix):
+            self._logger.info(f"deleting old failed_migrations for collection '{collection_name}'")
+            await self._delete_prefix(failed_migrations_prefix)
+        
+        migrated_docs: list[TDocument] = []
+        
+        def list_keys() -> list[str]:
+            keys = []
+            paginator = self._s3_client.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=self.bucket_name, Prefix=f"{collection_name}/"):
+                if "Contents" in page:
+                    for obj in page["Contents"]:
+                        keys.append(obj["Key"])
+            return keys
+        
+        keys = await asyncio.to_thread(list_keys)
+        
+        for key in keys:
+            def fetch() -> Optional[dict[str, Any]]:
+                try:
+                    response = self._s3_client.get_object(Bucket=self.bucket_name, Key=key)
+                    return json.loads(response["Body"].read().decode("utf-8"))
+                except ClientError as e:
+                    if e.response["Error"]["Code"] == "NoSuchKey":
+                        return None
+                    raise
+            
+            raw_doc = await asyncio.to_thread(fetch)
+            if raw_doc is None:
+                continue
+            
+            try:
+                loaded_doc = await document_loader(cast(BaseDocument, raw_doc))
+                if loaded_doc:
+                    migrated_docs.append(loaded_doc)
+                    
+                    def put() -> None:
+                        self._s3_client.put_object(
+                            Bucket=self.bucket_name,
+                            Key=key,
+                            Body=json.dumps(loaded_doc, ensure_ascii=False).encode("utf-8"),
+                        )
+                    await asyncio.to_thread(put)
+                else:
+                    self._logger.warning(f'Failed to load document "{raw_doc}"')
+                    await self._handle_failed_migration(collection_name, cast(BaseDocument, raw_doc))
+                    def delete() -> None:
+                        self._s3_client.delete_object(Bucket=self.bucket_name, Key=key)
+                    await asyncio.to_thread(delete)
+            except Exception as e:
+                self._logger.error(f"Failed to load document '{raw_doc}': {e}")
+                await self._handle_failed_migration(collection_name, cast(BaseDocument, raw_doc))
+                def delete() -> None:
+                    self._s3_client.delete_object(Bucket=self.bucket_name, Key=key)
+                await asyncio.to_thread(delete)
+        
+        return migrated_docs
+    
+    async def _handle_failed_migration(self, collection_name: str, doc: BaseDocument) -> None:
+        """Store failed migration in failed_migrations/{collection_name}/ prefix."""
+        doc_id = doc.get("id")
+        if doc_id:
+            key = f"failed_migrations/{collection_name}/{doc_id}.json"
+            def put() -> None:
+                self._s3_client.put_object(
+                    Bucket=self.bucket_name,
+                    Key=key,
+                    Body=json.dumps(doc, ensure_ascii=False).encode("utf-8"),
+                )
+            await asyncio.to_thread(put)
 
 
 class S3DocumentCollection(DocumentCollection[TDocument]):
@@ -197,6 +284,7 @@ class S3DocumentCollection(DocumentCollection[TDocument]):
         return f"{self._name}/{doc_id}.json"
 
     async def _get_object_content(self, key: str) -> Optional[TDocument]:
+        """Fetch document from S3. No migration logic - documents are already migrated."""
         def fetch() -> Optional[dict[str, Any]]:
             try:
                 response = self._s3_client.get_object(Bucket=self._bucket, Key=key)
@@ -209,33 +297,10 @@ class S3DocumentCollection(DocumentCollection[TDocument]):
         raw_doc = await asyncio.to_thread(fetch)
         if raw_doc is None:
             return None
+        
+        return cast(TDocument, raw_doc)
 
-        # Apply document loader (migration)
-        try:
-            loaded_doc = await self._document_loader(cast(BaseDocument, raw_doc))
-            if loaded_doc:
-                return loaded_doc
-            
-            # Migration failed (loader returned None)
-            self._database._logger.warning(f'Failed to load document "{raw_doc}"')
-            await self._handle_failed_migration(cast(BaseDocument, raw_doc))
-            return None
-        except Exception as e:
-            self._database._logger.error(f"Failed to load document '{raw_doc}': {e}")
-            await self._handle_failed_migration(cast(BaseDocument, raw_doc))
-            return None
 
-    async def _handle_failed_migration(self, doc: BaseDocument) -> None:
-        doc_id = doc.get("id")
-        if doc_id:
-            key = f"failed_migrations/{doc_id}.json"
-            def put() -> None:
-                self._s3_client.put_object(
-                    Bucket=self._bucket,
-                    Key=key,
-                    Body=json.dumps(doc, ensure_ascii=False).encode("utf-8"),
-                )
-            await asyncio.to_thread(put)
 
     async def _put_object_content(self, key: str, content: dict[str, Any]) -> None:
         def put() -> None:
@@ -273,29 +338,18 @@ class S3DocumentCollection(DocumentCollection[TDocument]):
         cursor: Optional[Cursor] = None,
         sort_direction: Optional[SortDirection] = None,
     ) -> FindResult[TDocument]:
-        # 1. List all keys in the collection
         keys = await self._list_keys()
-
-        # 2. Fetch all documents (in parallel)
-        # This applies the loader, so documents are migrated
         tasks = [self._get_object_content(key) for key in keys]
         docs_or_none = await asyncio.gather(*tasks)
         documents = [doc for doc in docs_or_none if doc is not None]
-
-        # 3. Apply filtering
         filtered_docs = [doc for doc in documents if matches_filters(filters, doc)]
-
-        # 4. Apply sorting
         sort_direction = sort_direction or SortDirection.ASC
         filtered_docs = self._apply_sort(filtered_docs, sort_direction)
-
-        # 5. Apply cursor
         if cursor:
             filtered_docs = self._apply_cursor_filter(filtered_docs, cursor, sort_direction)
 
         total_count = len(filtered_docs)
 
-        # 6. Apply limit
         has_more = False
         next_cursor = None
 
@@ -356,7 +410,6 @@ class S3DocumentCollection(DocumentCollection[TDocument]):
         self,
         filters: Where,
     ) -> Optional[TDocument]:
-        # Optimization: check if 'id' is in filters with equality
         doc_id = None
         if "id" in filters and isinstance(filters["id"], dict) and "$eq" in filters["id"]:
             doc_id = filters["id"]["$eq"]

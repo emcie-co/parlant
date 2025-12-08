@@ -61,8 +61,11 @@ ERROR_MESSAGE = (
     "  https://emcie.co\n"
 )  # TODO: Update link when relevant Emcie docs are available.
 
-ModelTier: TypeAlias = Literal["jackal", "bison"]
+GenerationModelTier: TypeAlias = Literal["jackal", "bison"]
+EmbeddingModelTier: TypeAlias = Literal["jackal-embedding", "bison-embedding"]
 ModelRole: TypeAlias = Literal["teacher", "student", "auto"]
+
+BASE_URL = os.environ.get("EMCIE_API_URL", "https://api.emcie.co/inference")
 
 
 class EmcieEstimatingTokenizer(EstimatingTokenizer):
@@ -96,7 +99,6 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
 
     def __init__(
         self,
-        base_url: str,
         model_name: str,
         model_role: ModelRole,
         logger: Logger,
@@ -104,7 +106,6 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
     ) -> None:
         super().__init__(logger=logger, meter=meter, model_name=model_name)
 
-        self._base_url = base_url
         self._model_role = model_role
         self._tokenizer = EmcieEstimatingTokenizer()
 
@@ -147,9 +148,9 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
 
             async with AsyncClient() as client:
                 response = await client.post(
-                    f"{self._base_url}/v1/completions",
+                    f"{BASE_URL}/v1/completions",
                     headers={
-                        "Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}",
+                        "Authorization": f"Bearer {os.environ['EMCIE_API_KEY']}",
                         "X-Parlant-Version": VERSION,
                     },
                     json={
@@ -180,6 +181,8 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
                     raise EmcieAPIError(
                         f"Emcie API error: {response.status_code} {response.json()['detail']}"
                     )
+
+                response.raise_for_status()
 
             t_end = time.time()
         except (InsufficientCreditsError, RateLimitError):
@@ -245,14 +248,12 @@ class Jackal(EmcieSchematicGenerator[T]):
         self,
         logger: Logger,
         meter: Meter,
-        base_url: str,
         model_role: ModelRole,
     ) -> None:
         super().__init__(
             model_name="jackal",
             logger=logger,
             meter=meter,
-            base_url=base_url,
             model_role=model_role,
         )
 
@@ -267,14 +268,12 @@ class Bison(EmcieSchematicGenerator[T]):
         self,
         logger: Logger,
         meter: Meter,
-        base_url: str,
         model_role: ModelRole,
     ) -> None:
         super().__init__(
             model_name="bison",
             logger=logger,
             meter=meter,
-            base_url=base_url,
             model_role=model_role,
         )
 
@@ -284,22 +283,22 @@ class Bison(EmcieSchematicGenerator[T]):
         return 128 * 1024
 
 
-class OpenAIEmbedder(BaseEmbedder):
+class EmcieEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
-    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
+    def __init__(
+        self,
+        model_name: str,
+        logger: Logger,
+        meter: Meter,
+    ) -> None:
         super().__init__(logger, meter, model_name)
-        self.model_name = model_name
-
-        import openai
-
-        self._client = openai.AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
         self._tokenizer = EmcieEstimatingTokenizer()
 
     @property
     @override
     def id(self) -> str:
-        return f"openai/{self.model_name}"
+        return f"emcie/{self.model_name}"
 
     @property
     @override
@@ -318,24 +317,55 @@ class OpenAIEmbedder(BaseEmbedder):
         texts: list[str],
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
-        filtered_hints = {k: v for k, v in hints.items() if k in self.supported_arguments}
         try:
-            response = await self._client.embeddings.create(
-                model=self.model_name,
-                input=texts,
-                **filtered_hints,
-            )
+            async with AsyncClient() as client:
+                response = await client.post(
+                    f"{BASE_URL}/v1/embeddings",
+                    headers={
+                        "Authorization": f"Bearer {os.environ['EMCIE_API_KEY']}",
+                        "X-Parlant-Version": VERSION,
+                    },
+                    json={
+                        "model_tier": self.model_name,
+                        "inputs": texts,
+                        "hints": {k: v for k, v in hints.items() if k in self.supported_arguments},
+                    },
+                )
+
+                if response.status_code == 429:
+                    raise RateLimitError(
+                        f"Emcie API rate limit exceeded: {response.json()['detail']}"
+                    )
+                elif response.status_code == 402:
+                    raise InsufficientCreditsError(
+                        f"Insufficient API credits for Emcie API: {response.json()['detail']}"
+                    )
+                elif response.status_code == 403:
+                    raise UnauthorizedError(
+                        f"Unauthorized access to Emcie API: {response.json()['detail']}"
+                    )
+                elif response.status_code >= 500:
+                    raise EmcieAPIError(
+                        f"Emcie API error: {response.status_code} {response.json()['detail']}"
+                    )
+
+                response.raise_for_status()
         except RateLimitError:
             self.logger.error(ERROR_MESSAGE)
             raise
 
-        vectors = [data_point.embedding for data_point in response.data]
+        response_data = response.json()
+        vectors = [data_point["embedding"] for data_point in response_data["data"]]
         return EmbeddingResult(vectors=vectors)
 
 
-class OpenAITextEmbedding3Large(OpenAIEmbedder):
+class BisonEmbedding(EmcieEmbedder):
     def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="text-embedding-3-large", logger=logger, meter=meter)
+        super().__init__(
+            model_name="bison-embedding",
+            logger=logger,
+            meter=meter,
+        )
 
     @property
     @override
@@ -347,9 +377,13 @@ class OpenAITextEmbedding3Large(OpenAIEmbedder):
         return 3072
 
 
-class OpenAITextEmbedding3Small(OpenAIEmbedder):
+class JackalEmbedding(EmcieEmbedder):
     def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="text-embedding-3-small", logger=logger, meter=meter)
+        super().__init__(
+            model_name="jackal-embedding",
+            logger=logger,
+            meter=meter,
+        )
 
     @property
     @override
@@ -369,7 +403,7 @@ class OpenAIModerationService(BaseModerationService):
 
         import openai
 
-        self._client = openai.AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
+        self._client = openai.AsyncClient(api_key=os.environ["EMCIE_API_KEY"])
 
         self._hist_moderation_request_duration = meter.create_duration_histogram(
             name="moderation",
@@ -440,16 +474,12 @@ Please set EMCIE_API_KEY in your environment before running Parlant.
         self,
         logger: Logger,
         meter: Meter,
-        base_url: str | None = None,
-        model_tier: ModelTier | None = None,
+        model_tier: GenerationModelTier | None = None,
         model_role: ModelRole | None = None,
     ) -> None:
         self._logger = logger
         self._meter = meter
 
-        self._base_url = base_url or os.environ.get(
-            "EMCIE_API_URL", "https://api.emcie.co/inference"
-        )
         self._model_tier = model_tier or os.environ.get("EMCIE_MODEL_TIER", "jackal")
         self._model_role = model_role or os.environ.get("EMCIE_MODEL_ROLE", "auto")
 
@@ -465,14 +495,12 @@ Please set EMCIE_API_KEY in your environment before running Parlant.
         match self._model_tier:
             case "jackal":
                 return Jackal[t](  # type: ignore
-                    base_url=self._base_url,
                     model_role=cast(ModelRole, self._model_role),
                     logger=self._logger,
                     meter=self._meter,
                 )
             case "bison":
                 return Bison[t](  # type: ignore
-                    base_url=self._base_url,
                     model_role=cast(ModelRole, self._model_role),
                     logger=self._logger,
                     meter=self._meter,
@@ -484,9 +512,9 @@ Please set EMCIE_API_KEY in your environment before running Parlant.
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         match hints.get("model_size", ModelSize.AUTO):
             case ModelSize.AUTO | ModelSize.LARGE:
-                return OpenAITextEmbedding3Large(self._logger, self._meter)
+                return BisonEmbedding(self._logger, self._meter)
             case _:
-                return OpenAITextEmbedding3Small(self._logger, self._meter)
+                return JackalEmbedding(self._logger, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

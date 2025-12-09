@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import contextvars
 import os
 from types import TracebackType
 from typing import AsyncGenerator, Mapping
@@ -42,6 +43,10 @@ class OpenTelemetryCounter(Counter):
 class OpenTelemetryHistogram(DurationHistogram):
     def __init__(self, otel_histogram: OTelHistogram) -> None:
         self._otel_histogram = otel_histogram
+        # Context variable to store start time for recording
+        self._start_time: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+            "histogram_start_time", default=None
+        )
 
     @override
     async def record(
@@ -66,6 +71,34 @@ class OpenTelemetryHistogram(DurationHistogram):
             ) * 1000  # Convert to milliseconds
             await self.record(duration, attributes)
 
+    @override
+    async def start_record(
+        self,
+        attributes: Mapping[str, str] | None = None,
+    ) -> None:
+        start_time = asyncio.get_running_loop().time()
+        self._start_time.set(start_time)
+        print(f"DEBUG: start_record set time {start_time}, context: {id(asyncio.current_task())}")
+
+    @override
+    async def end_record(
+        self,
+        attributes: Mapping[str, str] | None = None,
+    ) -> None:
+        start_time = self._start_time.get()
+        print(f"DEBUG: end_record got time {start_time}, context: {id(asyncio.current_task())}")
+
+        if start_time is None:
+            raise ValueError("No start time recorded. Call start_record first.")
+
+        end_time = asyncio.get_running_loop().time()
+        duration = (end_time - start_time) * 1000  # Convert to milliseconds
+
+        # Clear the start time
+        self._start_time.set(None)
+
+        await self.record(duration, attributes)
+
 
 class OpenTelemetryMeter(Meter):
     def __init__(self) -> None:
@@ -74,6 +107,7 @@ class OpenTelemetryMeter(Meter):
         self._meter: metrics.Meter
         self._metric_exporter: GrpcOTLPMetricExporter | HttpOTLPMetricExporter
         self._meter_provider: MeterProvider
+        self._histograms: dict[str, OpenTelemetryHistogram] = {}
 
     async def __aenter__(self) -> Self:
         resource = Resource.create({"service.name": self._service_name})
@@ -157,7 +191,9 @@ class OpenTelemetryMeter(Meter):
             description=description,
             unit=unit,
         )
-        return OpenTelemetryHistogram(otel_histogram)
+        histogram = OpenTelemetryHistogram(otel_histogram)
+        self._histograms[name] = histogram
+        return histogram
 
     @override
     def create_duration_histogram(
@@ -165,4 +201,20 @@ class OpenTelemetryMeter(Meter):
         name: str,
         description: str,
     ) -> OpenTelemetryHistogram:
-        return self.create_custom_histogram(name, description, "ms")
+        histogram = self.create_custom_histogram(name, description, "ms")
+        self._histograms[name] = histogram
+
+        return histogram
+
+    @override
+    def get_or_create_duration_histogram(
+        self,
+        name: str,
+    ) -> OpenTelemetryHistogram:
+        if name in self._histograms:
+            return self._histograms[name]
+
+        return self.create_duration_histogram(
+            name=name,
+            description=f"Duration histogram for {name}",
+        )

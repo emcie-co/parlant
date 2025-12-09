@@ -570,6 +570,7 @@ class CannedResponseGenerator(MessageEventComposer):
             name="selection",
             description="Duration of canned response selection in milliseconds",
         )
+        self._hist_ttfm_duration = self._meter.get_or_create_duration_histogram("ttfm")
 
     async def _resolve_composition_mode(self, context: EngineContext) -> CompositionMode:
         """Resolve effective composition mode from matched guidelines.
@@ -937,6 +938,7 @@ You will now be given the current state of the interaction to which you must gen
                             metadata=event_metadata,
                         )
                         if not is_first_message_emitted:
+                            await self._hist_ttfm_duration.end_record("ttfm")
                             self._tracer.add_event("canrep.ttfm")
                             is_first_message_emitted = True
 

@@ -143,6 +143,7 @@ class MessageGenerator(MessageEventComposer):
             "message_generation",
             description="Duration of message generation requests",
         )
+        self._hist_ttfm_duration = self._meter.get_or_create_duration_histogram("ttfm")
 
     async def shots(self) -> Sequence[MessageGeneratorShot]:
         return await shot_collection.list()
@@ -271,6 +272,7 @@ class MessageGenerator(MessageEventComposer):
                         data=response_message,
                     )
 
+                    self._hist_ttfm_duration.end_record()
                     self._tracer.add_event("mg.ttfm")
 
                     return [

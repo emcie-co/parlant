@@ -1181,10 +1181,6 @@ class JourneyState:
             metadata={"sub_journey_id": journey.id},
         )
 
-        # Traverse the journey starting from the root
-        queue: deque[tuple[JourneyStateId, JourneyState | None]] = deque()
-        visited: set[JourneyStateId] = set()
-
         async def create_mapped_state(state: JourneyState) -> JourneyState:
             assert self._journey  # We already checked this above
 
@@ -1267,7 +1263,6 @@ class JourneyState:
 
         # Create entry point - either self directly or via a condition fork
         entry_state: JourneyState
-        entry_transition_to_return: JourneyTransition[JourneyState] | None = None
 
         if condition:
             # Create a fork state for the condition
@@ -1287,9 +1282,12 @@ class JourneyState:
                 cast(JourneyTransition[JourneyState], entry_transition)
             )
             entry_state = entry_fork
-            entry_transition_to_return = cast(JourneyTransition[JourneyState], entry_transition)
         else:
             entry_state = self
+
+        # Traverse the journey starting from the root
+        queue: deque[tuple[JourneyStateId, JourneyState | None]] = deque()
+        visited: set[JourneyStateId] = set()
 
         # Skip the root state and go directly to its target states
         root_transitions = transitions_by_source[journey._start_state_id]
@@ -1417,17 +1415,16 @@ class JourneyState:
                             list[JourneyTransition[JourneyState]], self._journey.transitions
                         ).append(cast(JourneyTransition[JourneyState], new_transition))
 
-        # Return the entry transition if we have one, otherwise create a transition to fork_state
-        if entry_transition_to_return:
-            return entry_transition_to_return
-        else:
-            # When no condition, create a direct transition to the fork state
-            result_transition = await self._journey.create_transition(
-                condition=None,
-                source=entry_state,
-                target=fork_state,
-            )
-            return cast(JourneyTransition[JourneyState], result_transition)
+        # We create a transient transition from self to the fork state to represent the exit point
+        result_transition = JourneyTransition[JourneyState](
+            id=JourneyTransitionId("transient"),
+            condition=condition,
+            source=self,
+            target=fork_state,
+            metadata={},
+        )
+
+        return result_transition
 
 
 END_JOURNEY = JourneyState(

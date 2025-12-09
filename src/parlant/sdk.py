@@ -58,6 +58,8 @@ from typing import (
     cast,
 )
 from typing_extensions import overload
+from fastapi import FastAPI
+import httpx
 from lagom import Container
 
 
@@ -2473,6 +2475,7 @@ class Server:
         configure_hooks: Callable[[EngineHooks], Awaitable[EngineHooks]] | None = None,
         configure_container: Callable[[Container], Awaitable[Container]] | None = None,
         initialize_container: Callable[[Container], Awaitable[None]] | None = None,
+        configure_api: Callable[[FastAPI], Awaitable[None]] | None = None,
     ) -> None:
         self.host = host
         self.port = port
@@ -2491,11 +2494,15 @@ class Server:
         self._configure_hooks = configure_hooks
         self._configure_container = configure_container
         self._initialize = initialize_container
+        self._configure_api = configure_api
         self._retrievers: dict[
             AgentId,
             dict[str, RetrieverFunction],
         ] = defaultdict(dict)
         self._exit_stack = AsyncExitStack()
+
+        self._finished_setup = False
+        self._ready_event = asyncio.Event()
 
         self._plugin_server: PluginServer
         self._container: Container
@@ -2525,6 +2532,23 @@ class Server:
     def container(self) -> Container:
         """Returns the dependency injection container."""
         return self._container
+
+    @property
+    def ready(self) -> asyncio.Event:
+        """An asyncio event that is set when the server is ready to accept requests."""
+        return self._ready_event
+
+    @property
+    def api(self) -> FastAPI:
+        """Returns the FastAPI application instance.
+
+        Raises:
+            RuntimeError: If the server API is not yet initialized.
+        """
+        if not self._finished_setup:
+            raise RuntimeError("Server API is not yet initialized. Wait for the server to start.")
+
+        return self._container[FastAPI]
 
     def _advance_creation_progress(self) -> None:
         if self._creation_progress is None:
@@ -2562,6 +2586,8 @@ class Server:
         exc_value: BaseException | None,
         tb: TracebackType | None,
     ) -> bool:
+        self._finished_setup = True
+
         assert self._creation_progress
         self._creation_progress.__exit__(None, None, None)
         self._creation_progress = None
@@ -2570,9 +2596,37 @@ class Server:
             await self._process_evaluations()
 
         await self._setup_retrievers()
+
+        # Start health check polling to set ready event when the server is ready to receive requests
+        health_check_task = asyncio.create_task(self._poll_health_endpoint())
+
+        # Shut down the server
         await self._startup_context_manager.__aexit__(exc_type, exc_value, tb)
+
+        # Wait for health check to complete before cleanup
+        await health_check_task
+
         await self._exit_stack.aclose()
         return False
+
+    # Start background task to poll health endpoint and set ready event
+    async def _poll_health_endpoint(self) -> None:
+        url = f"http://{self.host if self.host not in ['0.0.0.0', '127.0.0.1'] else 'localhost'}:{self.port}/healthz"
+
+        async with httpx.AsyncClient() as client:
+            while True:
+                try:
+                    response = await client.get(url, timeout=1.0)
+
+                    if response.status_code != 200:
+                        self._container[Logger].critical("Health check failed.")
+                        sys.exit(1)
+
+                    self._ready_event.set()
+                    self._container[Logger].info("Server is ready to accept requests.")
+                    return
+                except (httpx.RequestError, httpx.TimeoutException):
+                    await asyncio.sleep(1)
 
     def _add_guideline_evaluation(
         self,
@@ -3644,6 +3698,7 @@ class Server:
             migrate=self._migrate,
             configure=configure,
             initialize=initialize,
+            configure_api=self._configure_api,
         )
 
     @classproperty

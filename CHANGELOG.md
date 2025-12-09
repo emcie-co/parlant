@@ -35,6 +35,7 @@ All notable changes to Parlant will be documented here.
 - Fix critical bug with cancellation during response analysis
 - Fix critical similarity calculation error in TransientVectorDatabase
 - Add guideline criticality level
+- Add ability to configure and extend the FastAPI app object
 
 ## [3.0.3] - 2025-10-23
 

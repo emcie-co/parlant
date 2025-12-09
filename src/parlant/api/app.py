@@ -103,7 +103,10 @@ def _resolve_operation_id(request: Request) -> str | None:
     return None
 
 
-async def create_api_app(container: Container) -> ASGIApplication:
+async def create_api_app(
+    container: Container,
+    configure: Callable[[FastAPI], Awaitable[None]] | None = None,
+) -> ASGIApplication:
     logger = container[Logger]
     websocket_logger = container[WebSocketLogger]
     tracer = container[Tracer]
@@ -356,5 +359,12 @@ async def create_api_app(container: Container) -> ASGIApplication:
             websocket_logger,
         )
     )
+
+    # Call configure_api hook if provided
+    if configure:
+        await configure(api_app)
+
+    # Store FastAPI app in container for access via Server.api property
+    container[FastAPI] = api_app
 
     return AppWrapper(api_app)

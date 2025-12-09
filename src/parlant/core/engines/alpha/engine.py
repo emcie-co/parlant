@@ -1192,9 +1192,8 @@ class AlphaEngine(Engine):
         if second_match_result := await self._process_activated_low_probability_journey_guidelines(
             context=context,
             all_stored_guidelines=all_stored_guidelines,
-            relevant_journeys=available_journeys,
+            high_prob_journeys=high_prob_journeys,
             activated_journeys=journeys,
-            top_k=len(high_prob_journeys),
         ):
             batches = list(chain(matching_result.batches, second_match_result.batches))
             matches = list(chain.from_iterable(batches))
@@ -1619,9 +1618,8 @@ class AlphaEngine(Engine):
         self,
         context: EngineContext,
         all_stored_guidelines: dict[GuidelineId, Guideline],
-        relevant_journeys: Sequence[Journey],
+        high_prob_journeys: Sequence[Journey],
         activated_journeys: Sequence[Journey],
-        top_k: int,
     ) -> Optional[GuidelineMatchingResult]:
         activated_low_priority_related_ids = set(
             chain.from_iterable(
@@ -1630,15 +1628,15 @@ class AlphaEngine(Engine):
                     for j in [
                         activated_journey
                         for activated_journey in activated_journeys
-                        if activated_journey in relevant_journeys[top_k:]
+                        if activated_journey not in high_prob_journeys
                     ]
                 ]
             )
         )
 
         if activated_low_priority_related_ids:
-            journey_conditions = chain.from_iterable(
-                [j.conditions for j in activated_journeys if j.conditions]
+            journey_conditions = list(
+                chain.from_iterable([j.conditions for j in activated_journeys if j.conditions])
             )
 
             additional_matching_guidelines = [

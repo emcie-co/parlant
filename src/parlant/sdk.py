@@ -580,20 +580,6 @@ class _CachedEvaluator:
 
         return md5(f"{journey.id}:{node_ids_str}:{edge_ids_str}".encode()).hexdigest()
 
-    async def evaluate_state(
-        self,
-        entity_id: JourneyStateId,
-        g: GuidelineContent,
-        tool_ids: Sequence[ToolId] = [],
-    ) -> _CachedEvaluator.GuidelineEvaluation:
-        return await self._evaluate_guideline(
-            entity_id=entity_id,
-            g=g,
-            tool_ids=tool_ids,
-            journey_state_proposition=True,
-            properties_proposition=False,
-        )
-
     async def evaluate_guideline(
         self,
         entity_id: GuidelineId,
@@ -2159,24 +2145,6 @@ class Journey:
 
         self._server._advance_creation_progress()
 
-        if target is not None and target.id != END_JOURNEY.id:
-            target_tool_ids = {
-                t.tool.name: ToolId(
-                    service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name
-                )
-                for t in target.tools
-            }
-
-            self._server._add_state_evaluation(
-                target.id,
-                GuidelineContent(
-                    condition=condition or "",
-                    action=target._internal_action,
-                    description=target.description,
-                ),
-                list(target_tool_ids.values()),
-            )
-
         transition = await self._container[JourneyStore].create_edge(
             journey_id=self.id,
             source=source.id,
@@ -3127,10 +3095,7 @@ class Server:
             GuidelineId,
             tuple[Any, Callable[..., Coroutine[Any, Any, _CachedEvaluator.GuidelineEvaluation]]],
         ] = {}
-        self._node_evaluations: dict[
-            JourneyStateId,
-            tuple[Any, Callable[..., Coroutine[Any, Any, _CachedEvaluator.GuidelineEvaluation]]],
-        ] = {}
+
         self._journey_evaluations: dict[
             JourneyId,
             tuple[Any, Callable[..., Coroutine[Any, Any, _CachedEvaluator.JourneyEvaluation]]],
@@ -3256,17 +3221,6 @@ class Server:
         self._guideline_evaluations[guideline_id] = (
             (guideline_id, guideline_content, tool_ids),
             self._evaluator.evaluate_guideline,
-        )
-
-    def _add_state_evaluation(
-        self,
-        state_id: JourneyStateId,
-        guideline_content: GuidelineContent,
-        tools: Sequence[ToolId],
-    ) -> None:
-        self._node_evaluations[state_id] = (
-            (state_id, guideline_content, tools),
-            self._evaluator.evaluate_state,
         )
 
     def _add_journey_evaluation(
@@ -3454,11 +3408,6 @@ class Server:
             f", then {guideline.content.action}" if guideline.content.action else ""
         )
 
-    async def _render_state(self, state_id: JourneyStateId) -> str:
-        state = await self._container[JourneyStore].read_node(state_id)
-
-        return f"State: {state.action}"
-
     async def _render_journey(self, journey_id: JourneyId) -> str:
         journey = await self._container[JourneyStore].read_journey(journey_id)
 
@@ -3466,11 +3415,10 @@ class Server:
 
     async def _process_evaluations(self) -> None:
         _render_functions: dict[
-            Literal["guideline", "node", "journey"],
-            Callable[[GuidelineId | JourneyStateId | JourneyId], Awaitable[str]],
+            Literal["guideline", "journey"],
+            Callable[[GuidelineId | JourneyId], Awaitable[str]],
         ] = {
             "guideline": self._render_guideline,  # type: ignore
-            "node": self._render_state,  # type: ignore
             "journey": self._render_journey,  # type: ignore
         }
 
@@ -3478,18 +3426,18 @@ class Server:
             evaluation: Coroutine[
                 Any, Any, _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation
             ],
-            entity_type: Literal["guideline", "node", "journey"],
-            entity_id: GuidelineId | JourneyStateId | JourneyId,
+            entity_type: Literal["guideline", "journey"],
+            entity_id: GuidelineId | JourneyId,
         ) -> asyncio.Task[
             tuple[
-                Literal["guideline", "node", "journey"],
-                GuidelineId | JourneyStateId | JourneyId,
+                Literal["guideline", "journey"],
+                GuidelineId | JourneyId,
                 _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation,
             ]
         ]:
             async def task_wrapper() -> tuple[
-                Literal["guideline", "node", "journey"],
-                GuidelineId | JourneyStateId | JourneyId,
+                Literal["guideline", "journey"],
+                GuidelineId | JourneyId,
                 _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation,
             ]:
                 result = await evaluation
@@ -3500,8 +3448,8 @@ class Server:
         tasks: list[
             asyncio.Task[
                 tuple[
-                    Literal["guideline", "node", "journey"],
-                    GuidelineId | JourneyStateId | JourneyId,
+                    Literal["guideline", "journey"],
+                    GuidelineId | JourneyId,
                     _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation,
                 ]
             ]
@@ -3509,9 +3457,6 @@ class Server:
 
         for guideline_id, (args, func) in self._guideline_evaluations.items():
             tasks.append((create_evaluation_task(func(*args), "guideline", guideline_id)))
-
-        for node_id, (args, func) in self._node_evaluations.items():
-            tasks.append((create_evaluation_task(func(*args), "node", node_id)))
 
         for journey_id, (args, journey_func) in self._journey_evaluations.items():
             tasks.append((create_evaluation_task(journey_func(*args), "journey", journey_id)))
@@ -3543,12 +3488,10 @@ class Server:
                 bar_id: dict[str, int] = {}
 
                 for t in tasks:
-                    entity_id = cast(
-                        GuidelineId | JourneyStateId | JourneyId, t.get_name().split("_")[-1]
-                    )
+                    entity_id = cast(GuidelineId | JourneyId, t.get_name().split("_")[-1])
                     entity_type = t.get_name().split("_")[0]
                     description = await _render_functions[
-                        cast(Literal["guideline", "node", "journey"], entity_type)
+                        cast(Literal["guideline", "journey"], entity_type)
                     ](entity_id)
 
                     bar_id[entity_id] = entity_progress.add_task(
@@ -3615,21 +3558,6 @@ class Server:
                         value=value,
                     )
 
-            elif entity_type == "node":
-                node = await self._container[JourneyStore].read_node(
-                    node_id=cast(JourneyStateId, entity_id)
-                )
-                properties = cast(_CachedEvaluator.GuidelineEvaluation, result).properties
-
-                properties_to_add = {k: v for k, v in properties.items() if k not in node.metadata}
-
-                for key, value in properties_to_add.items():
-                    await self._container[JourneyStore].set_node_metadata(
-                        node_id=cast(JourneyStateId, entity_id),
-                        key=key,
-                        value=value,
-                    )
-
             elif entity_type == "journey":
                 for node_id, properties in cast(
                     _CachedEvaluator.JourneyEvaluation, result
@@ -3647,7 +3575,7 @@ class Server:
                             if properties
                             else {}
                         ),
-                        **cast(dict[str, JSONSerializable], node.metadata.get("journey_node")),
+                        **cast(dict[str, JSONSerializable], node.metadata.get("journey_node", {})),
                     }
                     if journey_node_properties:
                         properties_to_add["journey_node"] = journey_node_properties

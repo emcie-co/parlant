@@ -14,6 +14,7 @@
 
 import asyncio
 import traceback
+from dataclasses import replace
 from typing import Optional, Sequence, cast
 
 from parlant.core import async_utils
@@ -33,6 +34,7 @@ from parlant.core.evaluations import (
     EvaluationStore,
     PayloadDescriptor,
     PayloadKind,
+    PayloadOperation,
 )
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineStore
 from parlant.core.journey_guideline_projection import (
@@ -76,194 +78,6 @@ from parlant.core.services.indexing.tool_running_action_detector import (
 class EvaluationValidationError(Exception):
     def __init__(self, message: str) -> None:
         super().__init__(message)
-
-
-class JourneyEvaluator:
-    def __init__(
-        self,
-        logger: Logger,
-        guideline_store: GuidelineStore,
-        journey_store: JourneyStore,
-        journey_guideline_projection: JourneyGuidelineProjection,
-        relative_action_proposer: RelativeActionProposer,
-        journey_reachable_node_evaluator: JourneyReachableNodesEvaluator,
-    ) -> None:
-        self._logger = logger
-
-        self._guideline_store = guideline_store
-        self._journey_store = journey_store
-        self._journey_guideline_projection = journey_guideline_projection
-        self._journey_reachable_node_evaluator = journey_reachable_node_evaluator
-
-        self._relative_action_proposer = relative_action_proposer
-
-    async def _build_invoice_data(
-        self,
-        relative_action_propositions: Sequence[RelativeActionProposition],
-        reachable_nodes_evaluations: Sequence[ReachableNodesEvaluation],
-        journey_projections: dict[JourneyId, tuple[Journey, Sequence[Guideline], tuple[Guideline]]],
-    ) -> Sequence[InvoiceJourneyData]:
-        index_to_node_ids = {
-            journey_id: {
-                cast(dict[str, JSONSerializable], g.metadata["journey_node"])[
-                    "index"
-                ]: extract_node_id_from_journey_node_guideline_id(g.id)
-                for g in journey_projections[journey_id][1]
-            }
-            for journey_id in journey_projections
-        }
-
-        result = []
-
-        for action_proposition, reachable_node_evaluation, journey_id in zip(
-            relative_action_propositions, reachable_nodes_evaluations, journey_projections.keys()
-        ):
-            node_properties_proposition: dict[JourneyNodeId, dict[str, JSONSerializable]] = {}
-            for a in action_proposition.actions:
-                node_id = index_to_node_ids[journey_id][a.index]
-                if node_id not in node_properties_proposition:
-                    node_properties_proposition[node_id] = {}
-                node_properties_proposition[node_id]["internal_action"] = a.rewritten_actions
-
-            for index, r in reachable_node_evaluation.node_to_reachable_follow_ups.items():
-                node_id = index_to_node_ids[journey_id][index]
-                if node_id not in node_properties_proposition:
-                    node_properties_proposition[node_id] = {}
-                if "journey_node" not in node_properties_proposition[node_id]:
-                    node_properties_proposition[node_id]["journey_node"] = {}
-                node_properties_proposition[node_id]["journey_node"] = {
-                    **cast(
-                        dict[str, JSONSerializable],
-                        node_properties_proposition[node_id]["journey_node"],
-                    ),
-                    "reachable_follow_ups": [{"condition": c, "path": p} for c, p in r],
-                }
-
-            invoice_data = InvoiceJourneyData(
-                node_properties_proposition=node_properties_proposition,
-                edge_properties_proposition={},
-            )
-
-            result.append(invoice_data)
-
-        return result
-
-    async def evaluate(
-        self,
-        payloads: Sequence[JourneyPayload],
-        progress_report: Optional[ProgressReport] = None,
-    ) -> Sequence[InvoiceJourneyData]:
-        journeys: dict[JourneyId, Journey] = {
-            j.id: j
-            for j in await async_utils.safe_gather(
-                *[
-                    self._journey_store.read_journey(journey_id=payload.journey_id)
-                    for payload in payloads
-                ]
-            )
-        }
-
-        journey_conditions = [
-            await async_utils.safe_gather(
-                *[
-                    self._guideline_store.read_guideline(guideline_id=condition)
-                    for condition in journey.conditions
-                ]
-            )
-            for journey in journeys.values()
-        ]
-
-        journey_projections = {
-            payload.journey_id: (journeys[payload.journey_id], projection, conditions)
-            for payload, projection, conditions in zip(
-                payloads,
-                await async_utils.safe_gather(
-                    *[
-                        self._journey_guideline_projection.project_journey_to_guidelines(
-                            journey_id=payload.journey_id
-                        )
-                        for payload in payloads
-                    ]
-                ),
-                journey_conditions,
-            )
-        }
-
-        relative_action_propositions = await self._propose_relative_actions(
-            journey_projections,
-            progress_report,
-        )
-
-        reachable_nodes_evaluations = await self._evaluate_reachable_nodes(
-            journey_projections,
-            progress_report,
-        )
-
-        invoices = await self._build_invoice_data(
-            relative_action_propositions,
-            reachable_nodes_evaluations,
-            journey_projections,
-        )
-
-        return invoices
-
-    async def _propose_relative_actions(
-        self,
-        journey_projections: dict[JourneyId, tuple[Journey, Sequence[Guideline], tuple[Guideline]]],
-        progress_report: Optional[ProgressReport] = None,
-    ) -> Sequence[RelativeActionProposition]:
-        tasks: list[asyncio.Task[RelativeActionProposition]] = []
-
-        for journey_id, (
-            journey,
-            step_guidelines,
-            journey_conditions,
-        ) in journey_projections.items():
-            if not step_guidelines:
-                continue
-
-            tasks.append(
-                asyncio.create_task(
-                    self._relative_action_proposer.propose_relative_action(
-                        examined_journey=journey,
-                        step_guidelines=step_guidelines,
-                        journey_conditions=journey_conditions,
-                        progress_report=progress_report,
-                    )
-                )
-            )
-
-        sparse_results = list(await async_utils.safe_gather(*tasks))
-
-        return sparse_results
-
-    async def _evaluate_reachable_nodes(
-        self,
-        journey_projections: dict[JourneyId, tuple[Journey, Sequence[Guideline], tuple[Guideline]]],
-        progress_report: Optional[ProgressReport] = None,
-    ) -> Sequence[ReachableNodesEvaluation]:
-        tasks: list[asyncio.Task[ReachableNodesEvaluation]] = []
-
-        for journey_id, (
-            journey,
-            step_guidelines,
-            journey_conditions,
-        ) in journey_projections.items():
-            if not step_guidelines:
-                continue
-
-            tasks.append(
-                asyncio.create_task(
-                    self._journey_reachable_node_evaluator.evaluate_reachable_follow_ups(
-                        node_guidelines=step_guidelines,
-                        progress_report=progress_report,
-                    )
-                )
-            )
-
-        sparse_results = list(await async_utils.safe_gather(*tasks))
-
-        return sparse_results
 
 
 class GuidelineEvaluator:
@@ -536,6 +350,316 @@ class GuidelineEvaluator:
         return results
 
 
+class JourneyEvaluator:
+    def __init__(
+        self,
+        logger: Logger,
+        guideline_store: GuidelineStore,
+        journey_store: JourneyStore,
+        journey_guideline_projection: JourneyGuidelineProjection,
+        guideline_evaluator: GuidelineEvaluator,
+        relative_action_proposer: RelativeActionProposer,
+        journey_reachable_node_evaluator: JourneyReachableNodesEvaluator,
+    ) -> None:
+        self._logger = logger
+
+        self._guideline_store = guideline_store
+        self._journey_store = journey_store
+        self._journey_guideline_projection = journey_guideline_projection
+        self._guideline_evaluator = guideline_evaluator
+        self._journey_reachable_node_evaluator = journey_reachable_node_evaluator
+
+        self._relative_action_proposer = relative_action_proposer
+
+    async def _build_invoice_data(
+        self,
+        relative_action_propositions: Sequence[RelativeActionProposition],
+        reachable_nodes_evaluations: Sequence[ReachableNodesEvaluation],
+        journey_projections: dict[JourneyId, tuple[Journey, Sequence[Guideline], tuple[Guideline]]],
+    ) -> Sequence[InvoiceJourneyData]:
+        # Create mapping from index to node_id for relative actions and reachable nodes
+        index_to_node_ids = {
+            journey_id: {
+                cast(dict[str, JSONSerializable], g.metadata["journey_node"])[
+                    "index"
+                ]: extract_node_id_from_journey_node_guideline_id(g.id)
+                for g in journey_projections[journey_id][1]
+            }
+            for journey_id in journey_projections
+        }
+
+        result = []
+
+        for action_proposition, reachable_node_evaluation, journey_id in zip(
+            relative_action_propositions, reachable_nodes_evaluations, journey_projections.keys()
+        ):
+            node_properties_proposition: dict[JourneyNodeId, dict[str, JSONSerializable]] = {}
+
+            # Add guideline evaluation properties for each node
+            _, step_guidelines, __ = journey_projections[journey_id]
+            for guideline in step_guidelines:
+                # Extract node ID directly from the guideline ID
+                node_id = extract_node_id_from_journey_node_guideline_id(guideline.id)
+
+                if node_id not in node_properties_proposition:
+                    node_properties_proposition[node_id] = {}
+
+                # Extract guideline evaluation metadata
+                for key, value in cast(
+                    dict[str, JSONSerializable], guideline.metadata.get("guideline_evaluation", {})
+                ).items():
+                    node_properties_proposition[node_id][key] = value
+
+            for a in action_proposition.actions:
+                node_id = index_to_node_ids[journey_id][a.index]
+                if node_id not in node_properties_proposition:
+                    node_properties_proposition[node_id] = {}
+                node_properties_proposition[node_id]["internal_action"] = a.rewritten_actions
+
+            for index, r in reachable_node_evaluation.node_to_reachable_follow_ups.items():
+                node_id = index_to_node_ids[journey_id][index]
+                if node_id not in node_properties_proposition:
+                    node_properties_proposition[node_id] = {}
+                if "journey_node" not in node_properties_proposition[node_id]:
+                    node_properties_proposition[node_id]["journey_node"] = {}
+                node_properties_proposition[node_id]["journey_node"] = {
+                    **cast(
+                        dict[str, JSONSerializable],
+                        node_properties_proposition[node_id]["journey_node"],
+                    ),
+                    "reachable_follow_ups": [{"condition": c, "path": p} for c, p in r],
+                }
+
+            invoice_data = InvoiceJourneyData(
+                node_properties_proposition=node_properties_proposition,
+                edge_properties_proposition={},
+            )
+
+            result.append(invoice_data)
+
+        return result
+
+    async def evaluate(
+        self,
+        payloads: Sequence[JourneyPayload],
+        progress_report: Optional[ProgressReport] = None,
+    ) -> Sequence[InvoiceJourneyData]:
+        journeys: dict[JourneyId, Journey] = {
+            j.id: j
+            for j in await async_utils.safe_gather(
+                *[
+                    self._journey_store.read_journey(journey_id=payload.journey_id)
+                    for payload in payloads
+                ]
+            )
+        }
+
+        journey_conditions = [
+            await async_utils.safe_gather(
+                *[
+                    self._guideline_store.read_guideline(guideline_id=condition)
+                    for condition in journey.conditions
+                ]
+            )
+            for journey in journeys.values()
+        ]
+
+        journey_projections = {
+            payload.journey_id: (journeys[payload.journey_id], projection, conditions)
+            for payload, projection, conditions in zip(
+                payloads,
+                await async_utils.safe_gather(
+                    *[
+                        self._journey_guideline_projection.project_journey_to_guidelines(
+                            journey_id=payload.journey_id
+                        )
+                        for payload in payloads
+                    ]
+                ),
+                journey_conditions,
+            )
+        }
+
+        # Evaluate guidelines to get metadata for journey nodes
+        journey_projections_with_metadata = await self._add_guideline_metadata_to_projections(
+            journey_projections, progress_report
+        )
+
+        relative_action_propositions = await self._propose_relative_actions(
+            journey_projections_with_metadata,
+            progress_report,
+        )
+
+        reachable_nodes_evaluations = await self._evaluate_reachable_nodes(
+            journey_projections_with_metadata,
+            progress_report,
+        )
+
+        invoices = await self._build_invoice_data(
+            relative_action_propositions,
+            reachable_nodes_evaluations,
+            journey_projections_with_metadata,
+        )
+
+        return invoices
+
+    async def _add_guideline_metadata_to_projections(
+        self,
+        journey_projections: dict[JourneyId, tuple[Journey, Sequence[Guideline], tuple[Guideline]]],
+        progress_report: Optional[ProgressReport] = None,
+    ) -> dict[JourneyId, tuple[Journey, Sequence[Guideline], tuple[Guideline]]]:
+        """Add guideline evaluation metadata to journey node guidelines."""
+        guideline_payloads: list[GuidelinePayload] = []
+        journey_to_node_guidelines: dict[JourneyId, dict[JourneyNodeId, Guideline]] = {}
+
+        # Collect all nodes and create payloads
+        for journey_id, (
+            journey,
+            step_guidelines,
+            journey_conditions,
+        ) in journey_projections.items():
+            journey_to_node_guidelines[journey_id] = {}
+            for guideline in step_guidelines:
+                node_id = extract_node_id_from_journey_node_guideline_id(guideline.id)
+                node = await self._journey_store.read_node(node_id=node_id)
+
+                # Store the guideline by node_id for later mapping
+                journey_to_node_guidelines[journey_id][node_id] = guideline
+
+                # Create GuidelinePayload for journey node guidelines
+                guideline_payload = GuidelinePayload(
+                    content=guideline.content,
+                    tool_ids=node.tools,
+                    operation=PayloadOperation.ADD,
+                    action_proposition=True,
+                    properties_proposition=False,
+                    journey_node_proposition=True,
+                )
+                guideline_payloads.append(guideline_payload)
+
+        if not guideline_payloads:
+            return journey_projections
+
+        # Evaluate each guideline payload individually using async gather
+        guideline_evaluation_tasks = [
+            self._guideline_evaluator.evaluate(
+                [payload],  # Pass each payload as a single-item list
+                progress_report=progress_report,
+            )
+            for payload in guideline_payloads
+        ]
+
+        guideline_evaluation_results = await async_utils.safe_gather(*guideline_evaluation_tasks)
+
+        guideline_evaluations = [result[0] for result in guideline_evaluation_results]
+
+        # Add metadata back to the guidelines
+        updated_projections: dict[
+            JourneyId, tuple[Journey, Sequence[Guideline], tuple[Guideline]]
+        ] = {}
+
+        # Create a mapping from guideline payloads to evaluations
+        evaluation_index = 0
+        for journey_id, (
+            journey,
+            step_guidelines,
+            journey_conditions,
+        ) in journey_projections.items():
+            updated_step_guidelines: list[Guideline] = []
+            node_guidelines = journey_to_node_guidelines[journey_id]
+
+            for guideline in step_guidelines:
+                node_id = extract_node_id_from_journey_node_guideline_id(guideline.id)
+
+                if node_id in node_guidelines and evaluation_index < len(guideline_evaluations):
+                    evaluation_data = guideline_evaluations[evaluation_index]
+                    evaluation_index += 1
+
+                    updated_metadata = {
+                        **(
+                            evaluation_data.properties_proposition
+                            if evaluation_data.properties_proposition
+                            else {}
+                        ),
+                        **guideline.metadata,
+                        **(
+                            {"guideline_evaluation": evaluation_data.properties_proposition}
+                            if evaluation_data.properties_proposition
+                            else {}
+                        ),
+                    }
+
+                    updated_guideline = replace(
+                        guideline,
+                        metadata=updated_metadata,
+                    )
+                    updated_step_guidelines.append(updated_guideline)
+                else:
+                    updated_step_guidelines.append(guideline)
+
+            updated_projections[journey_id] = (journey, updated_step_guidelines, journey_conditions)
+
+        return updated_projections
+
+    async def _propose_relative_actions(
+        self,
+        journey_projections: dict[JourneyId, tuple[Journey, Sequence[Guideline], tuple[Guideline]]],
+        progress_report: Optional[ProgressReport] = None,
+    ) -> Sequence[RelativeActionProposition]:
+        tasks: list[asyncio.Task[RelativeActionProposition]] = []
+
+        for journey_id, (
+            journey,
+            step_guidelines,
+            journey_conditions,
+        ) in journey_projections.items():
+            if not step_guidelines:
+                continue
+
+            tasks.append(
+                asyncio.create_task(
+                    self._relative_action_proposer.propose_relative_action(
+                        examined_journey=journey,
+                        step_guidelines=step_guidelines,
+                        journey_conditions=journey_conditions,
+                        progress_report=progress_report,
+                    )
+                )
+            )
+
+        sparse_results = list(await async_utils.safe_gather(*tasks))
+
+        return sparse_results
+
+    async def _evaluate_reachable_nodes(
+        self,
+        journey_projections: dict[JourneyId, tuple[Journey, Sequence[Guideline], tuple[Guideline]]],
+        progress_report: Optional[ProgressReport] = None,
+    ) -> Sequence[ReachableNodesEvaluation]:
+        tasks: list[asyncio.Task[ReachableNodesEvaluation]] = []
+
+        for journey_id, (
+            journey,
+            step_guidelines,
+            journey_conditions,
+        ) in journey_projections.items():
+            if not step_guidelines:
+                continue
+
+            tasks.append(
+                asyncio.create_task(
+                    self._journey_reachable_node_evaluator.evaluate_reachable_follow_ups(
+                        node_guidelines=step_guidelines,
+                        progress_report=progress_report,
+                    )
+                )
+            )
+
+        sparse_results = list(await async_utils.safe_gather(*tasks))
+
+        return sparse_results
+
+
 class BehavioralChangeEvaluator:
     def __init__(
         self,
@@ -578,6 +702,7 @@ class BehavioralChangeEvaluator:
             guideline_store=guideline_store,
             journey_store=journey_store,
             journey_guideline_projection=journey_guideline_projection,
+            guideline_evaluator=self._guideline_evaluator,
             relative_action_proposer=relative_action_proposer,
             journey_reachable_node_evaluator=journey_reachable_node_evaluator,
         )

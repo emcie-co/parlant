@@ -354,9 +354,13 @@ def get_journey_transition_map_text(
             flags_str += "- REQUIRES AGENT ACTION: This step may require the agent to say something for it to be completed. Only advance through it if the agent performed the described action.\n"
 
         # Node kind flags
-        if node.kind in {JourneyNodeKind.CHAT, JourneyNodeKind.NA} and node.action is None:
+        if (
+            node.kind in {JourneyNodeKind.CHAT, JourneyNodeKind.NA}
+            and node.action is None
+            and len(node.outgoing_edges) <= 1
+        ):
             print_node = False
-        elif node.kind == JourneyNodeKind.FORK:
+        elif node.kind == JourneyNodeKind.FORK or displayed_node_action == FORK_NODE_ACTION_STR:
             displayed_node_action = FORK_NODE_ACTION_STR
             flags_str += "- NEVER OUTPUT THIS STEP AS NEXT_STEP: This step is transitional and should never be returned as the next_step. Always advance onwards from it.\n"
         else:

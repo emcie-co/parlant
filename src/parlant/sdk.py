@@ -1076,6 +1076,7 @@ class JourneyState:
         fork: bool = False,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        composition_mode: CompositionMode | None = None,
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
     ) -> JourneyTransition[JourneyState]:
@@ -1093,6 +1094,7 @@ class JourneyState:
                 description=description,
                 tools=tools,
                 metadata=metadata,
+                composition_mode=composition_mode,
             )
 
             [
@@ -1117,12 +1119,14 @@ class JourneyState:
                 description=description,
                 tools=[],
                 metadata=metadata,
+                composition_mode=composition_mode,
             )
         elif fork:
             actual_state = await self._journey._create_state(
                 ForkJourneyState,
                 description=description,
                 metadata=metadata,
+                composition_mode=composition_mode,
             )
 
         transitions = [t for t in self._journey.transitions if t.source == self]
@@ -1178,6 +1182,7 @@ class InitialJourneyState(JourneyState):
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        composition_mode: CompositionMode | None = None,
     ) -> JourneyTransition[TState]: ...
 
     @overload
@@ -1190,6 +1195,7 @@ class InitialJourneyState(JourneyState):
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        composition_mode: CompositionMode | None = None,
     ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
@@ -1231,6 +1237,7 @@ class InitialJourneyState(JourneyState):
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        composition_mode: CompositionMode | None = None,
     ) -> JourneyTransition[Any]:
         return await self._transition(
             condition=condition,
@@ -1242,6 +1249,7 @@ class InitialJourneyState(JourneyState):
             metadata=metadata,
             on_match=on_match,
             on_message=on_message,
+            composition_mode=composition_mode,
         )
 
 
@@ -1259,6 +1267,7 @@ class ToolJourneyState(JourneyState):
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        composition_mode: CompositionMode | None = None,
     ) -> JourneyTransition[TState]: ...
 
     @overload
@@ -1271,6 +1280,7 @@ class ToolJourneyState(JourneyState):
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        composition_mode: CompositionMode | None = None,
     ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
@@ -1312,6 +1322,7 @@ class ToolJourneyState(JourneyState):
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        composition_mode: CompositionMode | None = None,
     ) -> JourneyTransition[Any]:
         return await self._transition(
             condition=condition,
@@ -1323,6 +1334,7 @@ class ToolJourneyState(JourneyState):
             metadata=metadata,
             on_match=on_match,
             on_message=on_message,
+            composition_mode=composition_mode,
         )
 
     async def fork(self) -> JourneyTransition[ForkJourneyState]:
@@ -1343,6 +1355,7 @@ class ChatJourneyState(JourneyState):
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        composition_mode: CompositionMode | None = None,
     ) -> JourneyTransition[TState]: ...
 
     @overload
@@ -1355,6 +1368,7 @@ class ChatJourneyState(JourneyState):
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        composition_mode: CompositionMode | None = None,
     ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
@@ -1396,6 +1410,7 @@ class ChatJourneyState(JourneyState):
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        composition_mode: CompositionMode | None = None,
     ) -> JourneyTransition[Any]:
         return await self._transition(
             condition=condition,
@@ -1407,6 +1422,7 @@ class ChatJourneyState(JourneyState):
             metadata=metadata,
             on_match=on_match,
             on_message=on_message,
+            composition_mode=composition_mode,
         )
 
     async def fork(self) -> JourneyTransition[ForkJourneyState]:
@@ -1439,6 +1455,7 @@ class ForkJourneyState(JourneyState):
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        composition_mode: CompositionMode | None = None,
     ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
@@ -1480,6 +1497,7 @@ class ForkJourneyState(JourneyState):
         metadata: Mapping[str, JSONSerializable] = {},
         on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        composition_mode: CompositionMode | None = None,
     ) -> JourneyTransition[Any]:
         return await self._transition(
             condition=condition,
@@ -1491,6 +1509,7 @@ class ForkJourneyState(JourneyState):
             metadata=metadata,
             on_match=on_match,
             on_message=on_message,
+            composition_mode=composition_mode,
         )
 
 
@@ -1505,6 +1524,7 @@ class Journey:
     states: Sequence[JourneyState]
     transitions: Sequence[JourneyTransition[JourneyState]]
     tags: Sequence[TagId]
+    composition_mode: CompositionMode | None
 
     _start_state_id: JourneyStateId
     _server: Server
@@ -1524,6 +1544,7 @@ class Journey:
         description: str | None = None,
         tools: Sequence[ToolEntry] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        composition_mode: CompositionMode | None = None,
     ) -> TState:
         metadata_type = {
             ForkJourneyState: "fork",
@@ -1537,6 +1558,12 @@ class Journey:
         if len(tools) == 1 and not action:
             action = f"Use the tool {tools[0].tool.name}"
 
+        # Node-level composition_mode overrides journey-level
+        # If no node-level composition_mode provided, inherit from journey
+        effective_composition_mode = (
+            composition_mode if composition_mode is not None else self.composition_mode
+        )
+
         node = await self._container[JourneyStore].create_node(
             journey_id=self.id,
             action=action,
@@ -1545,6 +1572,7 @@ class Journey:
                 for t in tools
             ],
             description=description,
+            composition_mode=CompositionMode._to_core_composition_mode(effective_composition_mode),
         )
 
         node = await self._container[JourneyStore].set_node_metadata(
@@ -1666,6 +1694,7 @@ class Journey:
         metadata: dict[str, JSONSerializable] = {},
         canned_responses: Sequence[CannedResponseId] = [],
         criticality: Criticality = Criticality.MEDIUM,
+        composition_mode: CompositionMode | None = None,
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
         | None = None,
         on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
@@ -1681,6 +1710,7 @@ class Journey:
             metadata=metadata,
             canned_responses=canned_responses,
             criticality=criticality,
+            composition_mode=composition_mode,
             matcher=matcher,
             on_match=on_match,
             on_message=on_message,
@@ -1694,6 +1724,7 @@ class Journey:
         condition: str,
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
+        composition_mode: CompositionMode | None = None,
         on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
     ) -> Guideline:
         """A shorthand for creating an observational guideline with the specified condition."""
@@ -1702,6 +1733,7 @@ class Journey:
             condition=condition,
             description=description,
             canned_responses=canned_responses,
+            composition_mode=composition_mode,
             on_match=on_match,
         )
 
@@ -2031,6 +2063,28 @@ class CompositionMode(enum.Enum):
     STRICT = _CompositionMode.CANNED_STRICT
     """Responses are generated strictly based on the provided canned responses, without fluidity."""
 
+    @staticmethod
+    def _to_core_composition_mode(mode: CompositionMode | None) -> _CompositionMode | None:
+        if mode is None:
+            return None
+        return mode.value
+
+    @staticmethod
+    def _from_core_composition_mode(mode: _CompositionMode | None) -> CompositionMode | None:
+        if mode is None:
+            return None
+
+        # Map core modes back to SDK modes
+        if mode == _CompositionMode.CANNED_FLUID:
+            return CompositionMode.FLUID
+        elif mode == _CompositionMode.CANNED_COMPOSITED:
+            return CompositionMode.COMPOSITED
+        elif mode == _CompositionMode.CANNED_STRICT:
+            return CompositionMode.STRICT
+        else:
+            # FLUID mode is not exposed in SDK, so return None
+            return None
+
 
 class ExperimentalAgentFeatures:
     def __init__(self, agent: Agent) -> None:
@@ -2089,12 +2143,15 @@ class Agent:
         description: str,
         conditions: list[str | Guideline],
         id: JourneyId | None = None,
+        composition_mode: CompositionMode | None = None,
     ) -> Journey:
         """Creates a new journey with the specified title, description, and conditions."""
 
         self._server._advance_creation_progress()
 
-        journey = await self._server.create_journey(title, description, conditions, id=id)
+        journey = await self._server.create_journey(
+            title, description, conditions, id=id, composition_mode=composition_mode
+        )
 
         await self.attach_journey(journey)
 
@@ -2106,6 +2163,7 @@ class Agent:
             tags=journey.tags,
             states=journey.states,
             transitions=journey.transitions,
+            composition_mode=journey.composition_mode,
             _start_state_id=journey._start_state_id,
             _server=self._server,
             _container=self._container,
@@ -2128,6 +2186,7 @@ class Agent:
         metadata: dict[str, JSONSerializable] = {},
         canned_responses: Sequence[CannedResponseId] = [],
         criticality: Criticality = Criticality.MEDIUM,
+        composition_mode: CompositionMode | None = None,
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
         | None = None,
         on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
@@ -2143,6 +2202,7 @@ class Agent:
             metadata=metadata,
             canned_responses=canned_responses,
             criticality=criticality,
+            composition_mode=composition_mode,
             matcher=matcher,
             on_match=on_match,
             on_message=on_message,
@@ -2157,6 +2217,7 @@ class Agent:
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         criticality: Criticality = Criticality.MEDIUM,
+        composition_mode: CompositionMode | None = None,
         on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
     ) -> Guideline:
         """A shorthand for creating an observational guideline with the specified condition."""
@@ -2165,6 +2226,7 @@ class Agent:
             condition=condition,
             description=description,
             canned_responses=canned_responses,
+            composition_mode=composition_mode,
             on_match=on_match,
             criticality=criticality,
         )
@@ -2679,6 +2741,7 @@ class Server:
         tools: Iterable[ToolEntry],
         metadata: dict[str, JSONSerializable],
         criticality: Criticality,
+        composition_mode: CompositionMode | None,
         canned_responses: Sequence[CannedResponseId],
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]] | None,
         on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None,
@@ -2703,6 +2766,7 @@ class Server:
             description=description,
             criticality=criticality,
             metadata=metadata,
+            composition_mode=CompositionMode._to_core_composition_mode(composition_mode),
             id=id,
             tags=tags,
         )
@@ -3376,6 +3440,7 @@ class Server:
         conditions: list[str | Guideline],
         tags: Sequence[TagId] = [],
         id: JourneyId | None = None,
+        composition_mode: CompositionMode | None = None,
     ) -> Journey:
         """Creates a new journey with the specified title, description, and conditions."""
 
@@ -3414,6 +3479,7 @@ class Server:
             conditions=[c.id for c in condition_guidelines],
             tags=[],
             id=id,
+            composition_mode=CompositionMode._to_core_composition_mode(composition_mode),
         )
 
         journey = Journey(
@@ -3424,6 +3490,9 @@ class Server:
             states=[],
             transitions=[],
             tags=tags,
+            composition_mode=CompositionMode._from_core_composition_mode(
+                stored_journey.composition_mode
+            ),
             _start_state_id=stored_journey.root_id,
             _server=self,
             _container=self._container,

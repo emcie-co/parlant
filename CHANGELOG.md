@@ -36,6 +36,7 @@ All notable changes to Parlant will be documented here.
 - Fix critical similarity calculation error in TransientVectorDatabase
 - Add guideline criticality level
 - Add ability to configure and extend the FastAPI app object
+- Add dynamic composition mode
 
 ## [3.0.4] - 2025-11-18
 

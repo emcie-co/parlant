@@ -139,7 +139,9 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                     ),
                 )
                 current_node: GuidelineId = outgoing_edges[0]
-                journey_path = [last_visited_node_index, current_node]
+                journey_path = list(self._previous_path) + [
+                    _get_guideline_node_index(guideline_id_to_guideline[current_node])
+                ]
                 while (
                     current_node
                     and _get_kind(guideline_id_to_guideline[current_node]) == JourneyNodeKind.FORK

@@ -57,8 +57,33 @@ def _make_database() -> SnowflakeDocumentDatabase:
     return SnowflakeDocumentDatabase(
         logger=_TestLogger(),
         connection_params=_SNOWFLAKE_PARAMS,
-        connection_factory=lambda *_: object(),
+        connection_factory=lambda *_: _FakeConnection(),
     )
+
+
+class _FakeCursor:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def execute(self, *_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    def fetchall(self) -> list[dict[str, Any]]:
+        return []
+
+    def fetchone(self) -> dict[str, Any] | None:
+        return None
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakeConnection:
+    def cursor(self, *_args: Any, **_kwargs: Any) -> _FakeCursor:
+        return _FakeCursor()
+
+    def close(self) -> None:
+        return None
 
 
 def _session_document(
@@ -140,7 +165,6 @@ def test_where_clause_handles_comparisons() -> None:
 async def test_insert_one_serializes_document_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
     collection = SnowflakeDocumentCollection(db, "sessions", _SessionDocument, _TestLogger())
-    collection._table_ready = True  # type: ignore[attr-defined]
 
     execute_mock = AsyncMock()
     monkeypatch.setattr(db, "_execute", execute_mock)
@@ -159,7 +183,6 @@ async def test_insert_one_serializes_document_payload(monkeypatch: pytest.Monkey
 async def test_find_uses_sql_filters(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
     collection = SnowflakeDocumentCollection(db, "events", _SessionDocument, _TestLogger())
-    collection._table_ready = True  # type: ignore[attr-defined]
 
     execute_mock = AsyncMock(return_value=[{"DATA": {"id": "1"}}])
     monkeypatch.setattr(db, "_execute", execute_mock)
@@ -179,7 +202,6 @@ async def test_find_uses_sql_filters(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_find_paginates_and_sets_next_cursor(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
     collection = SnowflakeDocumentCollection(db, "events", _SessionDocument, _TestLogger())
-    collection._table_ready = True  # type: ignore[attr-defined]
 
     rows = [
         {"DATA": {"id": "1", "creation_utc": "2025-01-01"}},
@@ -202,7 +224,6 @@ async def test_find_paginates_and_sets_next_cursor(monkeypatch: pytest.MonkeyPat
 async def test_find_adds_cursor_clause(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
     collection = SnowflakeDocumentCollection(db, "events", _SessionDocument, _TestLogger())
-    collection._table_ready = True  # type: ignore[attr-defined]
 
     execute_mock = AsyncMock(return_value=[])
     monkeypatch.setattr(db, "_execute", execute_mock)
@@ -222,7 +243,6 @@ async def test_find_adds_cursor_clause(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_update_one_upserts_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
     collection = SnowflakeDocumentCollection(db, "sessions", _SessionDocument, _TestLogger())
-    collection._table_ready = True  # type: ignore[attr-defined]
 
     monkeypatch.setattr(collection, "find_one", AsyncMock(return_value=None))
     insert_mock = AsyncMock(return_value=InsertResult(True))
@@ -240,7 +260,6 @@ async def test_update_one_upserts_when_missing(monkeypatch: pytest.MonkeyPatch) 
 async def test_load_existing_documents_migrates(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
     collection = SnowflakeDocumentCollection(db, "sessions", _SessionDocument, _TestLogger())
-    collection._table_ready = True  # type: ignore[attr-defined]
 
     monkeypatch.setattr(
         db, "_execute", AsyncMock(return_value=[{"DATA": {"id": "abc", "version": "0.1"}}])
@@ -253,7 +272,7 @@ async def test_load_existing_documents_migrates(monkeypatch: pytest.MonkeyPatch)
     async def loader(doc: Any) -> _SessionDocument:
         return _session_document(doc_id=str(doc["id"]))
 
-    await collection.load_existing_documents(loader)
+    await db.load_documents_with_loader(collection, loader)
 
     replace_mock.assert_awaited_once()
 
@@ -262,7 +281,6 @@ async def test_load_existing_documents_migrates(monkeypatch: pytest.MonkeyPatch)
 async def test_load_existing_documents_persists_failed(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
     collection = SnowflakeDocumentCollection(db, "sessions", _SessionDocument, _TestLogger())
-    collection._table_ready = True  # type: ignore[attr-defined]
 
     calls: list[tuple[str, Any, str]] = []
 
@@ -279,7 +297,7 @@ async def test_load_existing_documents_persists_failed(monkeypatch: pytest.Monke
     async def loader(_: Any) -> _SessionDocument | None:
         return None
 
-    await collection.load_existing_documents(loader)
+    await db.load_documents_with_loader(collection, loader)
 
     assert any("INSERT INTO" in sql and "FAILED_MIGRATIONS" in sql for sql, _, _ in calls)
     delete_mock.assert_awaited_once_with(["bad"])
@@ -324,35 +342,25 @@ async def test_get_collection_initializes_only_once(monkeypatch: pytest.MonkeyPa
 
     collection = AsyncMock(spec=SnowflakeDocumentCollection)
     collection.ensure_table = AsyncMock()
-    collection.load_existing_documents = AsyncMock()
+    collection._table = '"PARLANT_SESSIONS"'  # type: ignore[attr-defined]
+    collection._failed_table = '"PARLANT_SESSIONS_FAILED_MIGRATIONS"'  # type: ignore[attr-defined]
 
     monkeypatch.setattr(
         db,
         "_get_or_create_collection",
         AsyncMock(return_value=collection),
     )
-
     loader = AsyncMock(return_value=None)
 
+    load_mock = AsyncMock()
+    monkeypatch.setattr(db, "load_documents_with_loader", load_mock)
+
     await db.get_collection("sessions", _SessionDocument, loader)
     await db.get_collection("sessions", _SessionDocument, loader)
 
-    collection.ensure_table.assert_awaited_once()
-    collection.load_existing_documents.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_ensure_table_runs_only_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    db = _make_database()
-    collection = SnowflakeDocumentCollection(db, "sessions", _SessionDocument, _TestLogger())
-
-    execute_mock = AsyncMock()
-    monkeypatch.setattr(db, "_execute", execute_mock)
-
-    await collection.ensure_table()
-    await collection.ensure_table()
-
-    assert execute_mock.await_count == 2  # main + failed table
+    # ensure_table is not called on the collection anymore (should be handled by DB)
+    collection.ensure_table.assert_not_awaited()
+    load_mock.assert_awaited_once_with(collection, loader)
 
 
 @pytest.mark.asyncio
@@ -370,3 +378,18 @@ async def test_delete_collection_drops_tables(monkeypatch: pytest.MonkeyPatch) -
         'DROP TABLE IF EXISTS "PARLANT_SESSIONS_FAILED_MIGRATIONS"' in stmt
         for stmt in drop_statements
     )
+
+
+@pytest.mark.asyncio
+async def test_ensure_tables_runs_only_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    db = _make_database()
+    collection = SnowflakeDocumentCollection(db, "sessions", _SessionDocument, _TestLogger())
+
+    execute_mock = AsyncMock()
+    monkeypatch.setattr(db, "_execute", execute_mock)
+
+    await db._ensure_tables("sessions", collection)
+    await db._ensure_tables("sessions", collection)
+
+    # two calls for first run (main + failed table), zero on second
+    assert execute_mock.await_count == 2

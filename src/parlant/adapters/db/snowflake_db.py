@@ -152,6 +152,8 @@ class SnowflakeDocumentDatabase(DocumentDatabase):
         self._collections: dict[str, SnowflakeDocumentCollection[Any]] = {}
         self._initialized: set[str] = set()
         self._init_locks: dict[str, asyncio.Lock] = {}
+        self._table_ready: set[str] = set()
+        self._table_locks: dict[str, asyncio.Lock] = {}
 
         self._connection_lock = asyncio.Lock()
         self._operation_lock = asyncio.Lock()
@@ -235,11 +237,78 @@ class SnowflakeDocumentDatabase(DocumentDatabase):
             if name in self._initialized:
                 return
 
-            await collection.ensure_table()
+            await self._ensure_tables(name, collection)
             if document_loader is not None:
-                await collection.load_existing_documents(document_loader)
+                await self.load_documents_with_loader(collection, document_loader)
 
             self._initialized.add(name)
+
+    async def _ensure_tables(self, name: str, collection: SnowflakeDocumentCollection[Any]) -> None:
+        if name in self._table_ready:
+            return
+
+        lock = self._table_locks.setdefault(name, asyncio.Lock())
+        async with lock:
+            if name in self._table_ready:
+                return
+
+            create_stmt = f"""
+                CREATE TABLE IF NOT EXISTS {collection._table} (
+                    ID STRING NOT NULL,
+                    VERSION STRING,
+                    CREATION_UTC STRING,
+                    SESSION_ID STRING,
+                    CUSTOMER_ID STRING,
+                    AGENT_ID STRING,
+                    DATA VARIANT,
+                    PRIMARY KEY (ID)
+                )
+            """
+
+            await self._execute(create_stmt)
+            await self._execute(
+                f"""
+                CREATE TABLE IF NOT EXISTS {collection._failed_table} (
+                    ID STRING,
+                    DATA VARIANT
+                )
+                """
+            )
+
+            self._table_ready.add(name)
+
+    async def load_documents_with_loader(
+        self,
+        collection: SnowflakeDocumentCollection[TDocument],
+        document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
+    ) -> None:
+        rows = await self._execute(
+            f"SELECT DATA FROM {collection._table}",
+            fetch="all",
+        )
+
+        failed: list[BaseDocument] = []
+        for row in rows or []:
+            doc = collection._row_to_document(row)
+            try:
+                migrated = await document_loader(doc)
+            except Exception as exc:  # pragma: no cover
+                self._logger.error(
+                    f"Failed to load document '{doc.get('id')}' in collection '{collection._name}': {exc}"
+                )
+                failed.append(doc)
+                continue
+
+            if migrated is None:
+                failed.append(doc)
+                continue
+
+            if migrated is not doc:
+                await collection._replace_document(migrated)
+
+        if failed:
+            await collection._persist_failed_documents(failed)
+            await collection._delete_documents([doc["id"] for doc in failed if "id" in doc])
 
     async def _execute(
         self,
@@ -350,85 +419,6 @@ class SnowflakeDocumentCollection(DocumentCollection[TDocument]):
 
         self._table = self._database._table_identifier(name)
         self._failed_table = self._database._failed_table_identifier(name)
-
-        self._table_ready = False
-        self._loader_done = False
-        self._table_lock = asyncio.Lock()
-        self._loader_lock = asyncio.Lock()
-
-    async def ensure_table(self) -> None:
-        if self._table_ready:
-            return
-
-        async with self._table_lock:
-            if self._table_ready:
-                return
-
-            create_stmt = f"""
-                CREATE TABLE IF NOT EXISTS {self._table} (
-                    ID STRING NOT NULL,
-                    VERSION STRING,
-                    CREATION_UTC STRING,
-                    SESSION_ID STRING,
-                    CUSTOMER_ID STRING,
-                    AGENT_ID STRING,
-                    DATA VARIANT,
-                    PRIMARY KEY (ID)
-                )
-            """
-
-            await self._database._execute(create_stmt)
-            await self._database._execute(
-                f"""
-                CREATE TABLE IF NOT EXISTS {self._failed_table} (
-                    ID STRING,
-                    DATA VARIANT
-                )
-                """
-            )
-
-            self._table_ready = True
-
-    async def load_existing_documents(
-        self,
-        document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
-    ) -> None:
-        if self._loader_done:
-            return
-
-        async with self._loader_lock:
-            if self._loader_done:
-                return
-
-            rows = await self._database._execute(
-                f"SELECT DATA FROM {self._table}",
-                fetch="all",
-            )
-
-            failed: list[BaseDocument] = []
-            for row in rows or []:
-                doc = self._row_to_document(row)
-                try:
-                    migrated = await document_loader(doc)
-                except Exception as exc:  # pragma: no cover - defensive logging
-                    self._logger.error(
-                        f"Failed to load document '{doc.get('id')}' in collection '{self._name}': {exc}"
-                    )
-                    failed.append(doc)
-                    continue
-
-                if migrated is None:
-                    failed.append(doc)
-                    continue
-
-                if migrated is not doc:
-                    await self._replace_document(migrated)
-
-            if failed:
-                await self._persist_failed_documents(failed)
-                await self._delete_documents([doc["id"] for doc in failed if "id" in doc])
-
-            self._loader_done = True
 
     async def find(
         self,

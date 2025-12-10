@@ -574,19 +574,25 @@ OUTPUT FORMAT
     If the journey continues AND the current step is complete, choose the next step by:
 
     **Evaluate each transition condition carefully**
-   - A condition is only valid if ALL its parts are true based on the conversation
-   - Don't assume information that wasn't explicitly stated
-   - Information can come from anywhere in the conversation history
+    - A condition is only valid if ALL its parts are true based on the conversation
+    - Don't assume information that wasn't explicitly stated
+    - Information can come from anywhere in the conversation history
+
+   **Handling partial condition matches**
+    - Conditions may contain multiple sub-conditions (e.g., "provided X AND hasn't provided Y")
+    - If ALL information has been provided and no condition is fully satisfied, select the condition with the MOST satisfied parts
+    - This represents the path closest to completion, even if technically the condition isn't met
+    - Example: If conditions check for missing data but the customer provided everything at once, choose the condition with the fewest remaining gaps
 
    **Select the condition ID that best matches**
-   - Only ONE transition should be the best fit
-   - Return its ID as `applied_condition_id`
+    - Only ONE transition should be the best fit
+    - Return its ID as `applied_condition_id`
 
     Important - You tend to ignore customer actions completions when many are available. It's important to notice all the customer message in details. Please correct yourself in the future.
 
     Note that even if the condition requires asking the customer a question, it is considered fulfilled if the customer provides the information without being asked.
 
-    You will be given a description of the current step, which is the previously 
+    You will be given a description of the current step that need to execute, and the conditions of the following transitions later in this prompt.
     """,
         )
         builder.add_section(
@@ -761,7 +767,7 @@ example_2_follow_up_nodes = {
     ),
 }
 example_2_expected = JourneyNextStepSelectionSchema(
-    rationale="The agent welcomed the customer, the customer provided a pick up location in NYC and a pick up time, but has not provided a destination, so step 2 condition best holds.",
+    rationale="The agent welcomed the customer, the customer provided a pick up location in NYC and a pick up time, but has not provided a destination, so condition 2 best holds.",
     journey_continues=True,
     current_step_completed=True,
     applied_condition_id="2",
@@ -860,6 +866,53 @@ example_3_expected = JourneyNextStepSelectionSchema(
 )
 
 
+example_4_events = [
+    _make_event(
+        "11",
+        EventSource.AI_AGENT,
+        "Welcome to our taxi service! How can I help you today?",
+    ),
+    _make_event(
+        "23",
+        EventSource.CUSTOMER,
+        "I'd like a taxi from 20 W 34th St., NYC to the Plaza Hotel at 6 AM, please. I'll pay by cash.",
+    ),
+]
+
+
+example_4_current_node = _JourneyNode(
+    id="",
+    kind=JourneyNodeKind.CHAT,
+    action="Welcome the customer to the taxi service",
+    customer_dependent_action=False,
+)
+
+example_4_follow_up_nodes = {
+    "1": _JourneyEdge(
+        condition="The customer did not provided their desired pick up location.",
+        target_node_action="Ask the customer for their desired pick up location",
+    ),
+    "2": _JourneyEdge(
+        condition="The customer provided their desired pick up location and the location is in NYC, and the customer hasn't provided their destination location yet",
+        target_node_action="Ask where their destination is",
+    ),
+    "3": _JourneyEdge(
+        condition="The customer provided their desired pick up location and the location is outside of NYC and the agent hasn't informed the customer that we do not operate outside of NYC",
+        target_node_action="Inform the customer that we do not operate outside of NYC",
+    ),
+    "4": _JourneyEdge(
+        condition="The customer provided their desired pick up location which is in NYC and also provided their destination location but hasn't provided the pickup time yet",
+        target_node_action="Ask for the customer's desired pick up time",
+    ),
+}
+
+example_4_expected = JourneyNextStepSelectionSchema(
+    rationale="The agent welcomed the customer, the customer provided a pick up location in NYC, a destination and also a pick up time. Need to choose the condition that most of it's parts are true, so condition 4 best fits",
+    journey_continues=True,
+    current_step_completed=True,
+    applied_condition_id="2",
+)
+
 _baseline_shots: Sequence[JourneyNextStepSelectionShot] = [
     JourneyNextStepSelectionShot(
         description="Example 1 - Stay on current step",
@@ -887,6 +940,15 @@ _baseline_shots: Sequence[JourneyNextStepSelectionShot] = [
         follow_up_conditions=example_3_follow_up_nodes,
         current_node=example_3_current_node,
         expected_result=example_3_expected,
+    ),
+    JourneyNextStepSelectionShot(
+        description="Example 4 - All required information is provided; select the best matching condition",
+        interaction_events=example_4_events,
+        journey_title="Book Taxi Journey",
+        conditions=["The customer wants to book a taxi"],
+        follow_up_conditions=example_4_follow_up_nodes,
+        current_node=example_4_current_node,
+        expected_result=example_4_expected,
     ),
 ]
 

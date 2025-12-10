@@ -150,6 +150,8 @@ class SnowflakeDocumentDatabase(DocumentDatabase):
         self._connection: Any | None = None
 
         self._collections: dict[str, SnowflakeDocumentCollection[Any]] = {}
+        self._initialized: set[str] = set()
+        self._init_locks: dict[str, asyncio.Lock] = {}
 
         self._connection_lock = asyncio.Lock()
         self._operation_lock = asyncio.Lock()
@@ -176,7 +178,7 @@ class SnowflakeDocumentDatabase(DocumentDatabase):
         schema: type[TDocument],
     ) -> SnowflakeDocumentCollection[TDocument]:
         collection = await self._get_or_create_collection(name, schema)
-        await collection.ensure_table()
+        await self._initialize_collection(name, collection, document_loader=None)
         return collection
 
     async def get_collection(
@@ -186,8 +188,7 @@ class SnowflakeDocumentDatabase(DocumentDatabase):
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> SnowflakeDocumentCollection[TDocument]:
         collection = await self._get_or_create_collection(name, schema)
-        await collection.ensure_table()
-        await collection.load_existing_documents(document_loader)
+        await self._initialize_collection(name, collection, document_loader)
         return collection
 
     async def get_or_create_collection(
@@ -219,6 +220,26 @@ class SnowflakeDocumentDatabase(DocumentDatabase):
             )
 
         return cast(SnowflakeDocumentCollection[TDocument], self._collections[name])
+
+    async def _initialize_collection(
+        self,
+        name: str,
+        collection: SnowflakeDocumentCollection[Any],
+        document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]] | None,
+    ) -> None:
+        if name in self._initialized:
+            return
+
+        lock = self._init_locks.setdefault(name, asyncio.Lock())
+        async with lock:
+            if name in self._initialized:
+                return
+
+            await collection.ensure_table()
+            if document_loader is not None:
+                await collection.load_existing_documents(document_loader)
+
+            self._initialized.add(name)
 
     async def _execute(
         self,
@@ -379,8 +400,6 @@ class SnowflakeDocumentCollection(DocumentCollection[TDocument]):
             if self._loader_done:
                 return
 
-            await self.ensure_table()
-
             rows = await self._database._execute(
                 f"SELECT DATA FROM {self._table}",
                 fetch="all",
@@ -418,8 +437,6 @@ class SnowflakeDocumentCollection(DocumentCollection[TDocument]):
         cursor: Optional[Cursor] = None,
         sort_direction: Optional[SortDirection] = None,
     ) -> FindResult[TDocument]:
-        await self.ensure_table()
-
         sort_direction = sort_direction or SortDirection.ASC
 
         base_clause, base_params = _build_where_clause(filters, self.INDEXED_FIELDS)
@@ -472,7 +489,6 @@ class SnowflakeDocumentCollection(DocumentCollection[TDocument]):
         )
 
     async def find_one(self, filters: Where) -> Optional[TDocument]:
-        await self.ensure_table()
         clause, params = _build_where_clause(filters, self.INDEXED_FIELDS)
         sql = f"SELECT DATA FROM {self._table} {clause} LIMIT 1"
         row = await self._database._execute(sql, params, fetch="one")
@@ -482,7 +498,6 @@ class SnowflakeDocumentCollection(DocumentCollection[TDocument]):
         return cast(TDocument, self._row_to_document(row))
 
     async def insert_one(self, document: TDocument) -> InsertResult:
-        await self.ensure_table()
         ensure_is_total(document, self._schema)
 
         params = self._serialize_document(document)

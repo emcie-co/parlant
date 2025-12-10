@@ -619,11 +619,13 @@ For any other guidelines, do not disregard a guideline because you believe its '
             customer_dependent_guideline_indices_str = ", ".join(
                 [str(i) for i in customer_dependent_guideline_indices]
             )
-            guideline_instruction += f"""
+            guideline_instruction += """
 Important note - some guidelines ({customer_dependent_guideline_indices_str}) may require asking specific questions. Never skip these questions, even if you believe the customer already provided the answer. Instead, ask them to confirm their previous response.
 """
-        guideline_instruction += """
+        else:
+            customer_dependent_guideline_indices_str = ""
 
+        guideline_instruction += """
 You may choose not to follow a guideline only in the following cases:
     - It conflicts with a previous customer request.
     - It is clearly inappropriate given the current context of the conversation.
@@ -641,6 +643,7 @@ These guidelines have already been pre-filtered based on the interaction's conte
             props={
                 "guideline_list": guideline_list,
                 "agent_intention_guidelines_list": agent_intention_guidelines_list,
+                "customer_dependent_guideline_indices_str": customer_dependent_guideline_indices_str,
             },
             status=SectionStatus.ACTIVE,
         )

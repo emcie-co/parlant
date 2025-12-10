@@ -161,7 +161,7 @@ class JourneyNextStepSelection:
             elif not internal_representation(
                 guideline
             ).action:  # TODO - make sure that we don't get here with terminated node
-                action = DEFAULT_ROOT_ACTION
+                action = FORK_NODE_ACTION_STR
             else:
                 action = cast(str, internal_representation(guideline).action)
 

@@ -346,11 +346,18 @@ class JourneyReachableNodesEvaluator:
         for node_idx in order:
             children_info: dict[str, _ChildInfo] = {}
             node = new_graph[node_idx]
-            if not node.action and node.kind != JourneyNodeKind.FORK:
+            if not node.action and not node.outgoing_edges:
                 continue
             for e in node.outgoing_edges:
                 child_idx = e.target_node_index
                 id = 1
+                if (
+                    not new_graph[child_idx].action
+                    and len(node.outgoing_edges) == 1
+                    and not e.condition
+                ):
+                    # only one child which is a terminal node with no condition to it
+                    break
                 truncated_follow_ups: dict[str, _ReachableFollowUps] = {}
                 # truncate paths that starts with tool node / agent action node
                 if (
@@ -373,14 +380,14 @@ class JourneyReachableNodesEvaluator:
                     id_to_reachable_follow_ups=truncated_follow_ups,
                 )
 
-            if progress_report:
-                await progress_report.increment(1)
-
             reachable_follow_ups = await self.do_node_evaluation(
                 new_graph,
                 node_idx,
                 children_info,
             )
+
+            if progress_report:
+                await progress_report.increment(1)
 
             result: list[tuple[str, Sequence[str]]] = []
             for r in reachable_follow_ups:
@@ -676,7 +683,7 @@ OUTPUT FORMAT
 
                 self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
-                # with open("dumps/journey/journey reachable evaluation/output.txt", "w") as f:
+                # with open("dumps/journey/journey reachable evaluation/output.txt", "a") as f:
                 #     f.write(inference.content.model_dump_json(indent=2))
                 # with open("dumps/journey/journey reachable evaluation/duration.txt", "a") as f:
                 #     f.write(f"{inference.info.duration}\n")

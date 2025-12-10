@@ -17,7 +17,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import math
-import os
+
+# import os
 import traceback
 from typing_extensions import override
 
@@ -126,8 +127,8 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
                             f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                         )
 
-                    with open("dumps/observational/output.txt", "a") as f:
-                        f.write(inference.content.model_dump_json(indent=2))
+                    # with open("dumps/observational/output.txt", "a") as f:
+                    #     f.write(inference.content.model_dump_json(indent=2))
 
                     matches = []
 
@@ -327,10 +328,10 @@ Expected Output
                 "guidelines_len": len(self._guidelines),
             },
         )
-        os.makedirs("dumps/observational", exist_ok=True)
+        # os.makedirs("dumps/observational", exist_ok=True)
 
-        with open("dumps/observational/prompt.txt", "w") as f:
-            f.write(builder.build())
+        # with open("dumps/observational/prompt.txt", "w") as f:
+        #     f.write(builder.build())
 
         return builder
 

@@ -319,6 +319,29 @@ async def test_delete_one_no_match(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_collection_initializes_only_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    db = _make_database()
+
+    collection = AsyncMock(spec=SnowflakeDocumentCollection)
+    collection.ensure_table = AsyncMock()
+    collection.load_existing_documents = AsyncMock()
+
+    monkeypatch.setattr(
+        db,
+        "_get_or_create_collection",
+        AsyncMock(return_value=collection),
+    )
+
+    loader = AsyncMock(return_value=None)
+
+    await db.get_collection("sessions", _SessionDocument, loader)
+    await db.get_collection("sessions", _SessionDocument, loader)
+
+    collection.ensure_table.assert_awaited_once()
+    collection.load_existing_documents.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_ensure_table_runs_only_once(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
     collection = SnowflakeDocumentCollection(db, "sessions", _SessionDocument, _TestLogger())

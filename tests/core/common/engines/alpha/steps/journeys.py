@@ -19,7 +19,7 @@ from pytest_bdd import given, parsers
 from parlant.core.common import JSONSerializable
 from parlant.core.entity_cq import EntityCommands
 from parlant.core.evaluations import JourneyPayload, PayloadOperation
-from parlant.core.journeys import Journey, JourneyId, JourneyNode, JourneyNodeId, JourneyStore
+from parlant.core.journeys import Journey, JourneyId, JourneyNodeId, JourneyStore
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
 
 from parlant.core.relationships import (
@@ -366,28 +366,17 @@ def given_the_journey_called(
             )
         )
 
-        metadata = get_journey_properties(context=context, journey_id=journey.id)
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
 
-        nodes = [node1, node2, node3, node4, node5, node6]
-
-        idx_to_node: dict[JourneyNodeId, JourneyNode] = {node.id: node for node in nodes}
-
-        for index, m in metadata.items():
-            journey_node = cast(Mapping[str, JSONSerializable], m.get("journey_node", {}))
-
-            context.sync_await(
-                journey_store.set_node_metadata(
-                    index,
-                    "journey_node",
-                    {
-                        **cast(
-                            dict[str, JSONSerializable],
-                            idx_to_node[index].metadata.get("journey_node", {}),
-                        ),
-                        "reachable_follow_ups": journey_node.get("reachable_follow_ups", {}),
-                    },
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
                 )
-            )
 
         return journey
 
@@ -637,28 +626,17 @@ def given_the_journey_called(
             )
         )
 
-        metadata = get_journey_properties(context=context, journey_id=journey.id)
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
 
-        nodes = [node1, node2, node3, node4, node5, node6]
-
-        idx_to_node: dict[JourneyNodeId, JourneyNode] = {node.id: node for node in nodes}
-
-        for index, m in metadata.items():
-            journey_node = cast(Mapping[str, JSONSerializable], m.get("journey_node", {}))
-
-            context.sync_await(
-                journey_store.set_node_metadata(
-                    index,
-                    "journey_node",
-                    {
-                        **cast(
-                            dict[str, JSONSerializable],
-                            idx_to_node[index].metadata.get("journey_node", {}),
-                        ),
-                        "reachable_follow_ups": journey_node.get("reachable_follow_ups", {}),
-                    },
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
                 )
-            )
 
         return journey
 
@@ -913,28 +891,17 @@ def given_the_journey_called(
             )
         )
 
-        metadata = get_journey_properties(context=context, journey_id=journey.id)
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
 
-        nodes = [node1, node2, node3, node4, node5]
-
-        idx_to_node: dict[JourneyNodeId, JourneyNode] = {node.id: node for node in nodes}
-
-        for index, m in metadata.items():
-            journey_node = cast(Mapping[str, JSONSerializable], m.get("journey_node", {}))
-
-            context.sync_await(
-                journey_store.set_node_metadata(
-                    index,
-                    "journey_node",
-                    {
-                        **cast(
-                            dict[str, JSONSerializable],
-                            idx_to_node[index].metadata.get("journey_node", {}),
-                        ),
-                        "reachable_follow_ups": journey_node.get("reachable_follow_ups", {}),
-                    },
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
                 )
-            )
 
         return journey
 
@@ -1127,28 +1094,17 @@ def given_the_journey_called(
             )
         )
 
-        metadata = get_journey_properties(context=context, journey_id=journey.id)
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
 
-        nodes = [node1, node2, node3, node4]
-
-        idx_to_node: dict[JourneyNodeId, JourneyNode] = {node.id: node for node in nodes}
-
-        for index, m in metadata.items():
-            journey_node = cast(Mapping[str, JSONSerializable], m.get("journey_node", {}))
-
-            context.sync_await(
-                journey_store.set_node_metadata(
-                    index,
-                    "journey_node",
-                    {
-                        **cast(
-                            dict[str, JSONSerializable],
-                            idx_to_node[index].metadata.get("journey_node", {}),
-                        ),
-                        "reachable_follow_ups": journey_node.get("reachable_follow_ups", {}),
-                    },
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
                 )
-            )
 
         return journey
 
@@ -1504,28 +1460,17 @@ def given_the_journey_called(
             )
         )
 
-        metadata = get_journey_properties(context=context, journey_id=journey.id)
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
 
-        nodes = [node1, node2, node3, node4, node5, node6, node7, node8]
-
-        idx_to_node: dict[JourneyNodeId, JourneyNode] = {node.id: node for node in nodes}
-
-        for index, m in metadata.items():
-            journey_node = cast(Mapping[str, JSONSerializable], m.get("journey_node", {}))
-
-            context.sync_await(
-                journey_store.set_node_metadata(
-                    index,
-                    "journey_node",
-                    {
-                        **cast(
-                            dict[str, JSONSerializable],
-                            idx_to_node[index].metadata.get("journey_node", {}),
-                        ),
-                        "reachable_follow_ups": journey_node.get("reachable_follow_ups", {}),
-                    },
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
                 )
-            )
 
         return journey
 
@@ -1730,28 +1675,17 @@ def given_the_journey_called(
             )
         )
 
-        metadata = get_journey_properties(context=context, journey_id=journey.id)
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
 
-        nodes = [node1, node2, node3, node4, node5]
-
-        idx_to_node: dict[JourneyNodeId, JourneyNode] = {node.id: node for node in nodes}
-
-        for index, m in metadata.items():
-            journey_node = cast(Mapping[str, JSONSerializable], m.get("journey_node", {}))
-
-            context.sync_await(
-                journey_store.set_node_metadata(
-                    index,
-                    "journey_node",
-                    {
-                        **cast(
-                            dict[str, JSONSerializable],
-                            idx_to_node[index].metadata.get("journey_node", {}),
-                        ),
-                        "reachable_follow_ups": journey_node.get("reachable_follow_ups", {}),
-                    },
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
                 )
-            )
 
         return journey
 
@@ -2092,29 +2026,17 @@ def given_the_journey_called(
             )
         )
 
-        metadata = get_journey_properties(context=context, journey_id=journey.id)
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
 
-        nodes = [node1, node2, node3, node4, node5, node6, node7]
-
-        idx_to_node: dict[JourneyNodeId, JourneyNode] = {node.id: node for node in nodes}
-
-        for index, m in metadata.items():
-            journey_node = cast(Mapping[str, JSONSerializable], m.get("journey_node", {}))
-
-            context.sync_await(
-                journey_store.set_node_metadata(
-                    index,
-                    "journey_node",
-                    {
-                        **cast(
-                            dict[str, JSONSerializable],
-                            idx_to_node[index].metadata.get("journey_node", {}),
-                        ),
-                        "reachable_follow_ups": journey_node.get("reachable_follow_ups", {}),
-                    },
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
                 )
-            )
-
         return journey
 
     def create_change_credit_limit_journey() -> Journey:
@@ -2370,28 +2292,17 @@ def given_the_journey_called(
             )
         )
 
-        metadata = get_journey_properties(context=context, journey_id=journey.id)
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
 
-        nodes = [node1, node2, node3, node4, node5, node6, node7]
-
-        idx_to_node: dict[JourneyNodeId, JourneyNode] = {node.id: node for node in nodes}
-
-        for index, m in metadata.items():
-            journey_node = cast(Mapping[str, JSONSerializable], m.get("journey_node", {}))
-
-            context.sync_await(
-                journey_store.set_node_metadata(
-                    index,
-                    "journey_node",
-                    {
-                        **cast(
-                            dict[str, JSONSerializable],
-                            idx_to_node[index].metadata.get("journey_node", {}),
-                        ),
-                        "reachable_follow_ups": journey_node.get("reachable_follow_ups", {}),
-                    },
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
                 )
-            )
 
         return journey
 
@@ -2567,28 +2478,17 @@ def given_the_journey_called(
             )
         )
 
-        metadata = get_journey_properties(context=context, journey_id=journey.id)
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
 
-        nodes = [node1, node2, node3, node4]
-
-        idx_to_node: dict[JourneyNodeId, JourneyNode] = {node.id: node for node in nodes}
-
-        for index, m in metadata.items():
-            journey_node = cast(Mapping[str, JSONSerializable], m.get("journey_node", {}))
-
-            context.sync_await(
-                journey_store.set_node_metadata(
-                    index,
-                    "journey_node",
-                    {
-                        **cast(
-                            dict[str, JSONSerializable],
-                            idx_to_node[index].metadata.get("journey_node", {}),
-                        ),
-                        "reachable_follow_ups": journey_node.get("reachable_follow_ups", {}),
-                    },
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
                 )
-            )
 
         return journey
 

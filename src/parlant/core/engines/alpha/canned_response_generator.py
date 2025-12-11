@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from itertools import chain
 from random import shuffle
 import re
@@ -175,6 +175,7 @@ class CannedResponseContext:
     tool_insights: ToolInsights
     staged_tool_events: Sequence[EmittedEvent]
     staged_message_events: Sequence[EmittedEvent]
+    additional_canned_response_fields: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     @property
     def guideline_matches(self) -> Sequence[GuidelineMatch]:
@@ -260,6 +261,21 @@ class ToolBasedFieldExtraction(CannedResponseFieldExtractionMethod):
             if value := tool_call["result"].get("canned_response_fields", {}).get(field_name, None):
                 return True, value
 
+        return False, None
+
+
+class AdditionalFieldExtraction(CannedResponseFieldExtractionMethod):
+    """Extracts fields from additional_canned_response_fields (e.g., from guideline field providers)."""
+
+    @override
+    async def extract(
+        self,
+        canned_response: str,
+        field_name: str,
+        context: CannedResponseContext,
+    ) -> tuple[bool, JSONSerializable]:
+        if field_name in context.additional_canned_response_fields:
+            return True, context.additional_canned_response_fields[field_name]
         return False, None
 
 
@@ -434,11 +450,13 @@ class CannedResponseFieldExtractor(ABC):
         self,
         standard: StandardFieldExtraction,
         tool_based: ToolBasedFieldExtraction,
+        additional: AdditionalFieldExtraction,
         generative: GenerativeFieldExtraction,
     ) -> None:
         self.methods: list[CannedResponseFieldExtractionMethod] = [
             standard,
             tool_based,
+            additional,
             generative,
         ]
 
@@ -629,6 +647,7 @@ class CannedResponseGenerator(MessageEventComposer):
             tool_insights=context.state.tool_insights,
             staged_tool_events=context.state.tool_events,
             staged_message_events=context.state.message_events,
+            additional_canned_response_fields=context.state.additional_canned_response_fields,
         )
 
         prompt_builder = PromptBuilder(
@@ -844,6 +863,7 @@ You will now be given the current state of the interaction to which you must gen
         )
 
         fields_available_in_context.extend(("std", "generative"))
+        fields_available_in_context.extend(context.additional_canned_response_fields.keys())
 
         relevant_responses = []
 
@@ -1012,6 +1032,7 @@ You will now be given the current state of the interaction to which you must gen
         tool_insights = loaded_context.state.tool_insights
         staged_tool_events = loaded_context.state.tool_events
         staged_message_events = loaded_context.state.message_events
+        additional_canned_response_fields = loaded_context.state.additional_canned_response_fields
 
         if (
             not interaction_history
@@ -1038,6 +1059,7 @@ You will now be given the current state of the interaction to which you must gen
             tool_insights=tool_insights,
             staged_tool_events=staged_tool_events,
             staged_message_events=staged_message_events,
+            additional_canned_response_fields=additional_canned_response_fields,
         )
 
         canreps = await self._get_relevant_canned_responses(context)

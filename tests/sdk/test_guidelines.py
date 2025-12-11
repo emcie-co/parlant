@@ -798,3 +798,79 @@ class Test_that_on_message_handler_is_not_called_when_guideline_does_not_match(S
         assert not self.handler_called, (
             "on_message handler should not be called when guideline doesn't match"
         )
+
+
+class Test_that_guideline_field_provider_contributes_fields_to_canned_response(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Field Provider Agent",
+            description="Agent for testing field providers",
+        )
+
+        # Create a canned response with a template that uses a field
+        canrep_id = await self.agent.create_canned_response(
+            template="Your special number is {{lucky_number}}.",
+        )
+
+        # Field provider that returns the field value
+        async def provide_fields(ctx: p.EngineContext) -> dict[str, int]:
+            return {"lucky_number": 42}
+
+        # Create guideline with STRICT mode and field provider
+        self.guideline = await self.agent.create_guideline(
+            condition="Customer asks for their lucky number",
+            action="Tell them their lucky number",
+            composition_mode=p.CompositionMode.STRICT,
+            canned_responses=[canrep_id],
+            canned_response_field_provider=provide_fields,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="What is my lucky number?",
+            recipient=self.agent,
+        )
+
+        assert response == "Your special number is 42."
+
+
+class Test_that_multiple_guidelines_can_provide_fields(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Multiple Field Provider Agent",
+            description="Agent for testing multiple field providers",
+        )
+
+        # Create a canned response that uses fields from multiple providers
+        canrep_id = await self.agent.create_canned_response(
+            template="First: {{field_a}}, Second: {{field_b}}.",
+        )
+
+        async def provide_field_a(ctx: p.EngineContext) -> dict[str, str]:
+            return {"field_a": "ALPHA"}
+
+        async def provide_field_b(ctx: p.EngineContext) -> dict[str, str]:
+            return {"field_b": "BETA"}
+
+        # Create two guidelines that both match
+        self.guideline_a = await self.agent.create_guideline(
+            condition="Customer asks a question",
+            action="Respond with info",
+            canned_response_field_provider=provide_field_a,
+        )
+
+        self.guideline_b = await self.agent.create_guideline(
+            condition="Customer wants data",
+            action="Provide the requested data",
+            composition_mode=p.CompositionMode.STRICT,
+            canned_responses=[canrep_id],
+            canned_response_field_provider=provide_field_b,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="I have a question and I want some data please",
+            recipient=self.agent,
+        )
+
+        assert response == "First: ALPHA, Second: BETA."

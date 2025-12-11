@@ -1094,3 +1094,39 @@ class Test_that_on_message_handler_is_called_for_journey_state_when_message_gene
         assert self.captured_state_id == self.state.target.id, (
             f"Handler should receive correct state ID. Expected {self.state.target.id}, got {self.captured_state_id}"
         )
+
+
+class Test_that_journey_state_field_provider_contributes_fields_to_canned_response(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Journey Field Provider Agent",
+            description="Agent for testing journey state field providers",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Order Journey",
+            description="Handle customer orders",
+            conditions=["Customer wants to order"],
+        )
+
+        canrep_id = await self.agent.create_canned_response(
+            template="Your order number is {{order_number}}.",
+        )
+
+        async def provide_order_fields(ctx: p.EngineContext) -> dict[str, int]:
+            return {"order_number": 12345}
+
+        self.state = await self.journey.initial_state.transition_to(
+            chat_state="Confirm the order",
+            composition_mode=p.CompositionMode.STRICT,
+            canned_responses=[canrep_id],
+            canned_response_field_provider=provide_order_fields,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="I want to place an order",
+            recipient=self.agent,
+        )
+
+        assert response == "Your order number is 12345."

@@ -13,9 +13,9 @@
 # limitations under the License.
 
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, Sequence, cast
+from typing import Any, Optional, Sequence, cast
 from typing_extensions import deprecated
 
 from parlant.core.agents import Agent
@@ -150,6 +150,7 @@ class ResponseState:
     tool_insights: ToolInsights
     prepared_to_respond: bool
     message_events: list[EmittedEvent]
+    additional_canned_response_fields: dict[str, Any] = field(default_factory=dict)
 
     @property
     def ordinary_guidelines(self) -> list[Guideline]:

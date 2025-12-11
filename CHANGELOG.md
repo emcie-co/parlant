@@ -37,6 +37,7 @@ All notable changes to Parlant will be documented here.
 - Add guideline criticality level
 - Add ability to configure and extend the FastAPI app object
 - Add dynamic composition mode
+- Support adding custom canrep fields to matched guidelines and journey states
 
 ## [3.0.4] - 2025-11-18
 

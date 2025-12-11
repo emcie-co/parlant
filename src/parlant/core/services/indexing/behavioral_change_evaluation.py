@@ -521,6 +521,8 @@ class JourneyEvaluator:
             journey_to_node_guidelines[journey_id] = {}
             for guideline in step_guidelines:
                 node_id = extract_node_id_from_journey_node_guideline_id(guideline.id)
+                if node_id == JourneyStore.END_NODE_ID:
+                    continue
                 node = await self._journey_store.read_node(node_id=node_id)
 
                 # Store the guideline by node_id for later mapping

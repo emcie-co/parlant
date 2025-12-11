@@ -86,6 +86,7 @@ class GuidelineUpdateParams(TypedDict, total=False):
     criticality: Criticality
     enabled: bool
     metadata: Mapping[str, JSONSerializable]
+    composition_mode: Optional[CompositionMode]
 
 
 class GuidelineStore(ABC):
@@ -616,6 +617,18 @@ class GuidelineDocumentStore(GuidelineStore):
                         else {}
                     ),
                     **({"enabled": params["enabled"]} if "enabled" in params else {}),
+                    **(
+                        {
+                            "composition_mode": (
+                                # Note that updating to None is also valid
+                                params["composition_mode"].value
+                                if params["composition_mode"] is not None
+                                else None
+                            )
+                        }
+                        if "composition_mode" in params
+                        else {}
+                    ),
                 }
             )
 

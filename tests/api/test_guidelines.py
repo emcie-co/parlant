@@ -955,3 +955,50 @@ async def test_that_guideline_criticality_can_be_updated_via_api(
 
     assert updated_guideline["id"] == guideline_id
     assert updated_guideline["criticality"] == "high"
+
+
+async def test_that_guideline_composition_mode_can_be_set_and_updated(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # Create guideline with CANNED_COMPOSITED mode
+    response = await async_client.post(
+        "/guidelines",
+        json={
+            "condition": "User asks about pricing",
+            "action": "Provide pricing information",
+            "composition_mode": "composited_canned",
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    guideline = response.json()
+    guideline_id = guideline["id"]
+
+    # Check that the composition mode is set correctly after creation
+    assert guideline["composition_mode"] == "composited_canned"
+
+    # Retrieve guideline and verify composition mode
+    response = await async_client.get(f"/guidelines/{guideline_id}")
+    assert response.status_code == status.HTTP_200_OK
+    guideline = response.json()["guideline"]
+    assert guideline["composition_mode"] == "composited_canned"
+
+    # Update guideline to CANNED_STRICT mode
+    response = await async_client.patch(
+        f"/guidelines/{guideline_id}",
+        json={
+            "composition_mode": "strict_canned",
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    guideline = response.json()["guideline"]
+
+    # Check that the composition mode is updated correctly
+    assert guideline["composition_mode"] == "strict_canned"
+
+    # Retrieve guideline again and verify composition mode
+    response = await async_client.get(f"/guidelines/{guideline_id}")
+    assert response.status_code == status.HTTP_200_OK
+    guideline = response.json()["guideline"]
+    assert guideline["composition_mode"] == "strict_canned"

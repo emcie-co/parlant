@@ -101,6 +101,7 @@ class Journey:
 class JourneyUpdateParams(TypedDict, total=False):
     title: str
     description: str
+    composition_mode: Optional[CompositionMode]
 
 
 class JourneyNodeUpdateParams(TypedDict, total=False):

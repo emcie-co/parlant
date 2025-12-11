@@ -20,7 +20,6 @@ from typing import Awaitable, Callable, TypeAlias
 import mimetypes
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, status
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
@@ -125,6 +124,8 @@ async def create_api_app(
         version=VERSION,
     )
 
+    api_app = await authorization_policy.configure_app(api_app)
+
     @api_app.middleware("http")
     async def handle_cancellation(
         request: Request,
@@ -134,14 +135,6 @@ async def create_api_app(
             return await call_next(request)
         except asyncio.CancelledError:
             return Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
-
-    api_app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
 
     @api_app.middleware("http")
     async def add_trace_id(

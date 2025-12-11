@@ -507,7 +507,7 @@ class JourneyBacktrackNodeSelection:
                             score=10,
                             rationale=f"Root guideline was selected indicating should exit the journey, the rational for this choice: {inference.content.rationale}",
                             metadata={
-                                "journey_path": list(self._previous_path) + journey_path,
+                                "journey_path": list(self._previous_path) + journey_path + [None],
                                 "step_selection_journey_id": self._examined_journey.id,
                             },
                         )

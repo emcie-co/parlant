@@ -454,10 +454,10 @@ async def create_guideline(
             condition=condition,
             action=action,
         ),
-        criticality=Criticality.MEDIUM,
         enabled=True,
         tags=tags,
         metadata=metadata,
+        criticality=Criticality.MEDIUM,
     )
 
     context.guidelines.append(guideline)
@@ -475,10 +475,10 @@ async def create_disambiguation_guideline(
             condition=condition,
             action=None,
         ),
-        criticality=Criticality.MEDIUM,
         enabled=True,
         tags=[],
         metadata={},
+        criticality=Criticality.MEDIUM,
     )
 
     context.guidelines.append(guideline)

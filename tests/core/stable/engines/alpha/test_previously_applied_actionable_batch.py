@@ -19,7 +19,7 @@ from lagom import Container
 from pytest import fixture
 from parlant.core.agents import Agent
 from parlant.core.capabilities import Capability, CapabilityId
-from parlant.core.common import Criticality, generate_id
+from parlant.core.common import generate_id
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent
@@ -60,7 +60,7 @@ GUIDELINES_DICT = {
         "action": "apologize and offer a discount",
     },
     "confirm_reservation": {
-        "condition": "The customer has placed a reservation, submitted an order, or added items to an order.",
+        "condition": "Whenever the customer has placed a reservation, submitted an order, or added items to an order.",
         "action": "ask whether the customer would like to add anything else before finalizing the reservation or order",
     },
     "order_status": {
@@ -134,7 +134,6 @@ def create_guideline(
             condition=condition,
             action=action,
         ),
-        criticality=Criticality.MEDIUM,
         enabled=True,
         tags=tags,
         metadata={},
@@ -618,8 +617,13 @@ async def test_that_previously_applied_guidelines_are_matched_based_on_capabilit
         new_session.id,
         customer,
         conversation_context,
-        guidelines_target_names=[],
-        guidelines_names=["unsupported_capability", "frustrated_so_discount"],
+        guidelines_target_names=["unsupported_capability"],
+        guidelines_names=[
+            "unsupported_capability",
+            "confirm_reservation",
+            "problem_with_order",
+            "order_status",
+        ],
         capabilities=capabilities,
     )
 

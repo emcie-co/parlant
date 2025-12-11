@@ -91,7 +91,7 @@ class PromptBuilder:
 
         self._on_build = on_build
         self._cached_results: set[str] = set()
-        self._modified = True
+        self._modified = False
 
     def _call_on_build(self, prompt: str) -> None:
         if prompt in self._cached_results:

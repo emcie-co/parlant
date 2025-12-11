@@ -21,8 +21,8 @@ from parlant.core.shots import Shot, ShotCollection
 
 PRE_ROOT_INDEX = "0"
 ROOT_INDEX = "1"
-ACTION_COMPLETION_REMINDER = "<str, condition that says the current action completed, if exists. Reminder: if it requires the customer to do something, phrase it as 'The customer ...' if it only requires the agent. phrase it as 'The agent..'>"
-REMINDER_OF_ACTION_TYPE = "Reminder: when stating the child_action hasn't completed consider if action is CUSTOMER DEPENDENT or REQUIRES AGENT ACTION"
+REMINDER_OF_ACTION_TYPE = "Reminder: when stating if hasn't completed consider if action is CUSTOMER DEPENDENT or REQUIRES AGENT ACTION"
+REMINDER_OPTIONS = "Reminder: when stating an action completion consider Condition Clarity and Specificity, include all options in conditions"
 
 
 class JourneyNodeKind(Enum):
@@ -355,8 +355,9 @@ class JourneyReachableNodesEvaluator:
                     not new_graph[child_idx].action
                     and len(node.outgoing_edges) == 1
                     and not e.condition
+                    and not new_graph[node.outgoing_edges[0].target_node_index].outgoing_edges
                 ):
-                    # only one child which is a terminal node with no condition to it
+                    # only one child which is a terminal node (no action and no outgoing edges) with no condition to it
                     break
                 truncated_follow_ups: dict[str, _ReachableFollowUps] = {}
                 # truncate paths that starts with tool node / agent action node
@@ -550,11 +551,15 @@ For actions requiring the agent to communicate something, describe completion ba
 - CORRECT: "The agent informed the customer that..."
 - WRONG: "The customer was informed that..."
 
+
+**IMPORTANT: Specify the options and details**
+Conditions must be self-contained and understandable without additional context. Anyone reading the condition should be able to evaluate it against a conversation transcript without needing to reference the action or step definitions.
+Therefor, when actions present specific options (e.g., "Ask if they want Margherita, Pepperoni, or Vegan"), conditions MUST specify all those options:
+- CORRECT: "The customer chose which type of pizza they want - Margherita, Pepperoni, or Vegan", or "The customer hasn't chose the type of pizza they want yet (Margherita, Pepperoni, or Vegan)"
+- WRONG: "The customer chose which type of pizza they want". Or  "The customer hasn't chose the type of pizza they want yet" - Without listing the option.
+That's important so it will be clear that if customer said "I want 3 margarita", they completed the step. 
+
 Notes:
-- Make sure that the condition is well described and can be understood without having more information about the steps and transition, such that given a conversation with a customer it will be possible to determine if the condition 
-holds or not.
-- If action contains options, for example, "ask the customer if they want Margarita, Pepperoni or vegan" don't just describe the action that was taken by "the customer chose the type of pizza", include all relevant details in the condition
-description.
 - If condition contains multiple statements where one implies the other, include only the more specific one. For example "The customer specified the type of pizza they want and it is Vegan" could become "The customer wants Vegan pizza".
 """,
         )
@@ -589,8 +594,8 @@ Example section is over. The following is the real data you need to use for your
 
         os.makedirs("dumps/journey/journey reachable evaluation", exist_ok=True)
 
-        # with open("dumps/journey/journey reachable evaluation/prompt.txt", "w") as f:
-        #     f.write(builder.build())
+        with open("dumps/journey/journey reachable evaluation/prompt.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
     def _sort_by_transition_condition(
@@ -616,7 +621,7 @@ Example section is over. The following is the real data you need to use for your
             "child_id": "{id}",
             "child_action": "{info.action if info.action else "There is no action to perform in this child step"}",
             "condition_to_child": "{info.edge_condition if info.edge_condition else "<str.There is no condition associated with the transition to this child, if there are other children state here the complementary condition of ALL children>"}",
-            "condition_to_child_and_stop": {f"<str, condition_to_child (if exists) AND that child_action hasn't completed (if exists).{REMINDER_OF_ACTION_TYPE}>" if info.action or info.edge_condition else ""},"""
+            "condition_to_child_and_stop": {f"<str, condition_to_child (if exists) AND that child_action hasn't completed (if exists).{REMINDER_OF_ACTION_TYPE}. {REMINDER_OPTIONS}>" if info.action or info.edge_condition else ""},"""
 
                 conditions_to_child_and_forward = ""
                 for path_id, r in info.id_to_reachable_follow_ups.items():
@@ -624,7 +629,7 @@ Example section is over. The following is the real data you need to use for your
                 {{
                     "id": "{path_id}",
                     "path_condition": "{r.condition}",
-                    "condition_to_child_then_to_path": "<str, child_action completed (if exists) AND condition_to_child (if exists) AND path_condition {REMINDER_OF_ACTION_TYPE}>",
+                    "condition_to_child_then_to_path": "<str, child_action completed (if exists) AND condition_to_child (if exists) AND path_condition. {REMINDER_OF_ACTION_TYPE}. {REMINDER_OPTIONS}>",
                 }},"""
                 if conditions_to_child_and_forward:
                     child_desc += f"""
@@ -651,7 +656,7 @@ OUTPUT FORMAT
 ```json
 {{
     "step_action": "{node.action if node.action else ""}",
-    "step_action_completed": "{ACTION_COMPLETION_REMINDER if node.action else ""}",{_get_children_condition()}
+    "step_action_completed": "{f"<str, condition that says the current action completed, if exists. {REMINDER_OF_ACTION_TYPE}. {REMINDER_OPTIONS}>" if node.action else ""}",{_get_children_condition()}
 }}
 ```
 """
@@ -683,10 +688,10 @@ OUTPUT FORMAT
 
                 self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
-                # with open("dumps/journey/journey reachable evaluation/output.txt", "a") as f:
-                #     f.write(inference.content.model_dump_json(indent=2))
-                # with open("dumps/journey/journey reachable evaluation/duration.txt", "a") as f:
-                #     f.write(f"{inference.info.duration}\n")
+                with open("dumps/journey/journey reachable evaluation/output.txt", "w") as f:
+                    f.write(inference.content.model_dump_json(indent=2))
+                with open("dumps/journey/journey reachable evaluation/duration.txt", "a") as f:
+                    f.write(f"{inference.info.duration}\n")
 
                 reachable_follow_ups = []
 
@@ -766,7 +771,7 @@ node_example_1 = _JourneyNode(
     kind=JourneyNodeKind.CHAT,
     customer_dependent_action=True,
     customer_action_description="the customer responded regarding their preference between exploring cities and scenic landscapes",
-    reachable_follow_ups=[
+    reachable_follow_ups=[  # This is the expected result
         _ReachableFollowUps(
             condition="The customer's desired pick up location is in NYC and customer hasn't provided their destination location yet",
             path=["3"],
@@ -834,7 +839,7 @@ expected_result_example_1 = ReachableNodesEvaluationSchema(
                     path_condition=children_info_example_1["3"]
                     .id_to_reachable_follow_ups["2"]
                     .condition,
-                    condition_to_child_then_to_path="The customer's desired pick up location is in NYC and they provided their destination location but hasn't provided the pickup time yet",
+                    condition_to_child_then_to_path="The customer's desired pick up location is in NYC and they provided their destination location and pickup time but the agent hasn't booked the taxi ride yets",
                 ),
             ],
         ),
@@ -856,13 +861,101 @@ expected_result_example_1 = ReachableNodesEvaluationSchema(
     ],
 )
 
+node_example_2 = _JourneyNode(
+    id="5",
+    action="Ask the customer what's their shipping address",
+    incoming_edges=[
+        _JourneyEdge(
+            condition="The customer provided the amount of items",
+            source_node_index="4",
+            target_node_index="5",
+        )
+    ],
+    outgoing_edges=[
+        _JourneyEdge(
+            condition="",
+            source_node_index="5",
+            target_node_index="6",
+        ),
+    ],
+    kind=JourneyNodeKind.CHAT,
+    customer_dependent_action=True,
+    customer_action_description="The customer responded regarding their delivery speed preference",
+    reachable_follow_ups=[  # This is the expected result
+        _ReachableFollowUps(
+            condition="The customer hasn't chosen the delivery speed they prefer: Standard (5-7 days), Express (2-3 days), or Overnight",
+            path=["6"],
+        ),
+        _ReachableFollowUps(
+            condition="The customer chose the delivery speed (Standard, Express or Overnight) but hasn't provided the payment method (cash or credit)",
+            path=["6", "7"],
+        ),
+        _ReachableFollowUps(
+            condition="The customer chose the delivery speed (Standard, Express or Overnight) and provided the payment method (cash or credit) but the agent hasn't confirmed the order yet",
+            path=["6", "7", "8"],
+        ),
+    ],
+)
+
+children_info_example_2 = {
+    "6": _ChildInfo(
+        action="Ask the customer which delivery speed they prefer: Standard (5-7 days), Express (2-3 days), or Overnight",
+        edge_condition="",
+        id_to_reachable_follow_ups={
+            "1": _ReachableFollowUps(
+                condition="The customer hasn't chosen their payment method - cash or credit",
+                path=["7"],
+            ),
+            "2": _ReachableFollowUps(
+                condition="The customer chose their payment method - cash or credit, and the agent hasn't confirmed the order yet",
+                path=["7", "8"],
+            ),
+        },
+    ),
+}
+
+expected_result_example_2 = ReachableNodesEvaluationSchema(
+    step_action=node_example_2.action,
+    step_action_completed="The customer provided the shipping address",
+    children_conditions=[
+        ChildEvaluation(
+            child_id="6",
+            child_action=children_info_example_2["6"].action,
+            condition_to_child=children_info_example_2["6"].edge_condition,
+            condition_to_child_and_stop="The customer hasn't chosen the delivery speed they prefer: Standard (5-7 days), Express (2-3 days), or Overnight",
+            conditions_to_child_and_forward=[
+                PathCondition(
+                    id="1",
+                    path_condition=children_info_example_2["6"]
+                    .id_to_reachable_follow_ups["1"]
+                    .condition,
+                    condition_to_child_then_to_path="The customer chose the delivery speed (Standard, Express or Overnight) but hasn't provided the payment method (cash or credit)",
+                ),
+                PathCondition(
+                    id="2",
+                    path_condition=children_info_example_2["6"]
+                    .id_to_reachable_follow_ups["2"]
+                    .condition,
+                    condition_to_child_then_to_path="The customer chose the delivery speed (Standard, Express or Overnight) and provided the payment method (cash or credit) but the agent hasn't confirmed the order yet",
+                ),
+            ],
+        ),
+    ],
+)
+
 _baseline_shots: Sequence[JourneyReachableNodesEvaluationShot] = [
     JourneyReachableNodesEvaluationShot(
         description="",
         node=node_example_1,
         children_info=children_info_example_1,
         expected_result=expected_result_example_1,
-    )
+    ),
+    JourneyReachableNodesEvaluationShot(
+        description="Elaborate the options and details in the condition",
+        node=node_example_2,
+        children_info=children_info_example_2,
+        expected_result=expected_result_example_2,
+    ),
 ]
 
 shot_collection = ShotCollection[JourneyReachableNodesEvaluationShot](_baseline_shots)

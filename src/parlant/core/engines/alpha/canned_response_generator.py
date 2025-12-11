@@ -938,7 +938,7 @@ You will now be given the current state of the interaction to which you must gen
                             metadata=event_metadata,
                         )
                         if not is_first_message_emitted:
-                            await self._hist_ttfm_duration.end_record("ttfm")
+                            await self._hist_ttfm_duration.end_record()
                             self._tracer.add_event("canrep.ttfm")
                             is_first_message_emitted = True
 

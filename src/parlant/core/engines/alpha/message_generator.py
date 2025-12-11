@@ -272,7 +272,7 @@ class MessageGenerator(MessageEventComposer):
                         data=response_message,
                     )
 
-                    self._hist_ttfm_duration.end_record()
+                    await self._hist_ttfm_duration.end_record()
                     self._tracer.add_event("mg.ttfm")
 
                     return [

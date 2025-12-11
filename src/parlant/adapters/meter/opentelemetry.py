@@ -78,7 +78,6 @@ class OpenTelemetryHistogram(DurationHistogram):
     ) -> None:
         start_time = asyncio.get_running_loop().time()
         self._start_time.set(start_time)
-        print(f"DEBUG: start_record set time {start_time}, context: {id(asyncio.current_task())}")
 
     @override
     async def end_record(
@@ -86,7 +85,6 @@ class OpenTelemetryHistogram(DurationHistogram):
         attributes: Mapping[str, str] | None = None,
     ) -> None:
         start_time = self._start_time.get()
-        print(f"DEBUG: end_record got time {start_time}, context: {id(asyncio.current_task())}")
 
         if start_time is None:
             raise ValueError("No start time recorded. Call start_record first.")

@@ -172,10 +172,7 @@ class AlphaEngine(Engine):
             name="eng.utter",
             description="Duration of engine utter in milliseconds",
         )
-        self._hist_ttfm_duration = self._meter.create_duration_histogram(
-            name="ttfm",
-            description="Time to first message in milliseconds",
-        )
+        self._hist_ttfm_duration = self._meter.get_or_create_duration_histogram("ttfm")
 
     @override
     async def process(

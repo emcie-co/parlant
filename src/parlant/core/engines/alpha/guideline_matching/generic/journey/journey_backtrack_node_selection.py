@@ -322,8 +322,9 @@ def get_journey_transition_map_text(
     )
     first_node_to_execute: str | None = None
     nodes_str = ""
-    displayed_node_action = ""
     for node_index in sorted(unpruned_nodes.keys(), key=node_sort_key):
+        displayed_node_action = ""
+
         node: _JourneyNode = nodes[node_index]
         print_node = True
         flags_str = "Step Flags:\n"

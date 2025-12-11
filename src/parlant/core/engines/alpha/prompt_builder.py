@@ -91,6 +91,7 @@ class PromptBuilder:
 
         self._on_build = on_build
         self._cached_results: set[str] = set()
+        self._modified = True
 
     def _call_on_build(self, prompt: str) -> None:
         if prompt in self._cached_results:
@@ -128,7 +129,7 @@ class PromptBuilder:
 
     @property
     def props(self, keys: list[str] | None = None) -> dict[str, dict[str, Any]]:
-        return {
+        result = {
             section_name if isinstance(section_name, str) else f"__{section_name.name}__": {
                 k: self._prop_to_dict(v)
                 for k, v in section.props.items()
@@ -136,6 +137,8 @@ class PromptBuilder:
             }
             for section_name, section in self.sections.items()
         }
+        result["metadata"] = {"modified": self._modified}
+        return result
 
     def build(self) -> str:
         buffer = StringIO()
@@ -180,6 +183,7 @@ class PromptBuilder:
     ) -> PromptBuilder:
         if name in self.sections:
             self.sections[name] = editor_func(self.sections[name])
+        self._modified = True
         return self
 
     def section_status(self, name: str | BuiltInSection) -> SectionStatus:

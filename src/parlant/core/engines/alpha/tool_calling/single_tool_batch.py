@@ -645,13 +645,13 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
         reference_tools: Sequence[tuple[ToolId, Tool]],
     ) -> tuple[str, dict[str, Any]]:
         def _format_type(descriptor_type: str) -> str:
-            """Return the type-specific format suffix for the given descriptor type."""
+            """Return a human-readable format description for the given descriptor type."""
             if descriptor_type == "datetime":
-                return f"{descriptor_type}: year-month-day hour:minute:second"
+                return f"{descriptor_type}: YYYY-MM-DDTHH:MM:SS"
             if descriptor_type == "date":
-                return f"{descriptor_type}: year-month-day"
+                return f"{descriptor_type}: YYYY-MM-DD"
             if descriptor_type == "timedelta":
-                return f"{descriptor_type}: hours:minutes:seconds"
+                return f"{descriptor_type}: HH:MM:SS"
             return descriptor_type
 
         def _get_param_spec(spec: tuple[ToolParameterDescriptor, ToolParameterOptions]) -> str:

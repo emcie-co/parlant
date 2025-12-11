@@ -16,10 +16,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from ast import literal_eval
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from enum import Enum, auto
 import importlib
 import inspect
+from pathlib import Path
+import re
 import sys
 from types import UnionType
 from typing import (
@@ -36,6 +38,7 @@ from typing import (
     get_args,
     get_origin,
 )
+from uuid import UUID
 from pydantic import BaseModel, Field, TypeAdapter
 from typing_extensions import override, TypedDict
 
@@ -54,9 +57,35 @@ ToolParameterType = Literal[
     "uuid",
 ]
 
+STRING_BASED_TYPES = (str, date, datetime, timedelta, Enum, UUID, Path)
+
 DEFAULT_PARAMETER_PRECEDENCE: int = sys.maxsize
 
-VALID_TOOL_BASE_TYPES = [str, int, float, bool, date, datetime]
+VALID_TOOL_BASE_TYPES = [str, int, float, bool, date, datetime, timedelta, Enum, UUID, Path]
+
+
+def _get_type_label(item_type: Any) -> str:
+    _TYPE_TO_LABEL = {
+        str: "string",
+        int: "integer",
+        float: "number",
+        bool: "boolean",
+        date: "date",
+        datetime: "datetime",
+        timedelta: "timedelta",
+        Path: "path",
+        UUID: "uuid",
+    }
+
+    # Use dictionary lookup for common/simple types
+    if item_type in _TYPE_TO_LABEL:
+        return _TYPE_TO_LABEL[item_type]
+
+    # When the type may be a subclass of Enum (currently the only one)
+    if issubclass(item_type, Enum):
+        return "enum"
+
+    raise TypeError(f"Unsupported type {item_type} for parameter.")
 
 
 class ToolParameterDescriptor(TypedDict, total=False):
@@ -529,6 +558,9 @@ def cast_tool_argument(parameter_type: Any, argument: Any) -> Any:
             return datetime.fromisoformat(argument)
         if cast_target is date:
             return date.fromisoformat(argument)
+        if cast_target is timedelta:
+            hours, minutes, seconds = map(int, argument.split(":"))
+            return timedelta(hours=hours, minutes=minutes, seconds=seconds)
         if cast_target is bool:
             return bool(argument.capitalize())
         if argument is None:
@@ -547,17 +579,53 @@ def cast_tool_argument(parameter_type: Any, argument: Any) -> Any:
         ) from exc
 
 
+def _is_string_based(item_type: Any) -> bool:
+    if isinstance(item_type, type) and issubclass(item_type, STRING_BASED_TYPES):
+        return True
+
+    if isinstance(item_type, type) and issubclass(item_type, Enum):
+        return True
+
+    return False
+
+
+def _safe_literal_eval(s: str) -> Any:
+    # Convert JSON-like booleans/null to Python equivalents before literal_eval
+    fixed = s.replace("true", "True").replace("false", "False").replace("null", "None")
+    return literal_eval(fixed)
+
+
 def split_arg_list(argument: str | list[Any], item_type: Any) -> list[str]:
+    # Case 1: already a list → normalize to list[str]
     if isinstance(argument, list):
-        # Already a list - no work required
-        return argument
-    if item_type is str or issubclass(item_type, Enum):
-        # literal_eval is used for protection against nesting of single/double quotes of str (and our enums are always strings)
-        return list(literal_eval(argument))
-    if item_type in VALID_TOOL_BASE_TYPES:
-        # Split list is used for most types so we won't have to rely on the LLM to provide pythonic syntax
-        list_str = argument.strip()
-        if list_str.startswith("[") and list_str.endswith("]"):
-            return list_str[1:-1].split(",")
-        raise ValueError(f"Invalid list format for argument '{argument}'")
+        return [str(x) for x in argument]
+
+    list_str = argument.strip()
+
+    # Case 2: looks like a list literal (starts with "[" and ends with "]")
+    if list_str.startswith("[") and list_str.endswith("]"):
+        try:
+            value = _safe_literal_eval(list_str)
+        except (ValueError, SyntaxError) as e:
+            raise ValueError(f"Invalid list literal for argument '{argument}': {e}") from e
+
+        if not isinstance(value, list):
+            raise ValueError(f"Argument '{argument}' must evaluate to a list")
+
+        return [str(x) for x in value]
+
+    # Case 3: bare comma-separated values without brackets
+    parts = [p.strip() for p in re.split(r"\s*,\s*", list_str) if p.strip()]
+    if parts:
+        cleaned: list[str] = []
+        for p in parts:
+            val = p  # don't reassign the loop variable
+
+            if len(val) >= 2 and val[0] in ("'", '"') and val[-1] == val[0]:
+                val = val[1:-1]
+
+            cleaned.append(val)
+
+        return cleaned
+
     raise TypeError(f"Unsupported list item type '{item_type}' for parameter '{argument}'.")

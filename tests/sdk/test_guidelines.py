@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import datetime
 import pytest
 from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
@@ -798,3 +799,52 @@ class Test_that_on_message_handler_is_not_called_when_guideline_does_not_match(S
         assert not self.handler_called, (
             "on_message handler should not be called when guideline doesn't match"
         )
+
+
+class Test_list_dates_tool_parameter_is_passed_correctly(SDKTest):
+    """Test that the agent correctly extracts dates and triggers the guideline."""
+
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="David From Military",
+            description="""You are a conversational military service agent that manages practical day-to-day actions.""",
+            composition_mode=p.CompositionMode.STRICT,
+        )
+        # ------------------ CANNED RESPONSES ------------------
+        self.good = await server.create_canned_response(
+            template="We can schedule launching a missile."
+        )
+        self.bad = await server.create_canned_response(
+            template="On those dates we will charge you 250$ for candies."
+        )
+
+        # ------------------ TOOL ------------------
+        @p.tool
+        async def launch_dates(
+            context: p.ToolContext, dates: list[datetime.datetime]
+        ) -> p.ToolResult:
+            # The tool simply returns the list, verifying the agent extracted them as datetime objects
+            we_got_it_right = all(isinstance(d, datetime.datetime) for d in dates)
+            return p.ToolResult(
+                data="We can schedule launching a missile"
+                if we_got_it_right
+                else "On those dates we will charge you 250$ for candies"
+            )
+
+        self.launch_dates_tool = launch_dates
+
+        # ------------------ GUIDELINE ------------------
+        await self.agent.create_guideline(
+            condition="The customer asks about given dates",
+            action="Check if launch is available on those dates",
+            tools=[self.launch_dates_tool],
+        )
+
+    async def run(self, ctx: Context) -> None:
+        # ------------------ SCENARIO ------------------
+        r1 = await ctx.send_and_receive_message(
+            "Check the launch dates for March 1st 1991 at 530pm, January 3rd 2025 at 12:00am and June 7th 2021 at 3pm",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert r1 == "We can schedule launching a missile."

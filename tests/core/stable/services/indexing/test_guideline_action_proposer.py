@@ -67,9 +67,7 @@ async def test_that_no_action_is_proposed_when_guideline_already_contains_action
         tool_ids=[],
     )
 
-    assert result
-    assert result.content == guideline
-    assert result.rationale == "No action proposed"
+    assert result is None
 
 
 async def test_that_action_is_proposed_when_guideline_lacks_action_and_tools_are_supplied(

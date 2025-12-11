@@ -14,6 +14,7 @@
 
 from abc import ABC, abstractmethod
 from contextlib import AsyncExitStack
+from datetime import datetime, timezone
 from types import TracebackType
 from typing import Callable, Mapping, Optional, Sequence, cast
 from typing_extensions import override, TypedDict, Self
@@ -162,8 +163,19 @@ class ServiceDocumentRegistry(ServiceRegistry):
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[_ToolServiceDocument]:
         if doc["version"] == "0.1.0":
-            return cast(_ToolServiceDocument, doc)
-        return None
+            _doc = cast(_ToolServiceDocument_v0_1_0, doc)
+
+            return _ToolServiceDocument(
+                id=_doc["id"],
+                creation_utc=datetime.now(timezone.utc).isoformat(),
+                version=Version.String("0.2.0"),
+                name=_doc["name"],
+                kind=_doc["kind"],
+                url=_doc["url"],
+                source=_doc.get("source"),
+            )
+
+        return cast(_ToolServiceDocument, doc)
 
     async def __aenter__(self) -> Self:
         self._nlp_services = self._nlp_services_provider()
@@ -244,6 +256,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
         return _ToolServiceDocument(
             id=ObjectId(name),
             version=self.VERSION.to_string(),
+            creation_utc=datetime.now(timezone.utc).isoformat(),
             name=name,
             kind=kind,
             url=url,

@@ -426,7 +426,7 @@ Condition ({id}): {e.condition}
 Journey: {journey_title}
 {journey_conditions_str}{journey_description_str}
 
-PREVIOUSLY EXECUTED STEP - 
+CURRENT STEP - 
 {current_node_description}
 
 POSSIBLE TRANSITIONS - 
@@ -910,7 +910,7 @@ example_4_expected = JourneyNextStepSelectionSchema(
     rationale="The agent welcomed the customer, the customer provided a pick up location in NYC, a destination and also a pick up time. Need to choose the condition that most of it's parts are true, so condition 4 best fits",
     journey_continues=True,
     current_step_completed=True,
-    applied_condition_id="2",
+    applied_condition_id="4",
 )
 
 _baseline_shots: Sequence[JourneyNextStepSelectionShot] = [

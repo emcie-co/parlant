@@ -13,8 +13,6 @@ from opentelemetry.exporter.otlp.proto.grpc._log_exporter import (
 from opentelemetry.exporter.otlp.proto.http._log_exporter import (
     OTLPLogExporter as HttpOTLPLogExporter,
 )
-from opentelemetry.util.re import parse_env_headers
-
 from parlant.core.loggers import LogLevel, TracingLogger
 from parlant.core.tracer import Tracer
 
@@ -48,19 +46,8 @@ class OpenTelemetryLogger(TracingLogger):
             case "http/protobuf":
                 self._log_exporter = HttpOTLPLogExporter(endpoint=endpoint)
             case "http/json":
-                headers_string = os.environ.get(
-                    "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
-                    os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", ""),
-                )
-
-                headers = {
-                    "Content-Type": "application/json",
-                    **parse_env_headers(headers_string, liberal=True),
-                }
-
-                self._log_exporter = HttpOTLPLogExporter(
-                    endpoint=endpoint,
-                    headers=headers,
+                raise ValueError(
+                    "http/json protocol is not supported for logs exporter. please use http/protobuf or grpc."
                 )
             case "grpc":
                 self._log_exporter = GrpcOTLPLogExporter(

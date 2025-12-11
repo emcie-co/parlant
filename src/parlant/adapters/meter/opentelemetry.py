@@ -21,7 +21,6 @@ from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
     OTLPMetricExporter as HttpOTLPMetricExporter,
 )
-from opentelemetry.util.re import parse_env_headers
 
 from parlant.core.meter import Counter, DurationHistogram, Meter
 
@@ -86,18 +85,8 @@ class OpenTelemetryMeter(Meter):
             case "http/protobuf":
                 self._metric_exporter = HttpOTLPMetricExporter(endpoint=endpoint)
             case "http/json":
-                headers_string = os.environ.get(
-                    "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
-                    os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", ""),
-                )
-                headers = {
-                    "Content-Type": "application/json",
-                    **parse_env_headers(headers_string, liberal=True),
-                }
-
-                self._metric_exporter = HttpOTLPMetricExporter(
-                    endpoint=endpoint,
-                    headers=headers,
+                raise ValueError(
+                    "http/json protocol is not supported for metrics exporter. please use http/protobuf or grpc."
                 )
             case "grpc":
                 self._metric_exporter = GrpcOTLPMetricExporter(

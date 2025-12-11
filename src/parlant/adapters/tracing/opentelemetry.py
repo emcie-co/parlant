@@ -31,7 +31,6 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
 )
 from opentelemetry.trace import Status, StatusCode, SpanContext, TraceFlags
 from opentelemetry.trace.span import TraceState
-from opentelemetry.util.re import parse_env_headers
 
 from parlant.core.common import generate_id
 from parlant.core.tracer import Tracer, AttributeValue
@@ -89,18 +88,8 @@ class OpenTelemetryTracer(Tracer):
                 case "http/protobuf":
                     self._span_exporter = HttpOTLPSpanExporter(endpoint=endpoint)
                 case "http/json":
-                    headers_string = os.environ.get(
-                        "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
-                        os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", ""),
-                    )
-
-                    headers = {
-                        "Content-Type": "application/json",
-                        **parse_env_headers(headers_string, liberal=True),
-                    }
-                    self._span_exporter = HttpOTLPSpanExporter(
-                        endpoint=endpoint,
-                        headers=headers,
+                    raise ValueError(
+                        "http/json protocol is not supported for traces exporter. please use http/protobuf or grpc."
                     )
                 case "grpc":
                     self._span_exporter = GrpcOTLPSpanExporter(

@@ -2,7 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 import json
-import os
+
+# import os
 import traceback
 from typing import Any, Optional, Sequence, cast
 from parlant.core.common import DefaultBaseModel, JSONSerializable
@@ -44,9 +45,10 @@ class JourneyNodeKind(Enum):
 
 
 class JourneyNextStepSelectionSchema(DefaultBaseModel):
-    rationale: str
     journey_continues: bool
+    current_step_completed_rational: str
     current_step_completed: Optional[bool] = None
+    next_step_rational: str
     applied_condition_id: str
 
 
@@ -274,7 +276,7 @@ class JourneyNextStepSelection:
                                         self._node_index_to_guideline_id[ROOT_INDEX]
                                     ],
                                     score=10,
-                                    rationale=f"Root guideline was selected indicating should exit the journey, the rational for this choice: {inference.content.rationale}",
+                                    rationale=f"Root guideline was selected indicating should exit the journey, the rational for this choice: {inference.content.next_step_rational}",
                                     metadata={
                                         "journey_path": journey_path,
                                         "step_selection_journey_id": self._examined_journey.id,
@@ -293,7 +295,7 @@ class JourneyNextStepSelection:
                                 GuidelineMatch(
                                     guideline=matched_guideline,
                                     score=10,
-                                    rationale=f"This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. Use this rationale to better understand how the conversation got to its current point. The rationale for choosing this specific step in the journey was: {inference.content.rationale}",
+                                    rationale=f"This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. Use this rationale to better understand how the conversation got to its current point. The rationale for choosing this specific step in the journey was: {inference.content.next_step_rational}",
                                     metadata={
                                         "journey_path": self._previous_path
                                         if self._previous_path
@@ -326,7 +328,7 @@ class JourneyNextStepSelection:
                                                 self._node_index_to_guideline_id[ROOT_INDEX]
                                             ],
                                             score=10,
-                                            rationale=f"Root guideline was selected indicating should exit the journey, the rational for this choice: {inference.content.rationale}",
+                                            rationale=f"Root guideline was selected indicating should exit the journey, the rational for this choice: {inference.content.next_step_rational}",
                                             metadata={
                                                 "journey_path": journey_path,
                                                 "step_selection_journey_id": self._examined_journey.id,
@@ -351,7 +353,7 @@ class JourneyNextStepSelection:
                                         GuidelineMatch(
                                             guideline=matched_guideline,
                                             score=10,
-                                            rationale=f"This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. Use this rationale to better understand how the conversation got to its current point. The rationale for choosing this specific step in the journey was: {inference.content.rationale}",
+                                            rationale=f"This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. Use this rationale to better understand how the conversation got to its current point. The rationale for choosing this specific step in the journey was: {inference.content.next_step_rational}",
                                             metadata={
                                                 "journey_path": journey_path,
                                                 "step_selection_journey_id": self._examined_journey.id,
@@ -450,9 +452,10 @@ OUTPUT FORMAT
 
 ```json
 {
-"rationale": "<str, explanation for which condition holds and why. Reminder: include all the information provided in current and former messages>",
 "journey_continues: <bool, whether the journey should continued. Reminder: If you are already executing journey steps (i.e., there is a "last_step"), the journey almost always continues. The activation condition is ONLY for starting new journeys, NOT for validating ongoing ones.>,
+"current_step_completed_rational": "<str, short explanation of whether current step completed>",
 "current_step_completed": <bool, whether the current step completed.>,
+"next_step_rational": "<str, explanation for which condition best fits and why. Consider all the information provided in CURRENT and EARLIER messages>",
 "applied_condition_id": "<str, id of the applied condition, '0' if current step hasn't completed or 'None' if the journey should not continue>"
 }
 ```
@@ -558,39 +561,40 @@ OUTPUT FORMAT
 
     ## 2: Current Step Completion
     Evaluate whether the last executed step is complete:
+        - For CUSTOMER_DEPENDENT steps: step is completed if customer has provided the required information. It can be either after being asked or proactively in earlier messages.  
+        If the customer provided the information, set current_step_completed to 'true'.
+        If not, set completed to 'current_step_completed' as 'false' and applied_condition_id as '0'. 
 
-    - For CUSTOMER_DEPENDENT steps: Customer has provided the required information. It can be either after being asked or proactively in earlier messages. That means, the agent does not need to ask for something 
-    if the customer provided the information. If the customer provided the information, set current_step_completed to 'true'.
-    If not, set completed to 'current_step_completed' as 'false' and applied_condition_id as '0'. 
-        Note that the customer may provide multiple details at once, and you should consider all of them to identify the most relevant condition.
+        - For REQUIRES AGENT ACTION steps: step is completed if the agent has performed the required communication or action. If so, set current_step_completed to 'true'. 
+        If not, set 'current_step_completed' as 'false' and applied_condition_id as '0'. 
 
-    - For REQUIRES AGENT ACTION steps: The agent has performed the required communication or action. If so, set current_step_completed to 'true'. 
-    If not, set 'current_step_completed' as 'false' and applied_condition_id as '0'. 
-
-    - For TOOL EXECUTION steps: The tool was executed, and its result will appear as a staged event. Need to evaluate what condition applies for the nex transition.
-        Note that the tool execution is the final action in the interaction, meaning all message exchanges occurred beforehand. Make sure to consider this order in your evaluation.
+        - For TOOL EXECUTION steps: The tool was executed, and its result will appear as a staged event. Need to evaluate what condition applies for the next transition.
+            Note that the tool execution is the final action in the interaction, meaning all message exchanges occurred beforehand. Make sure to consider this order in your evaluation.
 
     ## 3: Journey Advancement
-    If the journey continues AND the current step is complete, choose the next step by:
+    If the journey continues AND the current step is complete, choose the next step by evaluating which condition best fits.    
+    The condition contains one or more sub-conditions that must all be evaluated and met for the condition to be considered the best match.
 
-    **Evaluate each transition condition carefully**
-    - A condition is only valid if ALL its parts are true based on the conversation
-    - Don't assume information that wasn't explicitly stated
-    - Information can come from anywhere in the conversation history
+    Select the condition ID that best matches:
+        - Consider all the condition parts in your evaluation.
+        - Only ONE transition condition should be the best fit
+        - Return its ID as `applied_condition_id`
+
+    **How to determine if condition / sub condition is fulfilled if the action is CUSTOMER DEPENDENT:**
+    The action is fulfilled if the customer has provided the required information. It can be either after being asked or proactively in earlier messages. 
+    That means, the agent does not need to ask for something for the action to be fulfilled.
+    Note that the customer may provide multiple details at once, and you should consider all of them to identify the most relevant condition.
+    Also, note that the customer may provide some of the answers in previous messages, consider those answers too. 
+    The answers may not arrive in the order we expect, and that’s fine. As long as we have the required information, the condition is considered met.
 
    **Handling partial condition matches**
-    - Conditions may contain multiple sub-conditions (e.g., "provided X AND hasn't provided Y")
-    - If ALL information has been provided and no condition is fully satisfied, select the condition with the MOST satisfied parts
-    - This represents the path closest to completion, even if technically the condition isn't met
+    Conditions may contain multiple sub-conditions (e.g., "customer provided X AND agent did Y AND customer hasn't provided Z")
+    If ALL information has been provided (for example also Z) and no condition is fully satisfied, select the condition with the MOST satisfied parts
+    This represents the path closest to completion, even if technically the condition isn't met
     - Example: If conditions check for missing data but the customer provided everything at once, choose the condition with the fewest remaining gaps
 
-   **Select the condition ID that best matches**
-    - Only ONE transition should be the best fit
-    - Return its ID as `applied_condition_id`
-
-    Important - You tend to ignore customer actions completions when many are available. It's important to notice all the customer message in details. Please correct yourself in the future.
-
-    Note that even if the condition requires asking the customer a question, it is considered fulfilled if the customer provides the information without being asked.
+    Important - You tend to ignore customer actions completions that were provided in previous messages. It's important to notice ALL customer messages
+      history in details and evaluate which information was already provided. Please correct yourself in the future.
 
     You will be given a description of the current step that need to execute, and the conditions of the following transitions later in this prompt.
     """,
@@ -631,7 +635,12 @@ OUTPUT FORMAT
             template="""{output_format}""",
             props={"output_format": self._get_output_format_section()},
         )
-        os.makedirs("dumps/journey/journey next step", exist_ok=True)
+
+        builder.add_section(
+            name="journey-general_reminder-section",
+            template="""Reminder - carefully consider all restraints and instructions. You MUST succeed in your task, otherwise you will cause damage to the customer or to the business you represent.""",
+        )
+        # os.makedirs("dumps/journey/journey next step", exist_ok=True)
 
         # with open("dumps/journey/journey next step/prompt.txt", "w") as f:
         #     f.write(builder.build())
@@ -682,7 +691,7 @@ example_1_current_node = _JourneyNode(
     kind=JourneyNodeKind.CHAT,
     action="Ask the customer for their desired pick up location",
     customer_dependent_action=True,
-    customer_action_description="the customer responded regarding their preference between exploring cities and scenic landscapes",
+    customer_action_description="The customer responded regarding their preference between exploring cities and scenic landscapes.",
 )
 
 example_1_follow_up_nodes = {
@@ -711,9 +720,10 @@ example_1_follow_up_nodes = {
 
 
 example_1_expected = JourneyNextStepSelectionSchema(
-    rationale="The customer has NOT provided the pickup location, which is what the current step asks for. The current step is therefore incomplete",
     journey_continues=True,
+    current_step_completed_rational="The customer has NOT provided the pickup location, which is what the current step asks for. The current step is therefore incomplete",
     current_step_completed=False,
+    next_step_rational="Current step hasn't completed so applied condition is '0",
     applied_condition_id="0",
 )
 
@@ -767,9 +777,10 @@ example_2_follow_up_nodes = {
     ),
 }
 example_2_expected = JourneyNextStepSelectionSchema(
-    rationale="The agent welcomed the customer, the customer provided a pick up location in NYC and a pick up time, but has not provided a destination, so condition 2 best holds.",
     journey_continues=True,
+    current_step_completed_rational="The agent welcomed the customer, so current step completed.",
     current_step_completed=True,
+    next_step_rational="The customer provided a pick up location in NYC and a pick up time, but has not provided a destination, so condition 2 best holds.",
     applied_condition_id="2",
 )
 
@@ -852,16 +863,18 @@ example_3_follow_up_nodes = {
         target_node_action="Review and confirm application.",
     ),
     "6": _JourneyEdge(
-        condition="Customer chose personal loan and the customer provided their desired loan amount and provided the collateral which is a digital asset but agent has not yet confirmed the application",
+        condition="Customer chose business loan and the customer provided their desired loan amount and provided the collateral which is a digital asset but agent has not yet confirmed the application",
         target_node_action="Review and confirm application.",
     ),
 }
 
+
 example_3_expected = JourneyNextStepSelectionSchema(
-    rationale="The customer want a loan for their restaurant, making it a business loan. They also already specified in previous messages the amount of the loan and stocks as collateral which are digital. "
-    "The agent hasn't reviewed and confirmed the application so condition 4 is most appropriate",
     journey_continues=True,
+    current_step_completed_rational="The customer wants a loan for their restaurant, making it a business loan. So current step completed",
     current_step_completed=True,
+    next_step_rational="The customer has already specified in previous messages the amount of the loan and stocks as collateral which are digital. "
+    "The agent hasn't reviewed and confirmed the application so condition 4 is most appropriate",
     applied_condition_id="4",
 )
 
@@ -907,11 +920,79 @@ example_4_follow_up_nodes = {
 }
 
 example_4_expected = JourneyNextStepSelectionSchema(
-    rationale="The agent welcomed the customer, the customer provided a pick up location in NYC, a destination and also a pick up time. Need to choose the condition that most of it's parts are true, so condition 4 best fits",
     journey_continues=True,
+    current_step_completed_rational="The agent welcomed the customer, so current step completed.",
     current_step_completed=True,
+    next_step_rational="The customer provided a pick up location in NYC, a destination and also a pick up time. Need to choose the condition that most of it's parts are true, so condition 4 best fits",
     applied_condition_id="4",
 )
+
+
+# Example 5: Customer provided information proactively across multiple messages
+example_5_events = [
+    _make_event(
+        "11",
+        EventSource.CUSTOMER,
+        "Hi, I need a loan. I need 50,000.",
+    ),
+    _make_event(
+        "23",
+        EventSource.AI_AGENT,
+        "I'd be happy to help you with a loan. To get started, what type of loan are you interested in - personal or business?",
+    ),
+    _make_event(
+        "34",
+        EventSource.CUSTOMER,
+        "I'ts for me. I'm unemployed right now so it can help me.",
+    ),
+]
+
+
+example_5_current_node = _JourneyNode(
+    id="",
+    kind=JourneyNodeKind.CHAT,
+    action="Ask for the type of loan: Personal or Business.",
+    customer_dependent_action=True,
+    customer_action_description="The customer specified if the loan is personal or business",
+)
+
+example_5_follow_up_nodes = {
+    "1": _JourneyEdge(
+        condition="Customer chose personal loan and the customer has not provided their desired loan amount",
+        target_node_action="Ask for the desired loan amount.",
+    ),
+    "2": _JourneyEdge(
+        condition="Customer chose business loan and the customer has not provided their desired loan amount",
+        target_node_action="Ask for the desired loan amount.",
+    ),
+    "3": _JourneyEdge(
+        condition="Customer chose personal loan and the customer provided their desired loan amount and hasn't provided their employment status",
+        target_node_action="Ask for employment status.",
+    ),
+    "4": _JourneyEdge(
+        condition="Customer chose business loan and the customer provided their desired loan amount but hasn't provided the collateral",
+        target_node_action="Ask for collateral.",
+    ),
+    "5": _JourneyEdge(
+        condition="Customer chose personal loan and the customer provided their desired loan amount provided the employment status but agent has not yet confirmed the application",
+        target_node_action="Review and confirm application.",
+    ),
+    "6": _JourneyEdge(
+        condition="Customer chose business loan and the customer provided their desired loan amount and provided the collateral which is a digital asset but agent has not yet confirmed the application",
+        target_node_action="Review and confirm application.",
+    ),
+}
+
+
+example_5_expected = JourneyNextStepSelectionSchema(
+    journey_continues=True,
+    current_step_completed_rational="The customer said the loan is for them because they unemployed, so it's personal loan.",
+    current_step_completed=True,
+    next_step_rational="The customer has already mentioned in initial message that they need 50,000, so they provided the amount in earlier messages and it considered complete."
+    " Also, they provided the employment status by saying they unemployed. The agent has not confirmed the application so condition 5 fits.",
+    applied_condition_id="5",
+)
+
 
 _baseline_shots: Sequence[JourneyNextStepSelectionShot] = [
     JourneyNextStepSelectionShot(
@@ -933,10 +1014,10 @@ _baseline_shots: Sequence[JourneyNextStepSelectionShot] = [
         expected_result=example_2_expected,
     ),
     JourneyNextStepSelectionShot(
-        description="Example 3 -  information provided earlier in the conversation",
+        description="Example 3 -  Information provided earlier in the conversation",
         interaction_events=example_3_events,
-        journey_title="Book Taxi Journey",
-        conditions=["The customer wants to book a taxi"],
+        journey_title="Loan Journey",
+        conditions=["The customer wants a loan"],
         follow_up_conditions=example_3_follow_up_nodes,
         current_node=example_3_current_node,
         expected_result=example_3_expected,
@@ -949,6 +1030,15 @@ _baseline_shots: Sequence[JourneyNextStepSelectionShot] = [
         follow_up_conditions=example_4_follow_up_nodes,
         current_node=example_4_current_node,
         expected_result=example_4_expected,
+    ),
+    JourneyNextStepSelectionShot(
+        description="Example 5 -  Information provided in current and earlier messages",
+        interaction_events=example_5_events,
+        journey_title="Loan Journey",
+        conditions=["The customer wants a loan"],
+        follow_up_conditions=example_5_follow_up_nodes,
+        current_node=example_5_current_node,
+        expected_result=example_5_expected,
     ),
 ]
 

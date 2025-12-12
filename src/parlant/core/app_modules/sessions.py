@@ -259,6 +259,7 @@ class SessionModule:
         source: EventSource,
         trigger_processing: bool,
         metadata: Mapping[str, JSONSerializable] | None,
+        participant: Participant | None = None,
     ) -> Event:
         flagged = False
         tags: Set[str] = set()
@@ -280,18 +281,21 @@ class SessionModule:
                 flagged = True
                 tags.update({"jailbreak"})
 
-        try:
-            customer = await self._customer_store.read_customer(session.customer_id)
-            customer_display_name = customer.name
-        except Exception:
-            customer_display_name = session.customer_id
+        if participant is None:
+            try:
+                customer = await self._customer_store.read_customer(session.customer_id)
+                customer_display_name = customer.name
+            except Exception:
+                customer_display_name = session.customer_id
+
+            participant = {
+                "id": session.customer_id,
+                "display_name": customer_display_name,
+            }
 
         message_data: MessageEventData = {
             "message": message,
-            "participant": {
-                "id": session.customer_id,
-                "display_name": customer_display_name,
-            },
+            "participant": participant,
             "flagged": flagged,
             "tags": list(tags),
         }

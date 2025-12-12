@@ -93,10 +93,15 @@ class EngineHooks:
     on_messages_emitted: list[EngineHook] = field(default_factory=list)
     """Called right after all messages were emitted into the session"""
 
-    guideline_match_handlers: dict[
+    on_guideline_match_handlers: dict[
         GuidelineId, list[Callable[[EngineContext, GuidelineMatch], Awaitable[None]]]
     ] = field(default_factory=lambda: defaultdict(list))
     """Map from GuidelineId to list of handlers called when that guideline is resolved"""
+
+    on_guideline_message_handlers: dict[
+        GuidelineId, list[Callable[[EngineContext, GuidelineMatch], Awaitable[None]]]
+    ] = field(default_factory=lambda: defaultdict(list))
+    """Map from GuidelineId to list of handlers called when messages are generated for that guideline"""
 
     async def call_on_error(self, context: EngineContext, exception: Exception) -> bool:
         return await self.call_hooks(self.on_error, context, None, exception)

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Sequence
 
+from parlant.core.agents import CompositionMode
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
 from parlant.core.loggers import Logger
 from parlant.core.journeys import (
@@ -51,6 +52,7 @@ class JourneyModule:
         conditions: Sequence[str],
         tags: Sequence[TagId] | None,
         id: JourneyId | None = None,
+        composition_mode: CompositionMode | None = None,
     ) -> tuple[Journey, Sequence[Guideline]]:
         guidelines = [
             await self._guideline_store.create_guideline(
@@ -67,6 +69,7 @@ class JourneyModule:
             conditions=[g.id for g in guidelines],
             tags=tags,
             id=id,
+            composition_mode=composition_mode,
         )
 
         for guideline in guidelines:
@@ -101,6 +104,7 @@ class JourneyModule:
         description: str | None,
         conditions: JourneyConditionUpdateParams | None,
         tags: JourneyTagUpdateParams | None,
+        composition_mode: CompositionMode | None = None,
     ) -> Journey:
         journey = await self._journey_store.read_journey(journey_id=journey_id)
 
@@ -109,6 +113,8 @@ class JourneyModule:
             update_params["title"] = title
         if description:
             update_params["description"] = description
+        if composition_mode is not None:
+            update_params["composition_mode"] = composition_mode
 
         if update_params:
             journey = await self._journey_store.update_journey(

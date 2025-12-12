@@ -21,6 +21,7 @@ import importlib
 import inspect
 import os
 import traceback
+from fastapi import FastAPI
 from lagom import Container, Singleton
 from typing import (
     Any,
@@ -277,6 +278,7 @@ class StartupParameters:
     migrate: bool
     configure: Callable[[Container], Awaitable[Container]] | None = None
     initialize: Callable[[Container], Awaitable[None]] | None = None
+    configure_api: Callable[[FastAPI], Awaitable[None]] | None = None
 
 
 def load_nlp_service(
@@ -937,7 +939,7 @@ async def load_app(params: StartupParameters) -> AsyncIterator[tuple[ASGIApplica
 
         _print_startup_banner()
 
-        yield await create_api_app(actual_container), actual_container
+        yield await create_api_app(actual_container, params.configure_api), actual_container
 
 
 def _print_startup_banner() -> None:

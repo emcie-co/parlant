@@ -22,7 +22,7 @@ from enum import Enum
 from itertools import chain
 from pprint import pformat
 import traceback
-from typing import Optional, Sequence, cast
+from typing import Awaitable, Callable, Optional, Sequence, cast
 from croniter import croniter
 from typing_extensions import override
 
@@ -300,9 +300,6 @@ class AlphaEngine(Engine):
                 if not await self._hooks.call_on_preparation_iteration_end(context):
                     break
 
-            if not await self._hooks.call_on_generating_messages(context):
-                return
-
             # Filter missing and invalid tool parameters jointly
             problematic_data = await self._filter_problematic_tool_parameters_based_on_precedence(
                 list(context.state.tool_insights.missing_data)
@@ -317,6 +314,14 @@ class AlphaEngine(Engine):
             async def uncancellable_section(
                 latch: async_utils.CancellationSuppressionLatch[None],
             ) -> None:
+                if not await self._hooks.call_on_generating_messages(context):
+                    return
+
+                # Call on_match handlers for all matched guidelines (before generating messages)
+                await self._call_guideline_handlers(
+                    context, self._hooks.on_guideline_match_handlers
+                )
+
                 # Money time: communicate with the customer given
                 # all of the information we have prepared.
                 _ = await self._generate_messages(context, latch)
@@ -336,6 +341,11 @@ class AlphaEngine(Engine):
                 )
 
                 await self._hooks.call_on_messages_emitted(context)
+
+                # Call on_message handlers for matched guidelines (after messages emitted)
+                await self._call_guideline_handlers(
+                    context, self._hooks.on_guideline_message_handlers
+                )
 
             await async_utils.latched_shield(uncancellable_section)
 
@@ -555,17 +565,6 @@ class AlphaEngine(Engine):
             )
 
             matching_finished = True
-
-            # Call on_match handlers for resolved guidelines
-            handler_tasks = [
-                handler(context, match)
-                for match in guideline_and_journey_matching_result.resolved_guidelines
-                if match.guideline.id in self._hooks.guideline_match_handlers
-                for handler in self._hooks.guideline_match_handlers[match.guideline.id]
-            ]
-
-            if handler_tasks:
-                await async_utils.safe_gather(*handler_tasks)
 
             context.state.journeys = guideline_and_journey_matching_result.journeys
         finally:
@@ -957,6 +956,36 @@ class AlphaEngine(Engine):
                 "data": {},
             },
         )
+
+    async def _call_guideline_handlers(
+        self,
+        context: EngineContext,
+        handlers: dict[
+            GuidelineId, list[Callable[[EngineContext, GuidelineMatch], Awaitable[None]]]
+        ],
+    ) -> None:
+        """Call handlers for all matched guidelines.
+
+        Args:
+            context: The engine context
+            handlers: Dict mapping GuidelineId to list of handlers to call
+        """
+        all_guideline_matches = list(
+            chain(
+                context.state.ordinary_guideline_matches,
+                context.state.tool_enabled_guideline_matches,
+            )
+        )
+
+        handler_tasks = [
+            handler(context, match)
+            for match in all_guideline_matches
+            if match.guideline.id in handlers
+            for handler in handlers[match.guideline.id]
+        ]
+
+        if handler_tasks:
+            await async_utils.safe_gather(*handler_tasks)
 
     async def _emit_ready_event(self, context: EngineContext) -> None:
         await context.session_event_emitter.emit_status_event(

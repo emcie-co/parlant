@@ -12,14 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import pytest
 from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch as _GuidelineMatch,
 )
+from parlant.core.common import Criticality
 from parlant.core.guidelines import GuidelineStore
 from parlant.core.relationships import RelationshipKind, RelationshipStore
 from parlant.core.services.tools.plugins import tool
+from parlant.core.sessions import EventSource
 from parlant.core.tags import Tag
 from parlant.core.tools import ToolContext, ToolResult
 from parlant.core.canned_responses import CannedResponseStore
@@ -453,7 +456,7 @@ class Test_that_multiple_match_handlers_can_be_registered_for_same_guideline(SDK
             )
             await handler2(core_ctx, sdk_match)
 
-        server.container[EngineHooks].guideline_match_handlers[self.guideline.id].append(
+        server.container[EngineHooks].on_guideline_match_handlers[self.guideline.id].append(
             shim_handler2
         )
 
@@ -540,14 +543,12 @@ class Test_that_match_handler_on_journey_guideline_works(SDKTest):
 
 class Test_that_guideline_can_be_created_with_custom_id(SDKTest):
     async def setup(self, server: p.Server) -> None:
-        from parlant.core.guidelines import GuidelineId
-
         self.agent = await server.create_agent(
             name="Custom ID Agent",
             description="Agent for testing custom ID functionality",
         )
 
-        self.custom_id = GuidelineId("custom-guideline-789")
+        self.custom_id = p.GuidelineId("custom-guideline-789")
 
         self.guideline = await self.agent.create_guideline(
             condition="Customer mentions custom ID requirement",
@@ -570,14 +571,12 @@ class Test_that_guideline_can_be_created_with_custom_id(SDKTest):
 
 class Test_that_guideline_creation_fails_with_duplicate_id(SDKTest):
     async def setup(self, server: p.Server) -> None:
-        from parlant.core.guidelines import GuidelineId
-
         self.agent = await server.create_agent(
             name="Duplicate ID Agent",
             description="Agent for testing duplicate ID handling",
         )
 
-        self.duplicate_id = GuidelineId("duplicate-guideline-101")
+        self.duplicate_id = p.GuidelineId("duplicate-guideline-101")
 
         # Create the first guideline
         self.first_guideline = await self.agent.create_guideline(
@@ -651,8 +650,6 @@ class Test_that_only_prioritized_guideline_handler_is_called_when_both_match(SDK
 
 class Test_that_guideline_can_be_created_with_criticality(SDKTest):
     async def setup(self, server: p.Server) -> None:
-        from parlant.core.common import Criticality
-
         self.agent = await server.create_agent(
             name="Criticality Test Agent",
             description="Agent for testing guideline criticality",
@@ -665,8 +662,6 @@ class Test_that_guideline_can_be_created_with_criticality(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        from parlant.core.common import Criticality
-
         guideline_store = ctx.container[GuidelineStore]
         stored_guideline = await guideline_store.read_guideline(guideline_id=self.guideline.id)
 
@@ -686,8 +681,6 @@ class Test_that_guideline_defaults_to_medium_criticality_when_not_provided(SDKTe
         )
 
     async def run(self, ctx: Context) -> None:
-        from parlant.core.common import Criticality
-
         guideline_store = ctx.container[GuidelineStore]
         stored_guideline = await guideline_store.read_guideline(guideline_id=self.guideline.id)
 
@@ -696,8 +689,6 @@ class Test_that_guideline_defaults_to_medium_criticality_when_not_provided(SDKTe
 
 class Test_that_observation_can_be_created_with_criticality(SDKTest):
     async def setup(self, server: p.Server) -> None:
-        from parlant.core.common import Criticality
-
         self.agent = await server.create_agent(
             name="Observation Criticality Test Agent",
             description="Agent for testing observation criticality",
@@ -710,8 +701,6 @@ class Test_that_observation_can_be_created_with_criticality(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        from parlant.core.common import Criticality
-
         guideline_store = ctx.container[GuidelineStore]
         stored_observation = await guideline_store.read_guideline(guideline_id=self.observation.id)
 
@@ -730,9 +719,158 @@ class Test_that_observation_defaults_to_medium_criticality_when_not_provided(SDK
         )
 
     async def run(self, ctx: Context) -> None:
-        from parlant.core.common import Criticality
-
         guideline_store = ctx.container[GuidelineStore]
         stored_observation = await guideline_store.read_guideline(guideline_id=self.observation.id)
 
         assert stored_observation.criticality == Criticality.MEDIUM
+
+
+class Test_that_on_message_handler_is_called_when_guideline_generates_message(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Message Handler Test Agent",
+            description="Agent for testing on_message handler",
+        )
+
+        self.handler_called = False
+        self.captured_message_count = 0
+        self.captured_guideline_id = None
+
+        async def message_handler(ctx: p.EngineContext, match: p.GuidelineMatch) -> None:
+            self.handler_called = True
+            # Verify we can access messages from context
+            self.captured_message_count = len(
+                [e for e in ctx.state.message_events if e.source == EventSource.AI_AGENT]
+            )
+            # Verify we receive the match parameter
+            self.captured_guideline_id = match.id
+
+        self.guideline = await self.agent.create_guideline(
+            condition="Customer says hello",
+            action="Greet the customer warmly",
+            on_message=message_handler,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="Hello there!",
+            recipient=self.agent,
+        )
+
+        await asyncio.sleep(5)
+
+        assert self.handler_called, "on_message handler should be called"
+        assert self.captured_message_count > 0, "Handler should see messages in context"
+        assert self.captured_guideline_id == self.guideline.id, (
+            "Handler should receive correct guideline match"
+        )
+
+
+class Test_that_on_message_handler_is_not_called_when_guideline_does_not_match(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Non-matching Handler Test Agent",
+            description="Agent for testing on_message handler when guideline doesn't match",
+        )
+
+        self.handler_called = False
+
+        async def message_handler(ctx: p.EngineContext, match: p.GuidelineMatch) -> None:
+            self.handler_called = True
+
+        self.guideline = await self.agent.create_guideline(
+            condition="Customer asks about pizza",
+            action="Recommend pizza toppings",
+            on_message=message_handler,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="I want to talk about bananas",
+            recipient=self.agent,
+        )
+
+        # Wait to ensure handler is not called
+        import asyncio
+
+        await asyncio.sleep(5)
+
+        assert not self.handler_called, (
+            "on_message handler should not be called when guideline doesn't match"
+        )
+
+
+class Test_that_guideline_field_provider_contributes_fields_to_canned_response(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Field Provider Agent",
+            description="Agent for testing field providers",
+        )
+
+        # Create a canned response with a template that uses a field
+        canrep_id = await self.agent.create_canned_response(
+            template="Your special number is {{lucky_number}}.",
+        )
+
+        # Field provider that returns the field value
+        async def provide_fields(ctx: p.EngineContext) -> dict[str, int]:
+            return {"lucky_number": 42}
+
+        # Create guideline with STRICT mode and field provider
+        self.guideline = await self.agent.create_guideline(
+            condition="Customer asks for their lucky number",
+            action="Tell them their lucky number",
+            composition_mode=p.CompositionMode.STRICT,
+            canned_responses=[canrep_id],
+            canned_response_field_provider=provide_fields,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="What is my lucky number?",
+            recipient=self.agent,
+        )
+
+        assert response == "Your special number is 42."
+
+
+class Test_that_multiple_guidelines_can_provide_fields(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Multiple Field Provider Agent",
+            description="Agent for testing multiple field providers",
+        )
+
+        # Create a canned response that uses fields from multiple providers
+        canrep_id = await self.agent.create_canned_response(
+            template="First: {{field_a}}, Second: {{field_b}}.",
+        )
+
+        async def provide_field_a(ctx: p.EngineContext) -> dict[str, str]:
+            return {"field_a": "ALPHA"}
+
+        async def provide_field_b(ctx: p.EngineContext) -> dict[str, str]:
+            return {"field_b": "BETA"}
+
+        # Create two guidelines that both match
+        self.guideline_a = await self.agent.create_guideline(
+            condition="Customer asks a question",
+            action="Respond with info",
+            canned_response_field_provider=provide_field_a,
+        )
+
+        self.guideline_b = await self.agent.create_guideline(
+            condition="Customer wants data",
+            action="Provide the requested data",
+            composition_mode=p.CompositionMode.STRICT,
+            canned_responses=[canrep_id],
+            canned_response_field_provider=provide_field_b,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="I have a question and I want some data please",
+            recipient=self.agent,
+        )
+
+        assert response == "First: ALPHA, Second: BETA."

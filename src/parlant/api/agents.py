@@ -12,15 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from enum import Enum
 from fastapi import APIRouter, Path, Request, status
 from pydantic import Field
 from typing import Annotated, Sequence, TypeAlias
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
-from parlant.api.common import ExampleJson, apigen_config, example_json_content
+from parlant.api.common import (
+    CompositionModeDTO,
+    ExampleJson,
+    apigen_config,
+    composition_mode_dto_to_composition_mode,
+    composition_mode_to_composition_mode_dto,
+    example_json_content,
+)
 from parlant.core.app_modules.agents import AgentTagUpdateParamsModel
-from parlant.core.agents import AgentId, CompositionMode
+from parlant.core.agents import AgentId
 from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
 from parlant.core.tags import TagId
@@ -95,23 +101,6 @@ agent_example: ExampleJson = {
     "composition_mode": "fluid",
     "tags": ["tag1", "tag2"],
 }
-
-
-class CompositionModeDTO(Enum):
-    """
-    Defines the composition mode for an entity.
-
-    Available options:
-    - fluid
-    - canned_fluid
-    - composited_canned
-    - strict_canned
-    """
-
-    FLUID = "fluid"
-    CANNED_FLUID = "canned_fluid"
-    CANNED_COMPOSITED = "composited_canned"
-    CANNED_STRICT = "strict_canned"
 
 
 class AgentDTO(
@@ -221,32 +210,6 @@ class AgentUpdateParamsDTO(
     tags: AgentTagUpdateParamsDTO | None = None
 
 
-def _composition_mode_dto_to_composition_mode(dto: CompositionModeDTO) -> CompositionMode:
-    match dto:
-        case CompositionModeDTO.FLUID:
-            return CompositionMode.FLUID
-        case CompositionModeDTO.CANNED_STRICT:
-            return CompositionMode.CANNED_STRICT
-        case CompositionModeDTO.CANNED_COMPOSITED:
-            return CompositionMode.CANNED_COMPOSITED
-        case CompositionModeDTO.CANNED_FLUID:
-            return CompositionMode.CANNED_FLUID
-
-
-def _composition_mode_to_composition_mode_dto(
-    composition_mode: CompositionMode,
-) -> CompositionModeDTO:
-    match composition_mode:
-        case CompositionMode.FLUID:
-            return CompositionModeDTO.FLUID
-        case CompositionMode.CANNED_STRICT:
-            return CompositionModeDTO.CANNED_STRICT
-        case CompositionMode.CANNED_COMPOSITED:
-            return CompositionModeDTO.CANNED_COMPOSITED
-        case CompositionMode.CANNED_FLUID:
-            return CompositionModeDTO.CANNED_FLUID
-
-
 def create_router(
     policy: AuthorizationPolicy,
     app: Application,
@@ -294,7 +257,7 @@ def create_router(
             name=params and params.name or "Unnamed Agent",
             description=params and params.description or None,
             max_engine_iterations=params and params.max_engine_iterations or None,
-            composition_mode=_composition_mode_dto_to_composition_mode(params.composition_mode)
+            composition_mode=composition_mode_dto_to_composition_mode(params.composition_mode)
             if params and params.composition_mode
             else None,
             tags=params.tags,
@@ -307,7 +270,7 @@ def create_router(
             description=agent.description,
             creation_utc=agent.creation_utc,
             max_engine_iterations=agent.max_engine_iterations,
-            composition_mode=_composition_mode_to_composition_mode_dto(agent.composition_mode),
+            composition_mode=composition_mode_to_composition_mode_dto(agent.composition_mode),
             tags=agent.tags,
         )
 
@@ -344,7 +307,7 @@ def create_router(
                 description=a.description,
                 creation_utc=a.creation_utc,
                 max_engine_iterations=a.max_engine_iterations,
-                composition_mode=_composition_mode_to_composition_mode_dto(a.composition_mode),
+                composition_mode=composition_mode_to_composition_mode_dto(a.composition_mode),
                 tags=a.tags,
             )
             for a in agents
@@ -390,7 +353,7 @@ def create_router(
             description=description,
             creation_utc=agent.creation_utc,
             max_engine_iterations=agent.max_engine_iterations,
-            composition_mode=_composition_mode_to_composition_mode_dto(agent.composition_mode),
+            composition_mode=composition_mode_to_composition_mode_dto(agent.composition_mode),
             tags=agent.tags,
         )
 
@@ -433,7 +396,7 @@ def create_router(
             name=params.name,
             description=params.description,
             max_engine_iterations=params.max_engine_iterations,
-            composition_mode=_composition_mode_dto_to_composition_mode(params.composition_mode)
+            composition_mode=composition_mode_dto_to_composition_mode(params.composition_mode)
             if params.composition_mode
             else None,
             tags=AgentTagUpdateParamsModel(add=params.tags.add, remove=params.tags.remove)
@@ -447,7 +410,7 @@ def create_router(
             description=agent.description,
             creation_utc=agent.creation_utc,
             max_engine_iterations=agent.max_engine_iterations,
-            composition_mode=_composition_mode_to_composition_mode_dto(agent.composition_mode),
+            composition_mode=composition_mode_to_composition_mode_dto(agent.composition_mode),
             tags=agent.tags,
         )
 

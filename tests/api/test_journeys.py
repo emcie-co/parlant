@@ -623,3 +623,51 @@ async def test_that_journeys_can_be_filtered_by_tag(
 
     assert len(journeys) == 1
     assert journeys[0]["id"] == journey.id
+
+
+async def test_that_journey_composition_mode_can_be_set_and_updated(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # Create journey with CANNED_COMPOSITED mode
+    response = await async_client.post(
+        "/journeys",
+        json={
+            "title": "Customer Onboarding",
+            "description": "Guide new customers through onboarding",
+            "conditions": ["User asks about onboarding"],
+            "composition_mode": "composited_canned",
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    journey = response.json()
+    journey_id = journey["id"]
+
+    # Check that the composition mode is set correctly after creation
+    assert journey["composition_mode"] == "composited_canned"
+
+    # Retrieve journey and verify composition mode
+    response = await async_client.get(f"/journeys/{journey_id}")
+    assert response.status_code == status.HTTP_200_OK
+    journey = response.json()
+    assert journey["composition_mode"] == "composited_canned"
+
+    # Update journey to CANNED_STRICT mode
+    response = await async_client.patch(
+        f"/journeys/{journey_id}",
+        json={
+            "composition_mode": "strict_canned",
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    journey = response.json()
+
+    # Check that the composition mode is updated correctly
+    assert journey["composition_mode"] == "strict_canned"
+
+    # Retrieve journey again and verify composition mode
+    response = await async_client.get(f"/journeys/{journey_id}")
+    assert response.status_code == status.HTTP_200_OK
+    journey = response.json()
+    assert journey["composition_mode"] == "strict_canned"

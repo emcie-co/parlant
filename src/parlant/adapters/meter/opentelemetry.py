@@ -85,9 +85,8 @@ class OpenTelemetryMeter(Meter):
             case "http/protobuf":
                 self._metric_exporter = HttpOTLPMetricExporter(endpoint=endpoint)
             case "http/json":
-                self._metric_exporter = HttpOTLPMetricExporter(
-                    endpoint=endpoint,
-                    headers={"Content-Type": "application/json"},
+                raise ValueError(
+                    "http/json protocol is not supported for metrics exporter. please use http/protobuf or grpc."
                 )
             case "grpc":
                 self._metric_exporter = GrpcOTLPMetricExporter(

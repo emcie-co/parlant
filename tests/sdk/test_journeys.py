@@ -1047,3 +1047,86 @@ class Test_that_different_state_types_support_description(SDKTest):
         # Verify ToolJourneyState has description
         tool_node = await journey_store.read_node(node_id=self.tool_transition.target.id)
         assert tool_node.description == "Check if the item is in stock using our inventory system"
+
+
+class Test_that_on_message_handler_is_called_for_journey_state_when_message_generated(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.handler_called = False
+        self.captured_state_id = None
+        self.captured_message_count = 0
+
+        async def message_handler(ctx: p.EngineContext, match: p.JourneyStateMatch) -> None:
+            self.handler_called = True
+            self.captured_state_id = match.state_id
+            # Verify we can access messages from context
+            self.captured_message_count = len(ctx.state.message_events)
+
+        self.agent = await server.create_agent(
+            name="Booking Agent",
+            description="Agent for testing journey state on_message handler",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Book Appointment",
+            description="Journey to book appointments",
+            conditions=["Customer wants to book an appointment"],
+        )
+
+        self.state = await self.journey.initial_state.transition_to(
+            condition="Customer provides appointment details",
+            chat_state="Perfect! Your appointment is scheduled.",
+            on_message=message_handler,  # type: ignore[call-overload]
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="I want to book an appointment for tomorrow at 3pm",
+            recipient=self.agent,
+        )
+
+        # Wait for handlers to complete
+        import asyncio
+
+        await asyncio.sleep(5)
+
+        assert self.handler_called, "on_message handler should be called"
+        assert self.captured_message_count > 0, "Handler should see messages in context"
+        assert self.captured_state_id == self.state.target.id, (
+            f"Handler should receive correct state ID. Expected {self.state.target.id}, got {self.captured_state_id}"
+        )
+
+
+class Test_that_journey_state_field_provider_contributes_fields_to_canned_response(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Journey Field Provider Agent",
+            description="Agent for testing journey state field providers",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Order Journey",
+            description="Handle customer orders",
+            conditions=["Customer wants to order"],
+        )
+
+        canrep_id = await self.agent.create_canned_response(
+            template="Your order number is {{order_number}}.",
+        )
+
+        async def provide_order_fields(ctx: p.EngineContext) -> dict[str, int]:
+            return {"order_number": 12345}
+
+        self.state = await self.journey.initial_state.transition_to(
+            chat_state="Confirm the order",
+            composition_mode=p.CompositionMode.STRICT,
+            canned_responses=[canrep_id],
+            canned_response_field_provider=provide_order_fields,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="I want to place an order",
+            recipient=self.agent,
+        )
+
+        assert response == "Your order number is 12345."

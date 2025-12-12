@@ -17,7 +17,8 @@ from enum import Enum
 from typing import Awaitable, Callable
 
 from typing_extensions import override
-from fastapi import Request
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 
 from limits.storage import MemoryStorage
 from limits.strategies import (
@@ -111,6 +112,7 @@ class Operation(Enum):
     CREATE_HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT_EVENT = (
         "create_human_agent_on_behalf_of_ai_agent_event"
     )
+    OVERRIDE_CUSTOMER_PARTICIPANT = "override_customer_participant"
     CREATE_STATUS_EVENT = "create_status_event"
     CREATE_CUSTOM_EVENT = "create_custom_event"
     LIST_EVENTS = "list_events"
@@ -149,6 +151,9 @@ class RateLimitExceededException(AuthorizationException):
 
 
 class AuthorizationPolicy(ABC):
+    async def configure_app(self, app: FastAPI) -> FastAPI:
+        return app
+
     @abstractmethod
     async def check_permission(self, request: Request, operation: Operation) -> bool: ...
 
@@ -168,6 +173,18 @@ class AuthorizationPolicy(ABC):
 
 
 class DevelopmentAuthorizationPolicy(AuthorizationPolicy):
+    async def configure_app(self, app: FastAPI) -> FastAPI:
+        # Allow all origins in development
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+        return app
+
     @override
     async def check_rate_limit(self, request: Request, operation: Operation) -> bool:
         # In development, we do not enforce rate limits
@@ -215,6 +232,23 @@ class ProductionAuthorizationPolicy(AuthorizationPolicy):
                 Operation.CREATE_STATUS_EVENT: RateLimitItemPerMinute(60),
             }
         )
+
+    async def configure_app(self, app: FastAPI) -> FastAPI:
+        # By default, allow all origins in production as well.
+        # This can be customized in subclasses.
+        # It's recommended to override this method to set more restrictive CORS policies
+        # for your production environment, e.g., by specifying only the origins (site URLs)
+        # from which your application can be accessed safely (e.g., https://your-site.com).
+
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+        return app
 
     @property
     @override

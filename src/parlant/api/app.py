@@ -20,7 +20,6 @@ from typing import Awaitable, Callable, TypeAlias
 import mimetypes
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, status
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
@@ -103,7 +102,10 @@ def _resolve_operation_id(request: Request) -> str | None:
     return None
 
 
-async def create_api_app(container: Container) -> ASGIApplication:
+async def create_api_app(
+    container: Container,
+    configure: Callable[[FastAPI], Awaitable[None]] | None = None,
+) -> ASGIApplication:
     logger = container[Logger]
     websocket_logger = container[WebSocketLogger]
     tracer = container[Tracer]
@@ -122,6 +124,8 @@ async def create_api_app(container: Container) -> ASGIApplication:
         version=VERSION,
     )
 
+    api_app = await authorization_policy.configure_app(api_app)
+
     @api_app.middleware("http")
     async def handle_cancellation(
         request: Request,
@@ -131,14 +135,6 @@ async def create_api_app(container: Container) -> ASGIApplication:
             return await call_next(request)
         except asyncio.CancelledError:
             return Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
-
-    api_app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
 
     @api_app.middleware("http")
     async def add_trace_id(
@@ -356,5 +352,12 @@ async def create_api_app(container: Container) -> ASGIApplication:
             websocket_logger,
         )
     )
+
+    # Call configure_api hook if provided
+    if configure:
+        await configure(api_app)
+
+    # Store FastAPI app in container for access via Server.api property
+    container[FastAPI] = api_app
 
     return AppWrapper(api_app)

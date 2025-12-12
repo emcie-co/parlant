@@ -434,3 +434,49 @@ async def test_that_creating_agent_with_duplicate_custom_id_fails(
             description="Second agent",
             id=custom_id,
         )
+
+
+async def test_that_agent_composition_mode_can_be_set_and_updated(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # Create agent with CANNED_COMPOSITED mode
+    response = await async_client.post(
+        "/agents",
+        json={
+            "name": "test-agent",
+            "composition_mode": "composited_canned",
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    agent = response.json()
+    agent_id = agent["id"]
+
+    # Check that the composition mode is set correctly after creation
+    assert agent["composition_mode"] == "composited_canned"
+
+    # Retrieve agent and verify composition mode
+    response = await async_client.get(f"/agents/{agent_id}")
+    assert response.status_code == status.HTTP_200_OK
+    agent = response.json()
+    assert agent["composition_mode"] == "composited_canned"
+
+    # Update agent to CANNED_STRICT mode
+    response = await async_client.patch(
+        f"/agents/{agent_id}",
+        json={
+            "composition_mode": "strict_canned",
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    agent = response.json()
+
+    # Check that the composition mode is updated correctly
+    assert agent["composition_mode"] == "strict_canned"
+
+    # Retrieve agent again and verify composition mode
+    response = await async_client.get(f"/agents/{agent_id}")
+    assert response.status_code == status.HTTP_200_OK
+    agent = response.json()
+    assert agent["composition_mode"] == "strict_canned"

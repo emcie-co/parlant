@@ -424,7 +424,6 @@ class AlphaEngine(Engine):
             interaction = Interaction([])
 
         return EngineContext(
-            creation=async_utils.Stopwatch.start(),
             info=context,
             logger=self._logger,
             tracer=self._tracer,

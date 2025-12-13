@@ -18,7 +18,7 @@ import json
 import traceback
 from typing import Any, Mapping, Optional, Sequence, cast
 from typing_extensions import override
-from parlant.core.async_utils import CancellationSuppressionLatch
+from parlant.core.async_utils import CancellationSuppressionLatch, Stopwatch
 from parlant.core.capabilities import Capability
 from parlant.core.meter import Meter
 from parlant.core.tracer import Tracer
@@ -143,7 +143,9 @@ class MessageGenerator(MessageEventComposer):
             "message_generation",
             description="Duration of message generation requests",
         )
-        self._hist_ttfm_duration = self._meter.get_or_create_duration_histogram("ttfm")
+        self._hist_ttfm_duration = self._meter.create_duration_histogram(
+            "ttfm", description="Time to first message"
+        )
 
     async def shots(self) -> Sequence[MessageGeneratorShot]:
         return await shot_collection.list()
@@ -166,6 +168,7 @@ class MessageGenerator(MessageEventComposer):
                 with self._logger.scope("Message generation"):
                     async with self._hist_message_generation_duration.measure():
                         return await self._do_generate_events(
+                            start_of_processing=context.creation,
                             event_emitter=context.session_event_emitter,
                             agent=context.agent,
                             customer=context.customer,
@@ -199,6 +202,7 @@ class MessageGenerator(MessageEventComposer):
 
     async def _do_generate_events(
         self,
+        start_of_processing: Stopwatch,
         event_emitter: EventEmitter,
         agent: Agent,
         customer: Customer,
@@ -272,7 +276,7 @@ class MessageGenerator(MessageEventComposer):
                         data=response_message,
                     )
 
-                    await self._hist_ttfm_duration.end_record()
+                    await self._hist_ttfm_duration.record(start_of_processing.elapsed * 1000)
                     self._tracer.add_event("mg.ttfm")
 
                     return [

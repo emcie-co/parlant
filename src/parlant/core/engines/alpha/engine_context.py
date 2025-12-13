@@ -174,9 +174,6 @@ class ResponseState:
 class EngineContext:
     """Helper class to access loaded values that are relevant for responding in a particular context"""
 
-    creation: Stopwatch
-    """A stopwatch that was started when the context was created"""
-
     info: Context
     """The raw call context which is here represented in its loaded form"""
 
@@ -211,6 +208,9 @@ class EngineContext:
 
     state: ResponseState
     """The current state of the response being processed"""
+
+    creation: Stopwatch = field(default_factory=Stopwatch.start)
+    """A stopwatch that was started when the context was created"""
 
     async def add_tool_event(
         self,

@@ -34,7 +34,7 @@ from typing import (
 from typing_extensions import Self
 
 from parlant.core.loggers import Logger
-from parlant.core.persistence.common import Cursor, ObjectId, SortDirection, Where, ensure_is_total
+from parlant.core.persistence.common import Cursor, ObjectId, SortDirection, Where
 from parlant.core.persistence.document_database import (
     BaseDocument,
     DeleteResult,
@@ -150,7 +150,7 @@ class SupabaseDocumentDatabase(DocumentDatabase):
         if hasattr(self, "_pg_connection") and self._pg_connection is not None:
             await self._pg_connection.close()
             self._pg_connection = None
-        
+
         # Supabase client doesn't need explicit closing, but we can clean up
         if self._client is not None:
             self._client = None
@@ -188,7 +188,7 @@ class SupabaseDocumentDatabase(DocumentDatabase):
     async def delete_collection(self, name: str) -> None:
         table = self._table_identifier(name)
         failed_table = self._failed_table_identifier(name)
-        
+
         await self._execute_sql(f"DROP TABLE IF EXISTS {failed_table} CASCADE")
         await self._execute_sql(f"DROP TABLE IF EXISTS {table} CASCADE")
         self._collections.pop(name, None)
@@ -211,7 +211,7 @@ class SupabaseDocumentDatabase(DocumentDatabase):
     async def _execute_sql(self, sql: str) -> None:
         """Execute raw SQL using direct PostgreSQL connection."""
         await self._ensure_connection()
-        
+
         async with self._operation_lock:
             # Extract connection string from Supabase URL
             # Supabase URL format: https://<project-ref>.supabase.co
@@ -219,38 +219,41 @@ class SupabaseDocumentDatabase(DocumentDatabase):
             if self._pg_connection is None:
                 # Use asyncpg for async PostgreSQL access
                 try:
-                    import asyncpg
+                    import asyncpg  # type: ignore[import-untyped]
                 except ImportError:
                     raise SupabaseAdapterError(
                         "Supabase adapter requires asyncpg for table creation. Install asyncpg."
                     )
-                
+
                 # Parse Supabase URL to get connection details
                 url = self._connection_params["url"]
                 # Extract project ref from URL
                 # Format: https://<project-ref>.supabase.co
                 import re
+
                 match = re.search(r"https://([^.]+)\.supabase\.co", url)
                 if not match:
                     raise SupabaseAdapterError("Invalid Supabase URL format")
-                
+
                 project_ref = match.group(1)
-                
+
                 # Get database password from env or connection params
-                db_password = os.environ.get("SUPABASE_DB_PASSWORD") or self._connection_params.get("db_password")
+                db_password = os.environ.get("SUPABASE_DB_PASSWORD") or self._connection_params.get(
+                    "db_password"
+                )
                 if not db_password:
                     raise SupabaseAdapterError(
                         "SUPABASE_DB_PASSWORD is required for table creation. "
                         "Get it from your Supabase project settings."
                     )
-                
+
                 # Construct connection string
                 # Default port is 5432, database name is usually 'postgres'
                 db_host = f"{project_ref}.supabase.co"
                 db_user = os.environ.get("SUPABASE_DB_USER", "postgres")
                 db_name = os.environ.get("SUPABASE_DB_NAME", "postgres")
                 db_port = int(os.environ.get("SUPABASE_DB_PORT", "5432"))
-                
+
                 self._pg_connection = await asyncpg.connect(
                     host=db_host,
                     port=db_port,
@@ -259,7 +262,7 @@ class SupabaseDocumentDatabase(DocumentDatabase):
                     database=db_name,
                     ssl="require",
                 )
-            
+
             await self._pg_connection.execute(sql)
 
     async def _ensure_connection(self) -> None:
@@ -357,16 +360,16 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
             index_stmt = f"""
                 CREATE INDEX IF NOT EXISTS idx_{self._table}_creation_utc 
                 ON {self._table}(creation_utc);
-                
+
                 CREATE INDEX IF NOT EXISTS idx_{self._table}_session_id 
                 ON {self._table}(session_id) WHERE session_id IS NOT NULL;
-                
+
                 CREATE INDEX IF NOT EXISTS idx_{self._table}_customer_id 
                 ON {self._table}(customer_id) WHERE customer_id IS NOT NULL;
-                
+
                 CREATE INDEX IF NOT EXISTS idx_{self._table}_agent_id 
                 ON {self._table}(agent_id) WHERE agent_id IS NOT NULL;
-                
+
                 CREATE INDEX IF NOT EXISTS idx_{self._table}_data_gin 
                 ON {self._table} USING GIN (data);
             """
@@ -388,9 +391,7 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
                     f"Failed to create table {self._table}: {exc}. "
                     "Ensure SUPABASE_DB_PASSWORD is set correctly."
                 )
-                raise SupabaseAdapterError(
-                    f"Failed to create table: {exc}"
-                ) from exc
+                raise SupabaseAdapterError(f"Failed to create table: {exc}") from exc
 
             self._table_ready = True
 
@@ -406,12 +407,14 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
                 return
 
             await self.ensure_table()
+            await self._database._ensure_connection()
+            assert self._database._client is not None
 
             # Fetch all documents
+            client = self._database._client
+            table_name = self._table
             response = await asyncio.to_thread(
-                lambda: self._database._client.table(self._table)
-                .select("*")
-                .execute()
+                lambda: client.table(table_name).select("*").execute()
             )
 
             failed: list[BaseDocument] = []
@@ -447,11 +450,14 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
         sort_direction: Optional[SortDirection] = None,
     ) -> FindResult[TDocument]:
         await self.ensure_table()
+        await self._database._ensure_connection()
+        assert self._database._client is not None
 
         sort_direction = sort_direction or SortDirection.ASC
 
         # Build query using Supabase PostgREST
-        query = self._database._client.table(self._table)
+        # Start with select("*") to get all columns
+        query = self._database._client.table(self._table).select("*")
 
         # Apply filters
         query = self._apply_filters(query, filters)
@@ -481,8 +487,8 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
         if query_limit:
             query = query.limit(query_limit)
 
-        # Execute query - select all columns, we'll extract data
-        response = await asyncio.to_thread(lambda: query.select("*").execute())
+        # Execute query
+        response = await asyncio.to_thread(lambda: query.execute())
         rows = response.data or []
 
         documents = [cast(TDocument, self._row_to_document(row)) for row in rows]
@@ -544,7 +550,7 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
         """Build a filter string for PostgREST OR conditions."""
         if not filters or not isinstance(filters, Mapping):
             return ""
-        
+
         parts = []
         for key, value in filters.items():
             if key in ("$and", "$or"):
@@ -565,7 +571,7 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
                         parts.append(f"{key}.{op_map[op]}.{operand}")
                     elif op == "$in":
                         parts.append(f"{key}.in.({','.join(map(str, operand))})")
-        
+
         return ",".join(parts)
 
     def _apply_field_filter(self, query: Any, field: str, condition: Any) -> Any:
@@ -625,31 +631,30 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
 
     async def find_one(self, filters: Where) -> Optional[TDocument]:
         await self.ensure_table()
+        await self._database._ensure_connection()
+        assert self._database._client is not None
 
-        query = self._database._client.table(self._table)
+        query = self._database._client.table(self._table).select("*")
         query = self._apply_filters(query, filters)
         query = query.limit(1)
 
-        response = await asyncio.to_thread(
-            lambda: query.select("*").execute()
-        )
+        response = await asyncio.to_thread(lambda: query.execute())
 
-        if not response.data:
+        if not response.data or len(response.data) == 0:
             return None
 
         return cast(TDocument, self._row_to_document(response.data[0]))
 
     async def insert_one(self, document: TDocument) -> InsertResult:
         await self.ensure_table()
-        ensure_is_total(document, self._schema)
+        await self._database._ensure_connection()
+        assert self._database._client is not None
 
         params = self._serialize_document(document)
-        
-        response = await asyncio.to_thread(
-            lambda: self._database._client.table(self._table)
-            .insert(params)
-            .execute()
-        )
+
+        client = self._database._client
+        table_name = self._table
+        await asyncio.to_thread(lambda: client.table(table_name).insert(params).execute())
 
         return InsertResult(acknowledged=True)
 
@@ -704,56 +709,70 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
                     return cast(BaseDocument, json.loads(data))
             # Otherwise, treat the whole row as the document
             return cast(BaseDocument, row)
-        
+
         # If row is not a mapping, try to parse as JSON string
         if isinstance(row, str):
             return cast(BaseDocument, json.loads(row))
-        
+
         # Fallback: treat as document directly
         return cast(BaseDocument, row)
 
     async def _replace_document(self, document: TDocument) -> None:
+        await self._database._ensure_connection()
+        assert self._database._client is not None
+
         params = self._serialize_document(document)
         doc_id = params["id"]
-        
+
         # Remove id from update params
         update_params = {k: v for k, v in params.items() if k != "id"}
-        
+
+        client = self._database._client
+        table_name = self._table
         await asyncio.to_thread(
-            lambda: self._database._client.table(self._table)
-            .update(update_params)
-            .eq("id", doc_id)
-            .execute()
+            lambda: client.table(table_name).update(update_params).eq("id", doc_id).execute()
         )
 
     async def _delete_documents(self, identifiers: Sequence[Any]) -> None:
         if not identifiers:
             return
 
+        await self._database._ensure_connection()
+        assert self._database._client is not None
+
         # Supabase supports deleting by multiple IDs
+        client = self._database._client
+        table_name = self._table
         for identifier in identifiers:
+            id_str = _stringify(identifier)
+            if id_str is None:
+                continue
+            # Capture id_str in closure to avoid lambda default parameter issues
+            id_val = id_str
             await asyncio.to_thread(
-                lambda id=identifier: self._database._client.table(self._table)
-                .delete()
-                .eq("id", _stringify(id))
-                .execute()
+                lambda: client.table(table_name).delete().eq("id", id_val).execute()
             )
 
     async def _persist_failed_documents(self, documents: Sequence[BaseDocument]) -> None:
         if not documents:
             return
 
+        await self._database._ensure_connection()
+        assert self._database._client is not None
+
+        client = self._database._client
+        table_name = self._failed_table
         for doc in documents:
             params = {
                 "id": _stringify(doc.get("id")),
                 "data": doc,
             }
 
-            await asyncio.to_thread(
-                lambda p=params: self._database._client.table(self._failed_table)
-                .insert(p)
-                .execute()
-            )
+            # Use a function to avoid lambda closure issues
+            def insert_doc(p: dict[str, Any] = params) -> Any:
+                return client.table(table_name).insert(p).execute()
+
+            await asyncio.to_thread(insert_doc)
 
     def _serialize_document(self, document: TDocument) -> MutableMapping[str, Any]:
         return {
@@ -772,4 +791,3 @@ __all__ = [
     "SupabaseDocumentCollection",
     "SupabaseDocumentDatabase",
 ]
-

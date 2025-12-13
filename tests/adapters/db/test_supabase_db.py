@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Mapping, cast
+from typing import Any, Mapping
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -30,7 +30,7 @@ from parlant.adapters.db.supabase_db import (
 from parlant.core.agents import AgentId
 from parlant.core.common import Version
 from parlant.core.customers import CustomerId
-from parlant.core.persistence.common import Cursor, ObjectId, SortDirection, Where
+from parlant.core.persistence.common import Cursor, ObjectId, SortDirection
 from parlant.core.persistence.document_database import FindResult, InsertResult
 from parlant.core.sessions import _SessionDocument
 from tests.test_utilities import _TestLogger
@@ -89,7 +89,7 @@ async def test_insert_one_serializes_document_payload(monkeypatch: pytest.Monkey
     mock_insert = MagicMock()
     mock_table.insert.return_value = mock_insert
     mock_insert.execute.return_value = MagicMock(data=[])
-    
+
     db._client = MagicMock()
     db._client.table.return_value = mock_table
 
@@ -113,14 +113,14 @@ async def test_find_uses_filters(monkeypatch: pytest.MonkeyPatch) -> None:
     # Mock response
     mock_response = MagicMock()
     mock_response.data = [{"data": {"id": "1", "creation_utc": "2025-01-01T00:00:00Z"}}]
-    
+
     mock_table = MagicMock()
     mock_query = MagicMock()
     mock_table.select.return_value = mock_query
     mock_query.eq.return_value = mock_query
     mock_query.order.return_value = mock_query
     mock_query.execute.return_value = mock_response
-    
+
     db._client = MagicMock()
     db._client.table.return_value = mock_table
 
@@ -141,17 +141,17 @@ async def test_find_paginates_and_sets_next_cursor(monkeypatch: pytest.MonkeyPat
         {"data": {"id": "1", "creation_utc": "2025-01-01T00:00:00Z"}},
         {"data": {"id": "2", "creation_utc": "2025-01-02T00:00:00Z"}},
     ]
-    
+
     mock_response = MagicMock()
     mock_response.data = rows
-    
+
     mock_table = MagicMock()
     mock_query = MagicMock()
     mock_table.select.return_value = mock_query
     mock_query.order.return_value = mock_query
     mock_query.limit.return_value = mock_query
     mock_query.execute.return_value = mock_response
-    
+
     db._client = MagicMock()
     db._client.table.return_value = mock_table
 
@@ -171,14 +171,14 @@ async def test_find_adds_cursor_clause(monkeypatch: pytest.MonkeyPatch) -> None:
 
     mock_response = MagicMock()
     mock_response.data = []
-    
+
     mock_table = MagicMock()
     mock_query = MagicMock()
     mock_table.select.return_value = mock_query
     mock_query.or_.return_value = mock_query
     mock_query.order.return_value = mock_query
     mock_query.execute.return_value = mock_response
-    
+
     db._client = MagicMock()
     db._client.table.return_value = mock_table
 
@@ -215,15 +215,15 @@ async def test_load_existing_documents_migrates(monkeypatch: pytest.MonkeyPatch)
 
     mock_response = MagicMock()
     mock_response.data = [{"data": {"id": "abc", "version": "0.1"}}]
-    
+
     mock_table = MagicMock()
     mock_query = MagicMock()
     mock_table.select.return_value = mock_query
     mock_query.execute.return_value = mock_response
-    
+
     db._client = MagicMock()
     db._client.table.return_value = mock_table
-    
+
     replace_mock = AsyncMock()
     monkeypatch.setattr(collection, "_replace_document", replace_mock)
     monkeypatch.setattr(collection, "_persist_failed_documents", AsyncMock())
@@ -245,15 +245,15 @@ async def test_load_existing_documents_persists_failed(monkeypatch: pytest.Monke
 
     mock_response = MagicMock()
     mock_response.data = [{"data": {"id": "bad", "version": "0.7.0"}}]
-    
+
     mock_table = MagicMock()
     mock_query = MagicMock()
     mock_table.select.return_value = mock_query
     mock_query.execute.return_value = mock_response
-    
+
     db._client = MagicMock()
     db._client.table.return_value = mock_table
-    
+
     delete_mock = AsyncMock()
     monkeypatch.setattr(collection, "_delete_documents", delete_mock)
 
@@ -323,9 +323,9 @@ async def test_delete_collection_drops_tables(monkeypatch: pytest.MonkeyPatch) -
     await db.delete_collection("sessions")
 
     drop_statements = [args.args[0] for args in execute_mock.await_args_list]
-    assert any('DROP TABLE IF EXISTS parlant_sessions' in stmt for stmt in drop_statements)
+    assert any("DROP TABLE IF EXISTS parlant_sessions" in stmt for stmt in drop_statements)
     assert any(
-        'DROP TABLE IF EXISTS parlant_sessions_failed_migrations' in stmt
+        "DROP TABLE IF EXISTS parlant_sessions_failed_migrations" in stmt
         for stmt in drop_statements
     )
 
@@ -354,7 +354,7 @@ async def test_connection_params_missing_raises_error() -> None:
 
         with pytest.raises(SupabaseAdapterError) as exc_info:
             _load_connection_params_from_env()
-        
+
         assert "Missing Supabase configuration" in str(exc_info.value)
 
 
@@ -366,18 +366,17 @@ async def test_find_one_returns_none_when_not_found(monkeypatch: pytest.MonkeyPa
 
     mock_response = MagicMock()
     mock_response.data = []
-    
+
     mock_table = MagicMock()
     mock_query = MagicMock()
     mock_table.select.return_value = mock_query
     mock_query.eq.return_value = mock_query
     mock_query.limit.return_value = mock_query
     mock_query.execute.return_value = mock_response
-    
+
     db._client = MagicMock()
     db._client.table.return_value = mock_table
 
     result = await collection.find_one({"id": {"$eq": "missing"}})
 
     assert result is None
-

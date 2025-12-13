@@ -26,22 +26,6 @@ class DurationHistogram(Histogram):
     ) -> AsyncGenerator[None, None]:
         yield
 
-    @abstractmethod
-    async def start_record(
-        self,
-        attributes: Mapping[str, str] | None = None,
-    ) -> None:
-        """Start recording a duration with the given name."""
-        ...
-
-    @abstractmethod
-    async def end_record(
-        self,
-        attributes: Mapping[str, str] | None = None,
-    ) -> None:
-        """End recording and record the duration for the given name."""
-        ...
-
 
 class Counter(ABC):
     @abstractmethod
@@ -75,14 +59,6 @@ class Meter(ABC):
         description: str,
     ) -> DurationHistogram: ...
 
-    @abstractmethod
-    def get_or_create_duration_histogram(
-        self,
-        name: str,
-    ) -> DurationHistogram:
-        """Get an existing duration histogram by name."""
-        ...
-
 
 class NullCounter(Counter):
     @override
@@ -111,20 +87,6 @@ class NullHistogram(DurationHistogram):
     ) -> AsyncGenerator[None, None]:
         yield
 
-    @override
-    async def start_record(
-        self,
-        attributes: Mapping[str, str] | None = None,
-    ) -> None:
-        pass
-
-    @override
-    async def end_record(
-        self,
-        attributes: Mapping[str, str] | None = None,
-    ) -> None:
-        pass
-
 
 class NullMeter(Meter):
     @override
@@ -149,12 +111,5 @@ class NullMeter(Meter):
         self,
         name: str,
         description: str,
-    ) -> DurationHistogram:
-        return NullHistogram()
-
-    @override
-    def get_or_create_duration_histogram(
-        self,
-        name: str,
     ) -> DurationHistogram:
         return NullHistogram()

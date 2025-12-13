@@ -19,6 +19,7 @@ from typing import Any, Optional, Sequence, cast
 from typing_extensions import deprecated
 
 from parlant.core.agents import Agent
+from parlant.core.async_utils import Stopwatch
 from parlant.core.capabilities import Capability
 from parlant.core.common import JSONSerializable
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
@@ -172,6 +173,9 @@ class ResponseState:
 @dataclass
 class EngineContext:
     """Helper class to access loaded values that are relevant for responding in a particular context"""
+
+    creation: Stopwatch
+    """A stopwatch that was started when the context was created"""
 
     info: Context
     """The raw call context which is here represented in its loaded form"""

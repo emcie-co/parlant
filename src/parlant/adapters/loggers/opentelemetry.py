@@ -114,17 +114,15 @@ class OpenTelemetryLogger(TracingLogger):
             event_dict: MutableMapping[str, Any],
         ) -> MutableMapping[str, Any]:
             level = event_dict.get("actual_level", event_dict.get("level", method))
-            event_dict["severity_text"] = str(level).upper()
-
             event_dict.pop("actual_level", None)
             event_dict.pop("level", None)
 
+            event_dict["severity_text"] = str(level).upper()
             event_dict["trace_id"] = self._tracer.trace_id
             event_dict["span_id"] = self._tracer.span_id
 
-            scopes = self.current_scope
-            if scopes:
-                event_dict["scopes"] = scopes
+            if scope := self.current_scope:
+                event_dict["scope"] = scope
 
             return event_dict
 

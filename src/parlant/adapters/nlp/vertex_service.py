@@ -45,6 +45,7 @@ import tiktoken
 
 from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.tracer import Tracer
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
@@ -276,12 +277,14 @@ class VertexAIGeminiSchematicGenerator(BaseSchematicGenerator[T]):
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
         project_id: str,
         region: str,
         model_name: str,
     ) -> None:
         self._logger = logger
+        self._tracer = tracer
         self._meter = meter
 
         self.project_id = project_id
@@ -475,45 +478,57 @@ class VertexClaudeHaiku35(VertexAIClaudeSchematicGenerator[T]):
 
 
 class VertexGemini15Flash(VertexAIGeminiSchematicGenerator[T]):
-    def __init__(self, project_id: str, region: str, logger: Logger, meter: Meter) -> None:
+    def __init__(
+        self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter
+    ) -> None:
         super().__init__(
             project_id=project_id,
             region=region,
             model_name="gemini-1.5-flash",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 
 
 class VertexGemini15Pro(VertexAIGeminiSchematicGenerator[T]):
-    def __init__(self, project_id: str, region: str, logger: Logger, meter: Meter) -> None:
+    def __init__(
+        self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter
+    ) -> None:
         super().__init__(
             project_id=project_id,
             region=region,
             model_name="gemini-1.5-pro",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 
 
 class VertexGemini20Flash(VertexAIGeminiSchematicGenerator[T]):
-    def __init__(self, project_id: str, region: str, logger: Logger, meter: Meter) -> None:
+    def __init__(
+        self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter
+    ) -> None:
         super().__init__(
             project_id=project_id,
             region=region,
             model_name="gemini-2.0-flash",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 
 
 class VertexGemini25Flash(VertexAIGeminiSchematicGenerator[T]):
-    def __init__(self, project_id: str, region: str, logger: Logger, meter: Meter) -> None:
+    def __init__(
+        self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter
+    ) -> None:
         super().__init__(
             project_id=project_id,
             region=region,
             model_name="gemini-2.5-flash",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 
@@ -533,12 +548,14 @@ class VertexGemini25Pro(VertexAIGeminiSchematicGenerator[T]):
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
         project_id: str,
         region: str,
     ) -> None:
         super().__init__(
             logger=logger,
+            tracer=tracer,
             meter=meter,
             project_id=project_id,
             region=region,
@@ -554,6 +571,7 @@ class VertexAIEmbedder(BaseEmbedder):
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
         model_name: str,
     ):
@@ -565,7 +583,7 @@ class VertexAIEmbedder(BaseEmbedder):
                 "Set this to your Google Cloud Project ID."
             )
 
-        super().__init__(logger, meter, model_name)
+        super().__init__(logger, tracer, meter, model_name)
 
         self.region = os.environ.get("VERTEX_AI_REGION", "us-central1")
         self._client = google.genai.Client(
@@ -644,8 +662,8 @@ class VertexAIEmbedder(BaseEmbedder):
 
 
 class VertexTextEmbedding004(VertexAIEmbedder):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="text-embedding-004", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="text-embedding-004", logger=logger, tracer=tracer, meter=meter)
 
     @property
     @override
@@ -717,6 +735,7 @@ class VertexAIService(NLPService):
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
         self.project_id = os.environ.get("VERTEX_AI_PROJECT_ID", "project_id")
@@ -726,6 +745,7 @@ class VertexAIService(NLPService):
         )
 
         self._logger = logger
+        self._tracer = tracer
         self._meter = meter
 
         self._logger.info(
@@ -756,12 +776,14 @@ class VertexAIService(NLPService):
                     project_id=self.project_id,
                     region=self.region,
                     logger=self._logger,
+                    tracer=self._tracer,
                     meter=self._meter,
                 )
                 fallback = VertexClaudeSonnet4[t](  # type: ignore
                     project_id=self.project_id,
                     region=self.region,
                     logger=self._logger,
+                    tracer=self._tracer,
                     meter=self._meter,
                 )
                 return FallbackSchematicGenerator[t](  # type: ignore
@@ -772,6 +794,7 @@ class VertexAIService(NLPService):
                     project_id=self.project_id,
                     region=self.region,
                     logger=self._logger,
+                    tracer=self._tracer,
                     meter=self._meter,
                 )
             elif "claude-3-5" in self.model_name:
@@ -779,6 +802,7 @@ class VertexAIService(NLPService):
                     project_id=self.project_id,
                     region=self.region,
                     logger=self._logger,
+                    tracer=self._tracer,
                     meter=self._meter,
                 )
             elif "haiku" in self.model_name:
@@ -786,6 +810,7 @@ class VertexAIService(NLPService):
                     project_id=self.project_id,
                     region=self.region,
                     logger=self._logger,
+                    tracer=self._tracer,
                     meter=self._meter,
                 )
             else:
@@ -794,6 +819,7 @@ class VertexAIService(NLPService):
                     project_id=self.project_id,
                     region=self.region,
                     logger=self._logger,
+                    tracer=self._tracer,
                     meter=self._meter,
                 )
 
@@ -803,6 +829,7 @@ class VertexAIService(NLPService):
                     project_id=self.project_id,
                     region=self.region,
                     logger=self._logger,
+                    tracer=self._tracer,
                     meter=self._meter,
                 )
             elif "1.5-pro" in self.model_name:
@@ -810,6 +837,7 @@ class VertexAIService(NLPService):
                     project_id=self.project_id,
                     region=self.region,
                     logger=self._logger,
+                    tracer=self._tracer,
                     meter=self._meter,
                 )
             elif "2.0-flash" in self.model_name:
@@ -817,6 +845,7 @@ class VertexAIService(NLPService):
                     project_id=self.project_id,
                     region=self.region,
                     logger=self._logger,
+                    tracer=self._tracer,
                     meter=self._meter,
                 )
             elif "2.5-flash" in self.model_name:
@@ -824,6 +853,7 @@ class VertexAIService(NLPService):
                     project_id=self.project_id,
                     region=self.region,
                     logger=self._logger,
+                    tracer=self._tracer,
                     meter=self._meter,
                 )
             elif "2.5-pro" in self.model_name:
@@ -831,6 +861,7 @@ class VertexAIService(NLPService):
                     project_id=self.project_id,
                     region=self.region,
                     logger=self._logger,
+                    tracer=self._tracer,
                     meter=self._meter,
                 )
             else:
@@ -839,6 +870,7 @@ class VertexAIService(NLPService):
                     project_id=self.project_id,
                     region=self.region,
                     logger=self._logger,
+                    tracer=self._tracer,
                     meter=self._meter,
                 )
 
@@ -848,7 +880,7 @@ class VertexAIService(NLPService):
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         """Get an embedder for text embeddings using Google Gen AI."""
-        return VertexTextEmbedding004(logger=self._logger, meter=self._meter)
+        return VertexTextEmbedding004(logger=self._logger, tracer=self._tracer, meter=self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:  # @Todo - add moderation service

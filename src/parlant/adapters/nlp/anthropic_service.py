@@ -37,6 +37,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selectio
     JourneyNodeSelectionSchema,
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.tracer import Tracer
 from parlant.core.meter import Meter
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
@@ -250,8 +251,9 @@ Please set ANTHROPIC_API_KEY in your environment before running Parlant.
 
         return None
 
-    def __init__(self, logger: Logger, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         self._logger = logger
+        self._tracer = tracer
         self._meter = meter
 
         self._logger.info("Initialized AnthropicService")
@@ -265,12 +267,12 @@ Please set ANTHROPIC_API_KEY in your environment before running Parlant.
             or t == DisambiguationGuidelineMatchesSchema
             or t == CannedResponseSelectionSchema
         ):
-            return Claude_Opus_4_1[t](self._logger, self._meter)  # type: ignore
-        return Claude_Sonnet_4[t](self._logger, self._meter)  # type: ignore
+            return Claude_Opus_4_1[t](self._logger, self._tracer, self._meter)  # type: ignore
+        return Claude_Sonnet_4[t](self._logger, self._tracer, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return JinaAIEmbedder(self._logger, self._meter)
+        return JinaAIEmbedder(self._logger, self._tracer, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

@@ -28,6 +28,8 @@ from parlant.adapters.nlp.zhipu_service import (
     Embedding_3,
 )
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
+from parlant.core.tracer import Tracer
 from parlant.core.common import DefaultBaseModel
 
 
@@ -76,7 +78,7 @@ def test_that_zhipu_schematic_generator_initializes_correctly(
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
         generator: GLM_4_Plus[TestSchema] = GLM_4_Plus(
-            logger=container[Logger], meter=container[Meter]
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
         )
 
         assert generator.model_name == "glm-4-plus"
@@ -96,7 +98,7 @@ def test_that_zhipu_schematic_generator_supports_correct_parameters(
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
         generator: GLM_4_Plus[TestSchema] = GLM_4_Plus(
-            logger=container[Logger], meter=container[Meter]
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
         )
 
         expected_params = ["temperature", "max_tokens", "top_p"]
@@ -116,7 +118,7 @@ def test_that_glm_4_plus_initializes_correctly(
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
         generator: GLM_4_Plus[TestSchema] = GLM_4_Plus(
-            logger=container[Logger], meter=container[Meter]
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
         )
 
         assert generator.model_name == "glm-4-plus"
@@ -136,7 +138,7 @@ def test_that_glm_4_flash_initializes_correctly(
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
         generator: GLM_4_Flash[TestSchema] = GLM_4_Flash(
-            logger=container[Logger], meter=container[Meter]
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
         )
 
         assert generator.model_name == "glm-4-flash"
@@ -156,7 +158,7 @@ def test_that_glm_4_air_initializes_correctly(
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
         generator: GLM_4_Air[TestSchema] = GLM_4_Air(
-            logger=container[Logger], meter=container[Meter]
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
         )
 
         assert generator.model_name == "glm-4-air"
@@ -169,13 +171,14 @@ def test_that_zhipu_embedder_initializes_correctly(
     mock_zhipuai_class: Mock, container: Container
 ) -> None:
     """Test ZhipuEmbedder initialization using Embedding_3 class."""
-    from parlant.core.meter import Meter
 
     mock_client = Mock()
     mock_zhipuai_class.return_value = mock_client
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
-        embedder: Embedding_3 = Embedding_3(logger=container[Logger], meter=container[Meter])
+        embedder: Embedding_3 = Embedding_3(
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+        )
 
         assert embedder.model_name == "embedding-3"
         assert embedder.id == "zhipu/embedding-3"
@@ -196,7 +199,9 @@ def test_that_zhipu_moderation_service_initializes_correctly(
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
         moderation_service = ZhipuModerationService(
-            model_name="moderation", logger=container[Logger], meter=container[Meter]
+            model_name="moderation",
+            logger=container[Logger],
+            meter=container[Meter],
         )
 
         assert moderation_service.model_name == "moderation"
@@ -214,7 +219,9 @@ def test_that_zhipu_service_returns_correct_schematic_generator(
     mock_zhipuai_class.return_value = mock_client
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
-        service = ZhipuService(logger=container[Logger], meter=container[Meter])
+        service = ZhipuService(
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+        )
 
         # Test with TestSchema
         generator = asyncio.run(service.get_schematic_generator(TestSchema))
@@ -237,7 +244,9 @@ def test_that_zhipu_service_returns_correct_embedder(
     mock_zhipuai_class.return_value = mock_client
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
-        service = ZhipuService(logger=container[Logger], meter=container[Meter])
+        service = ZhipuService(
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+        )
 
         # Get embedder
         embedder = asyncio.run(service.get_embedder())
@@ -259,7 +268,9 @@ def test_that_zhipu_service_returns_correct_moderation_service(
     mock_zhipuai_class.return_value = mock_client
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
-        service = ZhipuService(logger=container[Logger], meter=container[Meter])
+        service = ZhipuService(
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+        )
 
         # Get moderation service
         moderation_service = asyncio.run(service.get_moderation_service())

@@ -33,6 +33,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selectio
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
+from parlant.core.tracer import Tracer
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
@@ -94,9 +95,10 @@ class MistralSchematicGenerator(BaseSchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
-        super().__init__(logger=logger, meter=meter, model_name=model_name)
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
 
         self._client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
         self._tokenizer = MistralEstimatingTokenizer(model_name=self.model_name)
@@ -211,8 +213,8 @@ class MistralSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class Mistral_Large_2411(MistralSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="mistral-large-2411", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="mistral-large-2411", logger=logger, tracer=tracer, meter=meter)
 
     @property
     @override
@@ -221,8 +223,10 @@ class Mistral_Large_2411(MistralSchematicGenerator[T]):
 
 
 class Mistral_Medium_2508(MistralSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="mistral-medium-2508", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(
+            model_name="mistral-medium-2508", logger=logger, tracer=tracer, meter=meter
+        )
 
     @property
     @override
@@ -231,8 +235,8 @@ class Mistral_Medium_2508(MistralSchematicGenerator[T]):
 
 
 class Mistral_Small_2506(MistralSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="mistral-small-2506", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="mistral-small-2506", logger=logger, tracer=tracer, meter=meter)
 
     @property
     @override
@@ -241,8 +245,8 @@ class Mistral_Small_2506(MistralSchematicGenerator[T]):
 
 
 class MistralEmbedder(BaseEmbedder):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(logger=logger, meter=meter, model_name="mistral-embed")
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name="mistral-embed")
         self._client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
         self._tokenizer = MistralEstimatingTokenizer(model_name=self.model_name)
 
@@ -371,9 +375,11 @@ Please set MISTRAL_API_KEY in your environment before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
         self._logger = logger
+        self._tracer = tracer
         self._meter = meter
         self._logger.info("Initialized MistralService")
 
@@ -386,12 +392,12 @@ Please set MISTRAL_API_KEY in your environment before running Parlant.
             or t == DisambiguationGuidelineMatchesSchema
             or t == CannedResponseSelectionSchema
         ):
-            return Mistral_Large_2411[t](self._logger)  # type: ignore
-        return Mistral_Medium_2508[t](self._logger)  # type: ignore
+            return Mistral_Large_2411[t](self._logger, self._tracer, self._meter)  # type: ignore
+        return Mistral_Medium_2508[t](self._logger, self._tracer, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return MistralEmbedder(self._logger, self._meter)
+        return MistralEmbedder(self._logger, self._tracer, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

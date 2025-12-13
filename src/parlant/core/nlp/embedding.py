@@ -22,6 +22,7 @@ from lagom import Container
 from typing import Any, Callable, Optional, Sequence, TypedDict, cast
 from typing_extensions import override
 
+from parlant.core.async_utils import Stopwatch
 from parlant.core.common import Version
 from parlant.core.loggers import Logger
 from parlant.core.meter import DurationHistogram, Meter
@@ -32,6 +33,7 @@ from parlant.core.persistence.document_database import (
     DocumentCollection,
     DocumentDatabase,
 )
+from parlant.core.tracer import Tracer
 
 
 @dataclass(frozen=True)
@@ -72,8 +74,9 @@ _EMBED_DURATION_HISTOGRAM: DurationHistogram | None = None
 
 
 class BaseEmbedder(Embedder):
-    def __init__(self, logger: Logger, meter: Meter, model_name: str) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, model_name: str) -> None:
         self.logger = logger
+        self.tracer = tracer
         self.meter = meter
         self.model_name = model_name
 
@@ -97,16 +100,39 @@ class BaseEmbedder(Embedder):
         texts: list[str],
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
-        if _EMBED_DURATION_HISTOGRAM is not None:
-            async with _EMBED_DURATION_HISTOGRAM.measure(
-                {
-                    "class.name": self.__class__.__qualname__,
-                    "embedding.model.name": self.model_name,
-                },
-            ):
-                return await self.do_embed(texts, hints)
-        else:
-            return await self.do_embed(texts, hints)
+        assert _EMBED_DURATION_HISTOGRAM is not None
+
+        async with _EMBED_DURATION_HISTOGRAM.measure(
+            {
+                "class.name": self.__class__.__qualname__,
+                "embedding.model.name": self.model_name,
+            },
+        ):
+            start = Stopwatch.start()
+
+            try:
+                result = await self.do_embed(texts, hints)
+            except Exception:
+                self.tracer.add_event(
+                    "embed.request_failed",
+                    attributes={
+                        "class.name": self.__class__.__qualname__,
+                        "model.name": self.model_name,
+                        "duration": start.elapsed,
+                    },
+                )
+                raise
+            else:
+                self.tracer.add_event(
+                    "embed.request_completed",
+                    attributes={
+                        "class.name": self.__class__.__qualname__,
+                        "model.name": self.model_name,
+                        "duration": start.elapsed,
+                    },
+                )
+
+            return result
 
 
 class EmbedderFactory:

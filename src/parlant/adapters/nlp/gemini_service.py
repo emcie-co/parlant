@@ -43,6 +43,7 @@ from parlant.core.nlp.generation import (
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.loggers import Logger
+from parlant.core.tracer import Tracer
 
 RATE_LIMIT_ERROR_MESSAGE = (
     "Google API rate limit exceeded.\n\n"
@@ -84,9 +85,10 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
-        super().__init__(logger, meter, model_name)
+        super().__init__(logger, tracer, meter, model_name)
 
         self._client = google.genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
@@ -247,10 +249,11 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class Gemini_1_5_Flash(GeminiSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(
             model_name="gemini-1.5-flash",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 
@@ -261,10 +264,11 @@ class Gemini_1_5_Flash(GeminiSchematicGenerator[T]):
 
 
 class Gemini_2_0_Flash(GeminiSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(
             model_name="gemini-2.0-flash",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 
@@ -275,10 +279,11 @@ class Gemini_2_0_Flash(GeminiSchematicGenerator[T]):
 
 
 class Gemini_2_0_Flash_Lite(GeminiSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(
             model_name="gemini-2.0-flash-lite-preview-02-05",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 
@@ -289,10 +294,11 @@ class Gemini_2_0_Flash_Lite(GeminiSchematicGenerator[T]):
 
 
 class Gemini_1_5_Pro(GeminiSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(
             model_name="gemini-1.5-pro",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 
@@ -303,10 +309,11 @@ class Gemini_1_5_Pro(GeminiSchematicGenerator[T]):
 
 
 class Gemini_2_5_Flash(GeminiSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(
             model_name="gemini-2.5-flash",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 
@@ -328,10 +335,11 @@ class Gemini_2_5_Flash(GeminiSchematicGenerator[T]):
 
 
 class Gemini_2_5_Flash_Lite(GeminiSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(
             model_name="gemini-2.5-flash-lite",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 
@@ -353,10 +361,11 @@ class Gemini_2_5_Flash_Lite(GeminiSchematicGenerator[T]):
 
 
 class Gemini_2_5_Pro(GeminiSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(
             model_name="gemini-2.5-pro",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 
@@ -369,8 +378,8 @@ class Gemini_2_5_Pro(GeminiSchematicGenerator[T]):
 class GoogleEmbedder(BaseEmbedder):
     supported_hints = ["title", "task_type"]
 
-    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
-        super().__init__(logger, meter, model_name)
+    def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(logger, tracer, meter, model_name)
 
         self._client = google.genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
         self._tokenizer = GoogleEstimatingTokenizer(client=self._client, model_name=self.model_name)
@@ -434,10 +443,11 @@ class GoogleEmbedder(BaseEmbedder):
 
 
 class GeminiTextEmbedding_001(GoogleEmbedder):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(
             model_name="gemini-embedding-001",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 
@@ -467,9 +477,11 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
         self.logger = logger
+        self._tracer = tracer
         self._meter = meter
 
         self.logger.info("Initialized GeminiService")
@@ -480,21 +492,21 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
     ) -> GeminiSchematicGenerator[T]:
         match hints.get("model_size", ModelSize.AUTO):
             case ModelSize.NANO:
-                return Gemini_2_5_Flash_Lite[t](self.logger, self._meter)  # type: ignore
+                return Gemini_2_5_Flash_Lite[t](self.logger, self._tracer, self._meter)  # type: ignore
             case ModelSize.MINI:
-                return Gemini_2_5_Flash[t](self.logger, self._meter)  # type: ignore
+                return Gemini_2_5_Flash[t](self.logger, self._tracer, self._meter)  # type: ignore
             case ModelSize.LARGE:
-                return Gemini_2_5_Pro[t](self.logger, self._meter)  # type: ignore
+                return Gemini_2_5_Pro[t](self.logger, self._tracer, self._meter)  # type: ignore
             case _:
                 return FallbackSchematicGenerator[t](  # type: ignore
-                    Gemini_2_5_Flash[t](self.logger, self._meter),  # type: ignore
-                    Gemini_2_5_Pro[t](self.logger, self._meter),  # type: ignore
+                    Gemini_2_5_Flash[t](self.logger, self._tracer, self._meter),  # type: ignore
+                    Gemini_2_5_Pro[t](self.logger, self._tracer, self._meter),  # type: ignore
                     logger=self.logger,
                 )
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return GeminiTextEmbedding_001(self.logger, self._meter)
+        return GeminiTextEmbedding_001(self.logger, self._tracer, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

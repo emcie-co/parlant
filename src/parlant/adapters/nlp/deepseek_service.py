@@ -36,6 +36,7 @@ from parlant.adapters.nlp.common import normalize_json_output, record_llm_metric
 from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
+from parlant.core.tracer import Tracer
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
@@ -222,9 +223,11 @@ Please set DEEPSEEK_API_KEY in your environment before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
         self._logger = logger
+        self._tracer = tracer
         self._meter = meter
         self._logger.info("Initialized DeepSeekService")
 
@@ -232,11 +235,11 @@ Please set DEEPSEEK_API_KEY in your environment before running Parlant.
     async def get_schematic_generator(
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> DeepSeekSchematicGenerator[T]:
-        return DeepSeek_Chat[t](self._logger, self._meter)  # type: ignore
+        return DeepSeek_Chat[t](self._logger, self._tracer, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return JinaAIEmbedder(self._logger, self._meter)
+        return JinaAIEmbedder(self._logger, self._tracer, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

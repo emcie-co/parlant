@@ -30,6 +30,7 @@ import tiktoken
 from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.tracer import Tracer
 from parlant.core.meter import Meter
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
@@ -237,9 +238,11 @@ Please set CEREBRAS_API_KEY in your environment before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
         self._logger = logger
+        self._tracer = tracer
         self._meter = meter
         self._logger.info("Initialized CerebrasService")
 
@@ -247,11 +250,11 @@ Please set CEREBRAS_API_KEY in your environment before running Parlant.
     async def get_schematic_generator(
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> CerebrasSchematicGenerator[T]:
-        return Llama3_3_70B[t](self._logger, self._meter)  # type: ignore
+        return Llama3_3_70B[t](self._logger, self._tracer, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return JinaAIEmbedder(self._logger, self._meter)
+        return JinaAIEmbedder(self._logger, self._tracer, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

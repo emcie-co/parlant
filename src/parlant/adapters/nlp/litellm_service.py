@@ -29,6 +29,7 @@ from parlant.adapters.nlp.common import normalize_json_output, record_llm_metric
 from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
+from parlant.core.tracer import Tracer
 from parlant.core.meter import Meter
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
@@ -83,11 +84,13 @@ class LiteLLMSchematicGenerator(BaseSchematicGenerator[T]):
         base_url: str | None,
         model_name: str,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
         self.base_url = base_url
         self.model_name = model_name
         self._logger = logger
+        self._tracer = tracer
         self._meter = meter
 
         self._client = litellm
@@ -197,11 +200,14 @@ class LiteLLMSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class LiteLLM_Default(LiteLLMSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter, base_url: str | None, model_name: str) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, base_url: str | None, model_name: str
+    ) -> None:
         super().__init__(
             base_url=base_url,
             model_name=model_name,
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 
@@ -231,10 +237,11 @@ Please set LITELLM_PROVIDER_API_KEY in your environment before running Parlant.
 
         return None
 
-    def __init__(self, logger: Logger, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         self._base_url = os.environ.get("LITELLM_PROVIDER_BASE_URL")
-        self._model_name = os.environ.get("LITELLM_PROVIDER_MODEL_NAME")
+        self._model_name = os.environ["LITELLM_PROVIDER_MODEL_NAME"]
         self._logger = logger
+        self._tracer = tracer
         self._meter = meter
 
         self._logger.info(
@@ -246,11 +253,13 @@ Please set LITELLM_PROVIDER_API_KEY in your environment before running Parlant.
     async def get_schematic_generator(
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> LiteLLMSchematicGenerator[T]:
-        return LiteLLM_Default[t](self._logger, self._meter, self._base_url, self._model_name)  # type: ignore
+        return LiteLLM_Default[t](  # type: ignore
+            self._logger, self._tracer, self._meter, self._base_url, self._model_name
+        )
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return JinaAIEmbedder(self._logger, self._meter)
+        return JinaAIEmbedder(self._logger, self._tracer, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

@@ -53,7 +53,11 @@ from parlant.core.tools import ToolId
 _T = TypeVar("_T")
 
 
-class BuiltInSection(Enum):
+class BuiltInSection(str, Enum):
+    @staticmethod
+    def _generate_next_value_(name: str, start: int, count: int, last_values: list[str]) -> str:
+        return name
+
     AGENT_IDENTITY = auto()
     CUSTOMER_IDENTITY = auto()
     INTERACTION_HISTORY = auto()

@@ -21,17 +21,60 @@ from parlant.core.emissions import (
     EmittedEvent,
     EventEmitter,
     EventEmitterFactory,
+    MessageEventHandle,
+    MessageEventUpdater,
     ensure_new_usage_params_and_get_trace_id,
 )
 from parlant.core.sessions import (
+    Event,
+    EventId,
     EventKind,
     EventSource,
+    EventUpdateParams,
     MessageEventData,
     SessionId,
     SessionStore,
     StatusEventData,
     ToolEventData,
 )
+
+
+class EventPublisherMessageUpdater(MessageEventUpdater):
+    """MessageEventUpdater implementation that updates events in the SessionStore."""
+
+    def __init__(
+        self,
+        session_store: SessionStore,
+        session_id: SessionId,
+        event_id: EventId,
+        source: EventSource,
+        trace_id: str,
+        metadata: Mapping[str, JSONSerializable] | None,
+    ) -> None:
+        self._store = session_store
+        self._session_id = session_id
+        self._event_id = event_id
+        self._source = source
+        self._trace_id = trace_id
+        self._metadata = metadata
+
+    @override
+    async def update(self, data: MessageEventData) -> MessageEventHandle:
+        await self._store.update_event(
+            session_id=self._session_id,
+            event_id=self._event_id,
+            params=EventUpdateParams(data=cast(JSONSerializable, data)),
+        )
+
+        updated_event = EmittedEvent(
+            source=self._source,
+            kind=EventKind.MESSAGE,
+            trace_id=self._trace_id,
+            data=cast(JSONSerializable, data),
+            metadata=self._metadata,
+        )
+
+        return MessageEventHandle(event=updated_event, updater=self)
 
 
 class EventPublisher(EventEmitter):
@@ -74,7 +117,7 @@ class EventPublisher(EventEmitter):
         data: str | MessageEventData | None = None,
         metadata: Mapping[str, JSONSerializable] | None = None,
         **kwargs: Any,
-    ) -> EmittedEvent:
+    ) -> MessageEventHandle:
         trace_id = ensure_new_usage_params_and_get_trace_id(trace_id, data, **kwargs)
 
         if isinstance(data, str):
@@ -91,7 +134,7 @@ class EventPublisher(EventEmitter):
         else:
             message_data = cast(JSONSerializable, data)
 
-        event = EmittedEvent(
+        emitted_event = EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.MESSAGE,
             trace_id=trace_id,
@@ -99,9 +142,18 @@ class EventPublisher(EventEmitter):
             metadata=metadata,
         )
 
-        await self._publish_event(event)
+        persisted_event = await self._publish_event(emitted_event)
 
-        return event
+        updater = EventPublisherMessageUpdater(
+            session_store=self._store,
+            session_id=self._session_id,
+            event_id=persisted_event.id,
+            source=EventSource.AI_AGENT,
+            trace_id=trace_id,
+            metadata=metadata,
+        )
+
+        return MessageEventHandle(event=emitted_event, updater=updater)
 
     @override
     async def emit_tool_event(
@@ -150,8 +202,8 @@ class EventPublisher(EventEmitter):
     async def _publish_event(
         self,
         event: EmittedEvent,
-    ) -> None:
-        await self._store.create_event(
+    ) -> Event:
+        return await self._store.create_event(
             session_id=self._session_id,
             source=EventSource.AI_AGENT,
             kind=event.kind,

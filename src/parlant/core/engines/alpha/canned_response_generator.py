@@ -785,7 +785,7 @@ You will now be given the current state of the interaction to which you must gen
         if await self._hooks.call_on_preamble_generated(context, payload=canrep.content.preamble):
             # If we're in, the hook did not bail out.
 
-            emitted_event = await canrep_context.event_emitter.emit_message_event(
+            handle = await canrep_context.event_emitter.emit_message_event(
                 trace_id=self._tracer.trace_id,
                 data=MessageEventData(
                     message=canrep.content.preamble,
@@ -799,7 +799,7 @@ You will now be given the current state of the interaction to which you must gen
             return [
                 MessageEventComposition(
                     generation_info={"message": canrep.info},
-                    events=[emitted_event],
+                    events=[handle.event],
                 )
             ]
 
@@ -927,7 +927,7 @@ You will now be given the current state of the interaction to which you must gen
                     if await self._hooks.call_on_message_generated(loaded_context, payload=m):
                         # If we're in, the hook did not bail out.
 
-                        event = await event_emitter.emit_message_event(
+                        handle = await event_emitter.emit_message_event(
                             trace_id=self._tracer.trace_id,
                             data=MessageEventData(
                                 message=m,
@@ -949,7 +949,7 @@ You will now be given the current state of the interaction to which you must gen
                             self._tracer.add_event("canrep.ttfm")
                             is_first_message_emitted = True
 
-                        emitted_events.append(event)
+                        emitted_events.append(handle.event)
 
                         await context.event_emitter.emit_status_event(
                             trace_id=self._tracer.trace_id,

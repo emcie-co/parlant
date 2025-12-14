@@ -22,7 +22,6 @@ from parlant.core.emissions import (
     EventEmitter,
     EventEmitterFactory,
     MessageEventHandle,
-    MessageEventUpdater,
     ensure_new_usage_params_and_get_trace_id,
 )
 from parlant.core.sessions import (
@@ -35,15 +34,14 @@ from parlant.core.sessions import (
 )
 
 
-class EventBufferMessageUpdater(MessageEventUpdater):
+class EventBufferMessageUpdater:
     """MessageEventUpdater implementation that updates events in an EventBuffer."""
 
     def __init__(self, buffer: "EventBuffer", event_index: int) -> None:
         self._buffer = buffer
         self._event_index = event_index
 
-    @override
-    async def update(self, data: MessageEventData) -> MessageEventHandle:
+    async def __call__(self, data: MessageEventData) -> MessageEventHandle:
         # EmittedEvent is frozen, so we need to replace with a new event
         old_event = self._buffer.events[self._event_index]
         new_event = EmittedEvent(
@@ -55,7 +53,7 @@ class EventBufferMessageUpdater(MessageEventUpdater):
         )
         self._buffer.events[self._event_index] = new_event
 
-        return MessageEventHandle(event=new_event, updater=self)
+        return MessageEventHandle(event=new_event, update=self)
 
 
 class EventBuffer(EventEmitter):
@@ -121,7 +119,7 @@ class EventBuffer(EventEmitter):
         self.events.append(event)
 
         updater = EventBufferMessageUpdater(buffer=self, event_index=event_index)
-        return MessageEventHandle(event=event, updater=updater)
+        return MessageEventHandle(event=event, update=updater)
 
     @override
     async def emit_tool_event(

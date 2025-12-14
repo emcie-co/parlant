@@ -15,7 +15,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Awaitable, Callable, Mapping
 from typing_extensions import deprecated
 
 from parlant.core.agents import AgentId
@@ -46,21 +46,12 @@ class EmittedEvent:
         return self.trace_id
 
 
-class MessageEventUpdater(ABC):
-    """An interface for updating a message event after it has been emitted."""
-
-    @abstractmethod
-    async def update(self, data: MessageEventData) -> MessageEventHandle:
-        """Update the message event with new data and return a new handle."""
-        ...
-
-
 @dataclass(frozen=True)
 class MessageEventHandle:
     """A handle to an emitted message event that allows updating it."""
 
     event: EmittedEvent
-    updater: MessageEventUpdater
+    update: Callable[[MessageEventData], Awaitable[MessageEventHandle]]
 
 
 class EventEmitter(ABC):

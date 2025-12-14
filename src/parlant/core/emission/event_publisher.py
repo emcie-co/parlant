@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from dataclasses import replace
 from typing import Any, Mapping, cast
 from typing_extensions import override
 
@@ -22,7 +23,6 @@ from parlant.core.emissions import (
     EventEmitter,
     EventEmitterFactory,
     MessageEventHandle,
-    MessageEventUpdater,
     ensure_new_usage_params_and_get_trace_id,
 )
 from parlant.core.sessions import (
@@ -39,42 +39,31 @@ from parlant.core.sessions import (
 )
 
 
-class EventPublisherMessageUpdater(MessageEventUpdater):
+class EventPublisherMessageUpdater:
     """MessageEventUpdater implementation that updates events in the SessionStore."""
 
     def __init__(
         self,
         session_store: SessionStore,
         session_id: SessionId,
-        event_id: EventId,
-        source: EventSource,
-        trace_id: str,
-        metadata: Mapping[str, JSONSerializable] | None,
+        event: EmittedEvent,
+        persisted_event_id: EventId,
     ) -> None:
         self._store = session_store
         self._session_id = session_id
-        self._event_id = event_id
-        self._source = source
-        self._trace_id = trace_id
-        self._metadata = metadata
+        self._event = event
+        self._event_id = persisted_event_id
 
-    @override
-    async def update(self, data: MessageEventData) -> MessageEventHandle:
+    async def __call__(self, data: MessageEventData) -> MessageEventHandle:
         await self._store.update_event(
             session_id=self._session_id,
             event_id=self._event_id,
             params=EventUpdateParams(data=cast(JSONSerializable, data)),
         )
 
-        updated_event = EmittedEvent(
-            source=self._source,
-            kind=EventKind.MESSAGE,
-            trace_id=self._trace_id,
-            data=cast(JSONSerializable, data),
-            metadata=self._metadata,
-        )
+        updated_event = replace(self._event, data=cast(JSONSerializable, data))
 
-        return MessageEventHandle(event=updated_event, updater=self)
+        return MessageEventHandle(event=updated_event, update=self)
 
 
 class EventPublisher(EventEmitter):
@@ -147,13 +136,11 @@ class EventPublisher(EventEmitter):
         updater = EventPublisherMessageUpdater(
             session_store=self._store,
             session_id=self._session_id,
-            event_id=persisted_event.id,
-            source=EventSource.AI_AGENT,
-            trace_id=trace_id,
-            metadata=metadata,
+            event=emitted_event,
+            persisted_event_id=persisted_event.id,
         )
 
-        return MessageEventHandle(event=emitted_event, updater=updater)
+        return MessageEventHandle(event=emitted_event, update=updater)
 
     @override
     async def emit_tool_event(

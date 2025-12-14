@@ -31,9 +31,7 @@ ROOT_INDEX = "1"
 FORK_NODE_ACTION_STR = (
     "No action necessary - always advance to the next step based on the relevant transition"
 )
-DEFAULT_ROOT_ACTION = (
-    "<<JOURNEY ROOT: start the journey at the appropriate step based on the context>>"
-)
+
 EXIT_NODE_ACTION = "Exit the journey"
 
 
@@ -583,9 +581,10 @@ OUTPUT FORMAT
     **How to determine if condition / sub condition is fulfilled if the action is CUSTOMER DEPENDENT:**
     The action is fulfilled if the customer has provided the required information. It can be either after being asked or proactively in earlier messages. 
     That means, the agent does not need to ask for something for the action to be fulfilled.
-    Note that the customer may provide multiple details at once, and you should consider all of them to identify the most relevant condition.
+    Note that the customer may provide multiple details at once (in one message), and you should consider all of them to identify the most relevant condition.
     Also, note that the customer may provide some of the answers in previous messages, consider those answers too. 
-    The answers may not arrive in the order we expect, and that’s fine. As long as we have the required information, the condition is considered met.
+    The answers may not arrive in the order we expect, and that’s fine. An answer for a later step may have been provided in earlier messages. As long as we have the required 
+    information, the condition is considered met.
 
    **Handling partial condition matches**
     Conditions may contain multiple sub-conditions (e.g., "customer provided X AND agent did Y AND customer hasn't provided Z")

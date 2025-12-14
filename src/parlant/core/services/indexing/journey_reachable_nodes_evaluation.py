@@ -2,8 +2,6 @@ import copy
 from dataclasses import dataclass, field
 from enum import Enum
 import json
-
-import os
 import traceback
 from typing import Any, List, Optional, Sequence, Set, Tuple, cast
 from parlant.core.common import DefaultBaseModel, JSONSerializable

@@ -3559,6 +3559,9 @@ class Server:
                 for node_id, properties in cast(
                     _CachedEvaluator.JourneyEvaluation, result
                 ).node_properties.items():
+                    if node_id == END_JOURNEY.id:
+                        continue
+
                     node = await self._container[JourneyStore].read_node(node_id)
                     properties_to_add = {
                         k: v

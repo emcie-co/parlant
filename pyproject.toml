@@ -141,6 +141,8 @@ mistral = ["mistralai"]
 
 snowflake = ["snowflake-connector-python"]
 
+pocketbase = []  # Uses httpx which is already a core dependency
+
 zhipu = ["zhipuai"]
 
 [build-system]

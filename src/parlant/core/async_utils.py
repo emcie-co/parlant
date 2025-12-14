@@ -33,6 +33,10 @@ import aiorwlock
 from parlant.core.loggers import Logger
 
 
+def _now() -> float:
+    return asyncio.get_event_loop().time()
+
+
 class Timeout:
     @staticmethod
     def none() -> Timeout:
@@ -45,14 +49,14 @@ class Timeout:
     def __init__(self, seconds: float) -> None:
         # We want to avoid calling _now() on a static level, because
         # it requires running within an event loop.
-        self._creation = self._now() if seconds not in [0, math.inf] else 0
+        self._creation = _now() if seconds not in [0, math.inf] else 0
         self._expiration = self._creation + seconds
 
     def expired(self) -> bool:
         return self.remaining() == 0
 
     def remaining(self) -> float:
-        return max(0, self._expiration - self._now())
+        return max(0, self._expiration - _now())
 
     def afford_up_to(self, seconds: float) -> Timeout:
         return Timeout(min(self.remaining(), seconds))
@@ -67,8 +71,22 @@ class Timeout:
     def __bool__(self) -> bool:
         return not self.expired()
 
-    def _now(self) -> float:
-        return asyncio.get_event_loop().time()
+
+class Stopwatch:
+    @staticmethod
+    def start() -> Stopwatch:
+        return Stopwatch(_now())
+
+    def __init__(self, start_time: float) -> None:
+        self._start = start_time
+
+    @property
+    def elapsed(self) -> float:
+        return _now() - self._start
+
+    @property
+    def start_time(self) -> float:
+        return self._start
 
 
 _TResult0 = TypeVar("_TResult0")

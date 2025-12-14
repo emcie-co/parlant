@@ -28,7 +28,7 @@ import traceback
 from typing import Any, Iterable, Mapping, Optional, Sequence, cast
 from typing_extensions import override
 
-from parlant.core.async_utils import safe_gather, CancellationSuppressionLatch
+from parlant.core.async_utils import Stopwatch, safe_gather, CancellationSuppressionLatch
 from parlant.core.capabilities import Capability
 from parlant.core.meter import DurationHistogram, Meter
 from parlant.core.tracer import Tracer
@@ -161,6 +161,7 @@ class _CannedResponseSelectionResult:
 
 @dataclass
 class CannedResponseContext:
+    start_of_processing: Stopwatch
     event_emitter: EventEmitter
     agent: Agent
     customer: Customer
@@ -570,6 +571,10 @@ class CannedResponseGenerator(MessageEventComposer):
             name="selection",
             description="Duration of canned response selection in milliseconds",
         )
+        self._hist_ttfm_duration = _create_histogram(
+            name="ttfm",
+            description="Time to first message generated in milliseconds",
+        )
 
     async def _resolve_composition_mode(self, context: EngineContext) -> CompositionMode:
         """Resolve effective composition mode from matched guidelines.
@@ -633,6 +638,7 @@ class CannedResponseGenerator(MessageEventComposer):
         composition_mode = await self._resolve_composition_mode(context)
 
         canrep_context = CannedResponseContext(
+            start_of_processing=context.creation,
             event_emitter=context.session_event_emitter,
             agent=agent,
             customer=context.customer,
@@ -788,6 +794,8 @@ You will now be given the current state of the interaction to which you must gen
                 ),
             )
 
+            self._tracer.add_event("canrep.preamble_generated")
+
             return [
                 MessageEventComposition(
                     generation_info={"message": canrep.info},
@@ -935,6 +943,9 @@ You will now be given the current state of the interaction to which you must gen
                             metadata=event_metadata,
                         )
                         if not is_first_message_emitted:
+                            await self._hist_ttfm_duration.record(
+                                context.start_of_processing.elapsed * 1000
+                            )
                             self._tracer.add_event("canrep.ttfm")
                             is_first_message_emitted = True
 
@@ -1045,6 +1056,7 @@ You will now be given the current state of the interaction to which you must gen
             return []
 
         context = CannedResponseContext(
+            start_of_processing=loaded_context.creation,
             event_emitter=event_emitter,
             agent=agent,
             customer=customer,

@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from itertools import chain
+import json
 from pprint import pformat
 import traceback
 from typing import Awaitable, Callable, Optional, Sequence, cast
@@ -97,6 +98,13 @@ from parlant.core.tracer import Tracer
 from parlant.core.loggers import Logger
 from parlant.core.entity_cq import EntityQueries, EntityCommands
 from parlant.core.tools import ToolContext, ToolId
+
+
+_PREPARATION_ITERATION_SPAN_NAME = "preparation_iteration_{iteration_number}"
+_GUIDELINE_MATCHER_SPAN_NAME = "guideline_matcher"
+_RESPONSE_ANALYSIS_SPAN_NAME = "response_analysis"
+_MESSAGE_GENERATION_SPAN_NAME = "message_generation"
+_TOOL_CALLER_SPAN_NAME = "tool_caller"
 
 
 class _PreparationIterationResolution(Enum):
@@ -324,7 +332,8 @@ class AlphaEngine(Engine):
 
                 # Money time: communicate with the customer given
                 # all of the information we have prepared.
-                _ = await self._generate_messages(context, latch)
+                with self._tracer.span(_MESSAGE_GENERATION_SPAN_NAME):
+                    _ = await self._generate_messages(context, latch)
 
                 # Mark that the agent is ready to receive and respond to new events.
                 await self._emit_ready_event(context)
@@ -466,7 +475,11 @@ class AlphaEngine(Engine):
         context: EngineContext,
         preamble_task: asyncio.Task[bool],
     ) -> _PreparationIterationResult:
-        with self._tracer.attributes({"engine_iteration": len(context.state.iterations) + 1}):
+        with self._tracer.span(
+            _PREPARATION_ITERATION_SPAN_NAME.format(
+                iteration_number=len(context.state.iterations) + 1
+            )
+        ):
             if len(context.state.iterations) == 0:
                 # This is the first iteration, so we need to run the initial preparation iteration.
                 result = await self._run_initial_preparation_iteration(context, preamble_task)
@@ -613,6 +626,8 @@ class AlphaEngine(Engine):
             context.state.tool_events += new_tool_events
             context.state.tool_insights = tool_insights
 
+            self._add_tool_events_to_tracer(new_tool_events)
+
         else:
             tool_event_generation_result = None
             new_tool_events = []
@@ -742,6 +757,8 @@ class AlphaEngine(Engine):
                     chain(context.state.tool_insights.invalid_data, tool_insights.invalid_data)
                 ),
             )
+
+            self._add_tool_events_to_tracer(new_tool_events)
 
         else:
             tool_event_generation_result = None
@@ -1060,6 +1077,75 @@ class AlphaEngine(Engine):
             context.state.tool_events,
         )
 
+    def _add_tool_events_to_tracer(
+        self,
+        tool_events: Sequence[EmittedEvent],
+    ) -> None:
+        for tool_event in tool_events:
+            tool_calls = cast(ToolEventData, tool_event.data)["tool_calls"]
+            for tool_call in tool_calls:
+                self._tracer.add_event(
+                    "tc",
+                    attributes={
+                        "tool_id": tool_call["tool_id"],
+                        "arguments": json.dumps(tool_call["arguments"]),
+                        "result": json.dumps(tool_call["result"]),
+                    },
+                )
+
+    def _add_matches_events_to_tracer(
+        self,
+        matches: Sequence[GuidelineMatch],
+    ) -> None:
+        for match in matches:
+            if match.guideline.metadata.get("journey_node"):
+                self._tracer.add_event(
+                    "journey.state.activate",
+                    attributes={
+                        "node_id": extract_node_id_from_journey_node_guideline_id(
+                            match.guideline.id
+                        ),
+                        "condition": match.guideline.content.condition,
+                        "action": match.guideline.content.action or "",
+                        "rationale": match.rationale,
+                        "journey_id": cast(
+                            str,
+                            cast(
+                                dict[str, JSONSerializable],
+                                match.guideline.metadata["journey_node"],
+                            )["journey_id"],
+                        ),
+                        **(
+                            {
+                                "sub_journey_id": cast(
+                                    str,
+                                    cast(
+                                        dict[str, JSONSerializable],
+                                        match.guideline.metadata["journey_node"],
+                                    )["sub_journey_id"],
+                                )
+                            }
+                            if "sub_journey_id"
+                            in cast(
+                                dict[str, JSONSerializable],
+                                match.guideline.metadata["journey_node"],
+                            )
+                            else {}
+                        ),
+                    },
+                )
+
+            else:
+                self._tracer.add_event(
+                    "gm.activate",
+                    attributes={
+                        "guideline_id": match.guideline.id,
+                        "condition": match.guideline.content.condition,
+                        "action": match.guideline.content.action or "",
+                        "rationale": match.rationale,
+                    },
+                )
+
     async def _load_matched_guidelines_and_journeys(
         self,
         context: EngineContext,
@@ -1093,11 +1179,14 @@ class AlphaEngine(Engine):
         )
 
         # Step 4: Filter the best matches out of those.
-        matching_result = await self._guideline_matcher.match_guidelines(
-            context=context,
-            active_journeys=high_prob_journeys,  # Only consider the top K journeys
-            guidelines=relevant_guidelines,
-        )
+        with self._tracer.span(_GUIDELINE_MATCHER_SPAN_NAME, attributes={"phase": "initial"}):
+            matching_result = await self._guideline_matcher.match_guidelines(
+                context=context,
+                active_journeys=high_prob_journeys,  # Only consider the top K journeys
+                guidelines=relevant_guidelines,
+            )
+
+        self._add_matches_events_to_tracer(matching_result.matches)
 
         # Step 5: Filter the journeys that are activated by the matched guidelines.
         match_ids = set(map(lambda g: g.guideline.id, matching_result.matches))
@@ -1128,6 +1217,8 @@ class AlphaEngine(Engine):
                 batches=batches,
                 matches=matches,
             )
+
+            self._add_matches_events_to_tracer(second_match_result.matches)
 
         # Step 7: Build the set of matched guidelines as follows:
         # 1. Collect all previously matched guidelines.
@@ -1186,11 +1277,14 @@ class AlphaEngine(Engine):
         )
 
         # Step 4: Reevaluate those guidelines using the latest context.
-        matching_result = await self._guideline_matcher.match_guidelines(
-            context=context,
-            active_journeys=context.state.journeys,
-            guidelines=guidelines_to_reevaluate,
-        )
+        with self._tracer.span(_GUIDELINE_MATCHER_SPAN_NAME, attributes={"phase": "reevaluation"}):
+            matching_result = await self._guideline_matcher.match_guidelines(
+                context=context,
+                active_journeys=context.state.journeys,
+                guidelines=guidelines_to_reevaluate,
+            )
+
+        self._add_matches_events_to_tracer(matching_result.matches)
 
         # Step 5: Filter the journeys that are activated by the matched guidelines.
         # If a journey was already active in a previous iteration, we still retrieve its steps
@@ -1222,6 +1316,7 @@ class AlphaEngine(Engine):
                 batches=batches,
                 matches=matches,
             )
+            self._add_matches_events_to_tracer(second_match_result.matches)
 
         # Step 7: Build the final set of matched guidelines:
         all_activated_journeys = list(context.state.journeys + activated_journeys)
@@ -1292,12 +1387,14 @@ class AlphaEngine(Engine):
             if context.state.journey_paths[j_id][-1] is not None
         }
 
-        return list(
+        active_journeys = list(
             set(
                 active_journeys_by_conditions
                 + [j for j in all_journeys if j.id in last_interaction_active_journeys]
             )
         )
+
+        return active_journeys
 
     async def _build_matched_guidelines(
         self,
@@ -1526,11 +1623,14 @@ class AlphaEngine(Engine):
                 if id in activated_low_priority_related_ids or id in journey_conditions
             ]
 
-            return await self._guideline_matcher.match_guidelines(
-                context=context,
-                active_journeys=activated_journeys,
-                guidelines=additional_matching_guidelines,
-            )
+            with self._tracer.span(
+                _GUIDELINE_MATCHER_SPAN_NAME, attributes={"phase": "low_priority_journeys"}
+            ):
+                return await self._guideline_matcher.match_guidelines(
+                    context=context,
+                    active_journeys=activated_journeys,
+                    guidelines=additional_matching_guidelines,
+                )
 
         return None
 
@@ -1559,11 +1659,15 @@ class AlphaEngine(Engine):
                 g for g in additional_matching_guidelines if g.id not in already_examined_guidelines
             ]
 
-            return await self._guideline_matcher.match_guidelines(
-                context=context,
-                active_journeys=activated_journeys,
-                guidelines=filtered_guidelines,
-            )
+            with self._tracer.span(
+                _GUIDELINE_MATCHER_SPAN_NAME,
+                attributes={"phase": "reevaluated_dependent_guidelines"},
+            ):
+                return await self._guideline_matcher.match_guidelines(
+                    context=context,
+                    active_journeys=activated_journeys,
+                    guidelines=filtered_guidelines,
+                )
 
         return None
 
@@ -1671,7 +1775,8 @@ class AlphaEngine(Engine):
         context: EngineContext,
         preexecution_state: ToolPreexecutionState,
     ) -> tuple[ToolEventGenerationResult, list[EmittedEvent], ToolInsights] | None:
-        result = await self._tool_event_generator.generate_events(preexecution_state, context)
+        with self._tracer.span(_TOOL_CALLER_SPAN_NAME):
+            result = await self._tool_event_generator.generate_events(preexecution_state, context)
 
         tool_events = [e for e in result.events if e] if result else []
 
@@ -1768,17 +1873,18 @@ class AlphaEngine(Engine):
 
         self._todo_add_associated_guidelines(matches_to_analyze)
 
-        result = await self._guideline_matcher.analyze_response(
-            agent=context.agent,
-            session=session,
-            customer=context.customer,
-            context_variables=context.state.context_variables,
-            interaction_history=context.interaction.history,
-            terms=list(context.state.glossary_terms),
-            staged_tool_events=context.state.tool_events,
-            staged_message_events=context.state.message_events,
-            guideline_matches=matches_to_analyze,
-        )
+        with self._tracer.span(_RESPONSE_ANALYSIS_SPAN_NAME):
+            result = await self._guideline_matcher.analyze_response(
+                agent=context.agent,
+                session=session,
+                customer=context.customer,
+                context_variables=context.state.context_variables,
+                interaction_history=context.interaction.history,
+                terms=list(context.state.glossary_terms),
+                staged_tool_events=context.state.tool_events,
+                staged_message_events=context.state.message_events,
+                guideline_matches=matches_to_analyze,
+            )
 
         new_applied_guideline_ids = [
             a.guideline.id for a in result.analyzed_guidelines if a.is_previously_applied

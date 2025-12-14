@@ -751,11 +751,13 @@ class BehavioralChangeEvaluator:
                 params={"status": EvaluationStatus.RUNNING},
             )
 
+            evaluation_invoices = list(evaluation.invoices)
+
             guideline_evaluation_data, journey_evaluation_data = await async_utils.safe_gather(
                 self._guideline_evaluator.evaluate(
                     payloads=[
                         cast(GuidelinePayload, invoice.payload)
-                        for invoice in evaluation.invoices
+                        for invoice in evaluation_invoices
                         if invoice.kind == PayloadKind.GUIDELINE
                     ],
                     progress_report=progress_report,
@@ -763,7 +765,7 @@ class BehavioralChangeEvaluator:
                 self._journey_evaluator.evaluate(
                     payloads=[
                         cast(JourneyPayload, invoice.payload)
-                        for invoice in evaluation.invoices
+                        for invoice in evaluation_invoices
                         if invoice.kind == PayloadKind.JOURNEY
                     ],
                     progress_report=progress_report,

@@ -7,7 +7,7 @@ import json
 import os
 import traceback
 from typing import Any, Optional, cast
-from parlant.core.common import DefaultBaseModel, JSONSerializable
+from parlant.core.common import Criticality, DefaultBaseModel, JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
@@ -571,6 +571,7 @@ class JourneyBacktrackNodeSelection:
                             action=None,
                         ),
                         enabled=False,
+                        criticality=Criticality.HIGH,
                         tags=[],
                     )
                     for i, c in enumerate(shot.conditions)

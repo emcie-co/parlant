@@ -6,7 +6,7 @@ import json
 # import os
 import traceback
 from typing import Any, Optional, Sequence, cast
-from parlant.core.common import DefaultBaseModel, JSONSerializable
+from parlant.core.common import Criticality, DefaultBaseModel, JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
@@ -506,6 +506,7 @@ OUTPUT FORMAT
                         action=None,
                     ),
                     enabled=False,
+                    criticality=Criticality.HIGH,
                     tags=[],
                 )
                 for i, c in enumerate(shot.conditions)

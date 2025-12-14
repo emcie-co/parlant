@@ -1212,21 +1212,21 @@ class Test_that_journey_can_link_to_another_journey_with_validation(SDKTest):
 
     async def run(self, ctx: Context) -> None:
         # Test the complete flow
-        response1 = await ctx.send_and_receive(
+        response1 = await ctx.send_and_receive_message(
             "I want to book a hotel room",
             recipient=self.agent,
             reuse_session=True,
         )
         assert response1 == "Would you like the red room or the blue room?"
 
-        response2 = await ctx.send_and_receive(
+        response2 = await ctx.send_and_receive_message(
             "I want the red room",
             recipient=self.agent,
             reuse_session=True,
         )
         assert response2 == "Please provide your name for verification."
 
-        response3 = await ctx.send_and_receive(
+        response3 = await ctx.send_and_receive_message(
             "My name is John Smith", recipient=self.agent, reuse_session=True
         )
         assert response3 == "Great! Your hotel booking has been confirmed."
@@ -1339,14 +1339,14 @@ class Test_that_journey_can_conditionally_link_to_different_sub_journeys(SDKTest
 
     async def run(self, ctx: Context) -> None:
         # Test technical support path
-        response1 = await ctx.send_and_receive(
+        response1 = await ctx.send_and_receive_message(
             "I need some help",
             recipient=self.agent,
             reuse_session=True,
         )
         assert response1 == "What type of service do you need: technical support or billing help?"
 
-        response2 = await ctx.send_and_receive(
+        response2 = await ctx.send_and_receive_message(
             "I need technical support",
             recipient=self.agent,
             reuse_session=True,
@@ -1354,14 +1354,14 @@ class Test_that_journey_can_conditionally_link_to_different_sub_journeys(SDKTest
         assert response2 == "Welcome to technical support! Please describe your issue."
 
         # Test billing support path with new session
-        response3 = await ctx.send_and_receive(
+        response3 = await ctx.send_and_receive_message(
             "I need some help",
             recipient=self.agent,
             reuse_session=False,  # Start new session
         )
         assert response3 == "What type of service do you need: technical support or billing help?"
 
-        response4 = await ctx.send_and_receive(
+        response4 = await ctx.send_and_receive_message(
             "I have a billing question",
             recipient=self.agent,
             reuse_session=True,
@@ -1451,21 +1451,21 @@ class Test_that_three_journeys_can_be_concatenated(SDKTest):
 
     async def run(self, ctx: Context) -> None:
         # Test the complete flow through all three journeys
-        response1 = await ctx.send_and_receive(
+        response1 = await ctx.send_and_receive_message(
             "I want to start the process",
             recipient=self.agent,
             reuse_session=True,
         )
         assert response1 == "Please tell me your name."
 
-        response2 = await ctx.send_and_receive(
+        response2 = await ctx.send_and_receive_message(
             "My name is Alice",
             recipient=self.agent,
             reuse_session=True,
         )
         assert response2 == "What's your favorite color?"
 
-        response3 = await ctx.send_and_receive(
+        response3 = await ctx.send_and_receive_message(
             "Blue",
             recipient=self.agent,
             reuse_session=True,

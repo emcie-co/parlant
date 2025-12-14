@@ -2150,7 +2150,7 @@ class Journey:
         )
 
         # Register handlers if provided
-        if target is not None and target.id != END_JOURNEY.id:
+        if target is not None:
             if (
                 on_match is not None
                 or on_message is not None

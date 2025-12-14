@@ -167,9 +167,9 @@ async def create_api_app(
 
         request_id = generate_id()
         with tracer.span(
-            f"{request.method} {getattr(request.scope.get('route'), 'path', request.url.path)}",
+            "http.request",
             {
-                "request_id": request_id,
+                "http.request.id": request_id,
                 "http.request.operation": operation_id,
                 "http.request.method": request.method,
                 **request.path_params,
@@ -178,7 +178,7 @@ async def create_api_app(
             async with _hist_http_request_duration.measure(
                 {
                     "http.request.operation": operation_id,
-                    "http.method": request.method,
+                    "http.request.method": request.method,
                 },
             ):
                 return await call_next(request)

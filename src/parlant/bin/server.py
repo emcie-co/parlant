@@ -291,7 +291,7 @@ def load_nlp_service(
     try:
         module = importlib.import_module(module_path)
         service = getattr(module, class_name)
-        return cast(NLPService, service(LOGGER, container[Meter]))
+        return cast(NLPService, service(LOGGER, container[Tracer], container[Meter]))
     except ModuleNotFoundError as exc:
         LOGGER.error(f"Failed to import module: {exc.name}")
         LOGGER.critical(
@@ -319,7 +319,7 @@ def load_aws(container: Container) -> NLPService:
 def load_azure(container: Container) -> NLPService:
     from parlant.adapters.nlp.azure_service import AzureService
 
-    return AzureService(LOGGER, container[Meter])
+    return AzureService(LOGGER, container[Tracer], container[Meter])
 
 
 def load_cerebras(container: Container) -> NLPService:
@@ -361,7 +361,7 @@ def load_gemini(container: Container) -> NLPService:
 def load_openai(container: Container) -> NLPService:
     from parlant.adapters.nlp.openai_service import OpenAIService
 
-    return OpenAIService(LOGGER, container[Meter])
+    return OpenAIService(LOGGER, container[Tracer], container[Meter])
 
 
 def load_together(container: Container) -> NLPService:

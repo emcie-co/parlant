@@ -40,7 +40,7 @@ async def measure_response_analysis_batch(
     global _ANALYSIS_BATCH_DURATION_HISTOGRAM
     if _ANALYSIS_BATCH_DURATION_HISTOGRAM is None:
         _ANALYSIS_BATCH_DURATION_HISTOGRAM = meter.create_duration_histogram(
-            name="rn.batch",
+            name="ra.batch",
             description="Duration of guideline matching batch",
         )
 

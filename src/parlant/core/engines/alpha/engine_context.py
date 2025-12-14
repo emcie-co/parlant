@@ -19,6 +19,7 @@ from typing import Any, Optional, Sequence, cast
 from typing_extensions import deprecated
 
 from parlant.core.agents import Agent
+from parlant.core.async_utils import Stopwatch
 from parlant.core.capabilities import Capability
 from parlant.core.common import JSONSerializable
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
@@ -207,6 +208,9 @@ class EngineContext:
 
     state: ResponseState
     """The current state of the response being processed"""
+
+    creation: Stopwatch = field(default_factory=Stopwatch.start)
+    """A stopwatch that was started when the context was created"""
 
     async def add_tool_event(
         self,

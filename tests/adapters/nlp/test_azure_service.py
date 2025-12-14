@@ -29,6 +29,7 @@ from parlant.adapters.nlp.azure_service import (
 )
 from parlant.core.loggers import Logger
 from parlant.core.common import DefaultBaseModel
+from parlant.core.tracer import Tracer
 from parlant.core.meter import Meter
 
 
@@ -204,7 +205,9 @@ def test_that_azure_schematic_generator_initializes_correctly(container: Contain
     ):
         with patch("parlant.adapters.nlp.azure_service.create_azure_client") as mock_create_client:
             mock_create_client.return_value = mock_client
-            generator: GPT_4o[TestSchema] = GPT_4o(logger=container[Logger], meter=container[Meter])
+            generator: GPT_4o[TestSchema] = GPT_4o(
+                logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+            )
 
             assert generator.model_name == "gpt-4o"
             assert generator.id == "azure/gpt-4o"
@@ -224,7 +227,9 @@ def test_that_azure_schematic_generator_supports_correct_parameters(container: C
     ):
         with patch("parlant.adapters.nlp.azure_service.create_azure_client") as mock_create_client:
             mock_create_client.return_value = mock_client
-            generator: GPT_4o[TestSchema] = GPT_4o(logger=container[Logger], meter=container[Meter])
+            generator: GPT_4o[TestSchema] = GPT_4o(
+                logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+            )
 
             expected_params = ["temperature", "logit_bias", "max_tokens"]
             assert generator.supported_azure_params == expected_params
@@ -248,7 +253,7 @@ def test_that_custom_azure_schematic_generator_initializes_correctly(
         clear=True,
     ):
         generator: CustomAzureSchematicGenerator[TestSchema] = CustomAzureSchematicGenerator(
-            logger=container[Logger], meter=container[Meter]
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
         )
 
         assert generator.model_name == "gpt-4o"
@@ -263,7 +268,7 @@ def test_that_custom_azure_schematic_generator_uses_default_max_tokens(
     with patch.dict(os.environ, {"AZURE_GENERATIVE_MODEL_NAME": "gpt-4o"}, clear=True):
         with patch("parlant.adapters.nlp.azure_service.create_azure_client"):
             generator: CustomAzureSchematicGenerator[TestSchema] = CustomAzureSchematicGenerator(
-                logger=container[Logger], meter=container[Meter]
+                logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
             )
             assert generator.max_tokens == 4096  # Default value
 
@@ -285,7 +290,9 @@ def test_that_custom_azure_embedder_initializes_correctly(
         },
         clear=True,
     ):
-        embedder = CustomAzureEmbedder(logger=container[Logger], meter=container[Meter])
+        embedder = CustomAzureEmbedder(
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+        )
 
         assert embedder.model_name == "text-embedding-3-large"
         assert embedder.max_tokens == 8192
@@ -301,7 +308,9 @@ def test_that_azure_text_embedding_3_large_initializes_correctly(
     mock_client = Mock()
     mock_create_client.return_value = mock_client
 
-    embedder = AzureTextEmbedding3Large(logger=container[Logger], meter=container[Meter])
+    embedder = AzureTextEmbedding3Large(
+        logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+    )
 
     assert embedder.model_name == "text-embedding-3-large"
     assert embedder.max_tokens == 8192
@@ -317,7 +326,9 @@ def test_that_azure_text_embedding_3_small_initializes_correctly(
     mock_client = Mock()
     mock_create_client.return_value = mock_client
 
-    embedder = AzureTextEmbedding3Small(logger=container[Logger], meter=container[Meter])
+    embedder = AzureTextEmbedding3Small(
+        logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+    )
 
     assert embedder.model_name == "text-embedding-3-small"
     assert embedder.max_tokens == 8192
@@ -334,7 +345,9 @@ def test_that_azure_service_returns_custom_schematic_generator_when_configured(
     mock_client = Mock()
     mock_create_client.return_value = mock_client
 
-    service = AzureService(logger=container[Logger], meter=container[Meter])
+    service = AzureService(
+        logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+    )
 
     with patch.dict(os.environ, {"AZURE_GENERATIVE_MODEL_NAME": "gpt-4o"}, clear=True):
         generator = asyncio.run(service.get_schematic_generator(TestSchema))
@@ -350,7 +363,9 @@ def test_that_azure_service_returns_default_schematic_generator_when_not_configu
     mock_client = Mock()
     mock_create_client.return_value = mock_client
 
-    service = AzureService(logger=container[Logger], meter=container[Meter])
+    service = AzureService(
+        logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+    )
 
     with patch.dict(os.environ, {}, clear=True):
         generator = asyncio.run(service.get_schematic_generator(TestSchema))
@@ -367,7 +382,9 @@ def test_that_azure_service_returns_custom_embedder_when_configured(
     mock_client = Mock()
     mock_create_client.return_value = mock_client
 
-    service = AzureService(logger=container[Logger], meter=container[Meter])
+    service = AzureService(
+        logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+    )
 
     with patch.dict(
         os.environ, {"AZURE_EMBEDDING_MODEL_NAME": "text-embedding-3-large"}, clear=True
@@ -385,7 +402,9 @@ def test_that_azure_service_returns_default_embedder_when_not_configured(
     mock_client = Mock()
     mock_create_client.return_value = mock_client
 
-    service = AzureService(logger=container[Logger], meter=container[Meter])
+    service = AzureService(
+        logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+    )
 
     with patch.dict(os.environ, {}, clear=True):
         embedder = asyncio.run(service.get_embedder())

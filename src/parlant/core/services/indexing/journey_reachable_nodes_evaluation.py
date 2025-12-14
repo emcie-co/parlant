@@ -2,6 +2,7 @@ import copy
 from dataclasses import dataclass, field
 from enum import Enum
 import json
+
 import os
 import traceback
 from typing import Any, List, Optional, Sequence, Set, Tuple, cast
@@ -21,7 +22,7 @@ from parlant.core.shots import Shot, ShotCollection
 
 PRE_ROOT_INDEX = "0"
 ROOT_INDEX = "1"
-REMINDER_OF_ACTION_TYPE = "Reminder: when stating if hasn't completed consider if action is CUSTOMER DEPENDENT or REQUIRES AGENT ACTION"
+REMINDER_OF_ACTION_TYPE = "Reminder: when stating whether an action has been completed, consider the rules for CUSTOMER DEPENDENT ACTION - CUSTOMER'S perspective or REQUIRES AGENT ACTION - AGENT'S perspective"
 REMINDER_OPTIONS = "Reminder: when stating an action completion consider Condition Clarity and Specificity, include all options in conditions"
 
 
@@ -534,11 +535,11 @@ state the complementary condition.
 
 So eventually we will get all possible options to continue from the current node.
 
-Action completion:
+**Action completion:**
 You will be asked to phrase conditions stating whether an action was or wasn't completed. Pay close attention to the following rules based on action type:
 
-**CUSTOMER DEPENDENT ACTIONS:** 
-For actions requiring customer responses (e.g., "Ask the customer which type of pizza they want"), the action is completed when the customer provided the requested information—whether the agent explicitly requested it OR the customer volunteered it unprompted.
+CUSTOMER DEPENDENT ACTION:
+For actions requiring customer responses (e.g., "Ask the customer which type of pizza they want"), the action is completed when the customer provided the requested information - whether the agent explicitly requested it OR the customer volunteered it unprompted.
 
 Always phrase completion from the CUSTOMER'S perspective, not the agent's.
 - CORRECT: "The customer chose which type of pizza they want"
@@ -546,7 +547,7 @@ Always phrase completion from the CUSTOMER'S perspective, not the agent's.
 
 The action is complete when the INFORMATION EXISTS, regardless of whether the agent asked for it.
 
-**REQUIRES AGENT ACTION:** 
+REQUIRES AGENT ACTION:
 For actions requiring the agent to communicate something, describe completion based on whether the agent fulfilled their responsibility.
 - CORRECT: "The agent informed the customer that..."
 - WRONG: "The customer was informed that..."

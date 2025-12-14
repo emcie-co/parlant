@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import os
 from typing import Any, Mapping, cast
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -46,7 +46,9 @@ _POCKETBASE_PARAMS: Mapping[str, Any] = {
 @fixture(scope="module", autouse=True)
 def require_pocketbase_test_flag() -> None:
     if not os.environ.get("TEST_POCKETBASE_SERVER"):
-        print("could not find `TEST_POCKETBASE_SERVER` in environment, skipping pocketbase tests...")
+        print(
+            "could not find `TEST_POCKETBASE_SERVER` in environment, skipping pocketbase tests..."
+        )
         pytest.skip("PocketBase tests require TEST_POCKETBASE_SERVER env variable")
 
 
@@ -195,8 +197,16 @@ async def test_find_paginates_and_sets_next_cursor(monkeypatch: pytest.MonkeyPat
     mock_response.raise_for_status = MagicMock()
     mock_response.json.return_value = {
         "items": [
-            {"id": "1", "creation_utc": "2025-01-01", "data": {"id": "1", "creation_utc": "2025-01-01"}},
-            {"id": "2", "creation_utc": "2025-01-02", "data": {"id": "2", "creation_utc": "2025-01-02"}},
+            {
+                "id": "1",
+                "creation_utc": "2025-01-01",
+                "data": {"id": "1", "creation_utc": "2025-01-01"},
+            },
+            {
+                "id": "2",
+                "creation_utc": "2025-01-02",
+                "data": {"id": "2", "creation_utc": "2025-01-02"},
+            },
         ],
         "totalItems": 2,
     }
@@ -362,7 +372,9 @@ async def test_ensure_collection_creates_if_missing(monkeypatch: pytest.MonkeyPa
     not_found_response = MagicMock()
     not_found_response.status_code = 404
     mock_request = MagicMock()
-    not_found_error = httpx.HTTPStatusError("404", request=mock_request, response=not_found_response)
+    not_found_error = httpx.HTTPStatusError(
+        "404", request=mock_request, response=not_found_response
+    )
 
     created_response = MagicMock()
     created_response.status_code = 200
@@ -467,4 +479,3 @@ async def test_custom_endpoint_connection() -> None:
     # Verify headers include custom token
     headers = db._get_headers()
     assert headers["Authorization"] == "Bearer custom_token"
-

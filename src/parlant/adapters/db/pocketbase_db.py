@@ -255,9 +255,7 @@ class PocketBaseDocumentDatabase(DocumentDatabase):
             data = response.json()
             self._admin_token = data.get("token")
         except httpx.HTTPStatusError as exc:
-            raise PocketBaseAdapterError(
-                f"Failed to authenticate with PocketBase: {exc}"
-            ) from exc
+            raise PocketBaseAdapterError(f"Failed to authenticate with PocketBase: {exc}") from exc
 
     def _get_headers(self) -> dict[str, str]:
         """Get HTTP headers with authentication if available."""
@@ -790,13 +788,13 @@ class _PocketBaseFilterTranslator:
             return "id != ''" if negate else "id = ''"  # Always false/true
 
         field_expr = self._field_expr(field)
-        
+
         # For single value, use equality
         if len(values) == 1:
             operator = "!=" if negate else "="
             value_expr = self._escape_value(values[0])
             return f"{field_expr} {operator} {value_expr}"
-        
+
         # For multiple values, use OR conditions (more reliable than regex)
         conditions = []
         for value in values:
@@ -805,7 +803,7 @@ class _PocketBaseFilterTranslator:
                 conditions.append(f"{field_expr} != {value_expr}")
             else:
                 conditions.append(f"{field_expr} = {value_expr}")
-        
+
         if negate:
             # All values must not match (AND)
             return "(" + " && ".join(conditions) + ")"
@@ -860,4 +858,3 @@ __all__ = [
     "PocketBaseDocumentCollection",
     "PocketBaseDocumentDatabase",
 ]
-

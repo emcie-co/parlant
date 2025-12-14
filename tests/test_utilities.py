@@ -67,6 +67,7 @@ from parlant.core.guideline_tool_associations import GuidelineToolAssociationSto
 from parlant.core.guidelines import Guideline, GuidelineStore
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.meter import NullMeter
+from parlant.core.tracer import LocalTracer
 from parlant.core.nlp.generation import (
     FallbackSchematicGenerator,
     SchematicGenerationResult,
@@ -172,7 +173,9 @@ class _TestLogger(Logger):
 
 
 async def nlp_test(context: str, condition: str) -> bool:
-    schematic_generator = GPT_4o[NLPTestSchema](logger=_TestLogger(), meter=NullMeter())
+    schematic_generator = GPT_4o[NLPTestSchema](
+        logger=_TestLogger(), tracer=LocalTracer(), meter=NullMeter()
+    )
 
     inference = await schematic_generator.generate(
         prompt=f"""\

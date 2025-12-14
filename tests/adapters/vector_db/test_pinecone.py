@@ -14,24 +14,19 @@
 
 import os
 from dataclasses import dataclass
-from typing import AsyncIterator, Iterator, Optional, TypedDict, cast
+from typing import AsyncIterator, Iterator, TypedDict, cast
 from typing_extensions import Required
 from lagom import Container
-from pytest import fixture, raises, skip
+from pytest import fixture, skip
 
 from parlant.adapters.nlp.openai_service import OpenAITextEmbedding3Large
-from parlant.adapters.db.transient import TransientDocumentDatabase
 from parlant.adapters.vector_db.pinecone import PineconeCollection, PineconeDatabase
 from parlant.core.agents import AgentStore, AgentId
-from parlant.core.common import IdGenerator, Version, md5_checksum
-from parlant.core.glossary import GlossaryVectorStore
+from parlant.core.common import Version, md5_checksum
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory, NullEmbedder, NullEmbeddingCache
 from parlant.core.loggers import Logger
-from parlant.core.nlp.service import NLPService
-from parlant.core.persistence.common import MigrationRequired, ObjectId
+from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.vector_database import BaseDocument
-from parlant.core.persistence.vector_database_helper import VectorDocumentStoreMigrationHelper
-from parlant.core.tags import Tag, TagId
 from tests.test_utilities import SyncAwaiter
 
 
@@ -455,4 +450,3 @@ async def test_or_operator_with_multiple_conditions(
     result_names = {r["name"] for r in results}
     assert "Apple" in result_names
     assert "Banana" in result_names
-

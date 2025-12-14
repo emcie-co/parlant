@@ -52,6 +52,7 @@ from parlant.core.agents import Agent, AgentId, AgentStore
 from parlant.core.application import Application
 from parlant.core.async_utils import Timeout
 from parlant.core.common import DefaultBaseModel, JSONSerializable, Version
+from parlant.core.tracer import LocalTracer
 from parlant.core.context_variables import (
     ContextVariable,
     ContextVariableId,
@@ -172,7 +173,9 @@ class _TestLogger(Logger):
 
 
 async def nlp_test(context: str, condition: str) -> bool:
-    schematic_generator = GPT_4o[NLPTestSchema](logger=_TestLogger(), meter=NullMeter())
+    schematic_generator = GPT_4o[NLPTestSchema](
+        logger=_TestLogger(), tracer=LocalTracer(), meter=NullMeter()
+    )
 
     inference = await schematic_generator.generate(
         prompt=f"""\

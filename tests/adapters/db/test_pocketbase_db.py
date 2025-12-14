@@ -131,24 +131,25 @@ async def test_insert_one_serializes_document_payload(monkeypatch: pytest.Monkey
 
     mock_response = MagicMock()
     mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
     mock_response.json.return_value = {"id": "session-1"}
 
-    with patch.object(db, "_client") as mock_client:
-        mock_client.post = AsyncMock(return_value=mock_response)
-        db._client = mock_client
+    mock_client = MagicMock()
+    mock_client.post = AsyncMock(return_value=mock_response)
+    db._client = mock_client
 
-        document = _session_document()
+    document = _session_document()
 
-        await collection.insert_one(document)
+    await collection.insert_one(document)
 
-        call_args = mock_client.post.call_args
-        assert call_args is not None
-        url = call_args[0][0]
-        payload = call_args[1]["json"]
+    call_args = mock_client.post.call_args
+    assert call_args is not None
+    url = call_args[0][0]
+    payload = call_args[1]["json"]
 
-        assert "api/collections/parlant_sessions/records" in url
-        assert payload["id"] == "session-1"
-        assert json.loads(json.dumps(payload["data"])) == document
+    assert "api/collections/parlant_sessions/records" in url
+    assert payload["id"] == "session-1"
+    assert json.loads(json.dumps(payload["data"])) == document
 
 
 @pytest.mark.asyncio
@@ -159,27 +160,28 @@ async def test_find_uses_pocketbase_filters(monkeypatch: pytest.MonkeyPatch) -> 
 
     mock_response = MagicMock()
     mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
     mock_response.json.return_value = {
         "items": [{"id": "1", "data": {"id": "1"}}],
         "totalItems": 1,
     }
 
-    with patch.object(db, "_client") as mock_client:
-        mock_client.get = AsyncMock(return_value=mock_response)
-        db._client = mock_client
+    mock_client = MagicMock()
+    mock_client.get = AsyncMock(return_value=mock_response)
+    db._client = mock_client
 
-        result = await collection.find({"session_id": {"$eq": "abc"}})
+    result = await collection.find({"session_id": {"$eq": "abc"}})
 
-        assert isinstance(result, FindResult)
-        assert result.items[0]["id"] == "1"
-        call_args = mock_client.get.call_args
-        assert call_args is not None
-        url = call_args[0][0]
-        params = call_args[1]["params"]
+    assert isinstance(result, FindResult)
+    assert result.items[0]["id"] == "1"
+    call_args = mock_client.get.call_args
+    assert call_args is not None
+    url = call_args[0][0]
+    params = call_args[1]["params"]
 
-        assert "api/collections/parlant_events/records" in url
-        assert "filter" in params
-        assert "session_id" in params["filter"]
+    assert "api/collections/parlant_events/records" in url
+    assert "filter" in params
+    assert "session_id" in params["filter"]
 
 
 @pytest.mark.asyncio
@@ -190,6 +192,7 @@ async def test_find_paginates_and_sets_next_cursor(monkeypatch: pytest.MonkeyPat
 
     mock_response = MagicMock()
     mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
     mock_response.json.return_value = {
         "items": [
             {"id": "1", "creation_utc": "2025-01-01", "data": {"id": "1", "creation_utc": "2025-01-01"}},
@@ -198,20 +201,20 @@ async def test_find_paginates_and_sets_next_cursor(monkeypatch: pytest.MonkeyPat
         "totalItems": 2,
     }
 
-    with patch.object(db, "_client") as mock_client:
-        mock_client.get = AsyncMock(return_value=mock_response)
-        db._client = mock_client
+    mock_client = MagicMock()
+    mock_client.get = AsyncMock(return_value=mock_response)
+    db._client = mock_client
 
-        result = await collection.find({}, limit=1)
+    result = await collection.find({}, limit=1)
 
-        assert len(result.items) == 1
-        assert result.has_more is True
-        assert result.next_cursor == Cursor(creation_utc="2025-01-01", id=ObjectId("1"))
-        assert result.total_count == 2
-        call_args = mock_client.get.call_args
-        assert call_args is not None
-        params = call_args[1]["params"]
-        assert params["perPage"] == 2
+    assert len(result.items) == 1
+    assert result.has_more is True
+    assert result.next_cursor == Cursor(creation_utc="2025-01-01", id=ObjectId("1"))
+    assert result.total_count == 2
+    call_args = mock_client.get.call_args
+    assert call_args is not None
+    params = call_args[1]["params"]
+    assert params["perPage"] == 2
 
 
 @pytest.mark.asyncio
@@ -222,21 +225,22 @@ async def test_find_adds_cursor_clause(monkeypatch: pytest.MonkeyPatch) -> None:
 
     mock_response = MagicMock()
     mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
     mock_response.json.return_value = {"items": [], "totalItems": 0}
 
-    with patch.object(db, "_client") as mock_client:
-        mock_client.get = AsyncMock(return_value=mock_response)
-        db._client = mock_client
+    mock_client = MagicMock()
+    mock_client.get = AsyncMock(return_value=mock_response)
+    db._client = mock_client
 
-        cursor = Cursor(creation_utc="2025-01-03", id=ObjectId("abc"))
-        await collection.find({}, cursor=cursor, sort_direction=SortDirection.DESC)
+    cursor = Cursor(creation_utc="2025-01-03", id=ObjectId("abc"))
+    await collection.find({}, cursor=cursor, sort_direction=SortDirection.DESC)
 
-        call_args = mock_client.get.call_args
-        assert call_args is not None
-        params = call_args[1]["params"]
-        assert params["sort"] == "-creation_utc"
-        assert "filter" in params
-        assert "creation_utc <" in params["filter"]
+    call_args = mock_client.get.call_args
+    assert call_args is not None
+    params = call_args[1]["params"]
+    assert params["sort"] == "-creation_utc"
+    assert "filter" in params
+    assert "creation_utc <" in params["filter"]
 
 
 @pytest.mark.asyncio
@@ -265,24 +269,25 @@ async def test_load_existing_documents_migrates(monkeypatch: pytest.MonkeyPatch)
 
     mock_response = MagicMock()
     mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
     mock_response.json.return_value = {
         "items": [{"id": "abc", "version": "0.1", "data": {"id": "abc", "version": "0.1"}}],
         "totalItems": 1,
     }
 
-    with patch.object(db, "_client") as mock_client:
-        mock_client.get = AsyncMock(return_value=mock_response)
-        db._client = mock_client
+    mock_client = MagicMock()
+    mock_client.get = AsyncMock(return_value=mock_response)
+    db._client = mock_client
 
-        replace_mock = AsyncMock()
-        monkeypatch.setattr(collection, "_replace_document", replace_mock)
+    replace_mock = AsyncMock()
+    monkeypatch.setattr(collection, "_replace_document", replace_mock)
 
-        async def loader(doc: Any) -> _SessionDocument:
-            return _session_document(doc_id=str(doc["id"]))
+    async def loader(doc: Any) -> _SessionDocument:
+        return _session_document(doc_id=str(doc["id"]))
 
-        await collection.load_existing_documents(loader)
+    await collection.load_existing_documents(loader)
 
-        replace_mock.assert_awaited_once()
+    replace_mock.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -293,25 +298,26 @@ async def test_load_existing_documents_persists_failed(monkeypatch: pytest.Monke
 
     mock_response = MagicMock()
     mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
     mock_response.json.return_value = {
         "items": [{"id": "bad", "version": "0.7.0", "data": {"id": "bad", "version": "0.7.0"}}],
         "totalItems": 1,
     }
 
-    with patch.object(db, "_client") as mock_client:
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.delete = AsyncMock()
-        db._client = mock_client
+    mock_client = MagicMock()
+    mock_client.get = AsyncMock(return_value=mock_response)
+    mock_client.delete = AsyncMock()
+    db._client = mock_client
 
-        delete_mock = AsyncMock()
-        monkeypatch.setattr(collection, "_delete_record", delete_mock)
+    delete_mock = AsyncMock()
+    monkeypatch.setattr(collection, "_delete_record", delete_mock)
 
-        async def loader(_: Any) -> _SessionDocument | None:
-            return None
+    async def loader(_: Any) -> _SessionDocument | None:
+        return None
 
-        await collection.load_existing_documents(loader)
+    await collection.load_existing_documents(loader)
 
-        delete_mock.assert_awaited_once_with("bad")
+    delete_mock.assert_awaited_once_with("bad")
 
 
 @pytest.mark.asyncio
@@ -355,20 +361,23 @@ async def test_ensure_collection_creates_if_missing(monkeypatch: pytest.MonkeyPa
     # First call returns 404 (not found), second call succeeds (created)
     not_found_response = MagicMock()
     not_found_response.status_code = 404
+    mock_request = MagicMock()
+    not_found_error = httpx.HTTPStatusError("404", request=mock_request, response=not_found_response)
 
     created_response = MagicMock()
     created_response.status_code = 200
+    created_response.raise_for_status = MagicMock()
     created_response.json.return_value = {"id": "parlant_sessions"}
 
-    with patch.object(db, "_client") as mock_client:
-        mock_client.get = AsyncMock(side_effect=[not_found_response])
-        mock_client.post = AsyncMock(return_value=created_response)
-        db._client = mock_client
+    mock_client = MagicMock()
+    mock_client.get = AsyncMock(side_effect=[not_found_error])
+    mock_client.post = AsyncMock(return_value=created_response)
+    db._client = mock_client
 
-        await collection.ensure_collection()
+    await collection.ensure_collection()
 
-        assert collection._collection_ready  # type: ignore[attr-defined]
-        mock_client.post.assert_awaited_once()
+    assert collection._collection_ready  # type: ignore[attr-defined]
+    mock_client.post.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -378,16 +387,17 @@ async def test_ensure_collection_uses_existing(monkeypatch: pytest.MonkeyPatch) 
 
     existing_response = MagicMock()
     existing_response.status_code = 200
+    existing_response.raise_for_status = MagicMock()
     existing_response.json.return_value = {"id": "parlant_sessions"}
 
-    with patch.object(db, "_client") as mock_client:
-        mock_client.get = AsyncMock(return_value=existing_response)
-        db._client = mock_client
+    mock_client = MagicMock()
+    mock_client.get = AsyncMock(return_value=existing_response)
+    db._client = mock_client
 
-        await collection.ensure_collection()
+    await collection.ensure_collection()
 
-        assert collection._collection_ready  # type: ignore[attr-defined]
-        mock_client.post.assert_not_called()
+    assert collection._collection_ready  # type: ignore[attr-defined]
+    mock_client.post.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -396,17 +406,18 @@ async def test_delete_collection_removes_collection(monkeypatch: pytest.MonkeyPa
 
     mock_response = MagicMock()
     mock_response.status_code = 204
+    mock_response.raise_for_status = MagicMock()
 
-    with patch.object(db, "_client") as mock_client:
-        mock_client.delete = AsyncMock(return_value=mock_response)
-        db._client = mock_client
+    mock_client = MagicMock()
+    mock_client.delete = AsyncMock(return_value=mock_response)
+    db._client = mock_client
 
-        await db.delete_collection("sessions")
+    await db.delete_collection("sessions")
 
-        call_args = mock_client.delete.call_args
-        assert call_args is not None
-        url = call_args[0][0]
-        assert "api/collections/parlant_sessions" in url
+    call_args = mock_client.delete.call_args
+    assert call_args is not None
+    url = call_args[0][0]
+    assert "api/collections/parlant_sessions" in url
 
 
 @pytest.mark.asyncio
@@ -422,19 +433,20 @@ async def test_authenticate_with_email_password(monkeypatch: pytest.MonkeyPatch)
 
     mock_response = MagicMock()
     mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
     mock_response.json.return_value = {"token": "new_token"}
 
-    with patch.object(db, "_client") as mock_client:
-        mock_client.post = AsyncMock(return_value=mock_response)
-        db._client = mock_client
+    mock_client = MagicMock()
+    mock_client.post = AsyncMock(return_value=mock_response)
+    db._client = mock_client
 
-        await db._authenticate()
+    await db._authenticate()
 
-        assert db._admin_token == "new_token"
-        call_args = mock_client.post.call_args
-        assert call_args is not None
-        url = call_args[0][0]
-        assert "api/admins/auth-with-password" in url
+    assert db._admin_token == "new_token"
+    call_args = mock_client.post.call_args
+    assert call_args is not None
+    url = call_args[0][0]
+    assert "api/admins/auth-with-password" in url
 
 
 @pytest.mark.asyncio

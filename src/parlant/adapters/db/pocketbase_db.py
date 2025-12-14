@@ -317,11 +317,16 @@ class PocketBaseDocumentCollection(DocumentCollection[TDocument]):
                         headers=self._database._get_headers(),
                         timeout=30.0,
                     )
+                    response.raise_for_status()
                     if response.status_code == 200:
                         self._collection_ready = True
                         return
-            except httpx.HTTPStatusError:
-                pass
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    # Collection doesn't exist, will create it
+                    pass
+                else:
+                    raise
 
             # Create collection if it doesn't exist
             collection_schema = {

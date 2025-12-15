@@ -89,7 +89,7 @@ class Interaction:
     @staticmethod
     def empty() -> Interaction:
         """Returns an empty interaction state"""
-        return Interaction(history=[])
+        return Interaction(events=[])
 
     @property
     def messages(self) -> Sequence[InteractionMessage]:
@@ -102,7 +102,7 @@ class Interaction:
                 content=cast(MessageEventData, event.data)["message"],
                 creation_utc=event.creation_utc,
             )
-            for event in self.history
+            for event in self.events
             if event.kind == EventKind.MESSAGE
         ]
 
@@ -125,13 +125,13 @@ class Interaction:
     @property
     def last_customer_message_event(self) -> Optional[Event]:
         """Returns the last customer message in the interaction session, if it exists"""
-        for event in reversed(self.history):
+        for event in reversed(self.events):
             if event.kind == EventKind.MESSAGE and event.source == EventSource.CUSTOMER:
                 return event
 
         return None
 
-    history: Sequence[Event]
+    events: Sequence[Event]
     """An sequenced event-by-event representation of the interaction"""
 
 

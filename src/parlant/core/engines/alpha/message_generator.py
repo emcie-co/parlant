@@ -179,7 +179,7 @@ class MessageGenerator(MessageEventComposer):
                             customer=context.customer,
                             session=context.session,
                             context_variables=context.state.context_variables,
-                            interaction_history=context.interaction.history,
+                            interaction_history=context.interaction.events,
                             terms=list(context.state.glossary_terms),
                             capabilities=context.state.capabilities,
                             ordinary_guideline_matches=context.state.ordinary_guideline_matches,

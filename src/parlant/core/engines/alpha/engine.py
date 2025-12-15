@@ -256,7 +256,7 @@ class AlphaEngine(Engine):
         history = await self._entity_queries.find_events(context.session_id)
 
         return Interaction(
-            history=history,
+            events=history,
         )
 
     async def _do_process(
@@ -415,15 +415,12 @@ class AlphaEngine(Engine):
         session = await self._entity_queries.read_session(context.session_id)
         customer = await self._entity_queries.read_customer(session.customer_id)
 
-        # Set entities in context for access by hooks and other components
-        EntityContext.set_entities(agent=agent, customer=customer, session=session)
-
         if load_interaction:
             interaction = await self._load_interaction_state(context)
         else:
             interaction = Interaction([])
 
-        return EngineContext(
+        result = EngineContext(
             info=context,
             logger=self._logger,
             tracer=self._tracer,
@@ -452,6 +449,11 @@ class AlphaEngine(Engine):
                 message_events=[],
             ),
         )
+
+        # Set in context for access by hooks and other components
+        EntityContext.set(result)
+
+        return result
 
     async def _initialize_response_state(
         self,
@@ -1062,7 +1064,7 @@ class AlphaEngine(Engine):
             context.agent,
             context.customer,
             context.state.context_variables,
-            context.interaction.history,
+            context.interaction.events,
             list(context.state.glossary_terms),
             context.state.ordinary_guideline_matches,
             context.state.tool_enabled_guideline_matches,
@@ -1701,8 +1703,8 @@ class AlphaEngine(Engine):
         # We thus build an optimized query here based on our context.
         query = ""
 
-        if context.interaction.history:
-            query += str([e.data for e in context.interaction.history])
+        if context.interaction.events:
+            query += str([e.data for e in context.interaction.events])
 
         if query:
             return await self._entity_queries.find_capabilities_for_agent(
@@ -1724,8 +1726,8 @@ class AlphaEngine(Engine):
         if context.state.context_variables:
             query += f"\n{context_variables_to_json(context.state.context_variables)}"
 
-        if context.interaction.history:
-            query += str([e.data for e in context.interaction.history])
+        if context.interaction.events:
+            query += str([e.data for e in context.interaction.events])
 
         if context.state.guidelines:
             query += str(
@@ -1778,8 +1780,8 @@ class AlphaEngine(Engine):
         if context.state.glossary_terms:
             query += str([t.name for t in context.state.glossary_terms])
 
-        if context.interaction.history:
-            query += str([e.data for e in context.interaction.history])
+        if context.interaction.events:
+            query += str([e.data for e in context.interaction.events])
 
         if query:
             return list(
@@ -1900,7 +1902,7 @@ class AlphaEngine(Engine):
                 session=session,
                 customer=context.customer,
                 context_variables=context.state.context_variables,
-                interaction_history=context.interaction.history,
+                interaction_history=context.interaction.events,
                 terms=list(context.state.glossary_terms),
                 staged_tool_events=context.state.tool_events,
                 staged_message_events=context.state.message_events,

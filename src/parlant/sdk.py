@@ -3002,6 +3002,16 @@ class ToolContextAccessor:
         return cast(Server, self.context.plugin_data["server"])
 
     @property
+    def current_interaction(self) -> Interaction:
+        """Returns the engine context associated with the tool context."""
+        interaction = EntityContext.get_interaction()
+
+        if interaction is None:
+            raise RuntimeError("No interaction available in current context")
+
+        return interaction
+
+    @property
     def logger(self) -> Logger:
         """Returns the logger associated with the context."""
         return self.server._container[Logger]

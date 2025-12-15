@@ -178,7 +178,7 @@ class BasicPerceivedPerformancePolicy(PerceivedPerformancePolicy):
         last_agent_message = next(
             (
                 e
-                for e in reversed(context.interaction.history)
+                for e in reversed(context.interaction.events)
                 if e.kind == EventKind.MESSAGE and e.source == EventSource.AI_AGENT
             ),
             None,
@@ -194,7 +194,7 @@ class BasicPerceivedPerformancePolicy(PerceivedPerformancePolicy):
     def _calculate_previous_customer_wait_times(self, context: EngineContext) -> list[float]:
         result = []
 
-        message_events = [e for e in context.interaction.history if e.kind == EventKind.MESSAGE]
+        message_events = [e for e in context.interaction.events if e.kind == EventKind.MESSAGE]
 
         customer_events = [e for e in message_events if e.source == EventSource.CUSTOMER]
         agent_events = [e for e in message_events if e.source == EventSource.AI_AGENT]

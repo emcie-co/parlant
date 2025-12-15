@@ -644,7 +644,7 @@ class CannedResponseGenerator(MessageEventComposer):
             customer=context.customer,
             session=context.session,
             context_variables=context.state.context_variables,
-            interaction_history=context.interaction.history,
+            interaction_history=context.interaction.events,
             terms=list(context.state.glossary_terms),
             ordinary_guideline_matches=context.state.ordinary_guideline_matches,
             tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
@@ -1034,7 +1034,7 @@ You will now be given the current state of the interaction to which you must gen
         customer = loaded_context.customer
         session = loaded_context.session
         context_variables = loaded_context.state.context_variables
-        interaction_history = loaded_context.interaction.history
+        interaction_history = loaded_context.interaction.events
         terms = list(loaded_context.state.glossary_terms)
         ordinary_guideline_matches = loaded_context.state.ordinary_guideline_matches
         journeys = loaded_context.state.journeys

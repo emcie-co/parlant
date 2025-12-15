@@ -2,8 +2,6 @@ import copy
 from dataclasses import dataclass, field
 from enum import Enum
 import json
-
-# import os
 import traceback
 from typing import Any, List, Optional, Sequence, Set, Tuple, cast
 from parlant.core.common import DefaultBaseModel, JSONSerializable
@@ -596,10 +594,6 @@ Example section is over. The following is the real data you need to use for your
             props={"output_format": self._get_output_format_section(node, children_info)},
         )
 
-        # os.makedirs("dumps/journey/journey reachable evaluation", exist_ok=True)
-
-        # with open("dumps/journey/journey reachable evaluation/prompt.txt", "w") as f:
-        #     f.write(builder.build())
         return builder
 
     def _sort_by_transition_condition(
@@ -691,11 +685,6 @@ OUTPUT FORMAT
                 )
 
                 self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
-
-                # with open("dumps/journey/journey reachable evaluation/output.txt", "w") as f:
-                #     f.write(inference.content.model_dump_json(indent=2))
-                # with open("dumps/journey/journey reachable evaluation/duration.txt", "a") as f:
-                #     f.write(f"{inference.info.duration}\n")
 
                 reachable_follow_ups = []
 

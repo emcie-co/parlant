@@ -2,8 +2,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 import json
-
-# import os
 import traceback
 from typing import Any, Optional, Sequence, cast
 from parlant.core.common import Criticality, DefaultBaseModel, JSONSerializable
@@ -253,15 +251,6 @@ class JourneyNextStepSelection:
                     },
                 )
                 self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
-
-                # with open("dumps/journey/journey next step/output.txt", "w") as f:
-                #     f.write(inference.content.model_dump_json(indent=2))
-                # with open("dumps/journey/journey next step/input tokens.txt", "a") as f:
-                #     f.write(f"{inference.info.usage.input_tokens}\n")
-                # with open("dumps/journey/journey next step/output tokens.txt", "a") as f:
-                #     f.write(f"{inference.info.usage.output_tokens}\n")
-                # with open("dumps/journey/journey next step/duration.txt", "a") as f:
-                #     f.write(f"{inference.info.duration}\n")
 
                 if inference.content.applied_condition_id:
                     if inference.content.applied_condition_id == "None":
@@ -640,10 +629,7 @@ OUTPUT FORMAT
             name="journey-general_reminder-section",
             template="""Reminder - carefully consider all restraints and instructions. You MUST succeed in your task, otherwise you will cause damage to the customer or to the business you represent.""",
         )
-        # os.makedirs("dumps/journey/journey next step", exist_ok=True)
 
-        # with open("dumps/journey/journey next step/prompt.txt", "w") as f:
-        #     f.write(builder.build())
         return builder
 
 

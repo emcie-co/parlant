@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
-import os
 import traceback
 from typing import Any, Sequence, cast
 from parlant.core.common import Criticality, DefaultBaseModel, JSONSerializable
@@ -330,16 +329,6 @@ class JourneyBacktrackCheck:
                     hints={"temperature": generation_attempt_temperatures[generation_attempt]},
                 )
 
-                # with open("dumps/journey/journey backtrack check/output.txt", "w") as f:
-                #     f.write(f"Duration: {inference.info.duration} \n")
-                #     f.write(inference.content.model_dump_json(indent=2))
-                # with open("dumps/journey/journey backtrack check/input tokens.txt", "a") as f:
-                #     f.write(f"{inference.info.usage.input_tokens}\n")
-                # with open("dumps/journey/journey backtrack check/output tokens.txt", "a") as f:
-                #     f.write(f"{inference.info.usage.output_tokens}\n")
-                # with open("dumps/journey/journey backtrack check/duration.txt", "a") as f:
-                #     f.write(f"{inference.info.duration}\n")
-
                 self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
                 if not inference.content.requires_backtracking:
@@ -445,10 +434,7 @@ class JourneyBacktrackCheck:
             template="""{output_format}""",
             props={"output_format": self._get_output_format_section()},
         )
-        os.makedirs("dumps/journey/journey backtrack check", exist_ok=True)
 
-        # with open("dumps/journey/journey backtrack check/prompt.txt", "w") as f:
-        #     f.write(builder.build())
         return builder
 
     def _get_output_format_section(self) -> str:

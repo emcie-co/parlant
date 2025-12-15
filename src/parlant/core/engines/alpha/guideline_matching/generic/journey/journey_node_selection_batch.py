@@ -213,7 +213,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                     journey_path=[],
                     journey_conditions=journey_conditions,
                 )
-                return await next_step_selector.process()  # TODO catch error??
+                return await next_step_selector.process()
             elif (
                 self._previous_path
                 and not all(p is None for p in self._previous_path)
@@ -328,4 +328,4 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                         )
                         return await node_selector.process()
                     else:
-                        return await next_step_task  # TODO make next step run from start
+                        return await next_step_task

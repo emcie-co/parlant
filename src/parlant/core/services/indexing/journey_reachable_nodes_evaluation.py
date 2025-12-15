@@ -21,8 +21,8 @@ from parlant.core.shots import Shot, ShotCollection
 PRE_ROOT_INDEX = "0"
 ROOT_INDEX = "1"
 REMINDER_OF_ACTION_TYPE_CURRENT = "Reminder: when stating whether step_action has been completed, consider the rules for CUSTOMER DEPENDENT ACTION - CUSTOMER'S perspective or REQUIRES AGENT ACTION - AGENT'S perspective"
-REMINDER_OF_ACTION_TYPE_CHILD = "Reminder: when stating whether child_action has not been completed, consider the rules for CUSTOMER DEPENDENT ACTION - CUSTOMER'S perspective or REQUIRES AGENT ACTION - AGENT'S perspective"
-REMINDER_OF_ACTION_TYPE_NOT_CHILD = "Reminder: when stating whether child_action has been completed, consider the rules for CUSTOMER DEPENDENT ACTION - CUSTOMER'S perspective or REQUIRES AGENT ACTION - AGENT'S perspective"
+REMINDER_OF_ACTION_TYPE_CHILD = "Reminder: when stating whether child_action has been completed, consider the rules for CUSTOMER DEPENDENT ACTION - CUSTOMER'S perspective or REQUIRES AGENT ACTION - AGENT'S perspective"
+REMINDER_OF_ACTION_TYPE_NOT_CHILD = "Reminder: when stating whether child_action has not been completed, consider the rules for CUSTOMER DEPENDENT ACTION - CUSTOMER'S perspective or REQUIRES AGENT ACTION - AGENT'S perspective"
 
 REMINDER_OPTIONS = "Reminder: when stating an action completion consider Condition Clarity and Specificity, include all options in conditions"
 
@@ -97,9 +97,6 @@ class JourneyReachableNodesEvaluationShot(Shot):
     node: _JourneyNode
     children_info: dict[str, _ChildInfo]
     expected_result: ReachableNodesEvaluationSchema
-
-
-# TODO use internal representation
 
 
 class JourneyReachableNodesEvaluator:
@@ -409,7 +406,7 @@ class JourneyReachableNodesEvaluator:
     ) -> str:
         desc = ""
 
-        if node.action:  # TODO add customer dependent info
+        if node.action:
             desc += f"""
 Current node action:
     {node.action} """
@@ -419,14 +416,14 @@ Current node action:
         if node.customer_dependent_action:
             desc += """
 - CUSTOMER DEPENDENT: This action requires an action from the customer to be considered complete. Mark it as complete if the customer answered the question in the action, if there is one."""
-        if node.customer_action_description:
-            desc += f"""
+            if node.customer_action_description:
+                desc += f"""
 - The action is completed if: {node.customer_action_description}"""
-        if node.agent_dependent_action:
+        elif node.agent_dependent_action:
             desc += """
 - REQUIRES AGENT ACTION: This step requires from the agent to say something for it to be completed."""
-        if node.agent_action_description:
-            desc += f"""
+            if node.agent_action_description:
+                desc += f"""
 - The action is completed if: {node.agent_action_description}"""
 
         if children_info:
@@ -516,7 +513,7 @@ The information you will have for each of the children steps is:
 
 The rule for creating the conditions for the given node is as follows:
 
-1. **condition_to_child_and_stop**: The transition condition to reach the child is satisfied AND the child's action has NOT been completed yet
+1. **condition_to_child_and_stop**: The transition condition to reach the child is satisfied AND the child's action (child_action) has NOT been completed yet
 
 2. **condition_to_child_then_to_path**: For each possible path forward from the child, combine:
    - child_action - The child's action was completed 

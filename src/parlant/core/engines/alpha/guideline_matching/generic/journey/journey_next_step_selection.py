@@ -158,9 +158,7 @@ class JourneyNextStepSelection:
 
             if kind == JourneyNodeKind.FORK:
                 action: str = FORK_NODE_ACTION_STR
-            elif not internal_representation(
-                guideline
-            ).action:  # TODO - make sure that we don't get here with terminated node
+            elif not internal_representation(guideline).action:
                 action = FORK_NODE_ACTION_STR
             else:
                 action = cast(str, internal_representation(guideline).action)
@@ -250,7 +248,9 @@ class JourneyNextStepSelection:
             try:
                 inference = await self._schematic_generator.generate(
                     prompt=prompt,
-                    hints={"temperature": generation_attempt_temperatures[generation_attempt]},
+                    hints={
+                        "temperature": generation_attempt_temperatures[generation_attempt],
+                    },
                 )
                 self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 

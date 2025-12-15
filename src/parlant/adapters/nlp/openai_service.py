@@ -582,7 +582,7 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
                     JourneyNodeSelectionSchema: GPT_4_1[JourneyNodeSelectionSchema],
                     CannedResponseDraftSchema: GPT_4_1[CannedResponseDraftSchema],
                     CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
-                    JourneyNextStepSelectionSchema: GPT_4_1_Mini[JourneyNextStepSelectionSchema],
+                    JourneyNextStepSelectionSchema: GPT_4_1[JourneyNextStepSelectionSchema],
                     JourneyBacktrackCheckSchema: GPT_4_1_Mini[JourneyBacktrackCheckSchema],
                 }.get(t, GPT_4o_24_08_06[t])(self._logger, self._tracer, self._meter)  # type: ignore
             case ModelSize.NANO:

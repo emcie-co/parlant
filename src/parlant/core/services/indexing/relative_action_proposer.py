@@ -3,7 +3,7 @@ import json
 import traceback
 from typing import Optional, Sequence
 from parlant.core.common import DefaultBaseModel
-from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
     _JourneyEdge,
     _JourneyNode,
     JourneyNodeKind,

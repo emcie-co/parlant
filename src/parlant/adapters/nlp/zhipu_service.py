@@ -15,6 +15,9 @@
 from __future__ import annotations
 from itertools import chain
 import time
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
+    JourneyBacktrackNodeSelectionSchema,
+)
 from zhipuai import ZhipuAI  # type: ignore
 from zhipuai.core._errors import (  # type: ignore
     APIConnectionError,
@@ -36,9 +39,6 @@ from parlant.adapters.nlp.common import normalize_json_output, record_llm_metric
 from parlant.core.engines.alpha.canned_response_generator import (
     CannedResponseDraftSchema,
     CannedResponseSelectionSchema,
-)
-from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
-    JourneyNodeSelectionSchema,
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.engines.alpha.tool_calling.single_tool_batch import SingleToolBatchSchema
@@ -615,7 +615,7 @@ To obtain an API key:
         """
         return {
             SingleToolBatchSchema: GLM_4_Flash[SingleToolBatchSchema],
-            JourneyNodeSelectionSchema: GLM_4_Plus[JourneyNodeSelectionSchema],
+            JourneyBacktrackNodeSelectionSchema: GLM_4_Plus[JourneyBacktrackNodeSelectionSchema],
             CannedResponseDraftSchema: GLM_4_Plus[CannedResponseDraftSchema],
             CannedResponseSelectionSchema: GLM_4_Plus[CannedResponseSelectionSchema],
         }.get(t, GLM_4_Flash[t])(self._logger, self._tracer, self._meter)  # type: ignore

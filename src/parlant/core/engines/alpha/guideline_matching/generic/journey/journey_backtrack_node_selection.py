@@ -6,19 +6,10 @@ from enum import Enum
 import json
 import traceback
 from typing import Any, Optional, cast
-from typing_extensions import override
-from parlant.core import async_utils
 from parlant.core.common import Criticality, DefaultBaseModel, JSONSerializable
-
-from parlant.core.engines.alpha.guideline_matching.common import measure_guideline_matching_batch
-from parlant.core.engines.alpha.guideline_matching.generic.common import (
-    internal_representation,
-)
-from parlant.core.engines.alpha.guideline_matching.guideline_match import (
-    GuidelineMatch,
-)
+from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
-    GuidelineMatchingBatch,
     GuidelineMatchingBatchError,
     GuidelineMatchingBatchResult,
 )
@@ -30,11 +21,10 @@ from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
-from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
+
 
 PRE_ROOT_INDEX = "0"
 ROOT_INDEX = "1"
@@ -83,7 +73,6 @@ class _JourneyNode:  # Refactor after node type is implemented
     outgoing_edges: list[_JourneyEdge]
     kind: JourneyNodeKind
     customer_dependent_action: bool
-    description: Optional[str] = None
     customer_action_description: Optional[str] = None
     agent_dependent_action: Optional[bool] = None
     agent_action_description: Optional[str] = None
@@ -95,7 +84,7 @@ class JourneyNodeAdvancement(DefaultBaseModel):
     follow_ups: Optional[list[str]] = None
 
 
-class JourneyNodeSelectionSchema(DefaultBaseModel):
+class JourneyBacktrackNodeSelectionSchema(DefaultBaseModel):
     rationale: str | None = None
     journey_applies: bool | None = None
     requires_backtracking: bool | None = None
@@ -110,8 +99,96 @@ class JourneyNodeSelectionShot(Shot):
     journey_title: str
     journey_nodes: dict[str, _JourneyNode] | None
     previous_path: Sequence[str | None]
-    expected_result: JourneyNodeSelectionSchema
+    expected_result: JourneyBacktrackNodeSelectionSchema
     conditions: Sequence[str]
+
+
+def build_node_wrappers(guidelines: Sequence[Guideline]) -> dict[str, _JourneyNode]:
+    def _get_guideline_node_index(guideline: Guideline) -> str:
+        return str(
+            cast(dict[str, JSONSerializable], guideline.metadata["journey_node"]).get(
+                "index", "-1"
+            ),
+        )
+
+    guideline_id_to_guideline: dict[GuidelineId, Guideline] = {g.id: g for g in guidelines}
+    guideline_id_to_node_index: dict[GuidelineId, str] = {
+        g.id: _get_guideline_node_index(g) for g in guidelines
+    }
+    node_wrappers: dict[str, _JourneyNode] = {}
+
+    # Build nodes
+    for g in guidelines:
+        node_index: str = guideline_id_to_node_index[g.id]
+        if node_index not in node_wrappers:
+            kind = JourneyNodeKind(
+                cast(dict[str, Any], g.metadata.get("journey_node", {})).get("kind", "NA")
+            )
+            customer_dependent_action = cast(
+                dict[str, bool], g.metadata.get("customer_dependent_action_data", {})
+            ).get("is_customer_dependent", False)
+            node_wrappers[node_index] = _JourneyNode(
+                id=_get_guideline_node_index(g),
+                action=FORK_NODE_ACTION_STR
+                if kind == JourneyNodeKind.FORK
+                else internal_representation(g).action,
+                incoming_edges=[],
+                outgoing_edges=[],
+                kind=kind,
+                customer_dependent_action=customer_dependent_action,
+                customer_action_description=cast(
+                    dict[str, str | None], g.metadata.get("customer_dependent_action_data", {})
+                ).get("customer_action", None),
+                agent_dependent_action=cast(
+                    dict[str, bool], g.metadata.get("customer_dependent_action_data", {})
+                ).get(
+                    "is_agent_dependent",
+                    not customer_dependent_action and kind == JourneyNodeKind.CHAT,
+                ),
+                agent_action_description=cast(
+                    dict[str, str | None], g.metadata.get("customer_dependent_action_data", {})
+                ).get("agent_action", None),
+            )
+
+    # Build edges
+    registered_edges: set[tuple[str, str]] = set()
+    for g in guidelines:
+        source_node_index: str = guideline_id_to_node_index[g.id]
+        for followup_id in cast(
+            dict[str, Sequence[GuidelineId]], g.metadata.get("journey_node", {})
+        ).get("follow_ups", []):
+            followup_node_index: str = guideline_id_to_node_index[GuidelineId(followup_id)]
+            followup_guideline = next((g for g in guidelines if g.id == followup_id), None)
+            if (
+                followup_guideline
+                and (source_node_index, followup_node_index) not in registered_edges
+            ):
+                edge = _JourneyEdge(
+                    target_guideline=guideline_id_to_guideline[followup_id],
+                    condition=guideline_id_to_guideline[followup_id].content.condition,
+                    source_node_index=source_node_index,
+                    target_node_index=followup_node_index,
+                )
+                node_wrappers[source_node_index].outgoing_edges.append(edge)
+                node_wrappers[followup_node_index].incoming_edges.append(edge)
+                registered_edges.add((source_node_index, followup_node_index))
+    if (
+        ROOT_INDEX in node_wrappers
+        and node_wrappers[ROOT_INDEX].action
+        and len(node_wrappers[ROOT_INDEX].incoming_edges) == 0
+    ):
+        node_wrappers[ROOT_INDEX].incoming_edges.append(
+            _JourneyEdge(
+                target_guideline=next(
+                    g for g in guidelines if _get_guideline_node_index(g) == ROOT_INDEX
+                ),
+                condition=None,
+                source_node_index=PRE_ROOT_INDEX,
+                target_node_index=ROOT_INDEX,
+            )
+        )
+
+    return node_wrappers
 
 
 def get_pruned_nodes(
@@ -159,92 +236,6 @@ def get_pruned_nodes(
     if not pruned_nodes:  # Recover in case some unexpected error caused all nodes to be pruned
         return get_pruned_nodes(nodes, [], max_depth)
     return pruned_nodes
-
-
-def build_node_wrappers(guidelines: Sequence[Guideline]) -> dict[str, _JourneyNode]:
-    def _get_guideline_node_index(guideline: Guideline) -> str:
-        return str(
-            cast(dict[str, JSONSerializable], guideline.metadata["journey_node"]).get(
-                "index", "-1"
-            ),
-        )
-
-    guideline_id_to_guideline: dict[GuidelineId, Guideline] = {g.id: g for g in guidelines}
-    guideline_id_to_node_index: dict[GuidelineId, str] = {
-        g.id: _get_guideline_node_index(g) for g in guidelines
-    }
-    node_wrappers: dict[str, _JourneyNode] = {}
-
-    # Build nodes
-    for g in guidelines:
-        node_index: str = guideline_id_to_node_index[g.id]
-        if node_index not in node_wrappers:
-            kind = JourneyNodeKind(
-                cast(dict[str, Any], g.metadata.get("journey_node", {})).get("kind", "NA")
-            )
-            customer_dependent_action = cast(
-                dict[str, bool], g.metadata.get("customer_dependent_action_data", {})
-            ).get("is_customer_dependent", False)
-            node_wrappers[node_index] = _JourneyNode(
-                id=_get_guideline_node_index(g),
-                action=FORK_NODE_ACTION_STR
-                if kind == JourneyNodeKind.FORK
-                else internal_representation(g).action,
-                incoming_edges=[],
-                outgoing_edges=[],
-                kind=kind,
-                customer_dependent_action=customer_dependent_action,
-                description=internal_representation(g).description,
-                customer_action_description=cast(
-                    dict[str, str | None], g.metadata.get("customer_dependent_action_data", {})
-                ).get("customer_action", None),
-                agent_dependent_action=cast(
-                    dict[str, bool], g.metadata.get("customer_dependent_action_data", {})
-                ).get("is_agent_dependent", not customer_dependent_action),
-                agent_action_description=cast(
-                    dict[str, str | None], g.metadata.get("customer_dependent_action_data", {})
-                ).get("agent_action", None),
-            )
-
-    # Build edges
-    registered_edges: set[tuple[str, str]] = set()
-    for g in guidelines:
-        source_node_index: str = guideline_id_to_node_index[g.id]
-        for followup_id in cast(
-            dict[str, Sequence[GuidelineId]], g.metadata.get("journey_node", {})
-        ).get("follow_ups", []):
-            followup_node_index: str = guideline_id_to_node_index[GuidelineId(followup_id)]
-            followup_guideline = next((g for g in guidelines if g.id == followup_id), None)
-            if (
-                followup_guideline
-                and (source_node_index, followup_node_index) not in registered_edges
-            ):
-                edge = _JourneyEdge(
-                    target_guideline=guideline_id_to_guideline[followup_id],
-                    condition=guideline_id_to_guideline[followup_id].content.condition,
-                    source_node_index=source_node_index,
-                    target_node_index=followup_node_index,
-                )
-                node_wrappers[source_node_index].outgoing_edges.append(edge)
-                node_wrappers[followup_node_index].incoming_edges.append(edge)
-                registered_edges.add((source_node_index, followup_node_index))
-    if (
-        ROOT_INDEX in node_wrappers
-        and node_wrappers[ROOT_INDEX].action
-        and len(node_wrappers[ROOT_INDEX].incoming_edges) == 0
-    ):
-        node_wrappers[ROOT_INDEX].incoming_edges.append(
-            _JourneyEdge(
-                target_guideline=next(
-                    g for g in guidelines if _get_guideline_node_index(g) == ROOT_INDEX
-                ),
-                condition=None,
-                source_node_index=PRE_ROOT_INDEX,
-                target_node_index=ROOT_INDEX,
-            )
-        )
-
-    return node_wrappers
 
 
 def get_journey_transition_map_text(
@@ -330,8 +321,9 @@ def get_journey_transition_map_text(
     )
     first_node_to_execute: str | None = None
     nodes_str = ""
-    displayed_node_action = ""
     for node_index in sorted(unpruned_nodes.keys(), key=node_sort_key):
+        displayed_node_action = ""
+
         node: _JourneyNode = nodes[node_index]
         print_node = True
         flags_str = "Step Flags:\n"
@@ -362,9 +354,13 @@ def get_journey_transition_map_text(
             flags_str += "- REQUIRES AGENT ACTION: This step may require the agent to say something for it to be completed. Only advance through it if the agent performed the described action.\n"
 
         # Node kind flags
-        if node.kind in {JourneyNodeKind.CHAT, JourneyNodeKind.NA} and node.action is None:
+        if (
+            node.kind in {JourneyNodeKind.CHAT, JourneyNodeKind.NA}
+            and node.action is None
+            and len(node.outgoing_edges) <= 1
+        ):
             print_node = False
-        elif node.kind == JourneyNodeKind.FORK:
+        elif node.kind == JourneyNodeKind.FORK or displayed_node_action == FORK_NODE_ACTION_STR:
             displayed_node_action = FORK_NODE_ACTION_STR
             flags_str += "- NEVER OUTPUT THIS STEP AS NEXT_STEP: This step is transitional and should never be returned as the next_step. Always advance onwards from it.\n"
         else:
@@ -386,9 +382,8 @@ def get_journey_transition_map_text(
         elif node.id != ROOT_INDEX:
             flags_str += "- NOT PREVIOUSLY EXECUTED: This step was not previously executed. You may not backtrack to this step.\n"
         if print_node:
-            description_str = f"\nDescription: {node.description}" if node.description else ""
             nodes_str += f"""
-STEP {node_index}: {displayed_node_action}{description_str}
+STEP {node_index}: {displayed_node_action}
 {flags_str}
 TRANSITIONS:
 {get_node_transition_text(node)}
@@ -402,159 +397,116 @@ Steps:
 """
 
 
-class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
+class JourneyBacktrackNodeSelection:
     def __init__(
         self,
         logger: Logger,
-        meter: Meter,
         guideline_store: GuidelineStore,
         optimization_policy: OptimizationPolicy,
-        schematic_generator: SchematicGenerator[JourneyNodeSelectionSchema],
+        schematic_generator: SchematicGenerator[JourneyBacktrackNodeSelectionSchema],
         examined_journey: Journey,
         context: GuidelineMatchingContext,
         node_guidelines: Sequence[Guideline] = [],
         journey_path: Sequence[str | None] = [],
+        journey_conditions: Sequence[Guideline] = [],
     ) -> None:
         self._logger = logger
-        self._meter = meter
 
         self._guideline_store = guideline_store
 
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
         self._node_wrappers: dict[str, _JourneyNode] = build_node_wrappers(node_guidelines)
+        self._root_guideline = self._get_root(node_guidelines)
         self._context = context
         self._examined_journey = examined_journey
         self._previous_path: Sequence[str | None] = journey_path
+        self._journey_conditions = journey_conditions
 
-    @property
-    @override
-    def size(self) -> int:
-        return 1
+    def _get_root(self, node_guidelines: Sequence[Guideline]) -> Guideline:
+        def _get_guideline_node_index(guideline: Guideline) -> str:
+            return str(
+                cast(dict[str, JSONSerializable], guideline.metadata["journey_node"]).get(
+                    "index", "-1"
+                ),
+            )
 
-    def auto_return_match(self) -> GuidelineMatchingBatchResult | None:
-        if self._previous_path and self._previous_path[-1] in self._node_wrappers:
-            last_visited_node = self._node_wrappers[self._previous_path[-1]]
-            if (
-                last_visited_node.kind == JourneyNodeKind.TOOL
-                and len(last_visited_node.outgoing_edges) == 1
-            ):
-                generation_info = GenerationInfo(
-                    schema_name="No inference performed",
-                    model="No inference performed",
-                    duration=0.0,
-                    usage=UsageInfo(
-                        input_tokens=0,
-                        output_tokens=0,
-                        extra={},
-                    ),
-                )
-                if last_visited_node.outgoing_edges[0].target_guideline:
-                    return GuidelineMatchingBatchResult(
-                        matches=[
-                            GuidelineMatch(
-                                guideline=last_visited_node.outgoing_edges[0].target_guideline,
-                                score=10,
-                                rationale="This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. It was automatically selected as the only viable follow up for the last step that was executed",
-                                metadata={
-                                    "journey_path": [
-                                        last_visited_node.id,
-                                        last_visited_node.outgoing_edges[0].target_node_index,
-                                    ],
-                                    "step_selection_journey_id": self._examined_journey.id,
-                                },
-                            )
-                        ],
-                        generation_info=generation_info,
-                    )
-                else:
-                    return GuidelineMatchingBatchResult(matches=[], generation_info=generation_info)
-        return None
+        return next(g for g in node_guidelines if _get_guideline_node_index(g) == ROOT_INDEX)
 
-    @override
     async def process(self) -> GuidelineMatchingBatchResult:
-        automatic_match = self.auto_return_match()
-        if automatic_match:
-            return automatic_match  # TODO fix this
+        prompt = self._build_prompt(shots=await self.shots())
 
-        journey_conditions = list(
-            await async_utils.safe_gather(
-                *[
-                    self._guideline_store.read_guideline(c)
-                    for c in self._examined_journey.conditions
-                ]
+        generation_attempt_temperatures = (
+            self._optimization_policy.get_guideline_matching_batch_retry_temperatures(
+                hints={"type": self.__class__.__name__}
             )
         )
 
-        async with measure_guideline_matching_batch(self._meter, self):
-            prompt = self._build_prompt(journey_conditions, shots=await self.shots())
+        last_generation_exception: Exception | None = None
 
-            generation_attempt_temperatures = (
-                self._optimization_policy.get_guideline_matching_batch_retry_temperatures(
-                    hints={"type": self.__class__.__name__}
+        for generation_attempt in range(3):
+            try:
+                inference = await self._schematic_generator.generate(
+                    prompt=prompt,
+                    hints={"temperature": generation_attempt_temperatures[generation_attempt]},
                 )
-            )
+                self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
 
-            last_generation_exception: Exception | None = None
+                journey_path = self._get_verified_node_advancement(inference.content)
 
-            for generation_attempt in range(3):
-                try:
-                    inference = await self._schematic_generator.generate(
-                        prompt=prompt,
-                        hints={"temperature": generation_attempt_temperatures[generation_attempt]},
-                    )
-                    self._logger.trace(
-                        f"Completion:\n{inference.content.model_dump_json(indent=2)}"
-                    )
-
-                    journey_path = self._get_verified_node_advancement(inference.content)
-
-                    # Get correct guideline to return based on the transition into next_step  TODO consider surrounding with try catch specifically
-                    matched_guideline: Guideline | None = None
-                    if inference.content.next_step in self._node_wrappers:
-                        if len(journey_path) > 1 and [
+                # Get correct guideline to return based on the transition into next_step  TODO consider surrounding with try catch specifically
+                matched_guideline: Guideline | None = None
+                if inference.content.next_step in self._node_wrappers:
+                    if len(journey_path) > 1 and [
+                        e
+                        for e in self._node_wrappers[inference.content.next_step].incoming_edges
+                        if e.source_node_index == journey_path[-2]
+                    ]:
+                        matched_guideline = next(
                             e
                             for e in self._node_wrappers[inference.content.next_step].incoming_edges
                             if e.source_node_index == journey_path[-2]
-                        ]:
-                            matched_guideline = next(
-                                e
-                                for e in self._node_wrappers[
-                                    inference.content.next_step
-                                ].incoming_edges
-                                if e.source_node_index == journey_path[-2]
-                            ).target_guideline
-                        else:
-                            matched_guideline = (
-                                self._node_wrappers[inference.content.next_step]
-                                .incoming_edges[0]
-                                .target_guideline
-                            )
-                    # TODO how do we return the path if we're exiting the journey?
-                    return GuidelineMatchingBatchResult(
-                        matches=[
-                            GuidelineMatch(
-                                guideline=matched_guideline,
-                                score=10,
-                                rationale=f"This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. Use this rationale to better understand how the conversation got to its current point. The rationale for choosing this specific step in the journey was: {inference.content.rationale}",
-                                metadata={
-                                    "journey_path": journey_path,
-                                    "step_selection_journey_id": self._examined_journey.id,
-                                },
-                            )
-                        ]
-                        if matched_guideline  # If either 'None' or an illegal step was returned, don't activate guidelines
-                        else [],
-                        generation_info=inference.info,
-                    )
-                except Exception as exc:
-                    self._logger.warning(
-                        f"Attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
-                    )
+                        ).target_guideline
+                    else:
+                        matched_guideline = (
+                            self._node_wrappers[inference.content.next_step]
+                            .incoming_edges[0]
+                            .target_guideline
+                        )
+                return GuidelineMatchingBatchResult(
+                    matches=[
+                        GuidelineMatch(
+                            guideline=matched_guideline,
+                            score=10,
+                            rationale=f"This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. Use this rationale to better understand how the conversation got to its current point. The rationale for choosing this specific step in the journey was: {inference.content.rationale}",
+                            metadata={
+                                "journey_path": list(self._previous_path) + journey_path,
+                                "step_selection_journey_id": self._examined_journey.id,
+                            },
+                        )
+                    ]
+                    if matched_guideline  # If either 'None' or an illegal step was returned, return root guideline, a place holder for "exit journey"
+                    else [
+                        GuidelineMatch(
+                            guideline=self._root_guideline,
+                            score=10,
+                            rationale=f"Root guideline was selected indicating should exit the journey, the rational for this choice: {inference.content.rationale}",
+                            metadata={
+                                "journey_path": list(self._previous_path) + journey_path + [None],
+                                "step_selection_journey_id": self._examined_journey.id,
+                            },
+                        )
+                    ],
+                    generation_info=inference.info,
+                )
+            except Exception as exc:
+                self._logger.warning(
+                    f"Attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                )
 
-                    last_generation_exception = exc
+                last_generation_exception = exc
 
-            raise GuidelineMatchingBatchError() from last_generation_exception
+        raise GuidelineMatchingBatchError() from last_generation_exception
 
     async def shots(self) -> Sequence[JourneyNodeSelectionShot]:
         return await shot_collection.list()
@@ -603,8 +555,8 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                             condition=c,
                             action=None,
                         ),
-                        criticality=Criticality.MEDIUM,
                         enabled=False,
+                        criticality=Criticality.HIGH,
                         tags=[],
                     )
                     for i, c in enumerate(shot.conditions)
@@ -618,11 +570,10 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
 {json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
 ```
 """
-
         return formatted_shot
 
     def _get_verified_node_advancement(
-        self, response: JourneyNodeSelectionSchema
+        self, response: JourneyBacktrackNodeSelectionSchema
     ) -> list[str | None]:
         def add_and_remove_list_values(
             list_to_alter: list[Any],
@@ -726,7 +677,6 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
 
     def _build_prompt(
         self,
-        journey_conditions: Sequence[Guideline],
         shots: Sequence[JourneyNodeSelectionShot],
     ) -> PromptBuilder:
         builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
@@ -825,7 +775,6 @@ Example section is over. The following is the real data you need to use for your
         builder.add_context_variables(self._context.context_variables)
         builder.add_glossary(self._context.terms)
         builder.add_capabilities_for_guideline_matching(self._context.capabilities)
-        builder.add_customer_identity(self._context.customer, self._context.session)
         builder.add_interaction_history(self._context.interaction_history)
         builder.add_staged_tool_events(self._context.staged_events)
 
@@ -839,7 +788,7 @@ Example section is over. The following is the real data you need to use for your
                 nodes=self._node_wrappers,
                 journey_title=self._examined_journey.title,
                 previous_path=self._previous_path,
-                journey_conditions=journey_conditions,
+                journey_conditions=self._journey_conditions,
                 journey_description=self._examined_journey.description,
                 print_customer_action_description=True,
                 to_prune=True,
@@ -855,6 +804,7 @@ Example section is over. The following is the real data you need to use for your
             name="journey-general_reminder-section",
             template="""Reminder - carefully consider all restraints and instructions. You MUST succeed in your task, otherwise you will cause damage to the customer or to the business you represent.""",
         )
+
         return builder
 
     def _get_output_format_section(self) -> str:
@@ -895,8 +845,8 @@ def _make_event(e_id: str, source: EventSource, message: str) -> Event:
         offset=0,
         trace_id="",
         data={"message": message},
-        metadata={},
         deleted=False,
+        metadata={},
     )
 
 
@@ -996,7 +946,7 @@ example_1_journey_nodes = {
 }
 
 
-example_1_expected = JourneyNodeSelectionSchema(
+example_1_expected = JourneyBacktrackNodeSelectionSchema(
     journey_applies=True,
     requires_backtracking=False,
     rationale="The last step was completed. Customer asks about visas, which is unrelated to exploring cities, so step 4 should be activated",
@@ -1121,7 +1071,7 @@ book_taxi_shot_journey_nodes = {
         incoming_edges=[
             _JourneyEdge(
                 target_guideline=None,
-                condition="the desired pick up location is in NYC",
+                condition=None,
                 source_node_index="3",
                 target_node_index="5",
             )
@@ -1277,7 +1227,7 @@ random_actions_journey_nodes = {
     ),
 }
 
-example_2_expected = JourneyNodeSelectionSchema(
+example_2_expected = JourneyBacktrackNodeSelectionSchema(
     journey_applies=True,
     rationale="The customer provided a pick up location in NYC, a destination and a pick up time, allowing me to fast-forward through steps 2, 3, 5. I must stop at the next step, 6, because it requires tool calling.",
     requires_backtracking=False,
@@ -1305,7 +1255,7 @@ example_3_events = [
     ),
 ]
 
-example_3_expected = JourneyNodeSelectionSchema(
+example_3_expected = JourneyBacktrackNodeSelectionSchema(
     journey_applies=True,
     rationale="The customer provided a pick up location in NYC and a destination, allowing us to fast-forward through steps 1, 2 and 3. Step 5 requires asking for a pick up time, which the customer has yet to provide. We must therefore activate step 5.",
     requires_backtracking=False,
@@ -1396,7 +1346,7 @@ example_4_events = [
     ),
 ]
 
-example_4_expected = JourneyNodeSelectionSchema(
+example_4_expected = JourneyBacktrackNodeSelectionSchema(
     journey_applies=True,
     requires_backtracking=True,
     rationale="The customer is changing their pickup location decision that was made in step 2. The relevant follow up is step 3, since the new requested location is within NYC.",
@@ -1438,7 +1388,7 @@ example_5_events = [
     ),
 ]
 
-example_5_expected = JourneyNodeSelectionSchema(
+example_5_expected = JourneyBacktrackNodeSelectionSchema(
     journey_applies=True,
     rationale="Customer was told about capitals. Now we need to advance to the following step and ask for money",
     requires_backtracking=False,
@@ -1686,7 +1636,7 @@ loan_journey_nodes = {
     ),
 }
 
-example_6_expected = JourneyNodeSelectionSchema(
+example_6_expected = JourneyBacktrackNodeSelectionSchema(
     journey_applies=True,
     requires_backtracking=True,
     rationale="The customer changed their loan type decision after providing all information. The journey backtracks to the loan type step (2), then fast-forwards through the business loan path using the provided information, and eventually exits the journey.",
@@ -1759,7 +1709,7 @@ example_7_events = [
     ),
 ]
 
-example_7_expected = JourneyNodeSelectionSchema(
+example_7_expected = JourneyBacktrackNodeSelectionSchema(
     journey_applies=True,
     requires_backtracking=False,
     rationale="The customer wants a loan for their restaurant, making it a business loan. We can proceed through steps 4 and 6, since the customer already specified their desired loan amount and the collateral for the loan. This brings us to step 8, which was not completed yet.",

@@ -1,8 +1,83 @@
 # healthcare.py
 
-import parlant.sdk as p
 import asyncio
-from datetime import datetime
+from contextlib import AsyncExitStack
+import parlant.sdk as p
+from parlant.adapters.db.snowflake_db import SnowflakeDocumentDatabase
+from parlant.core.emission.event_publisher import EventPublisherFactory
+
+
+# Manage Snowflake-backed stores across the example run
+EXIT_STACK = AsyncExitStack()
+
+
+async def _make_session_store(container: p.Container) -> p.SessionStore:
+    database = await EXIT_STACK.enter_async_context(
+        SnowflakeDocumentDatabase(
+            logger=container[p.Logger],
+            table_prefix="PARLANT_SESSIONS_",
+        )
+    )
+    store = p.SessionDocumentStore(database=database, allow_migration=True)
+    return await EXIT_STACK.enter_async_context(store)
+
+
+async def _make_customer_store(container: p.Container) -> p.CustomerStore:
+    database = await EXIT_STACK.enter_async_context(
+        SnowflakeDocumentDatabase(
+            logger=container[p.Logger],
+            table_prefix="PARLANT_CUSTOMERS_",
+        )
+    )
+    store = p.CustomerDocumentStore(
+        id_generator=container[p.IdGenerator],
+        database=database,
+        allow_migration=True,
+    )
+    return await EXIT_STACK.enter_async_context(store)
+
+
+async def _make_variable_store(container: p.Container) -> p.ContextVariableStore:
+    database = await EXIT_STACK.enter_async_context(
+        SnowflakeDocumentDatabase(
+            logger=container[p.Logger],
+            table_prefix="PARLANT_CONTEXT_VARIABLES_",
+        )
+    )
+    store = p.ContextVariableDocumentStore(
+        id_generator=container[p.IdGenerator],
+        database=database,
+        allow_migration=True,
+    )
+    return await EXIT_STACK.enter_async_context(store)
+
+
+async def configure_container(container: p.Container) -> p.Container:
+    container = container.clone()
+
+    session_store = await _make_session_store(container)
+    container[p.SessionDocumentStore] = session_store
+    container[p.SessionStore] = session_store
+
+    customer_store = await _make_customer_store(container)
+    container[p.CustomerDocumentStore] = customer_store
+    container[p.CustomerStore] = customer_store
+
+    variable_store = await _make_variable_store(container)
+    container[p.ContextVariableDocumentStore] = variable_store
+    container[p.ContextVariableStore] = variable_store
+
+    # Emit events into the Snowflake-backed session store
+    container[p.EventEmitterFactory] = EventPublisherFactory(
+        container[p.AgentStore],
+        session_store,
+    )
+
+    return container
+
+
+async def shutdown_snowflake() -> None:
+    await EXIT_STACK.aclose()
 
 
 @p.tool
@@ -23,9 +98,9 @@ async def get_later_slots(context: p.ToolContext) -> p.ToolResult:
 
 
 @p.tool
-async def schedule_appointment(context: p.ToolContext, datetime: datetime) -> p.ToolResult:
-    # Simulate scheduling the appointment
-    return p.ToolResult(data=f"Appointment scheduled for {datetime}")
+async def schedule_appointment(context: p.ToolContext, meeting_time: str) -> p.ToolResult:
+    # Simulate scheduling the appointment; accept natural text like "Monday 10 AM"
+    return p.ToolResult(data=f"Appointment scheduled for {meeting_time}")
 
 
 @p.tool
@@ -163,7 +238,11 @@ async def create_lab_results_journey(server: p.Server, agent: p.Agent) -> p.Jour
 
 
 async def main() -> None:
-    async with p.Server() as server:
+    # Run with Snowflake as both persistence and NLP service.
+    async with p.Server(
+        nlp_service=p.NLPServices.snowflake,
+        configure_container=configure_container,
+    ) as server:
         agent = await server.create_agent(
             name="Healthcare Agent",
             description="Is empathetic and calming to the patient.",
@@ -198,4 +277,12 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+
+    async def _run() -> None:
+        try:
+            await main()
+        finally:
+            # Ensure Snowflake connections/stores are closed when the script exits
+            await shutdown_snowflake()
+
+    asyncio.run(_run())

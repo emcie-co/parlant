@@ -351,18 +351,18 @@ async def test_retry_on_connection_error(monkeypatch: pytest.MonkeyPatch) -> Non
     """Test that retry logic handles connection errors."""
     from parlant.adapters.db.supabase_db import _retry_on_connection_error
     import httpx
-    
+
     call_count = 0
-    
+
     def failing_func() -> str:
         nonlocal call_count
         call_count += 1
         if call_count < 3:
             raise httpx.ReadTimeout("The read operation timed out")
         return "success"
-    
+
     result = _retry_on_connection_error(failing_func, max_retries=5)
-    
+
     assert result == "success"
     assert call_count == 3
 
@@ -371,25 +371,36 @@ async def test_retry_on_connection_error(monkeypatch: pytest.MonkeyPatch) -> Non
 async def test_jsonb_field_filtering_in_or_condition(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that JSONB fields are properly filtered in OR conditions."""
     db = _make_database()
-    collection = SupabaseDocumentCollection(db, "variable_tag_associations", _SessionDocument, _TestLogger())
-    
+    collection = SupabaseDocumentCollection(
+        db, "variable_tag_associations", _SessionDocument, _TestLogger()
+    )
+
     # Mock response with data that matches the filter
     mock_response = MagicMock()
-    mock_response.data = [{"data": {"tag_id": "tag-1", "variable_id": "var-1", "id": "var-1", "creation_utc": "2025-01-01T00:00:00Z"}}]
-    
+    mock_response.data = [
+        {
+            "data": {
+                "tag_id": "tag-1",
+                "variable_id": "var-1",
+                "id": "var-1",
+                "creation_utc": "2025-01-01T00:00:00Z",
+            }
+        }
+    ]
+
     mock_table = MagicMock()
     mock_query = MagicMock()
     mock_table.select.return_value = mock_query
     mock_query.or_.return_value = mock_query
     mock_query.order.return_value = mock_query
     mock_query.execute.return_value = mock_response
-    
+
     db._client = MagicMock()
     db._client.table.return_value = mock_table
-    
+
     # Test OR condition with JSONB field (tag_id is in data JSONB column)
     result = await collection.find({"$or": [{"tag_id": {"$eq": "tag-1"}}]})
-    
+
     # Verify or_ was called (indicating JSONB field filtering was attempted)
     mock_query.or_.assert_called()
     # The result should contain the document

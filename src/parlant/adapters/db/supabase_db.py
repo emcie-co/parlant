@@ -61,20 +61,21 @@ _RETRY_BACKOFF = 1.5  # multiplier (reduced for faster retries)
 def _retry_on_connection_error(func: Callable[[], Any], max_retries: int = _MAX_RETRIES) -> Any:
     """
     Retry a function call on connection errors.
-    
+
     Handles httpx.RemoteProtocolError and connection-related errors
     that can occur with HTTP/2 connections.
     """
     last_exception = None
-    
+
     # Import exception types for proper checking
     try:
         import httpx
         import httpcore
+
         _HTTPX_AVAILABLE = True
     except ImportError:
         _HTTPX_AVAILABLE = False
-    
+
     for attempt in range(max_retries):
         try:
             return func()
@@ -83,35 +84,42 @@ def _retry_on_connection_error(func: Callable[[], Any], max_retries: int = _MAX_
             error_str = str(exc)
             error_type = type(exc).__name__
             error_module = type(exc).__module__
-            
+
             # Check for specific httpx/httpcore exceptions
             is_connection_error = False
-            
+
             if _HTTPX_AVAILABLE:
                 # Check for httpx exceptions
-                if isinstance(exc, (
-                    httpx.RemoteProtocolError, 
-                    httpx.ConnectError, 
-                    httpx.NetworkError,
-                    httpx.ReadTimeout,
-                    httpx.WriteTimeout,
-                    httpx.ConnectTimeout,
-                    httpx.PoolTimeout,
-                    httpx.LocalProtocolError,
-                )):
+                if isinstance(
+                    exc,
+                    (
+                        httpx.RemoteProtocolError,
+                        httpx.ConnectError,
+                        httpx.NetworkError,
+                        httpx.ReadTimeout,
+                        httpx.WriteTimeout,
+                        httpx.ConnectTimeout,
+                        httpx.PoolTimeout,
+                        httpx.LocalProtocolError,
+                    ),
+                ):
                     is_connection_error = True
                 # Check for httpcore exceptions
-                elif hasattr(httpcore, 'RemoteProtocolError') and isinstance(exc, httpcore.RemoteProtocolError):
+                elif hasattr(httpcore, "RemoteProtocolError") and isinstance(
+                    exc, httpcore.RemoteProtocolError
+                ):
                     is_connection_error = True
-                elif hasattr(httpcore, 'ConnectError') and isinstance(exc, httpcore.ConnectError):
+                elif hasattr(httpcore, "ConnectError") and isinstance(exc, httpcore.ConnectError):
                     is_connection_error = True
-                elif hasattr(httpcore, 'ReadTimeout') and isinstance(exc, httpcore.ReadTimeout):
+                elif hasattr(httpcore, "ReadTimeout") and isinstance(exc, httpcore.ReadTimeout):
                     is_connection_error = True
-                elif hasattr(httpcore, 'WriteTimeout') and isinstance(exc, httpcore.WriteTimeout):
+                elif hasattr(httpcore, "WriteTimeout") and isinstance(exc, httpcore.WriteTimeout):
                     is_connection_error = True
-                elif hasattr(httpcore, 'LocalProtocolError') and isinstance(exc, httpcore.LocalProtocolError):
+                elif hasattr(httpcore, "LocalProtocolError") and isinstance(
+                    exc, httpcore.LocalProtocolError
+                ):
                     is_connection_error = True
-            
+
             # Also check error message for connection-related terms
             if not is_connection_error:
                 is_connection_error = (
@@ -131,17 +139,17 @@ def _retry_on_connection_error(func: Callable[[], Any], max_retries: int = _MAX_
                     or "KeyError" in error_type
                     or "httpcore" in error_module
                 )
-            
+
             if is_connection_error and attempt < max_retries - 1:
                 # Calculate delay with exponential backoff
-                delay = _RETRY_DELAY * (_RETRY_BACKOFF ** attempt)
+                delay = _RETRY_DELAY * (_RETRY_BACKOFF**attempt)
                 time.sleep(delay)
                 last_exception = exc
                 continue
             else:
                 # Either not a connection error or last attempt
                 raise
-    
+
     # Should never reach here, but just in case
     if last_exception:
         raise last_exception
@@ -292,7 +300,6 @@ class SupabaseDocumentDatabase(DocumentDatabase):
 
         return cast(SupabaseDocumentCollection[TDocument], self._collections[name])
 
-
     async def _ensure_connection(self) -> None:
         if self._client is not None:
             return
@@ -307,25 +314,25 @@ class SupabaseDocumentDatabase(DocumentDatabase):
                 self._client = self._client_factory(self._connection_params)
             else:
                 assert self._supabase_module is not None
-                
+
                 # Configure client with HTTP/1.1 to avoid HTTP/2 connection issues
                 # The Supabase client uses httpx internally, and we need to configure it
                 # to disable HTTP/2 which can cause connection termination errors
                 client_created = False
-                
+
                 # Try method 1: Use ClientOptions (supabase-py >= 2.0.0)
                 try:
                     from supabase.lib.client_options import ClientOptions
                     import httpx
-                    
+
                     # Create httpx client with HTTP/1.1 only and longer timeouts
                     http_client = httpx.Client(
                         http2=False,  # Disable HTTP/2 to avoid connection issues
                         timeout=httpx.Timeout(
                             connect=30.0,  # Connection timeout
-                            read=60.0,     # Read timeout (increased for slow queries)
-                            write=30.0,    # Write timeout
-                            pool=30.0,     # Pool timeout
+                            read=60.0,  # Read timeout (increased for slow queries)
+                            write=30.0,  # Write timeout
+                            pool=30.0,  # Pool timeout
                         ),
                         limits=httpx.Limits(
                             max_keepalive_connections=10,
@@ -333,12 +340,12 @@ class SupabaseDocumentDatabase(DocumentDatabase):
                             keepalive_expiry=30.0,
                         ),
                     )
-                    
+
                     # Configure client options
                     options = ClientOptions(
                         http_client=http_client,
                     )
-                    
+
                     self._client = await asyncio.to_thread(
                         self._supabase_module.create_client,
                         self._connection_params["url"],
@@ -349,17 +356,17 @@ class SupabaseDocumentDatabase(DocumentDatabase):
                 except (ImportError, TypeError, AttributeError):
                     # ClientOptions not available or not supported
                     pass
-                
+
                 # Try method 2: Use environment variable to force HTTP/1.1 (fallback)
                 if not client_created:
                     try:
                         import httpx
                         import os
-                        
+
                         # Set environment variable to disable HTTP/2 globally for httpx
                         # This is a workaround if ClientOptions doesn't work
                         os.environ.setdefault("HTTPX_DISABLE_HTTP2", "1")
-                        
+
                         # Create httpx client with HTTP/1.1 only
                         http_client = httpx.Client(
                             http2=False,
@@ -375,7 +382,7 @@ class SupabaseDocumentDatabase(DocumentDatabase):
                                 keepalive_expiry=30.0,
                             ),
                         )
-                        
+
                         # Try to create client with custom http_client if the library supports it
                         # Some versions of supabase-py allow passing http_client directly
                         try:
@@ -391,6 +398,7 @@ class SupabaseDocumentDatabase(DocumentDatabase):
                             try:
                                 # Try creating with a custom session factory
                                 from supabase.lib.client_options import ClientOptions
+
                                 options = ClientOptions(http_client=http_client)
                                 self._client = await asyncio.to_thread(
                                     self._supabase_module.create_client,
@@ -402,7 +410,7 @@ class SupabaseDocumentDatabase(DocumentDatabase):
                             except Exception:
                                 # Fall through to default client creation
                                 pass
-                        
+
                         if not client_created:
                             # Create default client - retry logic will handle issues
                             self._client = await asyncio.to_thread(
@@ -411,18 +419,19 @@ class SupabaseDocumentDatabase(DocumentDatabase):
                                 self._connection_params["key"],
                             )
                             client_created = True
-                            
+
                     except Exception as exc:
                         self._logger.warning(
                             f"Could not configure Supabase client with HTTP/1.1: {exc}. "
                             "Using default client with retry logic."
                         )
-                
+
                 # Method 3: Last resort - create client without custom config
                 # Retry logic will handle connection errors
                 if not client_created:
                     # Try to force HTTP/1.1 via environment variable
                     import os
+
                     original_env = os.environ.get("HTTPX_DISABLE_HTTP2")
                     try:
                         os.environ["HTTPX_DISABLE_HTTP2"] = "1"
@@ -445,10 +454,11 @@ class SupabaseDocumentDatabase(DocumentDatabase):
         # Set environment variable to disable HTTP/2 before importing supabase
         # This ensures httpx uses HTTP/1.1 by default
         import os
+
         original_env = os.environ.get("HTTPX_DISABLE_HTTP2")
         try:
             os.environ["HTTPX_DISABLE_HTTP2"] = "1"
-            
+
             try:
                 supabase_module = importlib.import_module("supabase")
             except ImportError as exc:
@@ -469,14 +479,14 @@ class SupabaseDocumentDatabase(DocumentDatabase):
         # If prefix already ends with the collection name, use prefix as-is
         # This handles cases where table_prefix is already the full table name
         # e.g., prefix="parlant_sessions_", name="sessions" -> use "parlant_sessions_"
-        prefix_normalized = self._table_prefix.lower().rstrip('_')
+        prefix_normalized = self._table_prefix.lower().rstrip("_")
         name_normalized = name.lower()
-        
+
         # Check if prefix already ends with the collection name
         if prefix_normalized.endswith(name_normalized):
             # Use prefix as-is (preserving trailing underscore if present)
             return _sanitize_identifier(self._table_prefix)
-        
+
         # Otherwise, append the collection name to the prefix
         return _sanitize_identifier(self._table_prefix + name)
 
@@ -511,7 +521,6 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
 
         self._loader_done = False
         self._loader_lock = asyncio.Lock()
-
 
     async def load_existing_documents(
         self,
@@ -655,18 +664,21 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
                     # PostgREST's or_() method can be tricky with JSONB fields
                     # So we'll build OR conditions using filter strings, but handle JSONB properly
                     or_conditions = cast(Sequence[Where], value)
-                    
+
                     # Check if any OR condition involves non-indexed fields
                     has_jsonb_fields = False
                     for condition in or_conditions:
                         if isinstance(condition, Mapping):
                             for field_name in condition.keys():
-                                if field_name not in ("$and", "$or") and field_name not in self.INDEXED_FIELDS:
+                                if (
+                                    field_name not in ("$and", "$or")
+                                    and field_name not in self.INDEXED_FIELDS
+                                ):
                                     has_jsonb_fields = True
                                     break
                         if has_jsonb_fields:
                             break
-                    
+
                     if has_jsonb_fields:
                         # For JSONB fields, use a different approach
                         # Build filter strings with proper JSONB syntax
@@ -701,7 +713,7 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
         for key, value in filters.items():
             if key in ("$and", "$or"):
                 continue
-            
+
             # Determine if field is indexed (top-level column) or in JSONB data
             if key in self.INDEXED_FIELDS:
                 field_name = key
@@ -711,7 +723,7 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
                 # This allows filtering JSONB fields in OR conditions
                 # Format: data->>tag_id.eq.value
                 field_name = f"data->>{key}"
-            
+
             if not isinstance(value, Mapping):
                 # Simple equality
                 if key in self.INDEXED_FIELDS:

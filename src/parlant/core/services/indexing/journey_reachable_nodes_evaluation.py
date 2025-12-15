@@ -2,6 +2,8 @@ import copy
 from dataclasses import dataclass, field
 from enum import Enum
 import json
+
+# import os
 import traceback
 from typing import Any, List, Optional, Sequence, Set, Tuple, cast
 from parlant.core.common import DefaultBaseModel, JSONSerializable
@@ -20,7 +22,10 @@ from parlant.core.shots import Shot, ShotCollection
 
 PRE_ROOT_INDEX = "0"
 ROOT_INDEX = "1"
-REMINDER_OF_ACTION_TYPE = "Reminder: when stating whether an action has been completed, consider the rules for CUSTOMER DEPENDENT ACTION - CUSTOMER'S perspective or REQUIRES AGENT ACTION - AGENT'S perspective"
+REMINDER_OF_ACTION_TYPE_CURRENT = "Reminder: when stating whether step_action has been completed, consider the rules for CUSTOMER DEPENDENT ACTION - CUSTOMER'S perspective or REQUIRES AGENT ACTION - AGENT'S perspective"
+REMINDER_OF_ACTION_TYPE_CHILD = "Reminder: when stating whether child_action has not been completed, consider the rules for CUSTOMER DEPENDENT ACTION - CUSTOMER'S perspective or REQUIRES AGENT ACTION - AGENT'S perspective"
+REMINDER_OF_ACTION_TYPE_NOT_CHILD = "Reminder: when stating whether child_action has been completed, consider the rules for CUSTOMER DEPENDENT ACTION - CUSTOMER'S perspective or REQUIRES AGENT ACTION - AGENT'S perspective"
+
 REMINDER_OPTIONS = "Reminder: when stating an action completion consider Condition Clarity and Specificity, include all options in conditions"
 
 
@@ -620,7 +625,7 @@ Example section is over. The following is the real data you need to use for your
             "child_id": "{id}",
             "child_action": "{info.action if info.action else "There is no action to perform in this child step"}",
             "condition_to_child": "{info.edge_condition if info.edge_condition else "<str.There is no condition associated with the transition to this child, if there are other children state here the complementary condition of ALL children>"}",
-            "condition_to_child_and_stop": {f"<str, condition_to_child (if exists) AND that child_action hasn't completed (if exists).{REMINDER_OF_ACTION_TYPE}. {REMINDER_OPTIONS}>" if info.action or info.edge_condition else ""},"""
+            "condition_to_child_and_stop": {f"<str, condition_to_child (if exists) AND that child_action hasn't completed (if exists).{REMINDER_OF_ACTION_TYPE_NOT_CHILD}. {REMINDER_OPTIONS}>" if info.action or info.edge_condition else ""},"""
 
                 conditions_to_child_and_forward = ""
                 for path_id, r in info.id_to_reachable_follow_ups.items():
@@ -628,7 +633,7 @@ Example section is over. The following is the real data you need to use for your
                 {{
                     "id": "{path_id}",
                     "path_condition": "{r.condition}",
-                    "condition_to_child_then_to_path": "<str, child_action completed (if exists) AND condition_to_child (if exists) AND path_condition. {REMINDER_OF_ACTION_TYPE}. {REMINDER_OPTIONS}>",
+                    "condition_to_child_then_to_path": "<str, child_action completed (if exists) AND condition_to_child (if exists) AND path_condition. {REMINDER_OF_ACTION_TYPE_CHILD}. {REMINDER_OPTIONS}>",
                 }},"""
                 if conditions_to_child_and_forward:
                     child_desc += f"""
@@ -655,7 +660,7 @@ OUTPUT FORMAT
 ```json
 {{
     "step_action": "{node.action if node.action else ""}",
-    "step_action_completed": "{f"<str, condition that says the current action completed, if exists. {REMINDER_OF_ACTION_TYPE}. {REMINDER_OPTIONS}>" if node.action else ""}",{_get_children_condition()}
+    "step_action_completed": "{f"<str, condition that says that step_action completed, if exists. {REMINDER_OF_ACTION_TYPE_CURRENT}. {REMINDER_OPTIONS}>" if node.action else ""}",{_get_children_condition()}
 }}
 ```
 """

@@ -82,7 +82,6 @@ def _session_document(
 async def test_insert_one_serializes_document_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
     collection = SupabaseDocumentCollection(db, "sessions", _SessionDocument, _TestLogger())
-    collection._table_ready = True  # type: ignore[attr-defined]
 
     # Mock the Supabase client
     mock_table = MagicMock()
@@ -108,7 +107,6 @@ async def test_insert_one_serializes_document_payload(monkeypatch: pytest.Monkey
 async def test_find_uses_filters(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
     collection = SupabaseDocumentCollection(db, "events", _SessionDocument, _TestLogger())
-    collection._table_ready = True  # type: ignore[attr-defined]
 
     # Mock response
     mock_response = MagicMock()
@@ -135,7 +133,6 @@ async def test_find_uses_filters(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_find_paginates_and_sets_next_cursor(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
     collection = SupabaseDocumentCollection(db, "events", _SessionDocument, _TestLogger())
-    collection._table_ready = True  # type: ignore[attr-defined]
 
     rows = [
         {"data": {"id": "1", "creation_utc": "2025-01-01T00:00:00Z"}},
@@ -167,7 +164,6 @@ async def test_find_paginates_and_sets_next_cursor(monkeypatch: pytest.MonkeyPat
 async def test_find_adds_cursor_clause(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
     collection = SupabaseDocumentCollection(db, "events", _SessionDocument, _TestLogger())
-    collection._table_ready = True  # type: ignore[attr-defined]
 
     mock_response = MagicMock()
     mock_response.data = []
@@ -193,7 +189,6 @@ async def test_find_adds_cursor_clause(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_update_one_upserts_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
     collection = SupabaseDocumentCollection(db, "sessions", _SessionDocument, _TestLogger())
-    collection._table_ready = True  # type: ignore[attr-defined]
 
     monkeypatch.setattr(collection, "find_one", AsyncMock(return_value=None))
     insert_mock = AsyncMock(return_value=InsertResult(True))
@@ -211,7 +206,6 @@ async def test_update_one_upserts_when_missing(monkeypatch: pytest.MonkeyPatch) 
 async def test_load_existing_documents_migrates(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
     collection = SupabaseDocumentCollection(db, "sessions", _SessionDocument, _TestLogger())
-    collection._table_ready = True  # type: ignore[attr-defined]
 
     mock_response = MagicMock()
     mock_response.data = [{"data": {"id": "abc", "version": "0.1"}}]
@@ -241,7 +235,6 @@ async def test_load_existing_documents_migrates(monkeypatch: pytest.MonkeyPatch)
 async def test_load_existing_documents_persists_failed(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
     collection = SupabaseDocumentCollection(db, "sessions", _SessionDocument, _TestLogger())
-    collection._table_ready = True  # type: ignore[attr-defined]
 
     mock_response = MagicMock()
     mock_response.data = [{"data": {"id": "bad", "version": "0.7.0"}}]
@@ -298,36 +291,8 @@ async def test_delete_one_no_match(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.deleted_document is None
 
 
-@pytest.mark.asyncio
-async def test_ensure_table_runs_only_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    db = _make_database()
-    collection = SupabaseDocumentCollection(db, "sessions", _SessionDocument, _TestLogger())
-
-    execute_mock = AsyncMock()
-    monkeypatch.setattr(db, "_execute_sql", execute_mock)
-
-    await collection.ensure_table()
-    await collection.ensure_table()
-
-    # Should be called 3 times: create table, create indexes, create failed table
-    assert execute_mock.await_count == 3
-
-
-@pytest.mark.asyncio
-async def test_delete_collection_drops_tables(monkeypatch: pytest.MonkeyPatch) -> None:
-    db = _make_database()
-
-    execute_mock = AsyncMock()
-    monkeypatch.setattr(db, "_execute_sql", execute_mock)
-
-    await db.delete_collection("sessions")
-
-    drop_statements = [args.args[0] for args in execute_mock.await_args_list]
-    assert any("DROP TABLE IF EXISTS parlant_sessions" in stmt for stmt in drop_statements)
-    assert any(
-        "DROP TABLE IF EXISTS parlant_sessions_failed_migrations" in stmt
-        for stmt in drop_statements
-    )
+# Note: ensure_table and _execute_sql methods are not part of the current implementation
+# Tables must be created manually in Supabase. These tests are removed.
 
 
 @pytest.mark.asyncio
@@ -362,7 +327,6 @@ async def test_connection_params_missing_raises_error() -> None:
 async def test_find_one_returns_none_when_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
     collection = SupabaseDocumentCollection(db, "sessions", _SessionDocument, _TestLogger())
-    collection._table_ready = True  # type: ignore[attr-defined]
 
     mock_response = MagicMock()
     mock_response.data = []
@@ -380,3 +344,50 @@ async def test_find_one_returns_none_when_not_found(monkeypatch: pytest.MonkeyPa
     result = await collection.find_one({"id": {"$eq": "missing"}})
 
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_retry_on_connection_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that retry logic handles connection errors."""
+    from parlant.adapters.db.supabase_db import _retry_on_connection_error
+    import httpx
+    
+    call_count = 0
+    
+    def failing_func() -> str:
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            raise httpx.ReadTimeout("The read operation timed out")
+        return "success"
+    
+    result = _retry_on_connection_error(failing_func, max_retries=5)
+    
+    assert result == "success"
+    assert call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_jsonb_field_filtering_in_or_condition(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that JSONB fields are properly filtered in OR conditions."""
+    db = _make_database()
+    collection = SupabaseDocumentCollection(db, "variable_tag_associations", _SessionDocument, _TestLogger())
+    
+    mock_response = MagicMock()
+    mock_response.data = [{"data": {"tag_id": "tag-1", "variable_id": "var-1"}}]
+    
+    mock_table = MagicMock()
+    mock_query = MagicMock()
+    mock_table.select.return_value = mock_query
+    mock_query.or_.return_value = mock_query
+    mock_query.execute.return_value = mock_response
+    
+    db._client = MagicMock()
+    db._client.table.return_value = mock_table
+    
+    # Test OR condition with JSONB field (tag_id is in data JSONB column)
+    result = await collection.find({"$or": [{"tag_id": {"$eq": "tag-1"}}]})
+    
+    # Verify or_ was called (indicating JSONB field filtering was attempted)
+    mock_query.or_.assert_called()
+    assert len(result.items) == 1

@@ -15,12 +15,10 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import Any, Mapping, cast
 from unittest.mock import AsyncMock
 
 import pytest
-from pytest import fixture
 
 from parlant.adapters.db.snowflake_db import (
     SnowflakeDocumentCollection,
@@ -44,13 +42,6 @@ _SNOWFLAKE_PARAMS: Mapping[str, Any] = {
     "database": "PARLANT",
     "schema": "PUBLIC",
 }
-
-
-@fixture(scope="module", autouse=True)
-def require_snowflake_test_flag() -> None:
-    if not os.environ.get("TEST_SNOWFLAKE_SERVER"):
-        print("could not find `TEST_SNOWFLAKE_SERVER` in environment, skipping snowflake tests...")
-        pytest.skip("Snowflake tests require TEST_SNOWFLAKE_SERVER env variable")
 
 
 def _make_database() -> SnowflakeDocumentDatabase:
@@ -193,7 +184,7 @@ async def test_find_uses_sql_filters(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.items[0]["id"] == "1"
     sql = execute_mock.call_args[0][0]
     params = execute_mock.call_args[0][1]
-    assert 'WHERE "SESSION_ID" =' in sql
+    assert 'WHERE DATA:"session_id" =' in sql
     assert "ORDER BY CREATION_UTC ASC, ID ASC" in sql
     assert params["param_0"] == "abc"
 
@@ -340,17 +331,15 @@ async def test_delete_one_no_match(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_get_collection_initializes_only_once(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
 
-    collection = AsyncMock(spec=SnowflakeDocumentCollection)
-    collection.ensure_table = AsyncMock()
+    collection = AsyncMock()
     collection._table = '"PARLANT_SESSIONS"'  # type: ignore[attr-defined]
     collection._failed_table = '"PARLANT_SESSIONS_FAILED_MIGRATIONS"'  # type: ignore[attr-defined]
 
-    monkeypatch.setattr(
-        db,
-        "_get_or_create_collection",
-        AsyncMock(return_value=collection),
-    )
+    db._collections["sessions"] = collection  # type: ignore[assignment]
     loader = AsyncMock(return_value=None)
+
+    execute_mock = AsyncMock()
+    monkeypatch.setattr(db, "_execute", execute_mock)
 
     load_mock = AsyncMock()
     monkeypatch.setattr(db, "load_documents_with_loader", load_mock)
@@ -358,8 +347,8 @@ async def test_get_collection_initializes_only_once(monkeypatch: pytest.MonkeyPa
     await db.get_collection("sessions", _SessionDocument, loader)
     await db.get_collection("sessions", _SessionDocument, loader)
 
-    # ensure_table is not called on the collection anymore (should be handled by DB)
-    collection.ensure_table.assert_not_awaited()
+    # initialization is performed once (tables created once + loader run once)
+    assert execute_mock.await_count == 2
     load_mock.assert_awaited_once_with(collection, loader)
 
 
@@ -381,15 +370,24 @@ async def test_delete_collection_drops_tables(monkeypatch: pytest.MonkeyPatch) -
 
 
 @pytest.mark.asyncio
-async def test_ensure_tables_runs_only_once(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_get_collection_creates_base_tables(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
-    collection = SnowflakeDocumentCollection(db, "sessions", _SessionDocument, _TestLogger())
 
-    execute_mock = AsyncMock()
-    monkeypatch.setattr(db, "_execute", execute_mock)
+    execute_calls: list[str] = []
 
-    await db._ensure_tables("sessions", collection)
-    await db._ensure_tables("sessions", collection)
+    async def fake_execute(sql: str, *_args: Any, **_kwargs: Any) -> None:
+        execute_calls.append(sql)
+        return None
 
-    # two calls for first run (main + failed table), zero on second
-    assert execute_mock.await_count == 2
+    monkeypatch.setattr(db, "_execute", fake_execute)
+    monkeypatch.setattr(db, "load_documents_with_loader", AsyncMock())
+
+    await db.get_collection("sessions", _SessionDocument, AsyncMock(return_value=None))
+
+    assert any(
+        "CREATE TABLE IF NOT EXISTS" in sql and "ID STRING NOT NULL" in sql for sql in execute_calls
+    )
+    assert any(
+        "CREATE TABLE IF NOT EXISTS" in sql and "DATA VARIANT" in sql for sql in execute_calls
+    )
+    assert not any("SESSION_ID" in sql for sql in execute_calls)

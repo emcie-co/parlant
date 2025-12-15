@@ -38,8 +38,15 @@ from parlant.core.engines.alpha.canned_response_generator import (
     CannedResponseDraftSchema,
     CannedResponseSelectionSchema,
 )
-from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
-    JourneyNodeSelectionSchema,
+
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
+    JourneyBacktrackCheckSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
+    JourneyBacktrackNodeSelectionSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_step_selection import (
+    JourneyNextStepSelectionSchema,
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.engines.alpha.tool_calling.single_tool_batch import SingleToolBatchSchema
@@ -572,9 +579,13 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
             case ModelSize.AUTO:
                 return {
                     SingleToolBatchSchema: GPT_4o[SingleToolBatchSchema],
-                    JourneyNodeSelectionSchema: GPT_4_1[JourneyNodeSelectionSchema],
+                    JourneyBacktrackNodeSelectionSchema: GPT_4_1[
+                        JourneyBacktrackNodeSelectionSchema
+                    ],
                     CannedResponseDraftSchema: GPT_4_1[CannedResponseDraftSchema],
                     CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
+                    JourneyNextStepSelectionSchema: GPT_4_1[JourneyNextStepSelectionSchema],
+                    JourneyBacktrackCheckSchema: GPT_4_1_Mini[JourneyBacktrackCheckSchema],
                 }.get(t, GPT_4o_24_08_06[t])(self._logger, self._tracer, self._meter)  # type: ignore
             case ModelSize.NANO:
                 match hints.get("model_generation", "auto"):

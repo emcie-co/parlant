@@ -89,6 +89,7 @@ from parlant.core.sessions import (
 )
 from parlant.core.tags import Tag, TagId
 from parlant.core.tools import LocalToolService, ToolId, ToolResult
+from parlant.core.tracer import LocalTracer
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.document_database import BaseDocument, DocumentCollection
 
@@ -172,7 +173,9 @@ class _TestLogger(Logger):
 
 
 async def nlp_test(context: str, condition: str) -> bool:
-    schematic_generator = GPT_4o[NLPTestSchema](logger=_TestLogger(), meter=NullMeter())
+    schematic_generator = GPT_4o[NLPTestSchema](
+        logger=_TestLogger(), tracer=LocalTracer(), meter=NullMeter()
+    )
 
     inference = await schematic_generator.generate(
         prompt=f"""\

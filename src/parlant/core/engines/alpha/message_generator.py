@@ -49,7 +49,12 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import Guidel
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.glossary import Term
 from parlant.core.emissions import EmittedEvent, EventEmitter
-from parlant.core.sessions import Event, EventKind, EventSource, Session
+from parlant.core.sessions import (
+    Event,
+    EventKind,
+    EventSource,
+    Session,
+)
 from parlant.core.common import DefaultBaseModel
 from parlant.core.loggers import Logger
 from parlant.core.shots import Shot, ShotCollection
@@ -271,7 +276,7 @@ class MessageGenerator(MessageEventComposer):
                     latch.enable()
 
                 if response_message is not None:
-                    event = await event_emitter.emit_message_event(
+                    handle = await event_emitter.emit_message_event(
                         trace_id=self._tracer.trace_id,
                         data=response_message,
                     )
@@ -280,7 +285,9 @@ class MessageGenerator(MessageEventComposer):
                     self._tracer.add_event("mg.ttfm")
 
                     return [
-                        MessageEventComposition({"message_generation": generation_info}, [event])
+                        MessageEventComposition(
+                            {"message_generation": generation_info}, [handle.event]
+                        )
                     ]
                 else:
                     self._logger.debug("Skipping response; no response deemed necessary")

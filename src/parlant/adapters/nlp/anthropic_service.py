@@ -33,8 +33,9 @@ from parlant.core.engines.alpha.canned_response_generator import CannedResponseS
 from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch import (
     DisambiguationGuidelineMatchesSchema,
 )
-from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
-    JourneyNodeSelectionSchema,
+
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
+    JourneyBacktrackNodeSelectionSchema,
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.tracer import Tracer
@@ -263,7 +264,7 @@ Please set ANTHROPIC_API_KEY in your environment before running Parlant.
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> AnthropicAISchematicGenerator[T]:
         if (
-            t == JourneyNodeSelectionSchema
+            t == JourneyBacktrackNodeSelectionSchema
             or t == DisambiguationGuidelineMatchesSchema
             or t == CannedResponseSelectionSchema
         ):

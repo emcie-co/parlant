@@ -33,7 +33,19 @@ from parlant.api.authorization import AuthorizationPolicy, DevelopmentAuthorizat
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.common import IdGenerator
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
+    JourneyBacktrackCheckSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
+    JourneyBacktrackNodeSelectionSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_step_selection import (
+    JourneyNextStepSelectionSchema,
+)
 from parlant.core.meter import Meter, NullMeter
+from parlant.core.services.indexing.journey_reachable_nodes_evaluation import (
+    ReachableNodesEvaluationSchema,
+)
 from parlant.core.tracer import LocalTracer, Tracer
 from parlant.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from parlant.core.emission.event_publisher import EventPublisherFactory
@@ -56,9 +68,6 @@ from parlant.core.engines.alpha.guideline_matching.generic import (
 )
 from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch import (
     DisambiguationGuidelineMatchesSchema,
-)
-from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
-    JourneyNodeSelectionSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.generic_guideline_matching_strategy_resolver import (
     GenericGuidelineMatchingStrategyResolver,
@@ -192,7 +201,10 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
 )
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.types import Engine
-from parlant.core.services.indexing.behavioral_change_evaluation import GuidelineEvaluator
+from parlant.core.services.indexing.behavioral_change_evaluation import (
+    GuidelineEvaluator,
+    JourneyEvaluator,
+)
 
 
 from parlant.core.loggers import LogLevel, Logger, StdoutLogger
@@ -374,6 +386,7 @@ async def container(
                 nlp_services_provider=lambda: {
                     "default": OpenAIService(
                         container[Logger],
+                        container[Tracer],
                         container[Meter],
                     )
                 },
@@ -476,8 +489,11 @@ async def container(
             GenericResponseAnalysisSchema,
             AgentIntentionProposerSchema,
             DisambiguationGuidelineMatchesSchema,
-            JourneyNodeSelectionSchema,
+            JourneyBacktrackNodeSelectionSchema,
+            JourneyNextStepSelectionSchema,
             RelativeActionSchema,
+            ReachableNodesEvaluationSchema,
+            JourneyBacktrackCheckSchema,
         ):
             container[SchematicGenerator[generation_schema]] = await make_schematic_generator(  # type: ignore
                 container,
@@ -539,6 +555,7 @@ async def container(
         container[ResponseAnalysisBatch] = Singleton(GenericResponseAnalysisBatch)
         container[GuidelineMatcher] = Singleton(GuidelineMatcher)
         container[GuidelineEvaluator] = Singleton(GuidelineEvaluator)
+        container[JourneyEvaluator] = Singleton(JourneyEvaluator)
 
         container[DefaultToolCallBatcher] = Singleton(DefaultToolCallBatcher)
         container[ToolCallBatcher] = lambda container: container[DefaultToolCallBatcher]
@@ -711,10 +728,10 @@ def no_cache(container: Container) -> None:
             container[SchematicGenerator[DisambiguationGuidelineMatchesSchema]],
         ).use_cache = False
     if isinstance(
-        container[SchematicGenerator[JourneyNodeSelectionSchema]],
+        container[SchematicGenerator[JourneyBacktrackNodeSelectionSchema]],
         CachedSchematicGenerator,
     ):
         cast(
-            CachedSchematicGenerator[JourneyNodeSelectionSchema],
-            container[SchematicGenerator[JourneyNodeSelectionSchema]],
+            CachedSchematicGenerator[JourneyBacktrackNodeSelectionSchema],
+            container[SchematicGenerator[JourneyBacktrackNodeSelectionSchema]],
         ).use_cache = False

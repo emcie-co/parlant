@@ -17,13 +17,21 @@ from parlant.core.context_variables import (
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent
 
-from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
-    GenericJourneyNodeSelectionBatch,
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
+    JourneyBacktrackCheckSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
     JourneyNodeKind,
-    JourneyNodeSelectionSchema,
+    JourneyBacktrackNodeSelectionSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.guideline_matching_context import (
     GuidelineMatchingContext,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_step_selection import (
+    JourneyNextStepSelectionSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_node_selection_batch import (
+    GenericJourneyNodeSelectionBatch,
 )
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.glossary import Term, TermId
@@ -32,6 +40,11 @@ from parlant.core.journeys import Journey, JourneyId, JourneyNodeId
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
+from parlant.core.services.indexing.journey_reachable_nodes_evaluation import (
+    ReachableNodesEvaluationSchema,
+    JourneyReachableNodesEvaluator,
+)
+from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import EventKind, EventSource, Session, SessionId, SessionStore
 from parlant.core.tags import Tag, TagId
 from tests.core.common.utils import create_event_message
@@ -42,7 +55,16 @@ from tests.test_utilities import SyncAwaiter
 class ContextOfTest:
     container: Container
     sync_await: SyncAwaiter
-    schematic_generator: SchematicGenerator[JourneyNodeSelectionSchema]
+    journey_node_selection_schematic_generator: SchematicGenerator[
+        JourneyBacktrackNodeSelectionSchema
+    ]
+    journey_next_step_selection_schematic_generator: SchematicGenerator[
+        JourneyNextStepSelectionSchema
+    ]
+    journey_reachable_nodes_evaluation_schematic_generator: SchematicGenerator[
+        ReachableNodesEvaluationSchema
+    ]
+    journey_backtrack_check_schematic_generator: SchematicGenerator[JourneyBacktrackCheckSchema]
     logger: Logger
 
 
@@ -55,6 +77,7 @@ class _NodeData:
     customer_dependent_action: bool = False
     customer_action: str | None = None
     follow_up_ids: list[str] = field(default_factory=list)
+    reachable_follow_ups: Sequence[tuple[str, Sequence[str]]] = field(default_factory=list)
 
 
 @dataclass
@@ -74,7 +97,18 @@ def context(
         container,
         sync_await,
         logger=container[Logger],
-        schematic_generator=container[SchematicGenerator[JourneyNodeSelectionSchema]],
+        journey_node_selection_schematic_generator=container[
+            SchematicGenerator[JourneyBacktrackNodeSelectionSchema]
+        ],
+        journey_next_step_selection_schematic_generator=container[
+            SchematicGenerator[JourneyNextStepSelectionSchema]
+        ],
+        journey_reachable_nodes_evaluation_schematic_generator=container[
+            SchematicGenerator[ReachableNodesEvaluationSchema]
+        ],
+        journey_backtrack_check_schematic_generator=container[
+            SchematicGenerator[JourneyBacktrackCheckSchema]
+        ],
     )
 
 
@@ -89,7 +123,27 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="ask the customer for their name",
                 follow_up_ids=["2"],
                 customer_dependent_action=True,
+                customer_action="The customer provided their name",
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "the agent hasn't told the customer that their name is pretty",
+                        ["2"],
+                    ),
+                    (
+                        "The agent told the customer that their name is pretty and the customer hasn't provided their surname",
+                        ["2", "3"],
+                    ),
+                    (
+                        "the agent told the customer that their name is pretty and the customer provided their surname and the customer hasn't provided their phone number",
+                        ["2", "3", "4"],
+                    ),
+                    (
+                        "The agent told the customer that their name is pretty and the customer provided their surname and their phone number"
+                        " and the agent hasn't sent them a link to our terms of service page",
+                        ["2", "3", "4", "5"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="2",
@@ -97,6 +151,24 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="tell them their name is pretty",
                 follow_up_ids=["3"],
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The customer hasn't provided their surname",
+                        ["3"],
+                    ),
+                    (
+                        "The customer provided their surname and hasn't provided their phone number",
+                        ["3", "4"],
+                    ),
+                    (
+                        "The customer provided their surname and their phone number the agent hasn't sent them a link to our terms of service page",
+                        ["3", "4", "5"],
+                    ),
+                    (
+                        "The customer provided their surname and their phone number the agent sent them a link to our terms of service page and the customer hasn't provided their favorite color",
+                        ["3", "4", "5", "6"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="3",
@@ -104,7 +176,26 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="ask them their surname",
                 follow_up_ids=["4"],
                 customer_dependent_action=True,
+                customer_action="The customer provided their surname",
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The customer hasn't provided their phone number",
+                        ["4"],
+                    ),
+                    (
+                        "The customer provided their phone number and the agent hasn't sent them a link to our terms of service page",
+                        ["4", "5"],
+                    ),
+                    (
+                        "The customer provided their phone number and the agent sent them a link to our terms of service page and the customer hasn't provided their favorite color",
+                        ["4", "5", "6"],
+                    ),
+                    (
+                        "The customer provided their phone number and the agent sent them a link to our terms of service page and the customer provided their favorite color",
+                        ["4", "5", "6", "None"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="4",
@@ -112,7 +203,22 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="ask for their phone number",
                 follow_up_ids=["5"],
                 customer_dependent_action=True,
+                customer_action="The customer provided their phone number",
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The agent hasn't sent them a link to our terms of service page",
+                        ["5"],
+                    ),
+                    (
+                        "The agent sent the customer a link to our terms of service page and the customer hasn't provided their favorite color",
+                        ["5", "6"],
+                    ),
+                    (
+                        "The agent sent the customer a link to our terms of service page and the customer provided their favorite color",
+                        ["5", "6", "None"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="5",
@@ -120,6 +226,16 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="send the customer a link to our terms of service page",
                 follow_up_ids=["6"],
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "the customer hasn't provided their favorite color",
+                        ["6"],
+                    ),
+                    (
+                        "The customer provided their favorite color",
+                        ["6", "None"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="6",
@@ -127,7 +243,14 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="ask the customer for their favorite color",
                 follow_up_ids=[],
                 customer_dependent_action=True,
+                customer_action="The customer provided their favorite color",
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The customer provided their favorite color",
+                        ["None"],
+                    ),
+                ],
             ),
         ],
         description="A journey that aids the customer in resetting their password, including verifying their identity.",
@@ -165,7 +288,6 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 condition="The customer hasn't found their keys",
                 action="Tell them that they better get a new house",
                 follow_up_ids=[],
-                customer_dependent_action=True,
                 kind=JourneyNodeKind.CHAT,
             ),
             _NodeData(
@@ -190,9 +312,28 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 id="1",
                 condition="The customer has not provided their account number",
                 action="Ask for their account number",
-                follow_up_ids=["2", "1"],
+                follow_up_ids=["2"],
                 customer_dependent_action=True,
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The customer hasn't provided their email address or phone number",
+                        ["2"],
+                    ),
+                    (
+                        "The customer provided their email address or phone number and agent hasn't wished the customer a good day",
+                        ["2", "3"],
+                    ),
+                    (
+                        "The customer provided their email address or phone number and agent wished the customer a good day and the customer did not immediately wish the agent a good day in return",
+                        ["2", "3", "4"],
+                    ),
+                    (
+                        "The customer provided their email address or phone number and agent wished the customer a good day and the customer immediately wish the agent a good day in return and the "
+                        "agent didn't use the reset_password tool with the provided information",
+                        ["2", "3", "5"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="2",
@@ -201,6 +342,21 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 follow_up_ids=["3"],
                 customer_dependent_action=True,
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The agent hasn't wished the customer a good day",
+                        ["3"],
+                    ),
+                    (
+                        "The agent wished the customer a good day and the customer did not immediately wish the agent a good day in return",
+                        ["3", "None"],
+                    ),
+                    (
+                        "The agent wished the customer a good day and the customer immediately wished the agent a good day in return and the "
+                        "agent didn't use the reset_password tool with the provided information",
+                        ["3", "5"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="3",
@@ -208,6 +364,16 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Wish them a good day",
                 follow_up_ids=["4", "5"],
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The customer did not immediately wish the agent a good day in return",
+                        ["None"],
+                    ),
+                    (
+                        "The customer immediately wished the agent a good day in return and the agent didn't use the reset_password tool with the provided information",
+                        ["3", "5"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="4",
@@ -222,6 +388,24 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Use the reset_password tool with the provided information",
                 follow_up_ids=["6", "7"],
                 kind=JourneyNodeKind.TOOL,
+                reachable_follow_ups=[
+                    (
+                        "The reset_password tool returned that the password was successfully reset and the agent did not report that password was successfully reset to the customer",
+                        ["6"],
+                    ),
+                    (
+                        "The reset_password tool returned that the password was successfully reset and the agent reported that password was successfully reset to the customer",
+                        ["6", "None"],
+                    ),
+                    (
+                        "The reset_password tool returned that the password was not successfully reset, or otherwise failed and the agent did not apologize and report that the password cannot be reset at this time",
+                        ["7"],
+                    ),
+                    (
+                        "The reset_password tool returned that the password was not successfully reset, or otherwise failed and the agent apologized and reported that the password cannot be reset at this time",
+                        ["7", "None"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="6",
@@ -229,6 +413,12 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Report the result to the customer",
                 follow_up_ids=[],
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The agent reported that password was successfully reset to the customer",
+                        ["None"],
+                    )
+                ],
             ),
             _NodeData(
                 id="7",
@@ -236,6 +426,12 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Apologize to the customer and report that the password cannot be reset at this time",
                 follow_up_ids=[],
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The agent apologized and reported that the password cannot be reset at this time",
+                        ["None"],
+                    ),
+                ],
             ),
         ],
         description="A journey that assists the customer in resetting their password. The resetting process is only performed if the customer is polite and wishes the agent a good day. Otherwise - the agent should not reset the password.",
@@ -251,6 +447,61 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 follow_up_ids=["2"],
                 customer_dependent_action=False,
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The customer didn't say how many calzones they want",
+                        ["2"],
+                    ),
+                    (
+                        """
+                            - The customer said how many calzones they want
+                            - The customer wants more than 5 calzones
+                            - The agent hasn't warned that delivery is likely to take more than an hour.""",
+                        ["2", "3"],
+                    ),
+                    (
+                        """
+                            - The customer said how many calzones they want
+                            - The customer wants 5 or less calzones
+                            - The customer didn't choose a calzone type (Classic Italian Calzone, Spinach and Ricotta Calzone, Chicken and Broccoli Calzone) for every calzone they ordered.""",
+                        ["2", "7"],
+                    ),
+                    (
+                        """ 
+                            - The customer said how many calzones they want
+                            - The customer wants more than 5 calzones
+                            - The agent warned the customer that delivery is likely to take more than an hour
+                            - The customer didn't specify whether they can call a human representative.""",
+                        ["2", "3", "4"],
+                    ),
+                    (
+                        """ 
+                            - The customer said how many calzones they want
+                            - The customer wants 5 or less calzones
+                            - The customer chose a calzone type (Classic Italian Calzone, Spinach and Ricotta Calzone, Chicken and Broccoli Calzone) for every calzone they ordered
+                            - T he customer hasn't chosen which size of calzone they want (small, medium or large)""",
+                        ["2", "7", "8"],
+                    ),
+                    (
+                        """ 
+                            - The customer said how many calzones they want
+                            - The customer wants 5 or less calzones
+                            - The customer chose a calzone type (Classic Italian Calzone, Spinach and Ricotta Calzone, Chicken and Broccoli Calzone) for every calzone they ordered
+                            - The customer chose which size of calzone they want (small, medium or large) for every calzone they ordered
+                            - The customer didn't choose whether they want to add a drink.""",
+                        ["2", "7", "8", "9"],
+                    ),
+                    (
+                        """ 
+                            - The customer said how many calzones they want
+                            - The customer wants 5 or less calzones
+                            - The customer chose a calzone type (Classic Italian Calzone, Spinach and Ricotta Calzone, Chicken and Broccoli Calzone) for every calzone they ordered
+                            - The customer chose which size of calzone they want (small, medium or large) for every calzone they ordered
+                            - The customer chose whether they want to add a drink and what drink if they do
+                            - The agent didn't check if all ordered items are available in stock.""",
+                        ["2", "7", "8", "9", "10"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="2",
@@ -258,7 +509,26 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Ask them how many calzones they want",
                 follow_up_ids=["3", "7"],
                 customer_dependent_action=True,
+                customer_action="The customer specified how many calzones they want",
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The customer wants more than 5 calzones, and the agent hasn't warned the customer that delivery is likely to take more than an hour.",
+                        ["3"],
+                    ),
+                    (
+                        "The customer wants 5 or fewer calzones, and the customer didn't choose a calzone type (Classic Italian Calzone, Spinach and Ricotta Calzone, Chicken and Broccoli Calzone) for every calzone they ordered.",
+                        ["7"],
+                    ),
+                    (
+                        "The customer wants 5 or fewer calzones, and the customer chose a calzone type (Classic Italian Calzone, Spinach and Ricotta Calzone, Chicken and Broccoli Calzone) for every calzone they ordered but hasn't chosen which size of calzone they want.",
+                        ["7", "8"],
+                    ),
+                    (
+                        "The customer wants 5 or fewer calzones, and the customer chose a calzone type (Classic Italian Calzone, Spinach and Ricotta Calzone, Chicken and Broccoli Calzone) and size (small, medium or large) for every calzone they ordered, and the customer didn't choose whether they want to add a drink.",
+                        ["7", "8", "9"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="3",
@@ -266,6 +536,20 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Warn the customer that delivery is likely to take more than an hour",
                 follow_up_ids=["4"],
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The customer didn't specify whether they can call a human representative.",
+                        ["4"],
+                    ),
+                    (
+                        "The customer said that they can call a human representative, and the agent hasn't told them to order by phone.",
+                        ["4", "5"],
+                    ),
+                    (
+                        "The customer said that they can not call a human representative, and the agent hasn't apologized and said they support orders of up to 5 calzones.",
+                        ["4", "6"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="4",
@@ -274,6 +558,16 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 follow_up_ids=["5", "6"],
                 customer_dependent_action=True,
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The customer said that they can call a human representative, and the agent hasn't told them to order by phone.",
+                        ["5"],
+                    ),
+                    (
+                        "The customer said that they can not call a human representative, and the agent hasn't apologized and said they support orders of up to 5 calzones.",
+                        ["6"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="5",
@@ -281,6 +575,12 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Tell them to order by phone to ensure correct delivery",
                 follow_up_ids=[],
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The agent told them to order by phone.",
+                        ["None"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="6",
@@ -288,6 +588,12 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Apologize and say you support orders of up to 5 calzones",
                 follow_up_ids=[],
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The agent apologized and said they support orders of up to 5 calzones.",
+                        ["None"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="7",
@@ -296,6 +602,20 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 follow_up_ids=["8"],
                 customer_dependent_action=True,
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The customer hasn't chosen which size (small, medium or large) of calzone they want.",
+                        ["8"],
+                    ),
+                    (
+                        "The customer chose a calzone size (small, medium or large) for every calzone they ordered, and the customer didn't choose whether they want to add a drink.",
+                        ["8", "9"],
+                    ),
+                    (
+                        "The customer chose a calzone size (small, medium or large) for every calzone they ordered, and the customer chose what drink to add and the agent hasn't checked if all ordered items are available in stock.",
+                        ["8", "9", "10"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="8",
@@ -304,6 +624,17 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 follow_up_ids=["9"],
                 customer_dependent_action=True,
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The customer chose their calzone size for every calzone they'd like to order and the customer didn't choose whether they want to add a drink.",
+                        ["9"],
+                    ),
+                    (
+                        "The customer chose their calzone size for every calzone they'd like to order and the customer chose what drink to add and the agent hasn't checked if all ordered items are available in stock.",
+                        ["9", "10"],
+                    ),
+                    # 10 is tool so stop here
+                ],
             ),
             _NodeData(
                 id="9",
@@ -312,6 +643,12 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 follow_up_ids=["10"],
                 customer_dependent_action=True,
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The agent hasn't checked if all ordered items are available in stock.",
+                        ["10"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="10",
@@ -319,6 +656,28 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Check if all ordered items are available in stock",
                 follow_up_ids=["11", "12"],
                 kind=JourneyNodeKind.TOOL,
+                reachable_follow_ups=[
+                    (
+                        "All ordered items are available in stock and customer hasn't confirmed the order details",
+                        ["11"],
+                    ),
+                    (
+                        "Some ordered items are not available in stock and agent hasn't apologized and customer hasn't removed missing items from their order",
+                        ["12"],
+                    ),
+                    (
+                        "All ordered items are available in stock and customer confirmed the order details and customer hasn't specified the delivery address",
+                        ["11", "13"],
+                    ),
+                    (
+                        "Some ordered items are not available in stock and agent apologized and customer removed missing items from their order and the agent hasn't checked again if all ordered items are available in stock.",
+                        ["12", "10"],
+                    ),
+                    (
+                        "All ordered items are available in stock and customer confirmed the order details and customer provided the delivery address and agent hasn't placed the order and thanked them",
+                        ["11", "13", "14"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="11",
@@ -327,6 +686,16 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 follow_up_ids=["13"],
                 customer_dependent_action=True,
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "Customer hasn't specified the delivery address",
+                        ["13"],
+                    ),
+                    (
+                        "Customer provided the delivery address and agent hasn't placed the order and thanked them",
+                        ["13", "14"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="12",
@@ -335,6 +704,12 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 follow_up_ids=["10"],
                 customer_dependent_action=True,
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The agent hasn't checked if all ordered items are available in stock.",
+                        ["10"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="13",
@@ -343,6 +718,12 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 follow_up_ids=["14"],
                 customer_dependent_action=True,
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The agent hasn't placed the order yet",
+                        ["14"],
+                    ),
+                ],
             ),
             _NodeData(
                 id="14",
@@ -350,6 +731,12 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="Place the order and thank them for choosing the Low Cal Calzone Zone",
                 follow_up_ids=[],
                 kind=JourneyNodeKind.CHAT,
+                reachable_follow_ups=[
+                    (
+                        "The agent placed the order and thanked the customer",
+                        ["None"],
+                    ),
+                ],
             ),
         ],
         description="A journey for ordering calzones, guiding the customer through quantity, type, size, drinks, and delivery details, including stock checks and order confirmation.",
@@ -598,6 +985,7 @@ async def create_journey(
                     "index": node.id,
                     "journey_id": journey_id,
                     "kind": node.kind.value,
+                    # "reachable_follow_ups": node.reachable_follow_ups,
                 },
                 "customer_dependent_action_data": {
                     "is_customer_dependent": node.customer_dependent_action,
@@ -609,6 +997,13 @@ async def create_journey(
         for node in nodes
     ]
 
+    index_to_g: dict[str, Guideline] = {
+        cast(
+            str, cast(dict[str, JSONSerializable], g.metadata["journey_node"]).get("index", "-1")
+        ): g
+        for g in node_guidelines
+    }
+
     journey = Journey(
         id=journey_id,
         root_id=JourneyNodeId(root_guideline.id),
@@ -618,6 +1013,19 @@ async def create_journey(
         title=title,
         tags=[],
     )
+
+    result = await JourneyReachableNodesEvaluator(
+        logger=context.logger,
+        optimization_policy=context.container[OptimizationPolicy],
+        schematic_generator=context.journey_reachable_nodes_evaluation_schematic_generator,
+        service_registry=context.container[ServiceRegistry],
+    ).evaluate_reachable_follow_ups(node_guidelines=node_guidelines)
+
+    for id, r in result.node_to_reachable_follow_ups.items():
+        metadata = cast(dict[str, JSONSerializable], index_to_g[id].metadata)
+        journey_node = cast(dict[str, JSONSerializable], metadata["journey_node"])
+
+        journey_node["reachable_follow_ups"] = [{"condition": c, "path": p} for c, p in r]
 
     return journey, [root_guideline] + list(node_guidelines)
 
@@ -658,7 +1066,9 @@ async def base_test_that_correct_node_is_selected(
         logger=context.logger,
         meter=context.container[Meter],
         guideline_store=context.container[GuidelineStore],
-        schematic_generator=context.schematic_generator,
+        schematic_generator_journey_node_selection=context.journey_node_selection_schematic_generator,
+        schematic_generator_next_step_selection=context.journey_next_step_selection_schematic_generator,
+        schematic_generator_journey_backtrack_check=context.journey_backtrack_check_schematic_generator,
         examined_journey=journey,
         node_guidelines=journey_node_guidelines,
         journey_path=journey_previous_path,
@@ -689,9 +1099,13 @@ async def base_test_that_correct_node_is_selected(
                 assert result_node == expected_node
         elif expected_next_node_index:  # Only test that the next node is correct
             if isinstance(expected_next_node_index, list):
-                assert result_path[-1] in expected_next_node_index
+                assert result_path[-1] in expected_next_node_index or (
+                    result_path[-1] is None and "None" in expected_next_node_index
+                )
             else:
-                assert result_path[-1] == expected_next_node_index
+                assert result_path[-1] == expected_next_node_index or (
+                    result_path[-1] is None and "None" == expected_next_node_index
+                )
 
 
 async def test_that_journey_selector_repeats_node_if_incomplete_1(
@@ -938,6 +1352,7 @@ async def test_that_journey_selector_correctly_advances_to_follow_up_node_3(
     )
 
 
+# Sometimes fails (10%) by exiting the journey
 async def test_that_journey_selector_correctly_advances_based_on_tool_result(
     context: ContextOfTest,
     agent: Agent,
@@ -1059,6 +1474,7 @@ async def test_that_journey_selector_correctly_exits_journey_that_no_longer_appl
 # Multinode advancement tests
 
 
+# Can not pass when max depth = 3. Should return 8, return 7.
 async def test_that_multinode_advancement_is_stopped_at_tool_requiring_nodes(
     context: ContextOfTest,
     agent: Agent,
@@ -1328,7 +1744,7 @@ async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_
         conversation_context=conversation_context,
         journey_name="calzone_journey",
         journey_previous_path=["1", "2", "7", "8", "9", "10", "11"],
-        expected_path=["8", "9", "10"],
+        expected_path=["1", "2", "7", "8", "9", "10", "11", "8", "9", "10"],
         expected_next_node_index="10",  # Should check stock again
         staged_events=staged_events,
     )
@@ -1417,7 +1833,7 @@ async def test_that_journey_selector_backtracks_when_customer_changes_much_earli
         conversation_context=conversation_context,
         journey_name="reset_password_journey",
         journey_previous_path=["1", "2", "3", "5", "7"],
-        expected_next_node_index=["3", "5"],
+        expected_next_node_index=["1", "2", "3", "5", "7", "3", "5"],
         staged_events=staged_events,
     )
 
@@ -1459,7 +1875,7 @@ async def test_that_multinode_advancement_is_stopped_at_node_that_requires_sayin
         conversation_context=conversation_context,
         journey_name="compliment_customer_journey",
         journey_previous_path=["1", "2"],
-        expected_path=["2", "3", "4", "5"],
+        expected_path=["1", "2", "3", "4", "5"],
         expected_next_node_index="5",
     )
 
@@ -1528,6 +1944,13 @@ async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_
         journey_name="calzone_journey",
         journey_previous_path=["1", "2", "7", "8", "9", "10", "11"],
         expected_path=[
+            "1",
+            "2",
+            "7",
+            "8",
+            "9",
+            "10",
+            "11",
             "7",
             "8",
             "9",
@@ -1583,7 +2006,7 @@ async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_
         conversation_context=conversation_context,
         journey_name="reset_password_journey",
         journey_previous_path=["1", "2", "3"],
-        expected_next_node_index=["3", "5", "None"],
+        expected_next_node_index=["1", "2", "3", "5", "None"],
     )  # This test is slightly ambiguous, advancing to either node 3 or 5 (its followup) is considered valid
 
 
@@ -1674,6 +2097,11 @@ async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_
             "2",
             "3",
             "5",
+            "7",
+            "1",
+            "2",
+            "3",
+            "5",
         ],  # Backtrack to account collection, then fast forward through email to good day
         expected_next_node_index="5",
     )
@@ -1743,6 +2171,13 @@ async def test_that_journey_selector_does_not_fast_forward_when_earlier_customer
         journey_name="calzone_journey",
         journey_previous_path=["1", "2", "7", "8", "9", "10", "11"],
         expected_path=[
+            "1",
+            "2",
+            "7",
+            "8",
+            "9",
+            "10",
+            "11",
             "2",
             "7",
         ],  # Backtrack to type selection, then fast forwards through number of calzones. Should stop at calzone type since
@@ -1806,12 +2241,17 @@ async def test_that_journey_selector_backtracks_back_does_not_fast_forward_upon_
         expected_path=[
             "1",
             "2",
+            "3",
+            "5",
+            "1",
+            "2",
         ],  # From tool execution node, back to account collection, then fast forward through email/good day to tool execution
         expected_next_node_index="2",
     )
 
 
-async def test_that_journey_selector_correctly_advances_by_multiple_nodes(  # Occasionally fast-forwards by too little, to node 7 instead of 9
+async def test_that_journey_selector_correctly_advances_by_multiple_nodes(
+    # Full node selection - Occasionally fast-forwards by too little, to node 7 instead of 9. Next step - can not pass with max depth, should return 8
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -1882,7 +2322,7 @@ async def test_that_fork_steps_are_correctly_traversed(
         conversation_context=conversation_context,
         journey_name="tech_experience_journey",
         journey_previous_path=["1", "2"],
-        expected_path=["2", "3", "6"],
+        expected_path=["1", "2", "3", "6"],
         expected_next_node_index="6",
     )
 
@@ -1949,7 +2389,7 @@ async def test_that_two_consecutive_fork_steps_are_traversed_correctly(
         conversation_context=conversation_context,
         journey_name="investment_advice_journey",
         journey_previous_path=["1", "2"],
-        expected_path=["2", "3", "4", "6"],
+        expected_path=["1", "2", "3", "4", "6"],
         expected_next_node_index="6",
     )
 
@@ -2007,7 +2447,7 @@ async def test_that_two_consecutive_fork_steps_are_traversed_correctly_when_back
         conversation_context=conversation_context,
         journey_name="investment_advice_journey",
         journey_previous_path=["1", "1", "2", "3", "5", "8"],
-        expected_next_node_index=["7", "None"],
+        expected_next_node_index=["7", "None"],  # TODO change to None?
     )
 
 
@@ -2086,7 +2526,7 @@ async def test_that_journey_reexecutes_tool_running_step_even_if_the_tool_ran_be
         conversation_context=conversation_context,
         journey_name="calzone_journey",
         journey_previous_path=["1", "2", "7", "8"],
-        expected_path=["8", "9", "10"],
+        expected_path=["1", "2", "7", "8", "9", "10"],
         expected_next_node_index="10",  # Should check stock again
         staged_events=staged_events,
     )

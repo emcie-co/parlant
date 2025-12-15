@@ -2401,7 +2401,7 @@ async def test_that_observational_guidelines_are_not_matched_based_when_topic_wa
         ),
         (
             EventSource.CUSTOMER,
-            "Thanks.",
+            "Thanks!",
         ),
     ]
     conversation_guideline_names: list[str] = ["business_class"]

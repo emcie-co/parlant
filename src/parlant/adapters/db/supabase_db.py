@@ -19,6 +19,7 @@ import importlib
 import json
 import os
 import re
+import time
 from typing import (
     Any,
     Awaitable,
@@ -49,6 +50,101 @@ from parlant.core.persistence.document_database import (
 
 class SupabaseAdapterError(Exception):
     """Raised for recoverable adapter errors."""
+
+
+# Retry configuration for connection errors
+_MAX_RETRIES = 5  # Increased retries for timeout errors
+_RETRY_DELAY = 1.0  # seconds (increased initial delay)
+_RETRY_BACKOFF = 1.5  # multiplier (reduced for faster retries)
+
+
+def _retry_on_connection_error(func: Callable[[], Any], max_retries: int = _MAX_RETRIES) -> Any:
+    """
+    Retry a function call on connection errors.
+    
+    Handles httpx.RemoteProtocolError and connection-related errors
+    that can occur with HTTP/2 connections.
+    """
+    last_exception = None
+    
+    # Import exception types for proper checking
+    try:
+        import httpx
+        import httpcore
+        _HTTPX_AVAILABLE = True
+    except ImportError:
+        _HTTPX_AVAILABLE = False
+    
+    for attempt in range(max_retries):
+        try:
+            return func()
+        except Exception as exc:
+            # Check if it's a connection error
+            error_str = str(exc)
+            error_type = type(exc).__name__
+            error_module = type(exc).__module__
+            
+            # Check for specific httpx/httpcore exceptions
+            is_connection_error = False
+            
+            if _HTTPX_AVAILABLE:
+                # Check for httpx exceptions
+                if isinstance(exc, (
+                    httpx.RemoteProtocolError, 
+                    httpx.ConnectError, 
+                    httpx.NetworkError,
+                    httpx.ReadTimeout,
+                    httpx.WriteTimeout,
+                    httpx.ConnectTimeout,
+                    httpx.PoolTimeout,
+                    httpx.LocalProtocolError,
+                )):
+                    is_connection_error = True
+                # Check for httpcore exceptions
+                elif hasattr(httpcore, 'RemoteProtocolError') and isinstance(exc, httpcore.RemoteProtocolError):
+                    is_connection_error = True
+                elif hasattr(httpcore, 'ConnectError') and isinstance(exc, httpcore.ConnectError):
+                    is_connection_error = True
+                elif hasattr(httpcore, 'ReadTimeout') and isinstance(exc, httpcore.ReadTimeout):
+                    is_connection_error = True
+                elif hasattr(httpcore, 'WriteTimeout') and isinstance(exc, httpcore.WriteTimeout):
+                    is_connection_error = True
+                elif hasattr(httpcore, 'LocalProtocolError') and isinstance(exc, httpcore.LocalProtocolError):
+                    is_connection_error = True
+            
+            # Also check error message for connection-related terms
+            if not is_connection_error:
+                is_connection_error = (
+                    "ConnectionTerminated" in error_str
+                    or "Server disconnected" in error_str
+                    or "timed out" in error_str.lower()
+                    or "TimeoutError" in error_type
+                    or "ReadTimeout" in error_type
+                    or "WriteTimeout" in error_type
+                    or "ConnectTimeout" in error_type
+                    or "PoolTimeout" in error_type
+                    or "RemoteProtocolError" in error_type
+                    or "LocalProtocolError" in error_type
+                    or "ConnectionError" in error_type
+                    or "ConnectError" in error_type
+                    or "StreamIDTooLow" in error_str
+                    or "KeyError" in error_type
+                    or "httpcore" in error_module
+                )
+            
+            if is_connection_error and attempt < max_retries - 1:
+                # Calculate delay with exponential backoff
+                delay = _RETRY_DELAY * (_RETRY_BACKOFF ** attempt)
+                time.sleep(delay)
+                last_exception = exc
+                continue
+            else:
+                # Either not a connection error or last attempt
+                raise
+    
+    # Should never reach here, but just in case
+    if last_exception:
+        raise last_exception
 
 
 _IDENTIFIER_RE = re.compile(r"[^0-9A-Za-z_]")
@@ -129,12 +225,10 @@ class SupabaseDocumentDatabase(DocumentDatabase):
         self._supabase_module: Any | None = None
         self._postgrest_module: Any | None = None
         self._client: Any | None = None
-        self._pg_connection: Any | None = None
 
         self._collections: dict[str, SupabaseDocumentCollection[Any]] = {}
 
         self._connection_lock = asyncio.Lock()
-        self._operation_lock = asyncio.Lock()
 
     async def __aenter__(self) -> Self:
         await self._ensure_connection()
@@ -147,10 +241,6 @@ class SupabaseDocumentDatabase(DocumentDatabase):
         exc_tb: object | None,
     ) -> bool:
         # Close PostgreSQL connection if it exists
-        if hasattr(self, "_pg_connection") and self._pg_connection is not None:
-            await self._pg_connection.close()
-            self._pg_connection = None
-
         # Supabase client doesn't need explicit closing, but we can clean up
         if self._client is not None:
             self._client = None
@@ -163,7 +253,6 @@ class SupabaseDocumentDatabase(DocumentDatabase):
         schema: type[TDocument],
     ) -> SupabaseDocumentCollection[TDocument]:
         collection = await self._get_or_create_collection(name, schema)
-        await collection.ensure_table()
         return collection
 
     async def get_collection(
@@ -173,7 +262,6 @@ class SupabaseDocumentDatabase(DocumentDatabase):
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> SupabaseDocumentCollection[TDocument]:
         collection = await self._get_or_create_collection(name, schema)
-        await collection.ensure_table()
         await collection.load_existing_documents(document_loader)
         return collection
 
@@ -186,11 +274,7 @@ class SupabaseDocumentDatabase(DocumentDatabase):
         return await self.get_collection(name, schema, document_loader)
 
     async def delete_collection(self, name: str) -> None:
-        table = self._table_identifier(name)
-        failed_table = self._failed_table_identifier(name)
-
-        await self._execute_sql(f"DROP TABLE IF EXISTS {failed_table} CASCADE")
-        await self._execute_sql(f"DROP TABLE IF EXISTS {table} CASCADE")
+        """Remove collection from cache. Tables must be dropped manually via SQL."""
         self._collections.pop(name, None)
 
     async def _get_or_create_collection(
@@ -208,62 +292,6 @@ class SupabaseDocumentDatabase(DocumentDatabase):
 
         return cast(SupabaseDocumentCollection[TDocument], self._collections[name])
 
-    async def _execute_sql(self, sql: str) -> None:
-        """Execute raw SQL using direct PostgreSQL connection."""
-        await self._ensure_connection()
-
-        async with self._operation_lock:
-            # Extract connection string from Supabase URL
-            # Supabase URL format: https://<project-ref>.supabase.co
-            # We need to construct PostgreSQL connection string
-            if self._pg_connection is None:
-                # Use asyncpg for async PostgreSQL access
-                try:
-                    import asyncpg  # type: ignore[import-untyped]
-                except ImportError:
-                    raise SupabaseAdapterError(
-                        "Supabase adapter requires asyncpg for table creation. Install asyncpg."
-                    )
-
-                # Parse Supabase URL to get connection details
-                url = self._connection_params["url"]
-                # Extract project ref from URL
-                # Format: https://<project-ref>.supabase.co
-                import re
-
-                match = re.search(r"https://([^.]+)\.supabase\.co", url)
-                if not match:
-                    raise SupabaseAdapterError("Invalid Supabase URL format")
-
-                project_ref = match.group(1)
-
-                # Get database password from env or connection params
-                db_password = os.environ.get("SUPABASE_DB_PASSWORD") or self._connection_params.get(
-                    "db_password"
-                )
-                if not db_password:
-                    raise SupabaseAdapterError(
-                        "SUPABASE_DB_PASSWORD is required for table creation. "
-                        "Get it from your Supabase project settings."
-                    )
-
-                # Construct connection string
-                # Default port is 5432, database name is usually 'postgres'
-                db_host = f"{project_ref}.supabase.co"
-                db_user = os.environ.get("SUPABASE_DB_USER", "postgres")
-                db_name = os.environ.get("SUPABASE_DB_NAME", "postgres")
-                db_port = int(os.environ.get("SUPABASE_DB_PORT", "5432"))
-
-                self._pg_connection = await asyncpg.connect(
-                    host=db_host,
-                    port=db_port,
-                    user=db_user,
-                    password=db_password,
-                    database=db_name,
-                    ssl="require",
-                )
-
-            await self._pg_connection.execute(sql)
 
     async def _ensure_connection(self) -> None:
         if self._client is not None:
@@ -279,26 +307,177 @@ class SupabaseDocumentDatabase(DocumentDatabase):
                 self._client = self._client_factory(self._connection_params)
             else:
                 assert self._supabase_module is not None
-                self._client = await asyncio.to_thread(
-                    self._supabase_module.create_client,
-                    self._connection_params["url"],
-                    self._connection_params["key"],
-                )
+                
+                # Configure client with HTTP/1.1 to avoid HTTP/2 connection issues
+                # The Supabase client uses httpx internally, and we need to configure it
+                # to disable HTTP/2 which can cause connection termination errors
+                client_created = False
+                
+                # Try method 1: Use ClientOptions (supabase-py >= 2.0.0)
+                try:
+                    from supabase.lib.client_options import ClientOptions
+                    import httpx
+                    
+                    # Create httpx client with HTTP/1.1 only and longer timeouts
+                    http_client = httpx.Client(
+                        http2=False,  # Disable HTTP/2 to avoid connection issues
+                        timeout=httpx.Timeout(
+                            connect=30.0,  # Connection timeout
+                            read=60.0,     # Read timeout (increased for slow queries)
+                            write=30.0,    # Write timeout
+                            pool=30.0,     # Pool timeout
+                        ),
+                        limits=httpx.Limits(
+                            max_keepalive_connections=10,
+                            max_connections=20,
+                            keepalive_expiry=30.0,
+                        ),
+                    )
+                    
+                    # Configure client options
+                    options = ClientOptions(
+                        http_client=http_client,
+                    )
+                    
+                    self._client = await asyncio.to_thread(
+                        self._supabase_module.create_client,
+                        self._connection_params["url"],
+                        self._connection_params["key"],
+                        options=options,
+                    )
+                    client_created = True
+                except (ImportError, TypeError, AttributeError):
+                    # ClientOptions not available or not supported
+                    pass
+                
+                # Try method 2: Use environment variable to force HTTP/1.1 (fallback)
+                if not client_created:
+                    try:
+                        import httpx
+                        import os
+                        
+                        # Set environment variable to disable HTTP/2 globally for httpx
+                        # This is a workaround if ClientOptions doesn't work
+                        os.environ.setdefault("HTTPX_DISABLE_HTTP2", "1")
+                        
+                        # Create httpx client with HTTP/1.1 only
+                        http_client = httpx.Client(
+                            http2=False,
+                            timeout=httpx.Timeout(
+                                connect=30.0,
+                                read=60.0,
+                                write=30.0,
+                                pool=30.0,
+                            ),
+                            limits=httpx.Limits(
+                                max_keepalive_connections=10,
+                                max_connections=20,
+                                keepalive_expiry=30.0,
+                            ),
+                        )
+                        
+                        # Try to create client with custom http_client if the library supports it
+                        # Some versions of supabase-py allow passing http_client directly
+                        try:
+                            self._client = await asyncio.to_thread(
+                                self._supabase_module.create_client,
+                                self._connection_params["url"],
+                                self._connection_params["key"],
+                                http_client=http_client,
+                            )
+                            client_created = True
+                        except TypeError:
+                            # http_client parameter not supported, try with options
+                            try:
+                                # Try creating with a custom session factory
+                                from supabase.lib.client_options import ClientOptions
+                                options = ClientOptions(http_client=http_client)
+                                self._client = await asyncio.to_thread(
+                                    self._supabase_module.create_client,
+                                    self._connection_params["url"],
+                                    self._connection_params["key"],
+                                    options=options,
+                                )
+                                client_created = True
+                            except Exception:
+                                # Fall through to default client creation
+                                pass
+                        
+                        if not client_created:
+                            # Create default client - retry logic will handle issues
+                            self._client = await asyncio.to_thread(
+                                self._supabase_module.create_client,
+                                self._connection_params["url"],
+                                self._connection_params["key"],
+                            )
+                            client_created = True
+                            
+                    except Exception as exc:
+                        self._logger.warning(
+                            f"Could not configure Supabase client with HTTP/1.1: {exc}. "
+                            "Using default client with retry logic."
+                        )
+                
+                # Method 3: Last resort - create client without custom config
+                # Retry logic will handle connection errors
+                if not client_created:
+                    # Try to force HTTP/1.1 via environment variable
+                    import os
+                    original_env = os.environ.get("HTTPX_DISABLE_HTTP2")
+                    try:
+                        os.environ["HTTPX_DISABLE_HTTP2"] = "1"
+                        self._client = await asyncio.to_thread(
+                            self._supabase_module.create_client,
+                            self._connection_params["url"],
+                            self._connection_params["key"],
+                        )
+                    finally:
+                        # Restore original environment variable if it existed
+                        if original_env is not None:
+                            os.environ["HTTPX_DISABLE_HTTP2"] = original_env
+                        elif "HTTPX_DISABLE_HTTP2" in os.environ:
+                            del os.environ["HTTPX_DISABLE_HTTP2"]
 
     def _import_client(self) -> None:
         if self._supabase_module is not None:
             return
 
+        # Set environment variable to disable HTTP/2 before importing supabase
+        # This ensures httpx uses HTTP/1.1 by default
+        import os
+        original_env = os.environ.get("HTTPX_DISABLE_HTTP2")
         try:
-            supabase_module = importlib.import_module("supabase")
-        except ImportError as exc:
-            raise SupabaseAdapterError(
-                "Supabase adapter requires supabase-py. Install parlant[supabase] or pip install supabase."
-            ) from exc
+            os.environ["HTTPX_DISABLE_HTTP2"] = "1"
+            
+            try:
+                supabase_module = importlib.import_module("supabase")
+            except ImportError as exc:
+                raise SupabaseAdapterError(
+                    "Supabase adapter requires supabase-py. Install parlant[supabase] or pip install supabase."
+                ) from exc
 
-        self._supabase_module = supabase_module
+            self._supabase_module = supabase_module
+        finally:
+            # Restore original environment variable if it existed
+            if original_env is not None:
+                os.environ["HTTPX_DISABLE_HTTP2"] = original_env
+            elif "HTTPX_DISABLE_HTTP2" in os.environ:
+                # Keep it set since we want HTTP/1.1
+                pass
 
     def _table_identifier(self, name: str) -> str:
+        # If prefix already ends with the collection name, use prefix as-is
+        # This handles cases where table_prefix is already the full table name
+        # e.g., prefix="parlant_sessions_", name="sessions" -> use "parlant_sessions_"
+        prefix_normalized = self._table_prefix.lower().rstrip('_')
+        name_normalized = name.lower()
+        
+        # Check if prefix already ends with the collection name
+        if prefix_normalized.endswith(name_normalized):
+            # Use prefix as-is (preserving trailing underscore if present)
+            return _sanitize_identifier(self._table_prefix)
+        
+        # Otherwise, append the collection name to the prefix
         return _sanitize_identifier(self._table_prefix + name)
 
     def _failed_table_identifier(self, name: str) -> str:
@@ -330,70 +509,9 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
         self._table = self._database._table_identifier(name)
         self._failed_table = self._database._failed_table_identifier(name)
 
-        self._table_ready = False
         self._loader_done = False
-        self._table_lock = asyncio.Lock()
         self._loader_lock = asyncio.Lock()
 
-    async def ensure_table(self) -> None:
-        if self._table_ready:
-            return
-
-        async with self._table_lock:
-            if self._table_ready:
-                return
-
-            # Create main table
-            create_stmt = f"""
-                CREATE TABLE IF NOT EXISTS {self._table} (
-                    id TEXT NOT NULL PRIMARY KEY,
-                    version TEXT,
-                    creation_utc TEXT,
-                    session_id TEXT,
-                    customer_id TEXT,
-                    agent_id TEXT,
-                    data JSONB NOT NULL DEFAULT '{{}}'::jsonb
-                )
-            """
-
-            # Create indexes for commonly queried fields
-            index_stmt = f"""
-                CREATE INDEX IF NOT EXISTS idx_{self._table}_creation_utc 
-                ON {self._table}(creation_utc);
-
-                CREATE INDEX IF NOT EXISTS idx_{self._table}_session_id 
-                ON {self._table}(session_id) WHERE session_id IS NOT NULL;
-
-                CREATE INDEX IF NOT EXISTS idx_{self._table}_customer_id 
-                ON {self._table}(customer_id) WHERE customer_id IS NOT NULL;
-
-                CREATE INDEX IF NOT EXISTS idx_{self._table}_agent_id 
-                ON {self._table}(agent_id) WHERE agent_id IS NOT NULL;
-
-                CREATE INDEX IF NOT EXISTS idx_{self._table}_data_gin 
-                ON {self._table} USING GIN (data);
-            """
-
-            # Create failed migrations table
-            failed_table_stmt = f"""
-                CREATE TABLE IF NOT EXISTS {self._failed_table} (
-                    id TEXT,
-                    data JSONB DEFAULT '{{}}'::jsonb
-                )
-            """
-
-            try:
-                await self._database._execute_sql(create_stmt)
-                await self._database._execute_sql(index_stmt)
-                await self._database._execute_sql(failed_table_stmt)
-            except Exception as exc:
-                self._logger.error(
-                    f"Failed to create table {self._table}: {exc}. "
-                    "Ensure SUPABASE_DB_PASSWORD is set correctly."
-                )
-                raise SupabaseAdapterError(f"Failed to create table: {exc}") from exc
-
-            self._table_ready = True
 
     async def load_existing_documents(
         self,
@@ -406,7 +524,6 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
             if self._loader_done:
                 return
 
-            await self.ensure_table()
             await self._database._ensure_connection()
             assert self._database._client is not None
 
@@ -414,7 +531,9 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
             client = self._database._client
             table_name = self._table
             response = await asyncio.to_thread(
-                lambda: client.table(table_name).select("*").execute()
+                lambda: _retry_on_connection_error(
+                    lambda: client.table(table_name).select("*").execute()
+                )
             )
 
             failed: list[BaseDocument] = []
@@ -449,7 +568,6 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
         cursor: Optional[Cursor] = None,
         sort_direction: Optional[SortDirection] = None,
     ) -> FindResult[TDocument]:
-        await self.ensure_table()
         await self._database._ensure_connection()
         assert self._database._client is not None
 
@@ -487,8 +605,10 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
         if query_limit:
             query = query.limit(query_limit)
 
-        # Execute query
-        response = await asyncio.to_thread(lambda: query.execute())
+        # Execute query with retry logic
+        response = await asyncio.to_thread(
+            lambda: _retry_on_connection_error(lambda: query.execute())
+        )
         rows = response.data or []
 
         documents = [cast(TDocument, self._row_to_document(row)) for row in rows]
@@ -531,16 +651,42 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
                     for part in cast(Sequence[Where], value):
                         query = self._apply_filters(query, part)
                 elif key == "$or":
-                    # PostgREST supports OR using or_() method with filter strings
-                    # We'll need to build filter strings for each OR condition
-                    or_parts = []
-                    for part in cast(Sequence[Where], value):
-                        or_filter = self._build_filter_string(part)
-                        if or_filter:
-                            or_parts.append(or_filter)
-                    if or_parts:
-                        # Combine OR conditions
-                        query = query.or_(",".join(or_parts))
+                    # For OR conditions, we need to handle them carefully
+                    # PostgREST's or_() method can be tricky with JSONB fields
+                    # So we'll build OR conditions using filter strings, but handle JSONB properly
+                    or_conditions = cast(Sequence[Where], value)
+                    
+                    # Check if any OR condition involves non-indexed fields
+                    has_jsonb_fields = False
+                    for condition in or_conditions:
+                        if isinstance(condition, Mapping):
+                            for field_name in condition.keys():
+                                if field_name not in ("$and", "$or") and field_name not in self.INDEXED_FIELDS:
+                                    has_jsonb_fields = True
+                                    break
+                        if has_jsonb_fields:
+                            break
+                    
+                    if has_jsonb_fields:
+                        # For JSONB fields, use a different approach
+                        # Build filter strings with proper JSONB syntax
+                        or_parts = []
+                        for part in or_conditions:
+                            or_filter = self._build_filter_string(part)
+                            if or_filter:
+                                or_parts.append(or_filter)
+                        if or_parts:
+                            # Combine OR conditions
+                            query = query.or_(",".join(or_parts))
+                    else:
+                        # For indexed fields only, use filter strings
+                        or_parts = []
+                        for part in or_conditions:
+                            or_filter = self._build_filter_string(part)
+                            if or_filter:
+                                or_parts.append(or_filter)
+                        if or_parts:
+                            query = query.or_(",".join(or_parts))
                 else:
                     query = self._apply_field_filter(query, key, value)
 
@@ -555,8 +701,26 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
         for key, value in filters.items():
             if key in ("$and", "$or"):
                 continue
+            
+            # Determine if field is indexed (top-level column) or in JSONB data
+            if key in self.INDEXED_FIELDS:
+                field_name = key
+            else:
+                # For JSONB fields in OR filter strings, use PostgREST JSONB operator syntax
+                # PostgREST format: data->>field_name for text extraction (no quotes around field name)
+                # This allows filtering JSONB fields in OR conditions
+                # Format: data->>tag_id.eq.value
+                field_name = f"data->>{key}"
+            
             if not isinstance(value, Mapping):
-                parts.append(f"{key}.eq.{value}")
+                # Simple equality
+                if key in self.INDEXED_FIELDS:
+                    parts.append(f"{field_name}.eq.{value}")
+                else:
+                    # For JSONB text extraction, compare as string
+                    # The value should be converted to string for comparison
+                    str_value = str(value) if not isinstance(value, str) else value
+                    parts.append(f"{field_name}.eq.{str_value}")
             else:
                 for op, operand in value.items():
                     op_map = {
@@ -568,9 +732,19 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
                         "$lte": "lte",
                     }
                     if op in op_map:
-                        parts.append(f"{key}.{op_map[op]}.{operand}")
+                        if key in self.INDEXED_FIELDS:
+                            parts.append(f"{field_name}.{op_map[op]}.{operand}")
+                        else:
+                            # For JSONB text extraction, convert operand to string
+                            str_operand = str(operand) if not isinstance(operand, str) else operand
+                            parts.append(f"{field_name}.{op_map[op]}.{str_operand}")
                     elif op == "$in":
-                        parts.append(f"{key}.in.({','.join(map(str, operand))})")
+                        if key in self.INDEXED_FIELDS:
+                            parts.append(f"{field_name}.in.({','.join(map(str, operand))})")
+                        else:
+                            # For JSONB fields with $in, convert each value to string
+                            str_values = [str(v) if not isinstance(v, str) else v for v in operand]
+                            parts.append(f"{field_name}.in.({','.join(str_values)})")
 
         return ",".join(parts)
 
@@ -630,7 +804,6 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
         return query
 
     async def find_one(self, filters: Where) -> Optional[TDocument]:
-        await self.ensure_table()
         await self._database._ensure_connection()
         assert self._database._client is not None
 
@@ -638,7 +811,9 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
         query = self._apply_filters(query, filters)
         query = query.limit(1)
 
-        response = await asyncio.to_thread(lambda: query.execute())
+        response = await asyncio.to_thread(
+            lambda: _retry_on_connection_error(lambda: query.execute())
+        )
 
         if not response.data or len(response.data) == 0:
             return None
@@ -646,7 +821,6 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
         return cast(TDocument, self._row_to_document(response.data[0]))
 
     async def insert_one(self, document: TDocument) -> InsertResult:
-        await self.ensure_table()
         await self._database._ensure_connection()
         assert self._database._client is not None
 
@@ -654,7 +828,11 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
 
         client = self._database._client
         table_name = self._table
-        await asyncio.to_thread(lambda: client.table(table_name).insert(params).execute())
+        await asyncio.to_thread(
+            lambda: _retry_on_connection_error(
+                lambda: client.table(table_name).insert(params).execute()
+            )
+        )
 
         return InsertResult(acknowledged=True)
 
@@ -730,7 +908,9 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
         client = self._database._client
         table_name = self._table
         await asyncio.to_thread(
-            lambda: client.table(table_name).update(update_params).eq("id", doc_id).execute()
+            lambda: _retry_on_connection_error(
+                lambda: client.table(table_name).update(update_params).eq("id", doc_id).execute()
+            )
         )
 
     async def _delete_documents(self, identifiers: Sequence[Any]) -> None:
@@ -750,7 +930,9 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
             # Capture id_str in closure to avoid lambda default parameter issues
             id_val = id_str
             await asyncio.to_thread(
-                lambda: client.table(table_name).delete().eq("id", id_val).execute()
+                lambda: _retry_on_connection_error(
+                    lambda: client.table(table_name).delete().eq("id", id_val).execute()
+                )
             )
 
     async def _persist_failed_documents(self, documents: Sequence[BaseDocument]) -> None:
@@ -770,7 +952,9 @@ class SupabaseDocumentCollection(DocumentCollection[TDocument]):
 
             # Use a function to avoid lambda closure issues
             def insert_doc(p: dict[str, Any] = params) -> Any:
-                return client.table(table_name).insert(p).execute()
+                return _retry_on_connection_error(
+                    lambda: client.table(table_name).insert(p).execute()
+                )
 
             await asyncio.to_thread(insert_doc)
 

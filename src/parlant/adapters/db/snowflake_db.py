@@ -152,8 +152,6 @@ class SnowflakeDocumentDatabase(DocumentDatabase):
         self._collections: dict[str, SnowflakeDocumentCollection[Any]] = {}
         self._initialized: set[str] = set()
         self._init_locks: dict[str, asyncio.Lock] = {}
-        self._table_ready: set[str] = set()
-        self._table_locks: dict[str, asyncio.Lock] = {}
 
         self._connection_lock = asyncio.Lock()
         self._operation_lock = asyncio.Lock()
@@ -179,9 +177,11 @@ class SnowflakeDocumentDatabase(DocumentDatabase):
         name: str,
         schema: type[TDocument],
     ) -> SnowflakeDocumentCollection[TDocument]:
-        collection = await self._get_or_create_collection(name, schema)
-        await self._initialize_collection(name, collection, document_loader=None)
-        return collection
+        return await self._get_or_create_initialized_collection(
+            name,
+            schema,
+            document_loader=None,
+        )
 
     async def get_collection(
         self,
@@ -189,9 +189,11 @@ class SnowflakeDocumentDatabase(DocumentDatabase):
         schema: type[TDocument],
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> SnowflakeDocumentCollection[TDocument]:
-        collection = await self._get_or_create_collection(name, schema)
-        await self._initialize_collection(name, collection, document_loader)
-        return collection
+        return await self._get_or_create_initialized_collection(
+            name,
+            schema,
+            document_loader=document_loader,
+        )
 
     async def get_or_create_collection(
         self,
@@ -208,10 +210,11 @@ class SnowflakeDocumentDatabase(DocumentDatabase):
         await self._execute(f"DROP TABLE IF EXISTS {failed_table}")
         self._collections.pop(name, None)
 
-    async def _get_or_create_collection(
+    async def _get_or_create_initialized_collection(
         self,
         name: str,
         schema: type[TDocument],
+        document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]] | None,
     ) -> SnowflakeDocumentCollection[TDocument]:
         if name not in self._collections:
             self._collections[name] = SnowflakeDocumentCollection(
@@ -221,45 +224,21 @@ class SnowflakeDocumentDatabase(DocumentDatabase):
                 logger=self._logger,
             )
 
-        return cast(SnowflakeDocumentCollection[TDocument], self._collections[name])
+        collection = cast(SnowflakeDocumentCollection[TDocument], self._collections[name])
 
-    async def _initialize_collection(
-        self,
-        name: str,
-        collection: SnowflakeDocumentCollection[Any],
-        document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]] | None,
-    ) -> None:
         if name in self._initialized:
-            return
+            return collection
 
         lock = self._init_locks.setdefault(name, asyncio.Lock())
         async with lock:
             if name in self._initialized:
-                return
-
-            await self._ensure_tables(name, collection)
-            if document_loader is not None:
-                await self.load_documents_with_loader(collection, document_loader)
-
-            self._initialized.add(name)
-
-    async def _ensure_tables(self, name: str, collection: SnowflakeDocumentCollection[Any]) -> None:
-        if name in self._table_ready:
-            return
-
-        lock = self._table_locks.setdefault(name, asyncio.Lock())
-        async with lock:
-            if name in self._table_ready:
-                return
+                return collection
 
             create_stmt = f"""
                 CREATE TABLE IF NOT EXISTS {collection._table} (
                     ID STRING NOT NULL,
                     VERSION STRING,
                     CREATION_UTC STRING,
-                    SESSION_ID STRING,
-                    CUSTOMER_ID STRING,
-                    AGENT_ID STRING,
                     DATA VARIANT,
                     PRIMARY KEY (ID)
                 )
@@ -275,7 +254,11 @@ class SnowflakeDocumentDatabase(DocumentDatabase):
                 """
             )
 
-            self._table_ready.add(name)
+            if document_loader is not None:
+                await self.load_documents_with_loader(collection, document_loader)
+
+            self._initialized.add(name)
+            return collection
 
     async def load_documents_with_loader(
         self,
@@ -400,9 +383,6 @@ class SnowflakeDocumentCollection(DocumentCollection[TDocument]):
         "id",
         "version",
         "creation_utc",
-        "session_id",
-        "customer_id",
-        "agent_id",
     }
 
     def __init__(
@@ -493,24 +473,18 @@ class SnowflakeDocumentCollection(DocumentCollection[TDocument]):
         params = self._serialize_document(document)
         sql = f"""
             INSERT INTO {self._table}
-            (ID, VERSION, CREATION_UTC, SESSION_ID, CUSTOMER_ID, AGENT_ID, DATA)
+            (ID, VERSION, CREATION_UTC, DATA)
             SELECT
                 V.ID,
                 V.VERSION,
                 V.CREATION_UTC,
-                V.SESSION_ID,
-                V.CUSTOMER_ID,
-                V.AGENT_ID,
                 PARSE_JSON(V.DATA_RAW)
             FROM VALUES (
                 %(id)s,
                 %(version)s,
                 %(creation_utc)s,
-                %(session_id)s,
-                %(customer_id)s,
-                %(agent_id)s,
                 %(data)s
-            ) AS V(ID, VERSION, CREATION_UTC, SESSION_ID, CUSTOMER_ID, AGENT_ID, DATA_RAW)
+            ) AS V(ID, VERSION, CREATION_UTC, DATA_RAW)
         """
 
         await self._database._execute(sql, params)
@@ -570,9 +544,6 @@ class SnowflakeDocumentCollection(DocumentCollection[TDocument]):
             UPDATE {self._table}
             SET VERSION=%(version)s,
                 CREATION_UTC=%(creation_utc)s,
-                SESSION_ID=%(session_id)s,
-                CUSTOMER_ID=%(customer_id)s,
-                AGENT_ID=%(agent_id)s,
                 DATA=PARSE_JSON(%(data)s)
             WHERE ID=%(id)s
         """
@@ -611,9 +582,6 @@ class SnowflakeDocumentCollection(DocumentCollection[TDocument]):
             "id": _stringify(document["id"]),
             "version": document.get("version"),
             "creation_utc": document.get("creation_utc"),
-            "session_id": _stringify(document.get("session_id")),
-            "customer_id": _stringify(document.get("customer_id")),
-            "agent_id": _stringify(document.get("agent_id")),
             "data": json.dumps(document, ensure_ascii=False),
         }
 

@@ -373,13 +373,15 @@ async def test_jsonb_field_filtering_in_or_condition(monkeypatch: pytest.MonkeyP
     db = _make_database()
     collection = SupabaseDocumentCollection(db, "variable_tag_associations", _SessionDocument, _TestLogger())
     
+    # Mock response with data that matches the filter
     mock_response = MagicMock()
-    mock_response.data = [{"data": {"tag_id": "tag-1", "variable_id": "var-1"}}]
+    mock_response.data = [{"data": {"tag_id": "tag-1", "variable_id": "var-1", "id": "var-1", "creation_utc": "2025-01-01T00:00:00Z"}}]
     
     mock_table = MagicMock()
     mock_query = MagicMock()
     mock_table.select.return_value = mock_query
     mock_query.or_.return_value = mock_query
+    mock_query.order.return_value = mock_query
     mock_query.execute.return_value = mock_response
     
     db._client = MagicMock()
@@ -390,4 +392,6 @@ async def test_jsonb_field_filtering_in_or_condition(monkeypatch: pytest.MonkeyP
     
     # Verify or_ was called (indicating JSONB field filtering was attempted)
     mock_query.or_.assert_called()
+    # The result should contain the document
     assert len(result.items) == 1
+    assert result.items[0]["tag_id"] == "tag-1"

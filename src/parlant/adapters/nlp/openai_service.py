@@ -43,7 +43,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backt
     JourneyBacktrackCheckSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
-    JourneyNodeSelectionSchema,
+    JourneyBacktrackNodeSelectionSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_step_selection import (
     JourneyNextStepSelectionSchema,
@@ -579,7 +579,9 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
             case ModelSize.AUTO:
                 return {
                     SingleToolBatchSchema: GPT_4o[SingleToolBatchSchema],
-                    JourneyNodeSelectionSchema: GPT_4_1[JourneyNodeSelectionSchema],
+                    JourneyBacktrackNodeSelectionSchema: GPT_4_1[
+                        JourneyBacktrackNodeSelectionSchema
+                    ],
                     CannedResponseDraftSchema: GPT_4_1[CannedResponseDraftSchema],
                     CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
                     JourneyNextStepSelectionSchema: GPT_4_1[JourneyNextStepSelectionSchema],

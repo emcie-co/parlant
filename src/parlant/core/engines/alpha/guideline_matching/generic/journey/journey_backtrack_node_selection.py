@@ -84,7 +84,7 @@ class JourneyNodeAdvancement(DefaultBaseModel):
     follow_ups: Optional[list[str]] = None
 
 
-class JourneyNodeSelectionSchema(DefaultBaseModel):
+class JourneyBacktrackNodeSelectionSchema(DefaultBaseModel):
     rationale: str | None = None
     journey_applies: bool | None = None
     requires_backtracking: bool | None = None
@@ -99,7 +99,7 @@ class JourneyNodeSelectionShot(Shot):
     journey_title: str
     journey_nodes: dict[str, _JourneyNode] | None
     previous_path: Sequence[str | None]
-    expected_result: JourneyNodeSelectionSchema
+    expected_result: JourneyBacktrackNodeSelectionSchema
     conditions: Sequence[str]
 
 
@@ -403,7 +403,7 @@ class JourneyBacktrackNodeSelection:
         logger: Logger,
         guideline_store: GuidelineStore,
         optimization_policy: OptimizationPolicy,
-        schematic_generator: SchematicGenerator[JourneyNodeSelectionSchema],
+        schematic_generator: SchematicGenerator[JourneyBacktrackNodeSelectionSchema],
         examined_journey: Journey,
         context: GuidelineMatchingContext,
         node_guidelines: Sequence[Guideline] = [],
@@ -573,7 +573,7 @@ class JourneyBacktrackNodeSelection:
         return formatted_shot
 
     def _get_verified_node_advancement(
-        self, response: JourneyNodeSelectionSchema
+        self, response: JourneyBacktrackNodeSelectionSchema
     ) -> list[str | None]:
         def add_and_remove_list_values(
             list_to_alter: list[Any],
@@ -946,7 +946,7 @@ example_1_journey_nodes = {
 }
 
 
-example_1_expected = JourneyNodeSelectionSchema(
+example_1_expected = JourneyBacktrackNodeSelectionSchema(
     journey_applies=True,
     requires_backtracking=False,
     rationale="The last step was completed. Customer asks about visas, which is unrelated to exploring cities, so step 4 should be activated",
@@ -1227,7 +1227,7 @@ random_actions_journey_nodes = {
     ),
 }
 
-example_2_expected = JourneyNodeSelectionSchema(
+example_2_expected = JourneyBacktrackNodeSelectionSchema(
     journey_applies=True,
     rationale="The customer provided a pick up location in NYC, a destination and a pick up time, allowing me to fast-forward through steps 2, 3, 5. I must stop at the next step, 6, because it requires tool calling.",
     requires_backtracking=False,
@@ -1255,7 +1255,7 @@ example_3_events = [
     ),
 ]
 
-example_3_expected = JourneyNodeSelectionSchema(
+example_3_expected = JourneyBacktrackNodeSelectionSchema(
     journey_applies=True,
     rationale="The customer provided a pick up location in NYC and a destination, allowing us to fast-forward through steps 1, 2 and 3. Step 5 requires asking for a pick up time, which the customer has yet to provide. We must therefore activate step 5.",
     requires_backtracking=False,
@@ -1346,7 +1346,7 @@ example_4_events = [
     ),
 ]
 
-example_4_expected = JourneyNodeSelectionSchema(
+example_4_expected = JourneyBacktrackNodeSelectionSchema(
     journey_applies=True,
     requires_backtracking=True,
     rationale="The customer is changing their pickup location decision that was made in step 2. The relevant follow up is step 3, since the new requested location is within NYC.",
@@ -1388,7 +1388,7 @@ example_5_events = [
     ),
 ]
 
-example_5_expected = JourneyNodeSelectionSchema(
+example_5_expected = JourneyBacktrackNodeSelectionSchema(
     journey_applies=True,
     rationale="Customer was told about capitals. Now we need to advance to the following step and ask for money",
     requires_backtracking=False,
@@ -1636,7 +1636,7 @@ loan_journey_nodes = {
     ),
 }
 
-example_6_expected = JourneyNodeSelectionSchema(
+example_6_expected = JourneyBacktrackNodeSelectionSchema(
     journey_applies=True,
     requires_backtracking=True,
     rationale="The customer changed their loan type decision after providing all information. The journey backtracks to the loan type step (2), then fast-forwards through the business loan path using the provided information, and eventually exits the journey.",
@@ -1709,7 +1709,7 @@ example_7_events = [
     ),
 ]
 
-example_7_expected = JourneyNodeSelectionSchema(
+example_7_expected = JourneyBacktrackNodeSelectionSchema(
     journey_applies=True,
     requires_backtracking=False,
     rationale="The customer wants a loan for their restaurant, making it a business loan. We can proceed through steps 4 and 6, since the customer already specified their desired loan amount and the collateral for the loan. This brings us to step 8, which was not completed yet.",

@@ -14,7 +14,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backt
 )
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
     JourneyBacktrackNodeSelection,
-    JourneyNodeSelectionSchema,
+    JourneyBacktrackNodeSelectionSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_step_selection import (
     JourneyNextStepSelection,
@@ -56,7 +56,9 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
         meter: Meter,
         guideline_store: GuidelineStore,
         optimization_policy: OptimizationPolicy,
-        schematic_generator_journey_node_selection: SchematicGenerator[JourneyNodeSelectionSchema],
+        schematic_generator_journey_node_selection: SchematicGenerator[
+            JourneyBacktrackNodeSelectionSchema
+        ],
         schematic_generator_next_step_selection: SchematicGenerator[JourneyNextStepSelectionSchema],
         schematic_generator_journey_backtrack_check: SchematicGenerator[
             JourneyBacktrackCheckSchema

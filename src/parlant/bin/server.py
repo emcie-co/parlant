@@ -67,7 +67,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backt
     JourneyBacktrackCheckSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
-    JourneyNodeSelectionSchema,
+    JourneyBacktrackNodeSelectionSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_step_selection import (
     JourneyNextStepSelectionSchema,
@@ -856,7 +856,7 @@ async def initialize_container(
         ToolRunningActionSchema,
         AgentIntentionProposerSchema,
         DisambiguationGuidelineMatchesSchema,
-        JourneyNodeSelectionSchema,
+        JourneyBacktrackNodeSelectionSchema,
         JourneyNextStepSelectionSchema,
         JourneyBacktrackCheckSchema,
         RelativeActionSchema,

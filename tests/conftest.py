@@ -37,7 +37,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backt
     JourneyBacktrackCheckSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
-    JourneyNodeSelectionSchema,
+    JourneyBacktrackNodeSelectionSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_step_selection import (
     JourneyNextStepSelectionSchema,
@@ -489,7 +489,7 @@ async def container(
             GenericResponseAnalysisSchema,
             AgentIntentionProposerSchema,
             DisambiguationGuidelineMatchesSchema,
-            JourneyNodeSelectionSchema,
+            JourneyBacktrackNodeSelectionSchema,
             JourneyNextStepSelectionSchema,
             RelativeActionSchema,
             ReachableNodesEvaluationSchema,
@@ -728,10 +728,10 @@ def no_cache(container: Container) -> None:
             container[SchematicGenerator[DisambiguationGuidelineMatchesSchema]],
         ).use_cache = False
     if isinstance(
-        container[SchematicGenerator[JourneyNodeSelectionSchema]],
+        container[SchematicGenerator[JourneyBacktrackNodeSelectionSchema]],
         CachedSchematicGenerator,
     ):
         cast(
-            CachedSchematicGenerator[JourneyNodeSelectionSchema],
-            container[SchematicGenerator[JourneyNodeSelectionSchema]],
+            CachedSchematicGenerator[JourneyBacktrackNodeSelectionSchema],
+            container[SchematicGenerator[JourneyBacktrackNodeSelectionSchema]],
         ).use_cache = False

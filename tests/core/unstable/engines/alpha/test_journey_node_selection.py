@@ -7,7 +7,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backt
     JourneyBacktrackCheckSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
-    JourneyNodeSelectionSchema,
+    JourneyBacktrackNodeSelectionSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_step_selection import (
     JourneyNextStepSelectionSchema,
@@ -36,7 +36,7 @@ def context(
         sync_await,
         logger=container[Logger],
         journey_node_selection_schematic_generator=container[
-            SchematicGenerator[JourneyNodeSelectionSchema]
+            SchematicGenerator[JourneyBacktrackNodeSelectionSchema]
         ],
         journey_next_step_selection_schematic_generator=container[
             SchematicGenerator[JourneyNextStepSelectionSchema]

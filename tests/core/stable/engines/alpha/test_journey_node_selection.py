@@ -22,7 +22,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backt
 )
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
     JourneyNodeKind,
-    JourneyNodeSelectionSchema,
+    JourneyBacktrackNodeSelectionSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.guideline_matching_context import (
     GuidelineMatchingContext,
@@ -55,7 +55,9 @@ from tests.test_utilities import SyncAwaiter
 class ContextOfTest:
     container: Container
     sync_await: SyncAwaiter
-    journey_node_selection_schematic_generator: SchematicGenerator[JourneyNodeSelectionSchema]
+    journey_node_selection_schematic_generator: SchematicGenerator[
+        JourneyBacktrackNodeSelectionSchema
+    ]
     journey_next_step_selection_schematic_generator: SchematicGenerator[
         JourneyNextStepSelectionSchema
     ]
@@ -96,7 +98,7 @@ def context(
         sync_await,
         logger=container[Logger],
         journey_node_selection_schematic_generator=container[
-            SchematicGenerator[JourneyNodeSelectionSchema]
+            SchematicGenerator[JourneyBacktrackNodeSelectionSchema]
         ],
         journey_next_step_selection_schematic_generator=container[
             SchematicGenerator[JourneyNextStepSelectionSchema]
@@ -121,6 +123,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="ask the customer for their name",
                 follow_up_ids=["2"],
                 customer_dependent_action=True,
+                customer_action="The customer provided their name",
                 kind=JourneyNodeKind.CHAT,
                 reachable_follow_ups=[
                     (
@@ -173,6 +176,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="ask them their surname",
                 follow_up_ids=["4"],
                 customer_dependent_action=True,
+                customer_action="The customer provided their surname",
                 kind=JourneyNodeKind.CHAT,
                 reachable_follow_ups=[
                     (
@@ -199,6 +203,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="ask for their phone number",
                 follow_up_ids=["5"],
                 customer_dependent_action=True,
+                customer_action="The customer provided their phone number",
                 kind=JourneyNodeKind.CHAT,
                 reachable_follow_ups=[
                     (
@@ -238,6 +243,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                 action="ask the customer for their favorite color",
                 follow_up_ids=[],
                 customer_dependent_action=True,
+                customer_action="The customer provided their favorite color",
                 kind=JourneyNodeKind.CHAT,
                 reachable_follow_ups=[
                     (
@@ -1093,9 +1099,13 @@ async def base_test_that_correct_node_is_selected(
                 assert result_node == expected_node
         elif expected_next_node_index:  # Only test that the next node is correct
             if isinstance(expected_next_node_index, list):
-                assert result_path[-1] in expected_next_node_index
+                assert result_path[-1] in expected_next_node_index or (
+                    result_path[-1] is None and "None" in expected_next_node_index
+                )
             else:
-                assert result_path[-1] == expected_next_node_index
+                assert result_path[-1] == expected_next_node_index or (
+                    result_path[-1] is None and "None" == expected_next_node_index
+                )
 
 
 async def test_that_journey_selector_repeats_node_if_incomplete_1(
@@ -1342,6 +1352,7 @@ async def test_that_journey_selector_correctly_advances_to_follow_up_node_3(
     )
 
 
+# Sometimes fails (10%) by exiting the journey
 async def test_that_journey_selector_correctly_advances_based_on_tool_result(
     context: ContextOfTest,
     agent: Agent,
@@ -1463,6 +1474,7 @@ async def test_that_journey_selector_correctly_exits_journey_that_no_longer_appl
 # Multinode advancement tests
 
 
+# Can not pass when max depth = 3. Should return 8, return 7.
 async def test_that_multinode_advancement_is_stopped_at_tool_requiring_nodes(
     context: ContextOfTest,
     agent: Agent,
@@ -2238,7 +2250,8 @@ async def test_that_journey_selector_backtracks_back_does_not_fast_forward_upon_
     )
 
 
-async def test_that_journey_selector_correctly_advances_by_multiple_nodes(  # Occasionally fast-forwards by too little, to node 7 instead of 9
+async def test_that_journey_selector_correctly_advances_by_multiple_nodes(
+    # Full node selection - Occasionally fast-forwards by too little, to node 7 instead of 9. Next step - can not pass with max depth, should return 8
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,

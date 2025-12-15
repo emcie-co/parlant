@@ -16,7 +16,7 @@ from __future__ import annotations
 from itertools import chain
 import time
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
-    JourneyNodeSelectionSchema,
+    JourneyBacktrackNodeSelectionSchema,
 )
 from zhipuai import ZhipuAI  # type: ignore
 from zhipuai.core._errors import (  # type: ignore
@@ -615,7 +615,7 @@ To obtain an API key:
         """
         return {
             SingleToolBatchSchema: GLM_4_Flash[SingleToolBatchSchema],
-            JourneyNodeSelectionSchema: GLM_4_Plus[JourneyNodeSelectionSchema],
+            JourneyBacktrackNodeSelectionSchema: GLM_4_Plus[JourneyBacktrackNodeSelectionSchema],
             CannedResponseDraftSchema: GLM_4_Plus[CannedResponseDraftSchema],
             CannedResponseSelectionSchema: GLM_4_Plus[CannedResponseSelectionSchema],
         }.get(t, GLM_4_Flash[t])(self._logger, self._tracer, self._meter)  # type: ignore

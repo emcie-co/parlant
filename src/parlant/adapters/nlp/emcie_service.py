@@ -47,6 +47,7 @@ from parlant.core.nlp.moderation import (
     ModerationService,
     ModerationTag,
 )
+from parlant.core.tracer import Tracer
 from parlant.core.version import VERSION
 
 
@@ -102,9 +103,10 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
         model_name: str,
         model_role: ModelRole,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
-        super().__init__(logger=logger, meter=meter, model_name=model_name)
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
 
         self._model_role = model_role
         self._tokenizer = EmcieEstimatingTokenizer()
@@ -247,12 +249,14 @@ class Jackal(EmcieSchematicGenerator[T]):
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
         model_role: ModelRole,
     ) -> None:
         super().__init__(
             model_name="jackal",
             logger=logger,
+            tracer=tracer,
             meter=meter,
             model_role=model_role,
         )
@@ -267,12 +271,14 @@ class Bison(EmcieSchematicGenerator[T]):
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
         model_role: ModelRole,
     ) -> None:
         super().__init__(
             model_name="bison",
             logger=logger,
+            tracer=tracer,
             meter=meter,
             model_role=model_role,
         )
@@ -290,9 +296,10 @@ class EmcieEmbedder(BaseEmbedder):
         self,
         model_name: str,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
-        super().__init__(logger, meter, model_name)
+        super().__init__(logger, tracer, meter, model_name)
         self._tokenizer = EmcieEstimatingTokenizer()
 
     @property
@@ -360,10 +367,11 @@ class EmcieEmbedder(BaseEmbedder):
 
 
 class BisonEmbedding(EmcieEmbedder):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(
             model_name="bison-embedding",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 
@@ -378,10 +386,11 @@ class BisonEmbedding(EmcieEmbedder):
 
 
 class JackalEmbedding(EmcieEmbedder):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(
             model_name="jackal-embedding",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 
@@ -473,12 +482,14 @@ Please set EMCIE_API_KEY in your environment before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
         model_tier: GenerationModelTier | None = None,
         model_role: ModelRole | None = None,
     ) -> None:
         self._logger = logger
         self._meter = meter
+        self._tracer = tracer
 
         self._model_tier = model_tier or os.environ.get("EMCIE_MODEL_TIER", "jackal")
         self._model_role = model_role or os.environ.get("EMCIE_MODEL_ROLE", "auto")
@@ -497,12 +508,14 @@ Please set EMCIE_API_KEY in your environment before running Parlant.
                 return Jackal[t](  # type: ignore
                     model_role=cast(ModelRole, self._model_role),
                     logger=self._logger,
+                    tracer=self._tracer,
                     meter=self._meter,
                 )
             case "bison":
                 return Bison[t](  # type: ignore
                     model_role=cast(ModelRole, self._model_role),
                     logger=self._logger,
+                    tracer=self._tracer,
                     meter=self._meter,
                 )
             case _:
@@ -512,9 +525,9 @@ Please set EMCIE_API_KEY in your environment before running Parlant.
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         match hints.get("model_size", ModelSize.AUTO):
             case ModelSize.AUTO | ModelSize.LARGE:
-                return BisonEmbedding(self._logger, self._meter)
+                return BisonEmbedding(self._logger, self._tracer, self._meter)
             case _:
-                return JackalEmbedding(self._logger, self._meter)
+                return JackalEmbedding(self._logger, self._tracer, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

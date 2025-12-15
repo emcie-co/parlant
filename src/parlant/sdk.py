@@ -289,6 +289,7 @@ class NLPServices:
 
         return EmcieService(
             container[Logger],
+            container[Tracer],
             container[Meter],
         )
 

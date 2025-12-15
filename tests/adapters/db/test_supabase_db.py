@@ -405,4 +405,7 @@ async def test_jsonb_field_filtering_in_or_condition(monkeypatch: pytest.MonkeyP
     mock_query.or_.assert_called()
     # The result should contain the document
     assert len(result.items) == 1
-    assert result.items[0]["tag_id"] == "tag-1"
+    # Verify the tag_id is in the document data (accessed via get since it's in JSONB)
+    # Note: tag_id is in the JSONB data, not part of _SessionDocument TypedDict
+    item_dict = dict(result.items[0])  # Convert to dict to access JSONB fields
+    assert item_dict.get("tag_id") == "tag-1"

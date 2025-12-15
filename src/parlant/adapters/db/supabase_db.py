@@ -342,8 +342,9 @@ class SupabaseDocumentDatabase(DocumentDatabase):
                     )
 
                     # Configure client options
+                    # Note: http_client parameter is valid but may not be in type stubs
                     options = ClientOptions(
-                        http_client=http_client,
+                        http_client=http_client,  # type: ignore[call-arg]
                     )
 
                     self._client = await asyncio.to_thread(
@@ -399,7 +400,8 @@ class SupabaseDocumentDatabase(DocumentDatabase):
                                 # Try creating with a custom session factory
                                 from supabase.lib.client_options import ClientOptions
 
-                                options = ClientOptions(http_client=http_client)
+                                # Note: http_client parameter is valid but may not be in type stubs
+                                options = ClientOptions(http_client=http_client)  # type: ignore[call-arg]
                                 self._client = await asyncio.to_thread(
                                     self._supabase_module.create_client,
                                     self._connection_params["url"],

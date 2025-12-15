@@ -90,29 +90,418 @@ async def main():
             description="Agent using Supabase for persistent storage",
         )
         
-        # Test: Create a session to verify Supabase is working
-        session = await agent.create_session(
-            customer_id=p.CustomerId("test-customer"),
-        )
-        print(f"Created session: {session.id}")
-        # All document operations now use Supabase
 ```
 
 ### Environment Variables
 
 Set the following environment variables before running:
 
-| Variable                | Required | Description                                                                         |
-|------------------------|:--------:|-------------------------------------------------------------------------------------|
-| `SUPABASE_URL`         |    ✅     | Your Supabase project URL (e.g. `https://your-project.supabase.co`).              |
-| `SUPABASE_KEY`         |    ✅     | Your Supabase anon/service role key.                                               |
-| `SUPABASE_DB_PASSWORD` |    ✅     | Database password for direct PostgreSQL connection (for table creation).            |
-| `SUPABASE_DB_USER`     |    ➖     | Database user (defaults to `postgres`).                                            |
-| `SUPABASE_DB_NAME`     |    ➖     | Database name (defaults to `postgres`).                                            |
-| `SUPABASE_DB_PORT`     |    ➖     | Database port (defaults to `5432`).                                                |
-| `SUPABASE_SCHEMA`      |    ➖     | PostgreSQL schema name (defaults to `public`).                                      |
+| Variable        | Required | Description                                                          |
+|----------------|:--------:|----------------------------------------------------------------------|
+| `SUPABASE_URL` |    ✅     | Your Supabase project URL (e.g. `https://your-project.supabase.co`). |
+| `SUPABASE_KEY` |    ✅     | Your Supabase anon/service role key (publishable key).               |
+| `SUPABASE_SCHEMA` |    ➖     | PostgreSQL schema name (defaults to `public`).                       |
 
-> **Note**: `SUPABASE_DB_PASSWORD` is required for automatic table creation. You can find it in your Supabase project settings under Database → Connection string.
+> **Note**: Only `SUPABASE_URL` and `SUPABASE_KEY` are required. The adapter uses the Supabase REST API client, so no database password or direct PostgreSQL connection is needed.
+
+### Manual Table Setup
+
+**Before using the adapter, you must create the required tables manually in your Supabase database.**
+
+#### Step 1: Access Supabase SQL Editor
+
+1. Go to your Supabase Dashboard
+2. Navigate to **SQL Editor** (left sidebar)
+3. Click **New Query**
+
+#### Step 2: Run SQL to Create Tables
+
+Copy and paste the following SQL statements. Replace `parlant_sessions_`, `parlant_customers_`, and `parlant_context_variables_` with your actual table prefixes if you customized them:
+
+```sql
+-- ============================================
+-- SESSIONS TABLES
+-- ============================================
+
+-- Create sessions table
+CREATE TABLE IF NOT EXISTS parlant_sessions_ (
+    id TEXT NOT NULL PRIMARY KEY,
+    version TEXT,
+    creation_utc TEXT,
+    session_id TEXT,
+    customer_id TEXT,
+    agent_id TEXT,
+    data JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+-- Create indexes for sessions table
+CREATE INDEX IF NOT EXISTS idx_parlant_sessions__creation_utc 
+ON parlant_sessions_(creation_utc);
+
+CREATE INDEX IF NOT EXISTS idx_parlant_sessions__session_id 
+ON parlant_sessions_(session_id) WHERE session_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_parlant_sessions__customer_id 
+ON parlant_sessions_(customer_id) WHERE customer_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_parlant_sessions__agent_id 
+ON parlant_sessions_(agent_id) WHERE agent_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_parlant_sessions__data_gin 
+ON parlant_sessions_ USING GIN (data);
+
+-- Create failed migrations table for sessions
+CREATE TABLE IF NOT EXISTS parlant_sessions__failed_migrations (
+    id TEXT,
+    data JSONB DEFAULT '{}'::jsonb
+);
+
+-- Create metadata table for sessions
+CREATE TABLE IF NOT EXISTS parlant_sessions_metadata (
+    id TEXT NOT NULL PRIMARY KEY,
+    version TEXT,
+    creation_utc TEXT,
+    session_id TEXT,
+    customer_id TEXT,
+    agent_id TEXT,
+    data JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_parlant_sessions_metadata_creation_utc 
+ON parlant_sessions_metadata(creation_utc);
+
+-- Create events table for sessions
+CREATE TABLE IF NOT EXISTS parlant_sessions_events (
+    id TEXT NOT NULL PRIMARY KEY,
+    version TEXT,
+    creation_utc TEXT,
+    session_id TEXT,
+    customer_id TEXT,
+    agent_id TEXT,
+    data JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_parlant_sessions_events_creation_utc 
+ON parlant_sessions_events(creation_utc);
+
+CREATE INDEX IF NOT EXISTS idx_parlant_sessions_events_session_id 
+ON parlant_sessions_events(session_id) WHERE session_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_parlant_sessions_events_data_gin 
+ON parlant_sessions_events USING GIN (data);
+
+-- Create failed migrations table for events
+CREATE TABLE IF NOT EXISTS parlant_sessions_events_failed_migrations (
+    id TEXT,
+    data JSONB DEFAULT '{}'::jsonb
+);
+
+-- ============================================
+-- CUSTOMERS TABLES
+-- ============================================
+
+-- Create customers table
+CREATE TABLE IF NOT EXISTS parlant_customers_ (
+    id TEXT NOT NULL PRIMARY KEY,
+    version TEXT,
+    creation_utc TEXT,
+    session_id TEXT,
+    customer_id TEXT,
+    agent_id TEXT,
+    data JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+-- Create indexes for customers table
+CREATE INDEX IF NOT EXISTS idx_parlant_customers__creation_utc 
+ON parlant_customers_(creation_utc);
+
+CREATE INDEX IF NOT EXISTS idx_parlant_customers__session_id 
+ON parlant_customers_(session_id) WHERE session_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_parlant_customers__customer_id 
+ON parlant_customers_(customer_id) WHERE customer_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_parlant_customers__agent_id 
+ON parlant_customers_(agent_id) WHERE agent_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_parlant_customers__data_gin 
+ON parlant_customers_ USING GIN (data);
+
+-- Create failed migrations table for customers
+CREATE TABLE IF NOT EXISTS parlant_customers__failed_migrations (
+    id TEXT,
+    data JSONB DEFAULT '{}'::jsonb
+);
+
+-- Create metadata table for customers
+CREATE TABLE IF NOT EXISTS parlant_customers_metadata (
+    id TEXT NOT NULL PRIMARY KEY,
+    version TEXT,
+    creation_utc TEXT,
+    session_id TEXT,
+    customer_id TEXT,
+    agent_id TEXT,
+    data JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_parlant_customers_metadata_creation_utc 
+ON parlant_customers_metadata(creation_utc);
+
+-- Create customer tag associations table
+CREATE TABLE IF NOT EXISTS parlant_customers_customer_tag_associations (
+    id TEXT NOT NULL PRIMARY KEY,
+    version TEXT,
+    creation_utc TEXT,
+    session_id TEXT,
+    customer_id TEXT,
+    agent_id TEXT,
+    data JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_parlant_customers_customer_tag_associations_creation_utc 
+ON parlant_customers_customer_tag_associations(creation_utc);
+
+CREATE INDEX IF NOT EXISTS idx_parlant_customers_customer_tag_associations_data_gin 
+ON parlant_customers_customer_tag_associations USING GIN (data);
+
+-- Create failed migrations table for customer tag associations
+CREATE TABLE IF NOT EXISTS parlant_customers_customer_tag_associations_failed_migrations (
+    id TEXT,
+    data JSONB DEFAULT '{}'::jsonb
+);
+
+-- ============================================
+-- CONTEXT VARIABLES TABLES
+-- ============================================
+
+-- Create context variables table
+CREATE TABLE IF NOT EXISTS parlant_context_variables_ (
+    id TEXT NOT NULL PRIMARY KEY,
+    version TEXT,
+    creation_utc TEXT,
+    session_id TEXT,
+    customer_id TEXT,
+    agent_id TEXT,
+    data JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+-- Create indexes for context variables table
+CREATE INDEX IF NOT EXISTS idx_parlant_context_variables__creation_utc 
+ON parlant_context_variables_(creation_utc);
+
+CREATE INDEX IF NOT EXISTS idx_parlant_context_variables__session_id 
+ON parlant_context_variables_(session_id) WHERE session_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_parlant_context_variables__customer_id 
+ON parlant_context_variables_(customer_id) WHERE customer_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_parlant_context_variables__agent_id 
+ON parlant_context_variables_(agent_id) WHERE agent_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_parlant_context_variables__data_gin 
+ON parlant_context_variables_ USING GIN (data);
+
+-- Create failed migrations table for context variables
+CREATE TABLE IF NOT EXISTS parlant_context_variables__failed_migrations (
+    id TEXT,
+    data JSONB DEFAULT '{}'::jsonb
+);
+
+-- Create metadata table for context variables
+CREATE TABLE IF NOT EXISTS parlant_context_variables_metadata (
+    id TEXT NOT NULL PRIMARY KEY,
+    version TEXT,
+    creation_utc TEXT,
+    session_id TEXT,
+    customer_id TEXT,
+    agent_id TEXT,
+    data JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_parlant_context_variables_metadata_creation_utc 
+ON parlant_context_variables_metadata(creation_utc);
+
+-- Create variable tag associations table
+CREATE TABLE IF NOT EXISTS parlant_context_variables_variable_tag_associations (
+    id TEXT NOT NULL PRIMARY KEY,
+    version TEXT,
+    creation_utc TEXT,
+    session_id TEXT,
+    customer_id TEXT,
+    agent_id TEXT,
+    data JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_parlant_context_variables_variable_tag_associations_creation_utc 
+ON parlant_context_variables_variable_tag_associations(creation_utc);
+
+CREATE INDEX IF NOT EXISTS idx_parlant_context_variables_variable_tag_associations_data_gin 
+ON parlant_context_variables_variable_tag_associations USING GIN (data);
+
+-- Create failed migrations table for variable tag associations
+CREATE TABLE IF NOT EXISTS parlant_context_variables_variable_tag_associations_failed_migrations (
+    id TEXT,
+    data JSONB DEFAULT '{}'::jsonb
+);
+
+-- Create values table for context variables
+CREATE TABLE IF NOT EXISTS parlant_context_variables_values (
+    id TEXT NOT NULL PRIMARY KEY,
+    version TEXT,
+    creation_utc TEXT,
+    session_id TEXT,
+    customer_id TEXT,
+    agent_id TEXT,
+    data JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_parlant_context_variables_values_creation_utc 
+ON parlant_context_variables_values(creation_utc);
+
+CREATE INDEX IF NOT EXISTS idx_parlant_context_variables_values_data_gin 
+ON parlant_context_variables_values USING GIN (data);
+
+-- Create failed migrations table for values
+CREATE TABLE IF NOT EXISTS parlant_context_variables_values_failed_migrations (
+    id TEXT,
+    data JSONB DEFAULT '{}'::jsonb
+);
+
+-- ============================================
+-- ROW LEVEL SECURITY (RLS) POLICIES
+-- ============================================
+
+-- Enable RLS on all tables
+ALTER TABLE parlant_sessions_ ENABLE ROW LEVEL SECURITY;
+ALTER TABLE parlant_sessions__failed_migrations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE parlant_sessions_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE parlant_sessions_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE parlant_sessions_events_failed_migrations ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE parlant_customers_ ENABLE ROW LEVEL SECURITY;
+ALTER TABLE parlant_customers__failed_migrations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE parlant_customers_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE parlant_customers_customer_tag_associations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE parlant_customers_customer_tag_associations_failed_migrations ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE parlant_context_variables_ ENABLE ROW LEVEL SECURITY;
+ALTER TABLE parlant_context_variables__failed_migrations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE parlant_context_variables_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE parlant_context_variables_variable_tag_associations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE parlant_context_variables_variable_tag_associations_failed_migrations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE parlant_context_variables_values ENABLE ROW LEVEL SECURITY;
+ALTER TABLE parlant_context_variables_values_failed_migrations ENABLE ROW LEVEL SECURITY;
+
+-- Create policies to allow all operations
+-- Note: Service role key bypasses RLS automatically, so these policies are for anon key usage
+-- If you're using service role key, RLS is bypassed and these policies won't apply
+
+-- Sessions policies - allow all operations for authenticated users
+CREATE POLICY "Allow all operations on parlant_sessions_" 
+ON parlant_sessions_ FOR ALL 
+USING (true)
+WITH CHECK (true);
+
+CREATE POLICY "Allow all operations on parlant_sessions__failed_migrations" 
+ON parlant_sessions__failed_migrations FOR ALL 
+USING (true)
+WITH CHECK (true);
+
+CREATE POLICY "Allow all operations on parlant_sessions_metadata" 
+ON parlant_sessions_metadata FOR ALL 
+USING (true)
+WITH CHECK (true);
+
+CREATE POLICY "Allow all operations on parlant_sessions_events" 
+ON parlant_sessions_events FOR ALL 
+USING (true)
+WITH CHECK (true);
+
+CREATE POLICY "Allow all operations on parlant_sessions_events_failed_migrations" 
+ON parlant_sessions_events_failed_migrations FOR ALL 
+USING (true)
+WITH CHECK (true);
+
+-- Customers policies
+CREATE POLICY "Allow all operations on parlant_customers_" 
+ON parlant_customers_ FOR ALL 
+USING (true)
+WITH CHECK (true);
+
+CREATE POLICY "Allow all operations on parlant_customers__failed_migrations" 
+ON parlant_customers__failed_migrations FOR ALL 
+USING (true)
+WITH CHECK (true);
+
+CREATE POLICY "Allow all operations on parlant_customers_metadata" 
+ON parlant_customers_metadata FOR ALL 
+USING (true)
+WITH CHECK (true);
+
+CREATE POLICY "Allow all operations on parlant_customers_customer_tag_associations" 
+ON parlant_customers_customer_tag_associations FOR ALL 
+USING (true)
+WITH CHECK (true);
+
+CREATE POLICY "Allow all operations on parlant_customers_customer_tag_associations_failed_migrations" 
+ON parlant_customers_customer_tag_associations_failed_migrations FOR ALL 
+USING (true)
+WITH CHECK (true);
+
+-- Context variables policies
+CREATE POLICY "Allow all operations on parlant_context_variables_" 
+ON parlant_context_variables_ FOR ALL 
+USING (true)
+WITH CHECK (true);
+
+CREATE POLICY "Allow all operations on parlant_context_variables__failed_migrations" 
+ON parlant_context_variables__failed_migrations FOR ALL 
+USING (true)
+WITH CHECK (true);
+
+CREATE POLICY "Allow all operations on parlant_context_variables_metadata" 
+ON parlant_context_variables_metadata FOR ALL 
+USING (true)
+WITH CHECK (true);
+
+CREATE POLICY "Allow all operations on parlant_context_variables_variable_tag_associations" 
+ON parlant_context_variables_variable_tag_associations FOR ALL 
+USING (true)
+WITH CHECK (true);
+
+CREATE POLICY "Allow all operations on parlant_context_variables_variable_tag_associations_failed_migrations" 
+ON parlant_context_variables_variable_tag_associations_failed_migrations FOR ALL 
+USING (true)
+WITH CHECK (true);
+
+CREATE POLICY "Allow all operations on parlant_context_variables_values" 
+ON parlant_context_variables_values FOR ALL 
+USING (true)
+WITH CHECK (true);
+
+CREATE POLICY "Allow all operations on parlant_context_variables_values_failed_migrations" 
+ON parlant_context_variables_values_failed_migrations FOR ALL 
+USING (true)
+WITH CHECK (true);
+
+-- Note: For production with anon key, you may want more restrictive policies
+-- Example: Allow users to only access their own data
+-- DROP POLICY "Allow all operations on parlant_sessions_" ON parlant_sessions_;
+-- CREATE POLICY "Users can access own sessions" 
+-- ON parlant_sessions_ FOR ALL 
+-- USING (auth.uid()::text = customer_id)
+-- WITH CHECK (auth.uid()::text = customer_id);
+```
+
+#### Step 3: Verify Tables Created
+
+After running the SQL, verify the tables exist:
+1. Go to **Table Editor** in your Supabase Dashboard
+2. You should see tables like:
+   - `parlant_sessions_`, `parlant_customers_`, `parlant_context_variables_` (main tables)
+   - `parlant_sessions_metadata`, `parlant_customers_metadata`, `parlant_context_variables_metadata` (metadata tables)
+   - `parlant_*_failed_migrations` (failed migrations tables)
+3. Check **Authentication** → **Policies** to verify RLS policies were created
 
 ## Verification
 
@@ -146,91 +535,42 @@ session = await agent.create_session(
 
 ---
 
-## Common Issues
-
-### Integration Not Working (Still Using Transient Storage)
-
-**Symptoms:**
-- No tables appear in Supabase dashboard
-- Document data appears in `parlant-data` folder
-- Data lost on server restart
-
-**Solution:** Ensure all document stores are properly configured with Supabase in your `configure_container` function. Make sure you're using `AsyncExitStack` to properly manage the Supabase database and store lifecycle.
-
-### Table Creation Fails
-
-**Symptoms:**
-- Error messages about table creation
-- Tables don't appear in Supabase dashboard
-
-**Solution:** 
-1. Ensure `SUPABASE_DB_PASSWORD` is set correctly
-2. Verify your database user has CREATE TABLE permissions
-3. Check that the schema exists and is accessible
-4. Verify network access allows connections to Supabase
-
-### Connection Issues
-
-**Symptoms:**
-- Connection timeout errors
-- Authentication failures
-
-**Solution:**
-1. Verify `SUPABASE_URL` and `SUPABASE_KEY` are correct
-2. Check that your Supabase project is active
-3. Ensure network access allows connections to Supabase
-4. For production, use Supabase's IP allowlist
-
----
-
 ## Troubleshooting
 
-### Query Performance
+### Tables Not Found
 
-For large datasets:
-1. Ensure indexes are created (check with `\d+ table_name` in psql)
-2. Use appropriate filters to limit result sets
-3. Use cursor-based pagination for large collections
-4. The adapter automatically creates GIN indexes on JSONB columns for efficient JSON queries
+**Error**: Tables don't exist or can't be found.
 
-### Migration Issues
+**Solution:**
+1. Run the SQL statements from "Manual Table Setup" in Supabase SQL Editor
+2. Verify table names match your `table_prefix` (default: `parlant_sessions_`, `parlant_customers_`, `parlant_context_variables_`)
+3. Check schema is set correctly (default: `public`)
 
-If document migrations fail:
-1. Failed documents are stored in separate `_failed_migrations` tables
-2. Check the Supabase logs for migration errors
-3. Review document versions and schema compatibility
+### Authentication Errors
+
+**Error**: "Invalid API key" or authentication failures.
+
+**Solution:**
+1. Verify `SUPABASE_URL` is your project URL (e.g. `https://your-project.supabase.co`)
+2. Verify `SUPABASE_KEY` is your anon/publishable key (Settings → API in Supabase Dashboard)
+3. Ensure your Supabase project is active and not paused
+4. Check API key has read/write permissions
 
 ### Data Not Persisting
 
-If data doesn't persist:
-1. Check that tables are created in Supabase dashboard
-2. Verify connection settings are correct
-3. Test by closing the server and restarting—data should persist
-4. Check Supabase project status and quotas
+**Error**: Data lost after server restart.
+
+**Solution:**
+1. Verify tables exist in Supabase Dashboard → Table Editor
+2. Check `SUPABASE_URL` and `SUPABASE_KEY` are set correctly
+3. Ensure document stores are configured with Supabase in `configure_container`
+4. Verify Supabase project is not paused or over quota
 
 ---
-
-## Requirements
-
-- Python 3.10+
-- `pip install parlant[supabase]`
-- Supabase project with PostgreSQL database access
-- `SUPABASE_URL`, `SUPABASE_KEY`, and `SUPABASE_DB_PASSWORD` environment variables
-
-## Key Features
-
-- **Persistent storage**: Replaces in-memory storage with production-ready PostgreSQL persistence
-- **Automatic table creation**: Tables and indexes are created automatically on first access
-- **JSONB storage**: Full document data stored in PostgreSQL JSONB columns with GIN indexes
-- **Migration support**: Automatic document migration with failed migration tracking
-- **Query support**: Full support for equality, comparison, membership, and logical operators
-- **Cursor-based pagination**: Efficient pagination for large collections
 
 ## Advanced Configuration
 
 ### Custom Table Prefix
-
-You can customize the table prefix when creating the database:
 
 ```python
 database = SupabaseDocumentDatabase(
@@ -239,52 +579,22 @@ database = SupabaseDocumentDatabase(
 )
 ```
 
-### Manual Table Creation
-
-If you prefer to create tables manually, you can use the following SQL:
-
-```sql
-CREATE TABLE IF NOT EXISTS parlant_sessions (
-    id TEXT NOT NULL PRIMARY KEY,
-    version TEXT,
-    creation_utc TEXT,
-    session_id TEXT,
-    customer_id TEXT,
-    agent_id TEXT,
-    data JSONB NOT NULL DEFAULT '{}'::jsonb
-);
-
-CREATE INDEX IF NOT EXISTS idx_parlant_sessions_creation_utc 
-ON parlant_sessions(creation_utc);
-
-CREATE INDEX IF NOT EXISTS idx_parlant_sessions_session_id 
-ON parlant_sessions(session_id) WHERE session_id IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_parlant_sessions_customer_id 
-ON parlant_sessions(customer_id) WHERE customer_id IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_parlant_sessions_agent_id 
-ON parlant_sessions(agent_id) WHERE agent_id IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_parlant_sessions_data_gin 
-ON parlant_sessions USING GIN (data);
-```
-
 ### Query Operations
 
-The adapter supports the following query operations:
-
+Supported query operators:
 - **Equality**: `{"field": {"$eq": "value"}}`
 - **Comparison**: `{"field": {"$gt": 10, "$lt": 20}}`
 - **Membership**: `{"field": {"$in": ["a", "b", "c"]}}`
-- **Logical operators**: `{"$and": [...], "$or": [...]}`
-- **Cursor-based pagination**: Automatic support for `limit` and `cursor`
-- **Sorting**: Ascending and descending by `creation_utc` and `id`
+- **Logical**: `{"$and": [...], "$or": [...]}`
+- **Pagination**: `limit` and `cursor` parameters
+- **Sorting**: By `creation_utc` or `id` (ASC/DESC)
 
-## Security Best Practices
+---
 
-1. **Use Service Role Key Carefully**: The service role key bypasses Row Level Security (RLS)
-2. **Enable RLS**: Consider enabling Row Level Security on tables for multi-tenant scenarios
-3. **Connection String**: Store `SUPABASE_DB_PASSWORD` securely (use environment variables or secrets management)
-4. **Network Security**: Use Supabase's IP allowlist for production deployments
-5. **Key Rotation**: Regularly rotate your Supabase keys and update environment variables
+## Requirements
+
+- Python 3.10+
+- `pip install parlant[supabase]`
+- Supabase project
+- `SUPABASE_URL` and `SUPABASE_KEY` environment variables
+- Tables created manually (see "Manual Table Setup" above)

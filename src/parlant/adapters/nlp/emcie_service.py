@@ -18,6 +18,7 @@ from pprint import pformat
 import time
 from typing import Any, Mapping, TypeAlias, cast
 from httpx import AsyncClient
+import httpx
 from typing_extensions import Literal, override
 import json
 import jsonfinder  # type: ignore
@@ -148,7 +149,14 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
         try:
             t_start = time.time()
 
-            async with AsyncClient() as client:
+            timeout = httpx.Timeout(
+                connect=5.0,
+                read=120.0,
+                write=30.0,
+                pool=5.0,
+            )
+
+            async with AsyncClient(timeout=timeout) as client:
                 response = await client.post(
                     f"{BASE_URL}/v1/completions",
                     headers={
@@ -325,7 +333,14 @@ class EmcieEmbedder(BaseEmbedder):
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
         try:
-            async with AsyncClient() as client:
+            timeout = httpx.Timeout(
+                connect=5.0,
+                read=120.0,
+                write=30.0,
+                pool=5.0,
+            )
+
+            async with AsyncClient(timeout=timeout) as client:
                 response = await client.post(
                     f"{BASE_URL}/v1/embeddings",
                     headers={
@@ -412,7 +427,14 @@ class OpenAIModerationService(BaseModerationService):
 
         import openai
 
-        self._client = openai.AsyncClient(api_key=os.environ["EMCIE_API_KEY"])
+        timeout = httpx.Timeout(
+            connect=5.0,
+            read=120.0,
+            write=30.0,
+            pool=5.0,
+        )
+
+        self._client = openai.AsyncClient(api_key=os.environ["EMCIE_API_KEY"], timeout=timeout)
 
         self._hist_moderation_request_duration = meter.create_duration_histogram(
             name="moderation",

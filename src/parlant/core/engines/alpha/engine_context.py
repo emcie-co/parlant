@@ -134,6 +134,12 @@ class Interaction:
     events: Sequence[Event]
     """An sequenced event-by-event representation of the interaction"""
 
+    @property
+    @deprecated("Use the events property instead")
+    def history(self) -> Sequence[Event]:
+        """Returns a string representation of the interaction history"""
+        return self.events
+
 
 @dataclass(frozen=False)
 class ResponseState:

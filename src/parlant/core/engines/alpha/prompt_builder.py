@@ -122,6 +122,8 @@ class PromptBuilder:
             return {k: self._prop_to_dict(v) for k, v in prop.items()}
         elif isinstance(prop, list):
             return [self._prop_to_dict(i) for i in prop]
+        elif isinstance(prop, tuple):
+            return tuple(self._prop_to_dict(i) for i in prop)
         elif dataclasses.is_dataclass(prop):
             return CustomTypeAdapter(obj=prop).model_dump(mode="json")["obj"]
         elif isinstance(prop, BaseModel):

@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Maintainer: Sifat Hasan <sihabhossan633@gmail.com>
-
 from __future__ import annotations
 import asyncio
 import json
@@ -21,13 +19,6 @@ from typing import Any, Awaitable, Callable, Generic, Optional, Sequence, TypeVa
 from typing_extensions import override, Self
 from pinecone import Pinecone, ServerlessSpec  # type: ignore[import-untyped]
 from pinecone.exceptions import PineconeException  # type: ignore[import-untyped]
-
-
-class _EmptyQueryResults:
-    """Empty query results for fallback when Pinecone query fails."""
-    matches: list[Any] = []
-
-
 from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.common import JSONSerializable
 from parlant.core.loggers import Logger
@@ -49,6 +40,12 @@ from parlant.core.persistence.vector_database import (
     TDocument,
     identity_loader,
 )
+
+
+class _EmptyQueryResults:
+    """Empty query results for fallback when Pinecone query fails."""
+
+    matches: list[Any] = []
 
 
 T = TypeVar("T")
@@ -140,30 +137,37 @@ def _extract_field_names_from_where(where: Where, field_names: set[str]) -> None
                             _extract_field_names_from_where(nested_filter, field_names)
 
 
-def _build_collection_filter(
+def _make_namespace(
     collection_name: str,
-    collection_type: str,
     embedder_type_name: str,
-    additional_filter: Optional[dict[str, Any]] = None,
-) -> dict[str, Any]:
-    """Build a Pinecone filter that includes collection metadata filtering."""
-    collection_filter = {
-        "$and": [
-            {"_parlant_collection": {"$eq": collection_name}},
-            {"_parlant_type": {"$eq": collection_type}},
-            {"_parlant_embedder": {"$eq": embedder_type_name}},
-        ]
-    }
+    collection_type: str,
+) -> str:
+    """Create a Pinecone namespace for a collection.
 
-    if additional_filter:
-        collection_filter["$and"].append(additional_filter)
-
-    return collection_filter
+    Pinecone uses namespaces to separate collections within a single index.
+    Format: {collection_name}_{embedder_type}_{embedded|unembedded}
+    """
+    return f"{collection_name}_{embedder_type_name}_{collection_type}"
 
 
-def _make_vector_id(collection_name: str, collection_type: str, doc_id: str) -> str:
-    """Create a unique vector ID that includes collection information."""
-    return f"{collection_name}_{collection_type}_{doc_id}"
+def _make_vector_id(doc_id: str) -> str:
+    """Create a vector ID from document ID.
+
+    With namespaces, we don't need to include collection info in the ID.
+    """
+    return str(doc_id)
+
+
+def _create_metadata_vector(dimension: int) -> list[float]:
+    """
+    Create a small non-zero vector for metadata storage.
+    Pinecone requires at least one non-zero value in dense vectors.
+    We use a small constant value (1e-6) in the first dimension to satisfy this requirement.
+    """
+    vector = [0.0] * dimension
+    if dimension > 0:
+        vector[0] = 1e-6  # Small non-zero value to satisfy Pinecone's requirement
+    return vector
 
 
 def _convert_where_to_pinecone_filter(where: Where) -> Optional[dict[str, Any]]:
@@ -241,9 +245,7 @@ class PineconeDatabase(VectorDatabase):
 
         self.pinecone_client: Optional[Pinecone] = None
         self._index: Optional[Any] = None  # Pinecone Index object
-        self._index_dimension: int = (
-            1536  # Default dimension, will be updated when index is created
-        )
+        self._index_dimension: int = 3072  # Default dimension (text-embedding-3-large), will be updated when index is created
         self._collections: dict[str, PineconeCollection[BaseDocument]] = {}
 
         self._embedding_cache_provider = embedding_cache_provider
@@ -267,18 +269,11 @@ class PineconeDatabase(VectorDatabase):
         if not self._index_name:
             self._index_name = os.getenv("PINECONE_INDEX_NAME", "parlant-pineconedb")
 
-        # Get embedder dimensions from embedder factory if available
-        # Otherwise use a default dimension (1536 for OpenAI embeddings)
-        default_dimension = 1536
-        if self._embedder_factory:
-            try:
-                # Try to get a sample embedder to determine dimension
-                # This is a best-effort approach
-                sample_embedder = self._embedder_factory.create_embedder(NullEmbedder)
-                if hasattr(sample_embedder, "dimensions"):
-                    default_dimension = sample_embedder.dimensions
-            except Exception:
-                pass  # Use default if we can't determine
+        # Default to 3072 for text-embedding-3-large (most common modern embedding model)
+        # We can't determine the actual embedder dimensions at initialization time
+        # since different collections may use different embedders
+        # The index dimension will be validated when collections are created
+        default_dimension = 3072
 
         # Check if index exists, create if not
         indexes = await asyncio.to_thread(self.pinecone_client.list_indexes)
@@ -306,10 +301,24 @@ class PineconeDatabase(VectorDatabase):
         # Get the index
         self._index = self.pinecone_client.Index(self._index_name)
 
-        # Set the index dimension (use default for now)
-        # In practice, all vectors in the index must have the same dimension
-        # which should match the embedder dimension
-        self._index_dimension = default_dimension
+        # Get the actual dimension from the existing index if available
+        # This ensures we use the correct dimension even if index was created with different dimension
+        try:
+            # Get index info from Pinecone client
+            index_info = await asyncio.to_thread(
+                self.pinecone_client.describe_index, self._index_name
+            )
+            if hasattr(index_info, "dimension") and index_info.dimension:
+                self._index_dimension = index_info.dimension
+                self._logger.info(f"Detected existing index dimension: {self._index_dimension}")
+            else:
+                self._index_dimension = default_dimension
+        except Exception as e:
+            # If we can't get the dimension, use the default
+            self._logger.warning(
+                f"Could not determine index dimension, using default {default_dimension}: {e}"
+            )
+            self._index_dimension = default_dimension
 
         return self
 
@@ -351,19 +360,17 @@ class PineconeDatabase(VectorDatabase):
         # Extract collection name from unembedded_collection_name (remove "_unembedded" suffix)
         collection_name = unembedded_collection_name.replace("_unembedded", "")
 
-        # Get all vectors from unembedded collection using query with metadata filter
-        unembedded_filter = _build_collection_filter(
-            collection_name=collection_name,
-            collection_type="unembedded",
-            embedder_type_name=embedder_type_name,
-        )
+        # Create namespace names for Pinecone
+        unembedded_namespace = _make_namespace(collection_name, embedder_type_name, "unembedded")
+        _make_namespace(collection_name, embedder_type_name, "embedded")
 
+        # Get all vectors from unembedded namespace using query
         try:
             unembedded_results = await asyncio.to_thread(
                 self._index.query,
                 vector=[0.0] * embedder.dimensions,  # Dummy vector for fetching all
                 top_k=10000,
-                filter=unembedded_filter,
+                namespace=unembedded_namespace,
                 include_metadata=True,
             )
         except Exception:
@@ -374,34 +381,31 @@ class PineconeDatabase(VectorDatabase):
 
         if unembedded_results.matches:
             for match in unembedded_results.matches:
-                # Remove internal Parlant metadata fields
-                doc_metadata = {
-                    k: v for k, v in match.metadata.items() if not k.startswith("_parlant_")
-                }
-                prospective_doc = cast(BaseDocument, doc_metadata)
+                # Metadata no longer needs Parlant internal fields since we use namespaces
+                doc_metadata = cast(BaseDocument, match.metadata or {})
+                prospective_doc = doc_metadata
                 try:
                     if loaded_doc := await document_loader(prospective_doc):
                         if loaded_doc != prospective_doc:
-                            # Update the unembedded collection
-                            doc_with_metadata = dict(cast(dict[str, Any], loaded_doc))
-                            doc_with_metadata["_parlant_collection"] = collection_name
-                            doc_with_metadata["_parlant_type"] = "unembedded"
-                            doc_with_metadata["_parlant_embedder"] = embedder_type_name
-
+                            # Update the unembedded namespace
+                            # Use metadata vector (with small non-zero value) for unembedded vectors
                             await asyncio.to_thread(
                                 self._index.upsert,
                                 vectors=[
                                     {
                                         "id": match.id,
-                                        "values": [0.0] * embedder.dimensions,
-                                        "metadata": doc_with_metadata,
+                                        "values": _create_metadata_vector(embedder.dimensions),
+                                        "metadata": cast(dict[str, Any], loaded_doc),
                                     }
                                 ],
+                                namespace=unembedded_namespace,
                             )
                             indexing_required = True
                     else:
                         self._logger.warning(f'Failed to load document "{prospective_doc}"')
-                        await asyncio.to_thread(self._index.delete, ids=[match.id])
+                        await asyncio.to_thread(
+                            self._index.delete, ids=[match.id], namespace=unembedded_namespace
+                        )
                         failed_migrations.append(prospective_doc)
 
                 except Exception as e:
@@ -462,69 +466,59 @@ class PineconeDatabase(VectorDatabase):
         # Extract collection name from unembedded_collection_name (remove "_unembedded" suffix)
         collection_name = unembedded_collection_name.replace("_unembedded", "")
 
-        # Get all vectors from unembedded collection using query with metadata filter
-        unembedded_filter = _build_collection_filter(
-            collection_name=collection_name,
-            collection_type="unembedded",
-            embedder_type_name=embedder_type_name,
-        )
+        # Create namespace names for Pinecone
+        unembedded_namespace = _make_namespace(collection_name, embedder_type_name, "unembedded")
+        embedded_namespace = _make_namespace(collection_name, embedder_type_name, "embedded")
 
+        # Get all vectors from unembedded namespace
         try:
             unembedded_results = await asyncio.to_thread(
                 self._index.query,
                 vector=[0.0] * embedder.dimensions,  # Dummy vector for fetching all
                 top_k=10000,
-                filter=unembedded_filter,
+                namespace=unembedded_namespace,
                 include_metadata=True,
             )
         except Exception:
             # Fallback: create empty results
             unembedded_results = _EmptyQueryResults()
 
-        # Map by document ID (string) from metadata (remove Parlant internal fields)
+        # Map by document ID (string) from metadata
         unembedded_docs_by_id = {}
         for match in unembedded_results.matches:
             if match.metadata is not None and "id" in match.metadata:
-                doc_metadata = {
-                    k: v for k, v in match.metadata.items() if not k.startswith("_parlant_")
-                }
+                doc_metadata = cast(dict[str, Any], match.metadata)
                 doc_id = cast(str, doc_metadata["id"])
                 unembedded_docs_by_id[doc_id] = (match, doc_metadata)
 
-        # Get all vectors from embedded collection using query with metadata filter
-        embedded_filter = _build_collection_filter(
-            collection_name=collection_name,
-            collection_type="embedded",
-            embedder_type_name=embedder_type_name,
-        )
-
+        # Get all vectors from embedded namespace
         try:
             embedded_results = await asyncio.to_thread(
                 self._index.query,
                 vector=[0.0] * embedder.dimensions,  # Dummy vector for fetching all
                 top_k=10000,
-                filter=embedded_filter,
+                namespace=embedded_namespace,
                 include_metadata=True,
             )
         except Exception:
             # Fallback: create empty results
             embedded_results = _EmptyQueryResults()
 
-        # Map by document ID (string) from metadata (remove Parlant internal fields)
+        # Map by document ID (string) from metadata
         embedded_docs_by_id = {}
         for match in embedded_results.matches:
             if match.metadata is not None and "id" in match.metadata:
-                doc_metadata = {
-                    k: v for k, v in match.metadata.items() if not k.startswith("_parlant_")
-                }
+                doc_metadata = cast(dict[str, Any], match.metadata)
                 doc_id = cast(str, doc_metadata["id"])
                 embedded_docs_by_id[doc_id] = (match, doc_metadata)
 
-        # Remove docs from embedded collection that no longer exist in unembedded
+        # Remove docs from embedded namespace that no longer exist in unembedded
         # Update embeddings for changed docs
         for doc_id, (embedded_match, embedded_doc_metadata) in embedded_docs_by_id.items():
             if doc_id not in unembedded_docs_by_id:
-                await asyncio.to_thread(self._index.delete, ids=[embedded_match.id])
+                await asyncio.to_thread(
+                    self._index.delete, ids=[embedded_match.id], namespace=embedded_namespace
+                )
             else:
                 unembedded_match, unembedded_doc = unembedded_docs_by_id[doc_id]
                 # Only recompute embeddings if checksum changed
@@ -542,25 +536,20 @@ class PineconeDatabase(VectorDatabase):
                     # Use existing vector if checksum hasn't changed
                     vector = embedded_match.values
 
-                # Add Parlant metadata
-                doc_with_metadata = dict(unembedded_doc)
-                doc_with_metadata["_parlant_collection"] = collection_name
-                doc_with_metadata["_parlant_type"] = "embedded"
-                doc_with_metadata["_parlant_embedder"] = embedder_type_name
-
                 await asyncio.to_thread(
                     self._index.upsert,
                     vectors=[
                         {
                             "id": embedded_match.id,
                             "values": vector,
-                            "metadata": doc_with_metadata,
+                            "metadata": unembedded_doc,
                         }
                     ],
+                    namespace=embedded_namespace,
                 )
                 unembedded_docs_by_id.pop(doc_id)
 
-        # Add new docs from unembedded to embedded collection
+        # Add new docs from unembedded to embedded namespace
         for doc_id, (unembedded_match, unembedded_doc) in unembedded_docs_by_id.items():
             embeddings = list(
                 (await embedder.embed([cast(str, unembedded_doc["content"])])).vectors
@@ -570,24 +559,19 @@ class PineconeDatabase(VectorDatabase):
                 self._logger.warning(f"Empty embedding for document {doc_id}, skipping")
                 continue
 
-            # Create embedded vector ID
-            embedded_vector_id = _make_vector_id(collection_name, "embedded", doc_id)
-
-            # Add Parlant metadata
-            doc_with_metadata = dict(unembedded_doc)
-            doc_with_metadata["_parlant_collection"] = collection_name
-            doc_with_metadata["_parlant_type"] = "embedded"
-            doc_with_metadata["_parlant_embedder"] = embedder_type_name
+            # Use document ID directly as vector ID (namespaces provide isolation)
+            vector_id = _make_vector_id(doc_id)
 
             await asyncio.to_thread(
                 self._index.upsert,
                 vectors=[
                     {
-                        "id": embedded_vector_id,
+                        "id": vector_id,
                         "values": embeddings[0],
-                        "metadata": doc_with_metadata,
+                        "metadata": unembedded_doc,
                     }
                 ],
+                namespace=embedded_namespace,
             )
 
         # Update version in both collections
@@ -613,9 +597,12 @@ class PineconeDatabase(VectorDatabase):
 
         embedder = self._embedder_factory.create_embedder(embedder_type)
 
-        # Check if index dimension matches - if not, we may need to handle this
-        # For now, we'll assume the index was created with the correct dimension
-        # In production, you might want to check and update the index dimension
+        # Validate that embedder dimensions match index dimensions
+        if embedder.dimensions != self._index_dimension:
+            raise ValueError(
+                f"Embedder dimensions ({embedder.dimensions}) do not match Pinecone index dimensions ({self._index_dimension}). "
+                f"Please recreate the index with dimension {embedder.dimensions} or use a different embedder."
+            )
 
         embedded_collection_name = self.format_collection_name(name, embedder_type)
         unembedded_collection_name = f"{name}_unembedded"
@@ -686,6 +673,25 @@ class PineconeDatabase(VectorDatabase):
         embedded_collection_name = self.format_collection_name(name, embedder_type)
         unembedded_collection_name = f"{name}_unembedded"
 
+        # Validate that embedder dimensions match index dimensions
+        if embedder.dimensions != self._index_dimension:
+            raise ValueError(
+                f"Embedder dimensions ({embedder.dimensions}) do not match Pinecone index dimensions ({self._index_dimension}). "
+                f"Please recreate the index with dimension {embedder.dimensions} or use a different embedder."
+            )
+
+        # Load and sync existing documents if collections exist
+        # This ensures existing documents are loaded and synced properly
+        embedded_collection_name = await self._load_collection_documents(
+            embedded_collection_name=embedded_collection_name,
+            unembedded_collection_name=unembedded_collection_name,
+            embedder_type=embedder_type,
+            document_loader=document_loader,
+        )
+
+        # Get the actual version from metadata (defaults to 1 if collection is new)
+        collection_version = await self._get_collection_version(embedded_collection_name)
+
         # Collections are stored in the single index using metadata
         # No need to create separate indexes - just create the collection object
         collection = PineconeCollection(
@@ -697,7 +703,7 @@ class PineconeDatabase(VectorDatabase):
             schema=schema,
             embedder=embedder,
             embedding_cache_provider=self._embedding_cache_provider,
-            version=1,
+            version=collection_version,
         )
         collection._database = self
         self._collections[name] = collection  # type: ignore[assignment]
@@ -717,44 +723,43 @@ class PineconeDatabase(VectorDatabase):
         collection = self._collections[name]
         embedder_type_name = type(collection._embedder).__name__
 
-        # Delete all vectors for this collection using metadata filter
-        # Query all vectors for this collection
-        collection_filter = _build_collection_filter(
-            collection_name=name,
-            collection_type="embedded",  # Get embedded vectors
-            embedder_type_name=embedder_type_name,
-        )
+        # Delete all vectors for this collection using namespaces
+        # Get namespace names
+        embedded_namespace = _make_namespace(name, embedder_type_name, "embedded")
+        unembedded_namespace = _make_namespace(name, embedder_type_name, "unembedded")
 
         try:
-            # Get all vectors for this collection
-            results = await asyncio.to_thread(
+            # Get all vectors from embedded namespace
+            embedded_results = await asyncio.to_thread(
                 self._index.query,
                 vector=[0.0] * collection._embedder.dimensions,
                 top_k=10000,
-                filter=collection_filter,
+                namespace=embedded_namespace,
                 include_metadata=True,
             )
 
-            # Also get unembedded vectors
-            unembedded_filter = _build_collection_filter(
-                collection_name=name,
-                collection_type="unembedded",
-                embedder_type_name=embedder_type_name,
-            )
+            # Get all vectors from unembedded namespace
             unembedded_results = await asyncio.to_thread(
                 self._index.query,
                 vector=[0.0] * collection._embedder.dimensions,
                 top_k=10000,
-                filter=unembedded_filter,
+                namespace=unembedded_namespace,
                 include_metadata=True,
             )
 
             # Collect all vector IDs to delete
-            vector_ids = [match.id for match in results.matches]
-            vector_ids.extend([match.id for match in unembedded_results.matches])
+            embedded_vector_ids = [match.id for match in embedded_results.matches]
+            unembedded_vector_ids = [match.id for match in unembedded_results.matches]
 
-            if vector_ids:
-                await asyncio.to_thread(self._index.delete, ids=vector_ids)
+            # Delete from both namespaces
+            if embedded_vector_ids:
+                await asyncio.to_thread(
+                    self._index.delete, ids=embedded_vector_ids, namespace=embedded_namespace
+                )
+            if unembedded_vector_ids:
+                await asyncio.to_thread(
+                    self._index.delete, ids=unembedded_vector_ids, namespace=unembedded_namespace
+                )
         except Exception as e:
             self._logger.warning(f"Error deleting collection vectors: {e}")
 
@@ -769,71 +774,53 @@ class PineconeDatabase(VectorDatabase):
         assert self.pinecone_client is not None, "Pinecone client must be initialized"
         assert self._index is not None, "Pinecone index must be initialized"
 
-        # Metadata is stored in the same index with special collection name
-        metadata_collection_name = "__metadata__"
+        # Metadata is stored in a special namespace
+        metadata_namespace = "__metadata__"
         metadata_vector_id = "__metadata__"
 
-        # Query for existing metadata
-        metadata_filter = _build_collection_filter(
-            collection_name=metadata_collection_name,
-            collection_type="metadata",
-            embedder_type_name="metadata",
-        )
-
+        # Query for existing metadata in namespace
         try:
             results = await asyncio.to_thread(
                 self._index.query,
-                vector=[0.0] * self._index_dimension,
+                vector=_create_metadata_vector(self._index_dimension),
                 top_k=1,
-                filter=metadata_filter,
+                namespace=metadata_namespace,
                 include_metadata=True,
             )
         except Exception:
             results = None
 
-        if results and results.matches:
-            # Remove internal Parlant metadata fields
-            document = {
-                k: v
-                for k, v in results.matches[0].metadata.items()
-                if not k.startswith("_parlant_")
-            }
-            document[key] = value
+        metadata_vector = _create_metadata_vector(self._index_dimension)
 
-            # Add back Parlant metadata
-            metadata_doc = dict(document)
-            metadata_doc["_parlant_collection"] = metadata_collection_name
-            metadata_doc["_parlant_type"] = "metadata"
-            metadata_doc["_parlant_embedder"] = "metadata"
+        if results and results.matches:
+            # Get existing metadata
+            document = cast(dict[str, Any], results.matches[0].metadata or {})
+            document[key] = value
 
             await asyncio.to_thread(
                 self._index.upsert,
                 vectors=[
                     {
                         "id": metadata_vector_id,
-                        "values": [0.0] * self._index_dimension,
-                        "metadata": cast(dict[str, Any], metadata_doc),
+                        "values": metadata_vector,
+                        "metadata": document,
                     }
                 ],
+                namespace=metadata_namespace,
             )
         else:
             document = {key: value}
 
-            # Add Parlant metadata
-            metadata_doc = dict(document)
-            metadata_doc["_parlant_collection"] = metadata_collection_name
-            metadata_doc["_parlant_type"] = "metadata"
-            metadata_doc["_parlant_embedder"] = "metadata"
-
             await asyncio.to_thread(
                 self._index.upsert,
                 vectors=[
                     {
                         "id": metadata_vector_id,
-                        "values": [0.0] * self._index_dimension,
-                        "metadata": cast(dict[str, Any], metadata_doc),
+                        "values": metadata_vector,
+                        "metadata": document,
                     }
                 ],
+                namespace=metadata_namespace,
             )
 
     @override
@@ -844,52 +831,37 @@ class PineconeDatabase(VectorDatabase):
         assert self.pinecone_client is not None, "Pinecone client must be initialized"
         assert self._index is not None, "Pinecone index must be initialized"
 
-        metadata_collection_name = "__metadata__"
+        metadata_namespace = "__metadata__"
         metadata_vector_id = "__metadata__"
 
-        # Query for existing metadata
-        metadata_filter = _build_collection_filter(
-            collection_name=metadata_collection_name,
-            collection_type="metadata",
-            embedder_type_name="metadata",
-        )
-
+        # Query for existing metadata in namespace
         try:
             results = await asyncio.to_thread(
                 self._index.query,
-                vector=[0.0] * self._index_dimension,
+                vector=_create_metadata_vector(self._index_dimension),
                 top_k=1,
-                filter=metadata_filter,
+                namespace=metadata_namespace,
                 include_metadata=True,
             )
         except Exception:
             results = None
 
         if results and results.matches:
-            # Remove internal Parlant metadata fields
-            document = {
-                k: v
-                for k, v in results.matches[0].metadata.items()
-                if not k.startswith("_parlant_")
-            }
+            document = cast(dict[str, Any], results.matches[0].metadata or {})
             if key in document:
                 document.pop(key)
 
-                # Add back Parlant metadata
-                metadata_doc = dict(document)
-                metadata_doc["_parlant_collection"] = metadata_collection_name
-                metadata_doc["_parlant_type"] = "metadata"
-                metadata_doc["_parlant_embedder"] = "metadata"
-
+                metadata_vector = _create_metadata_vector(self._index_dimension)
                 await asyncio.to_thread(
                     self._index.upsert,
                     vectors=[
                         {
                             "id": metadata_vector_id,
-                            "values": [0.0] * self._index_dimension,
-                            "metadata": cast(dict[str, Any], metadata_doc),
+                            "values": metadata_vector,
+                            "metadata": document,
                         }
                     ],
+                    namespace=metadata_namespace,
                 )
             else:
                 raise ValueError(f'Metadata with key "{key}" not found.')
@@ -903,33 +875,22 @@ class PineconeDatabase(VectorDatabase):
         assert self.pinecone_client is not None, "Pinecone client must be initialized"
         assert self._index is not None, "Pinecone index must be initialized"
 
-        metadata_collection_name = "__metadata__"
+        metadata_namespace = "__metadata__"
 
-        # Query for existing metadata
-        metadata_filter = _build_collection_filter(
-            collection_name=metadata_collection_name,
-            collection_type="metadata",
-            embedder_type_name="metadata",
-        )
-
+        # Query for existing metadata in namespace
         try:
             results = await asyncio.to_thread(
                 self._index.query,
-                vector=[0.0] * self._index_dimension,
+                vector=_create_metadata_vector(self._index_dimension),
                 top_k=1,
-                filter=metadata_filter,
+                namespace=metadata_namespace,
                 include_metadata=True,
             )
         except Exception:
             results = None
 
         if results and results.matches:
-            # Remove internal Parlant metadata fields
-            document = {
-                k: v
-                for k, v in results.matches[0].metadata.items()
-                if not k.startswith("_parlant_")
-            }
+            document = cast(dict[str, Any], results.matches[0].metadata or {})
             return cast(dict[str, JSONSerializable], document)
         else:
             return {}
@@ -960,6 +921,11 @@ class PineconeCollection(Generic[TDocument], VectorCollection[TDocument]):
         self.embedded_collection_name = embedded_collection_name
         self._pinecone_index = pinecone_index
         self._embedder_type_name = type(embedder).__name__
+
+        # Compute namespace names for Pinecone (namespaces provide collection isolation)
+        self._embedded_namespace = _make_namespace(name, self._embedder_type_name, "embedded")
+        self._unembedded_namespace = _make_namespace(name, self._embedder_type_name, "unembedded")
+
         self._database: Optional[PineconeDatabase] = (
             None  # Reference to parent database for version methods
         )
@@ -972,32 +938,22 @@ class PineconeCollection(Generic[TDocument], VectorCollection[TDocument]):
         async with self._lock.reader_lock:
             pinecone_filter = _convert_where_to_pinecone_filter(filters)
 
-            # Build collection filter with metadata
-            collection_filter = _build_collection_filter(
-                collection_name=self._name,
-                collection_type="embedded",
-                embedder_type_name=self._embedder_type_name,
-                additional_filter=pinecone_filter,
-            )
-
             try:
-                # Query with dummy vector to fetch all, then filter
+                # Query with dummy vector to fetch all, then filter by namespace
                 results = await asyncio.to_thread(
                     self._pinecone_index.query,
                     vector=[0.0] * self._embedder.dimensions,
                     top_k=10000,
-                    filter=collection_filter,
+                    filter=pinecone_filter,
+                    namespace=self._embedded_namespace,
                     include_metadata=True,
                 )
 
-                # Extract document metadata (remove Parlant internal fields)
+                # Extract document metadata
                 documents = []
                 for match in results.matches:
                     if match.metadata is not None:
-                        # Remove internal Parlant metadata fields
-                        doc_metadata = {
-                            k: v for k, v in match.metadata.items() if not k.startswith("_parlant_")
-                        }
+                        doc_metadata = cast(dict[str, Any], match.metadata)
                         if filters:
                             from parlant.core.persistence.common import matches_filters
 
@@ -1008,11 +964,12 @@ class PineconeCollection(Generic[TDocument], VectorCollection[TDocument]):
 
                 return documents
             except Exception:
-                # If filter fails, query all and filter in memory
+                # If filter fails, query all in namespace and filter in memory
                 all_results = await asyncio.to_thread(
                     self._pinecone_index.query,
                     vector=[0.0] * self._embedder.dimensions,
                     top_k=10000,
+                    namespace=self._embedded_namespace,
                     include_metadata=True,
                 )
                 # Filter in memory
@@ -1021,20 +978,9 @@ class PineconeCollection(Generic[TDocument], VectorCollection[TDocument]):
                 documents = []
                 for match in all_results.matches:
                     if match.metadata is not None:
-                        # Check collection metadata
-                        if (
-                            match.metadata.get("_parlant_collection") == self._name
-                            and match.metadata.get("_parlant_type") == "embedded"
-                            and match.metadata.get("_parlant_embedder") == self._embedder_type_name
-                        ):
-                            # Remove internal Parlant metadata fields
-                            doc_metadata = {
-                                k: v
-                                for k, v in match.metadata.items()
-                                if not k.startswith("_parlant_")
-                            }
-                            if not filters or matches_filters(filters, doc_metadata):
-                                documents.append(cast(TDocument, doc_metadata))
+                        doc_metadata = cast(dict[str, Any], match.metadata)
+                        if not filters or matches_filters(filters, doc_metadata):
+                            documents.append(cast(TDocument, doc_metadata))
 
                 return documents
 
@@ -1046,28 +992,22 @@ class PineconeCollection(Generic[TDocument], VectorCollection[TDocument]):
         async with self._lock.reader_lock:
             pinecone_filter = _convert_where_to_pinecone_filter(filters)
 
-            # Build collection filter with metadata
-            collection_filter = _build_collection_filter(
-                collection_name=self._name,
-                collection_type="embedded",
-                embedder_type_name=self._embedder_type_name,
-                additional_filter=pinecone_filter,
-            )
-
             try:
                 results = await asyncio.to_thread(
                     self._pinecone_index.query,
                     vector=[0.0] * self._embedder.dimensions,
                     top_k=1,
-                    filter=collection_filter,
+                    filter=pinecone_filter,
+                    namespace=self._embedded_namespace,
                     include_metadata=True,
                 )
             except Exception:
-                # If filter fails, query all and filter in memory
+                # If filter fails, query all in namespace and filter in memory
                 all_results = await asyncio.to_thread(
                     self._pinecone_index.query,
                     vector=[0.0] * self._embedder.dimensions,
                     top_k=10000,
+                    namespace=self._embedded_namespace,
                     include_metadata=True,
                 )
                 # Filter in memory
@@ -1076,21 +1016,10 @@ class PineconeCollection(Generic[TDocument], VectorCollection[TDocument]):
                 results_matches = []
                 for match in all_results.matches:
                     if match.metadata is not None:
-                        # Check collection metadata
-                        if (
-                            match.metadata.get("_parlant_collection") == self._name
-                            and match.metadata.get("_parlant_type") == "embedded"
-                            and match.metadata.get("_parlant_embedder") == self._embedder_type_name
-                        ):
-                            # Remove internal Parlant metadata fields
-                            doc_metadata = {
-                                k: v
-                                for k, v in match.metadata.items()
-                                if not k.startswith("_parlant_")
-                            }
-                            if not filters or matches_filters(filters, doc_metadata):
-                                results_matches.append(match)
-                                break  # Only need one
+                        doc_metadata = cast(dict[str, Any], match.metadata)
+                        if not filters or matches_filters(filters, doc_metadata):
+                            results_matches.append(match)
+                            break  # Only need one
 
                 # Create a mock results object
                 class MockResults:
@@ -1101,10 +1030,7 @@ class PineconeCollection(Generic[TDocument], VectorCollection[TDocument]):
             if results.matches:
                 match = results.matches[0]
                 if match.metadata is not None:
-                    # Remove internal Parlant metadata fields
-                    doc_metadata = {
-                        k: v for k, v in match.metadata.items() if not k.startswith("_parlant_")
-                    }
+                    doc_metadata = cast(dict[str, Any], match.metadata)
                     return cast(TDocument, doc_metadata)
 
         return None
@@ -1137,45 +1063,44 @@ class PineconeCollection(Generic[TDocument], VectorCollection[TDocument]):
         async with self._lock.writer_lock:
             self._version += 1
 
-            # Create vector IDs with collection prefix
+            # Use document ID directly as vector ID (namespaces provide isolation)
             doc_id = str(document["id"])
-            unembedded_vector_id = _make_vector_id(self._name, "unembedded", doc_id)
-            embedded_vector_id = _make_vector_id(self._name, "embedded", doc_id)
+            vector_id = _make_vector_id(doc_id)
 
-            # Add Parlant internal metadata to document
+            # Document metadata (no need for Parlant internal fields with namespaces)
             doc_metadata = dict(cast(dict[str, Any], document))
-            doc_metadata["_parlant_collection"] = self._name
-            doc_metadata["_parlant_embedder"] = self._embedder_type_name
 
-            # Insert into unembedded collection with retry on timeout
-            unembedded_metadata = {**doc_metadata, "_parlant_type": "unembedded"}
+            # Insert into unembedded namespace with retry on timeout
+            # Use metadata vector (with small non-zero value) for unembedded vectors
+            # Pinecone requires at least one non-zero value in dense vectors
             await _retry_on_timeout_async(
                 lambda: asyncio.to_thread(
                     self._pinecone_index.upsert,
                     vectors=[
                         {
-                            "id": unembedded_vector_id,
-                            "values": [0.0] * self._embedder.dimensions,
-                            "metadata": unembedded_metadata,
+                            "id": vector_id,
+                            "values": _create_metadata_vector(self._embedder.dimensions),
+                            "metadata": doc_metadata,
                         }
                     ],
+                    namespace=self._unembedded_namespace,
                 ),
                 max_retries=3,
                 logger=self._logger,
             )
 
-            # Insert into embedded collection with retry on timeout
-            embedded_metadata = {**doc_metadata, "_parlant_type": "embedded"}
+            # Insert into embedded namespace with retry on timeout
             await _retry_on_timeout_async(
                 lambda: asyncio.to_thread(
                     self._pinecone_index.upsert,
                     vectors=[
                         {
-                            "id": embedded_vector_id,
+                            "id": vector_id,
                             "values": embeddings[0],
-                            "metadata": embedded_metadata,
+                            "metadata": doc_metadata,
                         }
                     ],
+                    namespace=self._embedded_namespace,
                 ),
                 max_retries=3,
                 logger=self._logger,
@@ -1202,28 +1127,22 @@ class PineconeCollection(Generic[TDocument], VectorCollection[TDocument]):
         async with self._lock.writer_lock:
             pinecone_filter = _convert_where_to_pinecone_filter(filters)
 
-            # Build collection filter with metadata
-            collection_filter = _build_collection_filter(
-                collection_name=self._name,
-                collection_type="embedded",
-                embedder_type_name=self._embedder_type_name,
-                additional_filter=pinecone_filter,
-            )
-
             try:
                 results = await asyncio.to_thread(
                     self._pinecone_index.query,
                     vector=[0.0] * self._embedder.dimensions,
                     top_k=1,
-                    filter=collection_filter,
+                    filter=pinecone_filter,
+                    namespace=self._embedded_namespace,
                     include_metadata=True,
                 )
             except Exception:
-                # If filter fails, query all and filter in memory
+                # If filter fails, query all in namespace and filter in memory
                 all_results = await asyncio.to_thread(
                     self._pinecone_index.query,
                     vector=[0.0] * self._embedder.dimensions,
                     top_k=10000,
+                    namespace=self._embedded_namespace,
                     include_metadata=True,
                 )
                 # Filter in memory
@@ -1232,21 +1151,10 @@ class PineconeCollection(Generic[TDocument], VectorCollection[TDocument]):
                 results_matches = []
                 for match in all_results.matches:
                     if match.metadata is not None:
-                        # Check collection metadata
-                        if (
-                            match.metadata.get("_parlant_collection") == self._name
-                            and match.metadata.get("_parlant_type") == "embedded"
-                            and match.metadata.get("_parlant_embedder") == self._embedder_type_name
-                        ):
-                            # Remove internal Parlant metadata fields
-                            doc_metadata = {
-                                k: v
-                                for k, v in match.metadata.items()
-                                if not k.startswith("_parlant_")
-                            }
-                            if not filters or matches_filters(filters, doc_metadata):
-                                results_matches.append(match)
-                                break  # Only need one
+                        doc_metadata = cast(dict[str, Any], match.metadata)
+                        if not filters or matches_filters(filters, doc_metadata):
+                            results_matches.append(match)
+                            break  # Only need one
 
                 # Create a mock results object
                 class MockResults:
@@ -1256,11 +1164,8 @@ class PineconeCollection(Generic[TDocument], VectorCollection[TDocument]):
 
             if results.matches:
                 match = results.matches[0]
-                # Remove internal Parlant metadata fields to get document
-                doc_metadata = {
-                    k: v for k, v in match.metadata.items() if not k.startswith("_parlant_")
-                }
-                doc = cast(dict[str, Any], doc_metadata)
+                # Get document from metadata
+                doc = cast(dict[str, Any], match.metadata or {})
 
                 if "content" in params:
                     content = params["content"]
@@ -1287,49 +1192,43 @@ class PineconeCollection(Generic[TDocument], VectorCollection[TDocument]):
 
                 self._version += 1
 
-                # Extract document ID from vector ID or metadata
-                doc_id = str(
-                    updated_document.get(
-                        "id", match.id.split("_")[-1] if "_" in match.id else match.id
-                    )
-                )
-                unembedded_vector_id = _make_vector_id(self._name, "unembedded", doc_id)
-                embedded_vector_id = _make_vector_id(self._name, "embedded", doc_id)
+                # Use document ID directly as vector ID (namespaces provide isolation)
+                doc_id = str(updated_document.get("id", match.id))
+                vector_id = _make_vector_id(doc_id)
 
-                # Add Parlant internal metadata
+                # Document metadata (no need for Parlant internal fields with namespaces)
                 updated_metadata = dict(updated_document)
-                updated_metadata["_parlant_collection"] = self._name
-                updated_metadata["_parlant_embedder"] = self._embedder_type_name
 
-                # Update unembedded collection with retry on timeout
-                unembedded_metadata = {**updated_metadata, "_parlant_type": "unembedded"}
+                # Update unembedded namespace with retry on timeout
+                # Use metadata vector (with small non-zero value) for unembedded vectors
                 await _retry_on_timeout_async(
                     lambda: asyncio.to_thread(
                         self._pinecone_index.upsert,
                         vectors=[
                             {
-                                "id": unembedded_vector_id,
-                                "values": [0.0] * self._embedder.dimensions,
-                                "metadata": unembedded_metadata,
+                                "id": vector_id,
+                                "values": _create_metadata_vector(self._embedder.dimensions),
+                                "metadata": updated_metadata,
                             }
                         ],
+                        namespace=self._unembedded_namespace,
                     ),
                     max_retries=3,
                     logger=self._logger,
                 )
 
-                # Update embedded collection with retry on timeout
-                embedded_metadata = {**updated_metadata, "_parlant_type": "embedded"}
+                # Update embedded namespace with retry on timeout
                 await _retry_on_timeout_async(
                     lambda: asyncio.to_thread(
                         self._pinecone_index.upsert,
                         vectors=[
                             {
-                                "id": embedded_vector_id,
+                                "id": vector_id,
                                 "values": embeddings[0],
-                                "metadata": embedded_metadata,
+                                "metadata": updated_metadata,
                             }
                         ],
+                        namespace=self._embedded_namespace,
                     ),
                     max_retries=3,
                     logger=self._logger,
@@ -1374,45 +1273,43 @@ class PineconeCollection(Generic[TDocument], VectorCollection[TDocument]):
 
                 self._version += 1
 
-                # Create vector IDs with collection prefix
+                # Use document ID directly as vector ID (namespaces provide isolation)
                 doc_id = str(params["id"])
-                unembedded_vector_id = _make_vector_id(self._name, "unembedded", doc_id)
-                embedded_vector_id = _make_vector_id(self._name, "embedded", doc_id)
+                vector_id = _make_vector_id(doc_id)
 
-                # Add Parlant internal metadata
+                # Document metadata (no need for Parlant internal fields with namespaces)
                 params_metadata = dict(cast(dict[str, Any], params))
-                params_metadata["_parlant_collection"] = self._name
-                params_metadata["_parlant_embedder"] = self._embedder_type_name
 
-                # Insert into unembedded collection with retry on timeout
-                unembedded_metadata = {**params_metadata, "_parlant_type": "unembedded"}
+                # Insert into unembedded namespace with retry on timeout
+                # Use metadata vector (with small non-zero value) for unembedded vectors
                 await _retry_on_timeout_async(
                     lambda: asyncio.to_thread(
                         self._pinecone_index.upsert,
                         vectors=[
                             {
-                                "id": unembedded_vector_id,
-                                "values": [0.0] * self._embedder.dimensions,
-                                "metadata": unembedded_metadata,
+                                "id": vector_id,
+                                "values": _create_metadata_vector(self._embedder.dimensions),
+                                "metadata": params_metadata,
                             }
                         ],
+                        namespace=self._unembedded_namespace,
                     ),
                     max_retries=3,
                     logger=self._logger,
                 )
 
-                # Insert into embedded collection with retry on timeout
-                embedded_metadata = {**params_metadata, "_parlant_type": "embedded"}
+                # Insert into embedded namespace with retry on timeout
                 await _retry_on_timeout_async(
                     lambda: asyncio.to_thread(
                         self._pinecone_index.upsert,
                         vectors=[
                             {
-                                "id": embedded_vector_id,
+                                "id": vector_id,
                                 "values": embeddings[0],
-                                "metadata": embedded_metadata,
+                                "metadata": params_metadata,
                             }
                         ],
+                        namespace=self._embedded_namespace,
                     ),
                     max_retries=3,
                     logger=self._logger,
@@ -1449,28 +1346,22 @@ class PineconeCollection(Generic[TDocument], VectorCollection[TDocument]):
         async with self._lock.writer_lock:
             pinecone_filter = _convert_where_to_pinecone_filter(filters)
 
-            # Build collection filter with metadata
-            collection_filter = _build_collection_filter(
-                collection_name=self._name,
-                collection_type="embedded",
-                embedder_type_name=self._embedder_type_name,
-                additional_filter=pinecone_filter,
-            )
-
             try:
                 results = await asyncio.to_thread(
                     self._pinecone_index.query,
                     vector=[0.0] * self._embedder.dimensions,
                     top_k=2,  # Check for more than one
-                    filter=collection_filter,
+                    filter=pinecone_filter,
+                    namespace=self._embedded_namespace,
                     include_metadata=True,
                 )
             except Exception:
-                # If filter fails, query all and filter in memory
+                # If filter fails, query all in namespace and filter in memory
                 all_results = await asyncio.to_thread(
                     self._pinecone_index.query,
                     vector=[0.0] * self._embedder.dimensions,
                     top_k=10000,
+                    namespace=self._embedded_namespace,
                     include_metadata=True,
                 )
                 # Filter in memory
@@ -1479,20 +1370,9 @@ class PineconeCollection(Generic[TDocument], VectorCollection[TDocument]):
                 results_matches = []
                 for match in all_results.matches:
                     if match.metadata is not None:
-                        # Check collection metadata
-                        if (
-                            match.metadata.get("_parlant_collection") == self._name
-                            and match.metadata.get("_parlant_type") == "embedded"
-                            and match.metadata.get("_parlant_embedder") == self._embedder_type_name
-                        ):
-                            # Remove internal Parlant metadata fields
-                            doc_metadata = {
-                                k: v
-                                for k, v in match.metadata.items()
-                                if not k.startswith("_parlant_")
-                            }
-                            if not filters or matches_filters(filters, doc_metadata):
-                                results_matches.append(match)
+                        doc_metadata = cast(dict[str, Any], match.metadata)
+                        if not filters or matches_filters(filters, doc_metadata):
+                            results_matches.append(match)
 
                 results_matches = results_matches[:2]
 
@@ -1509,26 +1389,25 @@ class PineconeCollection(Generic[TDocument], VectorCollection[TDocument]):
 
             if results.matches:
                 match = results.matches[0]
-                # Remove internal Parlant metadata fields to get document
-                doc_metadata = {
-                    k: v for k, v in match.metadata.items() if not k.startswith("_parlant_")
-                }
-                deleted_document = cast(TDocument, doc_metadata)
+                # Get document from metadata
+                deleted_document = cast(TDocument, match.metadata or {})
 
-                # Extract document ID from vector ID or metadata
-                doc_id = str(
-                    deleted_document.get(
-                        "id", match.id.split("_")[-1] if "_" in match.id else match.id
-                    )
-                )
-                unembedded_vector_id = _make_vector_id(self._name, "unembedded", doc_id)
-                embedded_vector_id = _make_vector_id(self._name, "embedded", doc_id)
+                # Use document ID directly as vector ID (namespaces provide isolation)
+                doc_id = str(deleted_document.get("id", match.id))
+                vector_id = _make_vector_id(doc_id)
 
                 self._version += 1
 
-                # Delete from unembedded and embedded collections
+                # Delete from unembedded and embedded namespaces
                 await asyncio.to_thread(
-                    self._pinecone_index.delete, ids=[unembedded_vector_id, embedded_vector_id]
+                    self._pinecone_index.delete,
+                    ids=[vector_id],
+                    namespace=self._unembedded_namespace,
+                )
+                await asyncio.to_thread(
+                    self._pinecone_index.delete,
+                    ids=[vector_id],
+                    namespace=self._embedded_namespace,
                 )
 
                 # Update version in both collections
@@ -1567,28 +1446,22 @@ class PineconeCollection(Generic[TDocument], VectorCollection[TDocument]):
                 self._logger.warning(f"Empty embedding generated for query: {query}")
                 return []
 
-            # Build collection filter with metadata
-            collection_filter = _build_collection_filter(
-                collection_name=self._name,
-                collection_type="embedded",
-                embedder_type_name=self._embedder_type_name,
-                additional_filter=pinecone_filter,
-            )
-
             try:
                 search_results = await asyncio.to_thread(
                     self._pinecone_index.query,
                     vector=list(query_embeddings[0]),
                     top_k=k,
-                    filter=collection_filter,
+                    filter=pinecone_filter,
+                    namespace=self._embedded_namespace,
                     include_metadata=True,
                 )
             except Exception:
-                # If filter fails, query without filter and filter in memory
+                # If filter fails, query without filter in namespace and filter in memory
                 all_results = await asyncio.to_thread(
                     self._pinecone_index.query,
                     vector=list(query_embeddings[0]),
                     top_k=k * 2,  # Get more to filter
+                    namespace=self._embedded_namespace,
                     include_metadata=True,
                 )
                 # Filter in memory
@@ -1597,20 +1470,9 @@ class PineconeCollection(Generic[TDocument], VectorCollection[TDocument]):
                 search_results_matches = []
                 for match in all_results.matches:
                     if match.metadata is not None:
-                        # Check collection metadata
-                        if (
-                            match.metadata.get("_parlant_collection") == self._name
-                            and match.metadata.get("_parlant_type") == "embedded"
-                            and match.metadata.get("_parlant_embedder") == self._embedder_type_name
-                        ):
-                            # Remove internal Parlant metadata fields
-                            doc_metadata = {
-                                k: v
-                                for k, v in match.metadata.items()
-                                if not k.startswith("_parlant_")
-                            }
-                            if not filters or matches_filters(filters, doc_metadata):
-                                search_results_matches.append(match)
+                        doc_metadata = cast(dict[str, Any], match.metadata)
+                        if not filters or matches_filters(filters, doc_metadata):
+                            search_results_matches.append(match)
 
                 search_results_matches = search_results_matches[:k]
 
@@ -1630,10 +1492,7 @@ class PineconeCollection(Generic[TDocument], VectorCollection[TDocument]):
             results = []
             for result in search_results.matches:
                 if result.metadata is not None:
-                    # Remove internal Parlant metadata fields
-                    doc_metadata = {
-                        k: v for k, v in result.metadata.items() if not k.startswith("_parlant_")
-                    }
+                    doc_metadata = cast(dict[str, Any], result.metadata)
                     results.append(
                         SimilarDocumentResult(
                             document=cast(TDocument, doc_metadata),

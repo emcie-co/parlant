@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Maintainer: Sifat Hasan <sihabhossan633@gmail.com>
-
 import os
 from dataclasses import dataclass
 from typing import AsyncIterator, Iterator, TypedDict, cast

@@ -427,35 +427,36 @@ class WeaviateDatabase(VectorDatabase):
         self._collections.clear()
 
         # Close Weaviate client to release connections
-        # Similar to Qdrant: clear collections first, then close client immediately
+        # Similar to Qdrant: simple, direct approach
         if self.weaviate_client is not None:
-            client = self.weaviate_client
-            self.weaviate_client = None
-            
-            # Try to close with a very short timeout - don't block shutdown
-            # If it hangs, immediately continue - this is critical for server shutdown
             try:
-                # Use a very short timeout - if close() hangs, we continue immediately
+                # Close the client - wrap in to_thread since it's synchronous
+                # Use a short timeout to prevent hanging, but keep it simple
                 await asyncio.wait_for(
-                    asyncio.to_thread(client.close),
-                    timeout=0.5,  # Very short timeout - 0.5 seconds max
+                    asyncio.to_thread(self.weaviate_client.close),
+                    timeout=2.0,
                 )
             except asyncio.TimeoutError:
-                # Close() is hanging - log and immediately continue
-                # This prevents blocking server shutdown
+                # If close() hangs, log and continue - don't block shutdown
                 self._logger.warning("Weaviate client close() timed out, forcing cleanup")
-            except (AttributeError, Exception) as e:
-                # Ignore all errors - we're cleaning up and can't block shutdown
-                if not isinstance(e, AttributeError):
-                    self._logger.warning(f"Error closing Weaviate client: {e}")
+            except AttributeError:
+                # If close() doesn't exist (shouldn't happen, but be safe)
+                pass
+            except Exception as e:
+                # Log but don't fail if close() raises an exception
+                self._logger.warning(f"Error closing Weaviate client: {e}")
             finally:
-                # Always clear the reference immediately - this is critical
-                # Python's garbage collector will handle the rest
+                # Clear the reference and force garbage collection
+                # This ensures all Python references are released
+                client = self.weaviate_client
+                self.weaviate_client = None
                 del client
-                # Force garbage collection to help release connections
+                # Only force GC on Windows where connections are more persistent
                 if sys.platform == "win32":
                     gc.collect()
-                # No sleep - don't block shutdown at all
+                    # On Windows, connections may take a moment to be released by the OS
+                    # Even after close(), Windows may need a brief moment to release sockets
+                    await asyncio.sleep(0.05)  # Minimal delay for Windows file lock release
 
     def format_collection_name(
         self,
@@ -478,18 +479,10 @@ class WeaviateDatabase(VectorDatabase):
         embedder = self._embedder_factory.create_embedder(embedder_type)
 
         # Get all objects from unembedded collection
-        # Add timeout to prevent hanging operations
         unembedded_collection = self.weaviate_client.collections.get(unembedded_collection_name)
-        try:
-            unembedded_objects = await asyncio.wait_for(
-                asyncio.to_thread(
-                    lambda: unembedded_collection.query.fetch_objects(limit=10000).objects
-                ),
-                timeout=30.0,  # 30 second timeout for fetch operation
-            )
-        except asyncio.TimeoutError:
-            self._logger.warning(f"Timeout fetching objects from {unembedded_collection_name}, using empty list")
-            unembedded_objects = []
+        unembedded_objects = await asyncio.to_thread(
+            lambda: unembedded_collection.query.fetch_objects(limit=10000).objects
+        )
 
         indexing_required = False
 
@@ -568,18 +561,10 @@ class WeaviateDatabase(VectorDatabase):
     ) -> None:
         assert self.weaviate_client is not None, "Weaviate client must be initialized"
         # Get all objects from unembedded collection
-        # Add timeout to prevent hanging operations
         unembedded_collection = self.weaviate_client.collections.get(unembedded_collection_name)
-        try:
-            unembedded_objects = await asyncio.wait_for(
-                asyncio.to_thread(
-                    lambda: unembedded_collection.query.fetch_objects(limit=10000).objects
-                ),
-                timeout=30.0,  # 30 second timeout for fetch operation
-            )
-        except asyncio.TimeoutError:
-            self._logger.warning(f"Timeout fetching objects from {unembedded_collection_name} in _index_collection, using empty list")
-            unembedded_objects = []
+        unembedded_objects = await asyncio.to_thread(
+            lambda: unembedded_collection.query.fetch_objects(limit=10000).objects
+        )
 
         # Map by document ID (string) from properties
         unembedded_docs_by_id = {
@@ -589,18 +574,10 @@ class WeaviateDatabase(VectorDatabase):
         }
 
         # Get all objects from embedded collection
-        # Add timeout to prevent hanging operations
         embedded_collection = self.weaviate_client.collections.get(embedded_collection_name)
-        try:
-            embedded_objects = await asyncio.wait_for(
-                asyncio.to_thread(
-                    lambda: embedded_collection.query.fetch_objects(limit=10000).objects
-                ),
-                timeout=30.0,  # 30 second timeout for fetch operation
-            )
-        except asyncio.TimeoutError:
-            self._logger.warning(f"Timeout fetching objects from {embedded_collection_name} in _index_collection, using empty list")
-            embedded_objects = []
+        embedded_objects = await asyncio.to_thread(
+            lambda: embedded_collection.query.fetch_objects(limit=10000).objects
+        )
 
         # Map by document ID (string) from properties
         embedded_docs_by_id = {
@@ -841,26 +818,15 @@ class WeaviateDatabase(VectorDatabase):
                 embedder=self._embedder_factory.create_embedder(embedder_type),
             )
 
-            # Load collection documents with timeout protection
-            # This prevents hanging during collection initialization
-            try:
-                loaded_embedded_name = await asyncio.wait_for(
-                    self._load_collection_documents(
-                        embedded_collection_name=embedded_collection_name,
-                        unembedded_collection_name=unembedded_collection_name,
-                        embedder_type=embedder_type,
-                        document_loader=document_loader,
-                    ),
-                    timeout=60.0,  # 60 second timeout for loading documents
-                )
-            except asyncio.TimeoutError:
-                self._logger.warning(f"Timeout loading documents for {name}, using collection name directly")
-                loaded_embedded_name = embedded_collection_name
-            
             collection = WeaviateCollection(
                 self._logger,
                 weaviate_client=self.weaviate_client,
-                embedded_collection_name=loaded_embedded_name,
+                embedded_collection_name=await self._load_collection_documents(
+                    embedded_collection_name=embedded_collection_name,
+                    unembedded_collection_name=unembedded_collection_name,
+                    embedder_type=embedder_type,
+                    document_loader=document_loader,
+                ),
                 unembedded_collection_name=unembedded_collection_name,
                 name=name,
                 schema=schema,
@@ -945,26 +911,15 @@ class WeaviateDatabase(VectorDatabase):
 
             await asyncio.to_thread(_create_embedded_collection_in_get_or_create)
 
-        # Load collection documents with timeout protection
-        # This prevents hanging during collection initialization
-        try:
-            loaded_embedded_name = await asyncio.wait_for(
-                self._load_collection_documents(
-                    embedded_collection_name=embedded_collection_name,
-                    unembedded_collection_name=unembedded_collection_name,
-                    embedder_type=embedder_type,
-                    document_loader=document_loader,
-                ),
-                timeout=60.0,  # 60 second timeout for loading documents
-            )
-        except asyncio.TimeoutError:
-            self._logger.warning(f"Timeout loading documents for {name} in get_or_create_collection, using collection name directly")
-            loaded_embedded_name = embedded_collection_name
-
         collection = WeaviateCollection(
             self._logger,
             weaviate_client=self.weaviate_client,
-            embedded_collection_name=loaded_embedded_name,
+            embedded_collection_name=await self._load_collection_documents(
+                embedded_collection_name=embedded_collection_name,
+                unembedded_collection_name=unembedded_collection_name,
+                embedder_type=embedder_type,
+                document_loader=document_loader,
+            ),
             unembedded_collection_name=unembedded_collection_name,
             name=name,
             schema=schema,

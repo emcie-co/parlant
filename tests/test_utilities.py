@@ -515,12 +515,12 @@ class CachedSchematicGenerator(SchematicGenerator[TBaseModel]):
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[TBaseModel]:
         if isinstance(prompt, PromptBuilder):
-            prompt = prompt.build()
+            prompt_text = prompt.build()
 
         if self.use_cache is False:
-            return await self._base_generator.generate(prompt, hints)
+            return await self._base_generator.generate(prompt_text, hints)
 
-        id = self._generate_id(prompt, hints)
+        id = self._generate_id(prompt_text, hints)
 
         result_document = await self._collection.find_one(filters={"id": {"$eq": id}})
         if result_document:

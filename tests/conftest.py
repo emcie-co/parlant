@@ -416,6 +416,7 @@ async def container(
                 container[IdGenerator],
                 vector_db=TransientVectorDatabase(
                     container[Logger],
+                    container[Tracer],
                     embedder_factory,
                     lambda: embedding_cache,
                 ),
@@ -430,6 +431,7 @@ async def container(
                 container[IdGenerator],
                 vector_db=TransientVectorDatabase(
                     container[Logger],
+                    container[Tracer],
                     embedder_factory,
                     lambda: embedding_cache,
                 ),
@@ -443,7 +445,7 @@ async def container(
             CannedResponseVectorStore(
                 container[IdGenerator],
                 vector_db=TransientVectorDatabase(
-                    container[Logger], embedder_factory, lambda: embedding_cache
+                    container[Logger], container[Tracer], embedder_factory, lambda: embedding_cache
                 ),
                 document_db=TransientDocumentDatabase(),
                 embedder_factory=embedder_factory,
@@ -456,6 +458,7 @@ async def container(
                 container[IdGenerator],
                 vector_db=TransientVectorDatabase(
                     container[Logger],
+                    container[Tracer],
                     embedder_factory,
                     lambda: embedding_cache,
                 ),

@@ -22,6 +22,8 @@ from typing_extensions import override
 
 import logging
 
+from parlant.core.tracer import Tracer
+
 orig_basicConfig = logging.basicConfig
 orig_getLogger = logging.getLogger
 
@@ -78,10 +80,12 @@ class TransientVectorDatabase(VectorDatabase):
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         embedder_factory: EmbedderFactory,
         embedding_cache_provider: EmbeddingCacheProvider,
     ) -> None:
         self._logger = logger
+        self._tracer = tracer
         self._embedder_factory = embedder_factory
         self._embedding_cache_provider = embedding_cache_provider
 
@@ -105,6 +109,7 @@ class TransientVectorDatabase(VectorDatabase):
 
         self._collections[name] = TransientVectorCollection(
             self._logger,
+            self._tracer,
             nano_db=self._databases[name],
             name=name,
             schema=schema,
@@ -145,6 +150,7 @@ class TransientVectorDatabase(VectorDatabase):
 
         self._collections[name] = TransientVectorCollection(
             self._logger,
+            self._tracer,
             nano_db=self._databases[name],
             name=name,
             schema=schema,
@@ -190,6 +196,7 @@ class TransientVectorCollection(Generic[TDocument], BaseVectorCollection[TDocume
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         nano_db: nano_vectordb.NanoVectorDB,
         name: str,
         schema: type[TDocument],
@@ -197,6 +204,7 @@ class TransientVectorCollection(Generic[TDocument], BaseVectorCollection[TDocume
         embedding_cache_provider: EmbeddingCacheProvider,
     ) -> None:
         self._logger = logger
+        self._tracer = tracer
         self._name = name
         self._schema = schema
         self._embedder = embedder

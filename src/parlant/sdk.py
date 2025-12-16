@@ -3178,6 +3178,7 @@ class Server:
             self._current_server_var.set(self)
 
             return self
+
         except SDKError as e:
             _die(str(e), e)
             raise
@@ -4236,6 +4237,7 @@ class Server:
                         id_generator=c()[IdGenerator],
                         vector_db=TransientVectorDatabase(
                             c()[Logger],
+                            c()[Tracer],
                             embedder_factory,
                             lambda: c()[EmbeddingCache],
                         ),

@@ -804,6 +804,7 @@ async def initialize_container(
         async def get_transient_vector_db() -> VectorDatabase:
             return TransientVectorDatabase(
                 c[Logger],
+                c[Tracer],
                 embedder_factory,
                 lambda: c[EmbeddingCache],
             )

@@ -454,10 +454,10 @@ async def create_guideline(
             condition=condition,
             action=action,
         ),
-        criticality=Criticality.MEDIUM,
         enabled=True,
         tags=tags,
         metadata=metadata,
+        criticality=Criticality.MEDIUM,
     )
 
     context.guidelines.append(guideline)
@@ -475,10 +475,10 @@ async def create_disambiguation_guideline(
             condition=condition,
             action=None,
         ),
-        criticality=Criticality.MEDIUM,
         enabled=True,
         tags=[],
         metadata={},
+        criticality=Criticality.MEDIUM,
     )
 
     context.guidelines.append(guideline)
@@ -2401,7 +2401,7 @@ async def test_that_observational_guidelines_are_not_matched_based_when_topic_wa
         ),
         (
             EventSource.CUSTOMER,
-            "Thanks.",
+            "Thanks!",
         ),
     ]
     conversation_guideline_names: list[str] = ["business_class"]

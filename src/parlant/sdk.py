@@ -280,6 +280,20 @@ class NLPServices:
     """A collection of static methods to create built-in NLPService instances for the SDK."""
 
     @staticmethod
+    def emcie(container: Container) -> NLPService:
+        """Creates an Azure NLPService instance using the provided container."""
+        from parlant.adapters.nlp.emcie_service import EmcieService
+
+        if error := EmcieService.verify_environment():
+            raise SDKError(error)
+
+        return EmcieService(
+            container[Logger],
+            container[Tracer],
+            container[Meter],
+        )
+
+    @staticmethod
     def azure(container: Container) -> NLPService:
         """Creates an Azure NLPService instance using the provided container."""
         from parlant.adapters.nlp.azure_service import AzureService

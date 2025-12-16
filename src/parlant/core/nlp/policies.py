@@ -43,7 +43,9 @@ class RetryPolicy(Policy):
             exceptions = (exceptions,)
         self.exceptions = exceptions
         self.max_exceptions = max_attempts
-        self.wait_times = wait_times if wait_times is not None else (1.0, 2.0, 4.0, 8.0, 16.0, 32.0)
+        self.wait_times = (
+            wait_times if wait_times is not None else (1.0, 4.0, 8.0, 16.0, 32.0, 64.0)
+        )
 
     async def apply(
         self,

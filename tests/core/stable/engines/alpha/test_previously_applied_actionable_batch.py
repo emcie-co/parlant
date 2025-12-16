@@ -60,7 +60,7 @@ GUIDELINES_DICT = {
         "action": "apologize and offer a discount",
     },
     "confirm_reservation": {
-        "condition": "The customer has placed a reservation, submitted an order, or added items to an order.",
+        "condition": "Whenever the customer has placed a reservation, submitted an order, or added items to an order.",
         "action": "ask whether the customer would like to add anything else before finalizing the reservation or order",
     },
     "order_status": {
@@ -134,10 +134,10 @@ def create_guideline(
             condition=condition,
             action=action,
         ),
-        criticality=Criticality.MEDIUM,
         enabled=True,
         tags=tags,
         metadata={},
+        criticality=Criticality.MEDIUM,
     )
 
     context.guidelines.append(guideline)
@@ -618,8 +618,13 @@ async def test_that_previously_applied_guidelines_are_matched_based_on_capabilit
         new_session.id,
         customer,
         conversation_context,
-        guidelines_target_names=[],
-        guidelines_names=["unsupported_capability", "frustrated_so_discount"],
+        guidelines_target_names=["unsupported_capability"],
+        guidelines_names=[
+            "unsupported_capability",
+            "confirm_reservation",
+            "problem_with_order",
+            "order_status",
+        ],
         capabilities=capabilities,
     )
 

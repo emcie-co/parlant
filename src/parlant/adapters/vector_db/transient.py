@@ -64,11 +64,11 @@ from parlant.core.loggers import Logger
 from parlant.core.persistence.common import ensure_is_total, matches_filters, Where
 from parlant.core.persistence.vector_database import (
     BaseDocument,
+    BaseVectorCollection,
     DeleteResult,
     InsertResult,
     SimilarDocumentResult,
     UpdateResult,
-    VectorCollection,
     VectorDatabase,
     TDocument,
 )
@@ -186,7 +186,7 @@ class TransientVectorDatabase(VectorDatabase):
         return self._metadata
 
 
-class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument]):
+class TransientVectorCollection(Generic[TDocument], BaseVectorCollection[TDocument]):
     def __init__(
         self,
         logger: Logger,
@@ -348,7 +348,7 @@ class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument])
             deleted_document=None,
         )
 
-    async def find_similar_documents(
+    async def do_find_similar_documents(
         self,
         filters: Where,
         query: str,

@@ -36,11 +36,11 @@ from parlant.core.nlp.embedding import (
 from parlant.core.persistence.common import Where, ensure_is_total
 from parlant.core.persistence.vector_database import (
     BaseDocument,
+    BaseVectorCollection,
     DeleteResult,
     InsertResult,
     SimilarDocumentResult,
     UpdateResult,
-    VectorCollection,
     VectorDatabase,
     TDocument,
     identity_loader,
@@ -440,7 +440,7 @@ class ChromaDatabase(VectorDatabase):
             return {}
 
 
-class ChromaCollection(Generic[TDocument], VectorCollection[TDocument]):
+class ChromaCollection(Generic[TDocument], BaseVectorCollection[TDocument]):
     def __init__(
         self,
         logger: Logger,
@@ -691,7 +691,7 @@ class ChromaCollection(Generic[TDocument], VectorCollection[TDocument]):
             )
 
     @override
-    async def find_similar_documents(
+    async def do_find_similar_documents(
         self,
         filters: Where,
         query: str,

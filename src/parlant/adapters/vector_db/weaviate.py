@@ -945,15 +945,26 @@ class WeaviateDatabase(VectorDatabase):
 
             await asyncio.to_thread(_create_embedded_collection_in_get_or_create)
 
+        # Load collection documents with timeout protection
+        # This prevents hanging during collection initialization
+        try:
+            loaded_embedded_name = await asyncio.wait_for(
+                self._load_collection_documents(
+                    embedded_collection_name=embedded_collection_name,
+                    unembedded_collection_name=unembedded_collection_name,
+                    embedder_type=embedder_type,
+                    document_loader=document_loader,
+                ),
+                timeout=60.0,  # 60 second timeout for loading documents
+            )
+        except asyncio.TimeoutError:
+            self._logger.warning(f"Timeout loading documents for {name} in get_or_create_collection, using collection name directly")
+            loaded_embedded_name = embedded_collection_name
+
         collection = WeaviateCollection(
             self._logger,
             weaviate_client=self.weaviate_client,
-            embedded_collection_name=await self._load_collection_documents(
-                embedded_collection_name=embedded_collection_name,
-                unembedded_collection_name=unembedded_collection_name,
-                embedder_type=embedder_type,
-                document_loader=document_loader,
-            ),
+            embedded_collection_name=loaded_embedded_name,
             unembedded_collection_name=unembedded_collection_name,
             name=name,
             schema=schema,

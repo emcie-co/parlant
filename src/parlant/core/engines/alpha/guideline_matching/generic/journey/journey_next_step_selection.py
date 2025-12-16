@@ -42,9 +42,9 @@ class JourneyNodeKind(Enum):
 
 class JourneyNextStepSelectionSchema(DefaultBaseModel):
     journey_continues: bool
-    current_step_completed_rational: str
-    current_step_completed: Optional[bool] = None
-    next_step_rational: str
+    current_step_completed_rationale: str
+    current_step_completed: bool
+    next_step_rationale: str
     applied_condition_id: str
 
 
@@ -263,7 +263,7 @@ class JourneyNextStepSelection:
                                         self._node_index_to_guideline_id[ROOT_INDEX]
                                     ],
                                     score=10,
-                                    rationale=f"Root guideline was selected indicating should exit the journey, the rational for this choice: {inference.content.next_step_rational}",
+                                    rationale=f"Root guideline was selected indicating should exit the journey, the rational for this choice: {inference.content.next_step_rationale}",
                                     metadata={
                                         "journey_path": journey_path,
                                         "step_selection_journey_id": self._examined_journey.id,
@@ -282,7 +282,7 @@ class JourneyNextStepSelection:
                                 GuidelineMatch(
                                     guideline=matched_guideline,
                                     score=10,
-                                    rationale=f"This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. Use this rationale to better understand how the conversation got to its current point. The rationale for choosing this specific step in the journey was: {inference.content.next_step_rational}",
+                                    rationale=f"This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. Use this rationale to better understand how the conversation got to its current point. The rationale for choosing this specific step in the journey was: {inference.content.next_step_rationale}",
                                     metadata={
                                         "journey_path": self._previous_path
                                         if self._previous_path
@@ -315,7 +315,7 @@ class JourneyNextStepSelection:
                                                 self._node_index_to_guideline_id[ROOT_INDEX]
                                             ],
                                             score=10,
-                                            rationale=f"Root guideline was selected indicating should exit the journey, the rational for this choice: {inference.content.next_step_rational}",
+                                            rationale=f"Root guideline was selected indicating should exit the journey, the rational for this choice: {inference.content.next_step_rationale}",
                                             metadata={
                                                 "journey_path": journey_path,
                                                 "step_selection_journey_id": self._examined_journey.id,
@@ -340,7 +340,7 @@ class JourneyNextStepSelection:
                                         GuidelineMatch(
                                             guideline=matched_guideline,
                                             score=10,
-                                            rationale=f"This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. Use this rationale to better understand how the conversation got to its current point. The rationale for choosing this specific step in the journey was: {inference.content.next_step_rational}",
+                                            rationale=f"This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. Use this rationale to better understand how the conversation got to its current point. The rationale for choosing this specific step in the journey was: {inference.content.next_step_rationale}",
                                             metadata={
                                                 "journey_path": journey_path,
                                                 "step_selection_journey_id": self._examined_journey.id,
@@ -440,9 +440,9 @@ OUTPUT FORMAT
 ```json
 {
 "journey_continues: <bool, whether the journey should continued. Reminder: If you are already executing journey steps (i.e., there is a "last_step"), the journey almost always continues. The activation condition is ONLY for starting new journeys, NOT for validating ongoing ones.>,
-"current_step_completed_rational": "<str, short explanation of whether current step completed>",
+"current_step_completed_rationale": "<str, short explanation of whether current step completed>",
 "current_step_completed": <bool, whether the current step completed.>,
-"next_step_rational": "<str, explanation for which condition best fits and why. Consider all the information provided in CURRENT and EARLIER messages>",
+"next_step_rationale": "<str, explanation for which condition best fits and why. Consider all the information provided in CURRENT and EARLIER messages>",
 "applied_condition_id": "<str, id of the applied condition, '0' if current step hasn't completed or 'None' if the journey should not continue>"
 }
 ```
@@ -707,9 +707,9 @@ example_1_follow_up_nodes = {
 
 example_1_expected = JourneyNextStepSelectionSchema(
     journey_continues=True,
-    current_step_completed_rational="The customer has NOT provided the pickup location, which is what the current step asks for. The current step is therefore incomplete",
+    current_step_completed_rationale="The customer has NOT provided the pickup location, which is what the current step asks for. The current step is therefore incomplete",
     current_step_completed=False,
-    next_step_rational="Current step hasn't completed so applied condition is '0",
+    next_step_rationale="Current step hasn't completed so applied condition is '0",
     applied_condition_id="0",
 )
 
@@ -764,9 +764,9 @@ example_2_follow_up_nodes = {
 }
 example_2_expected = JourneyNextStepSelectionSchema(
     journey_continues=True,
-    current_step_completed_rational="The agent welcomed the customer, so current step completed.",
+    current_step_completed_rationale="The agent welcomed the customer, so current step completed.",
     current_step_completed=True,
-    next_step_rational="The customer provided a pick up location in NYC and a pick up time, but has not provided a destination, so condition 2 best holds.",
+    next_step_rationale="The customer provided a pick up location in NYC and a pick up time, but has not provided a destination, so condition 2 best holds.",
     applied_condition_id="2",
 )
 
@@ -857,9 +857,9 @@ example_3_follow_up_nodes = {
 
 example_3_expected = JourneyNextStepSelectionSchema(
     journey_continues=True,
-    current_step_completed_rational="The customer wants a loan for their restaurant, making it a business loan. So current step completed",
+    current_step_completed_rationale="The customer wants a loan for their restaurant, making it a business loan. So current step completed",
     current_step_completed=True,
-    next_step_rational="The customer has already specified in previous messages the amount of the loan and stocks as collateral which are digital. "
+    next_step_rationale="The customer has already specified in previous messages the amount of the loan and stocks as collateral which are digital. "
     "The agent hasn't reviewed and confirmed the application so condition 4 is most appropriate",
     applied_condition_id="4",
 )
@@ -907,9 +907,9 @@ example_4_follow_up_nodes = {
 
 example_4_expected = JourneyNextStepSelectionSchema(
     journey_continues=True,
-    current_step_completed_rational="The agent welcomed the customer, so current step completed.",
+    current_step_completed_rationale="The agent welcomed the customer, so current step completed.",
     current_step_completed=True,
-    next_step_rational="The customer provided a pick up location in NYC, a destination and also a pick up time. Need to choose the condition that most of it's parts are true, so condition 4 best fits",
+    next_step_rationale="The customer provided a pick up location in NYC, a destination and also a pick up time. Need to choose the condition that most of it's parts are true, so condition 4 best fits",
     applied_condition_id="4",
 )
 
@@ -972,9 +972,9 @@ example_5_follow_up_nodes = {
 
 example_5_expected = JourneyNextStepSelectionSchema(
     journey_continues=True,
-    current_step_completed_rational="The customer said the loan is for them because they unemployed, so it's personal loan.",
+    current_step_completed_rationale="The customer said the loan is for them because they unemployed, so it's personal loan.",
     current_step_completed=True,
-    next_step_rational="The customer has already mentioned in initial message that they need 50,000, so they provided the amount in earlier messages and it considered complete."
+    next_step_rationale="The customer has already mentioned in initial message that they need 50,000, so they provided the amount in earlier messages and it considered complete."
     " Also, they provided the employment status by saying they unemployed. The agent has not confirmed the application so condition 5 fits.",
     applied_condition_id="5",
 )

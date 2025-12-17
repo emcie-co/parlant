@@ -1764,19 +1764,6 @@ class AlphaEngine(Engine):
         if context.state.context_variables:
             query += f"\n{context_variables_to_json(context.state.context_variables)}"
 
-        if context.state.guidelines:
-            query += str(
-                [
-                    f"When {g.content.condition}, then {g.content.action}"
-                    if g.content.action
-                    else f"When {g.content.condition}"
-                    for g in context.state.guidelines
-                ]
-            )
-
-        if context.state.all_events:
-            query += str([e.data for e in context.state.all_events])
-
         if context.state.glossary_terms:
             query += str([t.name for t in context.state.glossary_terms])
 

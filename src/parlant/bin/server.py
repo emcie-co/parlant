@@ -133,7 +133,7 @@ from parlant.core.engines.alpha.canned_response_generator import (
     NoMatchResponseProvider,
 )
 from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
-from parlant.core.meter import Meter, NullMeter
+from parlant.core.meter import Meter, LocalMeter
 from parlant.core.services.indexing.guideline_agent_intention_proposer import (
     AgentIntentionProposerSchema,
 )
@@ -489,7 +489,7 @@ async def _define_meter(container: Container) -> None:
         container[Meter] = await EXIT_STACK.enter_async_context(OpenTelemetryMeter())
 
     else:
-        _define_singleton(container, Meter, NullMeter)
+        _define_singleton(container, Meter, LocalMeter)
 
 
 def _define_singleton(container: Container, interface: type, implementation: type) -> None:

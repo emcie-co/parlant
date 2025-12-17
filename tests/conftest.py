@@ -42,7 +42,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backt
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_step_selection import (
     JourneyNextStepSelectionSchema,
 )
-from parlant.core.meter import Meter, NullMeter
+from parlant.core.meter import Meter, LocalMeter
 from parlant.core.services.indexing.journey_reachable_nodes_evaluation import (
     ReachableNodesEvaluationSchema,
 )
@@ -330,7 +330,7 @@ async def container(
 
     container[Tracer] = tracer
     container[Logger] = logger
-    container[Meter] = Singleton(NullMeter)
+    container[Meter] = Singleton(LocalMeter)
     container[WebSocketLogger] = WebSocketLogger(container[Tracer])
 
     container[IdGenerator] = Singleton(IdGenerator)

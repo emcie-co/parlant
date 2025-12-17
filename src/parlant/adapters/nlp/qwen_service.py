@@ -158,8 +158,11 @@ class QwenSchematicGenerator(BaseSchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+
         self.model_name = model_name
         self._logger = logger
         self._meter = meter
@@ -281,8 +284,8 @@ class QwenSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class Qwen_MAX(QwenSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="qwen-max", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="qwen-max", logger=logger, tracer=tracer, meter=meter)
 
     @property
     @override
@@ -291,8 +294,8 @@ class Qwen_MAX(QwenSchematicGenerator[T]):
 
 
 class Qwen_Plus(QwenSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="qwen-plus", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="qwen-plus", logger=logger, tracer=tracer, meter=meter)
 
     @property
     @override
@@ -301,8 +304,10 @@ class Qwen_Plus(QwenSchematicGenerator[T]):
 
 
 class Qwen_2_5_72b(QwenSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="qwen2.5-72b-instruct", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(
+            model_name="qwen2.5-72b-instruct", logger=logger, tracer=tracer, meter=meter
+        )
 
     @property
     @override

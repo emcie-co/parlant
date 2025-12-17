@@ -87,6 +87,8 @@ class LiteLLMSchematicGenerator(BaseSchematicGenerator[T]):
         tracer: Tracer,
         meter: Meter,
     ) -> None:
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+
         self.base_url = base_url
         self.model_name = model_name
         self._logger = logger

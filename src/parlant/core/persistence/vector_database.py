@@ -16,11 +16,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Generic, Optional, Sequence, TypeVar, TypedDict
-from typing_extensions import Required
+from typing_extensions import Required, override
 
 from parlant.core.common import JSONSerializable, Version
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.persistence.common import ObjectId, Where
+from parlant.core.tracer import Tracer
 
 
 class BaseDocument(TypedDict, total=False):
@@ -163,3 +164,26 @@ class VectorCollection(ABC, Generic[TDocument]):
         query: str,
         k: int,
     ) -> Sequence[SimilarDocumentResult[TDocument]]: ...
+
+
+class BaseVectorCollection(VectorCollection[TDocument]):
+    def __init__(self, tracer: Tracer) -> None:
+        self._tracer = tracer
+
+    @abstractmethod
+    async def do_find_similar_documents(
+        self,
+        filters: Where,
+        query: str,
+        k: int,
+    ) -> Sequence[SimilarDocumentResult[TDocument]]: ...
+
+    @override
+    async def find_similar_documents(
+        self,
+        filters: Where,
+        query: str,
+        k: int,
+    ) -> Sequence[SimilarDocumentResult[TDocument]]:
+        with self._tracer.span("find_similar_documents"):
+            return await self.do_find_similar_documents(filters, query, k)

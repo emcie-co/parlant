@@ -169,7 +169,6 @@ from parlant.core.sessions import (
     EventKind,
     EventSource,
     MessageEventData,
-    Session,
     SessionId,
     SessionDocumentStore,
     SessionStore,
@@ -835,25 +834,30 @@ class GuidelineMatchingContext:
     async def _from_core(
         cls,
         core_ctx: _GuidelineMatchingContext,
-        server: "Server",
+        server: Server,
         container: Container,
     ) -> GuidelineMatchingContext:
         """Convert a core GuidelineMatchingContext to an SDK GuidelineMatchingContext."""
         agent = await server.get_agent(id=core_ctx.agent.id)
+        customer = await server.get_customer(id=core_ctx.customer.id)
+        interaction = Interaction(core_ctx.interaction_history)
 
         return cls(
             server=server,
             container=container,
             logger=container[Logger],
             tracer=container[Tracer],
-            session=core_ctx.session,
+            session=Session(
+                id=core_ctx.session.id,
+                interaction=interaction,
+            ),
             agent=agent,
-            customer=await server.get_customer(id=core_ctx.customer.id),
+            customer=customer,
             variables={
                 await agent.get_variable(id=var.id): val.data
                 for var, val in core_ctx.context_variables
             },
-            interaction=Interaction(core_ctx.interaction_history),
+            interaction=interaction,
         )
 
 
@@ -3004,6 +3008,42 @@ class Agent:
         )
 
 
+@dataclass(frozen=True)
+class Session:
+    """A session represents an ongoing conversation between a customer and an agent."""
+
+    id: SessionId
+    """The unique identifier of the session."""
+
+    interaction: Interaction
+    """The interaction history of this session."""
+
+    @classproperty
+    def current(cls) -> Session:
+        """Get the current session from the asyncio task context.
+
+        Returns:
+            The current session as an SDK Session object
+
+        Raises:
+            RuntimeError: If no session is available in the current context
+        """
+        core_session = EntityContext.get_session()
+
+        if core_session is None:
+            raise RuntimeError("No session available in current context")
+
+        interaction = EntityContext.get_interaction()
+
+        if interaction is None:
+            raise RuntimeError("No interaction available in current context")
+
+        return Session(
+            id=core_session.id,
+            interaction=interaction,
+        )
+
+
 class ToolContextAccessor:
     """A context accessor for tools, providing access to the server and other relevant data."""
 
@@ -3657,7 +3697,10 @@ class Server:
                         container=self._container,
                         logger=self._container[Logger],
                         tracer=self._container[Tracer],
-                        session=ctx.session,
+                        session=Session(
+                            id=ctx.session.id,
+                            interaction=ctx.interaction,
+                        ),
                         agent=agent,
                         customer=customer,
                         variables={

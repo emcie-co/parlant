@@ -297,7 +297,13 @@ Examples of Guideline Match Evaluations:
 {guidelines_text}
 ###
 """,
-            props={"guidelines_text": guidelines_text},
+            props={
+                "guidelines_text": guidelines_text,
+                "guidelines": [
+                    {"condition": g.content.condition, "action": g.content.action}
+                    for g in self._guidelines.values()
+                ],
+            },
             status=SectionStatus.ACTIVE,
         )
 

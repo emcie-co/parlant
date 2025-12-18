@@ -361,7 +361,7 @@ def when_messages_are_emitted(
         session=session,
         session_event_emitter=EventBuffer(agent),
         response_event_emitter=EventBuffer(agent),
-        interaction=Interaction(history=context.events),
+        interaction=Interaction(events=context.events),
         state=ResponseState(
             context_variables=[],
             glossary_terms=set(),

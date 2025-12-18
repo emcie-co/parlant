@@ -136,7 +136,7 @@ class ToolEventGenerator:
             session_id=context.session.id,
             customer_id=context.customer.id,
             context_variables=context.state.context_variables,
-            interaction_history=context.interaction.history,
+            interaction_history=context.interaction.events,
             terms=list(context.state.glossary_terms),
             ordinary_guideline_matches=context.state.ordinary_guideline_matches,
             tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,

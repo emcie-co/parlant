@@ -48,7 +48,8 @@ from parlant.core.relationships import (
 )
 from parlant.core.services.tools.plugins import tool
 from parlant.core.services.tools.service_registry import ServiceRegistry
-from parlant.core.sessions import Event, EventSource, SessionId, SessionStore
+from parlant.core.emissions import EmittedEvent
+from parlant.core.sessions import Event, EventKind, EventSource, SessionId, SessionStore
 from parlant.core.tags import TagId, Tag
 from parlant.core.tools import (
     LocalToolService,
@@ -155,6 +156,7 @@ async def _inference_tool_calls_result(
     interaction_history: list[Event],
     tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
     tool_context_obj: ToolContext | None = None,
+    staged_events: Sequence[EmittedEvent] | None = None,
 ) -> ToolCallInferenceResult:
     tool_caller = container[ToolCaller]
 
@@ -170,7 +172,7 @@ async def _inference_tool_calls_result(
         ordinary_guideline_matches=[],
         tool_enabled_guideline_matches=tool_enabled_guideline_matches,
         journeys=[],
-        staged_events=[],
+        staged_events=staged_events or [],
     )
 
     return await tool_caller.infer_tool_calls(tool_call_context)
@@ -1326,3 +1328,123 @@ async def test_that_a_tool_with_unmatched_guideline_is_not_included_in_the_evalu
     )
 
     assert len(batches) == 2
+
+
+async def test_that_non_consequential_tool_with_no_parameters_is_auto_approved_without_llm_inference(
+    container: Container,
+    local_tool_service: LocalToolService,
+    agent: Agent,
+) -> None:
+    """
+    A non-consequential tool with no parameters should be auto-approved
+    without calling the LLM.
+    """
+    # Create a tool with no parameters and consequential=False (default)
+    tool = await create_local_tool(
+        local_tool_service,
+        name="ping",
+        description="A simple ping tool with no parameters",
+        parameters={},
+        required=[],
+    )
+
+    conversation_context = [
+        (EventSource.CUSTOMER, "Hello, can you ping for me?"),
+    ]
+
+    interaction_history = create_interaction_history(conversation_context)
+
+    tool_enabled_guideline_matches = {
+        create_guideline_match(
+            condition="customer asks to ping",
+            action="ping for the customer",
+            score=9,
+            rationale="customer wants to ping",
+            tags=[Tag.for_agent_id(agent.id)],
+        ): [ToolId(service_name="local", tool_name=tool.name)]
+    }
+
+    inference_tool_calls_result = await _inference_tool_calls_result(
+        container=container,
+        agent=agent,
+        interaction_history=interaction_history,
+        tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+    )
+
+    tool_calls = list(chain.from_iterable(inference_tool_calls_result.batches))
+    assert len(tool_calls) == 1
+    tool_call = tool_calls[0]
+
+    # Verify the tool call has no arguments
+    assert tool_call.arguments == {}
+    # Verify the tool_id is correct
+    assert tool_call.tool_id == ToolId(service_name="local", tool_name="ping")
+    # Verify no LLM was called (model should be "auto-approved")
+    assert len(inference_tool_calls_result.batch_generations) == 1
+    assert inference_tool_calls_result.batch_generations[0].model == "auto-approved"
+
+
+async def test_that_staged_non_consequential_tool_with_no_parameters_is_not_auto_approved_again(
+    container: Container,
+    local_tool_service: LocalToolService,
+    agent: Agent,
+) -> None:
+    """
+    A non-consequential tool with no parameters that is already staged
+    should NOT be auto-approved again.
+    """
+    # Create a tool with no parameters and consequential=False (default)
+    await create_local_tool(
+        local_tool_service,
+        name="ping_staged",
+        description="A simple ping tool with no parameters",
+        parameters={},
+        required=[],
+    )
+
+    tool_id = ToolId(service_name="local", tool_name="ping_staged")
+
+    # Create a staged event representing this tool already being staged
+    staged_event = EmittedEvent(
+        source=EventSource.AI_AGENT,
+        kind=EventKind.TOOL,
+        trace_id="test-trace-id",
+        data={
+            "tool_calls": [
+                {
+                    "tool_id": tool_id.to_string(),
+                    "arguments": {},
+                    "result": {"data": "pong", "metadata": {}},
+                }
+            ]
+        },
+        metadata=None,
+    )
+
+    conversation_context = [
+        (EventSource.CUSTOMER, "Hello, can you ping for me?"),
+    ]
+
+    interaction_history = create_interaction_history(conversation_context)
+
+    tool_enabled_guideline_matches = {
+        create_guideline_match(
+            condition="customer asks to ping",
+            action="ping for the customer",
+            score=9,
+            rationale="customer wants to ping",
+            tags=[Tag.for_agent_id(agent.id)],
+        ): [tool_id]
+    }
+
+    inference_tool_calls_result = await _inference_tool_calls_result(
+        container=container,
+        agent=agent,
+        interaction_history=interaction_history,
+        tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+        staged_events=[staged_event],
+    )
+
+    # The tool should NOT be called again since it's already staged
+    tool_calls = list(chain.from_iterable(inference_tool_calls_result.batches))
+    assert len(tool_calls) == 0

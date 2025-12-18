@@ -169,6 +169,8 @@ LOGGER = StdoutLogger(
     logger_id="parlant.bin.prepare_migration",
 )
 
+TRACER = LocalTracer()
+
 
 class VersionCheckpoint:
     def __init__(self, component: str, from_version: str, to_version: str):
@@ -234,6 +236,7 @@ async def get_component_versions(
             vector_db = await EXIT_STACK.enter_async_context(
                 ChromaDatabase(
                     LOGGER,
+                    TRACER,
                     PARLANT_HOME_DIR,
                     embedder_factory,
                     embedding_cache_provider=NullEmbeddingCache,
@@ -431,6 +434,7 @@ async def migrate_glossary_with_metadata() -> None:
         db = await EXIT_STACK.enter_async_context(
             ChromaDatabase(
                 LOGGER,
+                TRACER,
                 PARLANT_HOME_DIR,
                 embedder_factory,
                 embedding_cache_provider=NullEmbeddingCache,
@@ -788,6 +792,7 @@ async def migrate_glossary_0_1_0_to_0_2_0(
     db = await EXIT_STACK.enter_async_context(
         ChromaDatabase(
             LOGGER,
+            TRACER,
             PARLANT_HOME_DIR,
             embedder_factory,
             embedding_cache_provider=NullEmbeddingCache,
@@ -899,6 +904,7 @@ async def migrate_utterances_0_1_0_to_0_2_0(
     db = await EXIT_STACK.enter_async_context(
         ChromaDatabase(
             LOGGER,
+            TRACER,
             PARLANT_HOME_DIR,
             embedder_factory,
             embedding_cache_provider=NullEmbeddingCache,
@@ -1025,6 +1031,7 @@ async def migrate_journeys_0_1_0_to_0_2_0(
     db = await EXIT_STACK.enter_async_context(
         ChromaDatabase(
             LOGGER,
+            TRACER,
             PARLANT_HOME_DIR,
             embedder_factory,
             embedding_cache_provider=NullEmbeddingCache,
@@ -1394,6 +1401,7 @@ async def migrate_journeys_0_2_0_to_0_3_0(
     chroma_db = await EXIT_STACK.enter_async_context(
         ChromaDatabase(
             LOGGER,
+            TRACER,
             PARLANT_HOME_DIR,
             embedder_factory,
             embedding_cache_provider=NullEmbeddingCache,
@@ -1563,6 +1571,7 @@ async def migrate_canned_responses_0_2_0_to_0_4_0(
     db = await EXIT_STACK.enter_async_context(
         ChromaDatabase(
             LOGGER,
+            TRACER,
             PARLANT_HOME_DIR,
             embedder_factory,
             embedding_cache_provider=NullEmbeddingCache,
@@ -1752,6 +1761,7 @@ async def migrate_capabilities_0_1_0_to_0_2_0(
     db = await EXIT_STACK.enter_async_context(
         ChromaDatabase(
             LOGGER,
+            TRACER,
             PARLANT_HOME_DIR,
             embedder_factory,
             embedding_cache_provider=NullEmbeddingCache,

@@ -33,6 +33,7 @@ from parlant.core.persistence.common import MigrationRequired, ObjectId
 from parlant.core.persistence.vector_database import BaseDocument
 from parlant.core.persistence.vector_database_helper import VectorDocumentStoreMigrationHelper
 from parlant.core.tags import Tag, TagId
+from parlant.core.tracer import Tracer
 from tests.test_utilities import SyncAwaiter
 
 
@@ -92,6 +93,7 @@ async def qdrant_database(context: _TestContext) -> AsyncIterator[QdrantDatabase
 def create_database(context: _TestContext) -> QdrantDatabase:
     return QdrantDatabase(
         logger=context.container[Logger],
+        tracer=context.container[Tracer],
         path=context.home_dir,
         embedder_factory=EmbedderFactory(context.container),
         embedding_cache_provider=NullEmbeddingCache,
@@ -365,6 +367,7 @@ async def test_that_glossary_qdrant_store_correctly_finds_relevant_terms_from_la
     with tempfile.TemporaryDirectory() as temp_dir:
         async with QdrantDatabase(
             logger=container[Logger],
+            tracer=container[Tracer],
             path=Path(temp_dir),
             embedder_factory=EmbedderFactory(container),
             embedding_cache_provider=NullEmbeddingCache,

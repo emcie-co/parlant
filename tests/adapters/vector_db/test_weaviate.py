@@ -14,10 +14,13 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+import os
 import tempfile
 from typing import AsyncIterator, Iterator, Optional, TypedDict, cast
 from typing_extensions import Required
+from unittest.mock import patch
 from lagom import Container
+import pytest
 from pytest import fixture, raises
 
 from parlant.adapters.nlp.openai_service import OpenAITextEmbedding3Large
@@ -42,6 +45,19 @@ async def _openai_embedder_type_provider() -> type[Embedder]:
 
 async def _null_embedder_type_provider() -> type[Embedder]:
     return NullEmbedder
+
+
+@pytest.fixture(autouse=True)
+def set_api_keys() -> Iterator[None]:
+    """Set API keys for tests that use container fixture."""
+    with patch.dict(
+        os.environ,
+        {
+            "OPENAI_API_KEY": "openai-api-key",
+        },
+        clear=False,
+    ):
+        yield
 
 
 class _TestDocument(TypedDict, total=False):
@@ -92,7 +108,8 @@ async def weaviate_database(context: _TestContext) -> AsyncIterator[WeaviateData
 def create_database(context: _TestContext) -> WeaviateDatabase:
     return WeaviateDatabase(
         logger=context.container[Logger],
-        url="http://localhost:8080",
+        url="weaviate-url",
+        api_key="weaviate-api-key",
         embedder_factory=EmbedderFactory(context.container),
         embedding_cache_provider=NullEmbeddingCache,
     )

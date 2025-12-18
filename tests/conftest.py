@@ -374,6 +374,7 @@ async def container(
                 nlp_services_provider=lambda: {
                     "default": OpenAIService(
                         container[Logger],
+                        container[Tracer],
                         container[Meter],
                     )
                 },

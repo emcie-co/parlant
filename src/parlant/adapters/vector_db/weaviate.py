@@ -18,9 +18,7 @@ import gc
 import hashlib
 import json
 import sys
-import time
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Awaitable, Callable, Generic, Optional, Sequence, TypeVar, cast
 from typing_extensions import override, Self
 from urllib.parse import urlparse
@@ -155,68 +153,107 @@ def _convert_where_to_weaviate_filter(where: Where) -> Optional[Filter]:
         return None
 
     if "$and" in where:
-        filters = []
+        filters: list[Filter] = []
         for sub_filter in where["$and"]:
             if isinstance(sub_filter, dict):
                 wf = _convert_where_to_weaviate_filter(sub_filter)
                 if wf:
                     filters.append(wf)
         if filters:
-            return Filter.all_of(filters)
+            return cast(Filter, Filter.all_of(cast(Any, filters)))
         return None
 
     if "$or" in where:
-        filters = []
+        or_filters: list[Filter] = []
         for sub_filter in where["$or"]:
             if isinstance(sub_filter, dict):
                 wf = _convert_where_to_weaviate_filter(sub_filter)
                 if wf:
-                    filters.append(wf)
-        if filters:
-            return Filter.any_of(filters)
+                    or_filters.append(wf)
+        if or_filters:
+            return cast(Filter, Filter.any_of(cast(Any, or_filters)))
         return None
 
-    conditions = []
+    conditions: list[Filter] = []
     for field_name, field_filter in where.items():
         # Convert 'id' to 'item_id' for Weaviate
         weaviate_field_name = "item_id" if field_name == "id" else field_name
-        
+
         if isinstance(field_filter, dict):
             for operator, filter_value in field_filter.items():
                 if operator == "$eq":
-                    conditions.append(Filter.by_property(weaviate_field_name).equal(filter_value))
+                    conditions.append(
+                        cast(Filter, Filter.by_property(weaviate_field_name).equal(filter_value))
+                    )
                 elif operator == "$ne":
-                    conditions.append(Filter.by_property(weaviate_field_name).not_equal(filter_value))
+                    conditions.append(
+                        cast(
+                            Filter, Filter.by_property(weaviate_field_name).not_equal(filter_value)
+                        )
+                    )
                 elif operator == "$gt":
-                    conditions.append(Filter.by_property(weaviate_field_name).greater_than(filter_value))
+                    conditions.append(
+                        cast(
+                            Filter,
+                            Filter.by_property(weaviate_field_name).greater_than(filter_value),
+                        )
+                    )
                 elif operator == "$gte":
-                    conditions.append(Filter.by_property(weaviate_field_name).greater_or_equal(filter_value))
+                    conditions.append(
+                        cast(
+                            Filter,
+                            Filter.by_property(weaviate_field_name).greater_or_equal(filter_value),
+                        )
+                    )
                 elif operator == "$lt":
-                    conditions.append(Filter.by_property(weaviate_field_name).less_than(filter_value))
+                    conditions.append(
+                        cast(
+                            Filter, Filter.by_property(weaviate_field_name).less_than(filter_value)
+                        )
+                    )
                 elif operator == "$lte":
-                    conditions.append(Filter.by_property(weaviate_field_name).less_or_equal(filter_value))
+                    conditions.append(
+                        cast(
+                            Filter,
+                            Filter.by_property(weaviate_field_name).less_or_equal(filter_value),
+                        )
+                    )
                 elif operator == "$in":
-                    conditions.append(Filter.by_property(weaviate_field_name).contains_any(list(filter_value)))
+                    conditions.append(
+                        cast(
+                            Filter,
+                            Filter.by_property(weaviate_field_name).contains_any(
+                                list(filter_value)
+                            ),
+                        )
+                    )
                 elif operator == "$nin":
-                    conditions.append(Filter.by_property(weaviate_field_name).not_contains_any(list(filter_value)))
+                    # Use Filter.by_property().not_equal() for each value, then combine with all_of
+                    # Since not_contains_any doesn't exist, we'll use a workaround
+                    not_conditions = [
+                        Filter.by_property(weaviate_field_name).not_equal(val)
+                        for val in list(filter_value)
+                    ]
+                    if not_conditions:
+                        conditions.append(cast(Filter, Filter.all_of(cast(Any, not_conditions))))
 
     if conditions:
         if len(conditions) == 1:
             return conditions[0]
-        return Filter.all_of(conditions)
+        return cast(Filter, Filter.all_of(cast(Any, conditions)))
     return None
 
 
 def _handle_collection_exists_error(e: WeaviateBaseError) -> None:
     """Handle 'already exists' errors when creating collections."""
     error_str = str(e).lower()
-    if hasattr(e, 'message'):
-        error_str += ' ' + str(e.message).lower()
-    if hasattr(e, 'response') and hasattr(e.response, 'json'):
+    if hasattr(e, "message"):
+        error_str += " " + str(e.message).lower()
+    if hasattr(e, "response") and hasattr(e.response, "json"):
         try:
             response_body = e.response.json()
-            if isinstance(response_body, dict) and 'error' in response_body:
-                error_str += ' ' + str(response_body['error']).lower()
+            if isinstance(response_body, dict) and "error" in response_body:
+                error_str += " " + str(response_body["error"]).lower()
         except Exception:
             pass
     if (
@@ -228,7 +265,9 @@ def _handle_collection_exists_error(e: WeaviateBaseError) -> None:
     raise
 
 
-def _find_metadata_collection_name(collection_list: list[str], preferred_name: str = "metadata") -> str:
+def _find_metadata_collection_name(
+    collection_list: list[str], preferred_name: str = "metadata"
+) -> str:
     """Find metadata collection name case-insensitively."""
     # Try exact match first
     if preferred_name in collection_list:
@@ -276,7 +315,7 @@ class WeaviateDatabase(VectorDatabase):
                         auth_credentials=Auth.api_key(self._api_key),
                     )
                     # Verify connection is ready
-                    if not self.weaviate_client.is_ready():
+                    if self.weaviate_client is None or not self.weaviate_client.is_ready():
                         raise ConnectionError("Weaviate client is not ready after connection")
                     self._logger.info(f"Successfully connected to Weaviate cluster: {cluster_name}")
                 elif self._url:
@@ -291,9 +330,11 @@ class WeaviateDatabase(VectorDatabase):
                         grpc_port=self._grpc_port,
                     )
                     # Verify connection is ready
-                    if not self.weaviate_client.is_ready():
+                    if self.weaviate_client is None or not self.weaviate_client.is_ready():
                         raise ConnectionError("Weaviate client is not ready after connection")
-                    self._logger.info(f"Successfully connected to Weaviate local instance: {host}:{port}")
+                    self._logger.info(
+                        f"Successfully connected to Weaviate local instance: {host}:{port}"
+                    )
                 else:
                     raise ValueError("Either url or path must be provided")
                 break
@@ -315,7 +356,9 @@ class WeaviateDatabase(VectorDatabase):
                     )
                     await asyncio.sleep(delay)
                     continue
-                self._logger.error(f"Failed to connect to Weaviate after {attempt + 1} attempts: {e}")
+                self._logger.error(
+                    f"Failed to connect to Weaviate after {attempt + 1} attempts: {e}"
+                )
                 raise
         return self
 
@@ -326,15 +369,15 @@ class WeaviateDatabase(VectorDatabase):
         traceback: Optional[object],
     ) -> None:
         # Make cleanup idempotent - safe to call multiple times
-        if not hasattr(self, '_cleanup_done'):
+        if not hasattr(self, "_cleanup_done"):
             self._cleanup_done = False
-        
+
         if self._cleanup_done:
             return
-        
+
         try:
             self._collections.clear()
-            
+
             client = self.weaviate_client
             if client is not None:
                 self.weaviate_client = None  # Clear reference immediately to prevent reuse
@@ -348,13 +391,13 @@ class WeaviateDatabase(VectorDatabase):
                 except asyncio.TimeoutError:
                     # Timeout - just continue, Python GC will clean up the client
                     pass
-                except (AttributeError, RuntimeError, OSError) as e:
+                except (AttributeError, RuntimeError, OSError):
                     # AttributeError: close() method doesn't exist
                     # RuntimeError: client already closed or event loop issues
                     # OSError: connection/socket errors during close
                     # These are non-fatal - client might already be closed
                     pass
-                except Exception as e:
+                except Exception:
                     # Log but don't fail - cleanup should never block
                     pass
                 finally:
@@ -363,12 +406,14 @@ class WeaviateDatabase(VectorDatabase):
                     try:
                         # Try to close underlying HTTP connection pools if they exist
                         # The Weaviate client may use httpx which has connection pools
-                        if hasattr(client, '_connection') and hasattr(client._connection, 'close'):
+                        if hasattr(client, "_connection") and hasattr(client._connection, "close"):
                             try:
                                 client._connection.close()
                             except Exception:
                                 pass
-                        if hasattr(client, '_http_client') and hasattr(client._http_client, 'close'):
+                        if hasattr(client, "_http_client") and hasattr(
+                            client._http_client, "close"
+                        ):
                             try:
                                 client._http_client.close()
                             except Exception:
@@ -385,10 +430,10 @@ class WeaviateDatabase(VectorDatabase):
                             gc.collect()  # Third pass on Windows for SSL connections
                     except Exception:
                         pass  # Ignore GC errors
-            
+
             self._cleanup_done = True
         except Exception as e:
-            self._logger.error(f"Fatal error during WeaviateDatabase cleanup: {e}", exc_info=True)
+            self._logger.error(f"Fatal error during WeaviateDatabase cleanup: {e}")
             # Don't raise - cleanup should never fail, just log the error
             self._cleanup_done = True  # Mark as done even on error to prevent retry loops
 
@@ -418,13 +463,11 @@ class WeaviateDatabase(VectorDatabase):
         assert self._embedder_factory is not None
         failed_migrations: list[BaseDocument] = []
         embedder = self._embedder_factory.create_embedder(embedder_type)
+        client = self.weaviate_client
 
         try:
             unembedded_collection = await _retry_on_timeout_async(
-                lambda: asyncio.to_thread(
-            self.weaviate_client.collections.get,
-            unembedded_collection_name
-                ),
+                lambda: asyncio.to_thread(client.collections.get, unembedded_collection_name),
                 max_retries=3,
                 logger=self._logger,
             )
@@ -438,9 +481,10 @@ class WeaviateDatabase(VectorDatabase):
             return embedded_collection_name
 
         try:
-            def _fetch_objects():
+
+            def _fetch_objects() -> Any:
                 return unembedded_collection.query.fetch_objects(limit=10000).objects
-            
+
             unembedded_objects = await _retry_on_timeout_async(
                 lambda: asyncio.to_thread(_fetch_objects),
                 max_retries=3,
@@ -473,7 +517,9 @@ class WeaviateDatabase(VectorDatabase):
                                     lambda: asyncio.to_thread(
                                         unembedded_collection.data.update,
                                         uuid=obj.uuid,
-                                        properties=_to_weaviate_properties(cast(dict[str, Any], loaded_doc)),
+                                        properties=_to_weaviate_properties(
+                                            cast(dict[str, Any], loaded_doc)
+                                        ),
                                     ),
                                     max_retries=3,
                                     logger=self._logger,
@@ -484,14 +530,22 @@ class WeaviateDatabase(VectorDatabase):
                                     f"Failed to update document '{prospective_doc.get('id', 'unknown')}' in unembedded collection: {e}"
                                 )
                     else:
-                        self._logger.warning(f'Document loader returned None for document "{prospective_doc.get("id", "unknown")}"')
+                        self._logger.warning(
+                            f'Document loader returned None for document "{prospective_doc.get("id", "unknown")}"'
+                        )
                         try:
-                            await asyncio.to_thread(unembedded_collection.data.delete_by_id, obj.uuid)
+                            await asyncio.to_thread(
+                                unembedded_collection.data.delete_by_id, obj.uuid
+                            )
                         except Exception as e:
-                            self._logger.warning(f"Failed to delete document with uuid {obj.uuid}: {e}")
+                            self._logger.warning(
+                                f"Failed to delete document with uuid {obj.uuid}: {e}"
+                            )
                         failed_migrations.append(prospective_doc)
                 except Exception as e:
-                    self._logger.error(f"Failed to load document '{prospective_doc.get('id', 'unknown')}': {e}")
+                    self._logger.error(
+                        f"Failed to load document '{prospective_doc.get('id', 'unknown')}': {e}"
+                    )
                     failed_migrations.append(prospective_doc)
 
             if failed_migrations:
@@ -509,7 +563,9 @@ class WeaviateDatabase(VectorDatabase):
                         except Exception as e:
                             self._logger.warning(f"Failed to store failed migration document: {e}")
                 except Exception as e:
-                    self._logger.warning(f"Failed to create or access failed_migrations collection: {e}")
+                    self._logger.warning(
+                        f"Failed to create or access failed_migrations collection: {e}"
+                    )
 
         unembedded_version = await self._get_collection_version(unembedded_collection_name)
         embedded_version = await self._get_collection_version(embedded_collection_name)
@@ -542,29 +598,34 @@ class WeaviateDatabase(VectorDatabase):
         assert self.weaviate_client is not None
 
         try:
+            client = self.weaviate_client
+            if client is None:
+                raise ValueError("Weaviate client is not initialized")
             unembedded_collection = await _retry_on_timeout_async(
-                lambda: asyncio.to_thread(
-            self.weaviate_client.collections.get,
-            unembedded_collection_name
-                ),
+                lambda: asyncio.to_thread(client.collections.get, unembedded_collection_name),
                 max_retries=3,
                 logger=self._logger,
             )
         except Exception as e:
-            self._logger.error(f"Failed to get unembedded collection '{unembedded_collection_name}' for indexing: {e}")
+            self._logger.error(
+                f"Failed to get unembedded collection '{unembedded_collection_name}' for indexing: {e}"
+            )
             raise
 
         try:
-            def _fetch_unembedded_objects():
+
+            def _fetch_unembedded_objects() -> Any:
                 return unembedded_collection.query.fetch_objects(limit=10000).objects
-            
+
             unembedded_objects = await _retry_on_timeout_async(
                 lambda: asyncio.to_thread(_fetch_unembedded_objects),
                 max_retries=3,
                 logger=self._logger,
             )
         except Exception as e:
-            self._logger.error(f"Failed to fetch objects from unembedded collection for indexing: {e}")
+            self._logger.error(
+                f"Failed to fetch objects from unembedded collection for indexing: {e}"
+            )
             raise
 
         unembedded_docs_by_id = {
@@ -574,29 +635,34 @@ class WeaviateDatabase(VectorDatabase):
         }
 
         try:
+            client = self.weaviate_client
+            if client is None:
+                raise ValueError("Weaviate client is not initialized")
             embedded_collection = await _retry_on_timeout_async(
-                lambda: asyncio.to_thread(
-            self.weaviate_client.collections.get,
-            embedded_collection_name
-                ),
+                lambda: asyncio.to_thread(client.collections.get, embedded_collection_name),
                 max_retries=3,
                 logger=self._logger,
             )
         except Exception as e:
-            self._logger.error(f"Failed to get embedded collection '{embedded_collection_name}' for indexing: {e}")
+            self._logger.error(
+                f"Failed to get embedded collection '{embedded_collection_name}' for indexing: {e}"
+            )
             raise
 
         try:
-            def _fetch_embedded_objects():
+
+            def _fetch_embedded_objects() -> Any:
                 return embedded_collection.query.fetch_objects(limit=10000).objects
-            
+
             embedded_objects = await _retry_on_timeout_async(
                 lambda: asyncio.to_thread(_fetch_embedded_objects),
                 max_retries=3,
                 logger=self._logger,
             )
         except Exception as e:
-            self._logger.error(f"Failed to fetch objects from embedded collection for indexing: {e}")
+            self._logger.error(
+                f"Failed to fetch objects from embedded collection for indexing: {e}"
+            )
             raise
 
         embedded_docs_by_id = {
@@ -619,14 +685,14 @@ class WeaviateDatabase(VectorDatabase):
                     if isinstance(default_vector, (list, tuple)) and len(default_vector) > 0:
                         if isinstance(default_vector[0], (int, float)):
                             return cast(list[float], list(default_vector))
-            
+
             # Generate new embedding
             try:
                 embeddings = list((await embedder.embed([content])).vectors)
                 if not embeddings or len(embeddings[0]) == 0:
                     self._logger.warning(f"Empty embedding for document {doc_id}, skipping sync")
                     return None
-                return embeddings[0]
+                return list(embeddings[0])
             except Exception as e:
                 self._logger.error(f"Failed to generate embedding for document {doc_id}: {e}")
                 return None
@@ -642,27 +708,26 @@ class WeaviateDatabase(VectorDatabase):
 
                 # Check if we need to recompute embedding (checksum changed)
                 embedded_props = embedded_obj.properties
-                force_recompute = (
-                    embedded_props is None
-                    or embedded_props.get("checksum") != unembedded_doc.get("checksum")
-                )
+                force_recompute = embedded_props is None or embedded_props.get(
+                    "checksum"
+                ) != unembedded_doc.get("checksum")
 
-                vector = await _get_embedding_vector(
+                updated_vector = await _get_embedding_vector(
                     doc_id=doc_id,
                     content=cast(str, unembedded_doc["content"]),
                     embedded_obj=embedded_obj,
                     force_recompute=force_recompute,
                 )
-                
-                if vector is None:
-                        continue
+
+                if updated_vector is None:
+                    continue
 
                 normalized_doc = _to_weaviate_properties(unembedded_doc)
                 await asyncio.to_thread(
                     embedded_collection.data.update,
                     uuid=embedded_obj.uuid,
                     properties=normalized_doc,
-                    vector=vector,
+                    vector=updated_vector,
                 )
             unembedded_docs_by_id.pop(doc_id)
 
@@ -672,14 +737,14 @@ class WeaviateDatabase(VectorDatabase):
             doc_dict = _from_weaviate_properties(unembedded_obj.properties)
             if doc_dict is None:
                 continue
-            
+
             # Generate embedding for new document
             try:
                 embeddings = list((await embedder.embed([cast(str, doc_dict["content"])])).vectors)
                 if not embeddings or len(embeddings[0]) == 0:
                     self._logger.warning(f"Empty embedding for document {doc_id}, skipping")
                     continue
-                vector = embeddings[0]
+                new_vector = list(embeddings[0])
             except Exception as e:
                 self._logger.error(f"Failed to generate embedding for document {doc_id}: {e}")
                 continue
@@ -690,12 +755,13 @@ class WeaviateDatabase(VectorDatabase):
                 embedded_collection.data.insert,
                 uuid=object_uuid,
                 properties=normalized_doc,
-                vector=vector,
+                vector=new_vector,
             )
 
         unembedded_version = await self._get_collection_version(unembedded_collection_name)
         await self._set_collection_version(unembedded_collection_name, unembedded_version)
         await self._set_collection_version(embedded_collection_name, unembedded_version)
+
     @override
     async def create_collection(
         self,
@@ -712,10 +778,13 @@ class WeaviateDatabase(VectorDatabase):
         embedder = self._embedder_factory.create_embedder(embedder_type)
         embedded_collection_name = self.format_collection_name(name, embedder_type)
         unembedded_collection_name = f"{name}_unembedded"
+        client = self.weaviate_client
+        if client is None:
+            raise ValueError("Weaviate client is not initialized")
 
         def _create_embedded() -> None:
             try:
-                self.weaviate_client.collections.create(
+                client.collections.create(
                     name=embedded_collection_name,
                     vector_config=Configure.Vectors.self_provided(
                         vector_index_config=Configure.VectorIndex.hnsw(
@@ -734,7 +803,7 @@ class WeaviateDatabase(VectorDatabase):
 
         def _create_unembedded() -> None:
             try:
-                self.weaviate_client.collections.create(
+                client.collections.create(
                     name=unembedded_collection_name,
                     vector_config=Configure.Vectors.self_provided(
                         vector_index_config=Configure.VectorIndex.hnsw(
@@ -786,15 +855,19 @@ class WeaviateDatabase(VectorDatabase):
         unembedded_collection_name = f"{name}_unembedded"
         embedded_collection_name = self.format_collection_name(name, embedder_type)
 
-        collections = await asyncio.to_thread(self.weaviate_client.collections.list_all)
+        client = self.weaviate_client
+        if client is None:
+            raise ValueError("Weaviate client is not initialized")
+        collections = await asyncio.to_thread(client.collections.list_all)
         collection_list = list(collections)
 
         if unembedded_collection_name in collection_list:
             if embedded_collection_name not in collection_list:
                 embedder = self._embedder_factory.create_embedder(embedder_type)
+
                 def _create_embedded() -> None:
                     try:
-                        self.weaviate_client.collections.create(
+                        client.collections.create(
                             name=embedded_collection_name,
                             vector_config=Configure.Vectors.self_provided(
                                 vector_index_config=Configure.VectorIndex.hnsw(
@@ -810,6 +883,7 @@ class WeaviateDatabase(VectorDatabase):
                         )
                     except WeaviateBaseError as e:
                         _handle_collection_exists_error(e)
+
                 await asyncio.to_thread(_create_embedded)
                 await self._index_collection(
                     embedded_collection_name=embedded_collection_name,
@@ -866,14 +940,18 @@ class WeaviateDatabase(VectorDatabase):
         embedder = self._embedder_factory.create_embedder(embedder_type)
         embedded_collection_name = self.format_collection_name(name, embedder_type)
         unembedded_collection_name = f"{name}_unembedded"
+        client = self.weaviate_client
+        if client is None:
+            raise ValueError("Weaviate client is not initialized")
 
-        collections = await asyncio.to_thread(self.weaviate_client.collections.list_all)
+        collections = await asyncio.to_thread(client.collections.list_all)
         collection_list = list(collections)
 
         if unembedded_collection_name not in collection_list:
+
             def _create_unembedded() -> None:
                 try:
-                    self.weaviate_client.collections.create(
+                    client.collections.create(
                         name=unembedded_collection_name,
                         vector_config=Configure.Vectors.self_provided(
                             vector_index_config=Configure.VectorIndex.hnsw(
@@ -889,12 +967,14 @@ class WeaviateDatabase(VectorDatabase):
                     )
                 except WeaviateBaseError as e:
                     _handle_collection_exists_error(e)
+
             await asyncio.to_thread(_create_unembedded)
 
         if embedded_collection_name not in collection_list:
+
             def _create_embedded() -> None:
                 try:
-                    self.weaviate_client.collections.create(
+                    client.collections.create(
                         name=embedded_collection_name,
                         vector_config=Configure.Vectors.self_provided(
                             vector_index_config=Configure.VectorIndex.hnsw(
@@ -910,6 +990,7 @@ class WeaviateDatabase(VectorDatabase):
                     )
                 except WeaviateBaseError as e:
                     _handle_collection_exists_error(e)
+
             await asyncio.to_thread(_create_embedded)
 
         try:
@@ -942,7 +1023,7 @@ class WeaviateDatabase(VectorDatabase):
             collection._database = self
             self._collections[name] = collection
             return collection
-        except Exception as e:
+        except Exception:
             raise
 
     @override
@@ -956,14 +1037,8 @@ class WeaviateDatabase(VectorDatabase):
         )
         unembedded_collection_name = f"{name}_unembedded"
 
-        await asyncio.to_thread(
-            self.weaviate_client.collections.delete,
-            embedded_collection_name
-        )
-        await asyncio.to_thread(
-            self.weaviate_client.collections.delete,
-            unembedded_collection_name
-        )
+        await asyncio.to_thread(self.weaviate_client.collections.delete, embedded_collection_name)
+        await asyncio.to_thread(self.weaviate_client.collections.delete, unembedded_collection_name)
         del self._collections[name]
 
     @override
@@ -971,17 +1046,26 @@ class WeaviateDatabase(VectorDatabase):
         assert self.weaviate_client is not None
         metadata_collection_name = "metadata"
 
-        collections = await asyncio.to_thread(self.weaviate_client.collections.list_all)
+        client = self.weaviate_client
+        if client is None:
+            raise ValueError("Weaviate client is not initialized")
+        collections = await asyncio.to_thread(client.collections.list_all)
         collection_list = list(collections)
 
         # Find metadata collection case-insensitively (handle existing "Metadata" vs "metadata")
-        existing_metadata_collection = _find_metadata_collection_name(collection_list, metadata_collection_name)
-        if existing_metadata_collection.lower() == metadata_collection_name.lower() and existing_metadata_collection in collection_list:
+        existing_metadata_collection = _find_metadata_collection_name(
+            collection_list, metadata_collection_name
+        )
+        if (
+            existing_metadata_collection.lower() == metadata_collection_name.lower()
+            and existing_metadata_collection in collection_list
+        ):
             metadata_collection_name = existing_metadata_collection  # Use existing case
         elif metadata_collection_name not in collection_list:
+
             def _create_metadata() -> None:
                 try:
-                    self.weaviate_client.collections.create(
+                    client.collections.create(
                         name=metadata_collection_name,
                         vector_config=Configure.Vectors.self_provided(
                             vector_index_config=Configure.VectorIndex.hnsw(
@@ -995,20 +1079,18 @@ class WeaviateDatabase(VectorDatabase):
                     )
                 except WeaviateBaseError as e:
                     _handle_collection_exists_error(e)
+
             # Add timeout to prevent hanging when creating metadata collection
             await asyncio.wait_for(
                 asyncio.to_thread(_create_metadata),
-                timeout=10.0  # 10 second timeout for creating collection
+                timeout=10.0,  # 10 second timeout for creating collection
             )
 
         try:
             # Add timeout to prevent hanging when reconnecting to existing clusters
             metadata_collection = await asyncio.wait_for(
-                asyncio.to_thread(
-                    self.weaviate_client.collections.get,
-                    metadata_collection_name
-                ),
-                timeout=10.0  # 10 second timeout for getting collection
+                asyncio.to_thread(self.weaviate_client.collections.get, metadata_collection_name),
+                timeout=10.0,  # 10 second timeout for getting collection
             )
             metadata_uuid = _string_id_to_uuid("__metadata__")
 
@@ -1018,18 +1100,24 @@ class WeaviateDatabase(VectorDatabase):
                     asyncio.to_thread(
                         lambda: metadata_collection.query.fetch_object_by_id(metadata_uuid)
                     ),
-                    timeout=10.0  # 10 second timeout for fetching object
+                    timeout=10.0,  # 10 second timeout for fetching object
                 )
-            except (asyncio.TimeoutError, asyncio.CancelledError, Exception) as e:
+            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
                 # Timeout, cancellation, or other error - treat as object not found, will create new one
                 obj = None
 
             if obj is not None:
                 # Read existing metadata from the "value" property as JSON
-                existing_metadata_str = obj.properties.get("value", "{}") if obj.properties else "{}"
+                existing_metadata_str = (
+                    obj.properties.get("value", "{}") if obj.properties else "{}"
+                )
                 try:
-                    document = json.loads(existing_metadata_str) if isinstance(existing_metadata_str, str) else (existing_metadata_str or {})
-                except (json.JSONDecodeError, TypeError) as e:
+                    document = (
+                        json.loads(existing_metadata_str)
+                        if isinstance(existing_metadata_str, str)
+                        else (existing_metadata_str or {})
+                    )
+                except (json.JSONDecodeError, TypeError):
                     document = {}
                 document[key] = _normalize_datetime(value)
                 json_value = json.dumps(document, default=str)
@@ -1042,19 +1130,23 @@ class WeaviateDatabase(VectorDatabase):
                             uuid=obj.uuid,
                             properties={"key": "__metadata__", "value": json_value},
                         ),
-                        timeout=10.0  # 10 second timeout for metadata update
+                        timeout=10.0,  # 10 second timeout for metadata update
                     )
                     # Update succeeded - return early, don't try to insert
                     return
-                except (asyncio.TimeoutError, asyncio.CancelledError) as e:
-                    self._logger.warning(f"Metadata update for key '{key}' timed out or was cancelled, but continuing")
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    self._logger.warning(
+                        f"Metadata update for key '{key}' timed out or was cancelled, but continuing"
+                    )
                     # Don't raise - allow startup to continue even if metadata update fails
                     return
                 except UnexpectedStatusCodeError as e:
                     # Check if it's an "already exists" error (422 status code) - treat as success
                     error_str = str(e).lower()
                     if "422" in error_str and "already exists" in error_str:
-                        self._logger.debug(f"Metadata for key '{key}' already exists, treating as success")
+                        self._logger.debug(
+                            f"Metadata for key '{key}' already exists, treating as success"
+                        )
                         return
                     # For other errors, log and continue
                     self._logger.warning(f"Failed to update metadata for key '{key}': {e}")
@@ -1071,28 +1163,37 @@ class WeaviateDatabase(VectorDatabase):
                         asyncio.to_thread(
                             metadata_collection.data.insert,
                             uuid=metadata_uuid,
-                            properties={"key": "__metadata__", "value": json.dumps(document, default=str)},
+                            properties={
+                                "key": "__metadata__",
+                                "value": json.dumps(document, default=str),
+                            },
                             vector=[0.0],
                         ),
-                        timeout=10.0  # 10 second timeout for metadata insert
+                        timeout=10.0,  # 10 second timeout for metadata insert
                     )
-                except (asyncio.TimeoutError, asyncio.CancelledError) as e:
-                    self._logger.warning(f"Metadata insert for key '{key}' timed out or was cancelled, but continuing")
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    self._logger.warning(
+                        f"Metadata insert for key '{key}' timed out or was cancelled, but continuing"
+                    )
                     # Don't raise - allow startup to continue even if metadata insert fails
                 except UnexpectedStatusCodeError as e:
                     # Check if it's an "already exists" error (422 status code) - treat as success (idempotent)
                     error_str = str(e).lower()
                     if "422" in error_str and "already exists" in error_str:
-                        self._logger.debug(f"Metadata for key '{key}' already exists, treating as success")
+                        self._logger.debug(
+                            f"Metadata for key '{key}' already exists, treating as success"
+                        )
                     else:
                         # Other 422 errors should still be logged
                         self._logger.warning(f"Failed to insert metadata for key '{key}': {e}")
                 except Exception as e:
                     # Log but don't raise for non-critical metadata inserts during startup
                     self._logger.warning(f"Failed to insert metadata for key '{key}': {e}")
-        except (asyncio.TimeoutError, asyncio.CancelledError) as e:
+        except (asyncio.TimeoutError, asyncio.CancelledError):
             # Don't raise for timeouts/cancellations - allow startup to continue
-            self._logger.warning(f"Metadata upsert for key '{key}' timed out or was cancelled, but continuing")
+            self._logger.warning(
+                f"Metadata upsert for key '{key}' timed out or was cancelled, but continuing"
+            )
         except Exception as e:
             # For other errors, log but don't raise to allow startup to continue
             self._logger.warning(f"Metadata upsert for key '{key}' failed: {e}")
@@ -1104,16 +1205,17 @@ class WeaviateDatabase(VectorDatabase):
 
         collections = await asyncio.to_thread(self.weaviate_client.collections.list_all)
         collection_list = list(collections)
-        
+
         # Find metadata collection case-insensitively (handle existing "Metadata" vs "metadata")
-        metadata_collection_name = _find_metadata_collection_name(collection_list, metadata_collection_name)
+        metadata_collection_name = _find_metadata_collection_name(
+            collection_list, metadata_collection_name
+        )
 
         if metadata_collection_name not in collection_list:
             raise ValueError(f'Metadata with key "{key}" not found.')
 
         metadata_collection = await asyncio.to_thread(
-            self.weaviate_client.collections.get,
-            metadata_collection_name
+            self.weaviate_client.collections.get, metadata_collection_name
         )
         metadata_uuid = _string_id_to_uuid("__metadata__")
 
@@ -1122,7 +1224,9 @@ class WeaviateDatabase(VectorDatabase):
         )
 
         if obj is not None and obj.properties:
-            document = cast(dict[str, JSONSerializable], _from_weaviate_properties(obj.properties) or {})
+            document = cast(
+                dict[str, JSONSerializable], _from_weaviate_properties(obj.properties) or {}
+            )
             if key not in document:
                 raise ValueError(f'Metadata with key "{key}" not found.')
             document.pop(key)
@@ -1142,17 +1246,17 @@ class WeaviateDatabase(VectorDatabase):
         try:
             collections = await asyncio.to_thread(self.weaviate_client.collections.list_all)
             collection_list = list(collections)
-        except Exception as e:
+        except Exception:
             return {}
         # Find metadata collection case-insensitively (handle existing "Metadata" vs "metadata")
-        original_name = metadata_collection_name
-        metadata_collection_name = _find_metadata_collection_name(collection_list, metadata_collection_name)
+        metadata_collection_name = _find_metadata_collection_name(
+            collection_list, metadata_collection_name
+        )
 
         if metadata_collection_name in collection_list:
             try:
                 metadata_collection = await asyncio.to_thread(
-                    self.weaviate_client.collections.get,
-                    metadata_collection_name
+                    self.weaviate_client.collections.get, metadata_collection_name
                 )
                 metadata_uuid = _string_id_to_uuid("__metadata__")
                 try:
@@ -1163,7 +1267,11 @@ class WeaviateDatabase(VectorDatabase):
                         # Read metadata from "value" property as JSON string
                         metadata_str = obj.properties.get("value", "{}")
                         try:
-                            result = json.loads(metadata_str) if isinstance(metadata_str, str) else (metadata_str or {})
+                            result = (
+                                json.loads(metadata_str)
+                                if isinstance(metadata_str, str)
+                                else (metadata_str or {})
+                            )
                             return cast(dict[str, JSONSerializable], result)
                         except (json.JSONDecodeError, TypeError):
                             return {}
@@ -1205,14 +1313,15 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
         async with self._lock.reader_lock:
             weaviate_filter = _convert_where_to_weaviate_filter(filters)
             collection = await asyncio.to_thread(
-                self.weaviate_client.collections.get,
-                self.embedded_collection_name
+                self.weaviate_client.collections.get, self.embedded_collection_name
             )
 
             try:
                 if weaviate_filter:
                     objects = await asyncio.to_thread(
-                        lambda: collection.query.fetch_objects(limit=10000, filters=weaviate_filter).objects
+                        lambda: collection.query.fetch_objects(
+                            limit=10000, filters=weaviate_filter
+                        ).objects
                     )
                 else:
                     objects = await asyncio.to_thread(
@@ -1225,9 +1334,14 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
                         lambda: collection.query.fetch_objects(limit=10000).objects
                     )
                     from parlant.core.persistence.common import matches_filters
+
                     objects = [
-                        obj for obj in all_objects
-                        if obj.properties is not None and matches_filters(filters, _from_weaviate_properties(obj.properties) or {})
+                        obj
+                        for obj in all_objects
+                        if obj.properties is not None
+                        and matches_filters(
+                            filters, _from_weaviate_properties(obj.properties) or {}
+                        )
                     ]
                 else:
                     objects = []
@@ -1243,14 +1357,15 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
         async with self._lock.reader_lock:
             weaviate_filter = _convert_where_to_weaviate_filter(filters)
             collection = await asyncio.to_thread(
-                self.weaviate_client.collections.get,
-                self.embedded_collection_name
+                self.weaviate_client.collections.get, self.embedded_collection_name
             )
 
             try:
                 if weaviate_filter:
                     objects = await asyncio.to_thread(
-                        lambda: collection.query.fetch_objects(limit=1, filters=weaviate_filter).objects
+                        lambda: collection.query.fetch_objects(
+                            limit=1, filters=weaviate_filter
+                        ).objects
                     )
                 else:
                     objects = await asyncio.to_thread(
@@ -1263,9 +1378,14 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
                         lambda: collection.query.fetch_objects(limit=10000).objects
                     )
                     from parlant.core.persistence.common import matches_filters
+
                     objects = [
-                        obj for obj in all_objects
-                        if obj.properties is not None and matches_filters(filters, _from_weaviate_properties(obj.properties) or {})
+                        obj
+                        for obj in all_objects
+                        if obj.properties is not None
+                        and matches_filters(
+                            filters, _from_weaviate_properties(obj.properties) or {}
+                        )
                     ][:1]
                 else:
                     objects = []
@@ -1301,8 +1421,7 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
             object_uuid = _string_id_to_uuid(str(document["id"]))
 
             unembedded_collection = await asyncio.to_thread(
-                self.weaviate_client.collections.get,
-                self._unembedded_collection_name
+                self.weaviate_client.collections.get, self._unembedded_collection_name
             )
             # Insert into unembedded collection - handle "already exists" as success (idempotent)
             try:
@@ -1321,14 +1440,15 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
                 error_str = str(e).lower()
                 if "422" in error_str and "already exists" in error_str:
                     # Document already exists - treat as success (idempotent operation)
-                    self._logger.debug(f"Document with id '{document['id']}' already exists in unembedded collection, skipping insert")
+                    self._logger.debug(
+                        f"Document with id '{document['id']}' already exists in unembedded collection, skipping insert"
+                    )
                 else:
                     # Other 422 errors should still be raised
                     raise
 
             embedded_collection = await asyncio.to_thread(
-                self.weaviate_client.collections.get,
-                self.embedded_collection_name
+                self.weaviate_client.collections.get, self.embedded_collection_name
             )
             # Insert into embedded collection - handle "already exists" as success (idempotent)
             try:
@@ -1347,7 +1467,9 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
                 error_str = str(e).lower()
                 if "422" in error_str and "already exists" in error_str:
                     # Document already exists - treat as success (idempotent operation)
-                    self._logger.debug(f"Document with id '{document['id']}' already exists in embedded collection, skipping insert")
+                    self._logger.debug(
+                        f"Document with id '{document['id']}' already exists in embedded collection, skipping insert"
+                    )
                 else:
                     # Other 422 errors should still be raised
                     raise
@@ -1372,8 +1494,7 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
         async with self._lock.writer_lock:
             weaviate_filter = _convert_where_to_weaviate_filter(filters)
             collection = await asyncio.to_thread(
-                self.weaviate_client.collections.get,
-                self.embedded_collection_name
+                self.weaviate_client.collections.get, self.embedded_collection_name
             )
 
             try:
@@ -1387,9 +1508,14 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
                         lambda: collection.query.fetch_objects(limit=10000).objects
                     )
                     from parlant.core.persistence.common import matches_filters
+
                     objects = [
-                        obj for obj in all_objects
-                        if obj.properties is not None and matches_filters(filters, _from_weaviate_properties(obj.properties) or {})
+                        obj
+                        for obj in all_objects
+                        if obj.properties is not None
+                        and matches_filters(
+                            filters, _from_weaviate_properties(obj.properties) or {}
+                        )
                     ][:1]
                 else:
                     objects = []
@@ -1425,8 +1551,7 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
                 self._version += 1
 
                 unembedded_collection = await asyncio.to_thread(
-                    self.weaviate_client.collections.get,
-                    self._unembedded_collection_name
+                    self.weaviate_client.collections.get, self._unembedded_collection_name
                 )
                 await _retry_on_timeout_async(
                     lambda: asyncio.to_thread(
@@ -1439,8 +1564,7 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
                 )
 
                 embedded_collection = await asyncio.to_thread(
-                    self.weaviate_client.collections.get,
-                    self.embedded_collection_name
+                    self.weaviate_client.collections.get, self.embedded_collection_name
                 )
                 await _retry_on_timeout_async(
                     lambda: asyncio.to_thread(
@@ -1493,8 +1617,7 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
                 object_uuid = _string_id_to_uuid(str(params["id"]))
 
                 unembedded_collection = await asyncio.to_thread(
-                    self.weaviate_client.collections.get,
-                    self._unembedded_collection_name
+                    self.weaviate_client.collections.get, self._unembedded_collection_name
                 )
                 await _retry_on_timeout_async(
                     lambda: asyncio.to_thread(
@@ -1508,8 +1631,7 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
                 )
 
                 embedded_collection = await asyncio.to_thread(
-                    self.weaviate_client.collections.get,
-                    self.embedded_collection_name
+                    self.weaviate_client.collections.get, self.embedded_collection_name
                 )
                 await _retry_on_timeout_async(
                     lambda: asyncio.to_thread(
@@ -1549,8 +1671,7 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
         async with self._lock.writer_lock:
             weaviate_filter = _convert_where_to_weaviate_filter(filters)
             collection = await asyncio.to_thread(
-                self.weaviate_client.collections.get,
-                self.embedded_collection_name
+                self.weaviate_client.collections.get, self.embedded_collection_name
             )
 
             try:
@@ -1564,9 +1685,14 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
                         lambda: collection.query.fetch_objects(limit=10000).objects
                     )
                     from parlant.core.persistence.common import matches_filters
+
                     objects = [
-                        obj for obj in all_objects
-                        if obj.properties is not None and matches_filters(filters, _from_weaviate_properties(obj.properties) or {})
+                        obj
+                        for obj in all_objects
+                        if obj.properties is not None
+                        and matches_filters(
+                            filters, _from_weaviate_properties(obj.properties) or {}
+                        )
                     ][:2]
                 else:
                     objects = []
@@ -1582,22 +1708,14 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
                 self._version += 1
 
                 unembedded_collection = await asyncio.to_thread(
-                    self.weaviate_client.collections.get,
-                    self._unembedded_collection_name
+                    self.weaviate_client.collections.get, self._unembedded_collection_name
                 )
-                await asyncio.to_thread(
-                    unembedded_collection.data.delete_by_id,
-                    obj.uuid
-                )
+                await asyncio.to_thread(unembedded_collection.data.delete_by_id, obj.uuid)
 
                 embedded_collection = await asyncio.to_thread(
-                    self.weaviate_client.collections.get,
-                    self.embedded_collection_name
+                    self.weaviate_client.collections.get, self.embedded_collection_name
                 )
-                await asyncio.to_thread(
-                    embedded_collection.data.delete_by_id,
-                    obj.uuid
-                )
+                await asyncio.to_thread(embedded_collection.data.delete_by_id, obj.uuid)
 
                 if self._database:
                     await self._database._set_collection_version(
@@ -1635,8 +1753,7 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
                 return []
 
             collection = await asyncio.to_thread(
-                self.weaviate_client.collections.get,
-                self.embedded_collection_name
+                self.weaviate_client.collections.get, self.embedded_collection_name
             )
             search_results = await asyncio.to_thread(
                 lambda: collection.query.near_vector(
@@ -1662,7 +1779,13 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
             return [
                 SimilarDocumentResult(
                     document=cast(TDocument, _from_weaviate_properties(result.properties)),
-                    distance=1.0 - (result.metadata.distance if hasattr(result.metadata, 'distance') and result.metadata.distance is not None else 0.0),
+                    distance=1.0
+                    - (
+                        result.metadata.distance
+                        if hasattr(result.metadata, "distance")
+                        and result.metadata.distance is not None
+                        else 0.0
+                    ),
                 )
                 for result in search_results
                 if result.properties is not None

@@ -2491,6 +2491,11 @@ class Variable:
 
         return value.data if value else None
 
+    async def get_value(self) -> JSONSerializable | None:
+        """Retrieves the value of the variable for the current context"""
+        value = EntityContext.get_variable_value(self.id)
+        return value.data if value else None
+
 
 @dataclass(frozen=True)
 class Customer:

@@ -18,6 +18,7 @@ import contextvars
 from typing import Optional
 
 from parlant.core.agents import Agent
+from parlant.core.context_variables import ContextVariableId, ContextVariableValue
 from parlant.core.customers import Customer
 from parlant.core.engines.alpha.engine_context import EngineContext, Interaction
 from parlant.core.sessions import Session
@@ -57,6 +58,24 @@ class EntityContext:
         """
         ctx = self._var.get()
         return ctx.interaction if ctx else None
+
+    @classmethod
+    def get_variable_value(self, variable_id: ContextVariableId) -> ContextVariableValue | None:
+        ctx = self._var.get()
+
+        if ctx is None:
+            return None
+
+        result = next(
+            (
+                value
+                for variable, value in ctx.state.context_variables
+                if variable.id == variable_id
+            ),
+            None,
+        )
+
+        return result if result else None
 
     @classmethod
     def get_agent(self) -> Optional[Agent]:

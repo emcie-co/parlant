@@ -118,9 +118,15 @@ class PocketBaseDocumentDatabase(DocumentDatabase):
         self._collection_prefix = prefix.rstrip("_")
 
         self._base_url: str = self._connection_params["url"]
-        self._admin_token: str | None = cast(Optional[str], self._connection_params.get("admin_token"))
-        self._admin_email: str | None = cast(Optional[str], self._connection_params.get("admin_email"))
-        self._admin_password: str | None = cast(Optional[str], self._connection_params.get("admin_password"))
+        self._admin_token: str | None = cast(
+            Optional[str], self._connection_params.get("admin_token")
+        )
+        self._admin_email: str | None = cast(
+            Optional[str], self._connection_params.get("admin_email")
+        )
+        self._admin_password: str | None = cast(
+            Optional[str], self._connection_params.get("admin_password")
+        )
 
         self._http_client = http_client
         self._client: httpx.AsyncClient | None = None
@@ -144,7 +150,9 @@ class PocketBaseDocumentDatabase(DocumentDatabase):
         self._client = None
         return False
 
-    async def create_collection(self, name: str, schema: type[TDocument]) -> DocumentCollection[TDocument]:
+    async def create_collection(
+        self, name: str, schema: type[TDocument]
+    ) -> DocumentCollection[TDocument]:
         collection = await self._get_or_create_collection(name, schema)
         await collection.ensure_collection()
         return collection
@@ -202,7 +210,9 @@ class PocketBaseDocumentDatabase(DocumentDatabase):
                 return
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            raise PocketBaseAdapterError(f"Failed to delete PocketBase collection '{identifier}': {exc}") from exc
+            raise PocketBaseAdapterError(
+                f"Failed to delete PocketBase collection '{identifier}': {exc}"
+            ) from exc
 
     async def _get_collection_info_by_name(self, name: str) -> dict[str, Any] | None:
         assert self._client is not None
@@ -217,9 +227,13 @@ class PocketBaseDocumentDatabase(DocumentDatabase):
             resp.raise_for_status()
             return cast(dict[str, Any], resp.json())
         except httpx.HTTPStatusError as exc:
-            raise PocketBaseAdapterError(f"Failed to fetch PocketBase collection '{name}': {exc}") from exc
+            raise PocketBaseAdapterError(
+                f"Failed to fetch PocketBase collection '{name}': {exc}"
+            ) from exc
 
-    async def _get_or_create_collection(self, name: str, schema: type[TDocument]) -> PocketBaseDocumentCollection[TDocument]:
+    async def _get_or_create_collection(
+        self, name: str, schema: type[TDocument]
+    ) -> PocketBaseDocumentCollection[TDocument]:
         if name not in self._collections:
             self._collections[name] = PocketBaseDocumentCollection(
                 database=self,
@@ -272,7 +286,9 @@ class PocketBaseDocumentDatabase(DocumentDatabase):
             except httpx.HTTPStatusError as exc:
                 last_exc = exc
                 if exc.response.status_code != 404:
-                    raise PocketBaseAdapterError(f"Failed to authenticate with PocketBase: {exc}") from exc
+                    raise PocketBaseAdapterError(
+                        f"Failed to authenticate with PocketBase: {exc}"
+                    ) from exc
 
         if last_exc is not None:
             raise PocketBaseAdapterError(
@@ -355,7 +371,9 @@ class PocketBaseDocumentCollection(DocumentCollection[TDocument]):
 
                 # If the collection only has the system field, it's effectively empty/unusable;
                 # safely recreate it when we have admin privileges.
-                if self._database._admin_token and (field_names == {"id"} or not required.issubset(field_names)):
+                if self._database._admin_token and (
+                    field_names == {"id"} or not required.issubset(field_names)
+                ):
                     # For non-metadata collections this is potentially destructive, but in practice
                     # this condition indicates the collection has no custom fields (can't contain
                     # valid Parlant documents anyway).
@@ -566,7 +584,9 @@ class PocketBaseDocumentCollection(DocumentCollection[TDocument]):
             if creation_utc is not None and doc_id is not None:
                 next_cursor = Cursor(creation_utc=str(creation_utc), id=ObjectId(str(doc_id)))
 
-        return FindResult(items=docs, total_count=total_count, has_more=has_more, next_cursor=next_cursor)
+        return FindResult(
+            items=docs, total_count=total_count, has_more=has_more, next_cursor=next_cursor
+        )
 
     async def find_one(self, filters: Where) -> Optional[TDocument]:
         rec = await self._find_one_record(filters)
@@ -592,12 +612,16 @@ class PocketBaseDocumentCollection(DocumentCollection[TDocument]):
 
         return InsertResult(acknowledged=True)
 
-    async def update_one(self, filters: Where, params: TDocument, upsert: bool = False) -> UpdateResult[TDocument]:
+    async def update_one(
+        self, filters: Where, params: TDocument, upsert: bool = False
+    ) -> UpdateResult[TDocument]:
         rec = await self._find_one_record(filters)
         if rec is None:
             if upsert:
                 await self.insert_one(params)
-                return UpdateResult(True, matched_count=0, modified_count=0, updated_document=params)
+                return UpdateResult(
+                    True, matched_count=0, modified_count=0, updated_document=params
+                )
             return UpdateResult(True, matched_count=0, modified_count=0, updated_document=None)
 
         record_id = cast(str, rec.get("id"))
@@ -810,7 +834,9 @@ class _PocketBaseFilterTranslator:
             elif operator == "$nin":
                 clauses.append(self._membership_clause(field, operand, negate=True))
             else:
-                raise PocketBaseAdapterError(f"Unsupported operator '{operator}' in PocketBase filter")
+                raise PocketBaseAdapterError(
+                    f"Unsupported operator '{operator}' in PocketBase filter"
+                )
 
         return " && ".join(clauses)
 

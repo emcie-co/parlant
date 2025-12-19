@@ -137,6 +137,7 @@ class EntityQueries:
         tasks = [
             self._journey_guideline_projection.project_journey_to_guidelines(journey.id)
             for journey in journeys
+            if journey.conditions  # If a journey has no conditions, it indicates that the journey cannot be activated.
         ]
         projected_journey_guidelines = await async_utils.safe_gather(*tasks)
 

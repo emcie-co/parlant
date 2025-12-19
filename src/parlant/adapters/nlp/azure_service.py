@@ -74,6 +74,8 @@ class AzureSchematicGenerator(BaseSchematicGenerator[T]):
         meter: Meter,
         client: AsyncAzureOpenAI,
     ) -> None:
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+
         self.model_name = model_name
         self._logger = logger
         self._tracer = tracer

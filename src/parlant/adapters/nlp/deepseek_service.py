@@ -73,8 +73,11 @@ class DeepSeekSchematicGenerator(BaseSchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+
         self.model_name = model_name
         self._logger = logger
         self._meter = meter
@@ -198,8 +201,8 @@ class DeepSeekSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class DeepSeek_Chat(DeepSeekSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="deepseek-chat", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="deepseek-chat", logger=logger, tracer=tracer, meter=meter)
 
     @property
     @override

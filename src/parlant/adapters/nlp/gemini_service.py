@@ -88,7 +88,7 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
         tracer: Tracer,
         meter: Meter,
     ) -> None:
-        super().__init__(logger, tracer, meter, model_name)
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
 
         self._client = google.genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 

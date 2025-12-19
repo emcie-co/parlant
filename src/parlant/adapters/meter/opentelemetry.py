@@ -98,9 +98,7 @@ class OpenTelemetryMeter(Meter):
 
         metric_reader = PeriodicExportingMetricReader(
             exporter=self._metric_exporter,
-            export_interval_millis=int(
-                os.getenv("OTEL_EXPORTER_OTLP_METRICS_EXPORT_INTERVAL_MILLIS", "3000")
-            ),
+            export_interval_millis=int(os.getenv("OTEL_METRIC_EXPORT_INTERVAL", "3000")),
         )
         self._meter_provider = MeterProvider(
             resource=resource,

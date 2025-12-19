@@ -128,8 +128,11 @@ class VertexAIClaudeSchematicGenerator(BaseSchematicGenerator[T]):
         region: str,
         model_name: str,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+
         self.project_id = project_id
         self.region = region
         self.model_name = model_name
@@ -283,6 +286,8 @@ class VertexAIGeminiSchematicGenerator(BaseSchematicGenerator[T]):
         region: str,
         model_name: str,
     ) -> None:
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+
         self._logger = logger
         self._tracer = tracer
         self._meter = meter
@@ -434,45 +439,57 @@ class VertexAIGeminiSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class VertexClaudeOpus4(VertexAIClaudeSchematicGenerator[T]):
-    def __init__(self, project_id: str, region: str, logger: Logger, meter: Meter) -> None:
+    def __init__(
+        self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter
+    ) -> None:
         super().__init__(
             project_id=project_id,
             region=region,
             model_name="claude-opus-4@20250514",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 
 
 class VertexClaudeSonnet4(VertexAIClaudeSchematicGenerator[T]):
-    def __init__(self, project_id: str, region: str, logger: Logger, meter: Meter) -> None:
+    def __init__(
+        self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter
+    ) -> None:
         super().__init__(
             project_id=project_id,
             region=region,
             model_name="claude-sonnet-4@20250514",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 
 
 class VertexClaudeSonnet35(VertexAIClaudeSchematicGenerator[T]):
-    def __init__(self, project_id: str, region: str, logger: Logger, meter: Meter) -> None:
+    def __init__(
+        self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter
+    ) -> None:
         super().__init__(
             project_id=project_id,
             region=region,
             model_name="claude-3-5-sonnet-v2@20241022",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 
 
 class VertexClaudeHaiku35(VertexAIClaudeSchematicGenerator[T]):
-    def __init__(self, project_id: str, region: str, logger: Logger, meter: Meter) -> None:
+    def __init__(
+        self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter
+    ) -> None:
         super().__init__(
             project_id=project_id,
             region=region,
             model_name="claude-3-5-haiku@20241022",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 

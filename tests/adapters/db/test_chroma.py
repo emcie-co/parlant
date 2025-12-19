@@ -34,6 +34,7 @@ from parlant.core.persistence.common import MigrationRequired, ObjectId
 from parlant.core.persistence.vector_database import BaseDocument
 from parlant.core.persistence.vector_database_helper import VectorDocumentStoreMigrationHelper
 from parlant.core.tags import Tag, TagId
+from parlant.core.tracer import Tracer
 from tests.test_utilities import SyncAwaiter
 
 
@@ -93,6 +94,7 @@ async def chroma_database(context: _TestContext) -> AsyncIterator[ChromaDatabase
 def create_database(context: _TestContext) -> ChromaDatabase:
     return ChromaDatabase(
         logger=context.container[Logger],
+        tracer=context.container[Tracer],
         dir_path=context.home_dir,
         embedder_factory=EmbedderFactory(context.container),
         embedding_cache_provider=NullEmbeddingCache,
@@ -366,6 +368,7 @@ async def test_that_glossary_chroma_store_correctly_finds_relevant_terms_from_la
     with tempfile.TemporaryDirectory() as temp_dir:
         async with ChromaDatabase(
             container[Logger],
+            container[Tracer],
             Path(temp_dir),
             EmbedderFactory(container),
             embedding_cache_provider=NullEmbeddingCache,

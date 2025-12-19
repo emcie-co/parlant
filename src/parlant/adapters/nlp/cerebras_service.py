@@ -63,8 +63,11 @@ class CerebrasSchematicGenerator(BaseSchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+
         self.model_name = model_name
 
         self._logger = logger
@@ -172,10 +175,11 @@ class CerebrasSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class Llama3_3_8B(CerebrasSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(
             model_name="llama3.1-8b",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
         self._estimating_tokenizer = LlamaEstimatingTokenizer()
@@ -197,10 +201,11 @@ class Llama3_3_8B(CerebrasSchematicGenerator[T]):
 
 
 class Llama3_3_70B(CerebrasSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(
             model_name="llama3.3-70b",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 

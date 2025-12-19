@@ -38,9 +38,17 @@ from parlant.core.engines.alpha.guideline_matching.generic.guideline_previously_
     GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchesSchema,
     GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingBatch,
 )
-from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
+    JourneyBacktrackCheckSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
+    JourneyBacktrackNodeSelectionSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_step_selection import (
+    JourneyNextStepSelectionSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_node_selection_batch import (
     GenericJourneyNodeSelectionBatch,
-    JourneyNodeSelectionSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.observational_batch import (
     GenericObservationalGuidelineMatchesSchema,
@@ -94,7 +102,15 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         disambiguation_guidelines_schematic_generator: SchematicGenerator[
             DisambiguationGuidelineMatchesSchema
         ],
-        journey_step_selection_schematic_generator: SchematicGenerator[JourneyNodeSelectionSchema],
+        journey_node_selection_schematic_generator: SchematicGenerator[
+            JourneyBacktrackNodeSelectionSchema
+        ],
+        journey_next_step_selection_schematic_generator: SchematicGenerator[
+            JourneyNextStepSelectionSchema
+        ],
+        journey_backtrack_check_schematic_generator: SchematicGenerator[
+            JourneyBacktrackCheckSchema
+        ],
         response_analysis_schematic_generator: SchematicGenerator[GenericResponseAnalysisSchema],
     ) -> None:
         self._logger = logger
@@ -120,8 +136,14 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         self._disambiguation_guidelines_schematic_generator = (
             disambiguation_guidelines_schematic_generator
         )
-        self._journey_step_selection_schematic_generator = (
-            journey_step_selection_schematic_generator
+        self._journey_node_selection_schematic_generator = (
+            journey_node_selection_schematic_generator
+        )
+        self._journey_next_step_selection_schematic_generator = (
+            journey_next_step_selection_schematic_generator
+        )
+        self._journey_backtrack_check_schematic_generator = (
+            journey_backtrack_check_schematic_generator
         )
         self._response_analysis_schematic_generator = response_analysis_schematic_generator
 
@@ -598,7 +620,9 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
             meter=self._meter,
             guideline_store=self._guideline_store,
             optimization_policy=self._optimization_policy,
-            schematic_generator=self._journey_step_selection_schematic_generator,
+            schematic_generator_journey_node_selection=self._journey_node_selection_schematic_generator,
+            schematic_generator_next_step_selection=self._journey_next_step_selection_schematic_generator,
+            schematic_generator_journey_backtrack_check=self._journey_backtrack_check_schematic_generator,
             examined_journey=examined_journey,
             context=GuidelineMatchingContext(
                 agent=context.agent,

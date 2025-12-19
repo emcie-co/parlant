@@ -39,15 +39,16 @@ from parlant.core.nlp.embedding import (
 from parlant.core.persistence.common import Where, ensure_is_total
 from parlant.core.persistence.vector_database import (
     BaseDocument,
+    BaseVectorCollection,
     DeleteResult,
     InsertResult,
     SimilarDocumentResult,
     UpdateResult,
-    VectorCollection,
     VectorDatabase,
     TDocument,
     identity_loader,
 )
+from parlant.core.tracer import Tracer
 
 
 T = TypeVar("T")
@@ -229,6 +230,7 @@ class QdrantDatabase(VectorDatabase):
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         path: Optional[Path] = None,
         url: Optional[str] = None,
         api_key: Optional[str] = None,
@@ -239,6 +241,7 @@ class QdrantDatabase(VectorDatabase):
         self._url = url
         self._api_key = api_key
         self._logger = logger
+        self._tracer = tracer
         self._embedder_factory = embedder_factory
 
         self.qdrant_client: Optional[QdrantClient] = None
@@ -596,6 +599,7 @@ class QdrantDatabase(VectorDatabase):
 
         collection = QdrantCollection(
             self._logger,
+            self._tracer,
             qdrant_client=self.qdrant_client,
             embedded_collection_name=embedded_collection_name,
             unembedded_collection_name=unembedded_collection_name,
@@ -656,6 +660,7 @@ class QdrantDatabase(VectorDatabase):
 
             collection = QdrantCollection(
                 self._logger,
+                self._tracer,
                 qdrant_client=self.qdrant_client,
                 embedded_collection_name=await self._load_collection_documents(
                     embedded_collection_name=embedded_collection_name,
@@ -725,6 +730,7 @@ class QdrantDatabase(VectorDatabase):
 
         collection = QdrantCollection(
             self._logger,
+            self._tracer,
             qdrant_client=self.qdrant_client,
             embedded_collection_name=await self._load_collection_documents(
                 embedded_collection_name=embedded_collection_name,
@@ -885,10 +891,11 @@ class QdrantDatabase(VectorDatabase):
             return {}
 
 
-class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
+class QdrantCollection(Generic[TDocument], BaseVectorCollection[TDocument]):
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         qdrant_client: QdrantClient,
         embedded_collection_name: str,
         unembedded_collection_name: str,
@@ -898,7 +905,10 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
         embedding_cache_provider: EmbeddingCacheProvider,
         version: int,
     ) -> None:
+        super().__init__(tracer)
+
         self._logger = logger
+        self._tracer = tracer
         self._name = name
         self._schema = schema
         self._embedder = embedder
@@ -1337,7 +1347,7 @@ class QdrantCollection(Generic[TDocument], VectorCollection[TDocument]):
             )
 
     @override
-    async def find_similar_documents(
+    async def do_find_similar_documents(
         self,
         filters: Where,
         query: str,

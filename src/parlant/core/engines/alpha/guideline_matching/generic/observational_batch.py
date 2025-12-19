@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import math
+
 import traceback
 from typing_extensions import override
 
@@ -249,23 +250,22 @@ The agent will receive relevant information for its response based on the condit
 
 Task Description
 ----------------
-Your task is to evaluate whether each provided condition applies to the current interaction between an AI agent and a user. For each condition, you must determine a binary True/False decision.
+Your task is to evaluate the relevance and applicability of a set of provided 'when' conditions to the most recent state of an interaction between yourself (an AI agent) and a user.
 
-Evaluation Criteria:
-Evaluate each condition based on its natural meaning and context:
+A guideline should be marked as applicable if it is relevant to the latest part of the conversation and in particular the most recent customer message. Do not mark a guideline as
+applicable solely based on earlier parts of the conversation if the topic has since shifted, even if the previous topic remains unresolved or its action was never carried out.
 
-- Current Activity Or State: Conditions about what's happening "now" in the conversation (e.g., "the conversation is about X", "the user asks about Y") apply based on the most recent messages and current topic of discussion.
-- Historical Events: Conditions about things that happened during the interaction (e.g., "the user mentioned X", "the customer asked about Y") apply if the event occurred at any point in the conversation.
-- Persistent Facts: Conditions about user characteristics or established facts (e.g., "the user is a senior citizen", "the customer has allergies") apply once established, regardless of current discussion topic.
+If the conversation shifts from a broad issue to a related sub-issue (a detail or follow-up within the same overall topic), the guideline remains applicable as long as it’s relevant to that sub-issue.
+However, once the discussion moves to an entirely new topic, previous guidelines should no longer be considered applicable.
+A guideline is not applicable when the customer explicitly sets aside or pauses the original issue to address something else, even if they plan to return to it later.
+Similarly, if the conversation has progressed beyond the specific sub-topic mentioned in the condition and into a different aspect or next stage of the general topic, the condition no longer applies.
+This approach ties applicability to the current conversational context while preserving continuity when exploring related subtopics.
 
-When evaluating current activity or state you should:
-- Consider sub issues: Recognize that conversations often evolve naturally within related domains or explore connected subtopics—in these cases, broader thematic conditions may remain applicable.
-- Consider topic shifts: When a user previously discussed something that triggered a condition but the conversation has since moved to a different topic or context with no ongoing connection, mark the condition as not applicable.
+Persistent Facts: Conditions about user characteristics or established facts (e.g., "the user is a senior citizen", "the customer has allergies") apply once established based of the information in this prompt, 
+regardless of current discussion topic.
 
-Key Considerations:
-- Use natural language intuition to interpret what each condition is actually asking about.
-- Ambiguous phrasing: When a condition's temporal scope is unclear, treat it as a historical event that remains True as long as it was relevant at some point in the interaction.
-
+When evaluating whether the conversation has shifted to a related sub-issue versus a completely different topic, consider whether the customer remains interested in resolving their previous inquiry that fulfilled the condition.
+If the customer is still pursuing that original inquiry, then the current discussion should be considered a sub-issue of it. Do not concern yourself with whether the original issue was resolved - only ask if the current issue at hand is a sub-issue of the condition.
 
 The exact format of your response will be provided later in this prompt.
 
@@ -289,6 +289,7 @@ Examples of Condition Evaluations:
         builder.add_glossary(self._context.terms)
         builder.add_capabilities_for_guideline_matching(self._context.capabilities)
         builder.add_customer_identity(self._context.customer, self._context.session)
+
         builder.add_interaction_history(self._context.interaction_history)
         builder.add_staged_tool_events(self._context.staged_events)
         builder.add_section(
@@ -439,44 +440,39 @@ def _make_event(e_id: str, source: EventSource, message: str) -> Event:
 
 
 example_1_events = [
-    _make_event("11", EventSource.CUSTOMER, "Can I purchase a subscription to your software?"),
-    _make_event("23", EventSource.AI_AGENT, "Absolutely, I can assist you with that right now."),
     _make_event(
-        "34", EventSource.CUSTOMER, "Cool, let's go with the subscription for the Pro plan."
-    ),
-    _make_event(
-        "56",
-        EventSource.AI_AGENT,
-        "Your subscription has been successfully activated. Is there anything else I can help you with?",
-    ),
-    _make_event(
-        "88",
+        "11",
         EventSource.CUSTOMER,
-        "Will my son be able to see that I'm subscribed? Or is my data protected?",
+        "Hi, I'm planning a trip to Italy next month. What can I do there?",
     ),
     _make_event(
-        "98",
+        "23",
         EventSource.AI_AGENT,
-        "If your son is not a member of your same household account, he won't be able to see your subscription. Please refer to our privacy policy page for additional up-to-date information.",
+        "That sounds exciting! I can help you with that. Do you prefer exploring cities or enjoying scenic landscapes?",
+    ),
+    _make_event(
+        "34",
+        EventSource.CUSTOMER,
+        "Can you help me figure out the best time to visit Rome and what to pack?",
     ),
     _make_event(
         "78",
         EventSource.CUSTOMER,
-        "Gotcha, and I imagine that if he does try to add me to the household account he won't be able to see that there already is an account, right?",
+        "Actually I’m also wondering — do I need any special visas or documents as an American citizen?",
     ),
 ]
 
 example_1_guidelines = [
     GuidelineContent(
-        condition="The customer is a senior citizen.",
+        condition="The customer is looking for flight or accommodation booking assistance",
         action=None,
     ),
     GuidelineContent(
-        condition="The customer asks about data security",
+        condition="The customer ask for activities recommendations",
         action=None,
     ),
     GuidelineContent(
-        condition="Our pro plan is discussed or mentioned",
+        condition="The customer asks for logistical or legal requirements.",
         action=None,
     ),
 ]
@@ -485,84 +481,65 @@ example_1_expected = GenericObservationalGuidelineMatchesSchema(
     checks=[
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the customer is a senior citizen",
-            rationale="There is no indication regarding the customer's age.",
+            condition="The customer is looking for flight or accommodation booking assistance",
+            rationale="There’s no mention of booking logistics like flights or hotels",
             applies=False,
         ),
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the customer asks about data security",
-            rationale="The customer asks who can see the account, which is related to data security.",
+            condition="The customer ask for activities recommendations",
+            rationale="The customer has moved from seeking activity recommendations to asking about legal requirements. Since they are no longer pursuing their original inquiry about activities, this represents a new topic rather than a sub-issue",
+            applies=False,
+        ),
+        GenericObservationalGuidelineMatchSchema(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="The customer asks for logistical or legal requirements.",
+            rationale="The customer now asked about visas and documents which are legal requirements",
             applies=True,
-        ),
-        GenericObservationalGuidelineMatchSchema(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="our pro plan is discussed or mentioned",
-            rationale="Pro plan subscription was discussed and the conversation moved to data security, so it is no longer applicable.",
-            applies=False,
         ),
     ]
 )
 
 example_2_events = [
     _make_event(
-        "11", EventSource.CUSTOMER, "I'm looking for recipe recommendations for a dinner for 5"
+        "21",
+        EventSource.CUSTOMER,
+        "Hi, I’m interested in your Python programming course, but I’m not sure if I’m ready for it.",
     ),
     _make_event(
         "23",
         EventSource.AI_AGENT,
-        "Sounds good! Are you interested in just entrees or do you need help planning the entire meal and experience?",
+        "Happy to help! Could you share a bit about your background or experience with programming so far?",
     ),
     _make_event(
-        "34", EventSource.CUSTOMER, "I have the evening planned, just looking for entrees."
-    ),
-    _make_event(
-        "56",
-        EventSource.AI_AGENT,
-        "Great. Are there any dietary limitations I should be aware of?",
-    ),
-    _make_event(
-        "88",
+        "32",
         EventSource.CUSTOMER,
-        "I have some minor nut allergies",
+        "I’ve done some HTML and CSS, but never written real code before.",
     ),
     _make_event(
-        "98",
+        "48",
         EventSource.AI_AGENT,
-        "I see. Should I avoid recipes with all nuts then?",
+        "Thanks for sharing! That gives me a good idea. Our Python course is beginner-friendly, but it does assume you're comfortable with logic and problem solving. Would you like me "
+        "to recommend a short prep course first?",
     ),
     _make_event(
         "78",
         EventSource.CUSTOMER,
-        "You can use peanuts. I'm not allergic to those.",
-    ),
-    _make_event(
-        "98",
-        EventSource.AI_AGENT,
-        "Thanks for clarifying! Are there any particular cuisines or ingredients you'd like to feature in your dinner?",
-    ),
-    _make_event(
-        "78",
-        EventSource.CUSTOMER,
-        "I'd love something Mediterranean inspired. We all enjoy seafood too if you have any good options.",
+        "That sounds useful. But I’m also wondering — is the course self-paced? I work full time.",
     ),
 ]
 
 example_2_guidelines = [
     GuidelineContent(
-        condition="Food allergies are discussed",
+        condition="The customer mentions a constraint that related to commitment to the course",
         action=None,
     ),
     GuidelineContent(
-        condition="The customer is allergic to almonds",
+        condition="The user expresses hesitation or self-doubt.",
         action=None,
     ),
     GuidelineContent(
-        condition="The customer discusses peanut allergies",
-        action=None,
-    ),
-    GuidelineContent(
-        condition="The conversation is about recipe recommendations",
+        condition="The user asks about certification or course completion benefits.",
         action=None,
     ),
 ]
@@ -571,99 +548,57 @@ example_2_expected = GenericObservationalGuidelineMatchesSchema(
     checks=[
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="The customer discussed about food allergies",
-            rationale="Nut allergies were discussed earlier at the conversation",
+            condition="The customer mentions a constraint that related to commitment to the course",
+            rationale="In the most recent message the customer mentions that they work full time which is a constraint",
             applies=True,
         ),
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="The customer is allergic to almonds",
-            rationale="While the customer has some nut allergies, we do not know if they are for almonds specifically",
-            applies=False,
-        ),
-        GenericObservationalGuidelineMatchSchema(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="The customer discusses peanut allergies",
-            rationale="Peanut allergies were discussed, but the conversation has moved on from the subject so the it no longer applies.",
-            applies=False,
-        ),
-        GenericObservationalGuidelineMatchSchema(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="The customer asks about recipe recommendation",
-            rationale="The conversation is about preferred foods, which is within the topic of recipe recommendations.",
+            condition="The user expresses hesitation or self-doubt.",
+            rationale="In the most recent message the user still sounds hesitating about their fit to the course",
             applies=True,
+        ),
+        GenericObservationalGuidelineMatchSchema(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="The user asks about certification or course completion benefits.",
+            rationale="The user didn't ask about certification or course completion benefits",
+            applies=False,
         ),
     ]
 )
 
+
 example_3_events = [
-    _make_event("11", EventSource.CUSTOMER, "Hi, I'd like to place an order for delivery"),
+    _make_event(
+        "21",
+        EventSource.CUSTOMER,
+        "I'm having trouble logging into my account.",
+    ),
     _make_event(
         "23",
         EventSource.AI_AGENT,
-        "Great! I'd be happy to help you with your order. What would you like to order today?",
+        "I'm sorry to hear that. Can you tell me what happens when you try to log in?",
     ),
     _make_event(
-        "34",
+        "27",
         EventSource.CUSTOMER,
-        "I'm looking at your pizza menu. Do you have any vegetarian options?",
+        "It says my password is incorrect.",
     ),
     _make_event(
-        "56",
+        "48",
         EventSource.AI_AGENT,
-        "Absolutely! We have several vegetarian pizzas including Margherita, Veggie Supreme, and Mediterranean. We also have vegan cheese available.",
+        "Have you tried resetting your password?",
     ),
     _make_event(
-        "88",
+        "78",
         EventSource.CUSTOMER,
-        "Perfect! I'll take a large Veggie Supreme pizza.",
-    ),
-    _make_event(
-        "90",
-        EventSource.CUSTOMER,
-        "Actually, I'm ordering for a party of 6. Do you have any combo deals or discounts for large orders?",
-    ),
-    _make_event(
-        "91",
-        EventSource.AI_AGENT,
-        "We do! For orders over $50, we offer 15% off. And we have a family deal - 3 large pizzas for $45. Would you like to add more pizzas?",
-    ),
-    _make_event(
-        "92",
-        EventSource.CUSTOMER,
-        "That family deal sounds great! Can I get two more large pizzas - one pepperoni and one Hawaiian?",
-    ),
-    _make_event(
-        "93",
-        EventSource.AI_AGENT,
-        "Perfect! So you'll have three large pizzas total with our family deal. Now, what's your delivery address?",
-    ),
-    _make_event(
-        "94",
-        EventSource.CUSTOMER,
-        "123 Oak Street, apartment 4B. How long will delivery take?",
+        "Yes, I did, but I can't access my mail to complete the reset.",
     ),
 ]
 
 example_3_guidelines = [
     GuidelineContent(
-        condition="the customer requested vegetarian options",
-        action=None,
-    ),
-    GuidelineContent(
-        condition="the conversation is about dietary restrictions",
-        action=None,
-    ),
-    GuidelineContent(
-        condition="the customer is ordering for multiple people",
-        action=None,
-    ),
-    GuidelineContent(
-        condition="discounts are being discussed",
-        action=None,
-    ),
-    GuidelineContent(
-        condition="Delivery details are discussed",
+        condition="When the user is having a problem with login.",
         action=None,
     ),
 ]
@@ -672,36 +607,50 @@ example_3_expected = GenericObservationalGuidelineMatchesSchema(
     checks=[
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the customer requests vegetarian options",
-            rationale="The customer asked about vegetarian options earlier in the conversation but now the conversation moved to delivery details.",
-            applies=False,
-        ),
-        GenericObservationalGuidelineMatchSchema(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the conversation is about dietary restrictions",
-            rationale="The conversation has moved from dietary restrictions to delivery details, so it's currently not about dietary restrictions.",
-            applies=False,
-        ),
-        GenericObservationalGuidelineMatchSchema(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="the customer is ordering for multiple people",
-            rationale="The customer mentioned they are ordering for a party of 6 people.",
-            applies=True,
-        ),
-        GenericObservationalGuidelineMatchSchema(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="discounts are being discussed",
-            rationale="Discounts and combo deals were mentioned, but the conversation has moved to delivery logistics.",
-            applies=False,
-        ),
-        GenericObservationalGuidelineMatchSchema(
-            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="Delivery details are discussed",
-            rationale="The most recent messages are about delivery address and timing, which are delivery details.",
+            condition="When the user is having a problem with login.",
+            rationale="In the most recent message the customer is still pursuing their login problem, making the mail access problem a sub-issue rather than a new topic",
             applies=True,
         ),
     ]
 )
+
+
+example_4_events = [
+    _make_event(
+        "21",
+        EventSource.CUSTOMER,
+        "Hi, I'm thinking about ordering this coat, but I need to know — what's your return policy?",
+    ),
+    _make_event(
+        "23",
+        EventSource.AI_AGENT,
+        "You can return items within 30 days either in-store or using our prepaid return label.",
+    ),
+    _make_event(
+        "27",
+        EventSource.CUSTOMER,
+        "And what happens if I already wore it once?",
+    ),
+]
+
+example_4_guidelines = [
+    GuidelineContent(
+        condition="When the customer asks about how to return an item.",
+        action=None,
+    ),
+]
+
+example_4_expected = GenericObservationalGuidelineMatchesSchema(
+    checks=[
+        GenericObservationalGuidelineMatchSchema(
+            guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
+            condition="When the customer asks about how to return an item.",
+            rationale="In the most recent message the customer asks about what happens when they wore the item, which an inquiry regarding returning an item",
+            applies=True,
+        ),
+    ]
+)
+
 
 _baseline_shots: Sequence[GenericObservationalGuidelineMatchingShot] = [
     GenericObservationalGuidelineMatchingShot(
@@ -721,6 +670,12 @@ _baseline_shots: Sequence[GenericObservationalGuidelineMatchingShot] = [
         interaction_events=example_3_events,
         guidelines=example_3_guidelines,
         expected_result=example_3_expected,
+    ),
+    GenericObservationalGuidelineMatchingShot(
+        description="",
+        interaction_events=example_4_events,
+        guidelines=example_4_guidelines,
+        expected_result=example_4_expected,
     ),
 ]
 

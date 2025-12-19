@@ -125,7 +125,7 @@ def match_guidelines(
         session=session,
         session_event_emitter=EventBuffer(agent),
         response_event_emitter=EventBuffer(agent),
-        interaction=Interaction(history=interaction_history),
+        interaction=Interaction(events=interaction_history),
         state=ResponseState(
             context_variables=[],
             glossary_terms=set(),

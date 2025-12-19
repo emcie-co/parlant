@@ -27,6 +27,7 @@ from chromadb.api.collection_configuration import (
 from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.common import JSONSerializable
 from parlant.core.loggers import Logger
+from parlant.core.tracer import Tracer
 from parlant.core.nlp.embedding import (
     Embedder,
     EmbedderFactory,
@@ -36,11 +37,11 @@ from parlant.core.nlp.embedding import (
 from parlant.core.persistence.common import Where, ensure_is_total
 from parlant.core.persistence.vector_database import (
     BaseDocument,
+    BaseVectorCollection,
     DeleteResult,
     InsertResult,
     SimilarDocumentResult,
     UpdateResult,
-    VectorCollection,
     VectorDatabase,
     TDocument,
     identity_loader,
@@ -51,12 +52,14 @@ class ChromaDatabase(VectorDatabase):
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         dir_path: Path,
         embedder_factory: EmbedderFactory,
         embedding_cache_provider: EmbeddingCacheProvider,
     ) -> None:
         self._dir_path = dir_path
         self._logger = logger
+        self._tracer = tracer
         self._embedder_factory = embedder_factory
 
         self.chroma_client: chromadb.api.ClientAPI
@@ -216,6 +219,7 @@ class ChromaDatabase(VectorDatabase):
 
         self._collections[name] = ChromaCollection(
             self._logger,
+            self._tracer,
             embedded_collection=embedded_collection,
             unembedded_collection=unembedded_collection,
             name=name,
@@ -274,6 +278,7 @@ class ChromaDatabase(VectorDatabase):
 
             self._collections[name] = ChromaCollection(
                 self._logger,
+                self._tracer,
                 embedded_collection=await self._load_collection_documents(
                     embedded_collection=embedded_collection,
                     unembedded_collection=unembedded_collection,
@@ -335,6 +340,7 @@ class ChromaDatabase(VectorDatabase):
 
         self._collections[name] = ChromaCollection(
             self._logger,
+            self._tracer,
             embedded_collection=await self._load_collection_documents(
                 embedded_collection=embedded_collection,
                 unembedded_collection=unembedded_collection,
@@ -440,10 +446,11 @@ class ChromaDatabase(VectorDatabase):
             return {}
 
 
-class ChromaCollection(Generic[TDocument], VectorCollection[TDocument]):
+class ChromaCollection(Generic[TDocument], BaseVectorCollection[TDocument]):
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         embedded_collection: chromadb.Collection,
         unembedded_collection: chromadb.Collection,
         name: str,
@@ -452,7 +459,10 @@ class ChromaCollection(Generic[TDocument], VectorCollection[TDocument]):
         embedding_cache_provider: EmbeddingCacheProvider,
         version: int,
     ) -> None:
+        super().__init__(tracer)
+
         self._logger = logger
+        self._tracer = tracer
         self._name = name
         self._schema = schema
         self._embedder = embedder
@@ -691,7 +701,7 @@ class ChromaCollection(Generic[TDocument], VectorCollection[TDocument]):
             )
 
     @override
-    async def find_similar_documents(
+    async def do_find_similar_documents(
         self,
         filters: Where,
         query: str,

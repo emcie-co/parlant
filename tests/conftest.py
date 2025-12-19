@@ -25,7 +25,7 @@ import pytest
 
 from parlant.adapters.db.json_file import JSONFileDocumentDatabase
 from parlant.adapters.loggers.websocket import WebSocketLogger
-from parlant.adapters.nlp.openai_service import OpenAIService
+from parlant.adapters.nlp.emcie_service import EmcieService
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
 from parlant.api.app import create_api_app, ASGIApplication
 from parlant.api.authorization import AuthorizationPolicy, DevelopmentAuthorizationPolicy
@@ -33,7 +33,19 @@ from parlant.api.authorization import AuthorizationPolicy, DevelopmentAuthorizat
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.common import IdGenerator
-from parlant.core.meter import Meter, NullMeter
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
+    JourneyBacktrackCheckSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
+    JourneyBacktrackNodeSelectionSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_step_selection import (
+    JourneyNextStepSelectionSchema,
+)
+from parlant.core.meter import Meter, LocalMeter
+from parlant.core.services.indexing.journey_reachable_nodes_evaluation import (
+    ReachableNodesEvaluationSchema,
+)
 from parlant.core.tracer import LocalTracer, Tracer
 from parlant.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from parlant.core.emission.event_publisher import EventPublisherFactory
@@ -56,9 +68,6 @@ from parlant.core.engines.alpha.guideline_matching.generic import (
 )
 from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch import (
     DisambiguationGuidelineMatchesSchema,
-)
-from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
-    JourneyNodeSelectionSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.generic_guideline_matching_strategy_resolver import (
     GenericGuidelineMatchingStrategyResolver,
@@ -192,7 +201,10 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
 )
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.types import Engine
-from parlant.core.services.indexing.behavioral_change_evaluation import GuidelineEvaluator
+from parlant.core.services.indexing.behavioral_change_evaluation import (
+    GuidelineEvaluator,
+    JourneyEvaluator,
+)
 
 
 from parlant.core.loggers import LogLevel, Logger, StdoutLogger
@@ -318,7 +330,7 @@ async def container(
 
     container[Tracer] = tracer
     container[Logger] = logger
-    container[Meter] = Singleton(NullMeter)
+    container[Meter] = Singleton(LocalMeter)
     container[WebSocketLogger] = WebSocketLogger(container[Tracer])
 
     container[IdGenerator] = Singleton(IdGenerator)
@@ -372,9 +384,12 @@ async def container(
                 logger=container[Logger],
                 tracer=container[Tracer],
                 nlp_services_provider=lambda: {
-                    "default": OpenAIService(
+                    "default": EmcieService(
                         container[Logger],
+                        container[Tracer],
                         container[Meter],
+                        model_tier=os.environ.get("EMCIE_MODEL_TIER", "jackal"),  # type: ignore
+                        model_role=os.environ.get("EMCIE_MODEL_ROLE", "teacher"),  # type: ignore
                     )
                 },
             )
@@ -401,6 +416,7 @@ async def container(
                 container[IdGenerator],
                 vector_db=TransientVectorDatabase(
                     container[Logger],
+                    container[Tracer],
                     embedder_factory,
                     lambda: embedding_cache,
                 ),
@@ -415,6 +431,7 @@ async def container(
                 container[IdGenerator],
                 vector_db=TransientVectorDatabase(
                     container[Logger],
+                    container[Tracer],
                     embedder_factory,
                     lambda: embedding_cache,
                 ),
@@ -428,7 +445,7 @@ async def container(
             CannedResponseVectorStore(
                 container[IdGenerator],
                 vector_db=TransientVectorDatabase(
-                    container[Logger], embedder_factory, lambda: embedding_cache
+                    container[Logger], container[Tracer], embedder_factory, lambda: embedding_cache
                 ),
                 document_db=TransientDocumentDatabase(),
                 embedder_factory=embedder_factory,
@@ -441,6 +458,7 @@ async def container(
                 container[IdGenerator],
                 vector_db=TransientVectorDatabase(
                     container[Logger],
+                    container[Tracer],
                     embedder_factory,
                     lambda: embedding_cache,
                 ),
@@ -476,8 +494,11 @@ async def container(
             GenericResponseAnalysisSchema,
             AgentIntentionProposerSchema,
             DisambiguationGuidelineMatchesSchema,
-            JourneyNodeSelectionSchema,
+            JourneyBacktrackNodeSelectionSchema,
+            JourneyNextStepSelectionSchema,
             RelativeActionSchema,
+            ReachableNodesEvaluationSchema,
+            JourneyBacktrackCheckSchema,
         ):
             container[SchematicGenerator[generation_schema]] = await make_schematic_generator(  # type: ignore
                 container,
@@ -539,6 +560,7 @@ async def container(
         container[ResponseAnalysisBatch] = Singleton(GenericResponseAnalysisBatch)
         container[GuidelineMatcher] = Singleton(GuidelineMatcher)
         container[GuidelineEvaluator] = Singleton(GuidelineEvaluator)
+        container[JourneyEvaluator] = Singleton(JourneyEvaluator)
 
         container[DefaultToolCallBatcher] = Singleton(DefaultToolCallBatcher)
         container[ToolCallBatcher] = lambda container: container[DefaultToolCallBatcher]
@@ -711,10 +733,10 @@ def no_cache(container: Container) -> None:
             container[SchematicGenerator[DisambiguationGuidelineMatchesSchema]],
         ).use_cache = False
     if isinstance(
-        container[SchematicGenerator[JourneyNodeSelectionSchema]],
+        container[SchematicGenerator[JourneyBacktrackNodeSelectionSchema]],
         CachedSchematicGenerator,
     ):
         cast(
-            CachedSchematicGenerator[JourneyNodeSelectionSchema],
-            container[SchematicGenerator[JourneyNodeSelectionSchema]],
+            CachedSchematicGenerator[JourneyBacktrackNodeSelectionSchema],
+            container[SchematicGenerator[JourneyBacktrackNodeSelectionSchema]],
         ).use_cache = False

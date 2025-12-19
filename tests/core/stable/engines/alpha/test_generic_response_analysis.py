@@ -142,10 +142,10 @@ def create_guideline(
             condition=condition,
             action=action,
         ),
-        criticality=Criticality.MEDIUM,
         enabled=True,
         tags=tags,
         metadata={},
+        criticality=Criticality.MEDIUM,
     )
 
     context.guidelines.append(guideline)
@@ -167,10 +167,10 @@ def create_guideline_with_tools(
             condition=condition,
             action=action,
         ),
-        criticality=Criticality.MEDIUM,
         enabled=True,
         tags=tags,
         metadata={},
+        criticality=Criticality.MEDIUM,
     )
 
     context.guidelines_to_tools = {guideline: tool_ids}
@@ -283,6 +283,34 @@ async def test_that_correct_guidelines_detect_as_previously_applied(
     )
 
 
+async def test_that_not_performed_guideline_is_not_detected_as_previously_applied(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hi, I want to order 2 pizzas please",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "Sure! Which toppings would you like on your pizzas?",
+        ),
+    ]
+    guidelines: list[str] = ["offer_two_pizza_for_one"]
+    await base_test_that_correct_guidelines_are_detected_as_previously_applied(
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
+        guidelines_target_names=[],
+        guidelines_names=guidelines,
+    )
+
+
 async def test_that_correct_guidelines_detect_as_previously_applied_when_guideline_action_also_depends_on_the_user_response(
     context: ContextOfTest,
     agent: Agent,
@@ -325,7 +353,7 @@ async def test_that_correct_guidelines_detect_as_previously_applied_when_guideli
         ),
         (
             EventSource.AI_AGENT,
-            "I see your order is running late. I’m going to look into it right now and make sure it gets sorted. I’ll also apply a discount to your order for the delay.",
+            "I’ll apply a discount to your order for the delay.",
         ),
     ]
     guidelines: list[str] = ["express_solidarity_and_discount"]
@@ -455,6 +483,36 @@ async def test_that_correct_guidelines_detect_as_previously_applied_when_guideli
     ]
 
     guidelines: list[str] = ["link_when_asks_where_order"]
+
+    await base_test_that_correct_guidelines_are_detected_as_previously_applied(
+        context,
+        agent,
+        new_session.id,
+        customer,
+        conversation_context,
+        guidelines_target_names=guidelines,
+        guidelines_names=guidelines,
+    )
+
+
+async def test_that_multiple_guidelines_detect_as_previously_applied_in_single_response(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "Hey, my order is late and when it finally arrived the food was cold!",
+        ),
+        (
+            EventSource.AI_AGENT,
+            "I'm so sorry to hear that your order arrived late and cold. "
+            "I've applied a discount to your order to make up for this experience.",
+        ),
+    ]
+    guidelines: list[str] = ["late_so_discount", "cold_so_discount"]
 
     await base_test_that_correct_guidelines_are_detected_as_previously_applied(
         context,

@@ -15,7 +15,7 @@
 from typing import Any
 
 import httpx
-from fastapi import status
+from fastapi import status, HTTPException
 from lagom import Container
 from pytest import mark, raises
 
@@ -147,10 +147,8 @@ async def test_that_creating_journey_with_duplicate_id_fails(
     container: Container,
 ) -> None:
     """Test that creating a journey with a duplicate ID fails appropriately."""
-    custom_id = "duplicate-id-test"
-
     payload = {
-        "id": custom_id,
+        "id": "duplicate-id-test",
         "title": "First Journey",
         "description": "First journey with this ID",
         "conditions": ["First condition"],
@@ -164,9 +162,11 @@ async def test_that_creating_journey_with_duplicate_id_fails(
     payload["title"] = "Second Journey"
     payload["description"] = "This should fail due to duplicate ID"
 
-    response2 = await async_client.post("/journeys", json=payload)
+    with raises(HTTPException) as exc_info:
+        _ = await async_client.post("/journeys", json=payload)
+
     # Should fail due to duplicate ID
-    assert response2.status_code != status.HTTP_201_CREATED
+    assert exc_info.value.detail == "Journey with id 'duplicate-id-test' already exists"
 
 
 async def test_that_journeys_can_be_listed(

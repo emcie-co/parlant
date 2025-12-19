@@ -1,7 +1,10 @@
 from abc import ABC, abstractmethod
+import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Mapping
 from typing_extensions import override
+
+from parlant.core.loggers import Logger
 
 
 class Histogram(ABC):
@@ -70,14 +73,19 @@ class NullCounter(Counter):
         pass
 
 
-class NullHistogram(DurationHistogram):
+class LocalHistogram(DurationHistogram):
+    def __init__(self, name: str, logger: Logger) -> None:
+        self._name = name
+        self._logger = logger
+
     @override
     async def record(
         self,
         value: float,
         attributes: Mapping[str, str] | None = None,
     ) -> None:
-        pass
+        attrs = f" attributes={attributes}" if attributes else ""
+        self._logger.trace(f"Histogram '{self._name}' recorded duration={value:.6f}{attrs}")
 
     @override
     @asynccontextmanager
@@ -85,10 +93,18 @@ class NullHistogram(DurationHistogram):
         self,
         attributes: Mapping[str, str] | None = None,
     ) -> AsyncGenerator[None, None]:
-        yield
+        start_time = asyncio.get_running_loop().time()
+        try:
+            yield
+        finally:
+            duration = asyncio.get_running_loop().time() - start_time
+            await self.record(duration, attributes)
 
 
-class NullMeter(Meter):
+class LocalMeter(Meter):
+    def __init__(self, logger: Logger) -> None:
+        self._logger = logger
+
     @override
     def create_counter(
         self,
@@ -104,7 +120,7 @@ class NullMeter(Meter):
         description: str,
         unit: str,
     ) -> DurationHistogram:
-        return NullHistogram()
+        return LocalHistogram(name, self._logger)
 
     @override
     def create_duration_histogram(
@@ -112,4 +128,4 @@ class NullMeter(Meter):
         name: str,
         description: str,
     ) -> DurationHistogram:
-        return NullHistogram()
+        return LocalHistogram(name, self._logger)

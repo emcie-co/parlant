@@ -228,7 +228,7 @@ class GuidelineMatcher:
                     session=context.session,
                     customer=context.customer,
                     context_variables=context.state.context_variables,
-                    interaction_history=context.interaction.history,
+                    interaction_history=context.interaction.events,
                     terms=list(context.state.glossary_terms),
                     capabilities=context.state.capabilities,
                     staged_events=context.state.tool_events,

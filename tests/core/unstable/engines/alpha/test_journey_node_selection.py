@@ -2,11 +2,21 @@ from lagom import Container
 from pytest import fixture
 from parlant.core.agents import Agent
 from parlant.core.customers import Customer
-from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
-    JourneyNodeSelectionSchema,
+
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
+    JourneyBacktrackCheckSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
+    JourneyBacktrackNodeSelectionSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_step_selection import (
+    JourneyNextStepSelectionSchema,
 )
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
+from parlant.core.services.indexing.journey_reachable_nodes_evaluation import (
+    ReachableNodesEvaluationSchema,
+)
 from parlant.core.sessions import EventSource, Session
 
 from tests.core.stable.engines.alpha.test_journey_node_selection import (
@@ -25,7 +35,18 @@ def context(
         container,
         sync_await,
         logger=container[Logger],
-        schematic_generator=container[SchematicGenerator[JourneyNodeSelectionSchema]],
+        journey_node_selection_schematic_generator=container[
+            SchematicGenerator[JourneyBacktrackNodeSelectionSchema]
+        ],
+        journey_next_step_selection_schematic_generator=container[
+            SchematicGenerator[JourneyNextStepSelectionSchema]
+        ],
+        journey_reachable_nodes_evaluation_schematic_generator=container[
+            SchematicGenerator[ReachableNodesEvaluationSchema]
+        ],
+        journey_backtrack_check_schematic_generator=container[
+            SchematicGenerator[JourneyBacktrackCheckSchema]
+        ],
     )
 
 

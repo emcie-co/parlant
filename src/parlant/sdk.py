@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections import defaultdict
+from collections import defaultdict, deque
 from contextlib import AsyncExitStack
 import contextvars
 from dataclasses import dataclass, field
@@ -278,6 +278,20 @@ class SDKError(Exception):
 
 class NLPServices:
     """A collection of static methods to create built-in NLPService instances for the SDK."""
+
+    @staticmethod
+    def emcie(container: Container) -> NLPService:
+        """Creates an Azure NLPService instance using the provided container."""
+        from parlant.adapters.nlp.emcie_service import EmcieService
+
+        if error := EmcieService.verify_environment():
+            raise SDKError(error)
+
+        return EmcieService(
+            container[Logger],
+            container[Tracer],
+            container[Meter],
+        )
 
     @staticmethod
     def azure(container: Container) -> NLPService:
@@ -579,20 +593,6 @@ class _CachedEvaluator:
         )
 
         return md5(f"{journey.id}:{node_ids_str}:{edge_ids_str}".encode()).hexdigest()
-
-    async def evaluate_state(
-        self,
-        entity_id: JourneyStateId,
-        g: GuidelineContent,
-        tool_ids: Sequence[ToolId] = [],
-    ) -> _CachedEvaluator.GuidelineEvaluation:
-        return await self._evaluate_guideline(
-            entity_id=entity_id,
-            g=g,
-            tool_ids=tool_ids,
-            journey_state_proposition=True,
-            properties_proposition=False,
-        )
 
     async def evaluate_guideline(
         self,
@@ -1074,6 +1074,7 @@ class JourneyState:
         action: str | None = None,
         description: str | None = None,
         tools: Sequence[ToolEntry] = [],
+        journey: Journey | None = None,
         fork: bool = False,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
@@ -1085,6 +1086,13 @@ class JourneyState:
     ) -> JourneyTransition[JourneyState]:
         if not self._journey:
             raise SDKError("EndState cannot be connected to any other states.")
+
+        transitions = [t for t in self._journey.transitions if t.source == self]
+
+        if len(transitions) > 0 and (not condition or any(not e.condition for e in transitions)):
+            raise SDKError(
+                "Cannot connect a new state without a condition if there are already connected states without conditions."
+            )
 
         actual_state: JourneyState | None = None
 
@@ -1131,12 +1139,15 @@ class JourneyState:
                 metadata=metadata,
                 composition_mode=composition_mode,
             )
+        elif journey:
+            if canned_responses:
+                raise SDKError(
+                    "Canned responses cannot be associated when transitioning to a sub-journey."
+                )
 
-        transitions = [t for t in self._journey.transitions if t.source == self]
-
-        if len(transitions) > 0 and (not condition or any(not e.condition for e in transitions)):
-            raise SDKError(
-                "Cannot connect a new state without a condition if there are already connected states without conditions."
+            return await self._transition_to_sub_journey(
+                journey=journey,
+                condition=condition,
             )
 
         transition = await self._journey.create_transition(
@@ -1160,6 +1171,275 @@ class JourneyState:
 
         return transition
 
+    async def _transition_to_sub_journey(
+        self,
+        journey: Journey,
+        condition: str | None = None,
+    ) -> JourneyTransition[JourneyState]:
+        if self._journey is None:
+            raise SDKError(
+                "Cannot transition to sub-journey from a state without a parent journey."
+            )
+
+        # Create mappings for states and transitions for easy lookup
+        state_mapping: dict[JourneyStateId, JourneyState] = {}
+        transitions_by_source: dict[JourneyStateId, list[JourneyTransition[JourneyState]]] = (
+            defaultdict(list)
+        )
+        for transition in journey.transitions:
+            transitions_by_source[transition.source.id].append(transition)
+
+        # Create merge fork state for leaf nodes
+        fork_state = await self._journey._create_state(
+            ForkJourneyState,
+            metadata={"sub_journey_id": journey.id},
+        )
+
+        async def create_mapped_state(state: JourneyState) -> JourneyState:
+            assert self._journey  # We already checked this above
+
+            metadata = dict(state.metadata)
+            metadata["journey_node"] = {
+                **cast(dict[str, JSONSerializable], metadata.get("journey_node", {})),
+                "journey_id": self._journey.id,
+                "sub_journey_id": journey.id,
+            }
+
+            # Create the new state
+            if state.tools:
+                new_state = cast(
+                    JourneyState,
+                    await self._journey._create_state(
+                        ToolJourneyState,
+                        action=state.action,
+                        tools=state.tools,
+                        metadata=metadata,
+                    ),
+                )
+
+                [
+                    await self._journey._container[RelationshipStore].create_relationship(
+                        source=RelationshipEntity(
+                            id=_Tag.for_journey_node_id(new_state.id),
+                            kind=RelationshipEntityKind.TAG,
+                        ),
+                        target=RelationshipEntity(
+                            id=ToolId(
+                                service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name
+                            ),
+                            kind=RelationshipEntityKind.TOOL,
+                        ),
+                        kind=RelationshipKind.REEVALUATION,
+                    )
+                    for t in state.tools
+                ]
+
+            elif (
+                isinstance(state.metadata.get("journey_node"), dict)
+                and cast(dict[str, JSONSerializable], state.metadata.get("journey_node")).get(
+                    "kind"
+                )
+                == "fork"
+            ):
+                new_state = cast(
+                    JourneyState,
+                    await self._journey._create_state(
+                        ForkJourneyState,
+                        metadata=metadata,
+                    ),
+                )
+            else:
+                new_state = cast(
+                    JourneyState,
+                    await self._journey._create_state(
+                        ChatJourneyState,
+                        action=state.action,
+                        tools=[],
+                        metadata=metadata,
+                    ),
+                )
+
+            # Copy canned responses from the original state to the new state
+            original_state_tag = _Tag.for_journey_node_id(state.id)
+            new_state_tag = _Tag.for_journey_node_id(new_state.id)
+
+            # Get all canned responses associated with the original state
+            canned_response_store = self._journey._container[CannedResponseStore]
+            canreps = await canned_response_store.list_canned_responses(tags=[original_state_tag])
+
+            # Associate them with the new state
+            for canrep in canreps:
+                await canned_response_store.upsert_tag(
+                    canned_response_id=canrep.id, tag_id=new_state_tag
+                )
+
+            return new_state
+
+        # Create entry point - either self directly or via a condition fork
+        entry_state: JourneyState
+
+        if condition:
+            # Create a fork state for the condition
+            entry_fork = await self._journey._create_state(
+                ForkJourneyState,
+                metadata={"sub_journey_id": journey.id},
+            )
+            cast(list[JourneyState], self._journey.states).append(entry_fork)
+
+            # Create transition from self to the entry fork with condition
+            entry_transition = await self._journey.create_transition(
+                condition=condition,
+                source=self,
+                target=entry_fork,
+            )
+            cast(list[JourneyTransition[JourneyState]], self._journey.transitions).append(
+                cast(JourneyTransition[JourneyState], entry_transition)
+            )
+            entry_state = entry_fork
+        else:
+            entry_state = self
+
+        # Traverse the journey starting from the root
+        queue: deque[tuple[JourneyStateId, JourneyState | None]] = deque()
+        visited: set[JourneyStateId] = set()
+
+        # Skip the root state and go directly to its target states
+        root_transitions = transitions_by_source[journey._start_state_id]
+
+        # Process each transition from the root state
+        for root_transition in root_transitions:
+            target_state_id = root_transition.target.id
+
+            if target_state_id == END_JOURNEY.id:
+                # Root transitions directly to END_JOURNEY - connect to fork
+                new_transition = await self._journey.create_transition(
+                    condition=root_transition.condition,
+                    source=entry_state,
+                    target=fork_state,
+                )
+                cast(list[JourneyTransition[JourneyState]], self._journey.transitions).append(
+                    cast(JourneyTransition[JourneyState], new_transition)
+                )
+            else:
+                # Create the target state and add it to processing queue
+                if target_state := next(
+                    (s for s in journey.states if s.id == target_state_id), None
+                ):
+                    new_state = await create_mapped_state(target_state)
+                    state_mapping[target_state_id] = new_state
+                    cast(list[JourneyState], self._journey.states).append(new_state)
+
+                    # Create transition from entry_state to the target
+                    new_transition = await self._journey.create_transition(
+                        condition=root_transition.condition,
+                        source=entry_state,
+                        target=cast(ForkJourneyState, new_state),
+                    )
+                    cast(list[JourneyTransition[JourneyState]], self._journey.transitions).append(
+                        cast(JourneyTransition[JourneyState], new_transition)
+                    )
+
+                    # Add to queue for further processing
+                    queue.append((target_state_id, new_state))
+
+        while queue:
+            current_state_id, mapped_source_state = queue.popleft()
+
+            if current_state_id in visited:
+                continue
+
+            visited.add(current_state_id)
+
+            # Get the current state from the sub-journey
+            current_state = next((s for s in journey.states if s.id == current_state_id), None)
+            if not current_state:
+                continue
+
+            # Check if this state has no outgoing transitions (leaf state)
+            state_transitions = transitions_by_source.get(current_state_id, [])
+            if (
+                not state_transitions
+                and mapped_source_state
+                and current_state_id != journey._start_state_id
+            ):
+                # This is a leaf state - connect it to the fork
+                new_transition = await self._journey.create_transition(
+                    condition=None,
+                    source=mapped_source_state,
+                    target=fork_state,
+                )
+                cast(list[JourneyTransition[JourneyState]], self._journey.transitions).append(
+                    cast(JourneyTransition[JourneyState], new_transition)
+                )
+                continue
+
+            # Process all transitions from this state
+            for transition in state_transitions:
+                target_state_id = transition.target.id
+
+                # Handle END_JOURNEY transitions - connect to fork
+                if target_state_id == END_JOURNEY.id:
+                    if mapped_source_state:
+                        new_transition = await self._journey.create_transition(
+                            condition=transition.condition,
+                            source=mapped_source_state,
+                            target=fork_state,
+                        )
+                        cast(
+                            list[JourneyTransition[JourneyState]], self._journey.transitions
+                        ).append(cast(JourneyTransition[JourneyState], new_transition))
+                        # Transition to fork created
+                    continue
+
+                # Get or create the target state
+                if target_state_id not in state_mapping:
+                    if target_state := next(
+                        (s for s in journey.states if s.id == target_state_id), None
+                    ):
+                        new_state = await create_mapped_state(target_state)
+                        state_mapping[target_state_id] = new_state
+                        cast(list[JourneyState], self._journey.states).append(new_state)
+
+                # Create the transition only if target state is in mapping
+                if target_state_id in state_mapping:
+                    target_mapped_state = state_mapping[target_state_id]
+                    if mapped_source_state:
+                        new_transition = await self._journey.create_transition(
+                            condition=transition.condition,
+                            source=mapped_source_state,
+                            target=cast(ForkJourneyState, target_mapped_state),
+                        )
+
+                        cast(
+                            list[JourneyTransition[JourneyState]], self._journey.transitions
+                        ).append(cast(JourneyTransition[JourneyState], new_transition))
+
+                    # Add target to queue for further processing
+                    queue.append((target_state_id, target_mapped_state))
+                else:
+                    # Target state not in mapping - this is a transition to another journey
+                    # Connect the source state to the fork state to exit this sub-journey
+                    if mapped_source_state:
+                        new_transition = await self._journey.create_transition(
+                            condition=transition.condition,
+                            source=mapped_source_state,
+                            target=fork_state,
+                        )
+                        cast(
+                            list[JourneyTransition[JourneyState]], self._journey.transitions
+                        ).append(cast(JourneyTransition[JourneyState], new_transition))
+
+        # We create a transient transition from self to the fork state to represent the exit point
+        result_transition = JourneyTransition[JourneyState](
+            id=JourneyTransitionId("transient"),
+            condition=condition,
+            source=self,
+            target=fork_state,
+            metadata={},
+        )
+
+        return result_transition
+
 
 END_JOURNEY = JourneyState(
     id=JourneyStore.END_NODE_ID,
@@ -1170,6 +1450,110 @@ END_JOURNEY = JourneyState(
     _journey=None,
 )
 """A special state used to indicate the end of a journey."""
+
+
+def _validate_transition_parameters(
+    *,
+    condition: str | None = None,
+    chat_state: str | None = None,
+    tool_instruction: str | None = None,
+    state: Any = None,
+    tool_state: Any = None,
+    journey: Any = None,
+    canned_responses: Sequence[CannedResponseId] = [],
+    metadata: Mapping[str, JSONSerializable] = {},
+    on_match: Any = None,
+    is_fork_state: bool = False,
+) -> None:
+    """Validate transition parameters against overload signatures."""
+
+    # Determine which target parameter is being used
+    target_param = None
+    has_tool_state = tool_state and (
+        isinstance(tool_state, ToolEntry)
+        or (isinstance(tool_state, Sequence) and len(tool_state) > 0)
+    )
+
+    if state is not None:
+        target_param = "state"
+    elif chat_state is not None:
+        target_param = "chat_state"
+    elif has_tool_state:
+        target_param = "tool_state"
+    elif journey is not None:
+        target_param = "journey"
+    else:
+        raise SDKError(
+            "Must provide at least one target parameter: chat_state, state, tool_state, or journey."
+        )
+
+    # Check for multiple target parameters
+    target_count = 0
+    if state is not None:
+        target_count += 1
+    if chat_state is not None:
+        target_count += 1
+    if has_tool_state:
+        target_count += 1
+    if journey is not None:
+        target_count += 1
+
+    if target_count > 1:
+        provided = []
+        if state is not None:
+            provided.append("state")
+        if chat_state is not None:
+            provided.append("chat_state")
+        if has_tool_state:
+            provided.append("tool_state")
+        if journey is not None:
+            provided.append("journey")
+        raise SDKError(
+            f"Cannot provide multiple target parameters simultaneously: {', '.join(provided)}. "
+            "Please specify only one of: chat_state, state, tool_state, or journey."
+        )
+
+    # Validate parameter combinations based on overload signatures
+    if target_param == "journey":
+        # Journey overload: only condition and journey allowed
+        invalid_params = []
+        if canned_responses:
+            invalid_params.append("canned_responses")
+        if metadata:
+            invalid_params.append("metadata")
+        if on_match is not None:
+            invalid_params.append("on_match")
+        if tool_instruction is not None:
+            invalid_params.append("tool_instruction")
+
+        if invalid_params:
+            raise SDKError(
+                f"Journey transitions do not support the following parameters: {', '.join(invalid_params)}. "
+                "Only 'condition' and 'journey' are allowed for journey transitions."
+            )
+
+    elif target_param == "tool_state":
+        # Tool state overloads: tool_instruction is optional but other params should be allowed
+        if tool_instruction is not None:
+            # This is valid - tool_instruction + tool_state combination
+            pass
+        # canned_responses, metadata, on_match are all allowed for tool_state transitions
+
+    elif target_param in ["state", "chat_state"]:
+        # State and chat_state overloads: tool_instruction not allowed
+        if tool_instruction is not None:
+            raise SDKError(
+                f"tool_instruction cannot be used with {target_param}. "
+                "tool_instruction is only valid when using tool_state."
+            )
+        # canned_responses, metadata, on_match are all allowed
+
+    # Special validation for ForkJourneyState
+    if is_fork_state and target_param != "journey":
+        if condition is None:
+            raise SDKError(
+                "ForkJourneyState requires a condition (except when transition to a journey)."
+            )
 
 
 class InitialJourneyState(JourneyState):
@@ -1236,6 +1620,14 @@ class InitialJourneyState(JourneyState):
         | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
+    @overload
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        journey: Journey,
+    ) -> JourneyTransition[ForkJourneyState]: ...
+
     async def transition_to(
         self,
         *,
@@ -1244,6 +1636,7 @@ class InitialJourneyState(JourneyState):
         tool_instruction: str | None = None,
         state: TState | None = None,
         tool_state: ToolEntry | Sequence[ToolEntry] = [],
+        journey: Journey | None = None,
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
@@ -1253,12 +1646,27 @@ class InitialJourneyState(JourneyState):
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
     ) -> JourneyTransition[Any]:
+        # Validate parameters against overload signatures
+        _validate_transition_parameters(
+            condition=condition,
+            chat_state=chat_state,
+            tool_instruction=tool_instruction,
+            state=state,
+            tool_state=tool_state,
+            journey=journey,
+            canned_responses=canned_responses,
+            metadata=metadata,
+            on_match=on_match,
+            is_fork_state=False,
+        )
+
         return await self._transition(
             condition=condition,
             state=state,
             action=chat_state or tool_instruction,
             description=description,
             tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
+            journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
             on_match=on_match,
@@ -1332,6 +1740,14 @@ class ToolJourneyState(JourneyState):
         | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
+    @overload
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        journey: Journey,
+    ) -> JourneyTransition[ForkJourneyState]: ...
+
     async def transition_to(
         self,
         *,
@@ -1340,6 +1756,7 @@ class ToolJourneyState(JourneyState):
         tool_instruction: str | None = None,
         state: TState | None = None,
         tool_state: ToolEntry | Sequence[ToolEntry] = [],
+        journey: Journey | None = None,
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
@@ -1349,12 +1766,27 @@ class ToolJourneyState(JourneyState):
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
     ) -> JourneyTransition[Any]:
+        # Validate parameters against overload signatures
+        _validate_transition_parameters(
+            condition=condition,
+            chat_state=chat_state,
+            tool_instruction=tool_instruction,
+            state=state,
+            tool_state=tool_state,
+            journey=journey,
+            canned_responses=canned_responses,
+            metadata=metadata,
+            on_match=on_match,
+            is_fork_state=False,
+        )
+
         return await self._transition(
             condition=condition,
             state=state,
             action=chat_state,
             description=description,
             tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
+            journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
             on_match=on_match,
@@ -1431,6 +1863,14 @@ class ChatJourneyState(JourneyState):
         | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
+    @overload
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
+        journey: Journey,
+    ) -> JourneyTransition[ForkJourneyState]: ...
+
     async def transition_to(
         self,
         *,
@@ -1439,6 +1879,7 @@ class ChatJourneyState(JourneyState):
         tool_instruction: str | None = None,
         state: TState | None = None,
         tool_state: ToolEntry | Sequence[ToolEntry] = [],
+        journey: Journey | None = None,
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
@@ -1448,12 +1889,27 @@ class ChatJourneyState(JourneyState):
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
     ) -> JourneyTransition[Any]:
+        # Validate parameters against overload signatures
+        _validate_transition_parameters(
+            condition=condition,
+            chat_state=chat_state,
+            tool_instruction=tool_instruction,
+            state=state,
+            tool_state=tool_state,
+            journey=journey,
+            canned_responses=canned_responses,
+            metadata=metadata,
+            on_match=on_match,
+            is_fork_state=False,
+        )
+
         return await self._transition(
             condition=condition,
             state=state,
             action=chat_state or tool_instruction,
             description=description,
             tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
+            journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
             on_match=on_match,
@@ -1529,14 +1985,23 @@ class ForkJourneyState(JourneyState):
         | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
+    @overload
     async def transition_to(
         self,
         *,
-        condition: str,
+        condition: str | None = None,
+        journey: Journey,
+    ) -> JourneyTransition[ForkJourneyState]: ...
+
+    async def transition_to(
+        self,
+        *,
+        condition: str | None = None,
         chat_state: str | None = None,
         tool_instruction: str | None = None,
         state: TState | None = None,
         tool_state: ToolEntry | Sequence[ToolEntry] = [],
+        journey: Journey | None = None,
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
@@ -1546,12 +2011,27 @@ class ForkJourneyState(JourneyState):
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
     ) -> JourneyTransition[Any]:
+        # Validate parameters against overload signatures
+        _validate_transition_parameters(
+            condition=condition,
+            chat_state=chat_state,
+            tool_instruction=tool_instruction,
+            state=state,
+            tool_state=tool_state,
+            journey=journey,
+            canned_responses=canned_responses,
+            metadata=metadata,
+            on_match=on_match,
+            is_fork_state=True,
+        )
+
         return await self._transition(
             condition=condition,
             state=state,
             action=chat_state or tool_instruction,
             description=description,
             tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
+            journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
             on_match=on_match,
@@ -1676,24 +2156,6 @@ class Journey:
 
         self._server._advance_creation_progress()
 
-        if target is not None and target.id != END_JOURNEY.id:
-            target_tool_ids = {
-                t.tool.name: ToolId(
-                    service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name
-                )
-                for t in target.tools
-            }
-
-            self._server._add_state_evaluation(
-                target.id,
-                GuidelineContent(
-                    condition=condition or "",
-                    action=target._internal_action,
-                    description=target.description,
-                ),
-                list(target_tool_ids.values()),
-            )
-
         transition = await self._container[JourneyStore].create_edge(
             journey_id=self.id,
             source=source.id,
@@ -1702,7 +2164,7 @@ class Journey:
         )
 
         # Register handlers if provided
-        if target is not None and target.id != END_JOURNEY.id:
+        if target is not None:
             if (
                 on_match is not None
                 or on_message is not None
@@ -2554,6 +3016,16 @@ class ToolContextAccessor:
         return cast(Server, self.context.plugin_data["server"])
 
     @property
+    def current_interaction(self) -> Interaction:
+        """Returns the engine context associated with the tool context."""
+        interaction = EntityContext.get_interaction()
+
+        if interaction is None:
+            raise RuntimeError("No interaction available in current context")
+
+        return interaction
+
+    @property
     def logger(self) -> Logger:
         """Returns the logger associated with the context."""
         return self.server._container[Logger]
@@ -2644,10 +3116,7 @@ class Server:
             GuidelineId,
             tuple[Any, Callable[..., Coroutine[Any, Any, _CachedEvaluator.GuidelineEvaluation]]],
         ] = {}
-        self._node_evaluations: dict[
-            JourneyStateId,
-            tuple[Any, Callable[..., Coroutine[Any, Any, _CachedEvaluator.GuidelineEvaluation]]],
-        ] = {}
+
         self._journey_evaluations: dict[
             JourneyId,
             tuple[Any, Callable[..., Coroutine[Any, Any, _CachedEvaluator.JourneyEvaluation]]],
@@ -2709,6 +3178,7 @@ class Server:
             self._current_server_var.set(self)
 
             return self
+
         except SDKError as e:
             _die(str(e), e)
             raise
@@ -2773,17 +3243,6 @@ class Server:
         self._guideline_evaluations[guideline_id] = (
             (guideline_id, guideline_content, tool_ids),
             self._evaluator.evaluate_guideline,
-        )
-
-    def _add_state_evaluation(
-        self,
-        state_id: JourneyStateId,
-        guideline_content: GuidelineContent,
-        tools: Sequence[ToolId],
-    ) -> None:
-        self._node_evaluations[state_id] = (
-            (state_id, guideline_content, tools),
-            self._evaluator.evaluate_state,
         )
 
     def _add_journey_evaluation(
@@ -2971,11 +3430,6 @@ class Server:
             f", then {guideline.content.action}" if guideline.content.action else ""
         )
 
-    async def _render_state(self, state_id: JourneyStateId) -> str:
-        state = await self._container[JourneyStore].read_node(state_id)
-
-        return f"State: {state.action}"
-
     async def _render_journey(self, journey_id: JourneyId) -> str:
         journey = await self._container[JourneyStore].read_journey(journey_id)
 
@@ -2983,11 +3437,10 @@ class Server:
 
     async def _process_evaluations(self) -> None:
         _render_functions: dict[
-            Literal["guideline", "node", "journey"],
-            Callable[[GuidelineId | JourneyStateId | JourneyId], Awaitable[str]],
+            Literal["guideline", "journey"],
+            Callable[[GuidelineId | JourneyId], Awaitable[str]],
         ] = {
             "guideline": self._render_guideline,  # type: ignore
-            "node": self._render_state,  # type: ignore
             "journey": self._render_journey,  # type: ignore
         }
 
@@ -2995,18 +3448,18 @@ class Server:
             evaluation: Coroutine[
                 Any, Any, _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation
             ],
-            entity_type: Literal["guideline", "node", "journey"],
-            entity_id: GuidelineId | JourneyStateId | JourneyId,
+            entity_type: Literal["guideline", "journey"],
+            entity_id: GuidelineId | JourneyId,
         ) -> asyncio.Task[
             tuple[
-                Literal["guideline", "node", "journey"],
-                GuidelineId | JourneyStateId | JourneyId,
+                Literal["guideline", "journey"],
+                GuidelineId | JourneyId,
                 _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation,
             ]
         ]:
             async def task_wrapper() -> tuple[
-                Literal["guideline", "node", "journey"],
-                GuidelineId | JourneyStateId | JourneyId,
+                Literal["guideline", "journey"],
+                GuidelineId | JourneyId,
                 _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation,
             ]:
                 result = await evaluation
@@ -3017,8 +3470,8 @@ class Server:
         tasks: list[
             asyncio.Task[
                 tuple[
-                    Literal["guideline", "node", "journey"],
-                    GuidelineId | JourneyStateId | JourneyId,
+                    Literal["guideline", "journey"],
+                    GuidelineId | JourneyId,
                     _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation,
                 ]
             ]
@@ -3026,9 +3479,6 @@ class Server:
 
         for guideline_id, (args, func) in self._guideline_evaluations.items():
             tasks.append((create_evaluation_task(func(*args), "guideline", guideline_id)))
-
-        for node_id, (args, func) in self._node_evaluations.items():
-            tasks.append((create_evaluation_task(func(*args), "node", node_id)))
 
         for journey_id, (args, journey_func) in self._journey_evaluations.items():
             tasks.append((create_evaluation_task(journey_func(*args), "journey", journey_id)))
@@ -3060,12 +3510,10 @@ class Server:
                 bar_id: dict[str, int] = {}
 
                 for t in tasks:
-                    entity_id = cast(
-                        GuidelineId | JourneyStateId | JourneyId, t.get_name().split("_")[-1]
-                    )
+                    entity_id = cast(GuidelineId | JourneyId, t.get_name().split("_")[-1])
                     entity_type = t.get_name().split("_")[0]
                     description = await _render_functions[
-                        cast(Literal["guideline", "node", "journey"], entity_type)
+                        cast(Literal["guideline", "journey"], entity_type)
                     ](entity_id)
 
                     bar_id[entity_id] = entity_progress.add_task(
@@ -3132,31 +3580,30 @@ class Server:
                         value=value,
                     )
 
-            elif entity_type == "node":
-                node = await self._container[JourneyStore].read_node(
-                    node_id=cast(JourneyStateId, entity_id)
-                )
-                properties = cast(_CachedEvaluator.GuidelineEvaluation, result).properties
-
-                properties_to_add = {k: v for k, v in properties.items() if k not in node.metadata}
-
-                for key, value in properties_to_add.items():
-                    await self._container[JourneyStore].set_node_metadata(
-                        node_id=cast(JourneyStateId, entity_id),
-                        key=key,
-                        value=value,
-                    )
-
             elif entity_type == "journey":
                 for node_id, properties in cast(
                     _CachedEvaluator.JourneyEvaluation, result
                 ).node_properties.items():
+                    if node_id == END_JOURNEY.id:
+                        continue
+
                     node = await self._container[JourneyStore].read_node(node_id)
                     properties_to_add = {
                         k: v
                         for k, v in properties.items()
                         if k not in node.metadata or node.metadata[k] is None
                     }
+
+                    journey_node_properties = {
+                        **(
+                            cast(dict[str, JSONSerializable], properties.get("journey_node", {}))
+                            if properties
+                            else {}
+                        ),
+                        **cast(dict[str, JSONSerializable], node.metadata.get("journey_node", {})),
+                    }
+                    if journey_node_properties:
+                        properties_to_add["journey_node"] = journey_node_properties
 
                     for key, value in properties_to_add.items():
                         await self._container[JourneyStore].set_node_metadata(
@@ -3790,6 +4237,7 @@ class Server:
                         id_generator=c()[IdGenerator],
                         vector_db=TransientVectorDatabase(
                             c()[Logger],
+                            c()[Tracer],
                             embedder_factory,
                             lambda: c()[EmbeddingCache],
                         ),

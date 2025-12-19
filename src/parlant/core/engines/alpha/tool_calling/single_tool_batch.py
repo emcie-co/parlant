@@ -18,7 +18,7 @@ from itertools import chain
 import ast
 import json
 import traceback
-from typing import Any, Literal, Optional, Sequence, TypeAlias
+from typing import Any, Literal, Optional, Sequence, TypeAlias, cast
 from typing_extensions import override
 
 from parlant.core.agents import Agent
@@ -47,9 +47,9 @@ from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.nlp.generation_info import GenerationInfo
+from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.services.tools.service_registry import ServiceRegistry
-from parlant.core.sessions import Event, EventKind
+from parlant.core.sessions import Event, EventKind, ToolEventData
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import Tool, ToolId, ToolParameterDescriptor, ToolParameterOptions
 
@@ -132,8 +132,48 @@ class SingleToolBatch(ToolCallBatch):
         self._context = context
         self._candidate_tool = candidate_tool
 
+    def _is_tool_already_staged(self, tool_id: ToolId) -> bool:
+        for event in self._context.staged_events:
+            if event.kind == EventKind.TOOL:
+                tool_calls = cast(ToolEventData, event.data).get("tool_calls", [])
+
+                for tc in tool_calls:
+                    if tc.get("tool_id") == tool_id.to_string():
+                        return True
+        return False
+
     @override
     async def process(self) -> ToolCallBatchResult:
+        tool_id, tool, _ = self._candidate_tool
+
+        # Optimization: auto-approve non-consequential tools with no parameters
+        # if they are not already staged
+        if (
+            not tool.consequential
+            and not tool.parameters
+            and not self._is_tool_already_staged(tool_id)
+        ):
+            return ToolCallBatchResult(
+                generation_info=GenerationInfo(
+                    schema_name="SingleToolBatchSchema",
+                    model="auto-approved",
+                    duration=0.0,
+                    usage=UsageInfo(input_tokens=0, output_tokens=0, extra={}),
+                ),
+                tool_calls=[
+                    ToolCall(
+                        id=ToolCallId(generate_id()),
+                        tool_id=tool_id,
+                        arguments={},
+                    )
+                ],
+                insights=ToolInsights(
+                    evaluations=[(tool_id, ToolCallEvaluation.NEEDS_TO_RUN)],
+                    missing_data=[],
+                    invalid_data=[],
+                ),
+            )
+
         async with measure_tool_call_batch(self._meter, self):
             (
                 generation_info,

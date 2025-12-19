@@ -63,8 +63,14 @@ from parlant.core.engines.alpha.guideline_matching.generic import (
 from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch import (
     DisambiguationGuidelineMatchesSchema,
 )
-from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
-    JourneyNodeSelectionSchema,
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
+    JourneyBacktrackCheckSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
+    JourneyBacktrackNodeSelectionSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_step_selection import (
+    JourneyNextStepSelectionSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.generic_guideline_matching_strategy_resolver import (
     GenericGuidelineMatchingStrategyResolver,
@@ -127,7 +133,7 @@ from parlant.core.engines.alpha.canned_response_generator import (
     NoMatchResponseProvider,
 )
 from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
-from parlant.core.meter import Meter, NullMeter
+from parlant.core.meter import Meter, LocalMeter
 from parlant.core.services.indexing.guideline_agent_intention_proposer import (
     AgentIntentionProposerSchema,
 )
@@ -144,6 +150,9 @@ from parlant.core.services.indexing.guideline_action_proposer import (
 from parlant.core.services.indexing.guideline_continuous_proposer import (
     GuidelineContinuousProposer,
     GuidelineContinuousPropositionSchema,
+)
+from parlant.core.services.indexing.journey_reachable_nodes_evaluation import (
+    ReachableNodesEvaluationSchema,
 )
 from parlant.core.services.indexing.relative_action_proposer import RelativeActionSchema
 from parlant.core.services.indexing.tool_running_action_detector import (
@@ -480,7 +489,7 @@ async def _define_meter(container: Container) -> None:
         container[Meter] = await EXIT_STACK.enter_async_context(OpenTelemetryMeter())
 
     else:
-        _define_singleton(container, Meter, NullMeter)
+        _define_singleton(container, Meter, LocalMeter)
 
 
 def _define_singleton(container: Container, interface: type, implementation: type) -> None:
@@ -795,6 +804,7 @@ async def initialize_container(
         async def get_transient_vector_db() -> VectorDatabase:
             return TransientVectorDatabase(
                 c[Logger],
+                c[Tracer],
                 embedder_factory,
                 lambda: c[EmbeddingCache],
             )
@@ -847,8 +857,11 @@ async def initialize_container(
         ToolRunningActionSchema,
         AgentIntentionProposerSchema,
         DisambiguationGuidelineMatchesSchema,
-        JourneyNodeSelectionSchema,
+        JourneyBacktrackNodeSelectionSchema,
+        JourneyNextStepSelectionSchema,
+        JourneyBacktrackCheckSchema,
         RelativeActionSchema,
+        ReachableNodesEvaluationSchema,
     ):
         generator = await nlp_service_instance.get_schematic_generator(schema)
 

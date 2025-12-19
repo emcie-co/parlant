@@ -29,7 +29,7 @@ class GuidelineContinuousProposition(DefaultBaseModel):
 
 
 class GuidelineContinuousPropositionSchema(DefaultBaseModel):
-    reason: str
+    rationale: str
     is_continuous: bool
 
 
@@ -156,12 +156,12 @@ action: {action}
         builder.add_section(
             name="guideline-action-proposer-output-format",
             template="""
-Use the following format to evaluate wether the guideline is continuous
+Use the following format to evaluate whether the guideline is continuous
 Expected output (JSON):
 ```json
 {{
-  "reason": "<SHORT RATIONAL>",
-  "is_continuous": "<BOOL>"
+  "rationale": "<str, short explanation of whether the guideline is continuous>",
+  "is_continuous": "<bool>"
 }}
 ```
 """,

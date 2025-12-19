@@ -339,7 +339,7 @@ async def base_test_that_guideline_with_proposed_action_matched(
         session=session,
         session_event_emitter=EventBuffer(agent),
         response_event_emitter=EventBuffer(agent),
-        interaction=Interaction(history=interaction_history),
+        interaction=Interaction(events=interaction_history),
         state=ResponseState(
             context_variables=[],
             glossary_terms=set(),

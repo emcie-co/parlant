@@ -64,8 +64,11 @@ class AnthropicBedrockAISchematicGenerator(BaseSchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+
         self.model_name = model_name
         self._logger = logger
         self._meter = meter
@@ -187,10 +190,11 @@ class AnthropicBedrockAISchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class Claude_Sonnet_3_5(AnthropicBedrockAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(
             model_name="anthropic.claude-3-5-sonnet-20240620-v1:0",
             logger=logger,
+            tracer=tracer,
             meter=meter,
         )
 

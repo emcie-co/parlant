@@ -151,10 +151,13 @@ class OllamaSchematicGenerator(BaseSchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
         base_url: str = "http://localhost:11434",
         default_timeout: int | str = 300,
     ) -> None:
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+
         self.model_name = model_name
         self.base_url = base_url.rstrip("/")
         self._logger = logger
@@ -348,11 +351,12 @@ class OllamaSchematicGenerator(BaseSchematicGenerator[T]):
 
 class OllamaGemma3_1B(OllamaSchematicGenerator[T]):
     def __init__(
-        self, logger: Logger, meter: Meter, base_url: str = "http://localhost:11434"
+        self, logger: Logger, tracer: Tracer, meter: Meter, base_url: str = "http://localhost:11434"
     ) -> None:
         super().__init__(
             model_name="gemma3:1b",
             logger=logger,
+            tracer=tracer,
             meter=meter,
             base_url=base_url,
         )
@@ -360,11 +364,12 @@ class OllamaGemma3_1B(OllamaSchematicGenerator[T]):
 
 class OllamaGemma3_4B(OllamaSchematicGenerator[T]):
     def __init__(
-        self, logger: Logger, meter: Meter, base_url: str = "http://localhost:11434"
+        self, logger: Logger, tracer: Tracer, meter: Meter, base_url: str = "http://localhost:11434"
     ) -> None:
         super().__init__(
             model_name="gemma3:4b",
             logger=logger,
+            tracer=tracer,
             meter=meter,
             base_url=base_url,
         )
@@ -372,11 +377,12 @@ class OllamaGemma3_4B(OllamaSchematicGenerator[T]):
 
 class OllamaGemma3_12B(OllamaSchematicGenerator[T]):
     def __init__(
-        self, logger: Logger, meter: Meter, base_url: str = "http://localhost:11434"
+        self, logger: Logger, tracer: Tracer, meter: Meter, base_url: str = "http://localhost:11434"
     ) -> None:
         super().__init__(
             model_name="gemma3:12b",
             logger=logger,
+            tracer=tracer,
             meter=meter,
             base_url=base_url,
         )
@@ -384,11 +390,12 @@ class OllamaGemma3_12B(OllamaSchematicGenerator[T]):
 
 class OllamaGemma3_27B(OllamaSchematicGenerator[T]):
     def __init__(
-        self, logger: Logger, meter: Meter, base_url: str = "http://localhost:11434"
+        self, logger: Logger, tracer: Tracer, meter: Meter, base_url: str = "http://localhost:11434"
     ) -> None:
         super().__init__(
             model_name="gemma3:27b",
             logger=logger,
+            tracer=tracer,
             meter=meter,
             base_url=base_url,
         )
@@ -396,11 +403,12 @@ class OllamaGemma3_27B(OllamaSchematicGenerator[T]):
 
 class OllamaLlama31_8B(OllamaSchematicGenerator[T]):
     def __init__(
-        self, logger: Logger, meter: Meter, base_url: str = "http://localhost:11434"
+        self, logger: Logger, tracer: Tracer, meter: Meter, base_url: str = "http://localhost:11434"
     ) -> None:
         super().__init__(
             model_name="llama3.1:8b",
             logger=logger,
+            tracer=tracer,
             meter=meter,
             base_url=base_url,
         )
@@ -414,11 +422,12 @@ class OllamaLlama31_70B(OllamaSchematicGenerator[T]):
     """
 
     def __init__(
-        self, logger: Logger, meter: Meter, base_url: str = "http://localhost:11434"
+        self, logger: Logger, tracer: Tracer, meter: Meter, base_url: str = "http://localhost:11434"
     ) -> None:
         super().__init__(
             model_name="llama3.1:70b",
             logger=logger,
+            tracer=tracer,
             meter=meter,
             base_url=base_url,
         )
@@ -432,11 +441,12 @@ class OllamaLlama31_405B(OllamaSchematicGenerator[T]):
     """
 
     def __init__(
-        self, logger: Logger, meter: Meter, base_url: str = "http://localhost:11434"
+        self, logger: Logger, tracer: Tracer, meter: Meter, base_url: str = "http://localhost:11434"
     ) -> None:
         super().__init__(
             model_name="llama3.1:405b",
             logger=logger,
+            tracer=tracer,
             meter=meter,
             base_url=base_url,
         )
@@ -449,12 +459,14 @@ class CustomOllamaSchematicGenerator(OllamaSchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
         base_url: str = "http://localhost:11434",
     ) -> None:
         super().__init__(
             model_name=model_name,
             logger=logger,
+            tracer=tracer,
             meter=meter,
             base_url=base_url,
         )

@@ -66,8 +66,7 @@ from parlant.core.glossary import GlossaryStore, Term
 from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
 from parlant.core.guidelines import Guideline, GuidelineStore
 from parlant.core.loggers import LogLevel, Logger
-from parlant.core.meter import NullMeter
-from parlant.core.tracer import LocalTracer
+from parlant.core.meter import LocalMeter
 from parlant.core.nlp.generation import (
     FallbackSchematicGenerator,
     SchematicGenerationResult,
@@ -90,6 +89,7 @@ from parlant.core.sessions import (
 )
 from parlant.core.tags import Tag, TagId
 from parlant.core.tools import LocalToolService, ToolId, ToolResult
+from parlant.core.tracer import LocalTracer
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.document_database import BaseDocument, DocumentCollection
 
@@ -174,7 +174,7 @@ class _TestLogger(Logger):
 
 async def nlp_test(context: str, condition: str) -> bool:
     schematic_generator = GPT_4o[NLPTestSchema](
-        logger=_TestLogger(), tracer=LocalTracer(), meter=NullMeter()
+        logger=_TestLogger(), tracer=LocalTracer(), meter=LocalMeter(_TestLogger())
     )
 
     inference = await schematic_generator.generate(
@@ -515,12 +515,12 @@ class CachedSchematicGenerator(SchematicGenerator[TBaseModel]):
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[TBaseModel]:
         if isinstance(prompt, PromptBuilder):
-            prompt = prompt.build()
+            prompt_text = prompt.build()
 
         if self.use_cache is False:
-            return await self._base_generator.generate(prompt, hints)
+            return await self._base_generator.generate(prompt_text, hints)
 
-        id = self._generate_id(prompt, hints)
+        id = self._generate_id(prompt_text, hints)
 
         result_document = await self._collection.find_one(filters={"id": {"$eq": id}})
         if result_document:

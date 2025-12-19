@@ -13,11 +13,13 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import zlib
 from lagom import Container
 from typing import Any, Callable, Optional, Sequence, TypedDict, cast
 from typing_extensions import override
@@ -41,6 +43,18 @@ class EmbeddingResult:
     """Result of an embedding operation."""
 
     vectors: Sequence[Sequence[float]]
+
+
+@dataclass
+class _EmbeddingCacheEntry:
+    """An entry in the embedding LRU cache."""
+
+    text_length: int
+    checksum: int
+    vector: Sequence[float]
+
+
+_EMBEDDING_CACHE_MAX_SIZE = 1000
 
 
 class Embedder(ABC):
@@ -80,6 +94,11 @@ class BaseEmbedder(Embedder):
         self.meter = meter
         self.model_name = model_name
 
+        # LRU cache: checksum -> cache entry
+        self._cache: OrderedDict[int, _EmbeddingCacheEntry] = OrderedDict()
+        # Index for fast length-based lookup: length -> set of checksums
+        self._cache_length_index: dict[int, set[int]] = {}
+
         global _EMBED_DURATION_HISTOGRAM
         if _EMBED_DURATION_HISTOGRAM is None:
             _EMBED_DURATION_HISTOGRAM = meter.create_duration_histogram(
@@ -94,6 +113,70 @@ class BaseEmbedder(Embedder):
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult: ...
 
+    def _compute_checksum(self, text: str) -> int:
+        """Compute a fast checksum for the given text."""
+        return zlib.crc32(text.encode("utf-8"))
+
+    def _cache_get(self, text: str) -> Sequence[float] | None:
+        """Get a cached embedding vector for the given text.
+
+        Uses a two-tier lookup:
+        1. Check if any cache entries have the same length (fast)
+        2. If so, compute checksum and check for exact match
+        """
+        text_length = len(text)
+
+        # Fast path: check if any entries have this length
+        if text_length not in self._cache_length_index:
+            return None
+
+        candidate_checksums = self._cache_length_index[text_length]
+
+        if not candidate_checksums:
+            return None
+
+        # Compute checksum only if we have length matches
+        checksum = self._compute_checksum(text)
+
+        if checksum not in candidate_checksums:
+            return None
+
+        # Cache hit - move to end for LRU
+        if entry := self._cache.get(checksum):
+            self._cache.move_to_end(checksum)
+            return entry.vector
+
+        return None
+
+    def _cache_put(self, text: str, vector: Sequence[float]) -> None:
+        """Store an embedding vector in the cache."""
+        checksum = self._compute_checksum(text)
+        text_length = len(text)
+
+        # If already in cache, just update and move to end
+        if checksum in self._cache:
+            self._cache[checksum].vector = vector
+            self._cache.move_to_end(checksum)
+            return
+
+        # Evict oldest entry if at capacity
+        if len(self._cache) >= _EMBEDDING_CACHE_MAX_SIZE:
+            oldest_checksum, oldest_entry = self._cache.popitem(last=False)
+            self._cache_length_index[oldest_entry.text_length].discard(oldest_checksum)
+            self._cache_length_index.pop(oldest_entry.text_length, None)
+
+        # Add new entry
+        self._cache[checksum] = _EmbeddingCacheEntry(
+            text_length=text_length,
+            checksum=checksum,
+            vector=vector,
+        )
+
+        # Update length index
+        if text_length not in self._cache_length_index:
+            self._cache_length_index[text_length] = set()
+        self._cache_length_index[text_length].add(checksum)
+
     @override
     async def embed(
         self,
@@ -101,6 +184,21 @@ class BaseEmbedder(Embedder):
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
         assert _EMBED_DURATION_HISTOGRAM is not None
+
+        # Check cache for each text, collect hits and misses
+        cached_results: dict[int, Sequence[float]] = {}
+        texts_to_embed: list[tuple[int, str]] = []
+
+        for i, text in enumerate(texts):
+            cached = self._cache_get(text)
+            if cached is not None:
+                cached_results[i] = cached
+            else:
+                texts_to_embed.append((i, text))
+
+        # If all texts were cached, return immediately
+        if not texts_to_embed:
+            return EmbeddingResult(vectors=[cached_results[i] for i in range(len(texts))])
 
         async with _EMBED_DURATION_HISTOGRAM.measure(
             {
@@ -111,7 +209,11 @@ class BaseEmbedder(Embedder):
             start = Stopwatch.start()
 
             try:
-                result = await self.do_embed(texts, hints)
+                # Only embed texts that weren't in cache
+                result = await self.do_embed(
+                    [text for _, text in texts_to_embed],
+                    hints,
+                )
             except Exception:
                 self.tracer.add_event(
                     "embed.request_failed",
@@ -132,7 +234,13 @@ class BaseEmbedder(Embedder):
                     },
                 )
 
-            return result
+            # Cache new results and merge with cached results
+            for (orig_idx, text), vector in zip(texts_to_embed, result.vectors):
+                self._cache_put(text, vector)
+                cached_results[orig_idx] = vector
+
+        # Reconstruct results in original order
+        return EmbeddingResult(vectors=[cached_results[i] for i in range(len(texts))])
 
 
 class EmbedderFactory:

@@ -828,7 +828,6 @@ class GuidelineMatchingContext:
     agent: Agent
     customer: Customer
     variables: Mapping[Variable, JSONSerializable]
-    interaction: Interaction
 
     @classmethod
     async def _from_core(
@@ -857,7 +856,6 @@ class GuidelineMatchingContext:
                 await agent.get_variable(id=var.id): val.data
                 for var, val in core_ctx.context_variables
             },
-            interaction=interaction,
         )
 
 

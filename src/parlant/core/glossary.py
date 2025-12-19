@@ -467,9 +467,7 @@ class GlossaryVectorStore(GlossaryStore):
 
             tasks = [
                 self._collection.find_similar_documents(
-                    filters=filters,
-                    query=q,
-                    k=max_terms,
+                    filters=filters, query=q, k=max_terms, hints={"tag": "glossary_terms"}
                 )
                 for q in queries
             ]

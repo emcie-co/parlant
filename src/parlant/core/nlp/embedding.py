@@ -204,6 +204,7 @@ class BaseEmbedder(Embedder):
             {
                 "class.name": self.__class__.__qualname__,
                 "embedding.model.name": self.model_name,
+                **({"embedding.tag": hints["tag"]} if "tag" in hints else {}),
             },
         ):
             start = Stopwatch.start()

@@ -19,6 +19,7 @@ from typing import Any
 from fastapi import WebSocket
 from typing_extensions import override
 
+from parlant.core.engines.alpha.entity_context import EntityContext
 from parlant.core.common import UniqueId, generate_id
 from parlant.core.tracer import Tracer
 from parlant.core.loggers import TracingLogger, LogLevel
@@ -51,7 +52,10 @@ class WebSocketLogger(TracingLogger):
             "message": message,
         }
 
-        self._message_queue.append(f"{timestamp} {payload}")
+        if context_creation := EntityContext.get_context_creation():
+            payload["message"] = f"[T+{round(context_creation.elapsed, 3)}s]{message}"
+
+        self._message_queue.append(payload)
         self._messages_in_queue.release()
 
     async def subscribe(self, web_socket: WebSocket) -> WebSocketSubscription:

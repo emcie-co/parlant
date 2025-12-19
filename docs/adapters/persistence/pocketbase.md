@@ -10,13 +10,11 @@ wire the stores into PocketBase when booting Parlant via the SDK.
 
 ## Requirements
 
-1. Install the optional dependency (or otherwise provide `httpx`, which is already included):
+1. Install:
 
    ```bash
-   pip install "parlant"
+   pip install "parlant[pocketbase]"
    ```
-
-   Note: The PocketBase adapter uses `httpx` which is already a core dependency of Parlant.
 
 2. Set up a PocketBase instance. You can:
    - Run PocketBase locally: Download from [pocketbase.io](https://pocketbase.io/) and run `./pocketbase serve`
@@ -222,8 +220,16 @@ If you're having trouble connecting to your PocketBase instance:
 
 1. Verify the `POCKETBASE_URL` is correct and accessible
 2. Check that your admin token or credentials are valid
-3. Ensure your PocketBase instance allows admin API access
-4. For custom deployments, verify CORS settings if accessing from a browser
+3. Verify `/api/health` returns 200
+
+### Authentication Errors (404 Not Found)
+
+If you encounter `404 Not Found` errors when authenticating:
+
+1. **PocketBase v0.22+**: The adapter automatically uses the `_superusers` collection endpoint (`/api/collections/_superusers/auth-with-password`)
+2. **PocketBase v0.21 and earlier**: The adapter falls back to the legacy admin endpoint (`/api/admins/auth-with-password`)
+3. Ensure your email/password corresponds to a **Superuser** account (in PocketBase v0.22+) or **Admin** account (in older versions)
+4. Verify your PocketBase instance version (Admin UI footer) if unsure
 
 ### Collection Creation Errors
 

@@ -14,7 +14,7 @@
 
 from dataclasses import dataclass
 from itertools import chain
-from typing import Mapping, Optional, Sequence
+from typing import Mapping, Optional, Sequence, cast
 from parlant.core.customers import Customer
 from parlant.core.engines.alpha.engine_context import EngineContext
 from parlant.core.meter import Meter
@@ -112,6 +112,50 @@ class ToolEventGenerator:
             staged_events,
         )
 
+    async def _list_relevant_tool_enabled_guideline_matches(
+        self,
+        context: EngineContext,
+    ) -> tuple[
+        Mapping[GuidelineMatch, Sequence[ToolId]],
+        Sequence[GuidelineMatch],
+    ]:
+        # If there are no tool events, all guideline matches that are associated to tools are relevant
+        # Otherwise, only return those guideline matches that are associated to tools that was not called yet
+        # in the current engine process.
+        # In case guideline match is associated to at least one tool that was called, consider it as an ordinary guideline match.
+        # In case guideline match is associated to multiple tools, and only some of them were called, exclude the tools from the match.
+        if not context.state.tool_events:
+            return (
+                context.state.tool_enabled_guideline_matches,
+                context.state.ordinary_guideline_matches,
+            )
+
+        # Extract tool IDs from existing tool events
+        called_tool_ids: set[ToolId] = set()
+        for event in context.state.tool_events:
+            tool_calls = cast(ToolEventData, event.data)["tool_calls"]
+            for tool_call in tool_calls:
+                called_tool_ids.add(ToolId.from_string(tool_call["tool_id"]))
+
+        filtered_tool_enabled_matches = {}
+        ordinary_matches = list(context.state.ordinary_guideline_matches)
+
+        for guideline_match, tool_ids in context.state.tool_enabled_guideline_matches.items():
+            # Filter out tools that have already been called
+            remaining_tool_ids = [tool_id for tool_id in tool_ids if tool_id not in called_tool_ids]
+
+            if remaining_tool_ids:
+                # If there are still uncalled tools, keep this as a tool-enabled match
+                filtered_tool_enabled_matches[guideline_match] = remaining_tool_ids
+            elif len(tool_ids) > 0:
+                # If all tools were called, convert to ordinary guideline match
+                ordinary_matches.append(guideline_match)
+
+        return (
+            filtered_tool_enabled_matches,
+            ordinary_matches,
+        )
+
     async def generate_events(
         self,
         preexecution_state: ToolPreexecutionState,
@@ -119,7 +163,12 @@ class ToolEventGenerator:
     ) -> ToolEventGenerationResult:
         _ = preexecution_state  # Not used for now, but good to have for extensibility
 
-        if not context.state.tool_enabled_guideline_matches:
+        (
+            tool_enabled_guideline_matches,
+            ordinary_guideline_matches,
+        ) = await self._list_relevant_tool_enabled_guideline_matches(context)
+
+        if not tool_enabled_guideline_matches:
             self._logger.trace("Skipping tool calling; no tools associated with guidelines found")
             return ToolEventGenerationResult(generations=[], events=[], insights=ToolInsights())
 
@@ -138,8 +187,8 @@ class ToolEventGenerator:
             context_variables=context.state.context_variables,
             interaction_history=context.interaction.events,
             terms=list(context.state.glossary_terms),
-            ordinary_guideline_matches=context.state.ordinary_guideline_matches,
-            tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
+            ordinary_guideline_matches=ordinary_guideline_matches,
+            tool_enabled_guideline_matches=tool_enabled_guideline_matches,
             journeys=context.state.journeys,
             staged_events=context.state.tool_events,
         )

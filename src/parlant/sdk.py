@@ -3246,14 +3246,12 @@ class Server:
 
         await self._setup_retrievers()
 
-        # Start health check polling to set ready event when the server is ready to receive requests
-        health_check_task = asyncio.create_task(self._poll_health_endpoint())
-
         # Shut down the server
         await self._startup_context_manager.__aexit__(exc_type, exc_value, tb)
 
+        # Start health check polling to set ready event when the server is ready to receive requests
         # Wait for health check to complete before cleanup
-        await health_check_task
+        await asyncio.create_task(self._poll_health_endpoint())
 
         await self._exit_stack.aclose()
         return False

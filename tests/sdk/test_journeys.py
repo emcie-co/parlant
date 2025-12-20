@@ -1474,6 +1474,7 @@ class Test_that_three_journeys_can_be_concatenated(SDKTest):
         assert response3 == "All done! Thank you for completing all steps."
 
 
+@pytest.mark.engine
 class Test_that_journey_is_not_reevaluated_when_not_associated_tool_is_called(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(

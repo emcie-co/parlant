@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from enum import Enum
 import pytest
 
 from parlant.core.guidelines import GuidelineStore
@@ -1471,3 +1472,49 @@ class Test_that_three_journeys_can_be_concatenated(SDKTest):
             reuse_session=True,
         )
         assert response3 == "All done! Thank you for completing all steps."
+
+
+class Test_that_journey_is_not_reevaluated_when_not_associated_tool_is_called(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Bank Agent",
+            description="Just a bank test agent",
+        )
+
+        class Origin(Enum):
+            AI_AGENT = "AI_AGENT"
+            HUMAN_AGENT = "HUMAN_AGENT"
+
+        @tool
+        def check_balance(context: ToolContext) -> ToolResult:
+            return ToolResult(data={"balance": 500})
+
+        await self.agent.create_guideline(
+            condition="Customer asks for account balance",
+            action="Tell him his account balance",
+            tools=[check_balance],
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Customer Greeting Journey",
+            conditions=["Customer arrives"],
+            description="Greet customers with personalized responses",
+        )
+
+        self.initial_transition = await self.journey.initial_state.transition_to(
+            chat_state="Greet him with 'Howdy!'",
+            condition="The customer balance is not known",
+        )
+
+        self.second_transition = await self.initial_transition.target.transition_to(
+            chat_state="Greet the customer to our bank",
+            condition="The customer balance is known",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            "Hey, Whats my balance?", recipient=self.agent
+        )
+
+        assert "500" in response
+        assert "Howdy" in response

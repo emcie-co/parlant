@@ -1487,7 +1487,7 @@ class Test_that_journey_is_not_reevaluated_when_not_associated_tool_is_called(SD
             HUMAN_AGENT = "HUMAN_AGENT"
 
         @tool
-        def check_balance(context: ToolContext) -> ToolResult:
+        def check_balance(context: ToolContext, origin: Origin) -> ToolResult:
             return ToolResult(data={"balance": 500})
 
         await self.agent.create_guideline(

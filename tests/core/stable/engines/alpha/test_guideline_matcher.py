@@ -106,10 +106,6 @@ OBSERVATIONAL_GUIDELINES_DICT = {
         "condition": "the customer ever indicated that they wish to lock their credit card",
         "observation": "-",
     },
-    "lost_card": {
-        "condition": "the customer lost their credit card",
-        "observation": "-",
-    },
     "season_is_winter": {
         "condition": "it is the season of winter",
         "observation": "-",
@@ -147,7 +143,7 @@ OBSERVATIONAL_GUIDELINES_DICT = {
         "observation": "-",
     },
     "lost_card": {
-        "condition": "The customer said that they lost their card",
+        "condition": "The customer says that they lost their card",
         "observation": "-",
     },
     "business_class": {

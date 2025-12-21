@@ -3249,7 +3249,7 @@ class Server:
         # Start health check polling to set ready event when the server is ready to receive requests
         health_check_task = asyncio.create_task(self._poll_health_endpoint())
 
-        # Shut down the server
+        # This actually starts the server
         await self._startup_context_manager.__aexit__(exc_type, exc_value, tb)
 
         # Wait for health check to complete before cleanup
@@ -3265,7 +3265,7 @@ class Server:
         async with httpx.AsyncClient() as client:
             while True:
                 try:
-                    response = await client.get(url, timeout=1.0)
+                    response = await client.get(url, timeout=30.0)
 
                     if response.status_code != 200:
                         self._container[Logger].critical("Health check failed.")

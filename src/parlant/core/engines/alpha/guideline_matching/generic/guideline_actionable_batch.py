@@ -221,7 +221,7 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
         builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
 
         builder.add_section(
-            name="guideline-not-previously-applied-general-instructions",
+            name="actionable-guideline-general-instructions-task-description",
             template="""
 GENERAL INSTRUCTIONS
 -----------------
@@ -259,7 +259,7 @@ The exact format of your response will be provided later in this prompt.
             props={},
         )
         builder.add_section(
-            name="guideline-matcher-examples-of-not-previously-applied-evaluations",
+            name="actionable-guideline-matcher-examples-of-evaluations",
             template="""
 Examples of Guideline Match Evaluations:
 -------------------
@@ -289,7 +289,7 @@ Examples of Guideline Match Evaluations:
         )
 
         builder.add_section(
-            name="guideline-not-previously-applied-output-format",
+            name="actionable-guideline-output-format",
             template="""
 IMPORTANT: Please note there are exactly {guidelines_len} guidelines in the list for you to check.
 

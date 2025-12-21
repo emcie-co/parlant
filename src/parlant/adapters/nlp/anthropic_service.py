@@ -246,6 +246,21 @@ class Claude_Opus_4_1(AnthropicAISchematicGenerator[T]):
         return 200 * 1024
 
 
+class Claude_Haiku_4_5(AnthropicAISchematicGenerator[T]):
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(
+            model_name="claude-haiku-4-5",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 200 * 1024
+
+
 class AnthropicService(NLPService):
     @staticmethod
     def verify_environment() -> str | None:
@@ -275,8 +290,8 @@ Please set ANTHROPIC_API_KEY in your environment before running Parlant.
             or t == DisambiguationGuidelineMatchesSchema
             or t == CannedResponseSelectionSchema
         ):
-            return Claude_Opus_4_1[t](self._logger, self._tracer, self._meter)  # type: ignore
-        return Claude_Sonnet_4[t](self._logger, self._tracer, self._meter)  # type: ignore
+            return Claude_Haiku_4_5[t](self._logger, self._tracer, self._meter)  # type: ignore
+        return Claude_Haiku_4_5[t](self._logger, self._tracer, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:

@@ -102,11 +102,11 @@ OBSERVATIONAL_GUIDELINES_DICT = {
         "condition": "the customer is vegetarian or vegan",
         "observation": "-",
     },
-    "lock_card_request_1": {
-        "condition": "the customer indicated that they wish to lock their credit card",
+    "ever_requested_lock_card": {
+        "condition": "the customer ever indicated that they wish to lock their credit card",
         "observation": "-",
     },
-    "lock_card_request_2": {
+    "lost_card": {
         "condition": "the customer lost their credit card",
         "observation": "-",
     },
@@ -151,7 +151,7 @@ OBSERVATIONAL_GUIDELINES_DICT = {
         "observation": "-",
     },
     "business_class": {
-        "condition": "The customer is currently discussing their preference for business class.",
+        "condition": "The customer expresses a preference for business class.",
         "observation": "-",
     },
     "book_flight": {
@@ -2098,8 +2098,8 @@ async def test_that_observational_guidelines_are_detected_based_on_tool_results(
 
     conversation_guideline_names: list[str] = [
         "season_is_winter",
-        "lock_card_request_1",
-        "lock_card_request_2",
+        "ever_requested_lock_card",
+        "lost_card",
     ]
 
     relevant_guideline_names = ["season_is_winter"]
@@ -2266,8 +2266,8 @@ async def test_that_observational_guidelines_are_matched_based_on_old_messages(
             "Yes, please email me the prospectus. And what about cryptocurrency investments?",
         ),
     ]
-    conversation_guideline_names: list[str] = ["lock_card_request_1", "lock_card_request_2"]
-    relevant_guideline_names: list[str] = ["lock_card_request_2", "lock_card_request_1"]
+    conversation_guideline_names: list[str] = ["ever_requested_lock_card", "lost_card"]
+    relevant_guideline_names: list[str] = ["ever_requested_lock_card"]
     await base_test_that_correct_guidelines_are_matched(
         context,
         agent,
@@ -2529,8 +2529,8 @@ async def test_that_both_observational_and_actionable_guidelines_are_matched_tog
         "unknown_service",
         "delivery_order",
         "unanswered_questions",
-        "lock_card_request_1",
-        "lock_card_request_2",
+        "ever_requested_lock_card",
+        "lost_card",
         # Actionable guidelines
         "address_location",
         "class_booking",

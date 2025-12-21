@@ -19,6 +19,7 @@ import ast
 import json
 import traceback
 from typing import Any, Literal, Optional, Sequence, TypeAlias, cast
+from pydantic import field_validator
 from typing_extensions import override
 
 from parlant.core.agents import Agent
@@ -58,6 +59,26 @@ class ValidationStatus(Enum):
     VALID = "valid"
     INVALID = "invalid"
     MISSING = "missing"
+
+
+class NonConsequentialToolCallEvaluation(DefaultBaseModel):
+    args: Optional[dict[str, str | None]] = None
+
+    @field_validator("args", mode="before")
+    @classmethod
+    def stringify_values(cls, args: Optional[dict[str, Any]]) -> Optional[dict[str, str | None]]:
+        return {k: str(v) if v is not None else None for k, v in args.items()} if args else None
+
+
+class NonConsequentialToolBatchSchema(DefaultBaseModel):
+    reasoning_tldr: str | None = None
+    should_run: bool | None = False
+    calls: list[NonConsequentialToolCallEvaluation] = []
+
+
+@dataclass
+class NonConsequentialSingleToolBatchShot(Shot):
+    expected_result: NonConsequentialToolBatchSchema
 
 
 class SingleToolBatchArgumentEvaluation(DefaultBaseModel):
@@ -105,6 +126,20 @@ class SingleToolBatchSchema(DefaultBaseModel):
 
 SingleToolCallFeature: TypeAlias = Literal["has_reference_tools", "has_optional_arguments"]
 
+_SECTION_NAMES = {
+    "general-instructions": "tool-caller-general-instructions",
+    "task-description": "tool-caller-task-description",
+    "examples": "tool-caller-examples",
+    "tool-definitions": "tool-caller-tool-definitions",
+    "tool-definition": "tool-caller-tool-definition",
+    "staged-tool-calls": "tool-caller-staged-tool-calls",
+    "empty-staged-tool-calls": "tool-caller-empty-staged-tool-calls",
+    "output-format": "tool-caller-output-format",
+}
+
+_CONSEQUENTIAL_SUFFIX = "_consequential"
+_NON_CONSEQUENTIAL_SUFFIX = "_non_consequential"
+
 
 @dataclass
 class SingleToolBatchShot(Shot):
@@ -119,7 +154,8 @@ class SingleToolBatch(ToolCallBatch):
         meter: Meter,
         optimization_policy: OptimizationPolicy,
         service_registry: ServiceRegistry,
-        schematic_generator: SchematicGenerator[SingleToolBatchSchema],
+        consequential_schema_generator: SchematicGenerator[SingleToolBatchSchema],
+        non_consequential_schema_generator: SchematicGenerator[NonConsequentialToolBatchSchema],
         candidate_tool: tuple[ToolId, Tool, Sequence[GuidelineMatch]],
         context: ToolCallContext,
     ) -> None:
@@ -128,7 +164,8 @@ class SingleToolBatch(ToolCallBatch):
 
         self._optimization_policy = optimization_policy
         self._service_registry = service_registry
-        self._schematic_generator = schematic_generator
+        self._consequential_schema_generator = consequential_schema_generator
+        self._non_consequential_schema_generator = non_consequential_schema_generator
         self._context = context
         self._candidate_tool = candidate_tool
 
@@ -142,17 +179,35 @@ class SingleToolBatch(ToolCallBatch):
                         return True
         return False
 
+    def _is_tool_call_already_staged(self, tool_id: ToolId, args: dict[str, Any] | None) -> bool:
+        for event in self._context.staged_events:
+            if event.kind == EventKind.TOOL:
+                tool_calls = cast(ToolEventData, event.data).get("tool_calls", [])
+
+                for tc in tool_calls:
+                    if tc.get("tool_id") == tool_id.to_string():
+                        if not args:
+                            return not tc.get("arguments")
+                        else:
+                            return tc.get("arguments") == args
+        return False
+
     @override
     async def process(self) -> ToolCallBatchResult:
         tool_id, tool, _ = self._candidate_tool
 
-        # Optimization: auto-approve non-consequential tools with no parameters
+        # Optimization 1: auto-approve non-consequential tools with no parameters
         # if they are not already staged
         if (
             not tool.consequential
             and not tool.parameters
             and not self._is_tool_already_staged(tool_id)
         ):
+            self._logger.debug(
+                f"Inference::Completion::Activated: {tool_id.to_string()}: "
+                "Auto-approved non-consequential tool with no parameters"
+            )
+
             return ToolCallBatchResult(
                 generation_info=GenerationInfo(
                     schema_name="SingleToolBatchSchema",
@@ -174,6 +229,19 @@ class SingleToolBatch(ToolCallBatch):
                 ),
             )
 
+        # Optimization 2: use simplified mode for non-consequential tools WITH parameters
+        if not tool.consequential:
+            async with measure_tool_call_batch(self._meter, self):
+                return await self._infer_calls_for_non_consequential_tool(
+                    agent=self._context.agent,
+                    context_variables=self._context.context_variables,
+                    interaction_history=self._context.interaction_history,
+                    terms=self._context.terms,
+                    candidate_descriptor=self._candidate_tool,
+                    staged_events=self._context.staged_events,
+                )
+
+        # Full inference path (for consequential tools)
         async with measure_tool_call_batch(self._meter, self):
             (
                 generation_info,
@@ -181,7 +249,7 @@ class SingleToolBatch(ToolCallBatch):
                 execution_status,
                 missing_data,
                 invalid_data,
-            ) = await self._infer_calls_for_single_tool(
+            ) = await self._infer_calls_for_consequential_tool(
                 agent=self._context.agent,
                 context_variables=self._context.context_variables,
                 interaction_history=self._context.interaction_history,
@@ -193,15 +261,15 @@ class SingleToolBatch(ToolCallBatch):
                 staged_events=self._context.staged_events,
             )
 
-        return ToolCallBatchResult(
-            generation_info=generation_info,
-            tool_calls=inference_output,
-            insights=ToolInsights(
-                evaluations=execution_status,
-                missing_data=missing_data,
-                invalid_data=invalid_data,
-            ),
-        )
+            return ToolCallBatchResult(
+                generation_info=generation_info,
+                tool_calls=inference_output,
+                insights=ToolInsights(
+                    evaluations=execution_status,
+                    missing_data=missing_data,
+                    invalid_data=invalid_data,
+                ),
+            )
 
     async def _validate_argument_value(
         self,
@@ -217,7 +285,7 @@ class SingleToolBatch(ToolCallBatch):
                 return all(v in descriptor["enum"] for v in ast.literal_eval(value))
         return True
 
-    async def _infer_calls_for_single_tool(
+    async def _infer_calls_for_consequential_tool(
         self,
         agent: Agent,
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
@@ -235,7 +303,7 @@ class SingleToolBatch(ToolCallBatch):
         list[MissingToolData],
         list[InvalidToolData],
     ]:
-        inference_prompt = self._build_tool_call_inference_prompt(
+        inference_prompt = self._build_consequential_tool_prompt(
             agent,
             context_variables,
             interaction_history,
@@ -257,8 +325,9 @@ class SingleToolBatch(ToolCallBatch):
 
         for generation_attempt in range(3):
             try:
-                generation_info, inference_output = await self._run_inference(
+                generation_info, inference_output = await self._run_consequential_tool_inference(
                     prompt=inference_prompt,
+                    tool_id=candidate_descriptor[0],
                     temperature=generation_attempt_temperatures[generation_attempt],
                 )
 
@@ -268,7 +337,9 @@ class SingleToolBatch(ToolCallBatch):
                     evaluations,
                     missing_data,
                     invalid_data,
-                ) = await self._evaluate_tool_calls(inference_output, candidate_descriptor)
+                ) = await self._evaluate_consequential_tool_calls(
+                    inference_output, candidate_descriptor
+                )
 
                 return generation_info, tool_calls, evaluations, missing_data, invalid_data
 
@@ -281,7 +352,7 @@ class SingleToolBatch(ToolCallBatch):
 
         raise ToolCallBatchError() from last_generation_exception
 
-    async def _evaluate_tool_calls(
+    async def _evaluate_consequential_tool_calls(
         self,
         inference_output: Sequence[SingleToolBatchToolCallEvaluation],
         candidate_descriptor: tuple[ToolId, Tool, Sequence[GuidelineMatch]],
@@ -291,17 +362,24 @@ class SingleToolBatch(ToolCallBatch):
         list[MissingToolData],
         list[InvalidToolData],
     ]:
+        tool = candidate_descriptor[1]
         tool_calls = []
         evaluations = []
-        missing_data = []
-        invalid_data = []
+        missing_data: list[MissingToolData] = []
+        invalid_data: list[InvalidToolData] = []
         tool_id, tool, _ = candidate_descriptor
 
         for tc in inference_output:
+            entries = {
+                e.parameter_name: e
+                for e in tc.argument_evaluations or []
+                if e.parameter_name in tool.parameters
+            }
+
             # First - check validity of all parameters with provided values
             all_values_valid = True
 
-            for evaluation in tc.argument_evaluations or []:
+            for evaluation in entries.values():
                 descriptor, options = tool.parameters[evaluation.parameter_name]
 
                 if evaluation.value_as_string and not await self._validate_argument_value(
@@ -314,7 +392,6 @@ class SingleToolBatch(ToolCallBatch):
                         f'Inference::Completion::InvalidArgument: {tool_id.to_string()}: {evaluation.parameter_name}="{evaluation.value_as_string}"'
                     )
 
-                    # FIXME: What happens when a hidden parameter is invalid? does it just swallow the error?
                     if not options.hidden:
                         invalid_data.append(
                             InvalidToolData(
@@ -327,7 +404,7 @@ class SingleToolBatch(ToolCallBatch):
                             )
                         )
 
-                        evaluations.append((tool_id, ToolCallEvaluation.CANNOT_RUN))
+                    evaluations.append((tool_id, ToolCallEvaluation.CANNOT_RUN))
 
             if (
                 tc.is_applicable
@@ -367,10 +444,12 @@ class SingleToolBatch(ToolCallBatch):
 
                         evaluations.append((tool_id, ToolCallEvaluation.NEEDS_TO_RUN))
                 else:
+                    has_missing_arguments = False
+
                     for evaluation in tc.argument_evaluations or []:
                         if evaluation.parameter_name not in tool.parameters:
-                            self._logger.error(
-                                f"Inference::Completion: Argument {evaluation.parameter_name} not found in tool parameters"
+                            self._logger.warning(
+                                f"Inference::Completion: Unknown argument '{evaluation.parameter_name}' not found in tool parameters"
                             )
                             continue
 
@@ -379,22 +458,53 @@ class SingleToolBatch(ToolCallBatch):
                         if (
                             evaluation.valid_invalid_or_missing == ValidationStatus.MISSING
                             and not evaluation.is_optional
-                            and not tool_options.hidden
                         ):
                             display_name = tool_options.display_name or evaluation.parameter_name
 
-                            if display_name not in [p.parameter for p in invalid_data]:
-                                missing_data.append(
-                                    MissingToolData(
-                                        parameter=display_name,
-                                        significance=tool_options.significance,
-                                        description=tool_descriptor.get("description"),
-                                        precedence=tool_options.precedence,
-                                        choices=tool_descriptor.get("enum", None),
+                            if not tool_options.hidden:
+                                if display_name not in [p.parameter for p in missing_data]:
+                                    missing_data.append(
+                                        MissingToolData(
+                                            parameter=display_name,
+                                            significance=tool_options.significance,
+                                            description=tool_descriptor.get("description"),
+                                            precedence=tool_options.precedence,
+                                            choices=tool_descriptor.get("enum", None),
+                                        )
                                     )
+                            else:
+                                self._logger.warning(
+                                    f"Inference::Completion: Hidden argument '{evaluation.parameter_name}' is missing"
                                 )
 
-                                evaluations.append((tool_id, ToolCallEvaluation.CANNOT_RUN))
+                            has_missing_arguments = True
+
+                    for parameter_name in tool.parameters:
+                        if parameter_name not in entries:
+                            self._logger.warning(
+                                f"Inference::Completion: Argument '{parameter_name}' is missing"
+                            )
+
+                            if not tool_options.hidden:
+                                if display_name not in [p.parameter for p in invalid_data]:
+                                    missing_data.append(
+                                        MissingToolData(
+                                            parameter=display_name,
+                                            significance=tool_options.significance,
+                                            description=tool_descriptor.get("description"),
+                                            precedence=tool_options.precedence,
+                                            choices=tool_descriptor.get("enum", None),
+                                        )
+                                    )
+                            else:
+                                self._logger.warning(
+                                    f"Inference::Completion: Hidden argument '{evaluation.parameter_name}' is missing"
+                                )
+
+                        has_missing_arguments = True
+
+                    if has_missing_arguments:
+                        evaluations.append((tool_id, ToolCallEvaluation.CANNOT_RUN))
 
                     self._logger.debug(
                         f"Inference::Completion::Rejected: Missing arguments for {tool_id.to_string()}\n{tc.model_dump_json(indent=2)}"
@@ -436,26 +546,16 @@ Please be tolerant of possible typos by the user with regards to these terms,and
 """  # noqa
 
     async def shots(self) -> Sequence[SingleToolBatchShot]:
-        return await shot_collection.list()
+        return await consequential_shot_collection.list()
 
     def _format_shots(
         self,
-        shots: Sequence[SingleToolBatchShot],
+        shots: Sequence[SingleToolBatchShot | NonConsequentialSingleToolBatchShot],
     ) -> str:
-        return "\n".join(
-            f"""
-Example #{i}: ###
-{self._format_shot(shot)}
-###
-"""
-            for i, shot in enumerate(shots, start=1)
-        )
-
-    def _format_shot(
-        self,
-        shot: SingleToolBatchShot,
-    ) -> str:
-        return f"""
+        def format_shot(
+            shot: SingleToolBatchShot | NonConsequentialSingleToolBatchShot,
+        ) -> str:
+            return f"""
 - **Context**:
 {shot.description}
 
@@ -464,7 +564,16 @@ Example #{i}: ###
 {json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
 ```"""
 
-    def _build_tool_call_inference_prompt(
+        return "\n".join(
+            f"""
+Example #{i}: ###
+{format_shot(shot)}
+###
+"""
+            for i, shot in enumerate(shots, start=1)
+        )
+
+    def _build_consequential_tool_prompt(
         self,
         agent: Agent,
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
@@ -482,7 +591,7 @@ Example #{i}: ###
         builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
 
         builder.add_section(
-            name="tool-caller-general-instructions",
+            name=_SECTION_NAMES["general-instructions"] + _CONSEQUENTIAL_SUFFIX,
             template="""
 GENERAL INSTRUCTIONS
 -----------------
@@ -501,7 +610,7 @@ These calls do not require to be re-run at this time, unless you identify a vali
         )
         builder.add_agent_identity(agent)
         builder.add_section(
-            name="tool-caller-task-description",
+            name=_SECTION_NAMES["task-description"] + _CONSEQUENTIAL_SUFFIX,
             template="""
 -----------------
 TASK DESCRIPTION
@@ -529,7 +638,7 @@ Only the responses are provided, without the interaction history or tool descrip
             props={},
         )
         builder.add_section(
-            name="tool-caller-examples",
+            name=_SECTION_NAMES["examples"] + _CONSEQUENTIAL_SUFFIX,
             template="""
 EXAMPLES
 -----------------
@@ -562,7 +671,7 @@ EXAMPLES
             reference_tools=reference_tools,
         )
         builder.add_section(
-            name="tool-caller-tool-definitions",
+            name=_SECTION_NAMES["tool-definitions"] + _CONSEQUENTIAL_SUFFIX,
             template=tool_definitions_template,
             props={
                 **tool_definitions_props,
@@ -572,7 +681,7 @@ EXAMPLES
         )
         if staged_calls:
             builder.add_section(
-                name="tool-caller-staged-tool-calls",
+                name=_SECTION_NAMES["staged-tool-calls"] + _CONSEQUENTIAL_SUFFIX,
                 template="""
 STAGED TOOL CALLS
 -----------------
@@ -589,7 +698,7 @@ The staged tool calls are:
             )
         else:
             builder.add_section(
-                name="tool-caller-empty-staged-tool-calls",
+                name=_SECTION_NAMES["empty-staged-tool-calls"] + _CONSEQUENTIAL_SUFFIX,
                 template="""
 STAGED TOOL CALLS
 -----------------
@@ -599,7 +708,7 @@ There are no staged tool calls at this time.
             )
 
         builder.add_section(
-            name="tool-caller-output-format",
+            name=_SECTION_NAMES["output-format"] + _CONSEQUENTIAL_SUFFIX,
             template="""
 OUTPUT FORMAT
 -----------------
@@ -845,18 +954,354 @@ Guidelines:
 
         return json.dumps(staged_calls)
 
-    async def _run_inference(
+    async def _run_consequential_tool_inference(
         self,
         prompt: PromptBuilder,
+        tool_id: ToolId,
         temperature: float,
     ) -> tuple[GenerationInfo, Sequence[SingleToolBatchToolCallEvaluation]]:
-        inference = await self._schematic_generator.generate(
+        inference = await self._consequential_schema_generator.generate(
             prompt=prompt,
             hints={"temperature": temperature},
         )
-        self._logger.trace(f"Inference::Completion:\n{inference.content.model_dump_json(indent=2)}")
+        self._logger.trace(
+            f"Inference::Completion: {tool_id.to_string()}\n{inference.content.model_dump_json(indent=2)}"
+        )
 
         return inference.info, inference.content.tool_calls_for_candidate_tool
+
+    async def _infer_calls_for_non_consequential_tool(
+        self,
+        agent: Agent,
+        context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
+        interaction_history: Sequence[Event],
+        terms: Sequence[Term],
+        candidate_descriptor: tuple[ToolId, Tool, Sequence[GuidelineMatch]],
+        staged_events: Sequence[EmittedEvent],
+    ) -> ToolCallBatchResult:
+        prompt = self._build_non_consequential_tool_prompt(
+            agent=agent,
+            context_variables=context_variables,
+            interaction_history=interaction_history,
+            ordinary_guideline_matches=self._context.ordinary_guideline_matches,
+            terms=terms,
+            candidate_descriptor=candidate_descriptor,
+            staged_events=staged_events,
+            shots=await non_consequential_shot_collection.list(),
+        )
+
+        generation_attempt_temperatures = (
+            self._optimization_policy.get_tool_calling_batch_retry_temperatures()
+        )
+
+        last_exception: Exception | None = None
+
+        for attempt in range(3):
+            try:
+                generation_info, output = await self._run_non_consequential_tool_inference(
+                    prompt=prompt,
+                    tool_id=candidate_descriptor[0],
+                    temperature=generation_attempt_temperatures[attempt],
+                )
+
+                tool_calls, evaluations, missing_data, invalid_data = (
+                    self._evaluate_non_consequential_tool_calls(output, candidate_descriptor)
+                )
+
+                return ToolCallBatchResult(
+                    generation_info=generation_info,
+                    tool_calls=tool_calls,
+                    insights=ToolInsights(
+                        evaluations=evaluations,
+                        missing_data=missing_data,
+                        invalid_data=invalid_data,
+                    ),
+                )
+
+            except Exception as exc:
+                self._logger.warning(
+                    f"SingleToolBatch attempt {attempt} failed: {traceback.format_exception(exc)}"
+                )
+                last_exception = exc
+
+        raise ToolCallBatchError() from last_exception
+
+    def _build_non_consequential_tool_prompt(
+        self,
+        agent: Agent,
+        context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
+        interaction_history: Sequence[Event],
+        terms: Sequence[Term],
+        ordinary_guideline_matches: Sequence[GuidelineMatch],
+        candidate_descriptor: tuple[ToolId, Tool, Sequence[GuidelineMatch]],
+        staged_events: Sequence[EmittedEvent],
+        shots: Sequence[NonConsequentialSingleToolBatchShot],
+    ) -> PromptBuilder:
+        staged_calls = self._get_staged_calls(staged_events)
+        tool_id, tool, _ = candidate_descriptor
+
+        builder = PromptBuilder(
+            on_build=lambda prompt: self._logger.trace(f"SimplifiedPrompt:\n{prompt}")
+        )
+
+        # Minimal instructions
+        builder.add_section(
+            name=_SECTION_NAMES["general-instructions"] + _NON_CONSEQUENTIAL_SUFFIX,
+            template="""\
+GENERAL INSTRUCTIONS
+-----------------
+You are part of a system of AI agents which interact with a customer on the behalf of a business.
+
+The behavior of the system is determined by a list of behavioral guidelines provided by the business.
+
+Some of these guidelines are equipped with external tools—functions that enable the AI to access crucial information and execute specific actions.
+
+Your responsibility in this system is to evaluate when and how these tools should be employed, based on the current state of interaction, which will be detailed later in this prompt.
+
+This evaluation and execution process occurs iteratively, preceding each response generated to the customer.
+
+Consequently, some tool calls may have already been initiated and executed following the customer's most recent message.
+
+Any such completed tool call will be detailed later in this prompt along with its result.
+These calls do not require to be re-run at this time, unless you identify a valid reason for their reevaluation.
+
+Task Instructions:
+- Only call the tool if it's clearly relevant to the customer's current request (mark should_run: true)
+- Extract parameter values directly from the conversation or context variables
+- If a required parameter value cannot be determined or inferred contextually, do not create a tool call - but still mark it as should_run: true. For the missing parameters, insert "<<__missing__>>" as value.
+- If the same call is already staged, do not call the tool again - and do not create a tool call - and mark it as should_run: false
+- You're free to infer some parameters from context, where applicable (e.g., dates, names) - e.g., if someone says "next Friday", you can convert that to an actual date string if you know the date - and so forth
+""",
+            props={},
+        )
+
+        builder.add_section(
+            name=_SECTION_NAMES["examples"] + _CONSEQUENTIAL_SUFFIX,
+            template="""
+EXAMPLES
+-----------------
+{formatted_shots}
+""",
+            props={"formatted_shots": self._format_shots(shots), "shots": shots},
+        )
+
+        builder.add_agent_identity(agent)
+
+        # Simplified tool definition
+        parameters_info = {}
+        for name, spec in tool.parameters.items():
+            descriptor, options = spec
+            param_info: dict[str, Any] = {
+                "type": descriptor.get("type", "string"),
+            }
+            if description := options.description or descriptor.get("description"):
+                param_info["description"] = description
+            if enum := descriptor.get("enum"):
+                param_info["enum"] = enum
+            parameters_info[name] = param_info
+
+        builder.add_section(
+            name=_SECTION_NAMES["tool-definition"] + _NON_CONSEQUENTIAL_SUFFIX,
+            template="""
+TOOL TO EVALUATE:
+-----------------
+Name: {tool_name}
+Description: {tool_description}
+Parameters: {parameters_json}
+Required parameters: {required_params}
+""",
+            props={
+                "tool_name": f"{tool_id.service_name}:{tool_id.tool_name}",
+                "tool_description": tool.description,
+                "parameters_json": json.dumps(parameters_info, indent=2),
+                "required_params": list(tool.required),
+            },
+        )
+
+        if staged_calls:
+            builder.add_section(
+                name=_SECTION_NAMES["staged-tool-calls"] + _NON_CONSEQUENTIAL_SUFFIX,
+                template="""
+ALREADY STAGED CALLS:
+{staged_calls}
+Do not call the tool again with the same arguments.
+""",
+                props={"staged_calls": staged_calls},
+            )
+
+        arg_formats = []
+
+        for param_name, spec in tool.parameters.items():
+            descriptor, _ = spec
+
+            missing_str = "null" if param_name not in tool.required else '"<<__missing__>>"'
+            prefix, suffix = ('["', '", ...]') if descriptor.get("type") == "array" else ('"', '"')
+
+            if choices := descriptor.get("enum"):
+                choices_str = ", ".join(f'"{choice}"' for choice in choices)
+                arg_formats.append(
+                    f'"{param_name}": {prefix}<choose from ({choices_str}) — or insert {missing_str} if not available>{suffix}'
+                )
+            else:
+                arg_formats.append(
+                    f'"{param_name}": {prefix}<extract value ALWAYS IN STRINGIFIED FORM — or insert {missing_str} if not available>{suffix}'
+                )
+
+        arg_formats_str = ",\n                ".join(arg_formats)
+
+        builder.add_section(
+            name=_SECTION_NAMES["output-format"] + _NON_CONSEQUENTIAL_SUFFIX,
+            template=f"""\
+OUTPUT FORMAT:
+```json
+{{{{
+    "reasoning_tldr": "<BRIEFLY EXPLAIN - IN A FEW WORDS - YOUR REASONING FOR RUNNING {tool_id.to_string()}>",
+    "should_run": <true if tool should be called (at least one call), false otherwise>,
+    "calls": [
+        {{{{
+            "args":
+            {{{{
+                {arg_formats_str}
+            }}}}
+        }}}},
+        ...
+    ]
+}}}}
+```
+""",
+            props={
+                "tool_name": f"{tool_id.service_name}:{tool_id.tool_name}",
+                "tool_parameters": tool.parameters,
+            },
+        )
+
+        builder.add_context_variables(context_variables)
+
+        if terms:
+            builder.add_section(
+                name=BuiltInSection.GLOSSARY,
+                template=self._get_glossary_text(terms),
+                props={"terms": terms},
+                status=SectionStatus.ACTIVE,
+            )
+
+        builder.add_interaction_history(interaction_history)
+
+        builder.add_section(
+            name=BuiltInSection.GUIDELINE_DESCRIPTIONS,
+            template=self._add_guideline_matches_section(
+                ordinary_guideline_matches,
+                (candidate_descriptor[0], candidate_descriptor[2]),
+            ),
+            props={
+                "ordinary_guideline_matches": ordinary_guideline_matches,
+                "tool_id_propositions": (candidate_descriptor[0], candidate_descriptor[2]),
+            },
+        )
+
+        return builder
+
+    async def _run_non_consequential_tool_inference(
+        self,
+        tool_id: ToolId,
+        prompt: PromptBuilder,
+        temperature: float,
+    ) -> tuple[GenerationInfo, Sequence[NonConsequentialToolCallEvaluation]]:
+        inference = await self._non_consequential_schema_generator.generate(
+            prompt=prompt,
+            hints={"temperature": temperature},
+        )
+        self._logger.trace(
+            f"Inference::Completion: {tool_id.to_string()}\n{inference.content.model_dump_json(indent=2)}"
+        )
+
+        return inference.info, inference.content.calls
+
+    def _evaluate_non_consequential_tool_calls(
+        self,
+        output: Sequence[NonConsequentialToolCallEvaluation],
+        candidate_descriptor: tuple[ToolId, Tool, Sequence[GuidelineMatch]],
+    ) -> tuple[
+        list[ToolCall],
+        list[tuple[ToolId, ToolCallEvaluation]],
+        list[MissingToolData],
+        list[InvalidToolData],
+    ]:
+        tool_id, tool, _ = candidate_descriptor
+        tool_calls: list[ToolCall] = []
+        evaluations: list[tuple[ToolId, ToolCallEvaluation]] = []
+        missing_data: list[MissingToolData] = []
+        invalid_data: list[InvalidToolData] = []
+
+        for tc in output:
+            if not self._is_tool_call_already_staged(tool_id, tc.args):
+                arguments: dict[str, str | None] = {}
+
+                for param_name, param_value in (tc.args or {}).items():
+                    if param_name in tool.parameters:
+                        arguments[param_name] = param_value
+
+                # Check if all required parameters are present
+                missing_required = [r for r in tool.required if r not in arguments] + [
+                    name for name, value in arguments.items() if value == "<<__missing__>>"
+                ]
+
+                if not missing_required:
+                    tool_calls.append(
+                        ToolCall(
+                            id=ToolCallId(generate_id()),
+                            tool_id=tool_id,
+                            arguments=arguments,
+                        )
+                    )
+
+                    self._logger.debug(
+                        f"Inference::Completion::Activated: {tool_id.to_string()}:\n{tc.model_dump_json(indent=2)}"
+                    )
+
+                    evaluations.append((tool_id, ToolCallEvaluation.NEEDS_TO_RUN))
+                else:
+                    self._logger.debug(
+                        f"Inference::Completion::Rejected: Missing arguments for {tool_id.to_string()}\n{tc.model_dump_json(indent=2)}"
+                    )
+
+                    for parameter_name in missing_required:
+                        descriptor, options = tool.parameters[parameter_name]
+
+                        if not options.hidden:
+                            self._logger.warning(
+                                f"Inference::Completion: Argument '{parameter_name}' is missing"
+                            )
+
+                            missing_data.append(
+                                MissingToolData(
+                                    parameter=options.display_name or parameter_name,
+                                    significance=options.significance,
+                                    description=descriptor.get("description"),
+                                    precedence=options.precedence,
+                                    choices=descriptor.get("enum", None),
+                                )
+                            )
+                        else:
+                            self._logger.warning(
+                                f"Inference::Completion: Hidden argument '{parameter_name}' is missing"
+                            )
+
+                    evaluations.append((tool_id, ToolCallEvaluation.CANNOT_RUN))
+            else:
+                self._logger.debug(
+                    f"Inference::Completion::Skipped: {tool_id.to_string()}\n{tc.model_dump_json(indent=2)}"
+                )
+
+                evaluations.append((tool_id, ToolCallEvaluation.DATA_ALREADY_IN_CONTEXT))
+
+        return tool_calls, evaluations, missing_data, invalid_data
+
+    def __repr__(self) -> str:
+        return (
+            f"SingleToolBatchEngine({self._candidate_tool[0].to_string()}, "
+            f"consequential={self._candidate_tool[1].consequential})"
+        )
 
 
 example_1_shot = SingleToolBatchShot(
@@ -1433,7 +1878,7 @@ example_12_shot = SingleToolBatchShot(
     ),
 )
 
-_baseline_shots: Sequence[SingleToolBatchShot] = [
+_baseline_consequential_shots: Sequence[SingleToolBatchShot] = [
     example_1_shot,
     example_2_shot,
     example_3_shot,
@@ -1448,5 +1893,60 @@ _baseline_shots: Sequence[SingleToolBatchShot] = [
     example_12_shot,
 ]
 
+_baseline_non_consequential_shots: Sequence[NonConsequentialSingleToolBatchShot] = [
+    NonConsequentialSingleToolBatchShot(
+        description="Tool should be called",
+        expected_result=NonConsequentialToolBatchSchema(
+            name="get_weather",
+            should_run=True,
+            reasoning_tldr="The user asked about the weather in Paris",
+            tool_calls=[NonConsequentialToolCallEvaluation(args={"city": "Paris"})],
+        ),
+    ),
+    NonConsequentialSingleToolBatchShot(
+        description="Tool should NOT be called",
+        expected_result=NonConsequentialToolBatchSchema(
+            name="get_weather",
+            should_run=False,
+            reasoning_tldr="The user only greeted me and did not inquire about the weather",
+            tool_calls=[],
+        ),
+    ),
+    NonConsequentialSingleToolBatchShot(
+        description="Multiple calls needed",
+        expected_result=NonConsequentialToolBatchSchema(
+            name="get_weather",
+            should_run=True,
+            reasoning_tldr="The user asked to compare the weather in Paris and London",
+            tool_calls=[
+                NonConsequentialToolCallEvaluation(args={"city": "Paris"}),
+                NonConsequentialToolCallEvaluation(args={"city": "London"}),
+            ],
+        ),
+    ),
+    NonConsequentialSingleToolBatchShot(
+        description="Missing required parameter but still should run",
+        expected_result=NonConsequentialToolBatchSchema(
+            name="get_weather",
+            should_run=True,
+            reasoning_tldr="The user asked about the weather but did not specify a city and I don't know their location",
+            tool_calls=[
+                NonConsequentialToolCallEvaluation(args={"city": "<<__missing__>>"}),
+            ],
+        ),
+    ),
+    NonConsequentialSingleToolBatchShot(
+        description="Tool call is already staged, so should not run",
+        expected_result=NonConsequentialToolBatchSchema(
+            name="get_weather",
+            should_run=False,
+            reasoning_tldr="The user asked to compare the weather in Paris and London, but those calls are already staged",
+            tool_calls=[],
+        ),
+    ),
+]
 
-shot_collection = ShotCollection[SingleToolBatchShot](_baseline_shots)
+consequential_shot_collection = ShotCollection[SingleToolBatchShot](_baseline_consequential_shots)
+non_consequential_shot_collection = ShotCollection[NonConsequentialSingleToolBatchShot](
+    _baseline_non_consequential_shots
+)

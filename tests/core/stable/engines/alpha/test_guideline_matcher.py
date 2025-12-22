@@ -164,12 +164,12 @@ ACTIONABLE_GUIDELINES_DICT = {
     "check_drinks_in_stock": {
         "condition": "a customer asks for a drink",
         "action": "check if the drink is available in the following stock: "
-        "['Sprite', 'Coke', 'Fanta']",
+        "['Sprite', 'Coke', 'Fanta']. Assume that if we have a drink in stoke we have enough of it",
     },
     "check_toppings_in_stock": {
         "condition": "a customer asks for toppings",
         "action": "check if the toppings are available in the following stock: "
-        "['Pepperoni', 'Tomatoes', 'Olives']",
+        "['Pepperoni', 'Tomatoes', 'Olives']. Assume that if we have a  in stoke we have enough of it",
     },
     "payment_process": {
         "condition": "a customer is in the payment process",

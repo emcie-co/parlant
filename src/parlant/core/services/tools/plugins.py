@@ -22,7 +22,7 @@ import json
 import os
 import traceback
 import dateutil.parser
-from types import TracebackType
+from types import TracebackType, UnionType
 from typing import (
     Annotated,
     Any,
@@ -186,17 +186,17 @@ def _resolve_param_info(param: inspect.Parameter) -> _ToolParameterInfo:
             if generic_type == "Optional":
                 is_optional = True
                 unpacked_type = args[0]
-            elif generic_type is None:
-                # Assuming we encountered union syntax; i.e., `str | None`
+            elif get_origin(parameter_type) is UnionType or generic_type is None:
+                # Handle union syntax; i.e., `str | None` (Python 3.10+ UnionType)
                 if len(args) != 2:
                     raise Exception()
                 if type(None) not in args:
                     raise Exception()
-                if all(t is None for t in args):
+                if all(t is type(None) for t in args):
                     raise Exception()
 
                 is_optional = True
-                unpacked_type = next(t for t in args if t is not None)
+                unpacked_type = next(t for t in args if t is not type(None))
 
             if not is_optional:
                 # At this point, at least as far as our supported options,

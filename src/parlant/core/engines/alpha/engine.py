@@ -1552,7 +1552,11 @@ class AlphaEngine(Engine):
         # either active or finished (but still relevant to potentially reactivate).
         journeys_with_paths_ids: set[JourneyId] = set(journey_paths.keys())
         journeys_with_paths: list[Journey] = [
-            j for j in available_journeys if j.id in journeys_with_paths_ids
+            j
+            for j in available_journeys
+            if j.id in journeys_with_paths_ids
+            and journey_paths[j.id]
+            and journey_paths[j.id] != [None]
         ]
 
         # Decide which journeys are "high probability"

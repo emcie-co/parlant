@@ -417,7 +417,7 @@ def given_the_journey_called(
         node1 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
-                action="ask for their account name",
+                action="ask for their username",
                 tools=[],
             )
         )
@@ -427,7 +427,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "The customer provided their account name",
+                    "customer_action": "The customer provided their username",
                     "agent_action": "",
                 },
             )
@@ -447,7 +447,7 @@ def given_the_journey_called(
                 journey_id=journey.id,
                 source=journey.root_id,
                 target=node1.id,
-                condition="The customer has not provided their account name",
+                condition="The customer has not provided their username",
             )
         )
 
@@ -485,7 +485,7 @@ def given_the_journey_called(
                 journey_id=journey.id,
                 source=node1.id,
                 target=node2.id,
-                condition="The customer provided their account name",
+                condition="The customer provided their username",
             )
         )
         node3 = context.sync_await(

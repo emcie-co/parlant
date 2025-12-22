@@ -14,7 +14,7 @@ parlant-prepare-migration = "parlant.bin.prepare_migration:main"
 
 [tool.poetry.dependencies]
 aiofiles = "^24.1.0"
-aiopenapi3 = "0.8.1"
+aiopenapi3 = "0.9.0"
 aiorwlock = "^1.5.0"
 authlib = "^1.6.5"
 boto3 = "^1.35.70"
@@ -92,7 +92,7 @@ mypy = "^1.18.1"
 pep8-naming = "^0.13.3"
 pytest = "^8.0.0"
 pytest-asyncio = "^0.23.5"
-pytest-bdd = "^7.1.2"
+pytest-bdd = "^8.1.0"
 pytest-cov = "^5.0.0"
 pytest-tap = "^3.4"
 pytest-timing = { git = "https://github.com/emcie-co/mc-spitfyre.git", subdirectory = "pytest-timing", tag = "timing_v0.1.4" }

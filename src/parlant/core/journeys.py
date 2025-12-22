@@ -1085,6 +1085,7 @@ class JourneyVectorStore(JourneyStore):
                     filters=filters,
                     query=q,
                     k=max_journeys,
+                    hints={"tag": "journeys"},
                 )
                 for q in queries
             ]

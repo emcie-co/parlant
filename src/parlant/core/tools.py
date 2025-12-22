@@ -507,6 +507,9 @@ def cast_tool_argument(parameter_type: Any, argument: Any) -> Any:
     Third - The argument is cast to the type of the parameter, according to the type of the parameter.
     """
     try:
+        if argument is None:
+            return argument
+
         cast_target = parameter_type
         # If parameter_type is Annotated -> get the inner type
         if getattr(cast_target, "__name__", None) == "Annotated":
@@ -531,8 +534,6 @@ def cast_tool_argument(parameter_type: Any, argument: Any) -> Any:
             return date.fromisoformat(argument)
         if cast_target is bool:
             return bool(argument.capitalize())
-        if argument is None:
-            return argument
         if issubclass(cast_target, BaseModel):
             return TypeAdapter(cast_target).validate_json(argument)
         if issubclass(cast_target, Enum) or cast_target in VALID_TOOL_BASE_TYPES:

@@ -49,7 +49,10 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_
     JourneyNextStepSelectionSchema,
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.engines.alpha.tool_calling.single_tool_batch import SingleToolBatchSchema
+from parlant.core.engines.alpha.tool_calling.single_tool_batch import (
+    NonConsequentialToolBatchSchema,
+    SingleToolBatchSchema,
+)
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
@@ -579,6 +582,7 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
             case ModelSize.AUTO:
                 return {
                     SingleToolBatchSchema: GPT_4o[SingleToolBatchSchema],
+                    NonConsequentialToolBatchSchema: GPT_4_1[NonConsequentialToolBatchSchema],
                     JourneyBacktrackNodeSelectionSchema: GPT_4_1[
                         JourneyBacktrackNodeSelectionSchema
                     ],

@@ -7,7 +7,6 @@ from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent
 from parlant.core.glossary import Term
-from parlant.core.guidelines import GuidelineId
 from parlant.core.journeys import Journey, JourneyId
 from parlant.core.sessions import Event, Session
 
@@ -23,4 +22,4 @@ class GuidelineMatchingContext:
     capabilities: Sequence[Capability]
     staged_events: Sequence[EmittedEvent]
     active_journeys: Sequence[Journey]
-    journey_paths: dict[JourneyId, list[Optional[GuidelineId]]]
+    journey_paths: dict[JourneyId, list[Optional[str]]]

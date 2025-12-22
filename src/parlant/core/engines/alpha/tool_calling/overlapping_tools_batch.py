@@ -725,6 +725,10 @@ Guidelines:
 
         return inference.info, inference.content.tools_evaluation
 
+    def __repr__(self) -> str:
+        tool_ids = [tool[0].to_string() for tool in self._overlapping_tools_batch]
+        return f"OverlappingToolsBatchEngine({', '.join(tool_ids)})"
+
 
 example_1_shot = OverlappingToolsBatchShot(
     description=(

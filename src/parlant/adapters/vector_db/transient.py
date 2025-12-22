@@ -188,7 +188,7 @@ class TransientVectorDatabase(VectorDatabase):
     @override
     async def read_metadata(
         self,
-    ) -> dict[str, JSONSerializable]:
+    ) -> Mapping[str, JSONSerializable]:
         return self._metadata
 
 
@@ -361,11 +361,12 @@ class TransientVectorCollection(Generic[TDocument], BaseVectorCollection[TDocume
         filters: Where,
         query: str,
         k: int,
+        hints: Mapping[str, Any] = {},
     ) -> Sequence[SimilarDocumentResult[TDocument]]:
         if not self._documents:
             return []
 
-        query_embeddings = list((await self._embedder.embed([query])).vectors)
+        query_embeddings = list((await self._embedder.embed([query], hints)).vectors)
         vector = np.array(query_embeddings[0], dtype=np.float32)
 
         keys_to_exclude = {"__id__", "__metrics__"}

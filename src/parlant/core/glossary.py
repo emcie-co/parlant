@@ -460,6 +460,9 @@ class GlossaryVectorStore(GlossaryStore):
         if not available_terms:
             return []
 
+        if max_terms >= len(available_terms):
+            return available_terms
+
         async with self._lock.reader_lock:
             queries = await query_chunks(query, self._embedder)
 

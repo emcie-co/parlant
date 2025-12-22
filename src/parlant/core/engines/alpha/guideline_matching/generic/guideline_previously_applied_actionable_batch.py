@@ -115,33 +115,35 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
                         hints={"temperature": generation_attempt_temperatures[generation_attempt]},
                     )
 
-                if not inference.content.checks:
-                    self._logger.warning("Completion:\nNo checks generated! This shouldn't happen.")
-                else:
-                    self._logger.trace(
-                        f"Completion:\n{inference.content.model_dump_json(indent=2)}"
-                    )
-
-                matches = []
-
-                for match in inference.content.checks:
-                    if match.should_reapply:
-                        self._logger.debug(f"Activated:\n{match.model_dump_json(indent=2)}")
-
-                        matches.append(
-                            GuidelineMatch(
-                                guideline=self._guidelines[match.guideline_id],
-                                score=10 if match.should_reapply else 1,
-                                rationale="",
-                            )
+                    if not inference.content.checks:
+                        self._logger.warning(
+                            "Completion:\nNo checks generated! This shouldn't happen."
                         )
                     else:
-                        self._logger.debug(f"Skipped:\n{match.model_dump_json(indent=2)}")
+                        self._logger.trace(
+                            f"Completion:\n{inference.content.model_dump_json(indent=2)}"
+                        )
 
-                return GuidelineMatchingBatchResult(
-                    matches=matches,
-                    generation_info=inference.info,
-                )
+                    matches = []
+
+                    for match in inference.content.checks:
+                        if match.should_reapply:
+                            self._logger.debug(f"Activated:\n{match.model_dump_json(indent=2)}")
+
+                            matches.append(
+                                GuidelineMatch(
+                                    guideline=self._guidelines[match.guideline_id],
+                                    score=10 if match.should_reapply else 1,
+                                    rationale="",
+                                )
+                            )
+                        else:
+                            self._logger.debug(f"Skipped:\n{match.model_dump_json(indent=2)}")
+
+                    return GuidelineMatchingBatchResult(
+                        matches=matches,
+                        generation_info=inference.info,
+                    )
 
             except Exception as exc:
                 self._logger.warning(

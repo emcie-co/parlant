@@ -1058,7 +1058,7 @@ Your responsibility in this system is to evaluate when and how these tools shoul
 
 This evaluation and execution process occurs iteratively, preceding each response generated to the customer.
 
-{'Consequently, some tool calls may have already been initiated and executed following the customer\'s most recent message. Any such completed tool call will be detailed later in this prompt along with its result, under "staged calls". These specific calls do not require to be re-run at this time, unless you identify a valid reason for their reevaluation.' if staged_calls else ""}
+{'''Consequently, some tool calls may have already been initiated and executed following the customer's most recent message. Any such completed tool call will be detailed later in this prompt along with its result, under "staged calls". These specific calls do not require to be re-run at this time, unless you identify a valid reason for their reevaluation.''' if staged_calls else ""}
 
 **Task Instructions:**
 - CASE 1: Call the tool if it's clearly relevant to the customer's current request - in this case, mark "should_run": true and provide the call parameters in "calls" - for one or more of the calls you've determined we must now run, as the case may be). And if an **optional** parameter value cannot be determined or inferred contextually, you may still create the tool call, inserting **null** as value for that parameter

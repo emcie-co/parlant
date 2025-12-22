@@ -1040,14 +1040,12 @@ Guidelines:
         staged_calls = self._get_staged_calls(staged_events)
         tool_id, tool, _ = candidate_descriptor
 
-        builder = PromptBuilder(
-            on_build=lambda prompt: self._logger.trace(f"SimplifiedPrompt:\n{prompt}")
-        )
+        builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
 
         # Minimal instructions
         builder.add_section(
             name=_SECTION_NAMES["general-instructions"] + _NON_CONSEQUENTIAL_SUFFIX,
-            template="""\
+            template=f"""\
 GENERAL INSTRUCTIONS
 -----------------
 You are part of a system of AI agents which interact with a customer on the behalf of a business.
@@ -1060,17 +1058,17 @@ Your responsibility in this system is to evaluate when and how these tools shoul
 
 This evaluation and execution process occurs iteratively, preceding each response generated to the customer.
 
-Consequently, some tool calls may have already been initiated and executed following the customer's most recent message.
+{'Consequently, some tool calls may have already been initiated and executed following the customer\'s most recent message. Any such completed tool call will be detailed later in this prompt along with its result, under "staged calls". These specific calls do not require to be re-run at this time, unless you identify a valid reason for their reevaluation.' if staged_calls else ""}
 
-Any such completed tool call will be detailed later in this prompt along with its result.
-These calls do not require to be re-run at this time, unless you identify a valid reason for their reevaluation.
+**Task Instructions:**
+- CASE 1: Call the tool if it's clearly relevant to the customer's current request - in this case, mark "should_run": true and provide the call parameters in "calls" - for one or more of the calls you've determined we must now run, as the case may be). And if an **optional** parameter value cannot be determined or inferred contextually, you may still create the tool call, inserting **null** as value for that parameter
+{"- CASE 2: If the same call is already staged, do not call the tool again - and do not create a tool call - and mark it as should_run: false, explaining this decision in your reasoning" if staged_calls else ""}
+- CASE 3: If the tool *should* run in principle, except that a **required** parameter value cannot be determined or inferred contextually, do not create a tool call - but still mark it as should_run: true. For the missing parameters, insert "<<__missing__>>" as value.
+- CASE 4: The tool should not be called at this time because it's not particularly relevant to the situation - in this case, mark "should_run": false and do not create any tool calls
 
-Task Instructions:
-- Only call the tool if it's clearly relevant to the customer's current request (mark should_run: true)
-- Extract parameter values directly from the conversation or context variables
-- If a required parameter value cannot be determined or inferred contextually, do not create a tool call - but still mark it as should_run: true. For the missing parameters, insert "<<__missing__>>" as value.
-- If the same call is already staged, do not call the tool again - and do not create a tool call - and mark it as should_run: false
-- You're free to infer some parameters from context, where applicable (e.g., dates, names) - e.g., if someone says "next Friday", you can convert that to an actual date string if you know the date - and so forth
+Make sure to note the case number you're following in your "reasoning_tldr" field.
+
+Note that you should extract parameter values directly from the conversation or prompt context. You're free to infer some parameters from context, where applicable (e.g., dates, names) - e.g., if someone says "next Friday", you can convert that to an actual date string if you know the date - and so forth
 """,
             props={},
         )
@@ -1087,7 +1085,6 @@ EXAMPLES
 
         builder.add_agent_identity(agent)
 
-        # Simplified tool definition
         parameters_info = {}
         for name, spec in tool.parameters.items():
             descriptor, options = spec
@@ -1122,7 +1119,7 @@ Required parameters: {required_params}
             builder.add_section(
                 name=_SECTION_NAMES["staged-tool-calls"] + _NON_CONSEQUENTIAL_SUFFIX,
                 template="""
-ALREADY STAGED CALLS:
+**ALREADY STAGED CALLS:**
 {staged_calls}
 Do not call the tool again with the same arguments.
 """,
@@ -1899,8 +1896,8 @@ _baseline_non_consequential_shots: Sequence[NonConsequentialSingleToolBatchShot]
         expected_result=NonConsequentialToolBatchSchema(
             name="get_weather",
             should_run=True,
-            reasoning_tldr="The user asked about the weather in Paris",
-            tool_calls=[NonConsequentialToolCallEvaluation(args={"city": "Paris"})],
+            reasoning_tldr="CASE 1. The user asked about the weather in Paris",
+            calls=[NonConsequentialToolCallEvaluation(args={"city": "Paris"})],
         ),
     ),
     NonConsequentialSingleToolBatchShot(
@@ -1908,8 +1905,8 @@ _baseline_non_consequential_shots: Sequence[NonConsequentialSingleToolBatchShot]
         expected_result=NonConsequentialToolBatchSchema(
             name="get_weather",
             should_run=False,
-            reasoning_tldr="The user only greeted me and did not inquire about the weather",
-            tool_calls=[],
+            reasoning_tldr="CASE 4. The user only greeted me and did not inquire about the weather",
+            calls=[],
         ),
     ),
     NonConsequentialSingleToolBatchShot(
@@ -1917,20 +1914,20 @@ _baseline_non_consequential_shots: Sequence[NonConsequentialSingleToolBatchShot]
         expected_result=NonConsequentialToolBatchSchema(
             name="get_weather",
             should_run=True,
-            reasoning_tldr="The user asked to compare the weather in Paris and London",
-            tool_calls=[
+            reasoning_tldr="The user asked to compare the weather in Paris and London - all required params are available for all calls. CASE 1 for both calls.",
+            calls=[
                 NonConsequentialToolCallEvaluation(args={"city": "Paris"}),
                 NonConsequentialToolCallEvaluation(args={"city": "London"}),
             ],
         ),
     ),
     NonConsequentialSingleToolBatchShot(
-        description="Missing required parameter but still should run",
+        description="Missing required parameter but in principle the tool should run",
         expected_result=NonConsequentialToolBatchSchema(
             name="get_weather",
             should_run=True,
-            reasoning_tldr="The user asked about the weather but did not specify a city and I don't know their location",
-            tool_calls=[
+            reasoning_tldr="CASE 3: The user asked about the weather but did not specify a city and I don't know their location",
+            calls=[
                 NonConsequentialToolCallEvaluation(args={"city": "<<__missing__>>"}),
             ],
         ),
@@ -1940,8 +1937,8 @@ _baseline_non_consequential_shots: Sequence[NonConsequentialSingleToolBatchShot]
         expected_result=NonConsequentialToolBatchSchema(
             name="get_weather",
             should_run=False,
-            reasoning_tldr="The user asked to compare the weather in Paris and London, but those calls are already staged",
-            tool_calls=[],
+            reasoning_tldr="CASE 2. The user asked to compare the weather in Paris and London - all required params are available but ALL of those calls are already staged",
+            calls=[],
         ),
     ),
 ]

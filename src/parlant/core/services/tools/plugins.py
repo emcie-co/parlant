@@ -324,9 +324,22 @@ def _tool_decorator_impl(
         for param in parameters[1:]:
             param_info = _resolve_param_info(param)
 
-            if issubclass(param_info.resolved_type, enum.Enum):
-                assert all(type(e.value) is str for e in param_info.resolved_type), (
-                    f"{param.name}: {param_info.resolved_type.__name__}: Enum values must be strings"
+            resolved_type = param_info.resolved_type
+            enum_type_to_check: type[enum.Enum] | None = None
+
+            if inspect.isclass(resolved_type) and issubclass(resolved_type, enum.Enum):
+                enum_type_to_check = resolved_type
+            else:
+                # Check if it's a list[Enum] type
+                type_args = get_args(resolved_type)
+                if type_args and getattr(resolved_type, "__name__", None) == "list":
+                    item_type = type_args[0]
+                    if inspect.isclass(item_type) and issubclass(item_type, enum.Enum):
+                        enum_type_to_check = item_type
+
+            if enum_type_to_check is not None:
+                assert all(type(e.value) is str for e in enum_type_to_check), (
+                    f"{param.name}: {enum_type_to_check.__name__}: Enum values must be strings"
                 )
 
     def _describe_parameters(
@@ -354,7 +367,7 @@ def _tool_decorator_impl(
 
             if param_type in type_to_param_type:
                 param_descriptor["type"] = type_to_param_type[param_type]
-            elif issubclass(param_type, enum.Enum):
+            elif inspect.isclass(param_type) and issubclass(param_type, enum.Enum):
                 param_descriptor["type"] = "string"
                 param_descriptor["enum"] = [e.value for e in param_type]
             else:
@@ -373,11 +386,13 @@ def _tool_decorator_impl(
                     if list_item_type in type_to_param_type:
                         param_descriptor["type"] = "array"
                         param_descriptor["item_type"] = type_to_param_type[list_item_type]
-                    elif issubclass(list_item_type, enum.Enum):
+                    elif inspect.isclass(list_item_type) and issubclass(list_item_type, enum.Enum):
                         param_descriptor["type"] = "array"
                         param_descriptor["item_type"] = "string"
                         param_descriptor["enum"] = [e.value for e in list_item_type]
-                elif issubclass(param_info.resolved_type, BaseModel):
+                elif inspect.isclass(param_info.resolved_type) and issubclass(
+                    param_info.resolved_type, BaseModel
+                ):
                     param_descriptor["description"] = json.dumps(
                         {"json_schema": param_info.resolved_type.model_json_schema()}
                     )

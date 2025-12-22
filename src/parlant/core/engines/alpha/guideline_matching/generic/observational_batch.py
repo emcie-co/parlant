@@ -223,7 +223,7 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
             {
                 "guideline_id": i,
                 "condition": guideline_representations[g.id].condition,
-                "rationale": "<Explanation for why the condition is or isn't met based on recent interaction>",
+                "rationale": "<Explanation for why the condition is or isn't met based on the recent interaction>",
                 "applies": "<BOOL>",
             }
             for i, g in self._guidelines.items()
@@ -236,7 +236,7 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
         builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
 
         builder.add_section(
-            name="guideline-matcher-general-instructions",
+            name="observational-guideline-matcher-general-instructions-task-description",
             template="""
 GENERAL INSTRUCTIONS
 -----------------
@@ -252,7 +252,7 @@ Task Description
 ----------------
 Your task is to evaluate the relevance and applicability of a set of provided 'when' conditions to the most recent state of an interaction between yourself (an AI agent) and a user.
 
-A guideline should be marked as applicable if it is relevant to the latest part of the conversation and in particular the most recent customer message. Do not mark a guideline as
+A guideline should be marked as applicable if it is relevant to the latest part of the conversation and in particular to the most recent customer message. Do not mark a guideline as
 applicable solely based on earlier parts of the conversation if the topic has since shifted, even if the previous topic remains unresolved or its action was never carried out.
 
 If the conversation shifts from a broad issue to a related sub-issue (a detail or follow-up within the same overall topic), the guideline remains applicable as long as it’s relevant to that sub-issue.
@@ -261,7 +261,7 @@ A guideline is not applicable when the customer explicitly sets aside or pauses 
 Similarly, if the conversation has progressed beyond the specific sub-topic mentioned in the condition and into a different aspect or next stage of the general topic, the condition no longer applies.
 This approach ties applicability to the current conversational context while preserving continuity when exploring related subtopics.
 
-Persistent Facts: Conditions about user characteristics or established facts (e.g., "the user is a senior citizen", "the customer has allergies") apply once established based of the information in this prompt, 
+Persistent Facts: Conditions about user characteristics or established facts (e.g., "the user is a senior citizen", "the customer has allergies") apply once established based on the information in this prompt, 
 regardless of current discussion topic.
 
 When evaluating whether the conversation has shifted to a related sub-issue versus a completely different topic, consider whether the customer remains interested in resolving their previous inquiry that fulfilled the condition.
@@ -273,7 +273,7 @@ The exact format of your response will be provided later in this prompt.
             props={},
         )
         builder.add_section(
-            name="guideline-matcher-examples-of-condition-evaluations",
+            name="observational-guideline-matcher-examples-of-condition-evaluations",
             template="""
 Examples of Condition Evaluations:
 -------------------
@@ -289,7 +289,6 @@ Examples of Condition Evaluations:
         builder.add_glossary(self._context.terms)
         builder.add_capabilities_for_guideline_matching(self._context.capabilities)
         builder.add_customer_identity(self._context.customer, self._context.session)
-
         builder.add_interaction_history(self._context.interaction_history)
         builder.add_staged_tool_events(self._context.staged_events)
         builder.add_section(
@@ -304,7 +303,7 @@ Examples of Condition Evaluations:
         )
 
         builder.add_section(
-            name="guideline-matcher-expected-output",
+            name="observational-guideline-matcher-expected-output",
             template="""
 IMPORTANT: Please note there are exactly {guidelines_len} guidelines in the list for you to check.
 
@@ -468,7 +467,7 @@ example_1_guidelines = [
         action=None,
     ),
     GuidelineContent(
-        condition="The customer ask for activities recommendations",
+        condition="The customer asks for activities recommendations",
         action=None,
     ),
     GuidelineContent(
@@ -487,7 +486,7 @@ example_1_expected = GenericObservationalGuidelineMatchesSchema(
         ),
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="The customer ask for activities recommendations",
+            condition="The customer asks for activities recommendations",
             rationale="The customer has moved from seeking activity recommendations to asking about legal requirements. Since they are no longer pursuing their original inquiry about activities, this represents a new topic rather than a sub-issue",
             applies=False,
         ),
@@ -531,7 +530,7 @@ example_2_events = [
 
 example_2_guidelines = [
     GuidelineContent(
-        condition="The customer mentions a constraint that related to commitment to the course",
+        condition="The customer mentions a constraint that is related to commitment to the course",
         action=None,
     ),
     GuidelineContent(
@@ -548,14 +547,14 @@ example_2_expected = GenericObservationalGuidelineMatchesSchema(
     checks=[
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="The customer mentions a constraint that related to commitment to the course",
+            condition="The customer mentions a constraint that is related to commitment to the course",
             rationale="In the most recent message the customer mentions that they work full time which is a constraint",
             applies=True,
         ),
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="The user expresses hesitation or self-doubt.",
-            rationale="In the most recent message the user still sounds hesitating about their fit to the course",
+            rationale="In the most recent message the user still sounds hesitant about their fit to the course",
             applies=True,
         ),
         GenericObservationalGuidelineMatchSchema(
@@ -626,11 +625,7 @@ example_4_events = [
         EventSource.AI_AGENT,
         "You can return items within 30 days either in-store or using our prepaid return label.",
     ),
-    _make_event(
-        "27",
-        EventSource.CUSTOMER,
-        "And what happens if I already wore it once?",
-    ),
+    _make_event("27", EventSource.CUSTOMER, "And what happens if I already wore it once?"),
 ]
 
 example_4_guidelines = [
@@ -645,7 +640,7 @@ example_4_expected = GenericObservationalGuidelineMatchesSchema(
         GenericObservationalGuidelineMatchSchema(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="When the customer asks about how to return an item.",
-            rationale="In the most recent message the customer asks about what happens when they wore the item, which an inquiry regarding returning an item",
+            rationale="In the most recent message the customer asks about what happens when they wore the item, which is an inquiry regarding returning an item",
             applies=True,
         ),
     ]

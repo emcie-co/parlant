@@ -221,15 +221,15 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
         builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
 
         builder.add_section(
-            name="guideline-not-previously-applied-general-instructions",
+            name="actionable-guideline-general-instructions-task-description",
             template="""
 GENERAL INSTRUCTIONS
 -----------------
 In our system, the behavior of a conversational AI agent is guided by "guidelines". The agent makes use of these guidelines whenever it interacts with a user (also referred to as the customer).
 Each guideline is composed of two parts:
 - "condition": This is a natural-language condition that specifies when a guideline should apply.
-          We look at each conversation at any particular state, and we test against this
-          condition to understand if we should have this guideline participate in generating
+          We examine each conversation in its current state and test this condition
+          to determine whether the guideline should participate in generating
           the next reply to the user.
 - "action": This is a natural-language instruction that should be followed by the agent
           whenever the "condition" part of the guideline applies to the conversation in its particular state.
@@ -241,7 +241,7 @@ Task Description
 Your task is to evaluate the relevance and applicability of a set of provided 'when' conditions to the most recent state of an interaction between yourself (an AI agent) and a user.
 You examine the applicability of each guideline under the assumption that the action was not taken yet during the interaction.
 
-A guideline should be marked as applicable if it is relevant to the latest part of the conversation and in particular the most recent customer message. Do not mark a guideline as
+A guideline should be marked as applicable if it is relevant to the latest part of the conversation and in particular to the most recent customer message. Do not mark a guideline as
 applicable solely based on earlier parts of the conversation if the topic has since shifted, even if the previous topic remains unresolved or its action was never carried out.
 
 If the conversation moves from a broader issue to a related sub-issue (a related detail or follow-up within the same overall issue), you should still consider the guideline as applicable
@@ -259,7 +259,7 @@ The exact format of your response will be provided later in this prompt.
             props={},
         )
         builder.add_section(
-            name="guideline-matcher-examples-of-not-previously-applied-evaluations",
+            name="actionable-guideline-matcher-examples-of-evaluations",
             template="""
 Examples of Guideline Match Evaluations:
 -------------------
@@ -289,7 +289,7 @@ Examples of Guideline Match Evaluations:
         )
 
         builder.add_section(
-            name="guideline-not-previously-applied-output-format",
+            name="actionable-guideline-output-format",
             template="""
 IMPORTANT: Please note there are exactly {guidelines_len} guidelines in the list for you to check.
 
@@ -297,9 +297,7 @@ OUTPUT FORMAT
 -----------------
 - Specify the applicability of each guideline by filling in the details in the following list as instructed:
 ```json
-{{
-    {result_structure_text}
-}}
+{result_structure_text}
 ```
 """,
             props={
@@ -469,7 +467,7 @@ example_1_guidelines = [
         action="Provide links or suggestions for flight aggregators and hotel booking platforms.",
     ),
     GuidelineContent(
-        condition="The customer ask for activities recommendations",
+        condition="The customer asks for activities recommendations",
         action="Guide them in refining their preferences and suggest options that match what they're looking for",
     ),
     GuidelineContent(
@@ -488,7 +486,7 @@ example_1_expected = GenericActionableGuidelineMatchesSchema(
         ),
         GenericActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="The customer ask for activities recommendations",
+            condition="The customer asks for activities recommendations",
             rationale="The customer has moved from seeking activity recommendations to asking about legal requirements. Since they are no longer pursuing their original inquiry about activities, this represents a new topic rather than a sub-issue",
             applies=False,
         ),
@@ -526,18 +524,18 @@ example_2_events = [
     _make_event(
         "78",
         EventSource.CUSTOMER,
-        "That sounds useful. But I’m also wondering — is the course self-paced? I work full time.",
+        "That sounds useful. But I'm also wondering — is the course self-paced? I work full time.",
     ),
 ]
 
 example_2_guidelines = [
     GuidelineContent(
-        condition="The customer mentions a constraint that related to commitment to the course",
+        condition="The customer mentions a constraint that is related to commitment to the course",
         action="Emphasize flexible learning options",
     ),
     GuidelineContent(
         condition="The user expresses hesitation or self-doubt.",
-        action="Affirm that it’s okay to be uncertain and provide confidence-building context",
+        action="Affirm that it's okay to be uncertain and provide confidence-building context",
     ),
     GuidelineContent(
         condition="The user asks about certification or course completion benefits.",
@@ -549,14 +547,14 @@ example_2_expected = GenericActionableGuidelineMatchesSchema(
     checks=[
         GenericActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
-            condition="The customer mentions a constraint that related to commitment to the course",
-            rationale="In the most recent message the customer mentions that they work full time which is a constraint",
+            condition="The customer mentions a constraint that is related to commitment to the course",
+            rationale="In the most recent message, the customer mentions that they work full time which is a constraint",
             applies=True,
         ),
         GenericActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="The user expresses hesitation or self-doubt.",
-            rationale="In the most recent message the user still sounds hesitating about their fit to the course",
+            rationale="In the most recent message the user still sounds hesitant about their fit to the course",
             applies=True,
         ),
         GenericActionableBatch(
@@ -600,7 +598,7 @@ example_3_events = [
 example_3_guidelines = [
     GuidelineContent(
         condition="When the user is having a problem with login.",
-        action="Help then identify the problem and solve it",
+        action="Help them identify the problem and solve it",
     ),
 ]
 
@@ -627,11 +625,7 @@ example_4_events = [
         EventSource.AI_AGENT,
         "You can return items within 30 days either in-store or using our prepaid return label.",
     ),
-    _make_event(
-        "27",
-        EventSource.CUSTOMER,
-        "And what happens if I already wore it once?",
-    ),
+    _make_event("27", EventSource.CUSTOMER, "And what happens if I’ve already worn it once?"),
 ]
 
 example_4_guidelines = [
@@ -646,7 +640,7 @@ example_4_expected = GenericActionableGuidelineMatchesSchema(
         GenericActionableBatch(
             guideline_id=GuidelineId("<example-id-for-few-shots--do-not-use-this-in-output>"),
             condition="When the customer asks about how to return an item.",
-            rationale="In the most recent message the customer asks about what happens when they wore the item, which an inquiry regarding returning an item",
+            rationale="In the most recent message the customer asks about what happens when they wore the item, which is an inquiry regarding returning an item",
             applies=True,
         ),
     ]

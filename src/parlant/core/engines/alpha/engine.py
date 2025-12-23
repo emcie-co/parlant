@@ -1549,14 +1549,14 @@ class AlphaEngine(Engine):
         journey_paths = context.state.journey_paths or {}
 
         # Journeys that appear in journey_paths are considered "known" journeys:
-        # either active or finished (but still relevant to potentially reactivate).
+        # either active or finished (but still relevant and potentially reactivatable).
+        # A journey path can be [None] if we assumed the journey would be active, but the
+        # journey-node selection did not select any node for it—meaning it was not active in the past.
         journeys_with_paths_ids: set[JourneyId] = set(journey_paths.keys())
         journeys_with_paths: list[Journey] = [
             j
             for j in available_journeys
-            if j.id in journeys_with_paths_ids
-            and journey_paths[j.id]
-            and journey_paths[j.id] != [None]
+            if j.id in journeys_with_paths_ids and journey_paths[j.id] != [None]
         ]
 
         # Decide which journeys are "high probability"

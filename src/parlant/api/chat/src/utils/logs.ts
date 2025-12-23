@@ -165,8 +165,9 @@ export const getMessageLogsWithFilters = async (trace_id: string, filters: {leve
 			if (!allWordsMatch) return false;
 		}
 		if (filterTypes) {
-			const match = log.message.match(/^\[([^\]]+)\]/);
-			const type = match ? match[1] : 'General';
+			const matches = [...log.message.matchAll(/\[([^\]]+)\]/g)].map(m => m[1]);
+			const match = matches[0]?.startsWith('T+') ? matches[1] : matches[0];
+			const type = match || 'General';
 			return filterTypes.has(type);
 		}
 		return true;

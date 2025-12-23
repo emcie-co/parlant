@@ -90,17 +90,17 @@ def publish_docker() -> None:
 
 
 def publish_package(package: Package) -> None:
-    if not package.uses_poetry or not package.publish:
+    if not package.uses_uv or not package.publish:
         print(f"Skipping {package.path}...")
         return
 
-    status, output = package.run_cmd("poetry build")
+    status, output = package.run_cmd("uv build")
 
     if status != 0:
         print(output, file=sys.stderr)
         die(f"error: package '{package.path}': build failed")
 
-    status, output = package.run_cmd("poetry publish")
+    status, output = package.run_cmd("uv publish")
 
     if status != 0:
         print(output, file=sys.stderr)

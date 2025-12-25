@@ -323,7 +323,7 @@ async def test_that_a_plugin_tool_is_called_with_required_parameters_with_defaul
         return ToolResult(f"Scheduled {type_display} appointment in {room.value} at {when}")
 
     conversation_context = [
-        (EventSource.CUSTOMER, "I want to set up an appointment tomorrow at 10am"),
+        (EventSource.CUSTOMER, "I want to set up an appointment tomorrow (10.26.23) at 10am"),
     ]
 
     interaction_history = create_interaction_history(conversation_context)

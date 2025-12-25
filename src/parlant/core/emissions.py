@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Awaitable, Callable, Mapping
 from typing_extensions import deprecated
 
 from parlant.core.agents import AgentId
@@ -45,6 +46,14 @@ class EmittedEvent:
         return self.trace_id
 
 
+@dataclass(frozen=True)
+class MessageEventHandle:
+    """A handle to an emitted message event that allows updating it."""
+
+    event: EmittedEvent
+    update: Callable[[MessageEventData], Awaitable[MessageEventHandle]]
+
+
 class EventEmitter(ABC):
     """An interface for emitting events in the system."""
 
@@ -66,7 +75,7 @@ class EventEmitter(ABC):
         data: str | MessageEventData | None = None,
         metadata: Mapping[str, JSONSerializable] | None = None,
         **kwargs: Any,
-    ) -> EmittedEvent:
+    ) -> MessageEventHandle:
         """Emit a message event with the given trace ID and data."""
         ...
 

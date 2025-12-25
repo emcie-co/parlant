@@ -51,6 +51,7 @@ from parlant.core.nlp.moderation import (
     ModerationService,
     NoModeration,
 )
+from parlant.core.tracer import Tracer
 
 RATE_LIMIT_ERROR_MESSAGE = """\
 Qwen API rate limit exceeded. Possible reasons:
@@ -80,8 +81,8 @@ class QwenEstimatingTokenizer(EstimatingTokenizer):
 class QwenEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
-    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
-        super().__init__(logger=logger, meter=meter, model_name=model_name)
+    def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
 
         self._client = AsyncClient(
             base_url=os.environ.get(
@@ -137,8 +138,8 @@ class QwenEmbedder(BaseEmbedder):
 
 
 class QwenTextEmbedding_V4(QwenEmbedder):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="text-embedding-v4", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="text-embedding-v4", logger=logger, tracer=tracer, meter=meter)
 
     @property
     @override
@@ -157,8 +158,11 @@ class QwenSchematicGenerator(BaseSchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+
         self.model_name = model_name
         self._logger = logger
         self._meter = meter
@@ -280,8 +284,8 @@ class QwenSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class Qwen_MAX(QwenSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="qwen-max", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="qwen-max", logger=logger, tracer=tracer, meter=meter)
 
     @property
     @override
@@ -290,8 +294,8 @@ class Qwen_MAX(QwenSchematicGenerator[T]):
 
 
 class Qwen_Plus(QwenSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="qwen-plus", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="qwen-plus", logger=logger, tracer=tracer, meter=meter)
 
     @property
     @override
@@ -300,8 +304,10 @@ class Qwen_Plus(QwenSchematicGenerator[T]):
 
 
 class Qwen_2_5_72b(QwenSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="qwen2.5-72b-instruct", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(
+            model_name="qwen2.5-72b-instruct", logger=logger, tracer=tracer, meter=meter
+        )
 
     @property
     @override
@@ -325,9 +331,11 @@ Please set DASHSCOPE_API_KEY in your environment before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
         self._logger = logger
+        self._tracer = tracer
         self._meter = meter
         self.model_name = os.environ.get("QWEN_MODEL", "qwen-plus")
 
@@ -358,11 +366,11 @@ Please set DASHSCOPE_API_KEY in your environment before running Parlant.
     ) -> QwenSchematicGenerator[T]:
         qwen_generator = self._get_specialized_generator_class(self.model_name, t)
         assert qwen_generator is not None, f"Unsupported Qwen model: {self.model_name}"
-        return qwen_generator(self._logger, self._meter)
+        return qwen_generator(self._logger, self._tracer, self._meter)
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return QwenTextEmbedding_V4(logger=self._logger, meter=self._meter)
+        return QwenTextEmbedding_V4(logger=self._logger, tracer=self._tracer, meter=self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

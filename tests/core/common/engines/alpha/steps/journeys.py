@@ -16,8 +16,10 @@ from collections.abc import Sequence
 from typing import Mapping, cast
 from pytest_bdd import given, parsers
 
+from parlant.core.common import JSONSerializable
 from parlant.core.entity_cq import EntityCommands
-from parlant.core.journeys import Journey, JourneyStore
+from parlant.core.evaluations import JourneyPayload, PayloadOperation
+from parlant.core.journeys import Journey, JourneyId, JourneyNodeId, JourneyStore
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
 
 from parlant.core.relationships import (
@@ -26,6 +28,7 @@ from parlant.core.relationships import (
     RelationshipKind,
     RelationshipStore,
 )
+from parlant.core.services.indexing.behavioral_change_evaluation import JourneyEvaluator
 from parlant.core.sessions import AgentState, SessionId, SessionStore, SessionUpdateParams
 from parlant.core.tags import Tag
 from parlant.core.tools import LocalToolService, ToolId
@@ -76,6 +79,24 @@ def given_the_journey_called(
     guideline_store = context.container[GuidelineStore]
     relationship_store = context.container[RelationshipStore]
     local_tool_service = context.container[LocalToolService]
+
+    def get_journey_properties(
+        context: ContextOfTest,
+        journey_id: JourneyId,
+    ) -> dict[JourneyNodeId, dict[str, JSONSerializable]]:
+        journey_evaluator = context.container[JourneyEvaluator]
+        journey_evaluation_data = context.sync_await(
+            journey_evaluator.evaluate(
+                payloads=[
+                    JourneyPayload(
+                        journey_id=journey_id,
+                        operation=PayloadOperation.ADD,
+                    )
+                ],
+            )
+        )
+        metadata = journey_evaluation_data[0].node_properties_proposition or {}
+        return metadata
 
     def create_lock_card_journey() -> Journey:
         conditions = [
@@ -345,6 +366,18 @@ def given_the_journey_called(
             )
         )
 
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
+
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
+                )
+
         return journey
 
     def create_reset_password_journey() -> Journey:
@@ -384,7 +417,7 @@ def given_the_journey_called(
         node1 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
-                action="ask for their account name",
+                action="ask for their username",
                 tools=[],
             )
         )
@@ -394,7 +427,7 @@ def given_the_journey_called(
                 "customer_dependent_action_data",
                 {
                     "is_customer_dependent": True,
-                    "customer_action": "The customer provided their account name",
+                    "customer_action": "The customer provided their username",
                     "agent_action": "",
                 },
             )
@@ -414,7 +447,7 @@ def given_the_journey_called(
                 journey_id=journey.id,
                 source=journey.root_id,
                 target=node1.id,
-                condition="The customer has not provided their account name",
+                condition="The customer has not provided their username",
             )
         )
 
@@ -452,7 +485,7 @@ def given_the_journey_called(
                 journey_id=journey.id,
                 source=node1.id,
                 target=node2.id,
-                condition="The customer provided their account name",
+                condition="The customer provided their username",
             )
         )
         node3 = context.sync_await(
@@ -592,6 +625,18 @@ def given_the_journey_called(
                 condition="reset_password tool returned that the password was not successfully reset, or otherwise failed",
             )
         )
+
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
+
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
+                )
 
         return journey
 
@@ -846,6 +891,18 @@ def given_the_journey_called(
             )
         )
 
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
+
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
+                )
+
         return journey
 
     def create_book_taxi_journey() -> Journey:
@@ -1036,6 +1093,18 @@ def given_the_journey_called(
                 condition="",
             )
         )
+
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
+
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
+                )
 
         return journey
 
@@ -1391,6 +1460,18 @@ def given_the_journey_called(
             )
         )
 
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
+
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
+                )
+
         return journey
 
     def create_decrease_spending_journey() -> Journey:
@@ -1593,6 +1674,19 @@ def given_the_journey_called(
                 condition="",
             )
         )
+
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
+
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
+                )
+
         return journey
 
     def create_request_loan_journey() -> Journey:
@@ -1932,6 +2026,17 @@ def given_the_journey_called(
             )
         )
 
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
+
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
+                )
         return journey
 
     def create_change_credit_limit_journey() -> Journey:
@@ -2187,6 +2292,18 @@ def given_the_journey_called(
             )
         )
 
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
+
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
+                )
+
         return journey
 
     def book_hotel_journey() -> Journey:
@@ -2360,6 +2477,19 @@ def given_the_journey_called(
                 condition="",
             )
         )
+
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
+
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
+                )
+
         return journey
 
     JOURNEYS = {

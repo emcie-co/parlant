@@ -20,6 +20,14 @@ from pydantic import Field
 from typing import Annotated, Sequence, TypeAlias, cast
 
 from parlant.api.authorization import Operation, AuthorizationPolicy
+from parlant.api.common import (
+    CompositionModeDTO,
+    ExampleJson,
+    apigen_config,
+    composition_mode_dto_to_composition_mode,
+    composition_mode_to_composition_mode_dto,
+    example_json_content,
+)
 from parlant.core.app_modules.journeys import (
     JourneyConditionUpdateParams,
     JourneyGraph,
@@ -27,7 +35,6 @@ from parlant.core.app_modules.journeys import (
 )
 from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel, JSONSerializable
-from parlant.api.common import ExampleJson, apigen_config, example_json_content
 from parlant.core.journeys import (
     JourneyEdge,
     JourneyId,
@@ -135,6 +142,7 @@ class JourneyDTO(
     description: str
     conditions: Sequence[GuidelineId]
     tags: JourneyTagsField = []
+    composition_mode: CompositionModeDTO | None = None
 
 
 class JourneyCreationParamsDTO(
@@ -150,6 +158,7 @@ class JourneyCreationParamsDTO(
     conditions: Sequence[JourneyConditionField]
     id: JourneyIdPath | None = None
     tags: JourneyTagsField | None = None
+    composition_mode: CompositionModeDTO | None = None
 
 
 JourneyConditionUpdateAddField: TypeAlias = Annotated[
@@ -245,6 +254,7 @@ class JourneyUpdateParamsDTO(
     description: str | None = None
     conditions: JourneyConditionUpdateParamsDTO | None = None
     tags: JourneyTagUpdateParamsDTO | None = None
+    composition_mode: CompositionModeDTO | None = None
 
 
 TagIdQuery: TypeAlias = Annotated[
@@ -426,6 +436,9 @@ def create_router(
             conditions=params.conditions,
             tags=params.tags,
             id=params.id,
+            composition_mode=composition_mode_dto_to_composition_mode(params.composition_mode)
+            if params.composition_mode
+            else None,
         )
 
         return JourneyDTO(
@@ -434,6 +447,9 @@ def create_router(
             description=journey.description,
             conditions=[g.id for g in guidelines],
             tags=journey.tags,
+            composition_mode=composition_mode_to_composition_mode_dto(journey.composition_mode)
+            if journey.composition_mode
+            else None,
         )
 
     @router.get(
@@ -468,6 +484,11 @@ def create_router(
                     description=journey.description,
                     conditions=journey.conditions,
                     tags=journey.tags,
+                    composition_mode=composition_mode_to_composition_mode_dto(
+                        journey.composition_mode
+                    )
+                    if journey.composition_mode
+                    else None,
                 )
             )
 
@@ -505,6 +526,11 @@ def create_router(
             description=model.journey.description,
             conditions=model.journey.conditions,
             tags=model.journey.tags,
+            composition_mode=composition_mode_to_composition_mode_dto(
+                model.journey.composition_mode
+            )
+            if model.journey.composition_mode
+            else None,
         )
 
     @router.get(
@@ -577,6 +603,9 @@ def create_router(
             tags=JourneyTagUpdateParams(add=params.tags.add, remove=params.tags.remove)
             if params.tags
             else None,
+            composition_mode=composition_mode_dto_to_composition_mode(params.composition_mode)
+            if params.composition_mode
+            else None,
         )
 
         return JourneyDTO(
@@ -585,6 +614,9 @@ def create_router(
             description=journey.description,
             conditions=journey.conditions,
             tags=journey.tags,
+            composition_mode=composition_mode_to_composition_mode_dto(journey.composition_mode)
+            if journey.composition_mode
+            else None,
         )
 
     @router.delete(

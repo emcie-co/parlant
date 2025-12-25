@@ -25,13 +25,13 @@ Feature: Context Variables
 
     Scenario: The agent responds according to the updated value from the tool after the freshness rules are met
         Given a customer named "Keyleth"
-        And a context variable "Stamina" set to "80.0" for "Keyleth"
-        And the context variable "Stamina" has freshness rules of "0,15,30,45 * * * *"
+        And a context variable "UserStamina" set to "80.0" for "Keyleth"
+        And the context variable "UserStamina" has freshness rules of "0,15,30,45 * * * *"
         And the tool "get_keyleth_stamina"
-        And the context variable "Stamina" is connected to the tool "get_keyleth_stamina"
+        And the context variable "UserStamina" is connected to the tool "get_keyleth_stamina"
         And an empty session with "Keyleth"
         And a customer message, "What is my stamina?"
         When processing is triggered
         Then a single message event is emitted
-        And the message mentions to the customer that their stamina is 100.0
+        And the message mentions that stamina is 100
 

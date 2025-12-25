@@ -85,9 +85,8 @@ class OpenTelemetryMeter(Meter):
             case "http/protobuf":
                 self._metric_exporter = HttpOTLPMetricExporter(endpoint=endpoint)
             case "http/json":
-                self._metric_exporter = HttpOTLPMetricExporter(
-                    endpoint=endpoint,
-                    headers={"Content-Type": "application/json"},
+                raise ValueError(
+                    "http/json protocol is not supported for metrics exporter. please use http/protobuf or grpc."
                 )
             case "grpc":
                 self._metric_exporter = GrpcOTLPMetricExporter(
@@ -99,7 +98,7 @@ class OpenTelemetryMeter(Meter):
 
         metric_reader = PeriodicExportingMetricReader(
             exporter=self._metric_exporter,
-            export_interval_millis=3000,
+            export_interval_millis=int(os.getenv("OTEL_METRIC_EXPORT_INTERVAL", "3000")),
         )
         self._meter_provider = MeterProvider(
             resource=resource,
@@ -147,6 +146,7 @@ class OpenTelemetryMeter(Meter):
             description=description,
             unit=unit,
         )
+
         return OpenTelemetryHistogram(otel_histogram)
 
     @override

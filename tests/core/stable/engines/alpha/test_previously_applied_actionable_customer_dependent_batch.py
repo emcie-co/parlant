@@ -123,10 +123,10 @@ def create_guideline(
             condition=condition,
             action=action,
         ),
-        criticality=Criticality.MEDIUM,
         enabled=True,
         tags=tags,
         metadata={},
+        criticality=Criticality.MEDIUM,
     )
 
     context.guidelines.append(guideline)

@@ -19,6 +19,7 @@ from pydantic import Field
 from parlant.api import common
 from parlant.api.authorization import Operation, AuthorizationPolicy
 from parlant.api.common import (
+    CompositionModeDTO,
     GuidelineDTO,
     GuidelineEnabledField,
     GuidelineIdField,
@@ -29,6 +30,8 @@ from parlant.api.common import (
     TagDTO,
     ToolIdDTO,
     apigen_config,
+    composition_mode_dto_to_composition_mode,
+    composition_mode_to_composition_mode_dto,
     guideline_dto_example,
 )
 from parlant.core.app_modules.guidelines import (
@@ -205,6 +208,7 @@ guideline_creation_params_example: ExampleJson = {
     "action": "provide current pricing information and mention any ongoing promotions",
     "enabled": False,
     "metadata": {"key1": "value1", "key2": "value2"},
+    "composition_mode": "strict_canned",
 }
 
 
@@ -222,6 +226,7 @@ class GuidelineCreationParamsDTO(
     metadata: GuidelineMetadataField | None = None
     enabled: GuidelineEnabledField | None = None
     tags: GuidelineTagsField | None = None
+    composition_mode: CompositionModeDTO | None = None
 
 
 GuidelineMetadataUnsetField: TypeAlias = Annotated[
@@ -291,6 +296,7 @@ class GuidelineUpdateParamsDTO(
     enabled: GuidelineEnabledField | None = None
     tags: GuidelineTagsUpdateParamsDTO | None = None
     metadata: GuidelineMetadataUpdateParamsDTO | None = None
+    composition_mode: CompositionModeDTO | None = None
 
 
 guideline_with_relationships_example: ExampleJson = {
@@ -407,6 +413,11 @@ def _guideline_relationship_to_dto(
             enabled=rel_source_guideline.enabled,
             tags=rel_source_guideline.tags,
             metadata=rel_source_guideline.metadata,
+            composition_mode=composition_mode_to_composition_mode_dto(
+                rel_source_guideline.composition_mode
+            )
+            if rel_source_guideline.composition_mode
+            else None,
         )
         if relationship.source_type == RelationshipEntityKind.GUIDELINE
         else None,
@@ -427,6 +438,11 @@ def _guideline_relationship_to_dto(
             enabled=rel_target_guideline.enabled,
             tags=rel_target_guideline.tags,
             metadata=rel_target_guideline.metadata,
+            composition_mode=composition_mode_to_composition_mode_dto(
+                rel_target_guideline.composition_mode
+            )
+            if rel_target_guideline.composition_mode
+            else None,
         )
         if relationship.target_type == RelationshipEntityKind.GUIDELINE
         else None,
@@ -490,6 +506,9 @@ def create_router(
                 enabled=params.enabled or True,
                 tags=params.tags,
                 id=params.id,
+                composition_mode=composition_mode_dto_to_composition_mode(params.composition_mode)
+                if params.composition_mode
+                else None,
             )
         except ValueError as e:
             raise HTTPException(
@@ -506,6 +525,9 @@ def create_router(
             metadata=guideline.metadata,
             enabled=guideline.enabled,
             tags=guideline.tags,
+            composition_mode=composition_mode_to_composition_mode_dto(guideline.composition_mode)
+            if guideline.composition_mode
+            else None,
         )
 
     @router.get(
@@ -545,6 +567,11 @@ def create_router(
                 metadata=guideline.metadata,
                 enabled=guideline.enabled,
                 tags=guideline.tags,
+                composition_mode=composition_mode_to_composition_mode_dto(
+                    guideline.composition_mode
+                )
+                if guideline.composition_mode
+                else None,
             )
             for guideline in guidelines
         ]
@@ -601,6 +628,11 @@ def create_router(
                 metadata=guideline.metadata,
                 enabled=guideline.enabled,
                 tags=guideline.tags,
+                composition_mode=composition_mode_to_composition_mode_dto(
+                    guideline.composition_mode
+                )
+                if guideline.composition_mode
+                else None,
             ),
             relationships=[
                 _guideline_relationship_to_dto(relationship, indirect)
@@ -691,6 +723,9 @@ def create_router(
             )
             if params.metadata
             else None,
+            composition_mode=composition_mode_dto_to_composition_mode(params.composition_mode)
+            if params.composition_mode
+            else None,
         )
 
         guideline_tool_associations = await app.guidelines.find_tool_associations(guideline_id)
@@ -705,6 +740,11 @@ def create_router(
                 metadata=updated_guideline.metadata,
                 enabled=updated_guideline.enabled,
                 tags=updated_guideline.tags,
+                composition_mode=composition_mode_to_composition_mode_dto(
+                    updated_guideline.composition_mode
+                )
+                if updated_guideline.composition_mode
+                else None,
             ),
             relationships=[
                 _guideline_relationship_to_dto(relationship, indirect)

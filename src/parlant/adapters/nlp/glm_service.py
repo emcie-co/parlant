@@ -50,6 +50,7 @@ from parlant.core.nlp.moderation import (
     ModerationService,
     NoModeration,
 )
+from parlant.core.tracer import Tracer
 
 RATE_LIMIT_ERROR_MESSAGE = """\
 GLM API rate limit exceeded. Possible reasons:
@@ -79,10 +80,11 @@ class GLMEstimatingTokenizer(EstimatingTokenizer):
 class GLMEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
-    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
+    def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         self.model_name = model_name
 
         self._logger = logger
+        self._tracer = tracer
         self._meter = meter
 
         self._client = AsyncClient(
@@ -136,8 +138,8 @@ class GLMEmbedder(BaseEmbedder):
 
 
 class GMLTextEmbedding_3(GLMEmbedder):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="embedding-3", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="embedding-3", logger=logger, tracer=tracer, meter=meter)
 
     @property
     @override
@@ -157,8 +159,11 @@ class GLMSchematicGenerator(BaseSchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+
         self.model_name = model_name
         self._logger = logger
         self._meter = meter
@@ -280,8 +285,8 @@ class GLMSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class GLM_4_5(GLMSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="glm-4.5", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="glm-4.5", logger=logger, tracer=tracer, meter=meter)
 
     @property
     @override
@@ -305,9 +310,11 @@ Please set GLM_API_KEY in your environment before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
         self._logger = logger
+        self._tracer = tracer
         self._meter = meter
         self._logger.info("Initialized GLMService")
 
@@ -315,11 +322,11 @@ Please set GLM_API_KEY in your environment before running Parlant.
     async def get_schematic_generator(
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> GLMSchematicGenerator[T]:
-        return GLM_4_5[t](self._logger, self._meter)  # type: ignore
+        return GLM_4_5[t](self._logger, self._tracer, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return GMLTextEmbedding_3(logger=self._logger, meter=self._meter)
+        return GMLTextEmbedding_3(logger=self._logger, tracer=self._tracer, meter=self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

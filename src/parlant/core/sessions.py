@@ -151,6 +151,7 @@ class MessageEventData(TypedDict):
     tags: NotRequired[Sequence[str]]
     draft: NotRequired[str]
     canned_responses: NotRequired[Sequence[tuple[CannedResponseId, str]]]
+    chunks: NotRequired[list[str | None]]
 
 
 class ControlOptions(TypedDict, total=False):
@@ -263,7 +264,7 @@ LifeSpan: TypeAlias = Literal["response", "session"]
 class AgentState:
     trace_id: str
     applied_guideline_ids: Sequence[GuidelineId]
-    journey_paths: Mapping[JourneyId, Sequence[GuidelineId | None]]
+    journey_paths: Mapping[JourneyId, Sequence[str | None]]
 
 
 @dataclass(frozen=True)
@@ -291,6 +292,7 @@ class SessionUpdateParams(TypedDict, total=False):
 
 class EventUpdateParams(TypedDict, total=False):
     metadata: Mapping[str, JSONSerializable]
+    data: JSONSerializable
 
 
 @dataclass(frozen=True)
@@ -428,7 +430,7 @@ class _AgentStateDocument_v0_6_0(TypedDict):
 class _AgentStateDocument(TypedDict):
     trace_id: str
     applied_guideline_ids: Sequence[GuidelineId]
-    journey_paths: Mapping[JourneyId, Sequence[GuidelineId | None]]
+    journey_paths: Mapping[JourneyId, Sequence[str | None]]
 
 
 class _SessionDocument_v0_5_0(TypedDict, total=False):
@@ -1308,6 +1310,8 @@ class SessionDocumentStore(SessionStore):
             update_params: _EventDocument = {}
             if "metadata" in params:
                 update_params["metadata"] = params["metadata"] if params["metadata"] else None
+            if "data" in params:
+                update_params["data"] = params["data"]
 
             if not update_params:
                 return self._deserialize_event(event_document)

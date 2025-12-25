@@ -750,6 +750,7 @@ class CannedResponseVectorStore(CannedResponseStore):
                         count_item_vectors=lambda c: len(self._list_canned_response_contents(c)),
                         max_items_to_return=max_count,
                     ),
+                    hints={"tag": "canned_responses"},
                 )
                 for q in queries
             ]

@@ -18,7 +18,7 @@ import json
 import traceback
 from typing import Any, Mapping, Optional, Sequence, cast
 from typing_extensions import override
-from parlant.core.async_utils import CancellationSuppressionLatch
+from parlant.core.async_utils import CancellationSuppressionLatch, Stopwatch
 from parlant.core.capabilities import Capability
 from parlant.core.meter import Meter
 from parlant.core.tracer import Tracer
@@ -49,7 +49,12 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import Guidel
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.glossary import Term
 from parlant.core.emissions import EmittedEvent, EventEmitter
-from parlant.core.sessions import Event, EventKind, EventSource, Session
+from parlant.core.sessions import (
+    Event,
+    EventKind,
+    EventSource,
+    Session,
+)
 from parlant.core.common import DefaultBaseModel
 from parlant.core.loggers import Logger
 from parlant.core.shots import Shot, ShotCollection
@@ -143,6 +148,9 @@ class MessageGenerator(MessageEventComposer):
             "message_generation",
             description="Duration of message generation requests",
         )
+        self._hist_ttfm_duration = self._meter.create_duration_histogram(
+            "ttfm", description="Time to first message"
+        )
 
     async def shots(self) -> Sequence[MessageGeneratorShot]:
         return await shot_collection.list()
@@ -165,12 +173,13 @@ class MessageGenerator(MessageEventComposer):
                 with self._logger.scope("Message generation"):
                     async with self._hist_message_generation_duration.measure():
                         return await self._do_generate_events(
+                            start_of_processing=context.creation,
                             event_emitter=context.session_event_emitter,
                             agent=context.agent,
                             customer=context.customer,
                             session=context.session,
                             context_variables=context.state.context_variables,
-                            interaction_history=context.interaction.history,
+                            interaction_history=context.interaction.events,
                             terms=list(context.state.glossary_terms),
                             capabilities=context.state.capabilities,
                             ordinary_guideline_matches=context.state.ordinary_guideline_matches,
@@ -198,6 +207,7 @@ class MessageGenerator(MessageEventComposer):
 
     async def _do_generate_events(
         self,
+        start_of_processing: Stopwatch,
         event_emitter: EventEmitter,
         agent: Agent,
         customer: Customer,
@@ -266,15 +276,18 @@ class MessageGenerator(MessageEventComposer):
                     latch.enable()
 
                 if response_message is not None:
-                    event = await event_emitter.emit_message_event(
+                    handle = await event_emitter.emit_message_event(
                         trace_id=self._tracer.trace_id,
                         data=response_message,
                     )
 
+                    await self._hist_ttfm_duration.record(start_of_processing.elapsed * 1000)
                     self._tracer.add_event("mg.ttfm")
 
                     return [
-                        MessageEventComposition({"message_generation": generation_info}, [event])
+                        MessageEventComposition(
+                            {"message_generation": generation_info}, [handle.event]
+                        )
                     ]
                 else:
                     self._logger.debug("Skipping response; no response deemed necessary")

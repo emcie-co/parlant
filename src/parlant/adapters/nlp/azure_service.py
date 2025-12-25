@@ -34,6 +34,7 @@ import tiktoken
 from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
+from parlant.core.tracer import Tracer
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
@@ -69,11 +70,15 @@ class AzureSchematicGenerator(BaseSchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
         client: AsyncAzureOpenAI,
     ) -> None:
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+
         self.model_name = model_name
         self._logger = logger
+        self._tracer = tracer
         self._meter = meter
         self._client = client
         self._tokenizer = AzureEstimatingTokenizer(model_name=self.model_name)
@@ -322,12 +327,13 @@ def create_azure_client() -> AsyncAzureOpenAI:
 
 
 class CustomAzureSchematicGenerator(AzureSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         _client = create_azure_client()
 
         super().__init__(
             model_name=os.environ["AZURE_GENERATIVE_MODEL_NAME"],
             logger=logger,
+            tracer=tracer,
             meter=meter,
             client=_client,
         )
@@ -341,10 +347,13 @@ class GPT_4o(AzureSchematicGenerator[T]):
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
         _client = create_azure_client()
-        super().__init__(model_name="gpt-4o", logger=logger, meter=meter, client=_client)
+        super().__init__(
+            model_name="gpt-4o", logger=logger, tracer=tracer, meter=meter, client=_client
+        )
 
     @property
     def max_tokens(self) -> int:
@@ -355,10 +364,13 @@ class GPT_4o_Mini(AzureSchematicGenerator[T]):
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
         _client = create_azure_client()
-        super().__init__(model_name="gpt-4o-mini", logger=logger, meter=meter, client=_client)
+        super().__init__(
+            model_name="gpt-4o-mini", logger=logger, tracer=tracer, meter=meter, client=_client
+        )
         self._token_estimator = AzureEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -373,12 +385,14 @@ class AzureEmbedder(BaseEmbedder):
         self,
         model_name: str,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
         client: AsyncAzureOpenAI,
     ) -> None:
         self.model_name = model_name
 
         self._logger = logger
+        self._tracer = tracer
         self._meter = meter
 
         self._client = client
@@ -429,12 +443,14 @@ class CustomAzureEmbedder(AzureEmbedder):
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
         _client = create_azure_client()
         super().__init__(
             model_name=os.environ["AZURE_EMBEDDING_MODEL_NAME"],
             logger=logger,
+            tracer=tracer,
             meter=meter,
             client=_client,
         )
@@ -453,11 +469,16 @@ class AzureTextEmbedding3Large(AzureEmbedder):
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
         _client = create_azure_client()
         super().__init__(
-            model_name="text-embedding-3-large", logger=logger, meter=meter, client=_client
+            model_name="text-embedding-3-large",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            client=_client,
         )
 
     @property
@@ -474,11 +495,16 @@ class AzureTextEmbedding3Small(AzureEmbedder):
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
         _client = create_azure_client()
         super().__init__(
-            model_name="text-embedding-3-small", logger=logger, meter=meter, client=_client
+            model_name="text-embedding-3-small",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            client=_client,
         )
 
     @property
@@ -613,22 +639,26 @@ https://docs.microsoft.com/en-us/python/api/overview/azure/identity-readme
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
         self._logger = logger
+        self._tracer = tracer
         self._meter = meter
 
     async def get_schematic_generator(
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> AzureSchematicGenerator[T]:
         if os.environ.get("AZURE_GENERATIVE_MODEL_NAME"):
-            return CustomAzureSchematicGenerator[t](logger=self._logger, meter=self._meter)  # type: ignore
-        return GPT_4o[t](self._logger, self._meter)  # type: ignore
+            return CustomAzureSchematicGenerator[t](  # type: ignore
+                logger=self._logger, tracer=self._tracer, meter=self._meter
+            )
+        return GPT_4o[t](self._logger, self._tracer, self._meter)  # type: ignore
 
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         if os.environ.get("AZURE_EMBEDDING_MODEL_NAME"):
-            return CustomAzureEmbedder(self._logger, self._meter)
-        return AzureTextEmbedding3Large(self._logger, self._meter)
+            return CustomAzureEmbedder(self._logger, self._tracer, self._meter)
+        return AzureTextEmbedding3Large(self._logger, self._tracer, self._meter)
 
     async def get_moderation_service(self) -> ModerationService:
         return NoModeration()

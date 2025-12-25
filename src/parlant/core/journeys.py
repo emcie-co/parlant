@@ -13,12 +13,13 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from itertools import chain
 from typing import Awaitable, Callable, Mapping, NewType, Optional, Sequence, cast
 from typing_extensions import override, TypedDict, Self, Required
 
+from parlant.core.agents import CompositionMode
 from parlant.core.async_utils import ReaderWriterLock, safe_gather
 from parlant.core.common import JSONSerializable, md5_checksum
 from parlant.core.common import ItemNotFoundError, UniqueId, Version, IdGenerator, to_json_dict
@@ -63,6 +64,7 @@ class JourneyNode:
     tools: Sequence[ToolId]
     metadata: Mapping[str, JSONSerializable]
     description: Optional[str] = None
+    composition_mode: Optional[CompositionMode] = None
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -90,6 +92,7 @@ class Journey:
     title: str
     root_id: JourneyNodeId
     tags: Sequence[TagId]
+    composition_mode: Optional[CompositionMode] = None
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -98,6 +101,7 @@ class Journey:
 class JourneyUpdateParams(TypedDict, total=False):
     title: str
     description: str
+    composition_mode: Optional[CompositionMode]
 
 
 class JourneyNodeUpdateParams(TypedDict, total=False):
@@ -126,6 +130,7 @@ class JourneyStore(ABC):
         creation_utc: Optional[datetime] = None,
         tags: Optional[Sequence[TagId]] = None,
         id: Optional[JourneyId] = None,
+        composition_mode: Optional[CompositionMode] = None,
     ) -> Journey: ...
 
     @abstractmethod
@@ -198,6 +203,7 @@ class JourneyStore(ABC):
         action: Optional[str],
         tools: Sequence[ToolId],
         description: Optional[str] = None,
+        composition_mode: Optional[CompositionMode] = None,
     ) -> JourneyNode: ...
 
     @abstractmethod
@@ -317,7 +323,7 @@ class JourneyVectorDocument(TypedDict, total=False):
     checksum: Required[str]
 
 
-class JourneyDocument(TypedDict, total=False):
+class JourneyDocument_v0_3_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
@@ -326,12 +332,34 @@ class JourneyDocument(TypedDict, total=False):
     root_id: JourneyNodeId
 
 
+class JourneyDocument(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    title: str
+    description: str
+    root_id: JourneyNodeId
+    composition_mode: Optional[str]
+
+
 class JourneyConditionAssociationDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
     journey_id: JourneyId
     condition: GuidelineId
+
+
+class JourneyNodeAssociationDocument_v0_3_0(TypedDict, total=False):
+    id: ObjectId
+    node_id: JourneyNodeId
+    version: Version.String
+    creation_utc: str
+    journey_id: JourneyId
+    action: Optional[str]
+    tools: Sequence[ToolId]
+    metadata: Mapping[str, JSONSerializable]
+    description: Optional[str]
 
 
 class JourneyNodeAssociationDocument(TypedDict, total=False):
@@ -344,6 +372,7 @@ class JourneyNodeAssociationDocument(TypedDict, total=False):
     tools: Sequence[ToolId]
     metadata: Mapping[str, JSONSerializable]
     description: Optional[str]
+    composition_mode: Optional[str]
 
 
 class JourneyEdgeAssociationDocument(TypedDict, total=False):
@@ -366,7 +395,7 @@ class JourneyTagAssociationDocument(TypedDict, total=False):
 
 
 class JourneyVectorStore(JourneyStore):
-    VERSION = Version.from_string("0.3.0")
+    VERSION = Version.from_string("0.4.0")
 
     def __init__(
         self,
@@ -414,6 +443,18 @@ class JourneyVectorStore(JourneyStore):
         ).migrate(doc)
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[JourneyDocument]:
+        async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(JourneyDocument_v0_3_0, doc)
+            return JourneyDocument(
+                id=d["id"],
+                version=Version.String("0.4.0"),
+                creation_utc=d["creation_utc"],
+                title=d["title"],
+                description=d["description"],
+                root_id=d["root_id"],
+                composition_mode=None,  # Default to None for existing journeys
+            )
+
         async def v0_1_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
@@ -424,6 +465,7 @@ class JourneyVectorStore(JourneyStore):
             {
                 "0.1.0": v0_1_0_to_v0_3_0,
                 "0.2.0": v0_1_0_to_v0_3_0,
+                "0.3.0": v0_3_0_to_v0_4_0,
             },
         ).migrate(doc)
 
@@ -460,6 +502,21 @@ class JourneyVectorStore(JourneyStore):
     async def _node_association_loader(
         self, doc: BaseDocument
     ) -> Optional[JourneyNodeAssociationDocument]:
+        async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(JourneyNodeAssociationDocument_v0_3_0, doc)
+            return JourneyNodeAssociationDocument(
+                id=d["id"],
+                node_id=d["node_id"],
+                version=Version.String("0.4.0"),
+                creation_utc=d["creation_utc"],
+                journey_id=d["journey_id"],
+                action=d["action"],
+                tools=d["tools"],
+                metadata=d["metadata"],
+                description=d.get("description"),
+                composition_mode=None,  # Default to None for existing nodes
+            )
+
         async def v0_1_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
@@ -469,6 +526,7 @@ class JourneyVectorStore(JourneyStore):
             self,
             {
                 "0.1.0": v0_1_0_to_v0_3_0,
+                "0.3.0": v0_3_0_to_v0_4_0,
             },
         ).migrate(doc)
 
@@ -561,6 +619,7 @@ class JourneyVectorStore(JourneyStore):
             title=journey.title,
             description=journey.description,
             root_id=journey.root_id,
+            composition_mode=(journey.composition_mode.value if journey.composition_mode else None),
         )
 
     async def _deserialize(self, doc: JourneyDocument) -> Journey:
@@ -576,6 +635,9 @@ class JourneyVectorStore(JourneyStore):
             )
         ]
 
+        composition_mode_str = doc.get("composition_mode")
+        composition_mode = CompositionMode(composition_mode_str) if composition_mode_str else None
+
         return Journey(
             id=JourneyId(doc["id"]),
             creation_utc=datetime.fromisoformat(doc["creation_utc"]),
@@ -584,6 +646,7 @@ class JourneyVectorStore(JourneyStore):
             description=doc["description"],
             root_id=JourneyNodeId(doc["root_id"]),
             tags=tags,
+            composition_mode=composition_mode,
         )
 
     def _serialize_node(
@@ -603,9 +666,13 @@ class JourneyVectorStore(JourneyStore):
             tools=node.tools,
             metadata=node.metadata,
             description=node.description,
+            composition_mode=(node.composition_mode.value if node.composition_mode else None),
         )
 
     def _deserialize_node(self, doc: JourneyNodeAssociationDocument) -> JourneyNode:
+        composition_mode_str = doc.get("composition_mode")
+        composition_mode = CompositionMode(composition_mode_str) if composition_mode_str else None
+
         return JourneyNode(
             id=JourneyNodeId(doc["node_id"]),
             creation_utc=datetime.fromisoformat(doc["creation_utc"]),
@@ -613,6 +680,7 @@ class JourneyVectorStore(JourneyStore):
             tools=doc["tools"],
             metadata=doc["metadata"],
             description=doc.get("description"),
+            composition_mode=composition_mode,
         )
 
     def _serialize_edge(
@@ -661,6 +729,7 @@ class JourneyVectorStore(JourneyStore):
         creation_utc: Optional[datetime] = None,
         tags: Optional[Sequence[TagId]] = None,
         id: Optional[JourneyId] = None,
+        composition_mode: Optional[CompositionMode] = None,
     ) -> Journey:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
@@ -699,6 +768,7 @@ class JourneyVectorStore(JourneyStore):
                 description=description,
                 root_id=journey_root_id,
                 tags=tags or [],
+                composition_mode=composition_mode,
             )
 
             content = self.assemble_content(
@@ -1015,6 +1085,7 @@ class JourneyVectorStore(JourneyStore):
                     filters=filters,
                     query=q,
                     k=max_journeys,
+                    hints={"tag": "journeys"},
                 )
                 for q in queries
             ]
@@ -1037,6 +1108,7 @@ class JourneyVectorStore(JourneyStore):
         action: Optional[str],
         tools: Sequence[ToolId],
         description: Optional[str] = None,
+        composition_mode: Optional[CompositionMode] = None,
         creation_utc: Optional[datetime] = None,
     ) -> JourneyNode:
         creation_utc = creation_utc or datetime.now(timezone.utc)
@@ -1051,6 +1123,7 @@ class JourneyVectorStore(JourneyStore):
                 tools=tools,
                 metadata={},
                 description=description,
+                composition_mode=composition_mode,
             )
 
             await self._node_association_collection.insert_one(
@@ -1070,7 +1143,20 @@ class JourneyVectorStore(JourneyStore):
         if not doc:
             raise ItemNotFoundError(item_id=UniqueId(node_id))
 
-        return self._deserialize_node(doc)
+        node = self._deserialize_node(doc)
+
+        # If node doesn't have composition_mode, inherit from journey
+        if node.composition_mode is None:
+            journey_id = doc["journey_id"]
+            try:
+                journey = await self.read_journey(journey_id=journey_id)
+                if journey.composition_mode is not None:
+                    replace(node, composition_mode=journey.composition_mode)
+            except ItemNotFoundError:
+                # Journey not found, just return node as-is
+                pass
+
+        return node
 
     @override
     async def update_node(

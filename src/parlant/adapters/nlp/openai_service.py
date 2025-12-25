@@ -38,11 +38,21 @@ from parlant.core.engines.alpha.canned_response_generator import (
     CannedResponseDraftSchema,
     CannedResponseSelectionSchema,
 )
-from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
-    JourneyNodeSelectionSchema,
+
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
+    JourneyBacktrackCheckSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
+    JourneyBacktrackNodeSelectionSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_step_selection import (
+    JourneyNextStepSelectionSchema,
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.engines.alpha.tool_calling.single_tool_batch import SingleToolBatchSchema
+from parlant.core.engines.alpha.tool_calling.single_tool_batch import (
+    NonConsequentialToolBatchSchema,
+    SingleToolBatchSchema,
+)
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
@@ -62,6 +72,7 @@ from parlant.core.nlp.moderation import (
     ModerationService,
     ModerationTag,
 )
+from parlant.core.tracer import Tracer
 
 
 RATE_LIMIT_ERROR_MESSAGE = (
@@ -105,10 +116,11 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
         tokenizer_model_name: str | None = None,
     ) -> None:
-        super().__init__(logger=logger, meter=meter, model_name=model_name)
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
 
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
 
@@ -289,8 +301,8 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class GPT_4o(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="gpt-4o-2024-11-20", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="gpt-4o-2024-11-20", logger=logger, tracer=tracer, meter=meter)
 
     @property
     @override
@@ -299,8 +311,8 @@ class GPT_4o(OpenAISchematicGenerator[T]):
 
 
 class GPT_4o_24_08_06(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="gpt-4o-2024-08-06", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="gpt-4o-2024-08-06", logger=logger, tracer=tracer, meter=meter)
 
     @property
     @override
@@ -309,10 +321,11 @@ class GPT_4o_24_08_06(OpenAISchematicGenerator[T]):
 
 
 class GPT_4_1(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(
             model_name="gpt-4.1",
             logger=logger,
+            tracer=tracer,
             meter=meter,
             tokenizer_model_name="gpt-4o-2024-11-20",
         )
@@ -324,8 +337,8 @@ class GPT_4_1(OpenAISchematicGenerator[T]):
 
 
 class GPT_4o_Mini(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="gpt-4o-mini", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="gpt-4o-mini", logger=logger, tracer=tracer, meter=meter)
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -335,8 +348,8 @@ class GPT_4o_Mini(OpenAISchematicGenerator[T]):
 
 
 class GPT_4_1_Mini(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="gpt-4.1-mini", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="gpt-4.1-mini", logger=logger, tracer=tracer, meter=meter)
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -346,8 +359,8 @@ class GPT_4_1_Mini(OpenAISchematicGenerator[T]):
 
 
 class GPT_4_1_Nano(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="gpt-4.1-nano", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="gpt-4.1-nano", logger=logger, tracer=tracer, meter=meter)
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -357,8 +370,8 @@ class GPT_4_1_Nano(OpenAISchematicGenerator[T]):
 
 
 class GPT_5_1(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="gpt-5.1", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="gpt-5.1", logger=logger, tracer=tracer, meter=meter)
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -368,8 +381,8 @@ class GPT_5_1(OpenAISchematicGenerator[T]):
 
 
 class GPT_5_Mini(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="gpt-5-mini", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="gpt-5-mini", logger=logger, tracer=tracer, meter=meter)
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -379,8 +392,8 @@ class GPT_5_Mini(OpenAISchematicGenerator[T]):
 
 
 class GPT_5_Nano(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="gpt-5-nano", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="gpt-5-nano", logger=logger, tracer=tracer, meter=meter)
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -392,8 +405,8 @@ class GPT_5_Nano(OpenAISchematicGenerator[T]):
 class OpenAIEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
-    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
-        super().__init__(logger, meter, model_name)
+    def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(logger, tracer, meter, model_name)
         self.model_name = model_name
 
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
@@ -445,8 +458,10 @@ class OpenAIEmbedder(BaseEmbedder):
 
 
 class OpenAITextEmbedding3Large(OpenAIEmbedder):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="text-embedding-3-large", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(
+            model_name="text-embedding-3-large", logger=logger, tracer=tracer, meter=meter
+        )
 
     @property
     @override
@@ -459,8 +474,10 @@ class OpenAITextEmbedding3Large(OpenAIEmbedder):
 
 
 class OpenAITextEmbedding3Small(OpenAIEmbedder):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="text-embedding-3-small", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(
+            model_name="text-embedding-3-small", logger=logger, tracer=tracer, meter=meter
+        )
 
     @property
     @override
@@ -548,9 +565,11 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
         self._logger = logger
+        self._tracer = tracer
         self._meter = meter
 
         self._logger.info("Initialized OpenAIService")
@@ -563,52 +582,57 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
             case ModelSize.AUTO:
                 return {
                     SingleToolBatchSchema: GPT_4o[SingleToolBatchSchema],
-                    JourneyNodeSelectionSchema: GPT_4_1[JourneyNodeSelectionSchema],
+                    NonConsequentialToolBatchSchema: GPT_4_1[NonConsequentialToolBatchSchema],
+                    JourneyBacktrackNodeSelectionSchema: GPT_4_1[
+                        JourneyBacktrackNodeSelectionSchema
+                    ],
                     CannedResponseDraftSchema: GPT_4_1[CannedResponseDraftSchema],
                     CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
-                }.get(t, GPT_4o_24_08_06[t])(self._logger, self._meter)  # type: ignore
+                    JourneyNextStepSelectionSchema: GPT_4_1[JourneyNextStepSelectionSchema],
+                    JourneyBacktrackCheckSchema: GPT_4_1_Mini[JourneyBacktrackCheckSchema],
+                }.get(t, GPT_4o_24_08_06[t])(self._logger, self._tracer, self._meter)  # type: ignore
             case ModelSize.NANO:
                 match hints.get("model_generation", "auto"):
                     case "auto" | "stable":
                         match hints.get("model_type", "auto"):
                             case "auto" | "standard":
-                                return GPT_4_1_Nano[t](self._logger, self._meter)  # type: ignore
+                                return GPT_4_1_Nano[t](self._logger, self._tracer, self._meter)  # type: ignore
                             case "reasoning":
-                                return GPT_5_Nano[t](self._logger, self._meter)  # type: ignore
+                                return GPT_5_Nano[t](self._logger, self._tracer, self._meter)  # type: ignore
                     case "latest":
                         match hints.get("model_type", "auto"):
                             case "standard":
-                                return GPT_4_1_Nano[t](self._logger, self._meter)  # type: ignore
+                                return GPT_4_1_Nano[t](self._logger, self._tracer, self._meter)  # type: ignore
                             case "auto" | "reasoning":
-                                return GPT_5_Nano[t](self._logger, self._meter)  # type: ignore
+                                return GPT_5_Nano[t](self._logger, self._tracer, self._meter)  # type: ignore
             case ModelSize.MINI:
                 match hints.get("model_generation", "auto"):
                     case "auto" | "stable":
                         match hints.get("model_type", "auto"):
                             case "auto" | "standard":
-                                return GPT_4_1_Mini[t](self._logger, self._meter)  # type: ignore
+                                return GPT_4_1_Mini[t](self._logger, self._tracer, self._meter)  # type: ignore
                             case "reasoning":
-                                return GPT_5_Mini[t](self._logger, self._meter)  # type: ignore
+                                return GPT_5_Mini[t](self._logger, self._tracer, self._meter)  # type: ignore
                     case "latest":
                         match hints.get("model_type", "auto"):
                             case "standard":
-                                return GPT_4_1_Mini[t](self._logger, self._meter)  # type: ignore
+                                return GPT_4_1_Mini[t](self._logger, self._tracer, self._meter)  # type: ignore
                             case "auto" | "reasoning":
-                                return GPT_5_Mini[t](self._logger, self._meter)  # type: ignore
+                                return GPT_5_Mini[t](self._logger, self._tracer, self._meter)  # type: ignore
             case _:
                 match hints.get("model_type", "auto"):
                     case "reasoning":
-                        return GPT_5_1[t](self._logger, self._meter)  # type: ignore
+                        return GPT_5_1[t](self._logger, self._tracer, self._meter)  # type: ignore
                     case _:
-                        return GPT_4o_24_08_06[t](self._logger, self._meter)  # type: ignore
+                        return GPT_4o_24_08_06[t](self._logger, self._tracer, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         match hints.get("model_size", ModelSize.AUTO):
             case ModelSize.AUTO | ModelSize.LARGE:
-                return OpenAITextEmbedding3Large(self._logger, self._meter)
+                return OpenAITextEmbedding3Large(self._logger, self._tracer, self._meter)
             case _:
-                return OpenAITextEmbedding3Small(self._logger, self._meter)
+                return OpenAITextEmbedding3Small(self._logger, self._tracer, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

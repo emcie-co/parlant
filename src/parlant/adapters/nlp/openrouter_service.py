@@ -51,6 +51,7 @@ from parlant.core.nlp.moderation import (
     ModerationService,
     NoModeration,
 )
+from parlant.core.tracer import Tracer
 
 RATE_LIMIT_ERROR_MESSAGE = """\
 OpenRouter API rate limit exceeded. Possible reasons:
@@ -85,9 +86,10 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
         self,
         model_name: str,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
-        super().__init__(logger=logger, meter=meter, model_name=model_name)
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
         self._logger = logger
 
         # Build extra headers from environment variables
@@ -299,8 +301,8 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class OpenRouterGPT4O(OpenRouterSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="openai/gpt-4o", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="openai/gpt-4o", logger=logger, tracer=tracer, meter=meter)
 
     @property
     @override
@@ -309,8 +311,8 @@ class OpenRouterGPT4O(OpenRouterSchematicGenerator[T]):
 
 
 class OpenRouterGPT4OMini(OpenRouterSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="openai/gpt-4o-mini", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="openai/gpt-4o-mini", logger=logger, tracer=tracer, meter=meter)
 
     @property
     @override
@@ -319,8 +321,10 @@ class OpenRouterGPT4OMini(OpenRouterSchematicGenerator[T]):
 
 
 class OpenRouterClaude35Sonnet(OpenRouterSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="anthropic/claude-3.5-sonnet", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(
+            model_name="anthropic/claude-3.5-sonnet", logger=logger, tracer=tracer, meter=meter
+        )
 
     @property
     @override
@@ -329,8 +333,13 @@ class OpenRouterClaude35Sonnet(OpenRouterSchematicGenerator[T]):
 
 
 class OpenRouterLlama33_70B(OpenRouterSchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="meta-llama/llama-3.3-70b-instruct", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(
+            model_name="meta-llama/llama-3.3-70b-instruct",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+        )
 
     @property
     @override
@@ -350,8 +359,8 @@ class OpenRouterEmbedder(BaseEmbedder):
         "qwen/qwen-embedding-v2": 1536,
     }
 
-    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
-        super().__init__(logger, meter, model_name)
+    def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(logger, tracer, meter, model_name)
         self.model_name = model_name
 
         # Build extra headers from environment variables
@@ -462,8 +471,10 @@ class OpenRouterEmbedder(BaseEmbedder):
 
 
 class OpenRouterTextEmbedding3Large(OpenRouterEmbedder):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="openai/text-embedding-3-large", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(
+            model_name="openai/text-embedding-3-large", logger=logger, tracer=tracer, meter=meter
+        )
 
     @property
     @override
@@ -492,9 +503,11 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ) -> None:
         self._logger = logger
+        self._tracer = tracer
         self._meter = meter
         self._logger.info("Initialized OpenRouterService")
         # Get model_name from environment variable
@@ -511,8 +524,10 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
         embedder_model = self.embedder_model_name
 
         class DynamicOpenRouterEmbedder(OpenRouterEmbedder):
-            def __init__(self, logger: Logger, meter: Meter):
-                super().__init__(model_name=embedder_model, logger=logger, meter=meter)
+            def __init__(self, logger: Logger, tracer: Tracer, meter: Meter):
+                super().__init__(
+                    model_name=embedder_model, logger=logger, tracer=tracer, meter=meter
+                )
 
         self._dynamic_embedder_class = DynamicOpenRouterEmbedder
 
@@ -520,19 +535,27 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
         self,
         model_name: str,
         t: type[T],
-    ) -> Callable[[Logger, Meter], OpenRouterSchematicGenerator[T]]:
+    ) -> Callable[[Logger, Tracer, Meter], OpenRouterSchematicGenerator[T]]:
         """
         Returns the specialized generator class for known models.
         For unknown models, creates a dynamic generator that works with any OpenRouter model.
         """
-        model_mapping: dict[str, Callable[[Logger, Meter], OpenRouterSchematicGenerator[T]]] = {
-            "openai/gpt-4o": lambda logger, meter: OpenRouterGPT4O[t](logger, meter),  # type: ignore
-            "openai/gpt-4o-mini": lambda logger, meter: OpenRouterGPT4OMini[t](logger, meter),  # type: ignore
-            "anthropic/claude-3.5-sonnet": lambda logger, meter: OpenRouterClaude35Sonnet[t](  # type: ignore
-                logger, meter
+        model_mapping: dict[
+            str, Callable[[Logger, Tracer, Meter], OpenRouterSchematicGenerator[T]]
+        ] = {
+            "openai/gpt-4o": lambda logger, tracer, meter: OpenRouterGPT4O[t](  # type: ignore
+                logger, tracer, meter
             ),
-            "meta-llama/llama-3.3-70b-instruct": lambda logger, meter: OpenRouterLlama33_70B[t](  # type: ignore
-                logger, meter
+            "openai/gpt-4o-mini": lambda logger, tracer, meter: OpenRouterGPT4OMini[t](  # type: ignore
+                logger, tracer, meter
+            ),
+            "anthropic/claude-3.5-sonnet": lambda logger, tracer, meter: OpenRouterClaude35Sonnet[
+                t  # type: ignore
+            ](logger, tracer, meter),
+            "meta-llama/llama-3.3-70b-instruct": lambda logger,
+            tracer,
+            meter: OpenRouterLlama33_70B[t](  # type: ignore
+                logger, tracer, meter
             ),
         }
 
@@ -560,8 +583,8 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
         final_max_tokens = max_tokens
 
         class DynamicOpenRouterGenerator(OpenRouterSchematicGenerator[T]):
-            def __init__(self, logger: Logger, meter: Meter):
-                super().__init__(model_name=model_name, logger=logger, meter=meter)
+            def __init__(self, logger: Logger, tracer: Tracer, meter: Meter):
+                super().__init__(model_name=model_name, logger=logger, tracer=tracer, meter=meter)
 
             @property
             @override
@@ -569,8 +592,10 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
                 return final_max_tokens
 
         # Return a factory function that creates the properly typed instance
-        def create_generator(logger: Logger, meter: Meter) -> OpenRouterSchematicGenerator[T]:
-            return DynamicOpenRouterGenerator[t](logger, meter)  # type: ignore
+        def create_generator(
+            logger: Logger, tracer: Tracer, meter: Meter
+        ) -> OpenRouterSchematicGenerator[T]:
+            return DynamicOpenRouterGenerator[t](logger, tracer, meter)  # type: ignore
 
         return create_generator
 
@@ -579,17 +604,21 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> OpenRouterSchematicGenerator[T]:
         generator_factory = self._get_specialized_generator_class(self.model_name, t)
-        return generator_factory(self._logger, self._meter)
+        return generator_factory(self._logger, self._tracer, self._meter)
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         # Use OpenRouter embedder with the configured embedder model name
         # Default to text-embedding-3-large if not specified
         if self.embedder_model_name == "openai/text-embedding-3-large":
-            return OpenRouterTextEmbedding3Large(logger=self._logger, meter=self._meter)
+            return OpenRouterTextEmbedding3Large(
+                logger=self._logger, tracer=self._tracer, meter=self._meter
+            )
         else:
             # Return instance of dynamic embedder class that can be resolved from container
-            return self._dynamic_embedder_class(logger=self._logger, meter=self._meter)
+            return self._dynamic_embedder_class(
+                logger=self._logger, tracer=self._tracer, meter=self._meter
+            )
 
     @override
     async def get_moderation_service(self) -> ModerationService:

@@ -18,12 +18,14 @@ from functools import cached_property
 from typing import Any, Generic, Mapping, TypeVar, cast, get_args
 from typing_extensions import override
 
+from parlant.core.async_utils import Stopwatch
 from parlant.core.common import DefaultBaseModel
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
 from parlant.core.meter import DurationHistogram, Meter
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.nlp.tokenization import EstimatingTokenizer
+from parlant.core.tracer import Tracer
 
 T = TypeVar("T", bound=DefaultBaseModel)
 
@@ -79,8 +81,9 @@ _REQUEST_DURATION_HISTOGRAM: DurationHistogram | None = None
 
 
 class BaseSchematicGenerator(SchematicGenerator[T]):
-    def __init__(self, logger: Logger, meter: Meter, model_name: str) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, model_name: str) -> None:
         self.logger = logger
+        self.tracer = tracer
         self.meter = meter
         self.model_name = model_name
 
@@ -104,17 +107,40 @@ class BaseSchematicGenerator(SchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        if _REQUEST_DURATION_HISTOGRAM is not None:
-            async with _REQUEST_DURATION_HISTOGRAM.measure(
-                {
-                    "class.name": self.__class__.__qualname__,
-                    "model.name": self.model_name,
-                    "schema.name": self.schema.__name__,
-                }
-            ):
-                return await self.do_generate(prompt, hints)
-        else:
-            return await self.do_generate(prompt, hints)
+        assert _REQUEST_DURATION_HISTOGRAM is not None
+
+        async with _REQUEST_DURATION_HISTOGRAM.measure(
+            {
+                "class.name": self.__class__.__qualname__,
+                "model.name": self.model_name,
+                "schema.name": self.schema.__name__,
+            }
+        ):
+            start = Stopwatch.start()
+
+            try:
+                result = await self.do_generate(prompt, hints)
+            except Exception:
+                self.tracer.add_event(
+                    "gen.request_failed",
+                    attributes={
+                        "model.name": self.model_name,
+                        "schema.name": self.schema.__name__,
+                        "duration": start.elapsed,
+                    },
+                )
+                raise
+            else:
+                self.tracer.add_event(
+                    "gen.request_completed",
+                    attributes={
+                        "model.name": self.model_name,
+                        "schema.name": self.schema.__name__,
+                        "duration": start.elapsed,
+                    },
+                )
+
+            return result
 
 
 class FallbackSchematicGenerator(SchematicGenerator[T]):

@@ -100,11 +100,12 @@ class JourneyGuidelineProjection:
                     action=node.action,
                     description=node.description,
                 ),
-                criticality=Criticality.MEDIUM,
+                criticality=Criticality.HIGH,
                 creation_utc=datetime.now(timezone.utc),
                 enabled=True,
                 tags=[],
                 metadata=metadata,
+                composition_mode=node.composition_mode,
             )
 
         def add_edge_guideline_metadata(

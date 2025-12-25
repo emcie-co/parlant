@@ -27,6 +27,7 @@ from parlant.core.relationships import (
 )
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
 from parlant.core.tags import TagId, Tag
+from parlant.core.tracer import Tracer
 
 
 class RelationalGuidelineResolver:
@@ -35,10 +36,12 @@ class RelationalGuidelineResolver:
         relationship_store: RelationshipStore,
         guideline_store: GuidelineStore,
         logger: Logger,
+        tracer: Tracer,
     ) -> None:
         self._relationship_store = relationship_store
         self._guideline_store = guideline_store
         self._logger = logger
+        self._tracer = tracer
 
     def _extract_journey_id_from_guideline(self, guideline: Guideline) -> Optional[str]:
         if "journey_node" in guideline.metadata:
@@ -208,9 +211,27 @@ class RelationalGuidelineResolver:
                     self._logger.info(
                         f"Skipped: Guideline {match.guideline.id} ({match.guideline.content.action}) deactivated due to contextual prioritization by {prioritized_guideline_id} ({prioritized_guideline.content.action})"
                     )
+                    self._tracer.add_event(
+                        "gm.deactivate",
+                        attributes={
+                            "guideline_id": match.guideline.id,
+                            "condition": match.guideline.content.condition,
+                            "action": match.guideline.content.action or "",
+                            "rationale": f"Deprioritized by guideline {prioritized_guideline_id}",
+                        },
+                    )
                 elif prioritized_journey_id:
                     self._logger.info(
                         f"Skipped: Guideline {match.guideline.id} ({match.guideline.content.action}) deactivated due to contextual prioritization by journey {prioritized_journey_id}"
+                    )
+                    self._tracer.add_event(
+                        "gm.deactivate",
+                        attributes={
+                            "guideline_id": match.guideline.id,
+                            "condition": match.guideline.content.condition,
+                            "action": match.guideline.content.action or "",
+                            "rationale": f"Deprioritized by journey {prioritized_journey_id}",
+                        },
                     )
 
         return result
@@ -316,6 +337,15 @@ class RelationalGuidelineResolver:
 
         for m in entailed_matches:
             self._logger.info(f"Activated: Entailed guideline {m.guideline.id}")
+            self._tracer.add_event(
+                "gm.activate",
+                attributes={
+                    "guideline_id": m.guideline.id,
+                    "condition": match.guideline.content.condition,
+                    "action": match.guideline.content.action or "",
+                    "rationale": "Activated via entailment",
+                },
+            )
 
         return entailed_matches
 
@@ -404,6 +434,15 @@ class RelationalGuidelineResolver:
             else:
                 self._logger.info(
                     f"Skipped: Guideline {match.guideline.id} deactivated due to unmet dependencies"
+                )
+                self._tracer.add_event(
+                    "gm.deactivate",
+                    attributes={
+                        "guideline_id": match.guideline.id,
+                        "condition": match.guideline.content.condition,
+                        "action": match.guideline.content.action or "",
+                        "rationale": "Unmet dependencies",
+                    },
                 )
 
         return result

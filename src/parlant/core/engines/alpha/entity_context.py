@@ -15,10 +15,12 @@
 from __future__ import annotations
 
 import contextvars
-from typing import Optional
 
 from parlant.core.agents import Agent
+from parlant.core.async_utils import Stopwatch
+from parlant.core.context_variables import ContextVariableId, ContextVariableValue
 from parlant.core.customers import Customer
+from parlant.core.engines.alpha.engine_context import EngineContext, Interaction
 from parlant.core.sessions import Session
 
 
@@ -29,23 +31,14 @@ class EntityContext:
     running within the same asyncio task context, including engine hooks.
     """
 
-    _agent_var: contextvars.ContextVar[Optional[Agent]] = contextvars.ContextVar(
-        "parlant_current_agent", default=None
-    )
-    _customer_var: contextvars.ContextVar[Optional[Customer]] = contextvars.ContextVar(
-        "parlant_current_customer", default=None
-    )
-    _session_var: contextvars.ContextVar[Optional[Session]] = contextvars.ContextVar(
-        "parlant_current_session", default=None
+    _var: contextvars.ContextVar[EngineContext | None] = contextvars.ContextVar(
+        "parlant_current_engine_context", default=None
     )
 
     @classmethod
-    def set_entities(
+    def set(
         self,
-        *,
-        agent: Optional[Agent] = None,
-        customer: Optional[Customer] = None,
-        session: Optional[Session] = None,
+        context: EngineContext,
     ) -> None:
         """Set the current entities in the asyncio task context.
 
@@ -54,40 +47,72 @@ class EntityContext:
             customer: The current customer, if any
             session: The current session, if any
         """
-        self._agent_var.set(agent)
-        self._customer_var.set(customer)
-        self._session_var.set(session)
+        self._var.set(context)
 
     @classmethod
-    def get_agent(self) -> Optional[Agent]:
+    def get_context_creation(self) -> Stopwatch | None:
+        """Get the start of processing time from the engine context.
+
+        Returns:
+            The start of processing time, or None if no context is set
+        """
+        ctx = self._var.get()
+        return ctx.creation if ctx else None
+
+    @classmethod
+    def get_interaction(self) -> Interaction | None:
+        """Get the current engine context from the asyncio task context.
+
+        Returns:
+            The current engine context, or None if no context is set
+        """
+        ctx = self._var.get()
+        return ctx.interaction if ctx else None
+
+    @classmethod
+    def get_variable_value(self, variable_id: ContextVariableId) -> ContextVariableValue | None:
+        ctx = self._var.get()
+
+        if ctx is None:
+            return None
+
+        result = next(
+            (
+                value
+                for variable, value in ctx.state.context_variables
+                if variable.id == variable_id
+            ),
+            None,
+        )
+
+        return result if result else None
+
+    @classmethod
+    def get_agent(self) -> Agent | None:
         """Get the current agent from the asyncio task context.
 
         Returns:
             The current agent, or None if no agent is set in context
         """
-        return self._agent_var.get()
+        ctx = self._var.get()
+        return ctx.agent if ctx else None
 
     @classmethod
-    def get_customer(self) -> Optional[Customer]:
+    def get_customer(self) -> Customer | None:
         """Get the current customer from the asyncio task context.
 
         Returns:
             The current customer, or None if no customer is set in context
         """
-        return self._customer_var.get()
+        ctx = self._var.get()
+        return ctx.customer if ctx else None
 
     @classmethod
-    def get_session(self) -> Optional[Session]:
+    def get_session(self) -> Session | None:
         """Get the current session from the asyncio task context.
 
         Returns:
             The current session, or None if no session is set in context
         """
-        return self._session_var.get()
-
-    @classmethod
-    def clear(self) -> None:
-        """Clear all entities from the current asyncio task context."""
-        self._agent_var.set(None)
-        self._customer_var.set(None)
-        self._session_var.set(None)
+        ctx = self._var.get()
+        return ctx.session if ctx else None

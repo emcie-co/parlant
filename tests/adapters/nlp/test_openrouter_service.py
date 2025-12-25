@@ -34,6 +34,7 @@ from parlant.adapters.nlp.openrouter_service import (  # type: ignore[reportMiss
 from parlant.core.loggers import Logger
 from parlant.core.common import DefaultBaseModel
 from parlant.core.meter import Meter
+from parlant.core.tracer import Tracer
 
 
 class SchemaData(DefaultBaseModel):
@@ -78,7 +79,8 @@ def test_that_openrouter_service_initializes_with_default_model() -> None:
     with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}, clear=True):
         mock_logger = Mock()
         mock_meter = Mock()
-        service = OpenRouterService(logger=mock_logger, meter=mock_meter)
+        mock_tracer = Mock()
+        service = OpenRouterService(logger=mock_logger, tracer=mock_tracer, meter=mock_meter)
         assert service.model_name == "openai/gpt-4o"
 
 
@@ -94,7 +96,8 @@ def test_that_openrouter_service_initializes_with_custom_model() -> None:
     ):
         mock_logger = Mock()
         mock_meter = Mock()
-        service = OpenRouterService(logger=mock_logger, meter=mock_meter)
+        mock_tracer = Mock()
+        service = OpenRouterService(logger=mock_logger, tracer=mock_tracer, meter=mock_meter)
         assert service.model_name == "anthropic/claude-3.5-sonnet"
 
 
@@ -107,7 +110,8 @@ def test_that_openrouter_service_uses_environment_model() -> None:
     ):
         mock_logger = Mock()
         mock_meter = Mock()
-        service = OpenRouterService(logger=mock_logger, meter=mock_meter)
+        mock_tracer = Mock()
+        service = OpenRouterService(logger=mock_logger, tracer=mock_tracer, meter=mock_meter)
         assert service.model_name == "meta-llama/llama-3.3-70b-instruct"
 
 
@@ -120,7 +124,8 @@ def test_that_openrouter_service_respects_custom_max_tokens() -> None:
     ):
         mock_logger = Mock()
         mock_meter = Mock()
-        service = OpenRouterService(logger=mock_logger, meter=mock_meter)
+        mock_tracer = Mock()
+        service = OpenRouterService(logger=mock_logger, tracer=mock_tracer, meter=mock_meter)
         # max_tokens is used when creating generators, not stored in service
         assert service.model_name == "openai/gpt-4o"  # Default model
 
@@ -134,7 +139,9 @@ def test_that_openrouter_estimating_tokenizer_works(container: Container) -> Non
 
 def test_that_openrouter_gpt4o_generator_initializes_correctly(container: Container) -> None:
     """Test OpenRouterGPT4O initialization."""
-    generator = OpenRouterGPT4O[SchemaData](logger=container[Logger], meter=container[Meter])
+    generator = OpenRouterGPT4O[SchemaData](
+        logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+    )
     assert generator.model_name == "openai/gpt-4o"
     assert generator.id == "openrouter/openai/gpt-4o"
     assert generator.max_tokens == 128 * 1024
@@ -142,7 +149,9 @@ def test_that_openrouter_gpt4o_generator_initializes_correctly(container: Contai
 
 def test_that_openrouter_gpt4o_mini_generator_initializes_correctly(container: Container) -> None:
     """Test OpenRouterGPT4OMini initialization."""
-    generator = OpenRouterGPT4OMini[SchemaData](logger=container[Logger], meter=container[Meter])
+    generator = OpenRouterGPT4OMini[SchemaData](
+        logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+    )
     assert generator.model_name == "openai/gpt-4o-mini"
     assert generator.max_tokens == 128 * 1024
 
@@ -150,7 +159,7 @@ def test_that_openrouter_gpt4o_mini_generator_initializes_correctly(container: C
 def test_that_openrouter_claude_generator_initializes_correctly(container: Container) -> None:
     """Test OpenRouterClaude35Sonnet initialization."""
     generator = OpenRouterClaude35Sonnet[SchemaData](
-        logger=container[Logger], meter=container[Meter]
+        logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
     )
     assert generator.model_name == "anthropic/claude-3.5-sonnet"
     assert generator.max_tokens == 8192
@@ -158,7 +167,9 @@ def test_that_openrouter_claude_generator_initializes_correctly(container: Conta
 
 def test_that_openrouter_llama_generator_initializes_correctly(container: Container) -> None:
     """Test OpenRouterLlama33_70B initialization."""
-    generator = OpenRouterLlama33_70B[SchemaData](logger=container[Logger], meter=container[Meter])
+    generator = OpenRouterLlama33_70B[SchemaData](
+        logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+    )
     assert generator.model_name == "meta-llama/llama-3.3-70b-instruct"
     assert generator.max_tokens == 8192
 
@@ -177,9 +188,11 @@ def test_that_openrouter_generator_sets_custom_headers(mock_client_class: Mock) 
     ):
         mock_logger = Mock()
         mock_meter = Mock()
+        mock_tracer = Mock()
         _ = OpenRouterSchematicGenerator[SchemaData](
             model_name="openai/gpt-4o",
             logger=mock_logger,
+            tracer=mock_tracer,
             meter=mock_meter,
         )
 
@@ -196,10 +209,12 @@ def test_that_openrouter_generator_without_custom_headers(mock_client_class: Moc
     """Test OpenRouter generator without custom headers."""
     with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}, clear=True):
         mock_logger = Mock()
+        mock_tracer = Mock()
         mock_meter = Mock()
         _ = OpenRouterSchematicGenerator[SchemaData](
             model_name="openai/gpt-4o",
             logger=mock_logger,
+            tracer=mock_tracer,
             meter=mock_meter,
         )
 
@@ -225,12 +240,14 @@ async def test_that_openrouter_generator_handles_json_mode_error(mock_client_cla
     )
 
     mock_logger = Mock()
+    mock_tracer = Mock()
     mock_meter = Mock()
 
     with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}, clear=False):
         generator = OpenRouterSchematicGenerator[SchemaData](
             model_name="test-model",
             logger=mock_logger,
+            tracer=mock_tracer,
             meter=mock_meter,
         )
 
@@ -261,6 +278,7 @@ async def test_that_openrouter_generator_handles_successful_response(
         generator = OpenRouterSchematicGenerator[SchemaData](
             model_name="openai/gpt-4o",
             logger=container[Logger],
+            tracer=container[Tracer],
             meter=container[Meter],
         )
 
@@ -274,7 +292,9 @@ async def test_that_openrouter_generator_handles_successful_response(
 def test_that_openrouter_service_returns_correct_generator(container: Container) -> None:
     """Test OpenRouterService.get_schematic_generator with default model."""
     with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}, clear=True):
-        service = OpenRouterService(logger=container[Logger], meter=container[Meter])
+        service = OpenRouterService(
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+        )
         generator = asyncio.run(service.get_schematic_generator(SchemaData))
         assert isinstance(generator, OpenRouterSchematicGenerator)
         assert generator.model_name == "openai/gpt-4o"
@@ -292,7 +312,9 @@ def test_that_openrouter_service_returns_correct_generator_for_claude(
         },
         clear=True,
     ):
-        service = OpenRouterService(logger=container[Logger], meter=container[Meter])
+        service = OpenRouterService(
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+        )
         generator = asyncio.run(service.get_schematic_generator(SchemaData))
         assert isinstance(generator, OpenRouterClaude35Sonnet)
         assert generator.model_name == "anthropic/claude-3.5-sonnet"
@@ -307,7 +329,9 @@ def test_that_openrouter_service_creates_dynamic_generator_for_unknown_model(
         {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "custom/model-name"},
         clear=True,
     ):
-        service = OpenRouterService(logger=container[Logger], meter=container[Meter])
+        service = OpenRouterService(
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+        )
         generator = asyncio.run(service.get_schematic_generator(SchemaData))
         assert isinstance(generator, OpenRouterSchematicGenerator)
         assert generator.model_name == "custom/model-name"
@@ -324,7 +348,9 @@ def test_that_openrouter_service_uses_custom_max_tokens(container: Container) ->
         },
         clear=True,
     ):
-        service = OpenRouterService(logger=container[Logger], meter=container[Meter])
+        service = OpenRouterService(
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+        )
         generator = asyncio.run(service.get_schematic_generator(SchemaData))
         assert generator.max_tokens == 2048
 
@@ -340,7 +366,9 @@ def test_that_openrouter_service_uses_environment_max_tokens(container: Containe
         },
         clear=True,
     ):
-        service = OpenRouterService(logger=container[Logger], meter=container[Meter])
+        service = OpenRouterService(
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+        )
         generator = asyncio.run(service.get_schematic_generator(SchemaData))
         assert generator.max_tokens == 4096
 
@@ -352,7 +380,9 @@ def test_that_openrouter_service_sets_default_max_tokens_for_gpt4(container: Con
         {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "openai/gpt-4-turbo"},
         clear=True,
     ):
-        service = OpenRouterService(logger=container[Logger], meter=container[Meter])
+        service = OpenRouterService(
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+        )
         generator = asyncio.run(service.get_schematic_generator(SchemaData))
         assert generator.max_tokens == 128 * 1024
 
@@ -364,7 +394,9 @@ def test_that_openrouter_service_sets_default_max_tokens_for_claude(container: C
         {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "anthropic/claude-2"},
         clear=True,
     ):
-        service = OpenRouterService(logger=container[Logger], meter=container[Meter])
+        service = OpenRouterService(
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+        )
         generator = asyncio.run(service.get_schematic_generator(SchemaData))
         assert generator.max_tokens == 8192
 
@@ -376,7 +408,9 @@ def test_that_openrouter_service_sets_default_max_tokens_for_llama(container: Co
         {"OPENROUTER_API_KEY": "test-key", "OPENROUTER_MODEL": "meta-llama/llama-2-70b"},
         clear=True,
     ):
-        service = OpenRouterService(logger=container[Logger], meter=container[Meter])
+        service = OpenRouterService(
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+        )
         generator = asyncio.run(service.get_schematic_generator(SchemaData))
         assert generator.max_tokens == 8192
 
@@ -391,7 +425,9 @@ def test_that_openrouter_service_returns_openrouter_embedder(container: Containe
     if the installed version uses a JinaAIEmbedder fallback.
     """
     with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}, clear=True):
-        service = OpenRouterService(logger=container[Logger], meter=container[Meter])
+        service = OpenRouterService(
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+        )
         embedder = asyncio.run(service.get_embedder())
         # OpenRouter embedder should be returned
         from parlant.adapters.nlp.openrouter_service import (
@@ -407,7 +443,9 @@ def test_that_openrouter_service_returns_openrouter_embedder(container: Containe
 def test_that_openrouter_service_returns_no_moderation(container: Container) -> None:
     """Test OpenRouterService returns NoModeration."""
     with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}, clear=True):
-        service = OpenRouterService(logger=container[Logger], meter=container[Meter])
+        service = OpenRouterService(
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+        )
         moderation = asyncio.run(service.get_moderation_service())
         from parlant.core.nlp.moderation import NoModeration
 
@@ -419,6 +457,7 @@ def test_that_openrouter_generator_supports_correct_parameters(container: Contai
     generator = OpenRouterSchematicGenerator[SchemaData](
         model_name="openai/gpt-4o",
         logger=container[Logger],
+        tracer=container[Tracer],
         meter=container[Meter],
     )
 

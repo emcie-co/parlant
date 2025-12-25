@@ -1,150 +1,136 @@
-[tool.poetry]
+[project]
 name = "parlant"
 version = "3.1.0-alpha.1"
-license = "Apache-2.0"
 description = ""
-authors = ["Yam Marcovitz <yam@emcie.co>", "Dor Zohar <dor@emcie.co>"]
-packages = [{ include = "parlant", from = "src" }]
 readme = "README.md"
+license = "Apache-2.0"
+authors = [
+    {name = "Yam Marcovitz", email = "yam@emcie.co"},
+    {name = "Dor Zohar", email = "dor@emcie.co"},
+]
+requires-python = ">=3.10,<3.14"  # Restricted for torch 2.8+ compatibility with triton
+dependencies = [
+    "aiofiles>=24.1.0",
+    "aiopenapi3==0.9.0",
+    "aiorwlock>=1.5.0",
+    "authlib>=1.6.5",
+    "boto3>=1.35.70",
+    "cachetools>=6.0.0",
+    "click>=8.1.7",
+    "colorama>=0.4.6",
+    "coloredlogs>=15.0.1",
+    "contextvars>=2.4",
+    "croniter>=5.0.1",
+    "fastapi>=0.120.0",
+    "fastmcp==2.13.0",
+    "httpx>=0.28.1",
+    "jinja2>=3.1.6",
+    "jsonfinder>=0.4.2",
+    "jsonschema>=4.23.0",
+    "lagom>=2.6.0",
+    "limits>=5.5.0",
+    "mcp>=1.16.0",
+    "more-itertools>=10.3.0",
+    "nano-vectordb>=0.0.4.3",
+    "nanoid>=2.0.0",
+    "networkx[default]>=3.3",
+    "openai>=2.8.0",
+    "openapi3-parser==1.1.21",
+    "opentelemetry-api>=1.37.0",
+    "opentelemetry-exporter-otlp>=1.37.0",
+    "opentelemetry-instrumentation>=0.58b0",
+    "opentelemetry-sdk>=1.37.0",
+    "parlant-client @ git+https://github.com/emcie-co/parlant-client-python.git@develop.1763631946",
+    "python-dateutil>=2.8.2",
+    "python-dotenv>=1.0.1",
+    "requests>=2.32.5",
+    "rich>=14.0.0",
+    "semver>=3.0.2",
+    "starlette>=0.49.0",  # Specified for fix vulnerability of lower versions. Can be removed in case of future conflicts.
+    "structlog>=24.4.0",
+    "tabulate>=0.9.0",
+    "tiktoken>=0.12",
+    "tokenizers>=0.21",
+    "toml>=0.10.2",
+    "types-aiofiles>=24.1.0.20240626",
+    "types-cachetools>=6.0.0.20250525",
+    "types-croniter>=4.0.0.20241030",
+    "types-jsonschema>=4.22.0.20240610",
+    "uvicorn>=0.38.0",
+    "websocket-client>=1.5.3",
+]
 
-[tool.poetry.scripts]
+[project.scripts]
 parlant = "parlant.bin.client:main"
 parlant-server = "parlant.bin.server:main"
 parlant-prepare-migration = "parlant.bin.prepare_migration:main"
 
-[tool.poetry.dependencies]
-aiofiles = "^24.1.0"
-aiopenapi3 = "0.8.1"
-aiorwlock = "^1.5.0"
-authlib = "^1.6.5"
-boto3 = "^1.35.70"
-cachetools = "^6.0.0"
-click = "^8.1.7"
-colorama = "^0.4.6"
-coloredlogs = "^15.0.1"
-contextvars = "^2.4"
-croniter = "^5.0.1"
-fastapi = "^0.120.0"
-fastmcp = "2.13.0"
-httpx = "^0.28.1"
-jinja2 = "^3.1.6"
-jsonfinder = "^0.4.2"
-jsonschema = "^4.23.0"
-lagom = "^2.6.0"
-limits = "^5.5.0"
-mcp = "^1.16.0"
-more-itertools = ">=10.3.0"
-nano-vectordb = "^0.0.4.3"
-nanoid = "^2.0.0"
-networkx = { extras = ["default"], version = "^3.3" }
-openai = "^2.8.0"
-openapi3-parser = "1.1.21"
-opentelemetry-api = "^1.37.0"
-opentelemetry-exporter-otlp = "^1.37.0"
-opentelemetry-instrumentation = "^0.58b0"
-opentelemetry-sdk = "^1.37.0"
-parlant-client = { git = "https://github.com/emcie-co/parlant-client-python.git", tag = "develop.1763631946" }
-python = ">=3.10,<3.14"  # Restricted for torch 2.8+ compatibility with triton
-python-dateutil = "^2.8.2"
-python-dotenv = "^1.0.1"
-requests = "^2.32.5"
-rich = "^14.0.0"
-semver = "^3.0.2"
-starlette = "^0.49.0" # Specified for fix vulnerability of lower versions. Can be removed in case of future conflicts.
-structlog = "^24.4.0"
-tabulate = "^0.9.0"
-tiktoken = "^0.12"
-tokenizers = "^0.21"
-toml = "^0.10.2"
-types-aiofiles = "^24.1.0.20240626"
-types-cachetools = "^6.0.0.20250525"
-types-croniter = "^4.0.0.20241030"
-types-jsonschema = "^4.22.0.20240610"
-uvicorn = "^0.38.0"
-websocket-client="^1.5.3"
+[project.optional-dependencies]
+chroma = ["chromadb>=1.1.1"]
+qdrant = ["qdrant-client>=1.7.0"]
+mongo = ["pymongo>=4.11.1"]
 
+anthropic = ["anthropic>=0.60.0", "torch>=2.8.0", "transformers>=4.53.0"]
 
-# --- optional packages ---
-anthropic = { version = "^0.60.0", optional = true }
-azure-identity = { version = "^1.20.0", optional = true }
-cerebras-cloud-sdk = { version = "^1.25.0", optional = true }
-chromadb = { version = "^1.1.1", optional = true }
-qdrant-client = { version = "^1.7.0", optional = true }
-google-api-core = { version = "^2.24.2", optional = true }
-google-genai = { version = "^1.36.0", optional = true }
-ollama = { version = "^0.5.0", optional = true }
-google-auth = { version = "^2.40.0", optional = true }
-together = { version = "^1.5.26", optional = true }
-torch = { version = "^2.8.0", optional = true }
-transformers = { version = "^4.53.0", optional = true }
-litellm = { version = "^1.61.16", optional = true }
-pymongo = { version = "^4.11.1", optional = true }
-# fireworks-ai = { version = "^0.19.19", optional = true }  # Disabled: pins protobuf=5.29.3 which has CVE-2025-4565
-mistralai = { version = "^1.0.0", optional = true }
-zhipuai = { version = "^2.0.0", optional = true }
-snowflake-connector-python = { version = "^3.12.0", optional = true }
-moto = { extras = ["s3"], version = "^5.0.0", optional = true }
+aws = ["anthropic>=0.60.0", "transformers>=4.53.0", "torch>=2.8.0"]
 
-[tool.poetry.group.dev.dependencies]
-ipython = "^8.26.0"
-mypy = "^1.18.1"
-pep8-naming = "^0.13.3"
-pytest = "^8.0.0"
-pytest-asyncio = "^0.23.5"
-pytest-bdd = "^7.1.2"
-pytest-cov = "^5.0.0"
-pytest-tap = "^3.4"
-pytest-timing = { git = "https://github.com/emcie-co/mc-spitfyre.git", subdirectory = "pytest-timing", tag = "timing_v0.1.4" }
-python-dotenv = "^1.0.1"
-ruff = "^0.9.1"
-types-python-dateutil = "^2.8.19.20240106"
-types-requests = "^2.32.0.20240712"
-pytest-xdist = "^3.6.1"
+together = ["torch>=2.8.0", "together>=1.5.26", "transformers>=4.53.0"]
 
-[tool.poetry.extras]
-chroma = ["chromadb"]
-qdrant = ["qdrant-client"]
-mongo = ["pymongo"]
+cerebras = ["cerebras-cloud-sdk>=1.25.0", "torch>=2.8.0", "transformers>=4.53.0"]
 
-anthropic = ["anthropic", "torch", "transformers"]
+deepseek = ["torch>=2.8.0", "transformers>=4.53.0"]
 
-aws = ["anthropic", "transformers", "torch"]
-
-together = ["torch", "together", "transformers"]
-
-cerebras = ["cerebras-cloud-sdk", "torch", "transformers"]
-
-deepseek = ["torch", "transformers"]
-
-gemini = ["google-genai", "google-api-core", "torch"]
+gemini = ["google-genai>=1.36.0", "google-api-core>=2.24.2", "torch>=2.8.0"]
 
 vertex = [
-    "google-genai",
-    "google-api-core",
-    "google-auth",
-    "torch",
-    "anthropic",
-    "transformers",
+    "google-genai>=1.36.0",
+    "google-api-core>=2.24.2",
+    "google-auth>=2.40.0",
+    "torch>=2.8.0",
+    "anthropic>=0.60.0",
+    "transformers>=4.53.0",
 ]
 
-ollama = ["ollama"]
+ollama = ["ollama>=0.5.0"]
 
-litellm = ["litellm", "torch", "transformers"]
+litellm = ["litellm>=1.61.16", "torch>=2.8.0", "transformers>=4.53.0"]
 
+azure = ["azure-identity>=1.20.0"]
 
+# fireworks = ["fireworks-ai>=0.19.19"]  # Disabled: pins protobuf=5.29.3 which has CVE-2025-4565
 
-azure = ["azure-identity"]
+mistral = ["mistralai>=1.0.0"]
 
-fireworks = ["fireworks-ai"]
+snowflake = ["snowflake-connector-python>=3.12.0"]
 
-mistral = ["mistralai"]
+zhipu = ["zhipuai>=2.0.0"]
 
-snowflake = ["snowflake-connector-python"]
-
-zhipu = ["zhipuai"]
+[dependency-groups]
+dev = [
+    "ipython>=8.26.0",
+    "mypy>=1.18.1",
+    "pep8-naming>=0.13.3",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.5",
+    "pytest-bdd>=8.1.0",
+    "pytest-cov>=5.0.0",
+    "pytest-tap>=3.4",
+    "pytest-timing @ git+https://github.com/emcie-co/mc-spitfyre.git@timing_v0.1.4#subdirectory=pytest-timing",
+    "python-dotenv>=1.0.1",
+    "ruff>=0.9.1",
+    "types-python-dateutil>=2.8.19.20240106",
+    "types-requests>=2.32.0.20240712",
+    "pytest-xdist>=3.6.1",
+]
 
 s3 = ["moto"]
 
 [build-system]
-build-backend = "poetry.core.masonry.api"
-requires = ["poetry-core"]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/parlant"]

@@ -86,13 +86,10 @@ class OpenTelemetryTracer(Tracer):
 
             match protocol:
                 case "http/protobuf":
-                    self._span_exporter = HttpOTLPSpanExporter(
-                        endpoint=endpoint, headers={"Content-Type": "application/x-protobuf"}
-                    )
+                    self._span_exporter = HttpOTLPSpanExporter(endpoint=endpoint)
                 case "http/json":
-                    self._span_exporter = HttpOTLPSpanExporter(
-                        endpoint=endpoint,
-                        headers={"Content-Type": "application/json"},
+                    raise ValueError(
+                        "http/json protocol is not supported for traces exporter. please use http/protobuf or grpc."
                     )
                 case "grpc":
                     self._span_exporter = GrpcOTLPSpanExporter(

@@ -1722,6 +1722,10 @@ def create_router(
                 await authorization_policy.authorize(
                     request=request, operation=Operation.CREATE_CUSTOMER_EVENT
                 )
+                if params.participant:
+                    await authorization_policy.authorize(
+                        request=request, operation=Operation.OVERRIDE_CUSTOMER_PARTICIPANT
+                    )
                 return await _add_customer_message(session_id, params, moderation)
             elif params.source == EventSourceDTO.AI_AGENT:
                 await authorization_policy.authorize(
@@ -1824,6 +1828,9 @@ def create_router(
             metadata=params.metadata,
             source=EventSource.CUSTOMER,
             trigger_processing=True,
+            participant=_participant_dto_to_participant(params.participant)
+            if params.participant
+            else None,
         )
 
         return event_to_dto(event)

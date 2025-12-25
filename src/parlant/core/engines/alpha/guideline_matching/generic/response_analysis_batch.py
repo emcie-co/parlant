@@ -62,7 +62,7 @@ class GuidelinePreviouslyAppliedActionableDetectionSchema(DefaultBaseModel):
     action: str
     guideline_applied_rationale: Optional[list[SegmentPreviouslyAppliedActionableRationale]] = None
     guideline_applied_degree: Optional[str] = None
-    is_missing_part_functional_or_behavioral_rational: Optional[str] = None
+    is_missing_part_functional_or_behavioral_rationale: Optional[str] = None
     is_missing_part_functional_or_behavioral: Optional[str] = None
     guideline_applied: bool
 
@@ -163,7 +163,7 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
             )
 
             generation_attempt_temperatures = (
-                self._optimization_policy.get_guideline_matching_batch_retry_temperatures(
+                self._optimization_policy.get_response_analysis_batch_retry_temperatures(
                     hints={"type": self.__class__.__name__}
                 )
             )
@@ -390,9 +390,7 @@ OUTPUT FORMAT
 -----------------
 - Specify if each guideline was applied by filling in the details in the following list as instructed:
 ```json
-{{
-    {result_structure_text}
-}}
+{result_structure_text}
 ```
 """,
             props={
@@ -422,7 +420,7 @@ OUTPUT FORMAT
                     }
                 ],
                 "guideline_applied_degree": "<str: either 'no', 'partially' or 'fully' depending on whether and to what degree the action was preformed (apart from condition)>",
-                "is_missing_part_functional_or_behavioral_rational": "<str: only included if guideline_applied is 'partially'. short explanation of whether the missing part is functional or behavioral.>",
+                "is_missing_part_functional_or_behavioral_rationale": "<str: only included if guideline_applied is 'partially'. short explanation of whether the missing part is functional or behavioral.>",
                 "is_missing_part_functional_or_behavioral": "<str: only included if guideline_applied is 'partially'.>",
                 "guideline_applied": "<bool>",
             }
@@ -558,7 +556,7 @@ example_2_expected = GenericResponseAnalysisSchema(
                 ),
             ],
             guideline_applied_degree="partially",
-            is_missing_part_functional_or_behavioral_rational="overall intention that there are many open position was made clear so using the exact words is behavioral",
+            is_missing_part_functional_or_behavioral_rationale="overall intention that there are many open position was made clear so using the exact words is behavioral",
             is_missing_part_functional_or_behavioral="behavioral",
             guideline_applied=True,
         ),
@@ -599,7 +597,7 @@ example_3_expected = GenericResponseAnalysisSchema(
                 ),
             ],
             guideline_applied_degree="partially",
-            is_missing_part_functional_or_behavioral_rational="Need to ask for the kind of role so can narrow the option and help the customer find the right job fit",
+            is_missing_part_functional_or_behavioral_rationale="Need to ask for the kind of role so can narrow the option and help the customer find the right job fit",
             is_missing_part_functional_or_behavioral="functional",
             guideline_applied=False,
         ),
@@ -679,7 +677,7 @@ example_5_expected = GenericResponseAnalysisSchema(
                 ),
             ],
             guideline_applied_degree="partially",
-            is_missing_part_functional_or_behavioral_rational="missing part is about tone and politeness, and doesn’t affect the quality of solving the issue."
+            is_missing_part_functional_or_behavioral_rationale="missing part is about tone and politeness, and doesn’t affect the quality of solving the issue."
             "There’s no need to return and thank the user later in order to complete the response.",
             is_missing_part_functional_or_behavioral="behavioral",
             guideline_applied=True,
@@ -763,7 +761,7 @@ example_7_expected = GenericResponseAnalysisSchema(
                 ),
             ],
             guideline_applied_degree="partially",
-            is_missing_part_functional_or_behavioral_rational="missing part is about politeness, and doesn’t affect the quality of the interaction",
+            is_missing_part_functional_or_behavioral_rationale="missing part is about politeness, and doesn’t affect the quality of the interaction",
             is_missing_part_functional_or_behavioral="behavioral",
             guideline_applied=True,
         ),

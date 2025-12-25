@@ -21,6 +21,7 @@ import importlib
 import inspect
 import os
 import traceback
+from fastapi import FastAPI
 from lagom import Container, Singleton
 from typing import (
     Any,
@@ -62,8 +63,14 @@ from parlant.core.engines.alpha.guideline_matching.generic import (
 from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch import (
     DisambiguationGuidelineMatchesSchema,
 )
-from parlant.core.engines.alpha.guideline_matching.generic.journey_node_selection_batch import (
-    JourneyNodeSelectionSchema,
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
+    JourneyBacktrackCheckSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
+    JourneyBacktrackNodeSelectionSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_step_selection import (
+    JourneyNextStepSelectionSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.generic_guideline_matching_strategy_resolver import (
     GenericGuidelineMatchingStrategyResolver,
@@ -126,7 +133,7 @@ from parlant.core.engines.alpha.canned_response_generator import (
     NoMatchResponseProvider,
 )
 from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
-from parlant.core.meter import Meter, NullMeter
+from parlant.core.meter import Meter, LocalMeter
 from parlant.core.services.indexing.guideline_agent_intention_proposer import (
     AgentIntentionProposerSchema,
 )
@@ -143,6 +150,9 @@ from parlant.core.services.indexing.guideline_action_proposer import (
 from parlant.core.services.indexing.guideline_continuous_proposer import (
     GuidelineContinuousProposer,
     GuidelineContinuousPropositionSchema,
+)
+from parlant.core.services.indexing.journey_reachable_nodes_evaluation import (
+    ReachableNodesEvaluationSchema,
 )
 from parlant.core.services.indexing.relative_action_proposer import RelativeActionSchema
 from parlant.core.services.indexing.tool_running_action_detector import (
@@ -209,6 +219,7 @@ from parlant.core.engines.alpha.tool_calling.default_tool_call_batcher import De
 from parlant.core.engines.alpha.tool_calling.single_tool_batch import (
     SingleToolBatchSchema,
     SingleToolBatchShot,
+    NonConsequentialToolBatchSchema,
 )
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolCallBatcher, ToolCaller
 
@@ -277,6 +288,7 @@ class StartupParameters:
     migrate: bool
     configure: Callable[[Container], Awaitable[Container]] | None = None
     initialize: Callable[[Container], Awaitable[None]] | None = None
+    configure_api: Callable[[FastAPI], Awaitable[None]] | None = None
 
 
 def load_nlp_service(
@@ -289,7 +301,7 @@ def load_nlp_service(
     try:
         module = importlib.import_module(module_path)
         service = getattr(module, class_name)
-        return cast(NLPService, service(LOGGER, container[Meter]))
+        return cast(NLPService, service(LOGGER, container[Tracer], container[Meter]))
     except ModuleNotFoundError as exc:
         LOGGER.error(f"Failed to import module: {exc.name}")
         LOGGER.critical(
@@ -317,7 +329,7 @@ def load_aws(container: Container) -> NLPService:
 def load_azure(container: Container) -> NLPService:
     from parlant.adapters.nlp.azure_service import AzureService
 
-    return AzureService(LOGGER, container[Meter])
+    return AzureService(LOGGER, container[Tracer], container[Meter])
 
 
 def load_cerebras(container: Container) -> NLPService:
@@ -359,7 +371,7 @@ def load_gemini(container: Container) -> NLPService:
 def load_openai(container: Container) -> NLPService:
     from parlant.adapters.nlp.openai_service import OpenAIService
 
-    return OpenAIService(LOGGER, container[Meter])
+    return OpenAIService(LOGGER, container[Tracer], container[Meter])
 
 
 def load_together(container: Container) -> NLPService:
@@ -478,7 +490,7 @@ async def _define_meter(container: Container) -> None:
         container[Meter] = await EXIT_STACK.enter_async_context(OpenTelemetryMeter())
 
     else:
-        _define_singleton(container, Meter, NullMeter)
+        _define_singleton(container, Meter, LocalMeter)
 
 
 def _define_singleton(container: Container, interface: type, implementation: type) -> None:
@@ -553,7 +565,7 @@ async def setup_container() -> AsyncIterator[Container]:
         observational_batch.shot_collection,
     )
     _define_singleton_value(
-        c, ShotCollection[SingleToolBatchShot], single_tool_batch.shot_collection
+        c, ShotCollection[SingleToolBatchShot], single_tool_batch.consequential_shot_collection
     )
     _define_singleton_value(
         c, ShotCollection[MessageGeneratorShot], message_generator.shot_collection
@@ -793,6 +805,7 @@ async def initialize_container(
         async def get_transient_vector_db() -> VectorDatabase:
             return TransientVectorDatabase(
                 c[Logger],
+                c[Tracer],
                 embedder_factory,
                 lambda: c[EmbeddingCache],
             )
@@ -838,6 +851,7 @@ async def initialize_container(
         CannedResponseFieldExtractionSchema,
         FollowUpCannedResponseSelectionSchema,
         SingleToolBatchSchema,
+        NonConsequentialToolBatchSchema,
         OverlappingToolsBatchSchema,
         GuidelineActionPropositionSchema,
         GuidelineContinuousPropositionSchema,
@@ -845,8 +859,11 @@ async def initialize_container(
         ToolRunningActionSchema,
         AgentIntentionProposerSchema,
         DisambiguationGuidelineMatchesSchema,
-        JourneyNodeSelectionSchema,
+        JourneyBacktrackNodeSelectionSchema,
+        JourneyNextStepSelectionSchema,
+        JourneyBacktrackCheckSchema,
         RelativeActionSchema,
+        ReachableNodesEvaluationSchema,
     ):
         generator = await nlp_service_instance.get_schematic_generator(schema)
 
@@ -937,7 +954,7 @@ async def load_app(params: StartupParameters) -> AsyncIterator[tuple[ASGIApplica
 
         _print_startup_banner()
 
-        yield await create_api_app(actual_container), actual_container
+        yield await create_api_app(actual_container, params.configure_api), actual_container
 
 
 def _print_startup_banner() -> None:

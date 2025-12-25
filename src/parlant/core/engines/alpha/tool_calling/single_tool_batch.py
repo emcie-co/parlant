@@ -1172,7 +1172,7 @@ Consider ALL following information when deciding how and with what parameters to
 """,
         )
 
-        builder.add_context_variables_non_consequential_tools(context_variables)
+        builder.add_context_variables(context_variables)
 
         if terms:
             builder.add_section(

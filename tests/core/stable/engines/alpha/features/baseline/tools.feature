@@ -433,10 +433,10 @@ Feature: Tools
         And the tool "transfer_coins"
         And an association between "make_transfer" and "transfer_coins"
         And a customer message, "Can I make a transfer from my account to a different one?"
-        And an agent message, "Absolutely! I can help you with that. Just let me know the details, and I’ll assist you in making the transfer."
+        And an agent message, "Absolutely! I can help you with that. Just let me know the details, and I'll assist you in making the transfer."
         And a customer message, "My name is Mark Corrigan, and I might want to send 10,101 dollars to my sister, Ruthie."
-        And an agent message, "Got it, Mark! What’s your pin code, please?"
-        And a customer message, "It’s 1234. But actually, I’m not sure if I want to do it right now. I may do it tomorrow instead. I’ll keep you posted"
+        And an agent message, "Got it, Mark! What's your pin code, please?"
+        And a customer message, "It's 1234. But actually, I'm not sure if I want to do it right now. I may do it tomorrow instead. I'll keep you posted"
         And that the "make_transfer" guideline was matched in the previous iteration
         When detection and processing are triggered
         When processing is triggered
@@ -449,10 +449,10 @@ Feature: Tools
         And an association between "make_transfer" and "transfer_coins"
         And a guideline to multiply amount by 2 when asked to make a transfer in euros
         And a customer message, "Can I make a transfer from my account to a different one?"
-        And an agent message, "Absolutely! I can help you with that. Just let me know the details, and I’ll assist you in making the transfer."
+        And an agent message, "Absolutely! I can help you with that. Just let me know the details, and I'll assist you in making the transfer."
         And a customer message, "My name is Mark Corrigan, and I want to send 1500 euros to my sister, Sophie Chapman."
-        And an agent message, "Got it, Mark! What’s your pin code, please?"
-        And a customer message, "It’s 1234. "
+        And an agent message, "Got it, Mark! What's your pin code, please?"
+        And a customer message, "It's 1234. "
         And that the "make_transfer" guideline was matched in the previous iteration
         When detection and processing are triggered
         Then the tool calls event contains a call to "transfer_coins" with amount 3000 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
@@ -460,11 +460,11 @@ Feature: Tools
 
     Scenario: Tool call consider a guideline about tool parameters (2) (transfer_coins)
         Given an empty session
-        And a guideline "make_transfer" to make a transfer when asked to transfer money from one account to another
+        And a guideline "make_transfer" to make a transfer when asked to transfer money 
         And the tool "transfer_coins"
         And an association between "make_transfer" and "transfer_coins"
-        And a guideline to set the destination account to Sophie Chapman when asked to transfer money from one account to another
-        And a customer message, "Hi, it’s Mark Corrigan here. Can I make a transfer of 4500$?. You probably need my pincode, its 1234 "
+        And a guideline to set the destination account to Sophie Chapman when asked to transfer money 
+        And a customer message, "Hi, it's Mark Corrigan here. Can I make a transfer of 4500$?. You probably need my pincode, its 1234 "
         When processing is triggered
         Then the tool calls event contains a call to "transfer_coins" with amount 4500 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
         And no tool error has occurred

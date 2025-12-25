@@ -499,21 +499,21 @@ Feature: Tools
         And the tool "transfer_coins"
         And an association between "make_transfer" and "transfer_coins"
         And a customer message, "Hi, can I make a transfer from my account to a different one?"
-        And an agent message, "Absolutely! I’d be happy to help with that. Just let me know the details—like who you want to send money to and how much—and I’ll assist you with the transfer."
-        And a customer message, "My name is Mark Corrigan. I’m not sure if I have enough money in my account, though. Can you help me figure that out?"
+        And an agent message, "Absolutely! I'd be happy to help with that. Just let me know the details—like who you want to send money to and how much—and I'll assist you with the transfer."
+        And a customer message, "My name is Mark Corrigan. I'm not sure if I have enough money in my account, though. Can you help me figure that out?"
         And an agent message, "Of course, Mark! Would you like me to check your account balance for you?"
-        And a customer message, "Not right now. I think I’ll just go ahead and try to make a transfer anyway."
+        And a customer message, "Not right now. I think I'll just go ahead and try to make a transfer anyway."
         And an agent message, " Alright, no problem! Can you tell me the name of the person you want to send money to, and how much you'd like to transfer?"
         And a customer message, "Actually, do you work tomorrow? What are your working hours?"
-        And an agent message, "Yes, I’m available every day from 9 AM to 5 PM. Would you like to go ahead with the transfer now, or is there something else you need?"
+        And an agent message, "Yes, I'm available every day from 9 AM to 5 PM. Would you like to go ahead with the transfer now, or is there something else you need?"
         And a customer message, "If I come tomorrow will that be ok?"
         And an agent message, "Yes, that works! Feel free to come tomorrow. Would you like to go ahead with the transfer now, or is there anything else you need help with?"
-        And a customer message, "Yeah, I think I’m ready. My name is Mark Corrigan. I need to transfer to my dear friend Sophie Chapman "
+        And a customer message, "Yeah, I think I'm ready. My name is Mark Corrigan. I need to transfer to my dear friend Sophie Chapman "
         And an agent message, "Hi again, Mark! So, how much would you like to transfer today?"
-        And a customer message, "I think it’d be better if someone else helped me with the transfer."
-        And an agent message, "Alright, if you’d like me to help with that, I’ll just need to know how much would you want to transfer"
-        And a customer message, "I’m thinking of sending $2000 right now."
-        And an agent message, "Alright, if you’d like me to assist with that, I’ll just need your pin code to proceed"
+        And a customer message, "I think it'd be better if someone else helped me with the transfer."
+        And an agent message, "Alright, if you'd like me to help with that, I'll just need to know how much would you want to transfer"
+        And a customer message, "I'm thinking of sending $2000 right now."
+        And an agent message, "Alright, if you'd like me to assist with that, I'll just need your pin code to proceed"
         And a customer message, "Sure, try 1234."
         And that the "make_transfer" guideline was matched in the previous iteration
         When detection and processing are triggered
@@ -666,7 +666,7 @@ Feature: Tools
         And an association between "to_reschedule_appointment" and "reschedule_appointment"
         And a tool relationship whereby "reschedule_appointment" overlaps with "schedule_appointment"
         And a context variable "Current Date" set to "April 10th, 2025" for "Hailey"
-        And a customer message, "Hi, I’d like to schedule an appointment for tomorrow at 18:00 with Dr. Gabi, please. Also, I have an appointment with Dr. Michael. Could you please reschedule with Dr. Michael for tomorrow at 3:00 PM? Thank you!"
+        And a customer message, "Hi, I'd like to schedule an appointment for tomorrow at 18:00 with Dr. Gabi, please. Also, I have an appointment with Dr. Michael. Could you please reschedule with Dr. Michael for tomorrow at 3:00 PM? Thank you!"
         When processing is triggered
         Then the tool calls event contains 2 tool call(s)
         And the tool calls event contains a call to "local:reschedule_appointment" to Hailey with Dr. Michael at 11-04-2025 15:00 and contains a call to "local:schedule_appointment" to Hailey with Dr. Gabi at 11-04-2025 18:00
@@ -802,6 +802,137 @@ Feature: Tools
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains a call to "search_electronic_products" with laptop as keyword and max price of 5
 
+<<<<<<< HEAD
+=======
+    Scenario: The agent correctly chooses to call the right tool
+        Given an agent whose job is to sell groceries
+        And the term "carrot" defined as a kind of fruit
+        And a guideline "check_prices" to reply with the price of the item when a customer asks about an items price
+        And the tool "check_fruit_price"
+        And the tool "check_vegetable_price"
+        And an association between "check_prices" and "check_fruit_price"
+        And an association between "check_prices" and "check_vegetable_price"
+        And a tool relationship whereby "check_fruit_price" overlaps with "check_vegetable_price"
+        And a customer message, "What's the price of 1 kg of carrots?"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the tool calls event contains 1 tool call(s)
+        And the tool calls event contains a call with tool_id of "local:check_fruit_price"
+        And a single message event is emitted
+        And the message contains that the price of 1 kg of carrots is 10 dollars
+
+    Scenario: Tool caller chooses the right tool for scheduling when three are overlapping
+        Given a customer named "Hailey"
+        And an empty session with "Hailey"
+        And a guideline "to_schedule_appointment" to schedule an appointment with a doctor when user asks to make an appointment
+        And a guideline "to_reschedule_appointment" to reschedule existing appointment when user had an appointment and they want to change its time
+        And a guideline "to_schedule_meeting" to schedule a meeting when customer asks to meet with someone
+        And the tool "schedule_appointment"
+        And an association between "to_schedule_appointment" and "schedule_appointment"
+        And the tool "reschedule_appointment"
+        And an association between "to_reschedule_appointment" and "reschedule_appointment"
+        And the tool "schedule_meeting"
+        And an association between "to_schedule_meeting" and "schedule_meeting"
+        And a tool relationship whereby "reschedule_appointment" overlaps with "schedule_appointment"
+        And a tool relationship whereby "schedule_meeting" overlaps with "schedule_appointment"
+        And a context variable "Current Date" set to "April 10th, 2025" for "Hailey"
+        And a customer message, "Hi I want to make an appointment with Dr Sara Goodman tomorrow at 19:00. Can you help me with that?"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the tool calls event contains 1 tool call(s)
+        And the tool calls event contains a call to "local:schedule_appointment" to Hailey with Dr sara goodman at 11-04-2025 19:00
+
+    Scenario: Tool caller use both tools for scheduling appointment correctly when they overlap
+        Given a customer named "Hailey"
+        And an empty session with "Hailey"
+        And a guideline "to_schedule_appointment" to schedule an appointment with a doctor when user asks to make an appointment
+        And a guideline "to_reschedule_appointment" to reschedule existing appointment when user had an appointment and they want to change its time
+        And the tool "schedule_appointment"
+        And an association between "to_schedule_appointment" and "schedule_appointment"
+        And the tool "reschedule_appointment"
+        And an association between "to_reschedule_appointment" and "reschedule_appointment"
+        And a tool relationship whereby "reschedule_appointment" overlaps with "schedule_appointment"
+        And a context variable "Current Date" set to "April 10th, 2025" for "Hailey"
+        And a customer message, "Hi, I'd like to schedule an appointment for tomorrow at 18:00 with Dr. Gabi, please. Also, I have an appointment with Dr. Michael. Could you please reschedule with Dr. Michael for tomorrow at 3:00 PM? Thank you!"
+        When processing is triggered
+        Then the tool calls event contains 2 tool call(s)
+        And the tool calls event contains a call to "local:reschedule_appointment" to Hailey with Dr. Michael at 11-04-2025 15:00 and contains a call to "local:schedule_appointment" to Hailey with Dr. Gabi at 11-04-2025 18:00
+
+    Scenario: Drinks and toppings tools called from same guideline
+        Given a guideline "sell_pizza" to sell pizza when interacting with customers
+        And a guideline "check_drinks_or_toppings_in_stock" to check for drinks or toppings in stock when the customer specifies toppings or drinks
+        And the tool "get_available_drinks"
+        And the tool "get_available_toppings"
+        And an association between "check_drinks_or_toppings_in_stock" and "get_available_drinks"
+        And an association between "check_drinks_or_toppings_in_stock" and "get_available_toppings"
+        And a customer message, "Hey, can I order a large pepperoni pizza with Sprite?"
+        When processing is triggered
+        Then the tool calls event contains 2 tool call(s)
+        And the tool calls event contains Sprite and Coca Cola under "get_available_drinks"
+        And the tool calls event contains Pepperoni, Mushrooms, and Olives under "get_available_toppings"
+
+    Scenario: Tool caller use the more suitable tool for transfer when two overlap
+        Given a guideline "do_transaction" to transfer money for the customer when customer asks to transfer money
+        And the tool "transfer_shekels"
+        And the tool "transfer_money"
+        And an association between "do_transaction" and "transfer_shekels"
+        And an association between "do_transaction" and "transfer_money"
+        And a customer message, "Hey, can I transfer to my friend Alisse 200 shekels? my name is Fredric"
+        And a tool relationship whereby "transfer_shekels" overlaps with "transfer_money"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the tool calls event contains 1 tool call(s)
+        And the tool calls event contains a call to "transfer_shekels" with 200 as amount from Fredric to Alisse
+
+    Scenario: Tool caller chooses the more suitable tool for transfer when two overlap and there are missing parameters (1)
+        Given a guideline "do_transaction" to transfer money for the customer when customer asks to transfer money
+        And the tool "transfer_shekels"
+        And the tool "transfer_money"
+        And an association between "do_transaction" and "transfer_shekels"
+        And an association between "do_transaction" and "transfer_money"
+        And a tool relationship whereby "transfer_shekels" overlaps with "transfer_money"
+        And a customer message, "Hey, can I transfer to my friend Alisse 200 shekels?"
+        When processing is triggered
+        Then no tool calls event is emitted
+
+    Scenario: Tool caller chooses the more suitable tool for transfer when two overlap and there are missing parameters (2)
+        Given a guideline "do_transaction" to transfer money for the customer when customer asks to transfer money
+        And the tool "transfer_shekels"
+        And the tool "transfer_money"
+        And an association between "do_transaction" and "transfer_shekels"
+        And an association between "do_transaction" and "transfer_money"
+        And a tool relationship whereby "transfer_shekels" overlaps with "transfer_money"
+        And a customer message, "Hey, can transfer $200?"
+        When processing is triggered
+        Then no tool calls event is emitted
+
+    Scenario: Tool caller use both tools for the right transfer when two overlap
+        Given a guideline "do_transaction" to transfer money for the customer when customer asks to transfer money
+        And a guideline to choose the more specific coin when customer asks to transfer money
+        And the tool "transfer_money"
+        And the tool "transfer_shekels"
+        And an association between "do_transaction" and "transfer_shekels"
+        And an association between "do_transaction" and "transfer_money"
+        And a customer message, "Hey, can transfer to my friend Alisse 200 shekels and to my friend Bob $300? my name is Fredric"
+        And a tool relationship whereby "transfer_shekels" overlaps with "transfer_money"
+        When processing is triggered
+        Then the tool calls event contains 2 tool call(s)
+        And the tool calls event contains a call to "transfer_shekels" with 200 from Fredric to Alisse and a call to "transfer_money" with 300 from Fredric to Bob and no call to "transfer_money" with 200
+
+    Scenario: Tool caller use tools multiple times for the right transfer when two overlap
+        Given a guideline "do_transaction" to transfer money for the customer when customer asks to transfer money
+        And a guideline to choose the more specific coin when customer asks to transfer money
+        And the tool "transfer_shekels"
+        And the tool "transfer_money"
+        And an association between "do_transaction" and "transfer_shekels"
+        And an association between "do_transaction" and "transfer_money"
+        And a tool relationship whereby "transfer_shekels" overlaps with "transfer_money"
+        And a customer message, "Hey, can transfer to my friend Alisse 200 shekels and to my friend Bob $300 and also 100 shekels to Bob? my name is Fredric"
+        When processing is triggered
+        Then the tool calls event contains 3 tool call(s)
+        And the tool calls event contains a call to "transfer_shekels" with 200 from Fredric to Alisse a call to "transfer_shekels" with 100 from Fredric to Bob and a call to "transfer_money" with 300 from Fredric to Bob and no call to "transfer_money" with 200
+
+>>>>>>> 3313f5078 (More small changes in tests)
     Scenario: Tool caller user the more suitable tool for searching when two overlap (1)
         Given a guideline "do_search" to retrieve relevant products that match the asked attributes when customer is interested in products with specific attributes
         And the tool "search_products"

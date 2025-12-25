@@ -1,6 +1,9 @@
 Feature: Supervision
     Background:
-        Given an empty session
+        Given the alpha engine
+        And an agent
+        And that the agent uses the canned_fluid message composition mode
+        And an empty session
 
     Scenario: Prioritizing freezing transactions over processing refunds
         Given a guideline "process_refund" to process refunds for non-frozen transactions only when a customer requests a refund

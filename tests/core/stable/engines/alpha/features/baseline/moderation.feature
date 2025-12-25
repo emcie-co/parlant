@@ -1,6 +1,9 @@
 Feature: Moderation
     Background:
         Given the alpha engine
+        And an agent
+        And that the agent uses the canned_fluid message composition mode
+        And an empty session
 
     Scenario: The agent responds to a censored harassment message
         Given an agent

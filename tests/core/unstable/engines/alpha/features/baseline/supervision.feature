@@ -1,6 +1,9 @@
 Feature: Supervision
     Background:
-        Given an empty session
+        Given the alpha engine
+        And an agent
+        And that the agent uses the canned_fluid message composition mode
+        And an empty session
 
     Scenario: Preference for customer request over guideline account_related_questions
         Given a guideline "discount_for_frustration" to offer a 20 percent discount when the customer expresses frustration

@@ -1,6 +1,10 @@
 Feature: Context Variables
     Background:
         Given the alpha engine
+        And an agent
+        And that the agent uses the canned_fluid message composition mode
+        And an empty session
+
 
     Scenario: The agent does not acknowledge values from other customers when the customer lacks a value
         Given a customer named "Keyleth"

@@ -17,7 +17,6 @@ from enum import Enum
 from itertools import chain
 import ast
 import json
-import os
 import traceback
 from typing import Any, Literal, Optional, Sequence, TypeAlias, cast
 from pydantic import field_validator
@@ -738,10 +737,7 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
                 ),
             },
         )
-        os.makedirs("dumps/tool call/single tool call conseq", exist_ok=True)
 
-        with open("dumps/tool call/single tool call conseq/prompt.txt", "w") as f:
-            f.write(builder.build())
         return builder
 
     def _format_tool_calls_for_candidate_tool_json_description(
@@ -973,10 +969,6 @@ Guidelines:
         self._logger.trace(
             f"Inference::Completion: {tool_id.to_string()}\n{inference.content.model_dump_json(indent=2)}"
         )
-        os.makedirs("dumps/tool call/single tool call conseq", exist_ok=True)
-
-        with open("dumps/tool call/single tool call conseq/output.txt", "w") as f:
-            f.write(inference.content.model_dump_json(indent=2))
 
         return inference.info, inference.content.tool_calls_for_candidate_tool
 
@@ -1224,10 +1216,6 @@ OUTPUT FORMAT:
             },
         )
 
-        os.makedirs("dumps/tool call/single tool call non conseq", exist_ok=True)
-
-        with open("dumps/tool call/single tool call non conseq/prompt.txt", "w") as f:
-            f.write(builder.build())
         return builder
 
     async def _run_non_consequential_tool_inference(
@@ -1244,8 +1232,6 @@ OUTPUT FORMAT:
             f"Inference::Completion: {tool_id.to_string()}\n{inference.content.model_dump_json(indent=2)}"
         )
 
-        with open("dumps/tool call/single tool call non conseq/output.txt", "w") as f:
-            f.write(inference.content.model_dump_json(indent=2))
         return inference.info, inference.content.calls
 
     def _evaluate_non_consequential_tool_calls(

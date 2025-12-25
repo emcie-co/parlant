@@ -17,6 +17,7 @@ from enum import Enum
 from itertools import chain
 import ast
 import json
+import os
 import traceback
 from typing import Any, Literal, Optional, Sequence, TypeAlias, cast
 from pydantic import field_validator
@@ -720,8 +721,7 @@ Given the tool, your output should adhere to the following format:
     "most_recent_customer_inquiry_or_need_was_already_resolved": <BOOL>,
     "name": "{service_name}:{tool_name}",
     "subtleties_to_be_aware_of": "<NOTE ANY SIGNIFICANT SUBTLETIES TO BE AWARE OF WHEN RUNNING THIS TOOL IN OUR AGENT'S CONTEXT>",
-    "tool_calls_for_candidate_tool": [
-        {tool_calls_for_candidate_tool_json_description}
+    "tool_calls_for_candidate_tool": [{tool_calls_for_candidate_tool_json_description}
     ]
 }}
 ```
@@ -738,6 +738,10 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
                 ),
             },
         )
+        os.makedirs("dumps/tool call/single tool call conseq", exist_ok=True)
+
+        with open("dumps/tool call/single tool call conseq/prompt.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
     def _format_tool_calls_for_candidate_tool_json_description(
@@ -746,7 +750,8 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
         optional_arguments = [
             name for name in candidate_tool.parameters if name not in candidate_tool.required
         ]
-        result = """{{
+        result = """
+        {
             "applicability_rationale": "<A FEW WORDS THAT EXPLAIN WHETHER, HOW, AND TO WHAT EXTENT THE TOOL NEEDS TO BE CALLED AT THIS POINT>",
             "is_applicable": <BOOL>,"""
         result += """
@@ -783,9 +788,10 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
             result += """
             "are_optional_arguments_missing": <BOOL>,
             "are_non_optional_arguments_missing": <BOOL>,
-            "allowed_to_run_without_optional_arguments_even_if_they_are_missing": <BOOL-ALWAYS TRUE>,
+            "allowed_to_run_without_optional_arguments_even_if_they_are_missing": <BOOL-ALWAYS TRUE>,"""
 
-        }}"""
+        result += """
+        }"""
         return result
 
     def _add_tool_definitions_section(
@@ -967,6 +973,10 @@ Guidelines:
         self._logger.trace(
             f"Inference::Completion: {tool_id.to_string()}\n{inference.content.model_dump_json(indent=2)}"
         )
+        os.makedirs("dumps/tool call/single tool call conseq", exist_ok=True)
+
+        with open("dumps/tool call/single tool call conseq/output.txt", "w") as f:
+            f.write(inference.content.model_dump_json(indent=2))
 
         return inference.info, inference.content.tool_calls_for_candidate_tool
 
@@ -1061,21 +1071,28 @@ This evaluation and execution process occurs iteratively, preceding each respons
 {'''Consequently, some tool calls may have already been initiated and executed following the customer's most recent message. Any such completed tool call will be detailed later in this prompt along with its result, under "staged calls". These specific calls do not require to be re-run at this time, unless you identify a valid reason for their reevaluation.''' if staged_calls else ""}
 
 **Task Instructions:**
-- CASE 1: Call the tool if it's clearly relevant to the customer's current request - in this case, mark "should_run": true and provide the call parameters in "calls" - for one or more of the calls you've determined we must now run, as the case may be). And if an **optional** parameter value cannot be determined or inferred contextually, you may still create the tool call, inserting **null** as value for that parameter
+- CASE 1: The tool is clearly relevant to the customer's current request and all **required** parameter values can be determined or inferred contextually. In this case, mark "should_run": true and provide the call parameters in "calls" - for one or more of the calls you've determined we must now run, as the case may be. 
+    If an **optional** parameter value cannot be determined or inferred contextually, you may still create the tool call, inserting **null** as value for that parameter
 {"- CASE 2: If the same call is already staged, do not call the tool again - and do not create a tool call - and mark it as should_run: false, explaining this decision in your reasoning" if staged_calls else ""}
-- CASE 3: If the tool *should* run in principle, except that a **required** parameter value cannot be determined or inferred contextually, do not create a tool call - but still mark it as should_run: true. For the missing parameters, insert "<<__missing__>>" as value.
+- CASE 3: If the tool *should* run in principle, except that a **required** parameter value cannot be determined or inferred contextually, do not create a tool call - but still mark it as should_run: true. For the missing parameters, insert "<<__missing__>>" as value (as a string, regardless of the parameter type).
 - CASE 4: The tool should not be called at this time because it's not particularly relevant to the situation - in this case, mark "should_run": false and do not create any tool calls
 
 Make sure to note the case number you're following in your "reasoning_tldr" field.
 
-Note that you should extract parameter values directly from the conversation or prompt context. You're free to infer some parameters from context, where applicable (e.g., dates, names) - e.g., if someone says "next Friday", you can convert that to an actual date string if you know the date - and so forth
-""",
+Parameter values extraction:
+Extract parameter values from the conversation or prompt context. 
+You're free to infer the parameters from context, in the best way you think - e.g., if someone says "next Friday", you can convert that to an actual date string if you know the date - and so forth
+Use inference and contextual understanding to derive accurate values. It's better to make reasonable inferences about parameter values from the user's request than to not run the tool at all because a parameter wasn't explicitly specified.""",
             props={},
         )
 
         builder.add_section(
-            name=_SECTION_NAMES["examples"] + _CONSEQUENTIAL_SUFFIX,
+            name=_SECTION_NAMES["examples"] + _NON_CONSEQUENTIAL_SUFFIX,
             template="""
+The following examples show correct outputs for various hypothetical situations.
+Only the responses are provided, without the interaction history or tool descriptions, though these can be inferred from the responses.
+
+
 EXAMPLES
 -----------------
 {formatted_shots}
@@ -1106,12 +1123,14 @@ Name: {tool_name}
 Description: {tool_description}
 Parameters: {parameters_json}
 Required parameters: {required_params}
+Optional parameters: {optional_params}
 """,
             props={
                 "tool_name": f"{tool_id.service_name}:{tool_id.tool_name}",
                 "tool_description": tool.description,
                 "parameters_json": json.dumps(parameters_info, indent=2),
                 "required_params": list(tool.required),
+                "optional_params": list(set(tool.parameters) - set(tool.required)),
             },
         )
 
@@ -1131,18 +1150,51 @@ Do not call the tool again with the same arguments.
         for param_name, spec in tool.parameters.items():
             descriptor, _ = spec
 
-            missing_str = "null" if param_name not in tool.required else '"<<__missing__>>"'
+            missing_str = "None" if param_name not in tool.required else '"<<__missing__>>"'
             prefix, suffix = ('["', '", ...]') if descriptor.get("type") == "array" else ('"', '"')
 
             if choices := descriptor.get("enum"):
                 choices_str = ", ".join(f'"{choice}"' for choice in choices)
                 arg_formats.append(
-                    f'"{param_name}": {prefix}<choose from ({choices_str}) — or insert {missing_str} if not available>{suffix}'
+                    f'"{param_name}": {prefix}<Select the most appropriate value for this parameter from ({choices_str}) — if it can not be inferred from the interaction set it to {missing_str}>{suffix}'
                 )
             else:
                 arg_formats.append(
-                    f'"{param_name}": {prefix}<extract value ALWAYS IN STRINGIFIED FORM — or insert {missing_str} if not available>{suffix}'
+                    f'"{param_name}": {prefix}<Extract the value from the interaction ALWAYS IN STRINGIFIED FORM. If it can not be inferred set it to {missing_str}>{suffix}'
                 )
+
+        builder.add_section(
+            name="Note-about-context" + _NON_CONSEQUENTIAL_SUFFIX,
+            template="""
+CONTEXT OF INTERACTION:
+-----------------------
+Consider ALL following information when deciding how and with what parameters to run the tool:
+""",
+        )
+
+        builder.add_context_variables_non_consequential_tools(context_variables)
+
+        if terms:
+            builder.add_section(
+                name=BuiltInSection.GLOSSARY,
+                template=self._get_glossary_text(terms),
+                props={"terms": terms},
+                status=SectionStatus.ACTIVE,
+            )
+
+        builder.add_interaction_history(interaction_history)
+
+        builder.add_section(
+            name=BuiltInSection.GUIDELINE_DESCRIPTIONS,
+            template=self._add_guideline_matches_section(
+                ordinary_guideline_matches,
+                (candidate_descriptor[0], candidate_descriptor[2]),
+            ),
+            props={
+                "ordinary_guideline_matches": ordinary_guideline_matches,
+                "tool_id_propositions": (candidate_descriptor[0], candidate_descriptor[2]),
+            },
+        )
 
         arg_formats_str = ",\n                ".join(arg_formats)
 
@@ -1172,30 +1224,10 @@ OUTPUT FORMAT:
             },
         )
 
-        builder.add_context_variables(context_variables)
+        os.makedirs("dumps/tool call/single tool call non conseq", exist_ok=True)
 
-        if terms:
-            builder.add_section(
-                name=BuiltInSection.GLOSSARY,
-                template=self._get_glossary_text(terms),
-                props={"terms": terms},
-                status=SectionStatus.ACTIVE,
-            )
-
-        builder.add_interaction_history(interaction_history)
-
-        builder.add_section(
-            name=BuiltInSection.GUIDELINE_DESCRIPTIONS,
-            template=self._add_guideline_matches_section(
-                ordinary_guideline_matches,
-                (candidate_descriptor[0], candidate_descriptor[2]),
-            ),
-            props={
-                "ordinary_guideline_matches": ordinary_guideline_matches,
-                "tool_id_propositions": (candidate_descriptor[0], candidate_descriptor[2]),
-            },
-        )
-
+        with open("dumps/tool call/single tool call non conseq/prompt.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
     async def _run_non_consequential_tool_inference(
@@ -1212,6 +1244,8 @@ OUTPUT FORMAT:
             f"Inference::Completion: {tool_id.to_string()}\n{inference.content.model_dump_json(indent=2)}"
         )
 
+        with open("dumps/tool call/single tool call non conseq/output.txt", "w") as f:
+            f.write(inference.content.model_dump_json(indent=2))
         return inference.info, inference.content.calls
 
     def _evaluate_non_consequential_tool_calls(
@@ -1896,7 +1930,7 @@ _baseline_non_consequential_shots: Sequence[NonConsequentialSingleToolBatchShot]
         expected_result=NonConsequentialToolBatchSchema(
             name="get_weather",
             should_run=True,
-            reasoning_tldr="CASE 1. The user asked about the weather in Paris",
+            reasoning_tldr="CASE 1. The user asked about the weather in Paris. There is a required argument which is Paris",
             calls=[NonConsequentialToolCallEvaluation(args={"city": "Paris"})],
         ),
     ),
@@ -1926,7 +1960,7 @@ _baseline_non_consequential_shots: Sequence[NonConsequentialSingleToolBatchShot]
         expected_result=NonConsequentialToolBatchSchema(
             name="get_weather",
             should_run=True,
-            reasoning_tldr="CASE 3: The user asked about the weather but did not specify a city and I don't know their location",
+            reasoning_tldr="CASE 3: The user asked about the weather but did not specify a city and I don't know their location. Should mark the required argument 'city' as missing",
             calls=[
                 NonConsequentialToolCallEvaluation(args={"city": "<<__missing__>>"}),
             ],
@@ -1941,6 +1975,89 @@ _baseline_non_consequential_shots: Sequence[NonConsequentialSingleToolBatchShot]
             calls=[],
         ),
     ),
+    NonConsequentialSingleToolBatchShot(
+        description="The tool - get_weather(city : str, temp_unit: Optional[str]). temp_unit is missing",
+        expected_result=NonConsequentialToolBatchSchema(
+            name="get_weather",
+            should_run=True,
+            reasoning_tldr="The user asked about the weather in Tel Aviv. The parameter 'city' is required and available. 'temp_unit' is missing but it is an optional argument, so CASE 1 holds for this call",
+            calls=[
+                NonConsequentialToolCallEvaluation(
+                    args={
+                        "city": "Tel Aviv",
+                        "temp_unit": None,
+                    }
+                ),
+            ],
+        ),
+    ),
+    # NonConsequentialSingleToolBatchShot(
+    #     description="The tool - get_weather(city : str, temp_unit: Unit). Unit = {'C', 'F'}. user last message: 'How is the weather in Tel Aviv, let me know the temp in celsius",
+    #     expected_result=NonConsequentialToolBatchSchema(
+    #         name="get_weather",
+    #         should_run=True,
+    #         reasoning_tldr="Case 1. The user asked about the weather in Tel Aviv and wanted to know the temperature in celsius. temp_unit is an enum that its value should be 'C'",
+    #         calls=[
+    #             NonConsequentialToolCallEvaluation(
+    #                 args={
+    #                     "city": "Tel Aviv",
+    #                     "temp_unit": "C",
+    #                 }
+    #             ),
+    #         ],
+    #     ),
+    # ),
+    # NonConsequentialSingleToolBatchShot(
+    #     description="Select the enum value that best matches from the options. The tool - suggest_destination(vacation_type: VacationType). VacationType = {'beach', 'mountains', 'city'}",
+    #     expected_result=NonConsequentialToolBatchSchema(
+    #         name="suggest_destination",
+    #         should_run=True,
+    #         reasoning_tldr="Case 1. The user wants to visit a classic resort or alternatively a place for shopping. Classic resort falls under 'beach' in the first tool call and place for shopping falls under 'city' for the second",
+    #         calls=[
+    #             NonConsequentialToolCallEvaluation(
+    #                 args={
+    #                     "vacation_type": "beach",
+    #                 }
+    #             ),
+    #             NonConsequentialToolCallEvaluation(
+    #                 args={
+    #                     "vacation_type": "city",
+    #                 }
+    #             ),
+    #         ],
+    #     ),
+    # ),
+    # NonConsequentialSingleToolBatchShot(
+    #     description="Infer parameter from previous user messages. The tool - get_attractions(start_date: date, end_date: date). date imported from datetime",
+    #     expected_result=NonConsequentialToolBatchSchema(
+    #         name="get_attractions",
+    #         should_run=True,
+    #         reasoning_tldr="Case 1. The user asked what concerts we have from April to May, and then asked what on the first 2 weeks. Can infer based on previous messages that they mean the first 2 weeks of April",
+    #         calls=[
+    #             NonConsequentialToolCallEvaluation(
+    #                 args={
+    #                     "start_date": "2025-4-1",
+    #                     "end_date": "2025-4-15",
+    #                 }
+    #             ),
+    #         ],
+    #     ),
+    # ),
+    # NonConsequentialSingleToolBatchShot(
+    #     description="""Infer parameter from the context of the interaction. The tool - get_movie_recommendation(age: str). Information that given about the user and context of the interaction: {"Age": {"value": "15"}}""",
+    #     expected_result=NonConsequentialToolBatchSchema(
+    #         name="get_movie_recommendation",
+    #         should_run=True,
+    #         reasoning_tldr="Case 1. The user asked for recommendation and according to context values their age is 15",
+    #         calls=[
+    #             NonConsequentialToolCallEvaluation(
+    #                 args={
+    #                     "age": "15",
+    #                 }
+    #             ),
+    #         ],
+    #     ),
+    # ),
 ]
 
 consequential_shot_collection = ShotCollection[SingleToolBatchShot](_baseline_consequential_shots)

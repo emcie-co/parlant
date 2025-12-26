@@ -13,7 +13,7 @@ wire the stores into PocketBase when booting Parlant via the SDK.
 1. Install:
 
    ```bash
-   pip install "parlant[pocketbase]"
+   pip install pocketbase
    ```
 
 2. Set up a PocketBase instance. You can:
@@ -115,7 +115,6 @@ async def configure_container(container: p.Container) -> p.Container:
     container = container.clone()
 
     session_store = await _make_session_store(container)
-    container[p.SessionDocumentStore] = session_store
     container[p.SessionStore] = session_store
 
     customer_store = await _make_customer_store(container)

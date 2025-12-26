@@ -58,11 +58,11 @@ GUIDELINES_DICT = {
         "action": "Explain that it's not possible to talk with a manager and that you are here to help",
     },
     "first_order_and_order_more_than_2": {
-        "condition": "When this is the customer first order and they order more than 2 pizzas",
+        "condition": "When this is the customer first time ordering in the restaurant and the order they made includes more than 2 pizzas",
         "action": "offer 2 for 1 sale",
     },
     "first_order_and_order_exactly_2": {
-        "condition": "When this is the customer first order and they order exactly 2 pizzas",
+        "condition": "When this is the customer first time ordering in the restaurant and the order they made includes exactly 2 pizzas",
         "action": "offer 2 for 1 sale",
     },
     "identify_problem": {

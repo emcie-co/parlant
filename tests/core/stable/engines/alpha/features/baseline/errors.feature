@@ -1,3 +1,4 @@
+Feature: Error Handling in Alpha Engine
     Scenario: Failure to process a message emits an error status
         Given the alpha engine
         And a session with a single customer message

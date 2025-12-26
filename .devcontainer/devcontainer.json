@@ -1,5 +1,5 @@
 {
-  "name": "poetry3-poetry-pyenv",
+  "name": "uv-pyenv",
   "build": {
     "dockerfile": "Dockerfile"
   },
@@ -26,7 +26,6 @@
         "mutantdino.resourcemonitor",
         "njpwerner.autodocstring",
         "tamasfe.even-better-toml",
-        "zeshuaro.vscode-python-poetry",
         "streetsidesoftware.code-spell-checker"
       ]
     }
@@ -34,9 +33,6 @@
   // 👇 Features to add to the Dev Container. More info: https://containers.dev/implementors/features.
   "features": {
     "ghcr.io/devcontainers-extra/features/mypy:2": {
-      "version": "latest"
-    },
-    "ghcr.io/devcontainers-extra/features/poetry:2": {
       "version": "latest"
     },
     "node": {

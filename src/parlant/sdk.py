@@ -169,7 +169,6 @@ from parlant.core.sessions import (
     EventKind,
     EventSource,
     MessageEventData,
-    Session,
     SessionId,
     SessionDocumentStore,
     SessionStore,
@@ -829,31 +828,34 @@ class GuidelineMatchingContext:
     agent: Agent
     customer: Customer
     variables: Mapping[Variable, JSONSerializable]
-    interaction: Interaction
 
     @classmethod
     async def _from_core(
         cls,
         core_ctx: _GuidelineMatchingContext,
-        server: "Server",
+        server: Server,
         container: Container,
     ) -> GuidelineMatchingContext:
         """Convert a core GuidelineMatchingContext to an SDK GuidelineMatchingContext."""
         agent = await server.get_agent(id=core_ctx.agent.id)
+        customer = await server.get_customer(id=core_ctx.customer.id)
+        interaction = Interaction(core_ctx.interaction_history)
 
         return cls(
             server=server,
             container=container,
             logger=container[Logger],
             tracer=container[Tracer],
-            session=core_ctx.session,
+            session=Session(
+                id=core_ctx.session.id,
+                interaction=interaction,
+            ),
             agent=agent,
-            customer=await server.get_customer(id=core_ctx.customer.id),
+            customer=customer,
             variables={
                 await agent.get_variable(id=var.id): val.data
                 for var, val in core_ctx.context_variables
             },
-            interaction=Interaction(core_ctx.interaction_history),
         )
 
 
@@ -2487,6 +2489,11 @@ class Variable:
 
         return value.data if value else None
 
+    async def get_value(self) -> JSONSerializable | None:
+        """Retrieves the value of the variable for the current context"""
+        value = EntityContext.get_variable_value(self.id)
+        return value.data if value else None
+
 
 @dataclass(frozen=True)
 class Customer:
@@ -3004,6 +3011,42 @@ class Agent:
         )
 
 
+@dataclass(frozen=True)
+class Session:
+    """A session represents an ongoing conversation between a customer and an agent."""
+
+    id: SessionId
+    """The unique identifier of the session."""
+
+    interaction: Interaction
+    """The interaction history of this session."""
+
+    @classproperty
+    def current(cls) -> Session:
+        """Get the current session from the asyncio task context.
+
+        Returns:
+            The current session as an SDK Session object
+
+        Raises:
+            RuntimeError: If no session is available in the current context
+        """
+        core_session = EntityContext.get_session()
+
+        if core_session is None:
+            raise RuntimeError("No session available in current context")
+
+        interaction = EntityContext.get_interaction()
+
+        if interaction is None:
+            raise RuntimeError("No interaction available in current context")
+
+        return Session(
+            id=core_session.id,
+            interaction=interaction,
+        )
+
+
 class ToolContextAccessor:
     """A context accessor for tools, providing access to the server and other relevant data."""
 
@@ -3206,7 +3249,7 @@ class Server:
         # Start health check polling to set ready event when the server is ready to receive requests
         health_check_task = asyncio.create_task(self._poll_health_endpoint())
 
-        # Shut down the server
+        # This actually starts the server
         await self._startup_context_manager.__aexit__(exc_type, exc_value, tb)
 
         # Wait for health check to complete before cleanup
@@ -3222,7 +3265,7 @@ class Server:
         async with httpx.AsyncClient() as client:
             while True:
                 try:
-                    response = await client.get(url, timeout=1.0)
+                    response = await client.get(url, timeout=30.0)
 
                     if response.status_code != 200:
                         self._container[Logger].critical("Health check failed.")
@@ -3657,7 +3700,10 @@ class Server:
                         container=self._container,
                         logger=self._container[Logger],
                         tracer=self._container[Tracer],
-                        session=ctx.session,
+                        session=Session(
+                            id=ctx.session.id,
+                            interaction=ctx.interaction,
+                        ),
                         agent=agent,
                         customer=customer,
                         variables={

@@ -486,6 +486,7 @@ async def container(
             CannedResponseRevisionSchema,
             CannedResponseFieldExtractionSchema,
             single_tool_batch.SingleToolBatchSchema,
+            single_tool_batch.NonConsequentialToolBatchSchema,
             overlapping_tools_batch.OverlappingToolsBatchSchema,
             GuidelineActionPropositionSchema,
             GuidelineContinuousPropositionSchema,
@@ -522,7 +523,7 @@ async def container(
             response_analysis_batch.shot_collection
         )
         container[ShotCollection[single_tool_batch.SingleToolBatchShot]] = (
-            single_tool_batch.shot_collection
+            single_tool_batch.consequential_shot_collection
         )
         container[ShotCollection[overlapping_tools_batch.OverlappingToolsBatchShot]] = (
             overlapping_tools_batch.shot_collection

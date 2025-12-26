@@ -292,7 +292,7 @@ The user you're interacting with is called {customer_name}.
         return self
 
     _INTERACTION_BODY = """
-The following is a list of events describing a back-and-forth
+The following is a list of events describing the most recent state of the back-and-forth
 interaction between you and a user: ###
 {interaction_events}
 ###

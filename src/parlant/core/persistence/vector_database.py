@@ -15,7 +15,17 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Generic, Optional, Sequence, TypeVar, TypedDict
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Generic,
+    Mapping,
+    Optional,
+    Sequence,
+    TypeVar,
+    TypedDict,
+)
 from typing_extensions import Required, override
 
 from parlant.core.common import JSONSerializable, Version
@@ -121,7 +131,7 @@ class VectorDatabase(ABC):
     @abstractmethod
     async def read_metadata(
         self,
-    ) -> dict[str, JSONSerializable]: ...
+    ) -> Mapping[str, JSONSerializable]: ...
 
 
 class VectorCollection(ABC, Generic[TDocument]):
@@ -163,6 +173,7 @@ class VectorCollection(ABC, Generic[TDocument]):
         filters: Where,
         query: str,
         k: int,
+        hints: Mapping[str, Any] = {},
     ) -> Sequence[SimilarDocumentResult[TDocument]]: ...
 
 
@@ -176,6 +187,7 @@ class BaseVectorCollection(VectorCollection[TDocument]):
         filters: Where,
         query: str,
         k: int,
+        hints: Mapping[str, Any] = {},
     ) -> Sequence[SimilarDocumentResult[TDocument]]: ...
 
     @override
@@ -184,6 +196,7 @@ class BaseVectorCollection(VectorCollection[TDocument]):
         filters: Where,
         query: str,
         k: int,
+        hints: Mapping[str, Any] = {},
     ) -> Sequence[SimilarDocumentResult[TDocument]]:
         with self._tracer.span("find_similar_documents"):
-            return await self.do_find_similar_documents(filters, query, k)
+            return await self.do_find_similar_documents(filters, query, k, hints)

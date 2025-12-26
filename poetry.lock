@@ -174,11 +174,7 @@ name = "aiopenapi3"
 version = "0.9.0"
 description = "client and validator for OpenAPI3 3.0, OpenAPI 3.1, Swagger 2.0"
 optional = false
-<<<<<<< HEAD
-python-versions = ">=3.9"
-=======
 python-versions = ">=3.10"
->>>>>>> develop
 groups = ["main"]
 files = [
     {file = "aiopenapi3-0.9.0-py3-none-any.whl", hash = "sha256:a35e81cb305579bd4b502b5ff856519546b3085c435d4bc65bb17704cf041d00"},
@@ -6327,11 +6323,7 @@ name = "pytest-bdd"
 version = "8.1.0"
 description = "BDD for pytest"
 optional = false
-<<<<<<< HEAD
-python-versions = ">=3.8"
-=======
 python-versions = ">=3.9"
->>>>>>> develop
 groups = ["dev"]
 files = [
     {file = "pytest_bdd-8.1.0-py3-none-any.whl", hash = "sha256:2124051e71a05ad7db15296e39013593f72ebf96796e1b023a40e5453c47e5fb"},
@@ -8806,8 +8798,4 @@ zhipu = ["zhipuai"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.14"
-<<<<<<< HEAD
-content-hash = "52978572cc9e1c9ea3e49f0ae92a7722e8a132e76da7efe75b344af3169cb5f1"
-=======
 content-hash = "e2c35f34c8bcb500eb3765455e201baff8789cd5fbdcc79994ab5aa5e6f53492"
->>>>>>> develop

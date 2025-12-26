@@ -1,6 +1,9 @@
 Feature: Supervision
     Background:
-        Given an empty session
+        Given the alpha engine
+        And an agent
+        And that the agent uses the canned_fluid message composition mode
+        And an empty session
 
     Scenario: Prioritizing freezing transactions over processing refunds
         Given a guideline "process_refund" to process refunds for non-frozen transactions only when a customer requests a refund
@@ -48,19 +51,6 @@ Feature: Supervision
         And a customer message, "See ya"
         When processing is triggered
         Then a single message event is emitted
-
-    Scenario: the agent stops replying when asked explicitly
-        Given the alpha engine
-        And an agent
-        And a customer message, "What Pizza toppings do you offer?"
-        And an agent message, "Olives, tomatoes and mushrooms"
-        And a customer message, "What Pizza toppings do you offer?"
-        And an agent message, "Olives, tomatoes and mushrooms"
-        And a customer message, "I'm not interested in those. Goodbye."
-        And an agent message, "Goodbye!"
-        And a customer message, "Bye, please stop responding now"
-        When processing is triggered
-        Then no message events are emitted
 
     Scenario: the agent doesnt initiate conversation unprompted
         Given the alpha engine

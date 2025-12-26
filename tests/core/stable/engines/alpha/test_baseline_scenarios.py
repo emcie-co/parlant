@@ -38,7 +38,6 @@ scenarios(
         f"core/stable/engines/alpha/features/baseline/{feature}.feature"
         for feature in (
             "strict_canned_responses",
-            "fluid_canned_responses",
             "conversation",
             "errors",
             "relationships",

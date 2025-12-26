@@ -1,6 +1,9 @@
 Feature: Supervision
     Background:
-        Given an empty session
+        Given the alpha engine
+        And an agent
+        And that the agent uses the canned_fluid message composition mode
+        And an empty session
 
     Scenario: Preference for customer request over guideline account_related_questions
         Given a guideline "discount_for_frustration" to offer a 20 percent discount when the customer expresses frustration
@@ -13,6 +16,7 @@ Feature: Supervision
     Scenario: The agent does not offer information it's not given (1)
         Given the alpha engine
         And an agent whose job is to serve the bank's clients
+        And that the agent uses the canned_fluid message composition mode
         And a customer message, "Hey, how can I schedule an appointment?"
         When processing is triggered
         Then a single message event is emitted
@@ -21,6 +25,7 @@ Feature: Supervision
 
     Scenario: The agent does not offer information it's not given (2)
         Given an agent whose job is to serve the insurance company's clients
+        And that the agent uses the canned_fluid message composition mode
         And a customer message, "How long is a normal consultation appointment?"
         When messages are emitted
         Then a single message event is emitted
@@ -28,6 +33,7 @@ Feature: Supervision
 
     Scenario: The agent does not offer information it's not given (3)
         Given an agent whose job is to serve the bank's clients
+        And that the agent uses the canned_fluid message composition mode
         And a customer message, "limits"
         When messages are emitted
         Then a single message event is emitted

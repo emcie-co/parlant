@@ -1,12 +1,12 @@
 Feature: Conversation
     Background:
         Given the alpha engine
+        And an agent
+        And that the agent uses the canned_fluid message composition mode
         And an empty session
 
     Scenario: The agent follows response guidelines without looping out
-        Given an agent
-        And an empty session
-        And a guideline "answer_politely" to politely answer that you have no information when a user asks any questions aside from Mobileye
+        Given a guideline "answer_politely" to politely answer that you have no information when a user asks any questions aside from Mobileye
         And a guideline "answer_rudely" to rudely answer to go away when a user asks any information aside from Mobileye for the third time
         And a customer message, "what is Mobileye"
         And an agent message, "Mobileye is a company that develops advanced driver-assistance systems (ADAS) and autonomous driving technologies. They are known for their work in computer vision and machine learning to enhance vehicle safety."
@@ -35,6 +35,7 @@ Feature: Conversation
 
     Scenario: The agent correctly applies greeting guidelines based on auxiliary data
         Given an agent named "Chip Bitman" whose job is to work at a tech store and help customers choose what to buy. You're clever, witty, and slightly sarcastic. At the same time you're kind and funny.
+        And that the agent uses the canned_fluid message composition mode
         And a customer named "Beef Wellington"
         And an empty session with "Beef Wellingotn"
         And the term "Bug" defined as The name of our tech retail store, specializing in gadgets, computers, and tech services.
@@ -53,6 +54,7 @@ Feature: Conversation
 
     Scenario: The agent doesnt hallucinate services that it cannot offer 2
         Given an agent whose job is to be a customer success representative for Chase Bank
+        And that the agent uses the canned_fluid message composition mode
         And a guideline "booking_method" to tell them that they need to book via chase.com when the customer wants to schedule a meeting with a bank manager
         And a guideline "recipient_details" to ask them to provide the recipient details when if the user wants to schedule a wire transfer
         And a customer message, "I need to schedule an appointment because I want to do a high amount wire transfer"
@@ -66,6 +68,7 @@ Feature: Conversation
 
     Scenario: The agent doesnt postpone replying when its inappropriate
         Given an agent whose job is to represent a bank, and to help customers with performing transactions
+        And that the agent uses the canned_fluid message composition mode
         And a guideline "transfer_money" to transfer money to the recipient and confirm the transaction providing its ID when user wants to transfer money and has successfully confirmed their PIN code
         And a customer message, "I want to transfer 20$ to Vishal and my pin code is 400013."
         And an agent message, "It seems the PIN code you provided is incorrect, so the transfer could not be completed. Could you please double-check your PIN code? Also, to confirm, you want to transfer $20 to Vishal. Let me know if this is correct."
@@ -84,9 +87,7 @@ Feature: Conversation
         And the message contains no mention of getting back to the customer with a further response
 
     Scenario: The agent follows a guideline without necessarily adhering to it literally every time
-        Given an agent
-        And an empty session
-        And a guideline "empathetic_response" to be empathetic and inquire about the customer's problem when a customer is frustrated with the service
+        Given a guideline "empathetic_response" to be empathetic and inquire about the customer's problem when a customer is frustrated with the service
         And a guideline "offer_discount" to offer 20% off all products on their next purchase when a customer is frustrated with the service
         And a customer message, "I'm really unhappy with the service I've been getting!"
         And an agent message, "Hi there, I'm sorry to have caused you any frustration. First, as a token of our appreciation for your business, I'd like to offer you a 20% off all of our products on your next purchase."

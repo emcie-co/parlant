@@ -219,6 +219,7 @@ from parlant.core.engines.alpha.tool_calling.default_tool_call_batcher import De
 from parlant.core.engines.alpha.tool_calling.single_tool_batch import (
     SingleToolBatchSchema,
     SingleToolBatchShot,
+    NonConsequentialToolBatchSchema,
 )
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolCallBatcher, ToolCaller
 
@@ -564,7 +565,7 @@ async def setup_container() -> AsyncIterator[Container]:
         observational_batch.shot_collection,
     )
     _define_singleton_value(
-        c, ShotCollection[SingleToolBatchShot], single_tool_batch.shot_collection
+        c, ShotCollection[SingleToolBatchShot], single_tool_batch.consequential_shot_collection
     )
     _define_singleton_value(
         c, ShotCollection[MessageGeneratorShot], message_generator.shot_collection
@@ -850,6 +851,7 @@ async def initialize_container(
         CannedResponseFieldExtractionSchema,
         FollowUpCannedResponseSelectionSchema,
         SingleToolBatchSchema,
+        NonConsequentialToolBatchSchema,
         OverlappingToolsBatchSchema,
         GuidelineActionPropositionSchema,
         GuidelineContinuousPropositionSchema,

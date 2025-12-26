@@ -106,6 +106,7 @@ SERVER_ADDRESS = f"{SERVER_BASE_URL}:{SERVER_PORT}"
 
 
 class NLPTestSchema(DefaultBaseModel):
+    reasoning: str | None = None
     answer: bool
 
 
@@ -194,19 +195,22 @@ Condition: ###
 
 Output JSON structure: ###
 {{
-    answer: <BOOL>
+    "reasoning": <STRING>,
+    "answer": <BOOL>
 }}
 ###
 
 Example #1: ###
 {{
-    answer: true
+    "reasoning": "The condition holds because...",
+    "answer": true
 }}
 ###
 
 Example #2: ###
 {{
-    answer: false
+    "reasoning": "The condition doesn't hold because...",
+    "answer": false
 }}
 ###
 """,

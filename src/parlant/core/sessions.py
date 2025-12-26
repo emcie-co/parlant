@@ -264,7 +264,7 @@ LifeSpan: TypeAlias = Literal["response", "session"]
 class AgentState:
     trace_id: str
     applied_guideline_ids: Sequence[GuidelineId]
-    journey_paths: Mapping[JourneyId, Sequence[GuidelineId | None]]
+    journey_paths: Mapping[JourneyId, Sequence[str | None]]
 
 
 @dataclass(frozen=True)
@@ -430,7 +430,7 @@ class _AgentStateDocument_v0_6_0(TypedDict):
 class _AgentStateDocument(TypedDict):
     trace_id: str
     applied_guideline_ids: Sequence[GuidelineId]
-    journey_paths: Mapping[JourneyId, Sequence[GuidelineId | None]]
+    journey_paths: Mapping[JourneyId, Sequence[str | None]]
 
 
 class _SessionDocument_v0_5_0(TypedDict, total=False):

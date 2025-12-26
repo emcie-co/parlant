@@ -6,9 +6,10 @@ For general Parlant usage, see the [official documentation](https://www.parlant.
 
 ## Prerequisites
 
-1. **Install Pinecone adapter**: `pip install parlant[pinecone]`
+1. **Install Pinecone client**: `pip install pinecone`
 2. **Pinecone Account**: Sign up for a Pinecone account at [pinecone.io](https://www.pinecone.io)
 3. **API Key**: Get your API key from the Pinecone dashboard
+4. **Create Index**: Create a Pinecone index with **3072 dimensions** in your Pinecone dashboard (required, otherwise you'll get an error)
 
 ## Quick Start
 
@@ -26,6 +27,7 @@ from parlant.core.canned_responses import CannedResponseVectorStore, CannedRespo
 from parlant.core.capabilities import CapabilityVectorStore, CapabilityStore
 from parlant.core.journeys import JourneyVectorStore, JourneyStore
 from parlant.adapters.db.transient import TransientDocumentDatabase
+from parlant.core.common import IdGenerator
 import os
 
 async def configure_container(container: p.Container) -> p.Container:
@@ -48,7 +50,7 @@ async def configure_container(container: p.Container) -> p.Container:
     # Configure stores using vector database
     container[GlossaryStore] = await exit_stack.enter_async_context(
         GlossaryVectorStore(
-            id_generator=container[p.IdGenerator],
+            id_generator=container[IdGenerator],
             vector_db=pinecone_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=embedder_factory,
@@ -58,7 +60,7 @@ async def configure_container(container: p.Container) -> p.Container:
     
     container[CannedResponseStore] = await exit_stack.enter_async_context(
         CannedResponseVectorStore(
-            id_generator=container[p.IdGenerator],
+            id_generator=container[IdGenerator],
             vector_db=pinecone_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=embedder_factory,
@@ -68,7 +70,7 @@ async def configure_container(container: p.Container) -> p.Container:
     
     container[CapabilityStore] = await exit_stack.enter_async_context(
         CapabilityVectorStore(
-            id_generator=container[p.IdGenerator],
+            id_generator=container[IdGenerator],
             vector_db=pinecone_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=embedder_factory,
@@ -78,7 +80,7 @@ async def configure_container(container: p.Container) -> p.Container:
     
     container[JourneyStore] = await exit_stack.enter_async_context(
         JourneyVectorStore(
-            id_generator=container[p.IdGenerator],
+            id_generator=container[IdGenerator],
             vector_db=pinecone_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=embedder_factory,

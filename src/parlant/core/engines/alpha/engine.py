@@ -1185,8 +1185,9 @@ class AlphaEngine(Engine):
         self._add_matches_events_to_tracer(matching_result.matches)
 
         # Step 5: Filter the journeys that are activated by the matched guidelines.
-        match_ids = set(map(lambda g: g.guideline.id, matching_result.matches))
-        journeys = self._filter_activated_journeys(context, match_ids, available_journeys)
+        activated_journeys = self._filter_activated_journeys(
+            matching_result.matches, available_journeys
+        )
 
         # Step 6: If any of the lower-probability journeys (those originally filtered out)
         # have in fact been activated, run an additional matching pass for the guidelines
@@ -1195,7 +1196,7 @@ class AlphaEngine(Engine):
             context=context,
             all_stored_guidelines=all_stored_guidelines,
             high_prob_journeys=high_prob_journeys,
-            activated_journeys=journeys,
+            activated_journeys=activated_journeys,
         ):
             batches = list(chain(matching_result.batches, second_match_result.batches))
             matches = list(chain.from_iterable(batches))
@@ -1220,7 +1221,7 @@ class AlphaEngine(Engine):
             context=context,
             evaluated_guidelines=relevant_guidelines,
             current_matched=set(matching_result.matches),
-            active_journeys=journeys,
+            active_journeys=activated_journeys,
         )
 
         # Step 8: Resolve guideline matches by loading related guidelines that may not have
@@ -1228,14 +1229,14 @@ class AlphaEngine(Engine):
         all_relevant_guidelines = await self._relational_guideline_resolver.resolve(
             usable_guidelines=list(all_stored_guidelines.values()),
             matches=matched_guidelines,
-            journeys=journeys,
+            journeys=activated_journeys,
         )
 
         return _GuidelineAndJourneyMatchingResult(
             matching_result=matching_result,
             matches_guidelines=list(matching_result.matches),
             resolved_guidelines=list(all_relevant_guidelines),
-            journeys=journeys,
+            journeys=activated_journeys,
         )
 
     async def _load_additional_matched_guidelines_and_journeys(
@@ -1277,11 +1278,10 @@ class AlphaEngine(Engine):
 
         self._add_matches_events_to_tracer(matching_result.matches)
 
-        # Step 5: Filter the journeys that are activated by the matched guidelines.
-        # If a journey was already active in a previous iteration, we still retrieve its steps
-        # to support cases where multiple steps should be processed in a single engine run.
-        match_ids = set(map(lambda g: g.guideline.id, matching_result.matches))
-        activated_journeys = self._filter_activated_journeys(context, match_ids, all_journeys)
+        # Step 5: Filter out the journeys activated by the matched guidelines.
+        # If a journey was already active in a previous guideline-matching iteration, we still retrieve it
+        # so we can exclude it from the next guideline-matching iteration.
+        activated_journeys = self._filter_activated_journeys(matching_result.matches, all_journeys)
 
         # Step 6: If any of the journeys have been activated,
         # run an additional matching pass for the guidelines
@@ -1310,7 +1310,7 @@ class AlphaEngine(Engine):
             self._add_matches_events_to_tracer(second_match_result.matches)
 
         # Step 7: Build the final set of matched guidelines:
-        all_activated_journeys = list(context.state.journeys + activated_journeys)
+        all_activated_journeys = list(set(context.state.journeys + activated_journeys))
 
         matched_guidelines = await self._build_matched_guidelines(
             context=context,
@@ -1335,7 +1335,7 @@ class AlphaEngine(Engine):
     def _list_journey_paths(
         self,
         context: EngineContext,
-    ) -> dict[JourneyId, list[Optional[GuidelineId]]]:
+    ) -> dict[JourneyId, list[Optional[str]]]:
         journey_paths = copy.deepcopy(context.state.journey_paths)
 
         new_journey_paths = self._list_journey_paths_from_guideline_matches(context)
@@ -1347,33 +1347,29 @@ class AlphaEngine(Engine):
 
     def _filter_activated_journeys(
         self,
-        context: EngineContext,
-        match_ids: set[GuidelineId],
+        matches: Sequence[GuidelineMatch],
         all_journeys: Sequence[Journey],
     ) -> list[Journey]:
         # We consider a journey to be activated if either:
-        # 1. The journey was already active in the previous message.
+        # 1. Match return a journey path with a step that is not None.
         # 2. The journey’s conditions match any of the currently matched guideline IDs.
-        #
-        # FIXME: The current logic for reactivating journeys based on the previous message isn't ideal.
-        # Ideally, it should be only based on the conditions of the matched journey and the journey itself.
-        # However, since our guideline matcher is not aware of the full journey,
-        # It would falsely deactivate the journey in cases where some of the journey steps leave the context of the journey conditions.
-        # Fixing this properly would require the guideline matcher to be aware of the full journey when evaluating journey conditions.
         active_journeys_by_conditions = [
-            j for j in all_journeys if set(j.conditions).intersection(match_ids)
+            j
+            for j in all_journeys
+            if set(j.conditions).intersection({m.guideline.id for m in matches})
         ]
 
-        last_interaction_active_journeys = {
-            j_id
-            for j_id in context.state.journey_paths
-            if context.state.journey_paths[j_id][-1] is not None
+        active_journey_ids_by_path = {
+            m.metadata.get("step_selection_journey_id")
+            for m in matches
+            if m.metadata.get("journey_path", [])
+            and cast(list[GuidelineId], m.metadata["journey_path"])[-1] is not None
         }
 
         active_journeys = list(
             set(
                 active_journeys_by_conditions
-                + [j for j in all_journeys if j.id in last_interaction_active_journeys]
+                + [j for j in all_journeys if j.id in active_journey_ids_by_path]
             )
         )
 
@@ -1553,10 +1549,14 @@ class AlphaEngine(Engine):
         journey_paths = context.state.journey_paths or {}
 
         # Journeys that appear in journey_paths are considered "known" journeys:
-        # either active or finished (but still relevant to potentially reactivate).
+        # either active or finished (but still relevant and potentially reactivatable).
+        # A journey path can be [None] if we assumed the journey would be active, but the
+        # journey-node selection did not select any node for it—meaning it was not active in the past.
         journeys_with_paths_ids: set[JourneyId] = set(journey_paths.keys())
         journeys_with_paths: list[Journey] = [
-            j for j in available_journeys if j.id in journeys_with_paths_ids
+            j
+            for j in available_journeys
+            if j.id in journeys_with_paths_ids and journey_paths[j.id] != [None]
         ]
 
         # Decide which journeys are "high probability"
@@ -1919,7 +1919,7 @@ class AlphaEngine(Engine):
     def _list_journey_paths_from_guideline_matches(
         self,
         context: EngineContext,
-    ) -> dict[JourneyId, list[Optional[GuidelineId]]]:
+    ) -> dict[JourneyId, list[Optional[str]]]:
         # 1. Iterate over all guideline matches:
         #       • If a `journey_id` is found in the matched guideline metadata:
         #             – Remove that journey from the `journeys` set, since it
@@ -1936,10 +1936,6 @@ class AlphaEngine(Engine):
         #                     (root guidelines have empty content and do not represent
         #                     actionable journey steps).
         #
-        #             – If the matched guideline metadata includes
-        #               `"restart_journey_path": True`:
-        #                   • Reset the journey path entirely, discarding any previously
-        #                     accumulated nodes and starting from the reset state.
         #
         #       • If no `journey_id` can be resolved from the match metadata:
         #             – Skip this match.
@@ -1956,7 +1952,7 @@ class AlphaEngine(Engine):
         )
 
         journeys = {j.id: j for j in context.state.journeys}
-        journey_paths: dict[JourneyId, list[Optional[GuidelineId]]] = {}
+        journey_paths: dict[JourneyId, list[Optional[str]]] = {}
 
         for match in guideline_matches:
             # Validate that this guideline belongs to a journey-node
@@ -1986,13 +1982,7 @@ class AlphaEngine(Engine):
                 )
                 continue
 
-            path = cast(list[Optional[GuidelineId]], match.metadata.get("journey_path"))
-
-            # Handle restart flag
-            if match.metadata.get("restart_journey_path", False) is True:
-                # Reset the path entirely
-                journey_paths[journey_id] = []
-                continue
+            path = cast(list[Optional[str]], match.metadata.get("journey_path"))
 
             # Detect whether this guideline is the root node
             # root node are placeholder for exit the journey

@@ -15,9 +15,10 @@
 from __future__ import annotations
 
 import contextvars
-from typing import Optional
 
 from parlant.core.agents import Agent
+from parlant.core.async_utils import Stopwatch
+from parlant.core.context_variables import ContextVariableId, ContextVariableValue
 from parlant.core.customers import Customer
 from parlant.core.engines.alpha.engine_context import EngineContext, Interaction
 from parlant.core.sessions import Session
@@ -30,7 +31,7 @@ class EntityContext:
     running within the same asyncio task context, including engine hooks.
     """
 
-    _var: contextvars.ContextVar[Optional[EngineContext]] = contextvars.ContextVar(
+    _var: contextvars.ContextVar[EngineContext | None] = contextvars.ContextVar(
         "parlant_current_engine_context", default=None
     )
 
@@ -49,7 +50,17 @@ class EntityContext:
         self._var.set(context)
 
     @classmethod
-    def get_interaction(self) -> Optional[Interaction]:
+    def get_context_creation(self) -> Stopwatch | None:
+        """Get the start of processing time from the engine context.
+
+        Returns:
+            The start of processing time, or None if no context is set
+        """
+        ctx = self._var.get()
+        return ctx.creation if ctx else None
+
+    @classmethod
+    def get_interaction(self) -> Interaction | None:
         """Get the current engine context from the asyncio task context.
 
         Returns:
@@ -59,7 +70,25 @@ class EntityContext:
         return ctx.interaction if ctx else None
 
     @classmethod
-    def get_agent(self) -> Optional[Agent]:
+    def get_variable_value(self, variable_id: ContextVariableId) -> ContextVariableValue | None:
+        ctx = self._var.get()
+
+        if ctx is None:
+            return None
+
+        result = next(
+            (
+                value
+                for variable, value in ctx.state.context_variables
+                if variable.id == variable_id
+            ),
+            None,
+        )
+
+        return result if result else None
+
+    @classmethod
+    def get_agent(self) -> Agent | None:
         """Get the current agent from the asyncio task context.
 
         Returns:
@@ -69,7 +98,7 @@ class EntityContext:
         return ctx.agent if ctx else None
 
     @classmethod
-    def get_customer(self) -> Optional[Customer]:
+    def get_customer(self) -> Customer | None:
         """Get the current customer from the asyncio task context.
 
         Returns:
@@ -79,7 +108,7 @@ class EntityContext:
         return ctx.customer if ctx else None
 
     @classmethod
-    def get_session(self) -> Optional[Session]:
+    def get_session(self) -> Session | None:
         """Get the current session from the asyncio task context.
 
         Returns:

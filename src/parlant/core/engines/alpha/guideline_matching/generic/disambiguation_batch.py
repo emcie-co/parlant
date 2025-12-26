@@ -389,9 +389,7 @@ OUTPUT FORMAT
 -----------------
 - Specify the evaluation of disambiguation by filling in the details in the following list as instructed:
 ```json
-{{
-    {result_structure_text}
-}}
+{result_structure_text}
 ```
 """,
             props={

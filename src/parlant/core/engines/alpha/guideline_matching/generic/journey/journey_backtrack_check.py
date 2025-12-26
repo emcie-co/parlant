@@ -292,7 +292,7 @@ class JourneyBacktrackCheck:
 
             # Previously executed-related flags
             if node.id == last_executed_node_id:
-                flags_str += "- This is the last step that was executed."
+                flags_str += "- This is the current step that should be executed."
             elif node.id in previous_path:
                 flags_str += "- PREVIOUSLY EXECUTED: This step was previously executed. May need to backtrack to this step.\n"
             elif node.id != ROOT_INDEX:
@@ -804,7 +804,7 @@ example_2_events = [
 
 
 expected_output_2 = JourneyBacktrackCheckSchema(
-    rationale="The customer is changing their mind about their answer for current journey step, so no backtrack needed.",
+    rationale="The customer is changing their mind about their answer to the current journey step, so no backtrack needed.",
     requires_backtracking=False,
 )
 
@@ -889,7 +889,7 @@ _baseline_shots: Sequence[JourneyBacktrackCheckShot] = [
         conditions=[],
     ),
     JourneyBacktrackCheckShot(
-        description="Example 3 - Backtrack for a new journey process",
+        description="Example 3 - Backtrack to a new journey process",
         interaction_events=example_3_events,
         journey_title="Book Taxi Journey",
         journey_nodes=book_taxi_shot_journey_nodes,

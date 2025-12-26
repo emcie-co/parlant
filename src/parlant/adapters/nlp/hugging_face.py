@@ -91,7 +91,7 @@ def _create_auto_model(model_name: str) -> PreTrainedModel:
     model = cast(PreTrainedModel, model)
 
     model.save_pretrained(save_dir)
-    model.eval()
+    model.eval()  # type: ignore
 
     _AUTO_MODELS[model_name] = model
 

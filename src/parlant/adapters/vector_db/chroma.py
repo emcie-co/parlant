@@ -15,7 +15,7 @@
 from __future__ import annotations
 import json
 from pathlib import Path
-from typing import Awaitable, Callable, Generic, Optional, Sequence, cast
+from typing import Any, Awaitable, Callable, Generic, Mapping, Optional, Sequence, cast
 from typing_extensions import override, Self
 import chromadb
 from chromadb.api.collection_configuration import (
@@ -433,7 +433,7 @@ class ChromaDatabase(VectorDatabase):
     @override
     async def read_metadata(
         self,
-    ) -> dict[str, JSONSerializable]:
+    ) -> Mapping[str, JSONSerializable]:
         if metadata_collection := next(
             (col for col in self.chroma_client.list_collections() if col.name == "metadata"),
             None,
@@ -706,9 +706,10 @@ class ChromaCollection(Generic[TDocument], BaseVectorCollection[TDocument]):
         filters: Where,
         query: str,
         k: int,
+        hints: Mapping[str, Any] = {},
     ) -> Sequence[SimilarDocumentResult[TDocument]]:
         async with self._lock.reader_lock:
-            query_embeddings = list((await self._embedder.embed([query])).vectors)
+            query_embeddings = list((await self._embedder.embed([query], hints)).vectors)
 
             docs = self.embedded_collection.query(
                 where=cast(chromadb.Where, filters) or None,

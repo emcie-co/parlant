@@ -379,7 +379,7 @@ Feature: Conversation
         Then a single message event is emitted
         And the message contains no specific information about how to reach out, like a phone number or an exact address.
 
-    # Occasionally fails by mentioning physical branches. Guideline may not reactivate (which is valid)
+    # Occasionally fails by mentioning physical branches. Should consider moving to unstable. Note that guideline may not reactivate (which is valid, it's ambiguous if it should)
     Scenario: Agent doesn't hallucinate when necessary information is not provided 5 (fluid canned response)
         Given an agent whose job is to be a customer success representative for Chase Bank
         And that the agent uses the canned_fluid message composition mode

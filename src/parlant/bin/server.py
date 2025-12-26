@@ -133,7 +133,7 @@ from parlant.core.engines.alpha.canned_response_generator import (
     NoMatchResponseProvider,
 )
 from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
-from parlant.core.meter import Meter, NullMeter
+from parlant.core.meter import Meter, LocalMeter
 from parlant.core.services.indexing.guideline_agent_intention_proposer import (
     AgentIntentionProposerSchema,
 )
@@ -219,6 +219,7 @@ from parlant.core.engines.alpha.tool_calling.default_tool_call_batcher import De
 from parlant.core.engines.alpha.tool_calling.single_tool_batch import (
     SingleToolBatchSchema,
     SingleToolBatchShot,
+    NonConsequentialToolBatchSchema,
 )
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolCallBatcher, ToolCaller
 
@@ -489,7 +490,7 @@ async def _define_meter(container: Container) -> None:
         container[Meter] = await EXIT_STACK.enter_async_context(OpenTelemetryMeter())
 
     else:
-        _define_singleton(container, Meter, NullMeter)
+        _define_singleton(container, Meter, LocalMeter)
 
 
 def _define_singleton(container: Container, interface: type, implementation: type) -> None:
@@ -564,7 +565,7 @@ async def setup_container() -> AsyncIterator[Container]:
         observational_batch.shot_collection,
     )
     _define_singleton_value(
-        c, ShotCollection[SingleToolBatchShot], single_tool_batch.shot_collection
+        c, ShotCollection[SingleToolBatchShot], single_tool_batch.consequential_shot_collection
     )
     _define_singleton_value(
         c, ShotCollection[MessageGeneratorShot], message_generator.shot_collection
@@ -804,6 +805,7 @@ async def initialize_container(
         async def get_transient_vector_db() -> VectorDatabase:
             return TransientVectorDatabase(
                 c[Logger],
+                c[Tracer],
                 embedder_factory,
                 lambda: c[EmbeddingCache],
             )
@@ -849,6 +851,7 @@ async def initialize_container(
         CannedResponseFieldExtractionSchema,
         FollowUpCannedResponseSelectionSchema,
         SingleToolBatchSchema,
+        NonConsequentialToolBatchSchema,
         OverlappingToolsBatchSchema,
         GuidelineActionPropositionSchema,
         GuidelineContinuousPropositionSchema,

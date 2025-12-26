@@ -20,7 +20,7 @@ class ToolRunningActionProposition(DefaultBaseModel):
 
 class ToolRunningActionSchema(DefaultBaseModel):
     action: str
-    rational: str
+    rationale: str
     is_tool_running_only: bool
 
 
@@ -229,7 +229,7 @@ Expected output (JSON):
 ```json
 {{
   "action": "{action}",
-  "rational": "<str, a few words that explains whether it tool running only>"
+  "rationale": "<str, a few words that explains whether it tool running only>"
   "is_tool_running_only": "<BOOL>",
 }}
 ```
@@ -290,7 +290,7 @@ example_1_shot = ToolRunningActionShot(
     guideline=example_1_guideline,
     expected_result=ToolRunningActionSchema(
         action=example_1_guideline.action,
-        rational="Need to confirm with the customer that the reset was sent by mail",
+        rationale="Need to confirm with the customer that the reset was sent by mail",
         is_tool_running_only=False,
     ),
 )
@@ -304,7 +304,7 @@ example_2_shot = ToolRunningActionShot(
     guideline=example_2_guideline,
     expected_result=ToolRunningActionSchema(
         action=example_2_guideline.action,
-        rational="need to reset with a tool and confirm also with a tool",
+        rationale="need to reset with a tool and confirm also with a tool",
         is_tool_running_only=True,
     ),
 )

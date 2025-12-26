@@ -22,6 +22,8 @@ from typing_extensions import override
 
 import logging
 
+from parlant.core.tracer import Tracer
+
 orig_basicConfig = logging.basicConfig
 orig_getLogger = logging.getLogger
 
@@ -64,11 +66,11 @@ from parlant.core.loggers import Logger
 from parlant.core.persistence.common import ensure_is_total, matches_filters, Where
 from parlant.core.persistence.vector_database import (
     BaseDocument,
+    BaseVectorCollection,
     DeleteResult,
     InsertResult,
     SimilarDocumentResult,
     UpdateResult,
-    VectorCollection,
     VectorDatabase,
     TDocument,
 )
@@ -78,10 +80,12 @@ class TransientVectorDatabase(VectorDatabase):
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         embedder_factory: EmbedderFactory,
         embedding_cache_provider: EmbeddingCacheProvider,
     ) -> None:
         self._logger = logger
+        self._tracer = tracer
         self._embedder_factory = embedder_factory
         self._embedding_cache_provider = embedding_cache_provider
 
@@ -105,6 +109,7 @@ class TransientVectorDatabase(VectorDatabase):
 
         self._collections[name] = TransientVectorCollection(
             self._logger,
+            self._tracer,
             nano_db=self._databases[name],
             name=name,
             schema=schema,
@@ -145,6 +150,7 @@ class TransientVectorDatabase(VectorDatabase):
 
         self._collections[name] = TransientVectorCollection(
             self._logger,
+            self._tracer,
             nano_db=self._databases[name],
             name=name,
             schema=schema,
@@ -182,14 +188,15 @@ class TransientVectorDatabase(VectorDatabase):
     @override
     async def read_metadata(
         self,
-    ) -> dict[str, JSONSerializable]:
+    ) -> Mapping[str, JSONSerializable]:
         return self._metadata
 
 
-class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument]):
+class TransientVectorCollection(Generic[TDocument], BaseVectorCollection[TDocument]):
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         nano_db: nano_vectordb.NanoVectorDB,
         name: str,
         schema: type[TDocument],
@@ -197,6 +204,7 @@ class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument])
         embedding_cache_provider: EmbeddingCacheProvider,
     ) -> None:
         self._logger = logger
+        self._tracer = tracer
         self._name = name
         self._schema = schema
         self._embedder = embedder
@@ -348,16 +356,17 @@ class TransientVectorCollection(Generic[TDocument], VectorCollection[TDocument])
             deleted_document=None,
         )
 
-    async def find_similar_documents(
+    async def do_find_similar_documents(
         self,
         filters: Where,
         query: str,
         k: int,
+        hints: Mapping[str, Any] = {},
     ) -> Sequence[SimilarDocumentResult[TDocument]]:
         if not self._documents:
             return []
 
-        query_embeddings = list((await self._embedder.embed([query])).vectors)
+        query_embeddings = list((await self._embedder.embed([query], hints)).vectors)
         vector = np.array(query_embeddings[0], dtype=np.float32)
 
         keys_to_exclude = {"__id__", "__metrics__"}

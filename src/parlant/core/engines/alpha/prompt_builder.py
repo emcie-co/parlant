@@ -53,7 +53,11 @@ from parlant.core.tools import ToolId
 _T = TypeVar("_T")
 
 
-class BuiltInSection(Enum):
+class BuiltInSection(str, Enum):
+    @staticmethod
+    def _generate_next_value_(name: str, start: int, count: int, last_values: list[str]) -> str:
+        return name
+
     AGENT_IDENTITY = auto()
     CUSTOMER_IDENTITY = auto()
     INTERACTION_HISTORY = auto()
@@ -118,6 +122,8 @@ class PromptBuilder:
             return {k: self._prop_to_dict(v) for k, v in prop.items()}
         elif isinstance(prop, list):
             return [self._prop_to_dict(i) for i in prop]
+        elif isinstance(prop, tuple):
+            return tuple(self._prop_to_dict(i) for i in prop)
         elif dataclasses.is_dataclass(prop):
             return CustomTypeAdapter(obj=prop).model_dump(mode="json")["obj"]
         elif isinstance(prop, BaseModel):
@@ -286,7 +292,7 @@ The user you're interacting with is called {customer_name}.
         return self
 
     _INTERACTION_BODY = """
-The following is a list of events describing a back-and-forth
+The following is a list of events describing the most recent state of the back-and-forth
 interaction between you and a user: ###
 {interaction_events}
 ###
@@ -619,11 +625,13 @@ For any other guidelines, do not disregard a guideline because you believe its '
             customer_dependent_guideline_indices_str = ", ".join(
                 [str(i) for i in customer_dependent_guideline_indices]
             )
-            guideline_instruction += f"""
+            guideline_instruction += """
 Important note - some guidelines ({customer_dependent_guideline_indices_str}) may require asking specific questions. Never skip these questions, even if you believe the customer already provided the answer. Instead, ask them to confirm their previous response.
 """
-        guideline_instruction += """
+        else:
+            customer_dependent_guideline_indices_str = ""
 
+        guideline_instruction += """
 You may choose not to follow a guideline only in the following cases:
     - It conflicts with a previous customer request.
     - It is clearly inappropriate given the current context of the conversation.
@@ -641,6 +649,7 @@ These guidelines have already been pre-filtered based on the interaction's conte
             props={
                 "guideline_list": guideline_list,
                 "agent_intention_guidelines_list": agent_intention_guidelines_list,
+                "customer_dependent_guideline_indices_str": customer_dependent_guideline_indices_str,
             },
             status=SectionStatus.ACTIVE,
         )

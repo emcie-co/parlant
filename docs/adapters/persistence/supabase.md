@@ -18,6 +18,7 @@ import parlant.sdk as p
 from contextlib import AsyncExitStack
 from parlant.adapters.db.supabase_db import SupabaseDocumentDatabase
 from parlant.core.emission.event_publisher import EventPublisherFactory
+from parlant.core.sessions import SessionDocumentStore
 
 EXIT_STACK = AsyncExitStack()
 
@@ -49,9 +50,9 @@ async def configure_container(container: p.Container) -> p.Container:
     
     # Configure stores using Supabase databases
     session_store = await EXIT_STACK.enter_async_context(
-        p.SessionDocumentStore(database=session_db, allow_migration=True)
+        SessionDocumentStore(database=session_db, allow_migration=True)
     )
-    container[p.SessionDocumentStore] = session_store
+    container[SessionDocumentStore] = session_store
     container[p.SessionStore] = session_store
     
     customer_store = await EXIT_STACK.enter_async_context(

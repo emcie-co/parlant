@@ -19,6 +19,7 @@ from typing import Any
 from fastapi import WebSocket
 from typing_extensions import override
 
+from parlant.core.engines.alpha.entity_context import EntityContext
 from parlant.core.common import UniqueId, generate_id
 from parlant.core.tracer import Tracer
 from parlant.core.loggers import TracingLogger, LogLevel
@@ -44,12 +45,15 @@ class WebSocketLogger(TracingLogger):
         self._socket_subscriptions: dict[UniqueId, WebSocketSubscription] = {}
         self._lock = asyncio.Lock()
 
-    def _enqueue_message(self, level: str, message: str) -> None:
+    def _enqueue_message(self, timestamp: str, level: str, message: str) -> None:
         payload = {
             "level": level,
             "trace_id": self._tracer.trace_id,
             "message": message,
         }
+
+        if context_creation := EntityContext.get_context_creation():
+            payload["message"] = f"[T+{round(context_creation.elapsed, 3)}s]{message}"
 
         self._message_queue.append(payload)
         self._messages_in_queue.release()
@@ -64,29 +68,32 @@ class WebSocketLogger(TracingLogger):
 
         return subscription
 
+    def _timestamp(self) -> str:
+        return round(asyncio.get_event_loop().time(), 3).__str__()
+
     @override
     def trace(self, message: str) -> None:
-        self._enqueue_message("TRACE", f"{self.current_scope} {message}")
+        self._enqueue_message(self._timestamp(), "TRACE", f"{self.current_scope} {message}")
 
     @override
     def debug(self, message: str) -> None:
-        self._enqueue_message("DEBUG", f"{self.current_scope} {message}")
+        self._enqueue_message(self._timestamp(), "DEBUG", f"{self.current_scope} {message}")
 
     @override
     def info(self, message: str) -> None:
-        self._enqueue_message("INFO", f"{self.current_scope} {message}")
+        self._enqueue_message(self._timestamp(), "INFO", f"{self.current_scope} {message}")
 
     @override
     def warning(self, message: str) -> None:
-        self._enqueue_message("WARNING", f"{self.current_scope} {message}")
+        self._enqueue_message(self._timestamp(), "WARNING", f"{self.current_scope} {message}")
 
     @override
     def error(self, message: str) -> None:
-        self._enqueue_message("ERROR", f"{self.current_scope} {message}")
+        self._enqueue_message(self._timestamp(), "ERROR", f"{self.current_scope} {message}")
 
     @override
     def critical(self, message: str) -> None:
-        self._enqueue_message("CRITICAL", f"{self.current_scope} {message}")
+        self._enqueue_message(self._timestamp(), "CRITICAL", f"{self.current_scope} {message}")
 
     async def start(self) -> None:
         try:

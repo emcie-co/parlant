@@ -644,7 +644,7 @@ class CannedResponseGenerator(MessageEventComposer):
             customer=context.customer,
             session=context.session,
             context_variables=context.state.context_variables,
-            interaction_history=context.interaction.history,
+            interaction_history=context.interaction.events,
             terms=list(context.state.glossary_terms),
             ordinary_guideline_matches=context.state.ordinary_guideline_matches,
             tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
@@ -681,6 +681,8 @@ class CannedResponseGenerator(MessageEventComposer):
 
             instructions = f"""\
 You must not assume anything about how to handle the interaction in any way, shape, or form, beyond just generating the right, nuanced preamble message.
+Your message may not dictate how the conversation should continue, or commit the agent to any future processes as a result. It should only acknowledge the last customer message. 
+Do not ask the customer questions at this stage.
 
 Example preamble messages:
 {preamble_choices_text}
@@ -741,7 +743,7 @@ EXACTLY as it is given (pay attention to subtleties like punctuation and copy yo
             template="""\
 You are an AI agent that is expected to generate a preamble message for the customer.
 
-The actual message will be sent later by a smarter agent. Your job is only to generate the right preamble in order to save time.
+The actual message will be sent later by a smarter agent. Your job is only to generate the right preamble while the smarter agent generates a comprehensive response.
 
 {composition_mode_specific_instructions}
 
@@ -1034,7 +1036,7 @@ You will now be given the current state of the interaction to which you must gen
         customer = loaded_context.customer
         session = loaded_context.session
         context_variables = loaded_context.state.context_variables
-        interaction_history = loaded_context.interaction.history
+        interaction_history = loaded_context.interaction.events
         terms = list(loaded_context.state.glossary_terms)
         ordinary_guideline_matches = loaded_context.state.ordinary_guideline_matches
         journeys = loaded_context.state.journeys

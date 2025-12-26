@@ -48,7 +48,8 @@ from parlant.core.relationships import (
 )
 from parlant.core.services.tools.plugins import tool
 from parlant.core.services.tools.service_registry import ServiceRegistry
-from parlant.core.sessions import Event, EventSource, SessionId, SessionStore
+from parlant.core.emissions import EmittedEvent
+from parlant.core.sessions import Event, EventKind, EventSource, SessionId, SessionStore
 from parlant.core.tags import TagId, Tag
 from parlant.core.tools import (
     LocalToolService,
@@ -155,6 +156,7 @@ async def _inference_tool_calls_result(
     interaction_history: list[Event],
     tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
     tool_context_obj: ToolContext | None = None,
+    staged_events: Sequence[EmittedEvent] | None = None,
 ) -> ToolCallInferenceResult:
     tool_caller = container[ToolCaller]
 
@@ -170,7 +172,7 @@ async def _inference_tool_calls_result(
         ordinary_guideline_matches=[],
         tool_enabled_guideline_matches=tool_enabled_guideline_matches,
         journeys=[],
-        staged_events=[],
+        staged_events=staged_events or [],
     )
 
     return await tool_caller.infer_tool_calls(tool_call_context)
@@ -679,7 +681,7 @@ async def test_that_a_tool_from_a_plugin_with_missing_parameters_returns_the_mis
 ) -> None:
     service_registry = container[ServiceRegistry]
 
-    @tool
+    @tool(consequential=True)
     def register_sweepstake(
         context: ToolContext,
         full_name: Annotated[str, ToolParameterOptions()],
@@ -743,7 +745,7 @@ async def test_that_a_tool_with_an_invalid_choice_provider_parameter_and_a_missi
     async def destination_choices() -> list[str]:
         return ["London", "Tokyo", "Reykjavik"]
 
-    @tool
+    @tool(consequential=True)
     def book_flight(
         context: ToolContext,
         destination: Annotated[str, ToolParameterOptions(choice_provider=destination_choices)],
@@ -801,7 +803,7 @@ async def test_that_a_tool_with_an_invalid_enum_parameter_and_a_missing_paramete
         TOKYO = "Tokyo"
         REYKJAVIK = "Reykjavik"
 
-    @tool
+    @tool(consequential=True)
     def book_flight(
         context: ToolContext,
         destination: Destination,
@@ -1326,3 +1328,229 @@ async def test_that_a_tool_with_unmatched_guideline_is_not_included_in_the_evalu
     )
 
     assert len(batches) == 2
+
+
+async def test_that_non_consequential_tool_with_no_parameters_is_auto_approved_without_llm_inference(
+    container: Container,
+    local_tool_service: LocalToolService,
+    agent: Agent,
+) -> None:
+    """
+    A non-consequential tool with no parameters should be auto-approved
+    without calling the LLM.
+    """
+    # Create a tool with no parameters and consequential=False (default)
+    tool = await create_local_tool(
+        local_tool_service,
+        name="ping",
+        description="A simple ping tool with no parameters",
+        parameters={},
+        required=[],
+    )
+
+    conversation_context = [
+        (EventSource.CUSTOMER, "Hello, can you ping for me?"),
+    ]
+
+    interaction_history = create_interaction_history(conversation_context)
+
+    tool_enabled_guideline_matches = {
+        create_guideline_match(
+            condition="customer asks to ping",
+            action="ping for the customer",
+            score=9,
+            rationale="customer wants to ping",
+            tags=[Tag.for_agent_id(agent.id)],
+        ): [ToolId(service_name="local", tool_name=tool.name)]
+    }
+
+    inference_tool_calls_result = await _inference_tool_calls_result(
+        container=container,
+        agent=agent,
+        interaction_history=interaction_history,
+        tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+    )
+
+    tool_calls = list(chain.from_iterable(inference_tool_calls_result.batches))
+    assert len(tool_calls) == 1
+    tool_call = tool_calls[0]
+
+    # Verify the tool call has no arguments
+    assert tool_call.arguments == {}
+    # Verify the tool_id is correct
+    assert tool_call.tool_id == ToolId(service_name="local", tool_name="ping")
+    # Verify no LLM was called (model should be "auto-approved")
+    assert len(inference_tool_calls_result.batch_generations) == 1
+    assert inference_tool_calls_result.batch_generations[0].model == "auto-approved"
+
+
+async def test_that_staged_non_consequential_tool_with_no_parameters_is_not_auto_approved_again(
+    container: Container,
+    local_tool_service: LocalToolService,
+    agent: Agent,
+) -> None:
+    """
+    A non-consequential tool with no parameters that is already staged
+    should NOT be auto-approved again.
+    """
+    # Create a tool with no parameters and consequential=False (default)
+    await create_local_tool(
+        local_tool_service,
+        name="ping_staged",
+        description="A simple ping tool with no parameters",
+        parameters={},
+        required=[],
+    )
+
+    tool_id = ToolId(service_name="local", tool_name="ping_staged")
+
+    # Create a staged event representing this tool already being staged
+    staged_event = EmittedEvent(
+        source=EventSource.AI_AGENT,
+        kind=EventKind.TOOL,
+        trace_id="test-trace-id",
+        data={
+            "tool_calls": [
+                {
+                    "tool_id": tool_id.to_string(),
+                    "arguments": {},
+                    "result": {"data": "pong", "metadata": {}},
+                }
+            ]
+        },
+        metadata=None,
+    )
+
+    conversation_context = [
+        (EventSource.CUSTOMER, "Hello, can you ping for me?"),
+    ]
+
+    interaction_history = create_interaction_history(conversation_context)
+
+    tool_enabled_guideline_matches = {
+        create_guideline_match(
+            condition="customer asks to ping",
+            action="ping for the customer",
+            score=9,
+            rationale="customer wants to ping",
+            tags=[Tag.for_agent_id(agent.id)],
+        ): [tool_id]
+    }
+
+    inference_tool_calls_result = await _inference_tool_calls_result(
+        container=container,
+        agent=agent,
+        interaction_history=interaction_history,
+        tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+        staged_events=[staged_event],
+    )
+
+    # The tool should NOT be called again since it's already staged
+    tool_calls = list(chain.from_iterable(inference_tool_calls_result.batches))
+    assert len(tool_calls) == 0
+
+
+async def test_that_non_consequential_tool_with_parameters_uses_simplified_mode(
+    container: Container,
+    local_tool_service: LocalToolService,
+    agent: Agent,
+) -> None:
+    """
+    A non-consequential tool with parameters should use simplified evaluation mode
+    and successfully extract parameter values from context.
+    """
+    tool = await local_tool_service.create_tool(
+        name="get_weather",
+        module_path="tests.tool_utilities",
+        description="Get weather for a city",
+        parameters={
+            "city": {"type": "string", "description": "City name"},
+        },
+        required=["city"],
+        consequential=False,  # Non-consequential
+    )
+
+    conversation_context = [
+        (EventSource.CUSTOMER, "What's the weather in Paris?"),
+    ]
+
+    interaction_history = create_interaction_history(conversation_context)
+
+    tool_enabled_guideline_matches = {
+        create_guideline_match(
+            condition="customer asks about weather",
+            action="get the weather for the requested city",
+            score=9,
+            rationale="customer wants weather info",
+            tags=[Tag.for_agent_id(agent.id)],
+        ): [ToolId(service_name="local", tool_name=tool.name)]
+    }
+
+    inference_tool_calls_result = await _inference_tool_calls_result(
+        container=container,
+        agent=agent,
+        interaction_history=interaction_history,
+        tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+    )
+
+    tool_calls = list(chain.from_iterable(inference_tool_calls_result.batches))
+    assert len(tool_calls) == 1
+    tool_call = tool_calls[0]
+
+    # Verify the parameter was extracted correctly
+    assert "city" in tool_call.arguments
+    city_value = str(tool_call.arguments["city"])
+    assert city_value.lower() == "paris"
+
+    # Verify simplified mode was used (schema name should be SimpleToolBatchSchema)
+    assert len(inference_tool_calls_result.batch_generations) == 1
+    assert "Simple" in inference_tool_calls_result.batch_generations[0].schema_name
+
+
+async def test_that_consequential_tool_with_parameters_uses_full_mode(
+    container: Container,
+    local_tool_service: LocalToolService,
+    agent: Agent,
+) -> None:
+    """
+    A consequential tool should still use full evaluation mode, not simplified mode.
+    """
+    tool = await local_tool_service.create_tool(
+        name="transfer_money",
+        module_path="tests.tool_utilities",
+        description="Transfer money to a recipient",
+        parameters={
+            "amount": {"type": "number", "description": "Amount to transfer"},
+            "recipient": {"type": "string", "description": "Recipient name"},
+        },
+        required=["amount", "recipient"],
+        consequential=True,  # Consequential - should use full mode
+    )
+
+    conversation_context = [
+        (EventSource.CUSTOMER, "Transfer $100 to John please"),
+    ]
+
+    interaction_history = create_interaction_history(conversation_context)
+
+    tool_enabled_guideline_matches = {
+        create_guideline_match(
+            condition="customer asks to transfer money",
+            action="transfer money to the specified recipient",
+            score=9,
+            rationale="customer wants to transfer money",
+            tags=[Tag.for_agent_id(agent.id)],
+        ): [ToolId(service_name="local", tool_name=tool.name)]
+    }
+
+    inference_tool_calls_result = await _inference_tool_calls_result(
+        container=container,
+        agent=agent,
+        interaction_history=interaction_history,
+        tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+    )
+
+    # Verify full mode was used (schema name should be SingleToolBatchSchema, not Simple)
+    assert len(inference_tool_calls_result.batch_generations) == 1
+    assert "Simple" not in inference_tool_calls_result.batch_generations[0].schema_name
+    assert "SingleToolBatchSchema" in inference_tool_calls_result.batch_generations[0].schema_name

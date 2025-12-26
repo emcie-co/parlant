@@ -25,7 +25,7 @@ import pytest
 
 from parlant.adapters.db.json_file import JSONFileDocumentDatabase
 from parlant.adapters.loggers.websocket import WebSocketLogger
-from parlant.adapters.nlp.openai_service import OpenAIService
+from parlant.adapters.nlp.emcie_service import EmcieService
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
 from parlant.api.app import create_api_app, ASGIApplication
 from parlant.api.authorization import AuthorizationPolicy, DevelopmentAuthorizationPolicy
@@ -42,7 +42,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backt
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_step_selection import (
     JourneyNextStepSelectionSchema,
 )
-from parlant.core.meter import Meter, NullMeter
+from parlant.core.meter import Meter, LocalMeter
 from parlant.core.services.indexing.journey_reachable_nodes_evaluation import (
     ReachableNodesEvaluationSchema,
 )
@@ -330,7 +330,7 @@ async def container(
 
     container[Tracer] = tracer
     container[Logger] = logger
-    container[Meter] = Singleton(NullMeter)
+    container[Meter] = Singleton(LocalMeter)
     container[WebSocketLogger] = WebSocketLogger(container[Tracer])
 
     container[IdGenerator] = Singleton(IdGenerator)
@@ -384,10 +384,12 @@ async def container(
                 logger=container[Logger],
                 tracer=container[Tracer],
                 nlp_services_provider=lambda: {
-                    "default": OpenAIService(
+                    "default": EmcieService(
                         container[Logger],
                         container[Tracer],
                         container[Meter],
+                        model_tier=os.environ.get("EMCIE_MODEL_TIER", "jackal"),  # type: ignore
+                        model_role=os.environ.get("EMCIE_MODEL_ROLE", "teacher"),  # type: ignore
                     )
                 },
             )
@@ -414,6 +416,7 @@ async def container(
                 container[IdGenerator],
                 vector_db=TransientVectorDatabase(
                     container[Logger],
+                    container[Tracer],
                     embedder_factory,
                     lambda: embedding_cache,
                 ),
@@ -428,6 +431,7 @@ async def container(
                 container[IdGenerator],
                 vector_db=TransientVectorDatabase(
                     container[Logger],
+                    container[Tracer],
                     embedder_factory,
                     lambda: embedding_cache,
                 ),
@@ -441,7 +445,7 @@ async def container(
             CannedResponseVectorStore(
                 container[IdGenerator],
                 vector_db=TransientVectorDatabase(
-                    container[Logger], embedder_factory, lambda: embedding_cache
+                    container[Logger], container[Tracer], embedder_factory, lambda: embedding_cache
                 ),
                 document_db=TransientDocumentDatabase(),
                 embedder_factory=embedder_factory,
@@ -454,6 +458,7 @@ async def container(
                 container[IdGenerator],
                 vector_db=TransientVectorDatabase(
                     container[Logger],
+                    container[Tracer],
                     embedder_factory,
                     lambda: embedding_cache,
                 ),
@@ -481,6 +486,7 @@ async def container(
             CannedResponseRevisionSchema,
             CannedResponseFieldExtractionSchema,
             single_tool_batch.SingleToolBatchSchema,
+            single_tool_batch.NonConsequentialToolBatchSchema,
             overlapping_tools_batch.OverlappingToolsBatchSchema,
             GuidelineActionPropositionSchema,
             GuidelineContinuousPropositionSchema,
@@ -517,7 +523,7 @@ async def container(
             response_analysis_batch.shot_collection
         )
         container[ShotCollection[single_tool_batch.SingleToolBatchShot]] = (
-            single_tool_batch.shot_collection
+            single_tool_batch.consequential_shot_collection
         )
         container[ShotCollection[overlapping_tools_batch.OverlappingToolsBatchShot]] = (
             overlapping_tools_batch.shot_collection

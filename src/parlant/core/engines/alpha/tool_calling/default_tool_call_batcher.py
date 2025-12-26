@@ -25,6 +25,7 @@ from parlant.core.engines.alpha.tool_calling.overlapping_tools_batch import (
 from parlant.core.engines.alpha.tool_calling.single_tool_batch import (
     SingleToolBatch,
     SingleToolBatchSchema,
+    NonConsequentialToolBatchSchema,
 )
 from parlant.core.engines.alpha.tool_calling.tool_caller import (
     ToolCallBatch,
@@ -47,6 +48,7 @@ class DefaultToolCallBatcher(ToolCallBatcher):
         optimization_policy: OptimizationPolicy,
         service_registry: ServiceRegistry,
         single_tool_schematic_generator: SchematicGenerator[SingleToolBatchSchema],
+        simple_tool_schematic_generator: SchematicGenerator[NonConsequentialToolBatchSchema],
         overlapping_tools_schematic_generator: SchematicGenerator[OverlappingToolsBatchSchema],
         relationship_store: RelationshipStore,
     ) -> None:
@@ -55,6 +57,7 @@ class DefaultToolCallBatcher(ToolCallBatcher):
         self._optimization_policy = optimization_policy
         self._service_registry = service_registry
         self._single_tool_schematic_generator = single_tool_schematic_generator
+        self._simple_tool_schematic_generator = simple_tool_schematic_generator
         self._overlapping_tools_schematic_generator = overlapping_tools_schematic_generator
         self._relationship_store = relationship_store
 
@@ -173,7 +176,8 @@ class DefaultToolCallBatcher(ToolCallBatcher):
             meter=self._meter,
             optimization_policy=self._optimization_policy,
             service_registry=self._service_registry,
-            schematic_generator=self._single_tool_schematic_generator,
+            consequential_schema_generator=self._single_tool_schematic_generator,
+            non_consequential_schema_generator=self._simple_tool_schematic_generator,
             candidate_tool=candidate_tool,
             context=context,
         )

@@ -300,7 +300,7 @@ async def search_electronic_products(
     min_price: Optional[int] = None,
     max_price: Optional[int] = None,
     in_stock_only: Optional[bool] = False,
-    vendor: Optional[str] = None,
+    brand: Optional[str] = None,
 ) -> ToolResult:
     with open("tests/data/get_products_by_type_data.json", "r") as f:
         database = json.load(f)
@@ -329,8 +329,8 @@ async def search_electronic_products(
     if in_stock_only:
         products = [item for item in products if item["qty"] > 0]
 
-    if vendor:
-        products = [item for item in products if item["vendor"].lower() == vendor.lower()]
+    if brand:
+        products = [item for item in products if item["vendor"].lower() == brand.lower()]
 
     return ToolResult({"available_products": products, "total_results": len(products)})
 

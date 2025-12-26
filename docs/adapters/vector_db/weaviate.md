@@ -8,6 +8,9 @@ For general Parlant usage, see the [official documentation](https://www.parlant.
 
 1. **Install Weaviate adapter**: `pip install parlant[weaviate]`
 2. **Choose storage**: Local Weaviate instance or Weaviate Cloud
+3. **Configure credentials**: Store your Weaviate URL and API key (for cloud instances) as environment variables or in your configuration:
+   - `WEAVIATE_URL`: Your Weaviate instance URL (e.g., `http://localhost:8080` for local or `https://YOUR_CLUSTER_URL.weaviate.network` for cloud)
+   - `WEAVIATE_API_KEY`: Your API key (required for Weaviate Cloud, optional for local instances)
 
 ## Quick Start
 
@@ -25,6 +28,7 @@ from parlant.core.canned_responses import CannedResponseVectorStore, CannedRespo
 from parlant.core.capabilities import CapabilityVectorStore, CapabilityStore
 from parlant.core.journeys import JourneyVectorStore, JourneyStore
 from parlant.adapters.db.transient import TransientDocumentDatabase
+from parlant.core.common import IdGenerator
 
 # Global exit stack to manage resources created in configure_container
 # This ensures proper cleanup when the server shuts down
@@ -60,7 +64,7 @@ async def configure_container(container: p.Container) -> p.Container:
     # Configure stores using vector database
     container[GlossaryStore] = await service_exit_stack.enter_async_context(
         GlossaryVectorStore(
-            id_generator=container[p.IdGenerator],
+            id_generator=container[IdGenerator],
             vector_db=weaviate_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=embedder_factory,
@@ -70,7 +74,7 @@ async def configure_container(container: p.Container) -> p.Container:
     
     container[CannedResponseStore] = await service_exit_stack.enter_async_context(
         CannedResponseVectorStore(
-            id_generator=container[p.IdGenerator],
+            id_generator=container[IdGenerator],
             vector_db=weaviate_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=embedder_factory,
@@ -80,7 +84,7 @@ async def configure_container(container: p.Container) -> p.Container:
     
     container[CapabilityStore] = await service_exit_stack.enter_async_context(
         CapabilityVectorStore(
-            id_generator=container[p.IdGenerator],
+            id_generator=container[IdGenerator],
             vector_db=weaviate_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=embedder_factory,
@@ -90,7 +94,7 @@ async def configure_container(container: p.Container) -> p.Container:
     
     container[JourneyStore] = await service_exit_stack.enter_async_context(
         JourneyVectorStore(
-            id_generator=container[p.IdGenerator],
+            id_generator=container[IdGenerator],
             vector_db=weaviate_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=embedder_factory,

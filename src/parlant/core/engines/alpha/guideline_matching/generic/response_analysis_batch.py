@@ -163,7 +163,7 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
             )
 
             generation_attempt_temperatures = (
-                self._optimization_policy.get_guideline_matching_batch_retry_temperatures(
+                self._optimization_policy.get_response_analysis_batch_retry_temperatures(
                     hints={"type": self.__class__.__name__}
                 )
             )
@@ -390,9 +390,7 @@ OUTPUT FORMAT
 -----------------
 - Specify if each guideline was applied by filling in the details in the following list as instructed:
 ```json
-{{
-    {result_structure_text}
-}}
+{result_structure_text}
 ```
 """,
             props={

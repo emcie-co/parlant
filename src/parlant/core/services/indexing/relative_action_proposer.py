@@ -216,9 +216,7 @@ OUTPUT FORMAT
 Use the following format to evaluate whether the action is relative and need rewriting:
 Expected output (JSON):
 ```json
-{{
-    {result_structure_text}
-}}
+{result_structure_text}
 ```
 """,
             props={"result_structure_text": self._format_text(step_guidelines)},

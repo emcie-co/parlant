@@ -14,6 +14,7 @@
 
 from abc import ABC, abstractmethod
 from contextlib import AsyncExitStack
+from datetime import datetime, timezone
 from types import TracebackType
 from typing import Callable, Mapping, Optional, Sequence, cast
 from typing_extensions import override, TypedDict, Self
@@ -243,6 +244,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
 
         return _ToolServiceDocument(
             id=ObjectId(name),
+            creation_utc=datetime.now(timezone.utc).isoformat(),
             version=self.VERSION.to_string(),
             name=name,
             kind=kind,

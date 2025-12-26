@@ -19,7 +19,7 @@ import hashlib
 import json
 import sys
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Generic, Optional, Sequence, TypeVar, cast
+from typing import Any, Awaitable, Callable, Generic, Mapping, Optional, Sequence, TypeVar, cast
 from typing_extensions import override, Self
 from qdrant_client import QdrantClient  # type: ignore[import-untyped]
 from qdrant_client.http import models  # type: ignore[import-untyped]
@@ -868,7 +868,7 @@ class QdrantDatabase(VectorDatabase):
     @override
     async def read_metadata(
         self,
-    ) -> dict[str, JSONSerializable]:
+    ) -> Mapping[str, JSONSerializable]:
         assert self.qdrant_client is not None, "Qdrant client must be initialized"
         metadata_collection_name = "metadata"
 
@@ -1352,6 +1352,7 @@ class QdrantCollection(Generic[TDocument], BaseVectorCollection[TDocument]):
         filters: Where,
         query: str,
         k: int,
+        hints: Mapping[str, Any] = {},
     ) -> Sequence[SimilarDocumentResult[TDocument]]:
         async with self._lock.reader_lock:
             # Ensure indexes exist for all fields used in filtering
@@ -1361,7 +1362,7 @@ class QdrantCollection(Generic[TDocument], BaseVectorCollection[TDocument]):
                 for field_name in field_names:
                     self._database._ensure_payload_index(self.embedded_collection_name, field_name)
 
-            query_embeddings = list((await self._embedder.embed([query])).vectors)
+            query_embeddings = list((await self._embedder.embed([query], hints)).vectors)
             qdrant_filter = _convert_where_to_qdrant_filter(filters)
 
             if not query_embeddings or len(query_embeddings[0]) == 0:

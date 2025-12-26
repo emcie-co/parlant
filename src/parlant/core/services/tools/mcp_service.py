@@ -240,7 +240,7 @@ def mcp_tool_to_parlant_tool(mcp_tool: McpTool) -> Tool:
         metadata={},
         parameters=parameters,
         required=mcp_tool.inputSchema["required"],
-        consequential=False,
+        consequential=True,
         overlap=ToolOverlap.ALWAYS,
     )
     return tool

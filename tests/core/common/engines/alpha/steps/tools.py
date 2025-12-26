@@ -15,7 +15,7 @@
 from typing import Any, cast
 from pytest_bdd import given, parsers
 
-from parlant.core.tools import ToolOverlap, ToolParameterOptions
+from parlant.core.tools import ToolParameterOptions
 from parlant.core.relationships import (
     RelationshipEntityKind,
     RelationshipEntity,
@@ -53,6 +53,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         "name": "get_available_toppings",
         "description": "Get the toppings available in stock",
         "module_path": "tests.tool_utilities",
+        "consequential": True,
         "parameters": {},
         "required": [],
     },
@@ -265,6 +266,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         "name": "register_for_sweepstake",
         "description": "Register for a sweepstake given multiple required details",
         "module_path": "tests.tool_utilities",
+        "consequential": True,
         "parameters": {
             "first_name": (
                 {
@@ -330,6 +332,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         "name": "register_for_confusing_sweepstake",
         "description": "Register for a sweepstake with more confusing parameter options",
         "module_path": "tests.tool_utilities",
+        "consequential": True,
         "parameters": {
             "first_name": (
                 {
@@ -393,6 +396,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         "name": "calculate_salary",
         "description": "Calculate the salary of an employee according to other employees",
         "module_path": "tests.tool_utilities",
+        "consequential": True,
         "parameters": {
             "name": {
                 "type": "string",
@@ -530,9 +534,9 @@ TOOLS: dict[str, dict[str, Any]] = {
                 "type": "boolean",
                 "description": "Only show products that are currently in stock",
             },
-            "vendor": {
+            "brand": {
                 "type": "string",
-                "description": "Company name",
+                "description": "Brand name",
             },
         },
         "required": ["keyword"],
@@ -968,8 +972,9 @@ def given_the_tool_from_service(
         "first_service": {
             "schedule": {
                 "name": "schedule",
-                "description": "",
+                "description": "This tool is used to book a meeting with Larry David as host",
                 "module_path": "tests.tool_utilities",
+                "consequential": True,
                 "parameters": {},
                 "required": [],
             }
@@ -977,8 +982,9 @@ def given_the_tool_from_service(
         "second_service": {
             "schedule": {
                 "name": "schedule",
-                "description": "",
+                "description": "This tool is used to book a meeting with Larry David as guest",
                 "module_path": "tests.tool_utilities",
+                "consequential": True,
                 "parameters": {},
                 "required": [],
             }
@@ -1019,30 +1025,6 @@ def given_the_tool_from_service(
     context.tools[tool_name] = tool
 
 
-@step(given, parsers.parse('the tool "{tool_name}" with always as overlap'))
-def given_the_tool_with_always_as_overlap(
-    context: ContextOfTest,
-    tool_name: str,
-) -> None:
-    local_tool_service = context.container[LocalToolService]
-
-    tools: dict[str, dict[str, Any]] = {
-        "get_terrys_offering": {
-            "name": "get_terrys_offering",
-            "description": "Explain Terry's offering",
-            "module_path": "tests.tool_utilities",
-            "parameters": {},
-            "required": [],
-        }
-    }
-
-    tool = context.sync_await(
-        local_tool_service.create_tool(**tools[tool_name], overlap=ToolOverlap.ALWAYS)
-    )
-
-    context.tools[tool_name] = tool
-
-
 @step(given, parsers.parse('the tool "{tool_name}"'))
 def given_a_tool(
     context: ContextOfTest,
@@ -1067,6 +1049,38 @@ def given_max_engine_iteration(
         agent_store.update_agent(
             agent_id=agent_id,
             params={"max_engine_iterations": int(max_engine_iterations)},
+        )
+    )
+
+
+@step(
+    given,
+    parsers.parse(
+        'a cross-service tool relationship whereby "{tool_a}" from "{service_a}" overlaps with "{tool_b}" from "{service_b}"'
+    ),
+)
+def given_an_overlapping_tools_relationship_from_service(
+    context: ContextOfTest,
+    tool_a: str,
+    tool_b: str,
+    service_a: str,
+    service_b: str,
+) -> None:
+    store = context.container[RelationshipStore]
+    tool_a_id = ToolId(service_name=service_a, tool_name=tool_a)
+    tool_b_id = ToolId(service_name=service_b, tool_name=tool_b)
+
+    context.sync_await(
+        store.create_relationship(
+            source=RelationshipEntity(
+                id=tool_a_id,
+                kind=RelationshipEntityKind.TOOL,
+            ),
+            target=RelationshipEntity(
+                id=tool_b_id,
+                kind=RelationshipEntityKind.TOOL,
+            ),
+            kind=RelationshipKind.OVERLAP,
         )
     )
 

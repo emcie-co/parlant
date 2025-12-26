@@ -97,7 +97,7 @@ def run_server(
     extra_args: list[str] = [],
 ) -> Iterator[subprocess.Popen[str]]:
     exec_args = [
-        "poetry",
+        "uv",
         "run",
         "python",
         CLI_SERVER_PATH.as_posix(),

@@ -460,6 +460,9 @@ class GlossaryVectorStore(GlossaryStore):
         if not available_terms:
             return []
 
+        if max_terms >= len(available_terms):
+            return available_terms
+
         async with self._lock.reader_lock:
             queries = await query_chunks(query, self._embedder)
 
@@ -467,9 +470,7 @@ class GlossaryVectorStore(GlossaryStore):
 
             tasks = [
                 self._collection.find_similar_documents(
-                    filters=filters,
-                    query=q,
-                    k=max_terms,
+                    filters=filters, query=q, k=max_terms, hints={"tag": "glossary_terms"}
                 )
                 for q in queries
             ]

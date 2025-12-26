@@ -330,3 +330,11 @@ Feature: Journeys
         When processing is triggered
         Then a single message event is emitted
         And the message contains that the card was locked
+
+Scenario: Agent confirms previously provided information when journey fast forward stops too early
+        Given an agent
+        And the journey called "Place Food Order"
+        And a customer message, "Hi! I’d like to order a sandwich with pesto in baguette bread. No extras, please. I’m keeping it simple"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains a confirmation that the customer don't want any extras

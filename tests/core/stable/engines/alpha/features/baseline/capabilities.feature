@@ -42,6 +42,7 @@ Feature: Capabilities
         Then a single message event is emitted
         And the message contains offering to cancel the customer's subscriptions to online services
 
+    # Sometimes fails due to the agent mentioning what they CAN help with, which isn't too bad
     Scenario: Agent doesnt mention capabilities when none are relevant
         Given the capability "offer_loan"
         And the capability "replace_card"

@@ -16,6 +16,7 @@ Feature: Supervision
     Scenario: The agent does not offer information it's not given (1)
         Given the alpha engine
         And an agent whose job is to serve the bank's clients
+        And that the agent uses the canned_fluid message composition mode
         And a customer message, "Hey, how can I schedule an appointment?"
         When processing is triggered
         Then a single message event is emitted
@@ -24,6 +25,7 @@ Feature: Supervision
 
     Scenario: The agent does not offer information it's not given (2)
         Given an agent whose job is to serve the insurance company's clients
+        And that the agent uses the canned_fluid message composition mode
         And a customer message, "How long is a normal consultation appointment?"
         When messages are emitted
         Then a single message event is emitted
@@ -31,6 +33,7 @@ Feature: Supervision
 
     Scenario: The agent does not offer information it's not given (3)
         Given an agent whose job is to serve the bank's clients
+        And that the agent uses the canned_fluid message composition mode
         And a customer message, "limits"
         When messages are emitted
         Then a single message event is emitted

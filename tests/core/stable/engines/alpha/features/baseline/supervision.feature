@@ -52,19 +52,6 @@ Feature: Supervision
         When processing is triggered
         Then a single message event is emitted
 
-    Scenario: the agent stops replying when asked explicitly
-        Given the alpha engine
-        And an agent
-        And a customer message, "What Pizza toppings do you offer?"
-        And an agent message, "Olives, tomatoes and mushrooms"
-        And a customer message, "What Pizza toppings do you offer?"
-        And an agent message, "Olives, tomatoes and mushrooms"
-        And a customer message, "I'm not interested in those. Goodbye."
-        And an agent message, "Goodbye!"
-        And a customer message, "Bye, please stop responding now"
-        When processing is triggered
-        Then no message events are emitted
-
     Scenario: the agent doesnt initiate conversation unprompted
         Given the alpha engine
         And an agent

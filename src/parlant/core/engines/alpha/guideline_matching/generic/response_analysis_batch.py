@@ -296,6 +296,8 @@ Guidelines:
 
         builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
 
+        builder.add_agent_identity(self._context.agent)
+
         builder.add_section(
             name="guideline-previously-applied-general-instructions",
             template="""
@@ -366,7 +368,6 @@ Examples of ...:
                 "shots": shots,
             },
         )
-        builder.add_agent_identity(self._context.agent)
         builder.add_context_variables(self._context.context_variables)
         builder.add_glossary(self._context.terms)
         builder.add_customer_identity(self._context.customer, self._context.session)

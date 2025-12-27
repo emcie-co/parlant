@@ -359,6 +359,8 @@ class JourneyBacktrackCheck:
     ) -> PromptBuilder:
         builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
 
+        builder.add_agent_identity(self._context.agent)
+
         builder.add_section(
             name="journey-backtrack-check-general-instructions",
             template="""
@@ -411,6 +413,8 @@ class JourneyBacktrackCheck:
                 "shots": shots,
             },
         )
+
+        builder.add_customer_identity(self._context.customer, self._context.session)
         builder.add_context_variables(self._context.context_variables)
         builder.add_glossary(self._context.terms)
         builder.add_capabilities_for_guideline_matching(self._context.capabilities)

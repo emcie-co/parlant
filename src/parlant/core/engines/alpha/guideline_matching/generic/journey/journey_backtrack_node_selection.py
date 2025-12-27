@@ -681,6 +681,8 @@ class JourneyBacktrackNodeSelection:
     ) -> PromptBuilder:
         builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
 
+        builder.add_agent_identity(self._context.agent)
+
         builder.add_section(
             name="journey-step-selection-general-instructions",
             template="""
@@ -772,6 +774,8 @@ Example section is over. The following is the real data you need to use for your
                 "shots": shots,
             },
         )
+
+        builder.add_customer_identity(self._context.customer, self._context.session)
         builder.add_context_variables(self._context.context_variables)
         builder.add_glossary(self._context.terms)
         builder.add_capabilities_for_guideline_matching(self._context.capabilities)

@@ -1260,7 +1260,9 @@ OUTPUT FORMAT:
 
                 # Check if all required parameters are present
                 missing_required = [r for r in tool.required if r not in arguments] + [
-                    name for name, value in arguments.items() if value == "<<__missing__>>"
+                    name
+                    for name, value in arguments.items()
+                    if value == "<<__missing__>>" or value == "['<<__missing__>>']"
                 ]
 
                 if not missing_required:

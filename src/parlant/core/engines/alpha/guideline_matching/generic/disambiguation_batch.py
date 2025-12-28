@@ -17,7 +17,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import traceback
-import os
 import json
 from typing import Optional
 from typing_extensions import override
@@ -171,9 +170,6 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
                     self._logger.trace(
                         f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                     )
-
-                    with open("dumps/disambiguation/output.txt", "w") as f:
-                        f.write(inference.content.model_dump_json(indent=2))
 
                     metadata: dict[str, JSONSerializable] = {}
 
@@ -413,10 +409,6 @@ OUTPUT FORMAT
                 ),
             },
         )
-        os.makedirs("dumps/disambiguation", exist_ok=True)
-
-        with open("dumps/disambiguation/prompt.txt", "w") as f:
-            f.write(builder.build())
 
         return builder
 

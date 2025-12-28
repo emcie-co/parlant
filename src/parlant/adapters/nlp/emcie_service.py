@@ -375,6 +375,9 @@ class EmcieEmbedder(BaseEmbedder):
         except RateLimitError:
             self.logger.error(ERROR_MESSAGE)
             raise
+        except Exception as e:
+            self.logger.error(f"Unexpected error during Emcie API call: {e}")
+            raise
 
         response_data = response.json()
         vectors = [data_point["embedding"] for data_point in response_data["data"]]

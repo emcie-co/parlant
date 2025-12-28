@@ -649,6 +649,7 @@ async def test_that_when_agent_already_asked_for_clarification_new_clarification
         "turtle_roller_coaster",
         "tiger_Ferris_wheel",
     ]
+    clarification_must_contain = "A snake roller coaster a turtle roller coaster"
     disambiguating_guidelines: list[str] = ["snake_roller_coaster", "turtle_roller_coaster"]
     head_condition = CONDITION_HEAD_DICT["amusement_park"]
     await base_test_that_ambiguity_detected_with_relevant_guidelines(
@@ -661,6 +662,7 @@ async def test_that_when_agent_already_asked_for_clarification_new_clarification
         is_ambiguous=True,
         to_disambiguate_guidelines_names=to_disambiguate_guidelines,
         disambiguating_guideline_names=disambiguating_guidelines,
+        clarification_must_contain=clarification_must_contain,
     )
 
 
@@ -902,6 +904,35 @@ async def test_that_ambiguity_is_not_detected_on_clear_request_1(
         (
             EventSource.CUSTOMER,
             "I need to book an appointment with my doctor,",
+        ),
+    ]
+
+    to_disambiguate_guidelines = ["scheduling_journey", "lab_results_journey"]
+    disambiguating_guidelines: list[str] = []
+    head_condition = CONDITION_HEAD_DICT["healthcare_inquiry"]
+    await base_test_that_ambiguity_detected_with_relevant_guidelines(
+        context,
+        agent,
+        new_session,
+        customer,
+        conversation_context,
+        head_condition,
+        is_ambiguous=False,
+        to_disambiguate_guidelines_names=to_disambiguate_guidelines,
+        disambiguating_guideline_names=disambiguating_guidelines,
+    )
+
+
+async def test_that_ambiguity_is_not_detected_on_clear_request_2(
+    context: ContextOfTest,
+    agent: Agent,
+    new_session: Session,
+    customer: Customer,
+) -> None:
+    conversation_context: list[tuple[EventSource, str]] = [
+        (
+            EventSource.CUSTOMER,
+            "I need an appointment with my dr",
         ),
     ]
 

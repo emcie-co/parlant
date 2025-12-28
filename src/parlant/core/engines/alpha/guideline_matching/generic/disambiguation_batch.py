@@ -307,8 +307,8 @@ GENERAL INSTRUCTIONS
 In our system, the behavior of a conversational AI agent is guided by "guidelines". The agent makes use of these guidelines whenever it interacts with a customer (also referred to as the user).
 Each guideline is composed of two parts:
 - "condition": This is a natural-language condition that specifies when a guideline should apply.
-          We look at each conversation at its most recent state, and we test against this
-          condition to understand if we should have this guideline participate in generating
+          We look at each conversation at its most recent state, and we evaluate this condition
+          to understand if we should have this guideline participate in generating
           the next response to the customer.
 - "action": This is a natural-language instruction that should be followed by the agent
           whenever the "condition" part of the guideline applies to the conversation at its latest state.
@@ -319,42 +319,42 @@ Task Description
 ----------------
 During your interaction with the customer, they may express a need or problem that could potentially be handled by multiple guidelines, creating ambiguity.
 This occurs when multiple guideline conditions might apply, but insufficient information is available to determine which one should apply.
-In such cases, we need to identify the potentially relevant guidelines, and to ask the customer which one they intended to apply.
+In such cases, we need to identify the potentially relevant guidelines and ask the customer which one they intended.
 
-Your task is to determine whether the customer's intention is currently ambiguous in regards to the provided guidelines, and, if so, what the possible interpretations or directions are.
-You'll be given:
+Your task is to determine whether the customer's intention is currently ambiguous with respect to the provided guidelines, and, if so, what the possible interpretations or directions are.
+You will be given:
 1. A disambiguation condition that signals potential ambiguity when true
 2. A list of related guidelines, each representing a possible path the customer might follow
 
-Evaluate if the disambiguation condition indeed holds in the current interaction context. 
-If it does, evaluate if there is more than one guideline that it's condition can be relevant to the user's inquiry.
+Evaluate whether the disambiguation condition indeed holds in the current interaction context. 
+If it does, evaluate if there is more than one guideline whose condition can be relevant to the user's inquiry.
 If ambiguity exists (disambiguation condition is true AND multiple guidelines apply):
-    - Identify the relevant guidelines that represent the available options. Briefly explain how user request can be interpreted as relevant for this guideline.
+    - Identify the relevant guidelines that represent the available options. Briefly explain how user's request can be interpreted as relevant for this guideline.
     - Formulate a response in the format:
     "Ask the customer whether they want to do X, Y, or Z..."
     This response should clearly present the options to help resolve the ambiguity.
 
 On detecting real ambiguity:
 - Guidelines often describe very similar requests with subtle differences. If the customer has indicated which option is relevant to them, there is NO ambiguity - even if you think another similar guideline could also apply. 
-We don't want to detect ambiguity when the customer has already stated what they want. Trust the customer's stated intent rather than second-guessing whether they might have meant a similar alternative.
+We don't want to detect ambiguity when the customer has already stated what they want. Trust the customer's stated intent rather than second - guessing whether they might have meant a similar alternative.
 Only disambiguate when the customer's request is genuinely unclear and could reasonably match multiple distinct paths.
     For example:
-    If guidelines include both "Return for refund" and "Return for exchange", and the customer says "I want to return this for a refund", do NOT ask if they meant exchange instead. The customer has clearly stated their intent.
+    If the guidelines include both "Return for refund" and "Return for exchange", and the customer says "I want to return this for a refund", do NOT ask if they meant an exchange instead. The customer has clearly stated their intent.
 - When ambiguity exists, include all plausible guidelines — let the customer choose among all viable options. 
 - Some guidelines may turn out to be irrelevant based on the interaction. For example, due to earlier parts of the conversation or because the user's status (provided in the interaction history or
 as a context variable) rules them out. If only one or no guidelines remain relevant, no ambiguity exists.
 
 After disambiguation was asked: 
-- If you've already asked for disambiguation from the customer, **pay extra attention** to  whether you need to re-ask for clarification or whether the user responded and the ambiguity was already resolved.
+- If you've already asked for disambiguation from the customer, **pay extra attention** to whether you need to re-ask for clarification or whether the user responded and the ambiguity was already resolved.
 - **Accept brief customer responses as valid clarifications**: Customers often communicate with very short responses (single words or phrases like "return", "replace", "yes", "no"). If the customer's brief
- response clearly indicates their choice among the previously presented options, consider the ambiguity resolved even if their answer is not in complete sentences.
+ response clearly indicates their choice among the previously presented options, consider the ambiguity resolved even if their answer is not in complete sentence.
 - Carefully distinguish between the following cases:
-  1. Disambiguation requested and is Pending clarification (Disambiguation was already asked by the agent, but the customer hasn't answered yet) - In this case,  re-disambiguate (set disambiguation_requested = true, customer_resolved=false, is_ambiguous = true)
+  1. Disambiguation requested and pending clarification (Disambiguation was already asked by the agent, but the customer hasn't answered yet) - In this case,  re-disambiguate (set disambiguation_requested = true, customer_resolved=false, is_ambiguous = true)
   2. Disambiguation requested, clarification provided (customer has answered) - don't re-disambiguate the same issue (disambiguation_requested = true, customer_resolved=true, is_ambiguous = false)
   3. New ambiguity (different unclear intent emerges) - do disambiguate (is_ambiguous = true)
 
-Focus on current context: 
-Base your evaluation on the customer's most recent message. If the customer has changed the subject or moved on to a different topic in their most recent message, do not disambiguate previous unresolved issues.
+Focus on the current context: 
+Base your evaluation on the customer's most recent message. If the customer has changed the subject or moved on to a different topic in their most recent message, do not disambiguate previously unresolved issues.
 Always prioritize the customer's current request and intent over past ambiguities.
 
 
@@ -426,12 +426,12 @@ OUTPUT FORMAT
         result = {
             "tldr": "<str, Briefly state the customer's most recent intent based on their LATEST input, and explain why there is or isn't an ambiguity.>",
             "disambiguation_requested": "<BOOL. Based on the interaction, whether a clarification was asked by the agent. If so, is_ambiguous will be true only if customer has not answered OR customer changed request OR there is a new ambiguity to resolve>",
-            "customer_resolved": "<BOOL. Include if disambiguation_requested=true. Whether the latest ambiguity that was requested was already resolved by the user",
+            "customer_resolved": "<BOOL. Include if disambiguation_requested=true. Whether the latest requested ambiguity was already resolved by the user",
             "is_ambiguous": "<BOOL>",
             "guidelines (include only if is_ambiguous is True)": [
                 {
                     "guideline_id": i,
-                    "tldr": "<str. Brief explanation of is this guideline needs disambiguation or clearly relevant or not relevant>",
+                    "tldr": "<str. Brief explanation of whether this guideline needs disambiguation, is clearly relevant or is not relevant>",
                     "requires_disambiguation": "<BOOL. Whether the guideline is relevant and need to participate in disambiguation request>",
                 }
                 for i in disambiguation_targets_guidelines.keys()
@@ -528,27 +528,27 @@ example_2_disambiguation_condition = GuidelineContent(
 )
 
 example_2_expected = DisambiguationGuidelineMatchesSchema(
-    tldr="The customer asks to book an appointment but didn't specify the type or the place. Since they mention needing a prescription, it likely relates to a medical consultation, not psychological.",
+    tldr="The customer asks to book an appointment but didn't specify the type or the place. Since they mention needing a prescription, it likely relates to a medical consultation, not a psychological one.",
     disambiguation_requested=False,
     is_ambiguous=True,
     guidelines=[
         GuidelineCheck(
             guideline_id="1",
-            tldr="The appointment is with a doctor since the mentioned a prescription",
+            tldr="The appointment is with a doctor since they mentioned a prescription",
             requires_disambiguation=True,
         ),
         GuidelineCheck(
             guideline_id="2",
-            tldr="Psychologist is not relevant, they can not give a prescription",
+            tldr="A psychologist is not relevant, they cannot prescribe medication.",
             requires_disambiguation=False,
         ),
         GuidelineCheck(
             guideline_id="3",
-            tldr="Online appointment can be relevant",
+            tldr="An online appointment can be relevant",
             requires_disambiguation=True,
         ),
     ],
-    clarification_action="Ask the customer if they prefer an online or in person doctor's appointment",
+    clarification_action="Ask the customer if they prefer an online or in-person doctor's appointment",
 )
 
 
@@ -601,7 +601,7 @@ example_4_events = [
     _make_event(
         "20",
         EventSource.CUSTOMER,
-        "Got it. I'll need an appointment — my throat is hurting.",
+        "Got it. I'll need an appointment — my throat is sore.",
     ),
 ]
 
@@ -626,7 +626,7 @@ example_4_disambiguation_condition = GuidelineContent(
 )
 
 example_4_expected = DisambiguationGuidelineMatchesSchema(
-    tldr="The customer asks to book an appointment. Online sessions are not available. Since they mention hurting throat, it likely relates to a medical consultation, not a psychologist.",
+    tldr="The customer asks to book an appointment. Online sessions are not available. Since they mention a sore throat, it likely relates to a medical consultation, not a psychologist.",
     disambiguation_requested=False,
     is_ambiguous=False,
 )
@@ -641,7 +641,7 @@ example_5_events = [
     _make_event(
         "14",
         EventSource.AI_AGENT,
-        "You can have a doctor's session either in person or online. Which do you prefer?",
+        "You can have a doctor's session either in-person or online. Which do you prefer?",
     ),
     _make_event(
         "17",
@@ -671,7 +671,7 @@ example_5_disambiguation_condition = GuidelineContent(
 )
 
 example_5_expected = DisambiguationGuidelineMatchesSchema(
-    tldr="Based on latest message, there is a new request which is again ambiguous. Need to clarify whether it's with a doctor or a psychologist, and whether it should be online or in person",
+    tldr="Based on latest message, there is a new request which is again ambiguous. Need to clarify whether it's with a doctor or a psychologist, and whether it should be online or in-person",
     disambiguation_requested=False,
     is_ambiguous=True,
     guidelines=[
@@ -687,11 +687,11 @@ example_5_expected = DisambiguationGuidelineMatchesSchema(
         ),
         GuidelineCheck(
             guideline_id="3",
-            tldr="online appointment can be relevant",
+            tldr="An Online appointment can be relevant",
             requires_disambiguation=True,
         ),
     ],
-    clarification_action="Ask the customer if they need a doctor or psychologist appointment and if they prefer an online or in person session for their daughter",
+    clarification_action="Ask the customer if they need a doctor or psychologist appointment and if they prefer an online or in-person session for their daughter",
 )
 
 
@@ -717,8 +717,8 @@ example_6__disambiguation_targets = [
         action="book the appointment online",
     ),
     GuidelineContent(
-        condition="The customer asks to book an in person appointment to a medical consultation or a session with a psychologist",
-        action="book the in person appointment",
+        condition="The customer asks to book an in-person appointment to a medical consultation or a session with a psychologist",
+        action="book the in-person appointment",
     ),
 ]
 
@@ -739,21 +739,21 @@ example_6_expected = DisambiguationGuidelineMatchesSchema(
         ),
         GuidelineCheck(
             guideline_id="2",
-            tldr="Psychologist can't be relevant to get a prescription",
+            tldr="Psychologist can't be relevant for getting a prescription",
             requires_disambiguation=False,
         ),
         GuidelineCheck(
             guideline_id="3",
-            tldr="Online appointment can be relevant to get a prescription",
+            tldr="Online appointment can be relevant for getting a prescription",
             requires_disambiguation=True,
         ),
         GuidelineCheck(
             guideline_id="4",
-            tldr="In person appointment can be relevant to get a prescription",
+            tldr="In-person appointment can be relevant for getting a prescription",
             requires_disambiguation=True,
         ),
     ],
-    clarification_action="Ask the customer if they prefer an online or in person session for the appointment to get a prescription",
+    clarification_action="Ask the customer if they prefer an online or in-person session for the appointment for getting a prescription",
 )
 
 
@@ -833,7 +833,7 @@ example_8_disambiguation_condition = GuidelineContent(
 )
 
 example_8_expected = DisambiguationGuidelineMatchesSchema(
-    tldr="The customer received a wrong item and clarification was asked. The customer only said that they need to think so ambiguity still apply",
+    tldr="The customer received a wrong item and clarification was asked. The customer only said that they need to think so the ambiguity still applies",
     disambiguation_requested=True,
     customer_resolved=False,
     is_ambiguous=True,
@@ -888,7 +888,7 @@ example_9_disambiguation_condition = GuidelineContent(
 )
 
 example_9_expected = DisambiguationGuidelineMatchesSchema(
-    tldr="The customer received a wrong item and clarification was asked. The customer did not clarify how to handle the wrong item but they changed the subject so no disambiguation needed according to the most recent context",
+    tldr="The customer received a wrong item and clarification was asked. The customer did not clarify how to handle the wrong item but they changed the subject so no disambiguation is needed according to the most recent context",
     disambiguation_requested=True,
     customer_resolved=False,
     is_ambiguous=False,

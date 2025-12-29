@@ -1037,6 +1037,7 @@ async def base_test_that_correct_node_is_selected(
     customer: Customer,
     conversation_context: list[tuple[EventSource, str]],
     journey_name: str,
+    backtrack_required: bool | None,
     expected_next_node_index: str | Sequence[str] | None,
     expected_path: list[str] | None = None,
     journey_previous_path: Sequence[str | None] = [],
@@ -1093,6 +1094,11 @@ async def base_test_that_correct_node_is_selected(
         assert expected_next_node_index is None or "None" in expected_next_node_index
     else:
         result_path: Sequence[str] = cast(list[str], result.matches[0].metadata["journey_path"])
+        if backtrack_required is not None:
+            if backtrack_required:
+                assert result.generation_info.schema_name == "JourneyBacktrackNodeSelectionSchema"
+            else:
+                assert result.generation_info.schema_name == "JourneyNextStepSelectionSchema"
         if expected_path:
             assert len(result_path) == len(expected_path)
             for result_node, expected_node in zip(result_path, expected_path):
@@ -1135,6 +1141,7 @@ async def test_that_journey_selector_repeats_node_if_incomplete_1(
         customer=customer,
         conversation_context=conversation_context,
         journey_name="compliment_customer_journey",
+        backtrack_required=False,
         journey_previous_path=["1"],
         expected_next_node_index="1",
     )
@@ -1184,6 +1191,7 @@ async def test_that_journey_selector_repeats_node_if_incomplete_2(
         customer=customer,
         conversation_context=conversation_context,
         journey_name="calzone_journey",
+        backtrack_required=False,
         journey_previous_path=["1", "2", "7", "8"],
         expected_next_node_index="8",
     )
@@ -1220,6 +1228,7 @@ async def test_that_journey_selector_correctly_advances_to_follow_up_node_1(
         conversation_context=conversation_context,
         journey_previous_path=["1"],
         journey_name="compliment_customer_journey",
+        backtrack_required=False,
         expected_next_node_index="2",
     )
 
@@ -1251,6 +1260,7 @@ async def test_that_journey_selector_correctly_advances_to_follow_up_node_2(
         customer=customer,
         conversation_context=conversation_context,
         journey_name="reset_password_journey",
+        backtrack_required=False,
         journey_previous_path=["1"],
         expected_next_node_index="2",
     )
@@ -1299,6 +1309,7 @@ async def test_that_journey_selector_correctly_exits_journey_1(
         customer=customer,
         conversation_context=conversation_context,
         journey_name="reset_password_journey",
+        backtrack_required=False,
         journey_previous_path=["1", "2", "3"],
         expected_next_node_index=None,
     )
@@ -1347,6 +1358,7 @@ async def test_that_journey_selector_correctly_advances_to_follow_up_node_3(
         customer=customer,
         conversation_context=conversation_context,
         journey_name="reset_password_journey",
+        backtrack_required=False,
         journey_previous_path=["1", "2", "3"],
         expected_next_node_index="5",
     )
@@ -1424,6 +1436,7 @@ async def test_that_journey_selector_correctly_advances_based_on_tool_result(
         customer=customer,
         conversation_context=conversation_context,
         journey_name="reset_password_journey",
+        backtrack_required=False,
         journey_previous_path=["1", "2", "3", "5"],
         expected_next_node_index="6",
         staged_events=staged_events,
@@ -1466,6 +1479,7 @@ async def test_that_journey_selector_correctly_exits_journey_that_no_longer_appl
         customer=customer,
         conversation_context=conversation_context,
         journey_name="reset_password_journey",
+        backtrack_required=False,
         journey_previous_path=["1", "2"],
         expected_next_node_index=None,
     )
@@ -1503,6 +1517,7 @@ async def test_that_multinode_advancement_is_stopped_at_tool_requiring_nodes(
         customer=customer,
         conversation_context=conversation_context,
         journey_name="calzone_journey",
+        backtrack_required=False,
         journey_previous_path=["1"],
         expected_path=["1", "2", "7", "8", "9", "10"],
         expected_next_node_index="10",
@@ -1537,6 +1552,7 @@ async def test_that_multinode_advancement_completes_and_exits_journey(
         customer=customer,
         conversation_context=conversation_context,
         journey_name="forgot_keys_journey",
+        backtrack_required=False,
         journey_previous_path=["1"],
         expected_next_node_index=None,
     )
@@ -1589,6 +1605,7 @@ async def test_that_journey_selector_backtracks_when_customer_changes_earlier_ch
         customer=customer,
         conversation_context=conversation_context,
         journey_name="calzone_journey",
+        backtrack_required=True,
         journey_previous_path=["1", "2", "7"],
         expected_next_node_index="7",  # Should return to asking about calzone type. If it goes to step 8 it's not too bad
     )
@@ -1647,6 +1664,7 @@ async def test_that_journey_selector_backtracks_when_customer_changes_earlier_ch
         customer=customer,
         conversation_context=conversation_context,
         journey_name="calzone_journey",
+        backtrack_required=True,
         journey_previous_path=["1", "2", "7", "8", "9"],
         expected_next_node_index="3",  # Should go to node 3 (warn about delivery time for over 5 calzones)
     )
@@ -1743,6 +1761,7 @@ async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_
         customer=customer,
         conversation_context=conversation_context,
         journey_name="calzone_journey",
+        backtrack_required=True,
         journey_previous_path=["1", "2", "7", "8", "9", "10", "11"],
         expected_path=["1", "2", "7", "8", "9", "10", "11", "8", "9", "10"],
         expected_next_node_index="10",  # Should check stock again
@@ -1832,6 +1851,7 @@ async def test_that_journey_selector_backtracks_when_customer_changes_much_earli
         customer=customer,
         conversation_context=conversation_context,
         journey_name="reset_password_journey",
+        backtrack_required=True,
         journey_previous_path=["1", "2", "3", "5", "7"],
         expected_next_node_index=["1", "2", "3", "5", "7", "3", "5"],
         staged_events=staged_events,
@@ -1874,6 +1894,7 @@ async def test_that_multinode_advancement_is_stopped_at_node_that_requires_sayin
         customer=customer,
         conversation_context=conversation_context,
         journey_name="compliment_customer_journey",
+        backtrack_required=False,
         journey_previous_path=["1", "2"],
         expected_path=["1", "2", "3", "4", "5"],
         expected_next_node_index="5",
@@ -1942,6 +1963,7 @@ async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_
         customer=customer,
         conversation_context=conversation_context,
         journey_name="calzone_journey",
+        backtrack_required=True,
         journey_previous_path=["1", "2", "7", "8", "9", "10", "11"],
         expected_path=[
             "1",
@@ -2005,6 +2027,7 @@ async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_
         customer=customer,
         conversation_context=conversation_context,
         journey_name="reset_password_journey",
+        backtrack_required=True,
         journey_previous_path=["1", "2", "3"],
         expected_next_node_index=["1", "2", "3", "5", "None"],
     )  # This test is slightly ambiguous, advancing to either node 3 or 5 (its followup) is considered valid
@@ -2090,6 +2113,7 @@ async def test_that_journey_selector_backtracks_and_fast_forwards_when_customer_
         customer=customer,
         conversation_context=conversation_context,
         journey_name="reset_password_journey",
+        backtrack_required=True,
         journey_previous_path=["1", "2", "3", "5", "7"],
         staged_events=staged_events,
         expected_path=[
@@ -2169,6 +2193,7 @@ async def test_that_journey_selector_does_not_fast_forward_when_earlier_customer
         customer=customer,
         conversation_context=conversation_context,
         journey_name="calzone_journey",
+        backtrack_required=True,
         journey_previous_path=["1", "2", "7", "8", "9", "10", "11"],
         expected_path=[
             "1",
@@ -2237,6 +2262,7 @@ async def test_that_journey_selector_backtracks_back_does_not_fast_forward_upon_
         customer=customer,
         conversation_context=conversation_context,
         journey_name="reset_password_journey",
+        backtrack_required=True,
         journey_previous_path=["1", "2", "3", "5"],
         expected_path=[
             "1",
@@ -2279,6 +2305,7 @@ async def test_that_journey_selector_correctly_advances_by_multiple_nodes(
         customer=customer,
         conversation_context=conversation_context,
         journey_name="calzone_journey",
+        backtrack_required=False,
         journey_previous_path=["1"],
         expected_path=["1", "2", "7", "8", "9"],
         expected_next_node_index="9",
@@ -2321,6 +2348,7 @@ async def test_that_fork_steps_are_correctly_traversed(
         customer=customer,
         conversation_context=conversation_context,
         journey_name="tech_experience_journey",
+        backtrack_required=False,
         journey_previous_path=["1", "2"],
         expected_path=["1", "2", "3", "6"],
         expected_next_node_index="6",
@@ -2347,6 +2375,7 @@ async def test_that_fork_steps_are_correctly_fast_forwarded_through(
         customer=customer,
         conversation_context=conversation_context,
         journey_name="tech_experience_journey",
+        backtrack_required=False,
         journey_previous_path=[],
         expected_path=["1", "2", "4", "8"],
         expected_next_node_index="8",
@@ -2388,6 +2417,7 @@ async def test_that_two_consecutive_fork_steps_are_traversed_correctly(
         customer=customer,
         conversation_context=conversation_context,
         journey_name="investment_advice_journey",
+        backtrack_required=False,
         journey_previous_path=["1", "2"],
         expected_path=["1", "2", "3", "4", "6"],
         expected_next_node_index="6",
@@ -2446,6 +2476,7 @@ async def test_that_two_consecutive_fork_steps_are_traversed_correctly_when_back
         customer=customer,
         conversation_context=conversation_context,
         journey_name="investment_advice_journey",
+        backtrack_required=None,  # Can be interpreted as exit journey (no backtrack) or backtracking
         journey_previous_path=["1", "1", "2", "3", "5", "8"],
         expected_next_node_index=["7", "None"],  # TODO change to None?
     )
@@ -2525,6 +2556,7 @@ async def test_that_journey_reexecutes_tool_running_step_even_if_the_tool_ran_be
         customer=customer,
         conversation_context=conversation_context,
         journey_name="calzone_journey",
+        backtrack_required=False,
         journey_previous_path=["1", "2", "7", "8"],
         expected_path=["1", "2", "7", "8", "9", "10"],
         expected_next_node_index="10",  # Should check stock again
@@ -2575,6 +2607,7 @@ async def test_that_empty_previous_path_is_treated_as_if_journey_just_started(
         customer=customer,
         conversation_context=conversation_context,
         journey_name="reset_password_journey",
+        backtrack_required=False,
         journey_previous_path=[None, None, None],
         expected_path=["1"],
         expected_next_node_index="1",

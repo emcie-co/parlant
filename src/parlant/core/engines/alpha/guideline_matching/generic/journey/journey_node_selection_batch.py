@@ -189,9 +189,8 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
 
     @override
     async def process(self) -> GuidelineMatchingBatchResult:
-        automatic_match = self.auto_return_match()
-        if automatic_match:
-            return automatic_match  # TODO fix this
+        if automatic_match := self.auto_return_match():
+            return automatic_match
 
         journey_conditions = list(
             await async_utils.safe_gather(

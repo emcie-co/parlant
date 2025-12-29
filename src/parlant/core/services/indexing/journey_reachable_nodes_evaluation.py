@@ -66,6 +66,8 @@ class _ChildInfo:
     action: str | None
     edge_condition: str | None
     id_to_reachable_follow_ups: dict[str, _ReachableFollowUps] = field(default_factory=dict)
+    customer_action_description: Optional[str] = None
+    agent_action_description: Optional[str] = None
 
 
 class PathCondition(DefaultBaseModel):
@@ -367,7 +369,7 @@ class JourneyReachableNodesEvaluator:
                     for r in new_graph[child_idx].reachable_follow_ups:
                         # We don't want paths that exceed depth, but if they end with fork we will allow extra edge.
                         if len(r.path) + 1 <= max_depth or (
-                            len(r.path) > 2 and new_graph[r.path[-2]].kind == JourneyNodeKind.FORK
+                            len(r.path) > 1 and new_graph[r.path[-2]].kind == JourneyNodeKind.FORK
                         ):
                             truncated_follow_ups[str(id)] = _ReachableFollowUps(
                                 condition=r.condition,
@@ -376,6 +378,8 @@ class JourneyReachableNodesEvaluator:
                             id += 1
                 children_info[child_idx] = _ChildInfo(
                     action=new_graph[child_idx].action,
+                    customer_action_description=new_graph[child_idx].customer_action_description,
+                    agent_action_description=new_graph[child_idx].agent_action_description,
                     edge_condition=e.condition,
                     id_to_reachable_follow_ups=truncated_follow_ups,
                 )
@@ -435,9 +439,15 @@ Current node action:
                     desc += f"""
         Action of child ({id}): 
         {info.action}"""
+                    if info.customer_action_description:
+                        desc += f"""
+        - CUSTOMER DEPENDENT: This action requires an action from the customer to be considered complete. The action is completed if: {info.customer_action_description}"""
+                    if info.agent_action_description:
+                        desc += f"""
+        - REQUIRES AGENT ACTION: This step requires from the agent to say something for it to be completed. The action is completed if: {info.agent_action_description}"""
                 else:
                     desc += """
-            There is no action to take in this child"""
+        There is no action to take in this child"""
 
                 if info.edge_condition:
                     desc += f"""
@@ -451,7 +461,7 @@ Current node action:
                 - Condition ({path_id}) : {r.condition}"""
         else:
             desc += """
-                This step has no children"""
+    This step has no children"""
 
         return desc
 
@@ -565,7 +575,7 @@ Notes:
         builder.add_section(
             name="journey-reachable-nodes-evaluation-examples",
             template="""
-Examples of Journey Step Selections:
+Examples of reachable nodes evaluation:
 -------------------
 {formatted_shots}
 
@@ -760,7 +770,7 @@ node_example_1 = _JourneyNode(
     ],
     kind=JourneyNodeKind.CHAT,
     customer_dependent_action=True,
-    customer_action_description="the customer responded regarding their preference between exploring cities and scenic landscapes",
+    customer_action_description="the customer provided their desired pick up location",
     reachable_follow_ups=[  # This is the expected result
         _ReachableFollowUps(
             condition="The customer's desired pick up location is in NYC and customer hasn't provided their destination location yet",
@@ -809,7 +819,7 @@ children_info_example_1 = {
 
 expected_result_example_1 = ReachableNodesEvaluationSchema(
     step_action=node_example_1.action,
-    step_action_completed="The customer provided their destination location",
+    step_action_completed="The customer provided their desired pick up location",
     children_conditions=[
         ChildEvaluation(
             child_id="3",
@@ -837,7 +847,7 @@ expected_result_example_1 = ReachableNodesEvaluationSchema(
             child_id="4",
             child_action=children_info_example_1["4"].action,
             condition_to_child=children_info_example_1["4"].edge_condition,
-            condition_to_child_and_stop="The agent informed the customer that we do not operate outside of NYC",
+            condition_to_child_and_stop="The desired pick up location is outside of NYC and the agent informed the customer that we do not operate outside of NYC",
             conditions_to_child_and_forward=[
                 PathCondition(
                     id="1",
@@ -870,7 +880,7 @@ node_example_2 = _JourneyNode(
     ],
     kind=JourneyNodeKind.CHAT,
     customer_dependent_action=True,
-    customer_action_description="The customer responded regarding their delivery speed preference",
+    customer_action_description="The customer provided their shipping address",
     reachable_follow_ups=[  # This is the expected result
         _ReachableFollowUps(
             condition="The customer hasn't chosen the delivery speed they prefer: Standard (5-7 days), Express (2-3 days), or Overnight",

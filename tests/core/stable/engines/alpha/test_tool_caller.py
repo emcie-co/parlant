@@ -1502,9 +1502,9 @@ async def test_that_non_consequential_tool_with_parameters_uses_simplified_mode(
     city_value = str(tool_call.arguments["city"])
     assert city_value.lower() == "paris"
 
-    # Verify simplified mode was used (schema name should be SimpleToolBatchSchema)
+    # Verify simplified mode was used (schema name should be NonConsequentialToolBatchSchema)
     assert len(inference_tool_calls_result.batch_generations) == 1
-    assert "Simple" in inference_tool_calls_result.batch_generations[0].schema_name
+    assert "NonConsequential" in inference_tool_calls_result.batch_generations[0].schema_name
 
 
 async def test_that_consequential_tool_with_parameters_uses_full_mode(

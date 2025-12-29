@@ -15,7 +15,7 @@ Feature: Conversation
         And the message contains no recommendation on pepperoni pizza
 
     Scenario: The agent follows an agent intention guideline when it overrides an agent intention guideline
-        And a guideline to suggest direct flights or ground-based transportation when you recommend travel options
+        Given a guideline to suggest direct flights or ground-based transportation when you recommend travel options
         And a guideline to suggest only ground-based travel options when you recommend domestic US travel options
         And a customer message, "Hi, I want to go to California from New york next week. What are my options?"
         When processing is triggered

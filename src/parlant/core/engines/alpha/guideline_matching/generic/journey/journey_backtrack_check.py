@@ -252,6 +252,16 @@ class JourneyBacktrackCheck:
             journey_conditions_str = f"\nJourney activation condition: {journey_conditions_str}"
         else:
             journey_conditions_str = ""
+        if previous_path[-1]:
+            journey_status = (
+                "This journey is active now. We may need to backtrack to previous executed steps"
+            )
+        else:
+            journey_status = """
+This journey is not currently active. We may need to:
+1. Resume to the journey process by backtracking to the last point where we left off or to a previously completed step
+2. Start a new instance of the same journey for a different purpose (backtrack to the beginning of the journey)  
+"""
 
         last_executed_node_id = next(
             (node_id for node_id in reversed(previous_path) if node_id is not None), None
@@ -284,7 +294,10 @@ class JourneyBacktrackCheck:
 
             # Previously executed-related flags
             if node.id == last_executed_node_id:
-                flags_str += "- This is the current step that should be executed."
+                if previous_path[-1]:
+                    flags_str += "- This is the current step that should be executed."
+                else:
+                    flags_str += "- This is the next step that should be executed. May need to backtrack to this step."
             elif node.id in previous_path:
                 flags_str += "- PREVIOUSLY EXECUTED: This step was previously executed. May need to backtrack to this step.\n"
             elif node.id != ROOT_INDEX:
@@ -302,6 +315,9 @@ class JourneyBacktrackCheck:
 
     Steps:
     {nodes_str}
+
+    Journey current status:
+    {journey_status}
     """
 
     async def process(self) -> BacktrackCheckResult:

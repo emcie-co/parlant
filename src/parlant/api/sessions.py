@@ -50,7 +50,6 @@ from parlant.core.sessions import (
     EventSource,
     MessageGenerationInspection,
     Participant,
-    PreparationIteration,
     SessionId,
     SessionStatus,
 )
@@ -1136,66 +1135,6 @@ def message_generation_inspection_to_dto(
             name: generation_info_to_dto(generation) for name, generation in m.generations.items()
         },
         messages=[message for message in m.messages if message is not None],
-    )
-
-
-def preparation_iteration_to_dto(iteration: PreparationIteration) -> PreparationIterationDTO:
-    return PreparationIterationDTO(
-        generations=PreparationIterationGenerationsDTO(
-            guideline_matching=GuidelineMatchingInspectionDTO(
-                total_duration=iteration.generations.guideline_matching.total_duration,
-                batches=[
-                    generation_info_to_dto(generation)
-                    for generation in iteration.generations.guideline_matching.batches
-                ],
-            ),
-            tool_calls=[
-                generation_info_to_dto(generation)
-                for generation in iteration.generations.tool_calls
-            ],
-        ),
-        guideline_matches=[
-            GuidelineMatchDTO(
-                guideline_id=match["guideline_id"],
-                condition=match["condition"],
-                action=match["action"],
-                score=match["score"],
-                rationale=match["rationale"],
-            )
-            for match in iteration.guideline_matches
-        ],
-        tool_calls=[
-            ToolCallDTO(
-                tool_id=tool_call["tool_id"],
-                arguments=cast(Mapping[str, JSONSerializableDTO], tool_call["arguments"]),
-                result=ToolResultDTO(
-                    data=cast(JSONSerializableDTO, tool_call["result"]["data"]),
-                    metadata=cast(
-                        Mapping[str, JSONSerializableDTO], tool_call["result"]["metadata"]
-                    ),
-                ),
-            )
-            for tool_call in iteration.tool_calls
-        ],
-        terms=[
-            PreparationIterationTermDTO(
-                id=term["id"],
-                name=term["name"],
-                description=term["description"],
-                synonyms=term["synonyms"],
-            )
-            for term in iteration.terms
-        ],
-        context_variables=[
-            ContextVariableAndValueDTO(
-                id=cv["id"],
-                name=cv["name"],
-                description=cv["description"] or "",
-                key=cv["key"],
-                value=cast(JSONSerializableDTO, cv["value"]),
-            )
-            for cv in iteration.context_variables
-        ],
     )
 
 

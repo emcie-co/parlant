@@ -25,7 +25,7 @@ from parlant.core.nlp.embedding import (
     EmbedderFactory,
     EmbeddingCacheProvider,
     EmbeddingResult,
-    NoOpEmbedder,
+    NullEmbedder,
 )
 from parlant.core.persistence.common import (
     Where,
@@ -371,7 +371,7 @@ class ElasticsearchVectorDatabase(VectorDatabase):
                 embedder: Embedder = self._embedder_factory.create_embedder(embedder_type)
 
                 # Choose similarity metric based on embedder type
-                similarity_metric: str = "l2_norm" if embedder_type == NoOpEmbedder else "cosine"
+                similarity_metric: str = "l2_norm" if embedder_type == NullEmbedder else "cosine"
 
                 index_settings: dict[str, Any] = get_elasticsearch_index_settings_from_env()
 
@@ -484,7 +484,7 @@ class ElasticsearchVectorDatabase(VectorDatabase):
                 failed_migrations_collection: ElasticsearchVectorCollection[
                     BaseDocument
                 ] = await self.get_or_create_collection(
-                    "failed_migrations", BaseDocument, NoOpEmbedder, identity_loader
+                    "failed_migrations", BaseDocument, NullEmbedder, identity_loader
                 )
 
                 for failed_doc in failed_migrations:
@@ -763,7 +763,7 @@ class ElasticsearchVectorDatabase(VectorDatabase):
         Raises:
             ValueError: If collection doesn't exist
         """
-        pattern: str = f"{self.index_prefix}_{name}_*"
+        pattern: str = f"{self.index_prefix}_vecdb_{name}_*"
 
         try:
             indices_response: list[dict[str, Any]] = await self.elasticsearch_client.cat.indices(
@@ -898,7 +898,7 @@ class ElasticsearchVectorCollection(VectorCollection[TDocument]):
     @property
     def similarity_metric(self) -> str:
         """Get the similarity metric for this collection."""
-        return "l2_norm" if isinstance(self._embedder, NoOpEmbedder) else "cosine"
+        return "l2_norm" if isinstance(self._embedder, NullEmbedder) else "cosine"
 
     async def _get_field_mapping(self, field_name: str) -> str:
         """
@@ -1675,7 +1675,9 @@ class ElasticsearchVectorCollection(VectorCollection[TDocument]):
             "index": self._embedded_index_name,
             "query": query,
             "size": page_size,
-            "sort": [{"id": "asc"}],  # Use document id field instead of _id (avoids fielddata requirement)
+            "sort": [
+                {"id": "asc"}
+            ],  # Use document id field instead of _id (avoids fielddata requirement)
             "source": {"excludes": ["content_vector"]},
         }
 

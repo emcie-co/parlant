@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 import tempfile
@@ -31,7 +32,7 @@ from parlant.adapters.vector_db.elasticsearch import (
 from parlant.core.agents import AgentStore, AgentId
 from parlant.core.common import IdGenerator, Version, md5_checksum
 from parlant.core.glossary import GlossaryVectorStore
-from parlant.core.nlp.embedding import Embedder, EmbedderFactory, NoOpEmbedder, NullEmbeddingCache
+from parlant.core.nlp.embedding import Embedder, EmbedderFactory, NullEmbedder, NullEmbeddingCache
 from parlant.core.loggers import Logger
 from parlant.core.nlp.service import NLPService
 from parlant.core.persistence.common import MigrationRequired, ObjectId
@@ -45,7 +46,7 @@ async def _openai_embedder_type_provider() -> type[Embedder]:
 
 
 async def _no_op_embedder_type_provider() -> type[Embedder]:
-    return NoOpEmbedder
+    return NullEmbedder
 
 
 class _TestDocument(TypedDict, total=False):
@@ -87,24 +88,31 @@ def doc_version() -> Version.String:
     return Version.from_string("0.1.0").to_string()
 
 
-async def cleanup_test_indices() -> None:
+@fixture
+def test_prefix() -> str:
+    """Generate unique prefix for each test to avoid isolation issues."""
+    unique_id = uuid.uuid4().hex[:8]
+    return f"test_parlant_{unique_id}"
+
+
+async def cleanup_test_indices(prefix: str) -> None:
     """Helper function to cleanup all test indices and templates."""
     es_client = create_elasticsearch_client_from_env()
     try:
         # Cleanup vector database indices (with _vecdb_ infix)
-        all_indices = await es_client.indices.get(index="test_parlant_vecdb_*")
+        all_indices = await es_client.indices.get(index=f"{prefix}_vecdb_*")
         for index_name in all_indices.keys():
             try:
                 await es_client.indices.delete(index=index_name)
             except Exception:
                 pass
-        
+
         # Cleanup vector database template
         try:
-            await es_client.indices.delete_index_template(name="test_parlant_vecdb_template")
+            await es_client.indices.delete_index_template(name=f"{prefix}_vecdb_template")
         except Exception:
             pass  # Template doesn't exist
-            
+
     except Exception:
         pass  # No indices to clean
     finally:
@@ -112,31 +120,32 @@ async def cleanup_test_indices() -> None:
 
 
 @fixture(scope="function", autouse=True)
-async def cleanup_elasticsearch_indices() -> AsyncIterator[None]:
+async def cleanup_elasticsearch_indices(test_prefix: str) -> AsyncIterator[None]:
     """Automatically cleanup test indices before and after each test."""
     # Cleanup before test
-    await cleanup_test_indices()
+    await cleanup_test_indices(test_prefix)
     yield
     # Cleanup after test
-    await cleanup_test_indices()
+    await cleanup_test_indices(test_prefix)
 
 
 @fixture
 async def elasticsearch_database(
     context: _TestContext,
+    test_prefix: str,
 ) -> AsyncIterator[ElasticsearchVectorDatabase]:
     """Create Elasticsearch database with proper cleanup after each test."""
-    async with create_database(context) as es_database:
+    async with create_database(context, test_prefix) as es_database:
         yield es_database
 
 
-def create_database(context: _TestContext) -> ElasticsearchVectorDatabase:
+def create_database(context: _TestContext, index_prefix: str) -> ElasticsearchVectorDatabase:
     """Create Elasticsearch database with test-specific configuration."""
     es_client = create_elasticsearch_client_from_env()
 
     return ElasticsearchVectorDatabase(
         elasticsearch_client=es_client,
-        index_prefix="test_parlant",
+        index_prefix=index_prefix,
         logger=context.container[Logger],
         embedder_factory=EmbedderFactory(context.container),
         embedding_cache_provider=NullEmbeddingCache,
@@ -475,10 +484,11 @@ async def test_find_similar_documents_with_filters(
 async def test_loading_collections(
     context: _TestContext,
     doc_version: Version.String,
+    test_prefix: str,
 ) -> None:
     """Test that collections persist across database instances."""
     # Create and populate collection in first database instance
-    async with create_database(context) as first_db:
+    async with create_database(context, test_prefix) as first_db:
         created_collection = await first_db.get_or_create_collection(
             "test_collection",
             _TestDocument,
@@ -497,7 +507,7 @@ async def test_loading_collections(
         await created_collection.insert_one(document)
 
     # Load collection in second database instance
-    async with create_database(context) as second_db:
+    async with create_database(context, test_prefix) as second_db:
         fetched_collection = await second_db.get_collection(
             "test_collection",
             _TestDocument,
@@ -653,13 +663,14 @@ async def test_that_glossary_elasticsearch_store_correctly_finds_relevant_terms_
     container: Container,
     agent_id: AgentId,
     context: _TestContext,
+    test_prefix: str,
 ) -> None:
     """Test glossary store with large query input (matches ChromaDB test)."""
 
     async def embedder_type_provider() -> type[Embedder]:
         return type(await container[NLPService].get_embedder())
 
-    async with create_database(context) as es_db:
+    async with create_database(context, test_prefix) as es_db:
         async with GlossaryVectorStore(
             id_generator=container[IdGenerator],
             vector_db=es_db,
@@ -712,9 +723,10 @@ class _TestDocumentV2(BaseDocument):
 @mark.asyncio
 async def test_that_when_persistence_and_store_version_match_allows_store_to_open_when_migrate_is_disabled(
     context: _TestContext,
+    test_prefix: str,
 ) -> None:
     """Test that matching versions allow store to open without migration."""
-    async with create_database(context) as es_db:
+    async with create_database(context, test_prefix) as es_db:
         async with GlossaryVectorStore(
             id_generator=IdGenerator(),
             vector_db=es_db,
@@ -732,6 +744,7 @@ async def test_that_when_persistence_and_store_version_match_allows_store_to_ope
 @mark.asyncio
 async def test_that_document_loader_updates_documents_in_current_elasticsearch_collection(
     context: _TestContext,
+    test_prefix: str,
 ) -> None:
     """Test that document loader properly migrates documents."""
 
@@ -753,7 +766,7 @@ async def test_that_document_loader_updates_documents_in_current_elasticsearch_c
         raise ValueError(f"Version {doc['version']} not supported")
 
     # Create initial collection with v1.0.0 documents
-    async with create_database(context) as es_database:
+    async with create_database(context, test_prefix) as es_database:
         collection = await es_database.get_or_create_collection(
             "test_collection",
             _TestDocument,
@@ -789,7 +802,7 @@ async def test_that_document_loader_updates_documents_in_current_elasticsearch_c
             await collection.insert_one(doc)
 
     # Reopen with document loader to migrate to v2.0.0
-    async with create_database(context) as es_database:
+    async with create_database(context, test_prefix) as es_database:
         new_collection = await es_database.get_or_create_collection(
             "test_collection",
             _TestDocumentV2,
@@ -811,10 +824,11 @@ async def test_that_document_loader_updates_documents_in_current_elasticsearch_c
 @mark.asyncio
 async def test_that_failed_migrations_are_stored_in_failed_migrations_collection(
     context: _TestContext,
+    test_prefix: str,
 ) -> None:
     """Test that documents that fail migration are stored separately."""
     # Create initial collection with documents
-    async with create_database(context) as es_database:
+    async with create_database(context, test_prefix) as es_database:
         collection = await es_database.get_or_create_collection(
             "test_collection",
             _TestDocument,
@@ -850,7 +864,7 @@ async def test_that_failed_migrations_are_stored_in_failed_migrations_collection
             await collection.insert_one(doc)
 
     # Reopen with loader that fails for specific documents
-    async with create_database(context) as es_database:
+    async with create_database(context, test_prefix) as es_database:
 
         async def _document_loader(doc: BaseDocument) -> Optional[_TestDocumentV2]:
             doc_1 = cast(_TestDocument, doc)
@@ -904,14 +918,15 @@ async def test_that_failed_migrations_are_stored_in_failed_migrations_collection
 @mark.asyncio
 async def test_that_migration_error_raised_when_version_mismatch_and_migration_disabled(
     context: _TestContext,
+    test_prefix: str,
 ) -> None:
     """Test that version mismatch raises error when migration is disabled."""
     # Set old version in metadata using the correct key that VectorDocumentStoreMigrationHelper checks
-    async with create_database(context) as es_db:
+    async with create_database(context, test_prefix) as es_db:
         await es_db.upsert_metadata("GlossaryVectorStore_version", "0.0.1")
 
     # Attempt to open with migration disabled
-    async with create_database(context) as es_db:
+    async with create_database(context, test_prefix) as es_db:
         with raises(MigrationRequired) as exc_info:
             async with GlossaryVectorStore(
                 IdGenerator(),
@@ -929,9 +944,10 @@ async def test_that_migration_error_raised_when_version_mismatch_and_migration_d
 @mark.asyncio
 async def test_that_new_store_creates_metadata_with_correct_version(
     context: _TestContext,
+    test_prefix: str,
 ) -> None:
     """Test that new store creates metadata with correct version."""
-    async with create_database(context) as es_db:
+    async with create_database(context, test_prefix) as es_db:
         async with GlossaryVectorStore(
             IdGenerator(),
             vector_db=es_db,
@@ -950,10 +966,11 @@ async def test_that_new_store_creates_metadata_with_correct_version(
 async def test_that_documents_are_indexed_when_changing_embedder_type(
     context: _TestContext,
     agent_id: AgentId,
+    test_prefix: str,
 ) -> None:
     """Test that documents are re-indexed when changing embedder type."""
     # Create store with OpenAI embedder
-    async with create_database(context) as es_db:
+    async with create_database(context, test_prefix) as es_db:
         async with GlossaryVectorStore(
             IdGenerator(),
             vector_db=es_db,
@@ -972,8 +989,8 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
                 tag_id=Tag.for_agent_id(agent_id),
             )
 
-    # Reopen with NoOpEmbedder
-    async with create_database(context) as es_db:
+    # Reopen with NullEmbedder
+    async with create_database(context, test_prefix) as es_db:
         async with GlossaryVectorStore(
             id_generator=IdGenerator(),
             vector_db=es_db,
@@ -983,7 +1000,7 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
             allow_migration=True,
         ) as store:
             # Get embedded index name
-            embedded_index_name = es_db._get_embedded_index_name("glossary", NoOpEmbedder)
+            embedded_index_name = es_db._get_embedded_index_name("glossary", NullEmbedder)
 
             # Query Elasticsearch directly to verify embeddings
             response = await es_db.elasticsearch_client.search(
@@ -995,7 +1012,7 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
             assert response["hits"]["total"]["value"] >= 1
             docs = [hit["_source"] for hit in response["hits"]["hits"]]
 
-            # Verify embeddings are zero vectors (NoOpEmbedder characteristic)
+            # Verify embeddings are zero vectors (NullEmbedder characteristic)
             if docs and "content_vector" in docs[0]:
                 embeddings = np.array(docs[0]["content_vector"])
                 assert np.all(embeddings == 0)
@@ -1016,6 +1033,7 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
 @mark.asyncio
 async def test_that_documents_are_migrated_and_reindexed_for_new_embedder_type(
     context: _TestContext,
+    test_prefix: str,
 ) -> None:
     """Test migration and reindexing when switching embedder types."""
 
@@ -1031,7 +1049,7 @@ async def test_that_documents_are_migrated_and_reindexed_for_new_embedder_type(
         )
 
     # Create collection with OpenAI embedder
-    async with create_database(context) as es_database:
+    async with create_database(context, test_prefix) as es_database:
         collection = await es_database.get_or_create_collection(
             "test_collection",
             _TestDocument,
@@ -1058,12 +1076,12 @@ async def test_that_documents_are_migrated_and_reindexed_for_new_embedder_type(
         for doc in documents:
             await collection.insert_one(doc)
 
-    # Reopen with NoOpEmbedder and document loader
-    async with create_database(context) as es_database:
+    # Reopen with NullEmbedder and document loader
+    async with create_database(context, test_prefix) as es_database:
         new_collection = await es_database.get_or_create_collection(
             "test_collection",
             _TestDocumentV2,
-            embedder_type=NoOpEmbedder,
+            embedder_type=NullEmbedder,
             document_loader=_document_loader,
         )
 
@@ -1088,9 +1106,10 @@ async def test_that_documents_are_migrated_and_reindexed_for_new_embedder_type(
 @mark.asyncio
 async def test_that_in_filter_works_with_list_of_strings(
     context: _TestContext,
+    test_prefix: str,
 ) -> None:
     """Test $in filter with list of tag IDs."""
-    async with create_database(context) as es_db:
+    async with create_database(context, test_prefix) as es_db:
         async with GlossaryVectorStore(
             IdGenerator(),
             vector_db=es_db,
@@ -1138,9 +1157,10 @@ async def test_that_in_filter_works_with_list_of_strings(
 @mark.asyncio
 async def test_that_in_filter_works_with_single_tag(
     context: _TestContext,
+    test_prefix: str,
 ) -> None:
     """Test $in filter with a single tag."""
-    async with create_database(context) as es_db:
+    async with create_database(context, test_prefix) as es_db:
         async with GlossaryVectorStore(
             id_generator=IdGenerator(),
             vector_db=es_db,

@@ -66,6 +66,7 @@ from lagom import Container
 from parlant.adapters.db.json_file import JSONFileDocumentDatabase
 from parlant.adapters.db.transient import TransientDocumentDatabase
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
+from parlant.core.persistence.vector_database import VectorDatabase
 from parlant.api.authorization import (
     AuthorizationException,
     Operation,
@@ -4323,6 +4324,7 @@ class Server:
                 return type(await c()[NLPService].get_embedder())
 
             # Create vector database based on configuration
+            vector_db: VectorDatabase
             if self._vector_store == "elasticsearch":
                 if importlib.util.find_spec("elasticsearch") is None:
                     raise SDKError(
@@ -4351,6 +4353,7 @@ class Server:
             else:  # transient
                 vector_db = TransientVectorDatabase(
                     c()[Logger],
+                    c()[Tracer],
                     embedder_factory,
                     lambda: c()[EmbeddingCache],
                 )

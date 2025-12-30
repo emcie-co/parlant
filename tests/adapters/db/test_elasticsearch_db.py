@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Optional, Sequence, cast
@@ -100,7 +101,9 @@ def context(
 
 @fixture
 async def test_index_prefix() -> AsyncIterator[str]:
-    yield "test_parlant_doc"
+    # Use unique prefix per test to avoid test isolation issues
+    unique_id = uuid.uuid4().hex[:8]
+    yield f"test_parlant_doc_{unique_id}"
 
 
 async def cleanup_test_indices(index_prefix: str) -> None:
@@ -241,7 +244,7 @@ async def test_session_creation(
         async with SessionDocumentStore(session_db) as session_store:
             actual_sessions = await session_store.list_sessions()
             assert len(actual_sessions) == 1
-            db_session = actual_sessions[0]
+            db_session = actual_sessions.items[0]
             assert db_session.id == session.id
             assert db_session.customer_id == session.customer_id
             assert db_session.agent_id == context.agent_id
@@ -275,7 +278,7 @@ async def test_event_creation(
                 session_id=session.id,
                 source=EventSource.CUSTOMER,
                 kind=EventKind.MESSAGE,
-                correlation_id="<main>",
+                trace_id="<main>",
                 data={"message": "Hello, world!"},
                 creation_utc=datetime.now(timezone.utc),
             )
@@ -932,22 +935,58 @@ async def test_document_upgrade_during_loading_of_store(
     test_index_prefix: str,
 ) -> None:
     """Test that documents are upgraded during store loading."""
-    # Insert old version document directly
+    logger = context.container[Logger]
+    utc_now = datetime.now(timezone.utc).isoformat()
+
+    # First, create indices with proper mappings by opening the database
+    async with ElasticsearchDocumentDatabase(
+        test_elasticsearch_client, test_index_prefix, logger
+    ) as db:
+        # Create the collection to establish proper index mappings
+        _ = await db.get_or_create_collection(
+            name="dummy_collection",
+            schema=DummyStore.DummyDocumentV2,
+            document_loader=identity_loader,
+        )
+        # Also ensure metadata index exists with proper mappings
+        await db.get_or_create_collection(
+            name="metadata",
+            schema=BaseDocument,
+            document_loader=identity_loader,
+        )
+
+    # Now delete all documents and insert old version documents for migration testing
+    await test_elasticsearch_client.delete_by_query(
+        index=f"{test_index_prefix}_dummy_collection",
+        body={"query": {"match_all": {}}},
+        refresh=True,
+    )
+    await test_elasticsearch_client.delete_by_query(
+        index=f"{test_index_prefix}_metadata",
+        body={"query": {"match_all": {}}},
+        refresh=True,
+    )
+
+    # Insert old version documents directly (indices now have proper mappings)
     await test_elasticsearch_client.index(
         index=f"{test_index_prefix}_metadata",
         id="123",
-        document={"id": "123", "version": "1.0.0"},
+        document={"id": "123", "version": "1.0.0", "creation_utc": utc_now},
         refresh="wait_for",
     )
     await test_elasticsearch_client.index(
         index=f"{test_index_prefix}_dummy_collection",
         id="dummy_id",
-        document={"id": "dummy_id", "version": "1.0.0", "name": "Test Document"},
+        document={
+            "id": "dummy_id",
+            "version": "1.0.0",
+            "name": "Test Document",
+            "creation_utc": utc_now,
+        },
         refresh="wait_for",
     )
 
-    logger = context.container[Logger]
-
+    # Now open the store and verify migration happens
     async with ElasticsearchDocumentDatabase(
         test_elasticsearch_client, test_index_prefix, logger
     ) as db:

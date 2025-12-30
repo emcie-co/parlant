@@ -254,8 +254,7 @@ class JourneyNextStepSelection:
                     },
                 )
                 self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
-                with open("dumps/journey/journey next step/output.txt", "w") as f:
-                    f.write(inference.content.model_dump_json(indent=2))
+
                 if inference.content.applied_condition_id:
                     if inference.content.applied_condition_id == "None":
                         # Exit journey

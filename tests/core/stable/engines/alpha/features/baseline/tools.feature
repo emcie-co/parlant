@@ -802,8 +802,6 @@ Feature: Tools
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains a call to "search_electronic_products" with laptop as keyword and max price of 5
 
-<<<<<<< HEAD
-=======
     Scenario: The agent correctly chooses to call the right tool
         Given an agent whose job is to sell groceries
         And the term "carrot" defined as a kind of fruit
@@ -932,7 +930,6 @@ Feature: Tools
         Then the tool calls event contains 3 tool call(s)
         And the tool calls event contains a call to "transfer_shekels" with 200 from Fredric to Alisse a call to "transfer_shekels" with 100 from Fredric to Bob and a call to "transfer_money" with 300 from Fredric to Bob and no call to "transfer_money" with 200
 
->>>>>>> 3313f5078 (More small changes in tests)
     Scenario: Tool caller user the more suitable tool for searching when two overlap (1)
         Given a guideline "do_search" to retrieve relevant products that match the asked attributes when customer is interested in products with specific attributes
         And the tool "search_products"
@@ -999,6 +996,7 @@ Feature: Tools
         And no tool error has occurred
         And the tool calls event contains 1 tool call(s)
 
+    # Fails when the tool is not consequential because of bad conversion from float - should be fixable
     Scenario: Tool caller calls a tool with different types of parameters with no type errors (2)
         Given a guideline "set_a_meating" to set a bbq-integrated meeting with some friends when a customer wants to set a meeting with friends
         And the tool "set_a_bbq_appointment"

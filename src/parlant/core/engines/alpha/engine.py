@@ -1186,7 +1186,7 @@ class AlphaEngine(Engine):
 
         # Step 5: Filter the journeys that are activated by the matched guidelines.
         activated_journeys = self._filter_activated_journeys(
-            matching_result.matches, available_journeys
+            context, matching_result.matches, available_journeys
         )
 
         # Step 6: If any of the lower-probability journeys (those originally filtered out)
@@ -1281,7 +1281,10 @@ class AlphaEngine(Engine):
         # Step 5: Filter out the journeys activated by the matched guidelines.
         # If a journey was already active in a previous guideline-matching iteration, we still retrieve it
         # so we can exclude it from the next guideline-matching iteration.
-        activated_journeys = self._filter_activated_journeys(matching_result.matches, all_journeys)
+        activated_journeys = self._filter_activated_journeys_for_advanced_iterations(
+            matching_result.matches,
+            all_journeys,
+        )
 
         # Step 6: If any of the journeys have been activated,
         # run an additional matching pass for the guidelines
@@ -1347,11 +1350,49 @@ class AlphaEngine(Engine):
 
     def _filter_activated_journeys(
         self,
+        context: EngineContext,
         matches: Sequence[GuidelineMatch],
         all_journeys: Sequence[Journey],
     ) -> list[Journey]:
         # We consider a journey to be activated if either:
-        # 1. Match return a journey path with a step that is not None.
+        # 1. Journey was activated before and match return a journey path with a step that is not None.
+        # 2. The journey’s conditions match any of the currently matched guideline IDs.
+        journeys_with_paths: set[JourneyId] = {
+            id
+            for id, j in context.state.journey_paths.items()
+            if context.state.journey_paths[id] != [None]
+        }
+
+        active_journey_ids_by_path = {
+            m.metadata.get("step_selection_journey_id")
+            for m in matches
+            if m.metadata.get("journey_path", [])
+            and cast(list[GuidelineId], m.metadata["journey_path"])[-1] is not None
+            and m.metadata.get("step_selection_journey_id") in journeys_with_paths
+        }
+
+        active_journeys_by_conditions = [
+            j
+            for j in all_journeys
+            if set(j.conditions).intersection({m.guideline.id for m in matches})
+        ]
+
+        active_journeys = list(
+            set(
+                active_journeys_by_conditions
+                + [j for j in all_journeys if j.id in active_journey_ids_by_path]
+            )
+        )
+
+        return active_journeys
+
+    def _filter_activated_journeys_for_advanced_iterations(
+        self,
+        matches: Sequence[GuidelineMatch],
+        all_journeys: Sequence[Journey],
+    ) -> list[Journey]:
+        # We consider a journey to be activated if either:
+        # 1. Match return a journey path with a step that is not None for journey that .
         # 2. The journey’s conditions match any of the currently matched guideline IDs.
         active_journeys_by_conditions = [
             j

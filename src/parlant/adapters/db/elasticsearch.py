@@ -18,6 +18,9 @@ from typing import Any, Awaitable, Callable, Optional, Sequence, cast
 from typing_extensions import override, Self
 
 from parlant.core.persistence.common import (
+    Cursor,
+    ObjectId,
+    SortDirection,
     Where,
     WhereExpression,
     LogicalOperator,
@@ -28,6 +31,7 @@ from parlant.core.persistence.document_database import (
     DeleteResult,
     DocumentCollection,
     DocumentDatabase,
+    FindResult,
     InsertResult,
     TDocument,
     UpdateResult,
@@ -88,9 +92,7 @@ def create_elasticsearch_document_client_from_env() -> AsyncElasticsearch:
     )
     timeout: int = int(os.environ.get("ELASTICSEARCH__TIMEOUT", "30"))
     max_retries: int = int(os.environ.get("ELASTICSEARCH__MAX_RETRIES", "3"))
-    retry_on_timeout: bool = os.environ.get(
-        "ELASTICSEARCH__RETRY_ON_TIMEOUT", "true"
-    ).lower() in (
+    retry_on_timeout: bool = os.environ.get("ELASTICSEARCH__RETRY_ON_TIMEOUT", "true").lower() in (
         "true",
         "1",
         "yes",
@@ -182,7 +184,7 @@ class ElasticsearchDocumentDatabase(DocumentDatabase):
 
     def _get_index_name(self, collection_name: str) -> str:
         """Generate the full Elasticsearch index name for a collection.
-        
+
         Elasticsearch requires index names to be lowercase, so we normalize the name here.
         """
         return f"{self.index_prefix}_{collection_name}".lower()
@@ -541,7 +543,7 @@ class ElasticsearchDocumentDatabase(DocumentDatabase):
                             self._logger.error(
                                 f"Failed to insert document directly into Elasticsearch: {direct_insert_error}"
                             )
-                    self._logger.info(f'Document ID from doc: {doc.get("id")}')
+                    self._logger.info(f"Document ID from doc: {doc.get('id')}")
 
                     # Delete the failed document from the main index
                     doc_id = doc.get("id")
@@ -858,38 +860,139 @@ class ElasticsearchDocumentCollection(DocumentCollection[TDocument]):
     async def find(
         self,
         filters: Where,
-    ) -> Sequence[TDocument]:
-        """
-        Find documents matching the given filters.
+        limit: Optional[int] = None,
+        cursor: Optional[Cursor] = None,
+        sort_direction: Optional[SortDirection] = None,
+    ) -> FindResult[TDocument]:
+        """Find documents with cursor-based pagination.
+
+        Results are sorted by creation_utc with id as tiebreaker.
 
         Args:
-            filters: Where filter specification
+            filters: Where filter specification.
+            limit: Maximum number of documents to return per page.
+            cursor: Pagination cursor from a previous query.
+            sort_direction: Sort order (ASC or DESC). Defaults to ASC.
 
         Returns:
-            Sequence of matching documents
+            FindResult containing documents and pagination metadata.
         """
         query = _translate_where_to_elasticsearch_query(filters)
+        sort_direction = sort_direction or SortDirection.ASC
+
+        # Build the Elasticsearch query with cursor conditions
+        if cursor is not None:
+            cursor_query = self._build_cursor_query(cursor=cursor, sort_direction=sort_direction)
+            # Combine the original query with cursor conditions
+            if query.get("match_all"):
+                query = cursor_query
+            else:
+                query = {"bool": {"must": [query, cursor_query]}}
+
+        # Build sort specification
+        sort_order = "desc" if sort_direction == SortDirection.DESC else "asc"
+        sort_spec = [
+            {"creation_utc": {"order": sort_order}},
+            {"id": {"order": sort_order}},  # Tiebreaker
+        ]
+
+        # Fetch limit + 1 to check if there are more results
+        search_size = (limit + 1) if limit else 10000
 
         try:
             response = await self.elasticsearch_client.search(
                 index=self._index_name,
-                body={"query": query, "size": 10000},  # Adjust size as needed
+                body={"query": query, "sort": sort_spec, "size": search_size},
             )
 
-            documents = []
+            documents: list[TDocument] = []
             for hit in response["hits"]["hits"]:
                 doc = hit["_source"]
                 # Ensure the Elasticsearch _id is available as 'id' field
                 if "id" not in doc:
                     doc["id"] = hit["_id"]
                 documents.append(cast(TDocument, doc))
-            return documents
+
+            # Calculate pagination metadata
+            has_more = False
+            next_cursor = None
+            total_count = len(documents)
+
+            if limit and len(documents) > limit:
+                has_more = True
+                documents = documents[:limit]  # Remove the extra item
+
+                # Create cursor from the last item
+                if documents:
+                    last_item = documents[-1]
+                    next_cursor = Cursor(
+                        creation_utc=str(last_item.get("creation_utc", "")),
+                        id=ObjectId(str(last_item.get("id", ""))),
+                    )
+
+            return FindResult(
+                items=documents,
+                total_count=len(documents),
+                has_more=has_more,
+                next_cursor=next_cursor,
+            )
         except NotFoundError:
             # Index doesn't exist
-            return []
+            return FindResult(items=[], total_count=0, has_more=False, next_cursor=None)
         except Exception as e:
             self._database._logger.error(f"Search failed in index {self._index_name}: {e}")
-            return []
+            return FindResult(items=[], total_count=0, has_more=False, next_cursor=None)
+
+    def _build_cursor_query(
+        self,
+        cursor: Cursor,
+        sort_direction: SortDirection,
+    ) -> dict[str, Any]:
+        """Build an Elasticsearch query for cursor-based pagination.
+
+        Args:
+            cursor: The pagination cursor.
+            sort_direction: The sort direction.
+
+        Returns:
+            Elasticsearch query dict for cursor conditions.
+        """
+        if sort_direction == SortDirection.DESC:
+            # For descending order, get items with smaller creation_utc or same creation_utc with smaller id
+            return {
+                "bool": {
+                    "should": [
+                        {"range": {"creation_utc": {"lt": cursor.creation_utc}}},
+                        {
+                            "bool": {
+                                "must": [
+                                    {"term": {"creation_utc": cursor.creation_utc}},
+                                    {"range": {"id": {"lt": cursor.id}}},
+                                ]
+                            }
+                        },
+                    ],
+                    "minimum_should_match": 1,
+                }
+            }
+        else:
+            # For ascending order, get items with larger creation_utc or same creation_utc with larger id
+            return {
+                "bool": {
+                    "should": [
+                        {"range": {"creation_utc": {"gt": cursor.creation_utc}}},
+                        {
+                            "bool": {
+                                "must": [
+                                    {"term": {"creation_utc": cursor.creation_utc}},
+                                    {"range": {"id": {"gt": cursor.id}}},
+                                ]
+                            }
+                        },
+                    ],
+                    "minimum_should_match": 1,
+                }
+            }
 
     @override
     async def find_one(

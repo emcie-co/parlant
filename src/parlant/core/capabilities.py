@@ -359,11 +359,12 @@ class CapabilityVectorStore(CapabilityStore):
         params: CapabilityUpdateParams,
     ) -> Capability:
         async with self._lock.writer_lock:
-            all_docs = await self._collection.find(filters={"id": {"$eq": capability_id}})
+            find_result = await self._collection.find(filters={"id": {"$eq": capability_id}})
 
-            if not all_docs:
+            if not find_result:
                 raise ItemNotFoundError(item_id=UniqueId(capability_id))
 
+            all_docs = find_result.items
             for doc in all_docs:
                 await self._collection.delete_one(filters={"id": {"$eq": doc["id"]}})
 

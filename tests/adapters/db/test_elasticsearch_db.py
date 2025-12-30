@@ -105,7 +105,7 @@ async def test_index_prefix() -> AsyncIterator[str]:
 
 async def cleanup_test_indices(index_prefix: str) -> None:
     """Helper function to cleanup all test indices.
-    
+
     Note: Document database doesn't create templates, so only indices need cleanup.
     """
     if AsyncElasticsearch is None:
@@ -922,7 +922,8 @@ class DummyStore:
         pass
 
     async def list_dummy(self) -> Sequence[DummyDocumentV2]:
-        return await self._collection.find({})
+        result = await self._collection.find({})
+        return list(result.items)
 
 
 async def test_document_upgrade_during_loading_of_store(
@@ -1016,9 +1017,7 @@ async def test_failed_migration_collection(
             assert len(documents) == 0
 
             # Check failed migrations index directly
-            failed_migrations_index = (
-                f"{test_index_prefix}_dummy_collection_failed_migrations"
-            )
+            failed_migrations_index = f"{test_index_prefix}_dummy_collection_failed_migrations"
             response = await test_elasticsearch_client.search(
                 index=failed_migrations_index,
                 query={"match_all": {}},
@@ -1173,3 +1172,222 @@ async def test_database_initialization(
     exists = await test_elasticsearch_client.indices.exists(index=index_name)
     assert exists
 
+
+# ============================================================================
+# PAGINATION TESTS
+# ============================================================================
+
+
+class PaginationTestDocument(BaseDocument):
+    """Test document for pagination tests."""
+
+    name: str
+    creation_utc: str
+
+
+async def test_that_find_returns_find_result_with_items(
+    context: _TestContext,
+    test_elasticsearch_client: AsyncElasticsearch,
+    test_index_prefix: str,
+) -> None:
+    """Test that find() returns a FindResult object with items."""
+    from parlant.core.persistence.document_database import FindResult, identity_loader_for
+
+    async with ElasticsearchDocumentDatabase(
+        test_elasticsearch_client, test_index_prefix, context.container[Logger]
+    ) as db:
+        collection = await db.get_or_create_collection(
+            name="pagination_test",
+            schema=PaginationTestDocument,
+            document_loader=identity_loader_for(PaginationTestDocument),
+        )
+
+        # Insert test documents
+        for i in range(5):
+            await collection.insert_one(
+                PaginationTestDocument(
+                    id=f"doc_{i}",
+                    version="1.0.0",
+                    name=f"Document {i}",
+                    creation_utc=f"2024-01-0{i + 1}T00:00:00Z",
+                )
+            )
+
+        # Test find without limit returns all items
+        result = await collection.find({})
+
+        assert isinstance(result, FindResult)
+        assert len(result.items) == 5
+        assert result.has_more is False
+        assert result.next_cursor is None
+
+
+async def test_that_find_with_limit_returns_paginated_results(
+    context: _TestContext,
+    test_elasticsearch_client: AsyncElasticsearch,
+    test_index_prefix: str,
+) -> None:
+    """Test that find() with limit returns paginated results."""
+    from parlant.core.persistence.document_database import identity_loader_for
+
+    async with ElasticsearchDocumentDatabase(
+        test_elasticsearch_client, test_index_prefix, context.container[Logger]
+    ) as db:
+        collection = await db.get_or_create_collection(
+            name="pagination_limit_test",
+            schema=PaginationTestDocument,
+            document_loader=identity_loader_for(PaginationTestDocument),
+        )
+
+        # Insert test documents
+        for i in range(10):
+            await collection.insert_one(
+                PaginationTestDocument(
+                    id=f"doc_{i:02d}",
+                    version="1.0.0",
+                    name=f"Document {i}",
+                    creation_utc=f"2024-01-{i + 1:02d}T00:00:00Z",
+                )
+            )
+
+        # Test find with limit
+        result = await collection.find({}, limit=3)
+
+        assert len(result.items) == 3
+        assert result.has_more is True
+        assert result.next_cursor is not None
+
+
+async def test_that_find_with_cursor_returns_next_page(
+    context: _TestContext,
+    test_elasticsearch_client: AsyncElasticsearch,
+    test_index_prefix: str,
+) -> None:
+    """Test that find() with cursor returns the next page of results."""
+    from parlant.core.persistence.document_database import identity_loader_for
+
+    async with ElasticsearchDocumentDatabase(
+        test_elasticsearch_client, test_index_prefix, context.container[Logger]
+    ) as db:
+        collection = await db.get_or_create_collection(
+            name="pagination_cursor_test",
+            schema=PaginationTestDocument,
+            document_loader=identity_loader_for(PaginationTestDocument),
+        )
+
+        # Insert test documents with distinct creation times
+        for i in range(6):
+            await collection.insert_one(
+                PaginationTestDocument(
+                    id=f"doc_{i:02d}",
+                    version="1.0.0",
+                    name=f"Document {i}",
+                    creation_utc=f"2024-01-{i + 1:02d}T00:00:00Z",
+                )
+            )
+
+        # Get first page
+        first_page = await collection.find({}, limit=2)
+        assert len(first_page.items) == 2
+        assert first_page.has_more is True
+        assert first_page.next_cursor is not None
+
+        # Get second page using cursor
+        second_page = await collection.find({}, limit=2, cursor=first_page.next_cursor)
+        assert len(second_page.items) == 2
+        assert second_page.has_more is True
+
+        # Verify no overlap between pages
+        first_page_ids = {item["id"] for item in first_page.items}
+        second_page_ids = {item["id"] for item in second_page.items}
+        assert first_page_ids.isdisjoint(second_page_ids)
+
+
+async def test_that_find_with_sort_direction_desc_returns_newest_first(
+    context: _TestContext,
+    test_elasticsearch_client: AsyncElasticsearch,
+    test_index_prefix: str,
+) -> None:
+    """Test that find() with DESC sort returns newest items first."""
+    from parlant.core.persistence.common import SortDirection
+    from parlant.core.persistence.document_database import identity_loader_for
+
+    async with ElasticsearchDocumentDatabase(
+        test_elasticsearch_client, test_index_prefix, context.container[Logger]
+    ) as db:
+        collection = await db.get_or_create_collection(
+            name="pagination_sort_test",
+            schema=PaginationTestDocument,
+            document_loader=identity_loader_for(PaginationTestDocument),
+        )
+
+        # Insert test documents with distinct creation times
+        for i in range(5):
+            await collection.insert_one(
+                PaginationTestDocument(
+                    id=f"doc_{i:02d}",
+                    version="1.0.0",
+                    name=f"Document {i}",
+                    creation_utc=f"2024-01-{i + 1:02d}T00:00:00Z",
+                )
+            )
+
+        # Test find with descending sort
+        result = await collection.find({}, sort_direction=SortDirection.DESC)
+
+        assert len(result.items) == 5
+        # Verify descending order by creation_utc
+        creation_dates = [item["creation_utc"] for item in result.items]
+        assert creation_dates == sorted(creation_dates, reverse=True)
+
+
+async def test_that_find_iterating_through_all_pages_returns_all_documents(
+    context: _TestContext,
+    test_elasticsearch_client: AsyncElasticsearch,
+    test_index_prefix: str,
+) -> None:
+    """Test that iterating through all pages returns all documents."""
+    from parlant.core.persistence.document_database import identity_loader_for
+
+    async with ElasticsearchDocumentDatabase(
+        test_elasticsearch_client, test_index_prefix, context.container[Logger]
+    ) as db:
+        collection = await db.get_or_create_collection(
+            name="pagination_full_iteration_test",
+            schema=PaginationTestDocument,
+            document_loader=identity_loader_for(PaginationTestDocument),
+        )
+
+        # Insert 7 test documents
+        expected_ids = set()
+        for i in range(7):
+            doc_id = f"doc_{i:02d}"
+            expected_ids.add(doc_id)
+            await collection.insert_one(
+                PaginationTestDocument(
+                    id=doc_id,
+                    version="1.0.0",
+                    name=f"Document {i}",
+                    creation_utc=f"2024-01-{i + 1:02d}T00:00:00Z",
+                )
+            )
+
+        # Iterate through all pages with limit=3
+        all_items: list[PaginationTestDocument] = []
+        cursor = None
+        page_count = 0
+
+        while True:
+            result = await collection.find({}, limit=3, cursor=cursor)
+            all_items.extend(result.items)
+            page_count += 1
+
+            if not result.has_more:
+                break
+            cursor = result.next_cursor
+
+        # Verify all documents were retrieved
+        retrieved_ids = {item["id"] for item in all_items}
+        assert retrieved_ids == expected_ids
+        assert len(all_items) == 7
+        assert page_count == 3  # 3 + 3 + 1 = 7 documents

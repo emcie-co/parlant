@@ -45,7 +45,7 @@ async def _openai_embedder_type_provider() -> type[Embedder]:
     return OpenAITextEmbedding3Large
 
 
-async def _no_op_embedder_type_provider() -> type[Embedder]:
+async def _null_embedder_type_provider() -> type[Embedder]:
     return NullEmbedder
 
 
@@ -732,7 +732,7 @@ async def test_that_when_persistence_and_store_version_match_allows_store_to_ope
             vector_db=es_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=EmbedderFactory(context.container),
-            embedder_type_provider=_no_op_embedder_type_provider,
+            embedder_type_provider=_null_embedder_type_provider,
             allow_migration=False,
         ):
             metadata = await es_db.read_metadata()
@@ -933,7 +933,7 @@ async def test_that_migration_error_raised_when_version_mismatch_and_migration_d
                 vector_db=es_db,
                 document_db=TransientDocumentDatabase(),
                 embedder_factory=EmbedderFactory(context.container),
-                embedder_type_provider=_no_op_embedder_type_provider,
+                embedder_type_provider=_null_embedder_type_provider,
                 allow_migration=False,
             ):
                 pass
@@ -996,7 +996,7 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
             vector_db=es_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=EmbedderFactory(context.container),
-            embedder_type_provider=_no_op_embedder_type_provider,
+            embedder_type_provider=_null_embedder_type_provider,
             allow_migration=True,
         ) as store:
             # Get embedded index name
@@ -1115,7 +1115,7 @@ async def test_that_in_filter_works_with_list_of_strings(
             vector_db=es_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=EmbedderFactory(context.container),
-            embedder_type_provider=_no_op_embedder_type_provider,
+            embedder_type_provider=_null_embedder_type_provider,
             allow_migration=True,
         ) as store:
             first_term = await store.create_term(
@@ -1166,7 +1166,7 @@ async def test_that_in_filter_works_with_single_tag(
             vector_db=es_db,
             document_db=TransientDocumentDatabase(),
             embedder_factory=EmbedderFactory(context.container),
-            embedder_type_provider=_no_op_embedder_type_provider,
+            embedder_type_provider=_null_embedder_type_provider,
             allow_migration=True,
         ) as store:
             first_term = await store.create_term(

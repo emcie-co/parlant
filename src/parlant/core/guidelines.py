@@ -376,7 +376,8 @@ class GuidelineDocumentStore(GuidelineStore):
                 tag_id=d["tag_id"],
             )
 
-        if doc["version"] == "0.5.0":
+        # 0.5.0+ all use the same schema - no migration needed
+        if doc["version"] in ("0.5.0", "0.6.0", "0.7.0"):
             return cast(GuidelineTagAssociationDocument, doc)
 
         return None

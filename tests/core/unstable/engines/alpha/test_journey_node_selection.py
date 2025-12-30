@@ -78,7 +78,7 @@ async def test_that_journey_selector_correctly_advances_by_multiple_steps(  # Oc
         customer=customer,
         conversation_context=conversation_context,
         journey_name="calzone_journey",
-        backtrack_required=False,
+        run_backtrack_journey_selector=False,
         journey_previous_path=["1"],
         expected_path=["1", "2", "7", "8", "9"],
         expected_next_node_index="9",

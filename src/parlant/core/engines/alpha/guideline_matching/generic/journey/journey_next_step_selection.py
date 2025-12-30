@@ -115,6 +115,7 @@ class JourneyNextStepSelection:
             self._follow_up_conditions,
             self._condition_to_path,
             self._previous_path,
+            self._reset_journey,
         ) = self.build_node_wrappers(journey_path)
 
     def _get_guideline_node_index(self, guideline: Guideline) -> str:
@@ -128,7 +129,7 @@ class JourneyNextStepSelection:
         self,
         previous_path: Sequence[str | None],
     ) -> tuple[
-        _JourneyNode, dict[str, _JourneyEdge], dict[str, Sequence[str]], Sequence[str | None]
+        _JourneyNode, dict[str, _JourneyEdge], dict[str, Sequence[str]], Sequence[str | None], bool
     ]:
         def _get_reachable_follow_ups(
             guideline_id: GuidelineId,
@@ -184,6 +185,7 @@ class JourneyNextStepSelection:
             )
             return node
 
+        reset_journey = False
         if not previous_path:
             root_g = self._guideline_id_to_guideline[self._node_index_to_guideline_id[ROOT_INDEX]]
             follow_ups = cast(
@@ -199,6 +201,7 @@ class JourneyNextStepSelection:
                 current_g_id = self._node_index_to_guideline_id[previous_path[-1]]
             else:
                 current_g_id = self._node_index_to_guideline_id[ROOT_INDEX]
+                reset_journey = True
                 previous_path = []
 
         current_node = _create_node(current_g_id)
@@ -229,7 +232,7 @@ class JourneyNextStepSelection:
             )
             condition_to_path[str(i)] = journey_node_path
 
-        return current_node, follow_up_conditions, condition_to_path, previous_path
+        return current_node, follow_up_conditions, condition_to_path, previous_path, reset_journey
 
     async def process(self) -> GuidelineMatchingBatchResult:
         prompt = self._build_prompt(shots=await self.shots())
@@ -251,7 +254,8 @@ class JourneyNextStepSelection:
                     },
                 )
                 self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
-
+                with open("dumps/journey/journey next step/output.txt", "w") as f:
+                    f.write(inference.content.model_dump_json(indent=2))
                 if inference.content.applied_condition_id:
                     if inference.content.applied_condition_id == "None":
                         # Exit journey
@@ -382,6 +386,13 @@ class JourneyNextStepSelection:
             journey_conditions_str = f"\nJourney activation condition: {journey_conditions_str}"
         else:
             journey_conditions_str = ""
+        journey_restart = ""
+        if self._reset_journey:
+            journey_restart = """
+Important:
+This journey has been restarted after a previous execution. 
+Carefully determine what information from the previous execution can still be assumed valid and what needs to be asked again. 
+When in doubt, prefer to re-verify previous decisions unless it's clear they haven't changed"""
 
         flags_str = "Step Flags:\n"
 
@@ -424,8 +435,8 @@ If the journey is not applicable anymore, return None as next step.
 If the current step hasn't completed, return '0' as the condition id.
 
 In any other case, return next step from the following possible transitions:
-{follow_ups_nodes_description}
-
+{follow_ups_nodes_description} 
+{journey_restart}
 """
         return transition_description
 

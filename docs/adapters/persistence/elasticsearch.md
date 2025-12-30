@@ -1,8 +1,8 @@
-# Elasticsearch Document Database Adapter
-
-## Overview
+# Elasticsearch Document Database
 
 The Elasticsearch Document Database adapter provides a production-ready implementation of the `DocumentDatabase` interface using Elasticsearch 8 as the backend storage. This adapter is designed for document storage (non-vector) with full CRUD operations, complex filtering, and schema migration support.
+
+For general Parlant usage, see the [official documentation](https://www.parlant.io/docs/).
 
 ## Features
 
@@ -257,4 +257,3 @@ pytest tests/adapters/db/test_elasticsearch_db.py --cov=parlant.adapters.db.elas
 
 - [Elasticsearch Python Client Documentation](https://elasticsearch-py.readthedocs.io/)
 - [Elasticsearch 8.x Reference](https://www.elastic.co/guide/en/elasticsearch/reference/8.x/index.html)
-- [Parlant DocumentDatabase Interface](../src/parlant/core/persistence/document_database.py)

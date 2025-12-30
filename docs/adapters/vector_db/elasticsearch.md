@@ -1,6 +1,8 @@
-# Elasticsearch Configuration
+# Elasticsearch Vector Database
 
-This document describes how to configure Parlant to use Elasticsearch as a vector database.
+The Elasticsearch adapter provides persistent vector storage for Parlant using Elasticsearch's dense vector capabilities. This replaces the default in-memory storage with production-ready persistence.
+
+For general Parlant usage, see the [official documentation](https://www.parlant.io/docs/).
 
 ## Environment Variables
 

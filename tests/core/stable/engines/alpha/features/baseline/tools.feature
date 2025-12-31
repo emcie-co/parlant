@@ -1060,3 +1060,17 @@ Feature: Tools
         Then a single tool calls event is emitted
         And the message contains an offer for the dungeon
         And the message doesn't contains an offer for the luxury room
+
+    Scenario: Non consequential tool using datetime formatted arguments is used correctly
+        Given a guideline "set_appointment" to set an appointment at the agreed time when the customer chooses an appointment time between the available options
+        And the tool "schedule_appointment_2"
+        And an association between "set_appointment" and "schedule_appointment_2"
+        And a context variable "current_date" set to "September 12th 2025"
+        And a customer message, "I'm sick, I need to see a doctor ASAP"
+        And an agent message, "I'm sorry to hear that."
+        And an agent message, "If it's an emergency, please call a human representitive at our number. We have appointment slots for tomorrow at 2 PM, or on the 15.10 at 11 AM"
+        And a customer message, "tomorrow at 2 PM is good"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the staged tool calls event contains an appointment was set to 2025-09-13
+        And the message contains that an appointment was successfuly set for either tomorrow or the 2025-09-13

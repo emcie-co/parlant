@@ -1074,7 +1074,9 @@ Make sure to note the case number you're following in your "reasoning_tldr" fiel
 Parameter values extraction:
 Extract parameter values from the conversation or prompt context. 
 You're free to infer the parameters from context, in the best way you think - e.g., if someone says "next Friday", you can convert that to an actual date string if you know the date - and so forth
-Use inference and contextual understanding to derive accurate values. It's better to make reasonable inferences about parameter values from the user's request than to not run the tool at all because a parameter wasn't explicitly specified.""",
+Use inference and contextual understanding to derive accurate values. It's better to make reasonable inferences about parameter values from the user's request than to not run the tool at all because a parameter wasn't explicitly specified.
+You do have to adhere to the format of each parameter - never pass a parameter value that doesn't match the expected format.
+""",
             props={},
         )
 
@@ -1106,6 +1108,15 @@ EXAMPLES
                 param_info["enum"] = enum
             parameters_info[name] = param_info
 
+        tool_notes = ""
+        parameter_types = {p.get("type", "") for _, p in parameters_info.items()}
+        if "datetime" in parameter_types:
+            tool_notes += "\nNote: If a parameter's type is datetime, return the parameter value in the format 'year-month-day hour:minute:second'."
+        if "date" in parameter_types:
+            tool_notes += "\nNote: If a parameter's type is date, return the parameter value in the format 'year-month-day'."
+        if "timedelta" in parameter_types:
+            tool_notes += "\nNote: If a parameter's type is timedelta, return the parameter value in the format 'hours:minutes:seconds'."
+
         builder.add_section(
             name=_SECTION_NAMES["tool-definition"] + _NON_CONSEQUENTIAL_SUFFIX,
             template="""
@@ -1116,6 +1127,7 @@ Description: {tool_description}
 Parameters: {parameters_json}
 Required parameters: {required_params}
 Optional parameters: {optional_params}
+{notes}
 """,
             props={
                 "tool_name": f"{tool_id.service_name}:{tool_id.tool_name}",
@@ -1123,6 +1135,7 @@ Optional parameters: {optional_params}
                 "parameters_json": json.dumps(parameters_info, indent=2),
                 "required_params": list(tool.required),
                 "optional_params": list(set(tool.parameters) - set(tool.required)),
+                "notes": tool_notes.strip(),
             },
         )
 

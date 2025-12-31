@@ -912,6 +912,18 @@ TOOLS: dict[str, dict[str, Any]] = {
         },
         "required": ["card_number", "reason"],
     },
+    "schedule_appointment_2": {
+        "name": "schedule_appointment_2",
+        "description": "Schedule an appointment",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "date": {
+                "type": "datetime",
+                "description": "The date of the appointment",
+            },
+        },
+        "required": ["date"],
+    },
 }
 
 

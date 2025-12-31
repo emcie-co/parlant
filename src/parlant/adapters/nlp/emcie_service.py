@@ -141,10 +141,6 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
         if isinstance(prompt, PromptBuilder):
             props = prompt.props
             prompt = prompt.build()
-        else:
-            raise ValueError(
-                f"Schema {self.schema.__name__} failed to pass PromptBuilder input, passed {type(prompt)} instead"
-            )
 
         try:
             t_start = time.time()

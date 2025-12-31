@@ -141,6 +141,8 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
         if isinstance(prompt, PromptBuilder):
             props = prompt.props
             prompt = prompt.build()
+        else:
+            props = {}
 
         try:
             t_start = time.time()

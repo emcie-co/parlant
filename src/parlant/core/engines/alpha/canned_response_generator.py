@@ -683,6 +683,8 @@ class CannedResponseGenerator(MessageEventComposer):
 You must not assume anything about how to handle the interaction in any way, shape, or form, beyond just generating the right, nuanced preamble message.
 Your message may not dictate how the conversation should continue, or commit the agent to any future processes as a result. It should only acknowledge the last customer message. 
 Do not ask the customer questions at this stage.
+Do not repeat previous messages and preambles, as that would hurt the flow of the conversation. Acknowledge the latest customer message with a simple, unique response. 
+Keep your response on the shorter side, as seen in the examples.
 
 Example preamble messages:
 {preamble_choices_text}
@@ -690,6 +692,7 @@ etc.
 
 Basically, the preamble is something very short that continues the interaction naturally, without committing to any later action or response.
 We leave that later response to another agent. Make sure you understand this.
+
 
 You must generate the preamble message. You must produce a JSON object with a single key, "preamble", holding the preamble message as a string.
 """

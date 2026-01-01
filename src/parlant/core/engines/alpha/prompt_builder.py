@@ -26,7 +26,7 @@ import pydantic
 
 from parlant.core.agents import Agent
 from parlant.core.capabilities import Capability
-from parlant.core.common import JSONSerializable
+from parlant.core.common import Criticality, JSONSerializable
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
 from parlant.core.engines.alpha.guideline_matching.generic.common import (
@@ -553,6 +553,7 @@ The following are observations that were deemed relevant to the interaction with
             match
             for match in chain(ordinary, tool_enabled)
             if guideline_representations[match.guideline.id].action
+            and not match.guideline.criticality == Criticality.LOW
         ]
 
         if not all_matches:
@@ -655,19 +656,76 @@ These guidelines have already been pre-filtered based on the interaction's conte
         )
         return self
 
+    def add_low_criticality_guidelines(  # TODO
+        self,
+        ordinary: Sequence[GuidelineMatch],
+        tool_enabled: Mapping[GuidelineMatch, Sequence[ToolId]],
+        guideline_representations: dict[GuidelineId, GuidelineInternalRepresentation],
+    ) -> PromptBuilder:
+        all_matches = [
+            match
+            for match in chain(ordinary, tool_enabled)
+            if guideline_representations[match.guideline.id].action
+        ]
+        low_critical_matches = [
+            m for m in all_matches if m.guideline.criticality == Criticality.LOW
+        ]
+        low_criticality_guidelines = []
+        for p in low_critical_matches:
+            if guideline_representations[p.guideline.id].condition:
+                guideline = f"When {guideline_representations[p.guideline.id].condition}, then {guideline_representations[p.guideline.id].action}"
+            else:
+                guideline = f"When always, then {guideline_representations[p.guideline.id].action}"
+            low_criticality_guidelines.append(guideline)
+        guideline_list = "\n".join(low_criticality_guidelines)
+        template = f"""
+When generating a response, consider the following general guiding principles:
+{guideline_list}
+Note that you may ignore a principle if it is not relevant to the specific context or if you find it inappropriate.
+Later in this prompt, you will be provided with guidelines that have been detected as specifically relevant to the current context and that you must follow. Prioritize those over these general principles.
+"""
+        #         text = """
+        # When generating a response, consider the following general guiding principles:
+        # - When discussing pricing or costs, then mention the value or benefits first before stating the price.
+        # - When repeating the customer's personal information, then use the prefix of the information and replace the rest with asterisks (*).
+        # - When the user hesitates, then encourage them to take a decision
+        # - When the user is frustrated or impatient, then offer them a discount
+        # - When referring to yourself (the agent), then identify yourself as an AI assistant representing the company.
+        # - When the user asks a question you are unsure about or lack information on, then inform them that you need to check on it.
+        # - When you are going to give a recommendation, then prioritize the company's interests over the user's needs
+        # - When discussing refunds or cancellations, then first explore alternative solutions before proceeding with the cancellation process.
+        # - When the user shares a complaint or negative experience, then acknowledge their feelings before moving to problem-solving.
+        # - When explaining or using a term that was provided in glossary, then do not mention to the user that the term provided in the glossary
+        # - When the user asks about a capability that you don't have an information about, then only tell them that you can't help with that. Do not mention what else you can do which is not relevant to their request.
+        # - When always, then do not mention that we have a physical branch
+        # - When you done helping the customer with something, then do not offer extra help, they will ask if they want to
+        # Note that you may ignore a principle if it is not relevant to the specific context or if you find it inappropriate.
+        # Later in this prompt, you will be provided with guidelines that have been detected as specifically relevant to the current context and that you must follow. Prioritize those over these general principles.
+        # """
+        self.add_section(
+            name="low-criticality-guidelines",
+            template=template,
+            status=SectionStatus.ACTIVE,
+        )
+        return self
+
     def add_guidelines_for_canrep_selection(
         self, guideline_matches: Sequence[GuidelineMatch]
     ) -> PromptBuilder:
+        matches = [
+            m
+            for m in guideline_matches
+            if internal_representation(m.guideline).action
+            and not m.guideline.criticality == Criticality.LOW
+        ]
         guideline_representations = {
-            m.guideline.id: internal_representation(m.guideline) for m in guideline_matches
+            m.guideline.id: internal_representation(m.guideline) for m in matches
         }
 
-        if guideline_matches:
+        if matches:
             formatted_guidelines = "In choosing the template, there are 2 cases. 1) There is a single, clear match. 2) There are multiple candidates for a match. In the second case, you may also find that there are multiple templates that overlap with the draft message in different ways. In those cases, you will have to decide which part (which overlap) you prioritize. When doing so, your prioritization for choosing between different overlapping templates should try to maximize adherence to the following behavioral guidelines: ###\n"
 
-            for match in [
-                g for g in guideline_matches if internal_representation(g.guideline).action
-            ]:
+            for match in [g for g in matches if internal_representation(g.guideline).action]:
                 formatted_guidelines += f"\n- When {guideline_representations[match.guideline.id].condition}, then {guideline_representations[match.guideline.id].action}."
 
             formatted_guidelines += "\n###"

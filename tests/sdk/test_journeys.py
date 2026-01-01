@@ -1495,17 +1495,17 @@ class Test_that_journey_is_not_reevaluated_when_not_associated_tool_is_called(SD
 
         self.journey = await self.agent.create_journey(
             title="Customer Greeting Journey",
-            conditions=["Customer arrives"],
+            conditions=["Customer greets you"],
             description="Greet customers with personalized responses",
         )
 
         self.initial_transition = await self.journey.initial_state.transition_to(
             chat_state="Greet him with 'Howdy!'",
-            condition="The customer balance is not known",
+            condition="Customer greets you",
         )
 
         self.second_transition = await self.initial_transition.target.transition_to(
-            chat_state="Greet the customer to our bank",
+            chat_state="Greet the customer to our bank with 'Hahoy!'",
             condition="The customer balance is known",
         )
 
@@ -1516,3 +1516,4 @@ class Test_that_journey_is_not_reevaluated_when_not_associated_tool_is_called(SD
 
         assert "500" in response
         assert "Howdy" in response
+        assert "Hahoy" not in response

@@ -1920,6 +1920,8 @@ class AlphaEngine(Engine):
             and match.guideline.content.action
             and "journey_node" not in match.guideline.metadata  # Exclude journey node guidelines
             and not match.guideline.id.startswith("<transient")  # Exclude transient guidelines
+            and not match.guideline.criticality
+            != Criticality.LOW  # Exclude low criticality guidelines
         ]
 
         self._todo_add_associated_guidelines(matches_to_analyze)

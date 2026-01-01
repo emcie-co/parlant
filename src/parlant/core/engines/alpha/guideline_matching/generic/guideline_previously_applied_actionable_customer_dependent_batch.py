@@ -424,18 +424,6 @@ class GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatching(
 
         return batches
 
-    def _get_optimal_batch_size(self, guidelines: dict[GuidelineId, Guideline]) -> int:
-        guideline_n = len(guidelines)
-
-        if guideline_n <= 10:
-            return 1
-        elif guideline_n <= 20:
-            return 2
-        elif guideline_n <= 30:
-            return 3
-        else:
-            return 5
-
     def _create_batch(
         self,
         guidelines: Sequence[Guideline],

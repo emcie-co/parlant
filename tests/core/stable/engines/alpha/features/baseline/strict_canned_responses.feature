@@ -481,3 +481,48 @@ Feature: Strict Canned Response
         When processing is triggered
         Then a single message event is emitted
         And the message contains either "Do you have a preference—single, double, or maybe a suite?" or "What kind of room are you looking for? Single, double, or something fancier?"
+
+    Scenario: Multistep journey is aborted when the journey description requires so (strict canned response)
+        Given the journey called "Reset Password Journey"
+        And a journey path "[2, 3, 4]" for the journey "Reset Password Journey"
+        And a canned response, "What is the name of your account?"
+        And a canned response, "can you please provide the email address or phone number attached to this account?"
+        And a canned response, "Your password was successfully reset. An email with further instructions will be sent to your address."
+        And a canned response, "Your password could not be reset at this time. Please try again later."
+        And the tool "reset_password"
+        And a customer message, "I want to reset my password"
+        And an agent message, "I can help you do just that. What's your username?"
+        And a customer message, "it's leonardo_barbosa_1982"
+        And an agent message, "Great! And what's the account's associated email address or phone number?"
+        And a customer message, "the email is leonardobarbosa@gmail.br"
+        And an agent message, "Got it. Before proceeding to reset your password, I wanted to wish you a good day"
+        And a customer message, "What? Just reset my password please"
+        When processing is triggered
+        Then no tool calls event is emitted
+        And a single message event is emitted
+        And the message contains either that the password could not be reset at this time
+
+    Scenario: Multistep journey invokes tool calls correctly (strict canned response)
+        Given the journey called "Reset Password Journey"
+        And a journey path "[2, 3, 4]" for the journey "Reset Password Journey"
+        And a customer message, "I want to reset my password"
+        And an agent message, "I can help you do just that. What's your username?"
+        And a customer message, "it's leonardo_barbosa_1982"
+        And an agent message, "Great! And what's the account's associated email address or phone number?"
+        And a customer message, "the email is leonardobarbosa@gmail.br"
+        And an agent message, "Got it. Before proceeding to reset your password, I wanted to wish you a good day"
+        And a customer message, "Thank you! Have a great day as well!"
+        And a canned response, "What is the name of your account?"
+        And a canned response, "can you please provide the email address or phone number attached to this account?"
+        And a canned response, "Thank you, have a good day!"
+        And a canned response, "I'm sorry but I have no information about that"
+        And a canned response, "Is there anything else I could help you with?"
+        And a canned response, "Your password was successfully reset. An email with further instructions will be sent to your address."
+        And a canned response, "An error occurred, your password could not be reset"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the tool calls event contains 1 tool call(s)
+        And the tool calls event contains the tool reset password with username leonardo_barbosa_1982 and email leonardobarbosa@gmail.br
+        And a single message event is emitted
+        And the message contains that the password was reset and an email with instructions was sent to the customer
+

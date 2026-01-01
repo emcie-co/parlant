@@ -102,7 +102,7 @@ Feature: Journeys
         Then a single message event is emitted
         And the message contains informing the customer that only economy class is available  
 
-    Scenario: Multistep journey invokes tool calls correctly
+    Scenario: Multistep journey invokes tool calls correctly 2
         Given the journey called "Reset Password Journey"
         And a journey path "[2, 3, 4]" for the journey "Reset Password Journey"
         And a customer message, "I want to reset my password"

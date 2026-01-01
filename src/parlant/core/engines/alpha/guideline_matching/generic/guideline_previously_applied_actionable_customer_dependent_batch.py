@@ -424,6 +424,17 @@ class GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatching(
 
         return batches
 
+    def _get_optimal_batch_size(
+        self,
+        guidelines: dict[GuidelineId, Guideline],
+    ) -> int:
+        return self._optimization_policy.get_guideline_matching_batch_size(
+            len(guidelines),
+            hints={
+                "type": GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingBatch
+            },
+        )
+
     def _create_batch(
         self,
         guidelines: Sequence[Guideline],

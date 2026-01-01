@@ -43,7 +43,6 @@ from parlant.core.context_variables import ContextVariableId
 from parlant.core.customers import CustomerId
 from parlant.core.guidelines import GuidelineId
 from parlant.core.journeys import JourneyId
-from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.persistence.common import (
     ObjectId,
     Where,
@@ -215,39 +214,6 @@ class ContextVariable(TypedDict):
     description: str | None
     key: str
     value: JSONSerializable
-
-
-@dataclass(frozen=True)
-class MessageGenerationInspection:
-    generations: Mapping[str, GenerationInfo]
-    messages: Sequence[str | None]
-
-
-@dataclass(frozen=True)
-class GuidelineMatchingInspection:
-    total_duration: float
-    batches: Sequence[GenerationInfo]
-
-
-@dataclass(frozen=True)
-class PreparationIterationGenerations:
-    guideline_matching: GuidelineMatchingInspection
-    tool_calls: Sequence[GenerationInfo]
-
-
-@dataclass(frozen=True)
-class PreparationIteration:
-    guideline_matches: Sequence[GuidelineMatch]
-    tool_calls: Sequence[ToolCall]
-    terms: Sequence[Term]
-    context_variables: Sequence[ContextVariable]
-    generations: PreparationIterationGenerations
-
-
-@dataclass(frozen=True)
-class Inspection:
-    message_generations: Sequence[MessageGenerationInspection]
-    preparation_iterations: Sequence[PreparationIteration]
 
 
 ConsumerId: TypeAlias = Literal["client"]

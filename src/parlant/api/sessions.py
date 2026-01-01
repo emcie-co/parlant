@@ -48,7 +48,6 @@ from parlant.core.sessions import (
     EventId,
     EventKind,
     EventSource,
-    MessageGenerationInspection,
     Participant,
     SessionId,
     SessionStatus,
@@ -1124,17 +1123,6 @@ def participant_to_dto(participant: Participant) -> ParticipantDTO:
     return ParticipantDTO(
         id=participant["id"],
         display_name=participant["display_name"],
-    )
-
-
-def message_generation_inspection_to_dto(
-    m: MessageGenerationInspection,
-) -> MessageGenerationInspectionDTO:
-    return MessageGenerationInspectionDTO(
-        generations={
-            name: generation_info_to_dto(generation) for name, generation in m.generations.items()
-        },
-        messages=[message for message in m.messages if message is not None],
     )
 
 

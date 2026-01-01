@@ -16,14 +16,14 @@ from __future__ import annotations
 import asyncio
 import copy
 from collections import OrderedDict, defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from itertools import chain
 import json
 from pprint import pformat
 import traceback
-from typing import Awaitable, Callable, Optional, Sequence, cast
+from typing import Awaitable, Callable, Mapping, Optional, Sequence, cast
 from croniter import croniter
 from typing_extensions import override
 
@@ -68,17 +68,11 @@ from parlant.core.journey_guideline_projection import (
 from parlant.core.journeys import Journey, JourneyId
 from parlant.core.meter import Meter
 from parlant.core.app_modules.sessions import SessionUpdateParamsModel
+from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.sessions import (
     AgentState,
-    ContextVariable as StoredContextVariable,
     EventKind,
-    GuidelineMatch as StoredGuidelineMatch,
-    GuidelineMatchingInspection,
-    MessageGenerationInspection,
-    PreparationIteration,
-    PreparationIterationGenerations,
     Session,
-    Term as StoredTerm,
     ToolEventData,
 )
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
@@ -119,7 +113,6 @@ class _PreparationIterationResolution(Enum):
 class _PreparationIterationResult:
     state: IterationState
     resolution: _PreparationIterationResolution
-    inspection: PreparationIteration | None = field(default=None)
 
 
 @dataclass(frozen=True)
@@ -128,6 +121,12 @@ class _GuidelineAndJourneyMatchingResult:
     matches_guidelines: list[GuidelineMatch]
     resolved_guidelines: list[GuidelineMatch]
     journeys: list[Journey]
+
+
+@dataclass(frozen=True)
+class _MessageGeneration:
+    generations: Mapping[str, GenerationInfo]
+    messages: Sequence[str | None]
 
 
 class AlphaEngine(Engine):
@@ -277,7 +276,6 @@ class AlphaEngine(Engine):
                 return  # Hook requested to bail out
 
             await self._initialize_response_state(context)
-            preparation_iteration_inspections = []
 
             while not context.state.prepared_to_respond:
                 # Need more data before we're ready to respond
@@ -295,11 +293,6 @@ class AlphaEngine(Engine):
 
                 if iteration_result.resolution == _PreparationIterationResolution.BAIL:
                     return
-                else:
-                    assert iteration_result.inspection
-
-                # Save results for later inspection.
-                preparation_iteration_inspections.append(iteration_result.inspection)
 
                 # Some tools may update session mode (e.g. from automatic to manual).
                 # This is particularly important to support human handoff.
@@ -524,11 +517,7 @@ class AlphaEngine(Engine):
                     return True
             return False
 
-        if (
-            result.inspection
-            and len(result.inspection.tool_calls) > 0
-            or check_if_journey_node_with_tool_is_matched()
-        ):
+        if result.state.executed_tools or check_if_journey_node_with_tool_is_matched():
             return False
 
         return True
@@ -623,7 +612,6 @@ class AlphaEngine(Engine):
             self._add_tool_events_to_tracer(new_tool_events)
 
         else:
-            tool_event_generation_result = None
             new_tool_events = []
 
         # Tool calls may have returned with data that uses glossary terms,
@@ -643,51 +631,6 @@ class AlphaEngine(Engine):
                 ],
             ),
             resolution=_PreparationIterationResolution.COMPLETED,
-            inspection=PreparationIteration(
-                guideline_matches=[
-                    StoredGuidelineMatch(
-                        guideline_id=match.guideline.id,
-                        condition=match.guideline.content.condition,
-                        action=match.guideline.content.action or None,
-                        score=match.score,
-                        rationale=match.rationale,
-                    )
-                    for match in guideline_and_journey_matching_result.resolved_guidelines
-                ],
-                tool_calls=[
-                    tool_call
-                    for tool_event in new_tool_events
-                    for tool_call in cast(ToolEventData, tool_event.data)["tool_calls"]
-                ],
-                terms=[
-                    StoredTerm(
-                        id=term.id,
-                        name=term.name,
-                        description=term.description,
-                        synonyms=list(term.synonyms),
-                    )
-                    for term in context.state.glossary_terms
-                ],
-                context_variables=[
-                    StoredContextVariable(
-                        id=variable.id,
-                        name=variable.name,
-                        description=variable.description,
-                        key=context.session.customer_id,
-                        value=value.data,
-                    )
-                    for variable, value in context.state.context_variables
-                ],
-                generations=PreparationIterationGenerations(
-                    guideline_matching=GuidelineMatchingInspection(
-                        total_duration=guideline_and_journey_matching_result.matching_result.total_duration,
-                        batches=guideline_and_journey_matching_result.matching_result.batch_generations,
-                    ),
-                    tool_calls=tool_event_generation_result.generations
-                    if tool_event_generation_result
-                    else [],
-                ),
-            ),
         )
 
     async def _run_additional_preparation_iteration(
@@ -755,7 +698,6 @@ class AlphaEngine(Engine):
             self._add_tool_events_to_tracer(new_tool_events)
 
         else:
-            tool_event_generation_result = None
             new_tool_events = []
 
         # Tool calls may have returned with data that uses glossary terms,
@@ -774,54 +716,6 @@ class AlphaEngine(Engine):
                 ],
             ),
             resolution=_PreparationIterationResolution.COMPLETED,
-            inspection=PreparationIteration(
-                guideline_matches=[
-                    StoredGuidelineMatch(
-                        guideline_id=match.guideline.id,
-                        condition=match.guideline.content.condition,
-                        action=match.guideline.content.action or None,
-                        score=match.score,
-                        rationale=match.rationale,
-                    )
-                    for match in chain(
-                        context.state.ordinary_guideline_matches,
-                        context.state.tool_enabled_guideline_matches.keys(),
-                    )
-                ],
-                tool_calls=[
-                    tool_call
-                    for tool_event in new_tool_events
-                    for tool_call in cast(ToolEventData, tool_event.data)["tool_calls"]
-                ],
-                terms=[
-                    StoredTerm(
-                        id=term.id,
-                        name=term.name,
-                        description=term.description,
-                        synonyms=list(term.synonyms),
-                    )
-                    for term in context.state.glossary_terms
-                ],
-                context_variables=[
-                    StoredContextVariable(
-                        id=variable.id,
-                        name=variable.name,
-                        description=variable.description,
-                        key=context.session.customer_id,
-                        value=value.data,
-                    )
-                    for variable, value in context.state.context_variables
-                ],
-                generations=PreparationIterationGenerations(
-                    guideline_matching=GuidelineMatchingInspection(
-                        total_duration=guideline_and_journey_matching_result.matching_result.total_duration,
-                        batches=guideline_and_journey_matching_result.matching_result.batch_generations,
-                    ),
-                    tool_calls=tool_event_generation_result.generations
-                    if tool_event_generation_result
-                    else [],
-                ),
-            ),
         )
 
     async def _update_session_mode(self, context: EngineContext) -> None:
@@ -907,8 +801,8 @@ class AlphaEngine(Engine):
         self,
         context: EngineContext,
         latch: async_utils.CancellationSuppressionLatch[None],
-    ) -> Sequence[MessageGenerationInspection]:
-        message_generation_inspections = []
+    ) -> Sequence[_MessageGeneration]:
+        message_generation = []
 
         for event_generation_result in await self._get_message_composer(
             context.agent
@@ -918,8 +812,8 @@ class AlphaEngine(Engine):
         ):
             context.state.message_events += [e for e in event_generation_result.events if e]
 
-            message_generation_inspections.append(
-                MessageGenerationInspection(
+            message_generation.append(
+                _MessageGeneration(
                     generations=event_generation_result.generation_info,
                     messages=[
                         e.data.get("message")
@@ -930,7 +824,7 @@ class AlphaEngine(Engine):
                 )
             )
 
-        return message_generation_inspections
+        return message_generation
 
     async def _emit_error_event(self, context: EngineContext, exception_details: str) -> None:
         await context.session_event_emitter.emit_status_event(

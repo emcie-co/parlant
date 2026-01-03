@@ -661,9 +661,14 @@ class AlphaEngine(Engine):
 
         # Distinguish between ordinary and tool-enabled guidelines.
         # We do this here as it creates a better subsequent control flow in the engine.
+        # Since its iteration > 1, we consider only newly matched guidelines.
         context.state.tool_enabled_guideline_matches = (
             await self._find_tool_enabled_guideline_matches(
-                guideline_matches=guideline_and_journey_matching_result.resolved_guidelines,
+                guideline_matches=list(
+                    set(guideline_and_journey_matching_result.matches_guidelines).intersection(
+                        set(guideline_and_journey_matching_result.resolved_guidelines)
+                    )
+                ),
             )
         )
 

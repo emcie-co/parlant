@@ -92,6 +92,47 @@ await agent.create_guideline(
 - **[Explainability](https://parlant.io/docs/advanced/explainability)**:
   Understand why and when each guideline was matched and followed.
 
+### How It Works
+When your agent receives a message, Parlant's engine prepares a fully-aligned response before generating it:
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e8f5e9', 'primaryTextColor': '#1b5e20', 'primaryBorderColor': '#81c784', 'lineColor': '#66bb6a', 'secondaryColor': '#fff9e1', 'tertiaryColor': '#F3F5F6'}}}%%
+flowchart LR
+    A(User):::outputNode
+
+    subgraph Engine["Parlant Engine"]
+        direction LR
+        B["Match Guidelines and Resolve Journey States"]:::matchNode
+        C["Call Contextually-Associated Tools"]:::toolNode
+        D["Generated Message"]:::composeNode
+        E["Canned Message"]:::cannedNode
+    end
+
+    A a@-->|💬 User Input| B
+    B b@--> C
+    C c@-->|Fluid Output Mode?| D
+    C d@-->|Strict Output Mode?| E
+    D e@-->|💬 Fluid Output| A
+    E f@-->|💬 Canned Output| A
+
+    a@{animate: true}
+    b@{animate: true}
+    c@{animate: true}
+    d@{animate: true}
+    e@{animate: true}
+    f@{animate: true}
+
+    linkStyle 2 stroke-width:2px
+    linkStyle 4 stroke-width:2px
+    linkStyle 3 stroke-width:2px,stroke:#3949AB
+    linkStyle 5 stroke-width:2px,stroke:#3949AB
+
+    classDef composeNode fill:#F9E9CB,stroke:#AB8139,stroke-width:2px,color:#7E5E1A,stroke-width:0
+    classDef cannedNode fill:#DFE3F9,stroke:#3949AB,stroke-width:2px,color:#1a237e,stroke-width:0
+```
+
+The guidelines and tools relevant to the current conversational state are carefully matched and enforced, keeping your agent focused and aligned, even with complex behavioral configurations.
+
 <div align="center">
 
 ## 🚀 Get Your Agent Running in 60 Seconds

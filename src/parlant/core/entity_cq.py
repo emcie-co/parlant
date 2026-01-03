@@ -93,7 +93,7 @@ class EntityQueries:
         self._canned_response_store = canned_response_store
         self._journey_guideline_projection = journey_guideline_projection
 
-        self.find_journeys_on_which_this_guideline_depends = TTLCache[GuidelineId, list[Journey]](
+        self.guideline_and_journeys_it_depends_on = TTLCache[GuidelineId, list[Journey]](
             maxsize=1024, ttl=120
         )
 
@@ -192,10 +192,10 @@ class EntityQueries:
             iterated_relationships.add(r)
 
         for id in guideline_ids:
-            journeys = self.find_journeys_on_which_this_guideline_depends.get(id, [])
+            journeys = self.guideline_and_journeys_it_depends_on.get(id, [])
             journeys.append(journey)
 
-            self.find_journeys_on_which_this_guideline_depends[id] = journeys
+            self.guideline_and_journeys_it_depends_on[id] = journeys
 
         guideline_ids.update(
             g.id

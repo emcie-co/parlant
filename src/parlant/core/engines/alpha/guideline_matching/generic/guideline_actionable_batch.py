@@ -349,9 +349,7 @@ class GenericActionableGuidelineMatching(GuidelineMatchingStrategy):
         context: GuidelineMatchingContext,
     ) -> Sequence[GuidelineMatchingBatch]:
         journeys = (
-            self._entity_queries.find_journeys_on_which_this_guideline_depends.get(
-                guidelines[0].id, []
-            )
+            self._entity_queries.guideline_and_journeys_it_depends_on.get(guidelines[0].id, [])
             if guidelines
             else []
         )

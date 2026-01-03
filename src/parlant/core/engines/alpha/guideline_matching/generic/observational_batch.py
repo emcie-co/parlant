@@ -261,7 +261,7 @@ A guideline is not applicable when the customer explicitly sets aside or pauses 
 Similarly, if the conversation has progressed beyond the specific sub-topic mentioned in the condition and into a different aspect or next stage of the general topic, the condition no longer applies.
 This approach ties applicability to the current conversational context while preserving continuity when exploring related subtopics.
 
-Persistent Facts: Conditions about user characteristics or established facts (e.g., "the user is a senior citizen", "the customer has allergies") apply once established based on the information in this prompt, 
+Persistent Facts: Conditions about user characteristics or established facts (e.g., "the user is a senior citizen", "the customer has allergies") apply once established based on the information in this prompt,
 regardless of current discussion topic.
 
 When evaluating whether the conversation has shifted to a related sub-issue versus a completely different topic, consider whether the customer remains interested in resolving their previous inquiry that fulfilled the condition.
@@ -349,9 +349,7 @@ class ObservationalGuidelineMatching(GuidelineMatchingStrategy):
         context: GuidelineMatchingContext,
     ) -> Sequence[GuidelineMatchingBatch]:
         journeys = (
-            self._entity_queries.find_journeys_on_which_this_guideline_depends.get(
-                guidelines[0].id, []
-            )
+            self._entity_queries.guideline_and_journeys_it_depends_on.get(guidelines[0].id, [])
             if guidelines
             else []
         )

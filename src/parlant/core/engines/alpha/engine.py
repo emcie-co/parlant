@@ -1558,7 +1558,7 @@ class AlphaEngine(Engine):
         high_prob_journeys: Sequence[Journey],
         activated_journeys: Sequence[Journey],
     ) -> Optional[GuidelineMatchingResult]:
-        activated_low_priority_related_ids = set(
+        activated_low_prob_related_ids = set(
             chain.from_iterable(
                 [
                     await self._entity_queries.find_journey_related_guidelines(j)
@@ -1571,7 +1571,7 @@ class AlphaEngine(Engine):
             )
         )
 
-        if activated_low_priority_related_ids:
+        if activated_low_prob_related_ids:
             journey_conditions = list(
                 chain.from_iterable([j.conditions for j in activated_journeys if j.conditions])
             )
@@ -1579,11 +1579,11 @@ class AlphaEngine(Engine):
             additional_matching_guidelines = [
                 g
                 for id, g in all_stored_guidelines.items()
-                if id in activated_low_priority_related_ids or id in journey_conditions
+                if id in activated_low_prob_related_ids or id in journey_conditions
             ]
 
             with self._tracer.span(
-                _GUIDELINE_MATCHER_SPAN_NAME, attributes={"phase": "low_priority_journeys"}
+                _GUIDELINE_MATCHER_SPAN_NAME, attributes={"phase": "low_probability_journeys"}
             ):
                 return await self._guideline_matcher.match_guidelines(
                     context=context,

@@ -1432,6 +1432,11 @@ EXAMPLES
             tool_enabled_guideline_matches,
             guideline_representations,
         )
+        builder.add_low_criticality_guidelines(
+            ordinary_guideline_matches,
+            tool_enabled_guideline_matches,
+            guideline_representations,
+        )
         builder.add_interaction_history_for_message_generation(
             interaction_history,
             staged_events=staged_message_events,
@@ -1605,7 +1610,6 @@ Produce a valid JSON object according to the following spec. Use the values prov
 8. If the deviation between the draft and the template is quantitative in nature (e.g., the draft says "5 apples" and the template says "10 apples"), you should assume that the template has it right. Don't consider this a failure, as the template will definitely contain the correct information. So as long as it's a good *qualitative match*, you can assume that the *quantitative part* will be handled correctly.
 9. Keep in mind that these are Jinja 2 *templates*. Some of them refer to variables or contain procedural instructions. These will be substituted by real values and rendered later. You can assume that such substitution will be handled well to account for the data provided in the draft message! FYI, if you encounter a variable {{generative.<something>}}, that means that it will later be substituted with a dynamic, flexible, generated value based on the appropriate context. You just need to choose the most viable reply template to use, and assume it will be filled and rendered properly later.""",
         )
-
         builder.add_agent_identity(context.agent)
         builder.add_customer_identity(context.customer, context.session)
         builder.add_glossary(context.terms)
@@ -1647,6 +1651,7 @@ Output a JSON object with three properties:
                 "draft_message": draft_message,
             },
         )
+
         return builder
 
     async def _generate_response(
@@ -2231,6 +2236,7 @@ Output a JSON object with three properties:
                 "last_agent_message": outputted_message or "",
             },
         )
+
         return builder
 
     async def generate_follow_up_response(

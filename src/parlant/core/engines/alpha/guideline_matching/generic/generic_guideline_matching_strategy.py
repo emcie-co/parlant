@@ -157,6 +157,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         previously_applied_actionable_guidelines: list[Guideline] = []
         previously_applied_actionable_customer_dependent_guidelines: list[Guideline] = []
         actionable_guidelines: list[Guideline] = []
+        low_criticality_guidelines: list[Guideline] = []
         disambiguation_groups: list[tuple[Guideline, list[Guideline]]] = []
         journey_step_selection_journeys: dict[Journey, list[Guideline]] = defaultdict(list)
 
@@ -195,7 +196,10 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                         else:
                             previously_applied_actionable_guidelines.append(g)
                     else:
-                        actionable_guidelines.append(g)
+                        if g.criticality == Criticality.LOW:
+                            low_criticality_guidelines.append(g)
+                        else:
+                            actionable_guidelines.append(g)
 
         guideline_batches: list[GuidelineMatchingBatch] = []
         if observational_guidelines:
@@ -217,6 +221,10 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         if actionable_guidelines:
             guideline_batches.extend(
                 self._create_batches_actionable_guideline(actionable_guidelines, context)
+            )
+        if low_criticality_guidelines:
+            guideline_batches.extend(
+                self._create_batches_actionable_guideline(low_criticality_guidelines, context)
             )
         if disambiguation_groups:
             guideline_batches.extend(

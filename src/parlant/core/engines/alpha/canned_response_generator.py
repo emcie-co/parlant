@@ -73,7 +73,7 @@ from parlant.core.sessions import (
     ToolCall,
     ToolEventData,
 )
-from parlant.core.common import DefaultBaseModel, JSONSerializable
+from parlant.core.common import Criticality, DefaultBaseModel, JSONSerializable
 from parlant.core.loggers import Logger
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import ToolId
@@ -1424,6 +1424,11 @@ EXAMPLES
                 "shots": shots,
             },
         )
+        builder.add_low_criticality_guidelines(
+            ordinary_guideline_matches,
+            tool_enabled_guideline_matches,
+            guideline_representations,
+        )
         builder.add_glossary(terms)
         builder.add_context_variables(context_variables)
         builder.add_capabilities_for_message_generation(capabilities)
@@ -1432,11 +1437,7 @@ EXAMPLES
             tool_enabled_guideline_matches,
             guideline_representations,
         )
-        builder.add_low_criticality_guidelines(
-            ordinary_guideline_matches,
-            tool_enabled_guideline_matches,
-            guideline_representations,
-        )
+
         builder.add_interaction_history_for_message_generation(
             interaction_history,
             staged_events=staged_message_events,
@@ -1568,7 +1569,12 @@ Produce a valid JSON object according to the following spec. Use the values prov
             last_user_message = ""
 
         guidelines_list_text = ", ".join(
-            [f'"{g.guideline}"' for g in guidelines if internal_representation(g.guideline).action]
+            [
+                f'"{g.guideline}"'
+                for g in guidelines
+                if internal_representation(g.guideline).action
+                and not g.guideline.criticality == Criticality.LOW
+            ]
         )
 
         return f"""

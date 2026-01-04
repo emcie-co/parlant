@@ -96,15 +96,17 @@ def given_a_guideline_to_when_with_criticality(
     guideline_store = context.container[GuidelineStore]
 
     metadata = get_guideline_properties(context, a_condition_holds, do_something)
-    criticality = {"high": Criticality.HIGH, "medium": Criticality.MEDIUM, "low": Criticality.LOW}[
-        criticality
-    ]
+    guideline_criticality = {
+        "high": Criticality.HIGH,
+        "medium": Criticality.MEDIUM,
+        "low": Criticality.LOW,
+    }[criticality]
     context.sync_await(
         guideline_store.create_guideline(
             condition=a_condition_holds,
             action=do_something,
             metadata=metadata,
-            criticality=criticality,
+            criticality=guideline_criticality,
         )
     )
 

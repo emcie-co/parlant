@@ -248,21 +248,6 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
         return fd
 
 
-class Gemini_1_5_Flash(GeminiSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(
-            model_name="gemini-1.5-flash",
-            logger=logger,
-            tracer=tracer,
-            meter=meter,
-        )
-
-    @property
-    @override
-    def max_tokens(self) -> int:
-        return 1024 * 1024
-
-
 class Gemini_2_0_Flash(GeminiSchematicGenerator[T]):
     def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(
@@ -291,21 +276,6 @@ class Gemini_2_0_Flash_Lite(GeminiSchematicGenerator[T]):
     @override
     def max_tokens(self) -> int:
         return 1024 * 1024
-
-
-class Gemini_1_5_Pro(GeminiSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(
-            model_name="gemini-1.5-pro",
-            logger=logger,
-            tracer=tracer,
-            meter=meter,
-        )
-
-    @property
-    @override
-    def max_tokens(self) -> int:
-        return 2 * 1024 * 1024
 
 
 class Gemini_2_5_Flash(GeminiSchematicGenerator[T]):

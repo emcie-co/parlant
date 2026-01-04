@@ -19,7 +19,6 @@ from abc import ABC, abstractmethod
 import asyncio
 from dataclasses import dataclass, field as dataclass_field
 from itertools import chain
-import os
 from random import shuffle
 import re
 import jinja2
@@ -1653,11 +1652,6 @@ Output a JSON object with three properties:
             },
         )
 
-        os.makedirs("dumps/Canned response selection", exist_ok=True)
-
-        with open("dumps/Canned response selection/prompt.txt", "w") as f:
-            f.write(builder.build())
-
         return builder
 
     async def _generate_response(
@@ -1690,11 +1684,6 @@ Output a JSON object with three properties:
             tool_insights=context.tool_insights,
             shots=await self.draft_generation_shots(composition_mode),
         )
-
-        os.makedirs("dumps/Canned response draft", exist_ok=True)
-
-        with open("dumps/Canned response draft/prompt.txt", "w") as f:
-            f.write(draft_prompt.build())
 
         if direct_draft_output_mode:
             await context.event_emitter.emit_status_event(
@@ -1731,11 +1720,6 @@ Output a JSON object with three properties:
         self._logger.trace(
             f"Canned Response Draft Completion:\n{draft_response.content.model_dump_json(indent=2)}"
         )
-
-        os.makedirs("dumps/Canned response draft", exist_ok=True)
-
-        with open("dumps/Canned response draft/output.txt", "w") as f:
-            f.write(draft_response.content.model_dump_json(indent=2))
 
         draft_message = draft_response.content.response_body
 
@@ -1857,10 +1841,6 @@ Output a JSON object with three properties:
         self._logger.trace(
             f"Canned Response Selection Completion:\n{selection_response.content.model_dump_json(indent=2)}"
         )
-        os.makedirs("dumps/Canned response selection", exist_ok=True)
-
-        with open("dumps/Canned response selection/output.txt", "w") as f:
-            f.write(selection_response.content.model_dump_json(indent=2))
 
         # Step 5: Respond based on the match quality
 
@@ -2068,10 +2048,6 @@ Respond with a JSON object {{ "revised_canned_response": "<message_with_points_s
         )
 
         self._logger.trace(f"Composition Completion:\n{result.content.model_dump_json(indent=2)}")
-        os.makedirs("dumps/Canned response Composition Completion", exist_ok=True)
-
-        with open("dumps/Canned response Composition Completion/output.txt", "w") as f:
-            f.write(result.content.model_dump_json(indent=2))
 
         return result.info, result.content.revised_canned_response
 
@@ -2260,6 +2236,7 @@ Output a JSON object with three properties:
                 "last_agent_message": outputted_message or "",
             },
         )
+
         return builder
 
     async def generate_follow_up_response(

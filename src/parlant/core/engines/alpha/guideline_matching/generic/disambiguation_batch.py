@@ -56,6 +56,7 @@ class GuidelineCheck(DefaultBaseModel):
 
 class DisambiguationGuidelineMatchesSchema(DefaultBaseModel):
     tldr: str
+    ambiguity_condition_met: bool
     disambiguation_requested: bool
     customer_resolved: Optional[bool] = False
     is_ambiguous: bool
@@ -317,20 +318,21 @@ During your interaction with the customer, they may express a need or problem th
 This occurs when multiple guideline conditions might apply, but insufficient information is available to determine which one should apply.
 In such cases, we need to identify the potentially relevant guidelines and ask the customer which one they intended.
 
-Your task is to determine whether the customer's intention is currently ambiguous with respect to the provided guidelines, and, if so, what the possible interpretations or directions are.
+Your task is to determine whether the customer's intention is currently ambiguous with respect to the provided disambiguation condition and related guidelines, and, if so, what the possible interpretations or directions are.
 You will be given:
-1. A disambiguation condition that signals potential ambiguity when true
+1. An ambiguity condition that signals the potential ambiguity when true
 2. A list of related guidelines, each representing a possible path the customer might follow
 
-Evaluate whether the disambiguation condition indeed holds in the current interaction context. 
+Evaluate whether the ambiguity condition indeed holds in the current interaction context. 
 If it does, evaluate if there is more than one guideline whose condition can be relevant to the user's inquiry.
-If ambiguity exists (disambiguation condition is true AND multiple guidelines apply):
+If ambiguity exists (ambiguity condition is true AND multiple guidelines apply):
     - Identify the relevant guidelines that represent the available options. Briefly explain how user's request can be interpreted as relevant for this guideline.
     - Formulate a response in the format:
     "Ask the customer whether they want to do X, Y, or Z..."
     This response should clearly present the options to help resolve the ambiguity.
 
 On detecting real ambiguity:
+- If the ambiguity is not directly related to the evaluated guideline, or if it is broader than the specific ambiguity condition being assessed, do not flag it as ambiguity.
 - Guidelines often describe very similar requests with subtle differences. If the customer has indicated which option is relevant to them, there is NO ambiguity - even if you think another similar guideline could also apply. 
 We don't want to detect ambiguity when the customer has already stated what they want. Trust the customer's stated intent rather than second - guessing whether they might have meant a similar alternative.
 Only disambiguate when the customer's request is genuinely unclear and could reasonably match multiple distinct paths.
@@ -379,7 +381,7 @@ Examples of Guidelines Ambiguity Evaluation:
         builder.add_section(
             name=BuiltInSection.GUIDELINES,
             template="""
-- Disambiguation Condition: ###
+- Ambiguity Condition: ###
 {disambiguation_condition}
 ###
 - Guidelines List: ###
@@ -416,9 +418,10 @@ OUTPUT FORMAT
         self, disambiguation_targets_guidelines: dict[str, _Guideline]
     ) -> str:
         result = {
-            "tldr": "<str, Briefly state the customer's most recent intent based on their LATEST input, and explain why there is or isn't an ambiguity.>",
+            "tldr": "<str, Briefly state the customer's most recent intent based on their LATEST input, and explain why it is ambiguous with respect to the ambiguity condition and the provided guidelines>",
+            "ambiguity_condition_met": "<BOOL. Whether the ambiguity condition is met based on the interaction>",
             "disambiguation_requested": "<BOOL. Based on the interaction, whether a clarification was asked by the agent. If so, is_ambiguous will be true only if customer has not answered OR customer changed request OR there is a new ambiguity to resolve>",
-            "customer_resolved": "<BOOL. Include if disambiguation_requested=true. Whether the latest requested ambiguity was already resolved by the user",
+            "customer_resolved": "<BOOL. Include if disambiguation_requested=true. Whether the latest requested ambiguity was already resolved by the user>",
             "is_ambiguous": "<BOOL>",
             "guidelines (include only if is_ambiguous is True)": [
                 {
@@ -473,6 +476,7 @@ example_1_disambiguation_condition = GuidelineContent(
 
 example_1_expected = DisambiguationGuidelineMatchesSchema(
     tldr="The customer claimed to receive the wrong item; may want to either replace it or get a refund.",
+    ambiguity_condition_met=True,
     disambiguation_requested=False,
     is_ambiguous=True,
     guidelines=[
@@ -521,6 +525,7 @@ example_2_disambiguation_condition = GuidelineContent(
 
 example_2_expected = DisambiguationGuidelineMatchesSchema(
     tldr="The customer asks to book an appointment but didn't specify the type or the place. Since they mention needing a prescription, it likely relates to a medical consultation, not a psychological one.",
+    ambiguity_condition_met=True,
     disambiguation_requested=False,
     is_ambiguous=True,
     guidelines=[
@@ -548,7 +553,7 @@ example_3_events = [
     _make_event(
         "11",
         EventSource.CUSTOMER,
-        "Hey, can you book me an online appointment? I need a prescription",
+        "Hey, can you help me?",
     ),
 ]
 
@@ -573,7 +578,8 @@ example_3_disambiguation_condition = GuidelineContent(
 )
 
 example_3_expected = DisambiguationGuidelineMatchesSchema(
-    tldr="The customer requests an online appointment and mentions needing a prescription, which suggests a medical consultation. There is no ambiguity.",
+    tldr="The customer asked for help and didn't specify with what. However, they did not specified that they need help with book an appointment so the ambiguity condition is not met.",
+    ambiguity_condition_met=False,
     disambiguation_requested=False,
     is_ambiguous=False,
 )
@@ -619,6 +625,7 @@ example_4_disambiguation_condition = GuidelineContent(
 
 example_4_expected = DisambiguationGuidelineMatchesSchema(
     tldr="The customer asks to book an appointment. Online sessions are not available. Since they mention a sore throat, it likely relates to a medical consultation, not a psychologist.",
+    ambiguity_condition_met=False,
     disambiguation_requested=False,
     is_ambiguous=False,
 )
@@ -664,6 +671,7 @@ example_5_disambiguation_condition = GuidelineContent(
 
 example_5_expected = DisambiguationGuidelineMatchesSchema(
     tldr="Based on latest message, there is a new request which is again ambiguous. Need to clarify whether it's with a doctor or a psychologist, and whether it should be online or in-person",
+    ambiguity_condition_met=True,
     disambiguation_requested=False,
     is_ambiguous=True,
     guidelines=[
@@ -721,6 +729,7 @@ example_6_disambiguation_condition = GuidelineContent(
 
 example_6_expected = DisambiguationGuidelineMatchesSchema(
     tldr="The customer asked to book two appointments. For the first appointment there is an ambiguity between doctor or psychologist, and online or in-person. The second one is clear.",
+    ambiguity_condition_met=True,
     disambiguation_requested=False,
     is_ambiguous=True,
     guidelines=[
@@ -785,6 +794,7 @@ example_7_disambiguation_condition = GuidelineContent(
 
 example_7_expected = DisambiguationGuidelineMatchesSchema(
     tldr="The customer received a wrong item and was asked whether they wanted a replacement or refund. They responded with 'replace', which clearly indicates their choice and resolves the ambiguity.",
+    ambiguity_condition_met=False,
     disambiguation_requested=True,
     customer_resolved=True,
     is_ambiguous=False,
@@ -826,6 +836,7 @@ example_8_disambiguation_condition = GuidelineContent(
 
 example_8_expected = DisambiguationGuidelineMatchesSchema(
     tldr="The customer received a wrong item and clarification was asked. The customer only said that they need to think so the ambiguity still applies",
+    ambiguity_condition_met=True,
     disambiguation_requested=True,
     customer_resolved=False,
     is_ambiguous=True,
@@ -881,6 +892,7 @@ example_9_disambiguation_condition = GuidelineContent(
 
 example_9_expected = DisambiguationGuidelineMatchesSchema(
     tldr="The customer received a wrong item and clarification was asked. The customer did not clarify how to handle the wrong item but they changed the subject so no disambiguation is needed according to the most recent context",
+    ambiguity_condition_met=True,
     disambiguation_requested=True,
     customer_resolved=False,
     is_ambiguous=False,

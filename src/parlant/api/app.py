@@ -13,9 +13,10 @@
 # limitations under the License.
 
 import asyncio
+from contextvars import ContextVar
 import os
 import traceback
-from typing import Awaitable, Callable, TypeAlias
+from typing import Any, Awaitable, Callable, Mapping, TypeAlias
 
 import mimetypes
 
@@ -105,6 +106,7 @@ def _resolve_operation_id(request: Request) -> str | None:
 async def create_api_app(
     container: Container,
     configure: Callable[[FastAPI], Awaitable[None]] | None = None,
+    contextvar_propagation: Mapping[ContextVar[Any], Any] = {},
 ) -> ASGIApplication:
     logger = container[Logger]
     websocket_logger = container[WebSocketLogger]
@@ -125,6 +127,15 @@ async def create_api_app(
     )
 
     api_app = await authorization_policy.configure_app(api_app)
+
+    @api_app.middleware("http")
+    async def propagate_contextvars_into_request_task(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        for var, value in contextvar_propagation.items():
+            var.set(value)
+        return await call_next(request)
 
     @api_app.middleware("http")
     async def handle_cancellation(

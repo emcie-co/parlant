@@ -16,7 +16,8 @@
 
 import asyncio
 from contextlib import asynccontextmanager, AsyncExitStack
-from dataclasses import dataclass
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 import importlib
 import inspect
 import os
@@ -30,6 +31,7 @@ from typing import (
     Callable,
     Iterable,
     Literal,
+    Mapping,
     Optional,
     Sequence,
     cast,
@@ -289,6 +291,7 @@ class StartupParameters:
     configure: Callable[[Container], Awaitable[Container]] | None = None
     initialize: Callable[[Container], Awaitable[None]] | None = None
     configure_api: Callable[[FastAPI], Awaitable[None]] | None = None
+    contextvar_propagation: Mapping[ContextVar[Any], Any] = field(default_factory=dict)
 
 
 def load_nlp_service(
@@ -954,7 +957,14 @@ async def load_app(params: StartupParameters) -> AsyncIterator[tuple[ASGIApplica
 
         _print_startup_banner()
 
-        yield await create_api_app(actual_container, params.configure_api), actual_container
+        yield (
+            await create_api_app(
+                actual_container,
+                params.configure_api,
+                params.contextvar_propagation,
+            ),
+            actual_container,
+        )
 
 
 def _print_startup_banner() -> None:

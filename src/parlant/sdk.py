@@ -3207,6 +3207,9 @@ class Server:
         )
 
     async def __aenter__(self) -> Server:
+        # Set this server instance as the current server in the context
+        self._current_server_var.set(self)
+
         try:
             self._startup_context_manager = start_parlant(self._get_startup_params())
             self._container = await self._startup_context_manager.__aenter__()
@@ -3216,9 +3219,6 @@ class Server:
             self._creation_progress_task_id = self._creation_progress.add_task(
                 "Caching entity embeddings", total=None
             )
-
-            # Set this server instance as the current server in the context
-            self._current_server_var.set(self)
 
             return self
 
@@ -4357,6 +4357,9 @@ class Server:
             configure=configure,
             initialize=initialize,
             configure_api=self._configure_api,
+            contextvar_propagation={
+                self._current_server_var: self,
+            },
         )
 
     @classproperty

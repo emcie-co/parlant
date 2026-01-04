@@ -673,16 +673,18 @@ These guidelines have already been pre-filtered based on the interaction's conte
         low_criticality_guidelines = []
         for p in low_critical_matches:
             if guideline_representations[p.guideline.id].condition:
-                guideline = f"When {guideline_representations[p.guideline.id].condition}, then {guideline_representations[p.guideline.id].action}"
+                guideline = f" - When {guideline_representations[p.guideline.id].condition}, then {guideline_representations[p.guideline.id].action}"
             else:
-                guideline = f"When always, then {guideline_representations[p.guideline.id].action}"
+                guideline = (
+                    f" - When always, then {guideline_representations[p.guideline.id].action}"
+                )
             low_criticality_guidelines.append(guideline)
         guideline_list = "\n".join(low_criticality_guidelines)
         template = f"""
-When generating a response, consider the following general guiding principles:
+When generating a response, consider the following general principles:
 {guideline_list}
 Note that you may ignore a principle if it is not relevant to the specific context or if you find it inappropriate.
-Later in this prompt, you will be provided with guidelines that have been detected as specifically relevant to the current context and that you must follow. Prioritize those over these general principles.
+Later in this prompt, you will be provided with guidelines that have been detected as specifically relevant to the current context and that you must follow. Prioritize those context-specific over these general principles.
 """
         self.add_section(
             name="low-criticality-guidelines",

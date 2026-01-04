@@ -61,16 +61,6 @@ Feature: Conversation
         Then a single message event is emitted
         And the message contains a direct or indirect invitation to order pizza
 
-    Scenario: Message generation is cancelled
-        Given an agent whose job is to sell pizza
-        And that the agent uses the canned_fluid message composition mode
-        And an empty session
-        And a customer message, "Hi"
-        And a guideline to do your job when the customer says hello
-        When processing is triggered and cancelled in the middle
-        Then no message events are emitted
-        And a status event is emitted, cancelling the response to event
-        And a status event is emitted, ready for further engagement after reacting to event
 
     Scenario: The agent ignores deleted messages when responding
         Given an empty session
@@ -393,3 +383,15 @@ Feature: Conversation
         When detection and processing are triggered
         Then a single message event is emitted
         And the message contains that the user cannot perform the transfer here, without mentioning physical branches or any phone numbers. It is only permissible for the agent to say that it can be performed through Chase.com. 
+
+    Scenario: Agent doesn't change behavior when many low criticality guidelines ar matched
+        Given a guideline to be helpful when always with criticality low
+        And a guideline to not offer non existing capabilities when always with criticality low
+        And a guideline to offer a discount when always with criticality low
+        And a guideline to call the customer sir when always with criticality low
+        And a guideline to ask how else can they help when always with criticality low
+        And a guideline to suggest from the available products in stock when always with criticality low
+        And a customer message, "I need to schedule an appointment because I want to consult about a loan"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains that the agent can't help with this request

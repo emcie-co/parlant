@@ -15,7 +15,7 @@
 from pytest_bdd import given, parsers
 
 from parlant.core.agents import AgentId
-from parlant.core.common import JSONSerializable
+from parlant.core.common import Criticality, JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.entity_cq import EntityCommands
 from parlant.core.evaluations import GuidelinePayload, PayloadOperation
@@ -77,6 +77,36 @@ def given_a_guideline_to_when(
             condition=a_condition_holds,
             action=do_something,
             metadata=metadata,
+        )
+    )
+
+
+@step(
+    given,
+    parsers.parse(
+        "a guideline to {do_something} when {a_condition_holds} with criticality {criticality}"
+    ),
+)
+def given_a_guideline_to_when_with_criticality(
+    context: ContextOfTest,
+    do_something: str,
+    a_condition_holds: str,
+    criticality: str,
+) -> None:
+    guideline_store = context.container[GuidelineStore]
+
+    metadata = get_guideline_properties(context, a_condition_holds, do_something)
+    guideline_criticality = {
+        "high": Criticality.HIGH,
+        "medium": Criticality.MEDIUM,
+        "low": Criticality.LOW,
+    }[criticality]
+    context.sync_await(
+        guideline_store.create_guideline(
+            condition=a_condition_holds,
+            action=do_something,
+            metadata=metadata,
+            criticality=guideline_criticality,
         )
     )
 

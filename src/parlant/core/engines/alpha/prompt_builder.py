@@ -656,7 +656,7 @@ These guidelines have already been pre-filtered based on the interaction's conte
         )
         return self
 
-    def add_low_criticality_guidelines(  # TODO
+    def add_low_criticality_guidelines(
         self,
         ordinary: Sequence[GuidelineMatch],
         tool_enabled: Mapping[GuidelineMatch, Sequence[ToolId]],

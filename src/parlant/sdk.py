@@ -28,7 +28,9 @@ from itertools import chain
 from pathlib import Path
 import sys
 import rich
-from rich.console import Group
+from rich.console import Console, Group
+from rich.panel import Panel
+import rich.box
 from rich.progress import (
     BarColumn,
     Progress,
@@ -275,6 +277,13 @@ class SDKError(Exception):
         super().__init__(message)
 
 
+class NLPServiceConfigurationError(SDKError):
+    """Raised when there is a configuration error with an NLP service."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
 class NLPServices:
     """A collection of static methods to create built-in NLPService instances for the SDK."""
 
@@ -284,7 +293,7 @@ class NLPServices:
         from parlant.adapters.nlp.emcie_service import EmcieService
 
         if error := EmcieService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return EmcieService(
             container[Logger],
@@ -298,7 +307,7 @@ class NLPServices:
         from parlant.adapters.nlp.azure_service import AzureService
 
         if error := AzureService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return AzureService(container[Logger], container[Tracer], container[Meter])
 
@@ -308,7 +317,7 @@ class NLPServices:
         from parlant.adapters.nlp.openai_service import OpenAIService
 
         if error := OpenAIService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return OpenAIService(container[Logger], container[Tracer], container[Meter])
 
@@ -318,7 +327,7 @@ class NLPServices:
         from parlant.adapters.nlp.anthropic_service import AnthropicService
 
         if error := AnthropicService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return AnthropicService(container[Logger], container[Tracer], container[Meter])
 
@@ -328,7 +337,7 @@ class NLPServices:
         from parlant.adapters.nlp.cerebras_service import CerebrasService
 
         if error := CerebrasService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return CerebrasService(container[Logger], container[Tracer], container[Meter])
 
@@ -338,7 +347,7 @@ class NLPServices:
         from parlant.adapters.nlp.together_service import TogetherService
 
         if error := TogetherService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return TogetherService(container[Logger], container[Tracer], container[Meter])
 
@@ -348,7 +357,7 @@ class NLPServices:
         from parlant.adapters.nlp.gemini_service import GeminiService
 
         if error := GeminiService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return GeminiService(container[Logger], container[Tracer], container[Meter])
 
@@ -358,7 +367,7 @@ class NLPServices:
         from parlant.adapters.nlp.litellm_service import LiteLLMService
 
         if error := LiteLLMService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return LiteLLMService(container[Logger], container[Tracer], container[Meter])
 
@@ -368,7 +377,7 @@ class NLPServices:
         from parlant.adapters.nlp.modelscope_service import ModelScopeService
 
         if error := ModelScopeService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return ModelScopeService(container[Logger], container[Tracer], container[Meter])
 
@@ -378,10 +387,10 @@ class NLPServices:
         from parlant.adapters.nlp.vertex_service import VertexAIService
 
         if error := VertexAIService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         if err := VertexAIService.validate_adc():
-            raise SDKError(err)
+            raise NLPServiceConfigurationError(err)
 
         return VertexAIService(container[Logger], container[Tracer], container[Meter])
 
@@ -391,7 +400,7 @@ class NLPServices:
         from parlant.adapters.nlp.mistral_service import MistralService
 
         if error := MistralService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return MistralService(container[Logger], container[Tracer], container[Meter])
 
@@ -401,10 +410,10 @@ class NLPServices:
         from parlant.adapters.nlp.ollama_service import OllamaService
 
         if error := OllamaService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         if err := OllamaService.verify_models():
-            raise SDKError(err)
+            raise NLPServiceConfigurationError(err)
 
         return OllamaService(container[Logger], container[Tracer], container[Meter])
 
@@ -414,7 +423,7 @@ class NLPServices:
         from parlant.adapters.nlp.glm_service import GLMService
 
         if error := GLMService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return GLMService(container[Logger], container[Tracer], container[Meter])
 
@@ -424,7 +433,7 @@ class NLPServices:
         from parlant.adapters.nlp.qwen_service import QwenService
 
         if error := QwenService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return QwenService(container[Logger], container[Tracer], container[Meter])
 
@@ -434,7 +443,7 @@ class NLPServices:
         from parlant.adapters.nlp.deepseek_service import DeepSeekService
 
         if error := DeepSeekService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return DeepSeekService(container[Logger], container[Tracer], container[Meter])
 
@@ -444,7 +453,7 @@ class NLPServices:
         from parlant.adapters.nlp.snowflake_cortex_service import SnowflakeCortexService
 
         if error := SnowflakeCortexService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return SnowflakeCortexService(container[Logger], container[Tracer], container[Meter])
 
@@ -473,7 +482,7 @@ class NLPServices:
 
         def factory(c: Container) -> NLPService:
             if error := OpenRouterService.verify_environment():
-                raise SDKError(error)
+                raise NLPServiceConfigurationError(error)
             return OpenRouterService(
                 c[Logger],
                 c[Tracer],
@@ -491,7 +500,7 @@ class NLPServices:
         from parlant.adapters.nlp.zhipu_service import ZhipuService
 
         if error := ZhipuService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return ZhipuService(container[Logger], container[Tracer], container[Meter])
 
@@ -3083,6 +3092,31 @@ def _die(message: str, exc: Exception | None) -> NoReturn:
     sys.exit(1)
 
 
+def _die_nlp_config_error(error: NLPServiceConfigurationError) -> NoReturn:
+    console = Console(stderr=True)
+
+    header = Text()
+    header.append("🔧 ", style="bold")
+    header.append("NLP SERVICE CONFIGURATION ERROR", style="bold white")
+
+    content = Text(str(error), style="white")
+
+    panel = Panel(
+        content,
+        title=header,
+        title_align="left",
+        border_style="white",
+        box=rich.box.DOUBLE_EDGE,
+        padding=(1, 3),
+        width=100,
+    )
+
+    console.print()
+    console.print(panel)
+    console.print()
+    sys.exit(1)
+
+
 class Server:
     """The main server class that manages the agent, journeys, tools, and other components.
 
@@ -3222,6 +3256,8 @@ class Server:
 
             return self
 
+        except NLPServiceConfigurationError as e:
+            _die_nlp_config_error(e)
         except SDKError as e:
             _die(str(e), e)
             raise

@@ -427,9 +427,12 @@ class EmcieService(NLPService):
 
         if not os.environ.get("EMCIE_API_KEY"):
             return """\
-You're using the Emcie NLP service, but EMCIE_API_KEY is not set.
+You're using Emcie's optimized NLP service, but EMCIE_API_KEY is not set.
 Please set EMCIE_API_KEY in your environment before running Parlant.
-"""
+
+For alternative providers, see https://parlant.io/docs/quickstart/installation.
+
+Get an API key for Emcie by signing up at https://www.emcie.co."""
 
         return None
 

@@ -1,59 +1,305 @@
 # Parlant
 
-> Open-source AI agent framework for building customer-facing conversational agents with ensured rule compliance and enterprise-grade behavior control
+> Open-source AI agent framework for building customer-facing conversational agents with ensured rule compliance and enterprise-grade behavior control.
 
-Parlant is an Agentic Behavior Modeling Engine that enables developers to create predictable, business-aligned AI agents. Unlike traditional prompt-based approaches, Parlant ensures agents follow behavioral guidelines through structured rule matching and contextual application. It also supports deterministic outputs via canned responses.
+Parlant is a Python framework for building **predictable, business-aligned AI agents**. Unlike prompt-based approaches, Parlant ensures agents follow behavioral rules through structured guideline matching and contextual application.
 
-## Key Concepts
+Install: `pip install parlant`
 
-- [Sessions](docs/concepts/sessions.md): Interactions sessions between a customer and an agent
+## Quick Start Example
 
-### Entities
+```python
+import parlant.sdk as p
+import asyncio
 
-- [Agents](docs/concepts/agents): AI personalities that interact with customers as coherent entities
-- [Customers](docs/concepts/customers.md): Customer entity management and personalization
+@p.tool
+async def get_account_balance(context: p.ToolContext, account_id: str) -> p.ToolResult:
+    # Your business logic here
+    balance = 1234.56
+    return p.ToolResult(data={"balance": balance, "currency": "USD"})
 
-### Behavior Modeling
-Note that you'll need to review the following content carefully before making design suggestions or writing code, as it definitely may not be what you expect.
+async def main() -> None:
+    async with p.Server() as server:
+        agent = await server.create_agent(
+            name="Banking Assistant",
+            description="Helpful and professional banking support agent",
+        )
 
-- [Behavioral Guidelines](docs/concepts/customization/guidelines): Natural language rules that agents follow contextually. Read this page to understand exactly how guidelines work in Parlant and how to use them.
-- [Journeys](docs/concepts/customization/journeys): Structured customer interaction flows. Read this page to understand exactly how to create step-by-step customer interaction flows.
-- [Tools](docs/concepts/customization/tools): External API and service integrations
-- [Glossary](docs/concepts/customization/glossary): Teaching agents domain-specific terminology
-- [Canned Responses](docs/concepts/customization/canned-responses): Template-based responses to eliminate hallucination and control language style
+        # Add behavioral guidelines
+        await agent.create_guideline(
+            condition="The customer asks about their balance",
+            action="Retrieve and clearly present their account balance",
+            tools=[get_account_balance],
+        )
 
-## Getting Started
+        await agent.create_guideline(
+            condition="The customer asks about topics unrelated to banking",
+            action="Politely decline and redirect to banking topics",
+        )
 
-- [Installation Guide](docs/quickstart/installation): Python 3.10+ setup and first agent creation
-- [Examples](docs/quickstart/examples): Healthcare agent and other practical implementations
-- [Motivation](docs/quickstart/motivation): Why Parlant solves traditional AI agent reliability problems
+        # Server runs until shutdown - no additional code needed here.
+        # When the process exits, the context manager handles cleanup automatically.
 
-## Advanced Features
+if __name__ == "__main__":
+    asyncio.run(main())
+```
 
-- [Custom LLMs](docs/advanced/custom-llms.md): Integrating custom language model providers
-- [Explainability](docs/advanced/explainability.md): Understanding guideline matching and decision-making
-- [Engine Extensions](docs/advanced/engine-extensions.md): Extending Parlant's core engine capabilities
-- [Few-Shot Learning](docs/advanced/few-shots.md): Improving agent responses with examples
-- [Optimization](docs/advanced/optimization.md): Performance tuning and scaling strategies
-- [Triggered Responses](docs/advanced/triggered-responses.md): Proactive agent communication
+Run with: `python your_agent.py` then open http://localhost:8800
 
-## Production Deployment
+---
 
-- [API Hardening](docs/production/api-hardening.md): Authorization policies and rate limiting
-- [Agentic Design](docs/production/agentic-design.md): Best practices for agent architecture
-- [Custom Frontend](docs/production/custom-frontend.md): Building custom user interfaces
-- [Human Handoff](docs/production/human-handoff.md): Seamless escalation to human agents
-- [Input Moderation](docs/production/input-moderation.md): Content filtering and safety measures
+## Core Concepts
 
-## Development & Contributing
+### 1. Agents
+AI personalities that interact with customers. Created via `server.create_agent()`.
 
-- [GitHub Repository](https://github.com/emcie-co/parlant): Apache 2.0 licensed source code
-- [Discord Community](https://discord.gg/duxWqxKk6J): Developer support and discussions
+Learn more: [Agents Documentation](https://parlant.io/docs/concepts/agents)
 
-## API & SDK
+### 2. Guidelines
+Natural language if-then rules that control agent behavior contextually:
+```python
+await agent.create_guideline(
+    condition="When this situation occurs",  # The trigger
+    action="Do this specific thing",          # The response behavior
+    tools=[optional_tool],                    # Tools available for this guideline
+)
+```
 
-- [Python SDK](https://pypi.org/project/parlant/): Core framework installation
-- [REST API Documentation](https://parlant.io/docs/api/): Complete API reference
-- [Client SDKs](https://github.com/emcie-co/parlant-client-python): Python API client
-- [Client SDKs](https://github.com/emcie-co/parlant-client-typescript): TypeScript API client
-- [React Chat Widget](https://github.com/emcie-co/parlant-chat-react): Drop-in UI component
+Learn more: [Guidelines Documentation](https://parlant.io/docs/concepts/customization/guidelines)
+
+### 3. Journeys
+Structured multi-step interaction flows (state machines):
+```python
+journey = await agent.create_journey(
+    title="Order Support",
+    description="Helps customers with order issues",
+    conditions=["The customer has an order-related question"],
+)
+
+# Chain states with transitions
+t0 = await journey.initial_state.transition_to(chat_state="Ask for order number")
+t1 = await t0.target.transition_to(tool_state=lookup_order)
+t2 = await t1.target.transition_to(
+    chat_state="Present order status",
+    condition="Order was found",
+)
+await t2.target.transition_to(state=p.END_JOURNEY)
+```
+
+Learn more: [Journeys Documentation](https://parlant.io/docs/concepts/customization/journeys)
+
+### 4. Tools
+Functions the agent can call. Always async, always return `ToolResult`:
+```python
+@p.tool
+async def my_tool(
+    context: p.ToolContext,      # Always first param
+    required_param: str,          # Required parameters
+    optional_param: int = 10,     # Optional with defaults
+) -> p.ToolResult:
+    # Business logic here
+    return p.ToolResult(data={"key": "value"})
+```
+
+Learn more: [Tools Documentation](https://parlant.io/docs/concepts/customization/tools)
+
+### 5. Glossary Terms
+Teach agents domain-specific terminology:
+```python
+await agent.create_term(
+    name="SKU",
+    description="Stock Keeping Unit - unique product identifier",
+    synonyms=["product code", "item number"],
+)
+```
+
+Learn more: [Glossary Documentation](https://parlant.io/docs/concepts/customization/glossary)
+
+### 6. Canned Responses
+Template responses to eliminate hallucination and control language style:
+```python
+await agent.add_canned_response(
+    key="greeting",
+    content="Hello! I'm here to help with your order. How can I assist you today?",
+)
+```
+
+Learn more: [Canned Responses Documentation](https://parlant.io/docs/concepts/customization/canned-responses)
+
+---
+
+## Common Patterns
+
+### Pattern: Tool with Customer Context
+```python
+@p.tool
+async def get_customer_orders(context: p.ToolContext) -> p.ToolResult:
+    # context.customer_id is automatically available
+    orders = await db.get_orders(context.customer_id)
+    return p.ToolResult(data=orders)
+```
+
+### Pattern: Conditional Transitions
+```python
+# Branch based on conditions
+t0 = await journey.initial_state.transition_to(tool_state=check_eligibility)
+
+# Multiple outgoing transitions from same state
+await t0.target.transition_to(
+    chat_state="Approve the request",
+    condition="Customer is eligible",
+)
+await t0.target.transition_to(
+    chat_state="Explain why they're not eligible",
+    condition="Customer is not eligible",
+)
+```
+
+### Pattern: Disambiguation
+Handle ambiguous user intents:
+```python
+observation = await agent.create_observation(
+    "The customer mentions a problem but doesn't specify what kind",
+)
+await observation.disambiguate([billing_journey, technical_support_journey])
+```
+
+### Pattern: Journey-Scoped Guidelines
+Guidelines that only apply within a specific journey:
+```python
+await journey.create_guideline(
+    condition="Customer seems frustrated",
+    action="Acknowledge their frustration and offer to escalate",
+)
+```
+
+---
+
+## Environment Variables
+
+Set your LLM provider credentials before running. Examples:
+- `OPENAI_API_KEY` - For OpenAI
+- `ANTHROPIC_API_KEY` - For Anthropic
+- `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_ENDPOINT` - For Azure OpenAI
+
+Learn more: [Installation & Setup](https://parlant.io/docs/quickstart/installation)
+
+---
+
+## Full Example: Customer Service Agent
+
+```python
+import parlant.sdk as p
+import asyncio
+
+# Define tools
+@p.tool
+async def lookup_order(context: p.ToolContext, order_id: str) -> p.ToolResult:
+    # Simulated order lookup
+    return p.ToolResult(data={
+        "order_id": order_id,
+        "status": "shipped",
+        "tracking": "1Z999AA10123456784",
+    })
+
+@p.tool
+async def request_refund(context: p.ToolContext, order_id: str, reason: str) -> p.ToolResult:
+    return p.ToolResult(data={"refund_id": "REF-12345", "status": "processing"})
+
+async def create_order_journey(agent: p.Agent) -> p.Journey:
+    journey = await agent.create_journey(
+        title="Order Support",
+        description="Helps customers check order status or request refunds",
+        conditions=["Customer asks about an order"],
+    )
+
+    # Step 1: Get order number
+    t0 = await journey.initial_state.transition_to(
+        chat_state="Ask the customer for their order number"
+    )
+
+    # Step 2: Look up the order
+    t1 = await t0.target.transition_to(tool_state=lookup_order)
+
+    # Step 3a: Order found - show status
+    t2 = await t1.target.transition_to(
+        chat_state="Present the order status and tracking information",
+        condition="Order was found",
+    )
+
+    # Step 3b: Order not found
+    await t1.target.transition_to(
+        chat_state="Apologize and ask them to verify the order number",
+        condition="Order was not found",
+    )
+
+    # Step 4: Check if they need anything else
+    t3 = await t2.target.transition_to(
+        chat_state="Ask if they need help with anything else regarding this order"
+    )
+
+    # Step 5a: They want a refund
+    t4 = await t3.target.transition_to(
+        tool_state=request_refund,
+        condition="Customer requests a refund",
+    )
+    await t4.target.transition_to(
+        chat_state="Confirm the refund has been initiated"
+    )
+
+    # Step 5b: They're satisfied
+    await t3.target.transition_to(
+        state=p.END_JOURNEY,
+        condition="Customer has no more questions",
+    )
+
+    # Journey-specific guidelines
+    await journey.create_guideline(
+        condition="Customer is upset about a delayed order",
+        action="Apologize sincerely and offer expedited shipping on their next order",
+    )
+
+    return journey
+
+async def main() -> None:
+    async with p.Server() as server:
+        agent = await server.create_agent(
+            name="Support Agent",
+            description="Friendly and efficient customer support representative",
+        )
+
+        # Domain knowledge
+        await agent.create_term(
+            name="Express Shipping",
+            description="2-day delivery, costs $9.99",
+        )
+
+        # Create journey
+        await create_order_journey(agent)
+
+        # Global guidelines (apply everywhere)
+        await agent.create_guideline(
+            condition="Customer uses profanity or is abusive",
+            action="Calmly ask them to be respectful, or offer to end the conversation",
+        )
+
+        await agent.create_guideline(
+            condition="Customer asks to speak to a human",
+            action="Provide the support phone number: 1-800-555-0123",
+        )
+
+        # Server runs until shutdown - no additional code needed here.
+        # When the process exits, the context manager handles cleanup automatically.
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+---
+
+## Links
+
+- Documentation: https://parlant.io/
+- GitHub: https://github.com/emcie-co/parlant
+- PyPI: https://pypi.org/project/parlant/
+- Discord: https://discord.gg/duxWqxKk6J

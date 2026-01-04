@@ -253,7 +253,9 @@ class JourneyNextStepSelection:
                         "temperature": generation_attempt_temperatures[generation_attempt],
                     },
                 )
-                self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
+                self._logger.trace(
+                    f"Completion: {self._examined_journey.title}\n{inference.content.model_dump_json(indent=2)}"
+                )
 
                 if inference.content.applied_condition_id:
                     if inference.content.applied_condition_id == "None":
@@ -359,7 +361,7 @@ class JourneyNextStepSelection:
                             )
             except Exception as exc:
                 self._logger.warning(
-                    f"Attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                    f"Attempt {generation_attempt} failed: {self._examined_journey.title}\n{traceback.format_exception(exc)}"
                 )
 
                 last_generation_exception = exc
@@ -389,8 +391,8 @@ class JourneyNextStepSelection:
         if self._reset_journey:
             journey_restart = """
 Important:
-This journey has been restarted after a previous execution. 
-Carefully determine what information from the previous execution can still be assumed valid and what needs to be asked again. 
+This journey has been restarted after a previous execution.
+Carefully determine what information from the previous execution can still be assumed valid and what needs to be asked again.
 When in doubt, prefer to re-verify previous decisions unless it's clear they haven't changed"""
 
         flags_str = "Step Flags:\n"
@@ -425,16 +427,16 @@ Condition ({id}): {e.condition}
 Journey: {journey_title}
 {journey_conditions_str}{journey_description_str}
 
-CURRENT STEP - 
+CURRENT STEP -
 {current_node_description}
 
-POSSIBLE TRANSITIONS - 
-If the journey is not applicable anymore, return None as next step. 
+POSSIBLE TRANSITIONS -
+If the journey is not applicable anymore, return None as next step.
 
 If the current step hasn't completed, return '0' as the condition id.
 
 In any other case, return next step from the following possible transitions:
-{follow_ups_nodes_description} 
+{follow_ups_nodes_description}
 {journey_restart}
 """
         return transition_description
@@ -525,7 +527,11 @@ OUTPUT FORMAT
         self,
         shots: Sequence[JourneyNextStepSelectionShot],
     ) -> PromptBuilder:
-        builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
+        builder = PromptBuilder(
+            on_build=lambda prompt: self._logger.trace(
+                f"Prompt: {self._examined_journey.title}\n{prompt}"
+            )
+        )
 
         builder.add_agent_identity(self._context.agent)
 
@@ -561,19 +567,19 @@ If the journey should end, set `applied_condition_id` to `"None"`.
 
 ## 2: Current Step Completion
 Evaluate whether the last executed step is complete:
-    - For CUSTOMER_DEPENDENT steps: The step is completed if customer has provided the required information. It can be either after being asked or proactively in earlier messages.  
+    - For CUSTOMER_DEPENDENT steps: The step is completed if customer has provided the required information. It can be either after being asked or proactively in earlier messages.
     If the customer provided the information, set current_step_completed to 'true'.
-    If not, set completed to 'current_step_completed' as 'false' and applied_condition_id as '0'. 
+    If not, set completed to 'current_step_completed' as 'false' and applied_condition_id as '0'.
 
-    - For REQUIRES AGENT ACTION steps: The step is completed if the agent has performed the required communication or action. 
-    If so, set current_step_completed to 'true'. 
-    If not, set 'current_step_completed' as 'false' and applied_condition_id as '0'. 
+    - For REQUIRES AGENT ACTION steps: The step is completed if the agent has performed the required communication or action.
+    If so, set current_step_completed to 'true'.
+    If not, set 'current_step_completed' as 'false' and applied_condition_id as '0'.
 
     - For TOOL EXECUTION steps: The tool was executed, and its result will appear as a staged event. Evaluate which condition applies for the next transition based on the tool result..
         Note that the tool execution is the final action in the interaction, meaning all message exchanges occurred beforehand. Make sure to consider this order in your evaluation.
 
 ## 3: Journey Advancement
-If the journey continues AND the current step is complete, choose the next step by evaluating which condition best fits.    
+If the journey continues AND the current step is complete, choose the next step by evaluating which condition best fits.
 The condition contains one or more sub-conditions that must all be evaluated and met for the condition to be considered the best match.
 
 Select the condition ID that best matches:
@@ -582,16 +588,16 @@ Select the condition ID that best matches:
     - Return its ID as `applied_condition_id`
 
 **How to determine if condition / sub condition is fulfilled if the action is CUSTOMER DEPENDENT:**
-The action is fulfilled if the customer has provided the required information. It can be either after being asked or proactively in earlier messages. 
+The action is fulfilled if the customer has provided the required information. It can be either after being asked or proactively in earlier messages.
 That means, the agent does not need to ask for something for the action to be fulfilled.
 Note that the customer may provide multiple details at once (in one message), and you should consider all of them to identify the most relevant condition.
-Also, note that the customer may provide some of the answers in previous messages, consider those answers too. 
-The answers may not arrive in the order we expect. An answer for a later step may have been provided in earlier messages. As long as we have the required 
+Also, note that the customer may provide some of the answers in previous messages, consider those answers too.
+The answers may not arrive in the order we expect. An answer for a later step may have been provided in earlier messages. As long as we have the required
 information, the condition is considered met.
 
 **Handling partial condition matches**
 Conditions may contain multiple sub-conditions (e.g., "customer provided X AND agent did Y AND customer hasn't provided Z")
-If ALL information has been provided (for example also Z) and no condition is fully satisfied, select the condition with the MOST satisfied sub-conditions 
+If ALL information has been provided (for example also Z) and no condition is fully satisfied, select the condition with the MOST satisfied sub-conditions
 This represents the path closest to completion, even if technically the condition isn't met
 
 Important - You tend to ignore customer action completions that were provided in previous messages. It's important to notice ALL customer messages

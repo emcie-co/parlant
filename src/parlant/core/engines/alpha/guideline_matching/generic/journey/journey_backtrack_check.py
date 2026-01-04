@@ -260,7 +260,7 @@ class JourneyBacktrackCheck:
             journey_status = """
 This journey is not currently active. We may need to:
 1. Resume to the journey process by backtracking to the last point where we left off or to a previously completed step
-2. Start a new instance of the same journey for a different purpose (backtrack to the beginning of the journey)  
+2. Start a new instance of the same journey for a different purpose (backtrack to the beginning of the journey)
 """
 
         last_executed_node_id = next(
@@ -337,7 +337,9 @@ This journey is not currently active. We may need to:
                     hints={"temperature": generation_attempt_temperatures[generation_attempt]},
                 )
 
-                self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
+                self._logger.trace(
+                    f"Completion: {self._examined_journey.title}\n{inference.content.model_dump_json(indent=2)}"
+                )
 
                 if not inference.content.requires_backtracking:
                     return BacktrackCheckResult(
@@ -354,7 +356,7 @@ This journey is not currently active. We may need to:
 
             except Exception as exc:
                 self._logger.warning(
-                    f"Attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                    f"Attempt {generation_attempt} failed: {self._examined_journey.title}\n{traceback.format_exception(exc)}"
                 )
 
                 last_generation_exception = exc
@@ -365,7 +367,11 @@ This journey is not currently active. We may need to:
         self,
         shots: Sequence[JourneyBacktrackCheckShot],
     ) -> PromptBuilder:
-        builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
+        builder = PromptBuilder(
+            on_build=lambda prompt: self._logger.trace(
+                f"Prompt: {self._examined_journey.title}\n{prompt}"
+            )
+        )
 
         builder.add_agent_identity(self._context.agent)
 
@@ -404,7 +410,7 @@ Backtracking scenarios:
 Example: If the journey represents a process for purchasing an item and the customer wants to change the quantity they previously requested, this is the same journey execution and the same purpose.
 If, however, the customer wants to purchase a different item, the journey should restart from the beginning, which is considered a new purpose.
 
-Exit the journey: 
+Exit the journey:
 If the journey needs to be exited because it was completed or the customer requests to leave the process, then backtracking is not required ('requires_backtracking' = False).
 Exiting a journey does not involve backtracking to the beginning.
 """,

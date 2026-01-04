@@ -450,7 +450,9 @@ class JourneyBacktrackNodeSelection:
                     prompt=prompt,
                     hints={"temperature": generation_attempt_temperatures[generation_attempt]},
                 )
-                self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
+                self._logger.trace(
+                    f"Completion: {self._examined_journey.title}\n{inference.content.model_dump_json(indent=2)}"
+                )
 
                 journey_path = self._get_verified_node_advancement(inference.content)
 
@@ -501,7 +503,7 @@ class JourneyBacktrackNodeSelection:
                 )
             except Exception as exc:
                 self._logger.warning(
-                    f"Attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                    f"Attempt {generation_attempt} failed: {self._examined_journey.title}\n{traceback.format_exception(exc)}"
                 )
 
                 last_generation_exception = exc
@@ -608,11 +610,11 @@ class JourneyBacktrackNodeSelection:
         ):  # Warnings related to backtracking to illegal step
             if journey_path[0] != response.backtracking_target_step:
                 self._logger.warning(
-                    f"WARNING: Illegal journey path returned by journey step selection. Reported that it should return to step {response.backtracking_target_step}, but step advancement began at {journey_path[0]}"
+                    f"WARNING: Illegal journey path returned by journey step selection for journey {self._examined_journey.title}. Reported that it should return to step {response.backtracking_target_step}, but step advancement began at {journey_path[0]}"
                 )
             if response.backtracking_target_step not in self._previous_path:
                 self._logger.warning(
-                    f"WARNING: Illegal journey path returned by journey step selection. backtracked to {response.backtracking_target_step}, which was never previously visited! Previously visited step IDs: {self._previous_path}"
+                    f"WARNING: Illegal journey path returned by journey step selection for journey {self._examined_journey.title}. Backtracked to {response.backtracking_target_step}, which was never previously visited! Previously visited step IDs: {self._previous_path}"
                 )
         elif (
             self._previous_path
@@ -621,7 +623,7 @@ class JourneyBacktrackNodeSelection:
             and journey_path[0] != self._previous_path[-1]
         ):  # Illegal first step returned
             self._logger.warning(
-                f"WARNING: Illegal journey path returned by journey step selection. Expected path from {self._previous_path} to {journey_path}"
+                f"WARNING: Illegal journey path returned by journey step selection for journey {self._examined_journey.title}. Expected path from {self._previous_path} to {journey_path}"
             )
             journey_path.insert(0, self._previous_path[-1])  # Try to recover
 
@@ -630,7 +632,7 @@ class JourneyBacktrackNodeSelection:
         for i in range(1, len(journey_path)):  # Verify all transitions are legal
             if journey_path[i - 1] not in self._node_wrappers:
                 self._logger.warning(
-                    f"WARNING: Illegal journey path returned by journey step selection. Illegal step returned: {journey_path[i - 1]}. Full path: : {journey_path}"
+                    f"WARNING: Illegal journey path returned by journey step selection for journey {self._examined_journey.title}. Illegal step returned: {journey_path[i - 1]}. Full path: : {journey_path}"
                 )
                 indexes_to_delete.append(i)
             elif journey_path[i] not in [
@@ -638,7 +640,7 @@ class JourneyBacktrackNodeSelection:
                 for e in self._node_wrappers[cast(str, journey_path[i - 1])].outgoing_edges
             ]:
                 self._logger.warning(
-                    f"WARNING: Illegal transition in journey path returned by journey step selection - from {journey_path[i - 1]} to {journey_path[i]}. Full path: : {journey_path}"
+                    f"WARNING: Illegal transition in journey path returned by journey step selection for journey {self._examined_journey.title} - from {journey_path[i - 1]} to {journey_path[i]}. Full path: : {journey_path}"
                 )
                 # Sometimes, the LLM returns a path that would've been legal if it were not for an out-of-place step. This deletes such steps.
                 if i + 1 < len(journey_path) and journey_path[i + 1] in [
@@ -679,7 +681,11 @@ class JourneyBacktrackNodeSelection:
         self,
         shots: Sequence[JourneyNodeSelectionShot],
     ) -> PromptBuilder:
-        builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
+        builder = PromptBuilder(
+            on_build=lambda prompt: self._logger.trace(
+                f"Prompt: {self._examined_journey.title}\n{prompt}"
+            )
+        )
 
         builder.add_agent_identity(self._context.agent)
 

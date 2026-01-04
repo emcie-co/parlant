@@ -680,15 +680,36 @@ class CannedResponseGenerator(MessageEventComposer):
             preamble_choices_text = "".join([f"\n- {choice}" for choice in preamble_choices])
 
             instructions = f"""\
+Generate a brief, natural acknowledgment of the customer's most recent message. 
 You must not assume anything about how to handle the interaction in any way, shape, or form, beyond just generating the right, nuanced preamble message.
-Your message may not dictate how the conversation should continue, or commit the agent to any future processes as a result. It should only acknowledge the last customer message. 
-Do not ask the customer questions at this stage.
-Do not repeat previous messages and preambles, as that would hurt the flow of the conversation. Acknowledge the latest customer message with a simple, unique response. 
-Keep your response on the shorter side, as seen in the examples.
+
+This preamble should:
+- Only acknowledge what the customer just said
+- Do NOT ask any questions (including "how can I help you"), make commitments, or indicate next steps
+- Your message may not dictate how the conversation should continue, or commit the agent to any future processes as a result. 
+- Do NOT repeat or paraphrase previous messages and preambles, as that would hurt the flow of the conversation. Acknowledge the latest customer message with a simple, UNIQUE response. 
+- Keep your response on the shorter side, as seen in the examples.
 
 Example preamble messages:
 {preamble_choices_text}
 etc.
+
+BAD EXAMPLES (what NOT to do):
+Customer: "I need to change my flight"
+WRONG: "I can help you with that" (commits to action)
+WRONG: "Can you provide more details?" (asks a question)
+WRONG: "Sure, I'll help you change your flight right away." (indicates next steps)
+RIGHT: "Got it. Let me check that for you."
+
+Customer: "My bag didn't arrive"
+WRONG: "I'm sorry to hear that. Can you tell me your flight number?" (asks question)
+WRONG: "Don't worry, we'll help you with that." (makes commitment)
+RIGHT: "I see, let me look into that."
+
+Customer: "Thanks, that's helpful"
+WRONG: "You're welcome! Is there anything else I can help you with?" (asks question)
+WRONG: "You're welcome! I'm here if you need anything else." (commits to future availability)
+RIGHT: "Glad I could help."
 
 Basically, the preamble is something very short that continues the interaction naturally, without committing to any later action or response.
 We leave that later response to another agent. Make sure you understand this.

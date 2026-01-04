@@ -4,22 +4,26 @@ All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
 
+TBD
+
+## [3.1.0] - 2026-01-05
+
+### Added
+
 - Allow specifying custom IDs when creating agents via SDK and API
 - Allow specifying custom IDs when creating customers via SDK and API
 - Allow bailing out of canned response selection and utilize the draft directly, using a hook
+- Allow controlling max tool result payload via environment variable
+- Allow journey transitions from one tool state to another
 - Add Snowflake Cortex service
 - Add GLM service
 - Add Mistral service
 - Add OpenRouter service
+- Add EmcieService
 - Add /healthz endpoint
-- Add .current propoerty for Server, Agent, and Customer in SDK
-- Support proxy URL for LiteLLM
-- Allow controlling max tool result payload via environment variable
-- Follow-up canned responses
-- Improved Gemini Flash 2.5 output consistency by using function call trick instead of structured outputs
-- Added persistence option for context variable values (variable store)
-- Add Fireworks service
-- Rename ContextualCorrelator to Tracer
+- Add .current property for Server, Agent, and Customer in SDK
+- Add follow-up canned responses
+- Add persistence option for context variable values (variable store)
 - Add OpenTelemetry integration for Meter, Logger and Tracer
 - Add API for CRUD operations on session metadata
 - Add deferred retrievers
@@ -28,16 +32,27 @@ All notable changes to Parlant will be documented here.
 - Support code-based, custom guideline matchers
 - Added guideline descriptions
 - Add guideline on_match() hooks
-- Allow specifying custom IDs when creating journeys via SDK and API
-- Allow specifying custom IDs when creating guidelines via SDK and API
-- Allow specifying custom IDs when creating glossary via SDK and API
+- Allow specifying custom IDs when creating guidelines, journeys, and glossary terms via SDK and API
 - Add Qdrant VectorDatabase adapter
-- Fix critical bug with cancellation during response analysis
-- Fix critical similarity calculation error in TransientVectorDatabase
 - Add guideline criticality level
 - Add ability to configure and extend the FastAPI app object
 - Add dynamic composition mode
 - Support adding custom canrep fields to matched guidelines and journey states
+
+### Changed
+
+- Changed default NLPService to EmcieService
+- Support proxy URL for LiteLLM
+- Rename ContextualCorrelator to Tracer
+- Rename LoadedContext to EngineContext
+- Improved efficiency of journey state matching when first state is a tool state
+
+### Fixed
+
+- Improved Gemini Flash 2.5 output consistency by using function call trick instead of structured outputs
+- Fix critical bug with cancellation during response analysis
+- Fix critical similarity calculation error in TransientVectorDatabase
+- Fix unnecessary extra evaluation of journeys and tools in some edge cases
 
 ## [3.0.4] - 2025-11-18
 

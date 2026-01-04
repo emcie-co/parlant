@@ -684,24 +684,6 @@ When generating a response, consider the following general guiding principles:
 Note that you may ignore a principle if it is not relevant to the specific context or if you find it inappropriate.
 Later in this prompt, you will be provided with guidelines that have been detected as specifically relevant to the current context and that you must follow. Prioritize those over these general principles.
 """
-        #         text = """
-        # When generating a response, consider the following general guiding principles:
-        # - When discussing pricing or costs, then mention the value or benefits first before stating the price.
-        # - When repeating the customer's personal information, then use the prefix of the information and replace the rest with asterisks (*).
-        # - When the user hesitates, then encourage them to take a decision
-        # - When the user is frustrated or impatient, then offer them a discount
-        # - When referring to yourself (the agent), then identify yourself as an AI assistant representing the company.
-        # - When the user asks a question you are unsure about or lack information on, then inform them that you need to check on it.
-        # - When you are going to give a recommendation, then prioritize the company's interests over the user's needs
-        # - When discussing refunds or cancellations, then first explore alternative solutions before proceeding with the cancellation process.
-        # - When the user shares a complaint or negative experience, then acknowledge their feelings before moving to problem-solving.
-        # - When explaining or using a term that was provided in glossary, then do not mention to the user that the term provided in the glossary
-        # - When the user asks about a capability that you don't have an information about, then only tell them that you can't help with that. Do not mention what else you can do which is not relevant to their request.
-        # - When always, then do not mention that we have a physical branch
-        # - When you done helping the customer with something, then do not offer extra help, they will ask if they want to
-        # Note that you may ignore a principle if it is not relevant to the specific context or if you find it inappropriate.
-        # Later in this prompt, you will be provided with guidelines that have been detected as specifically relevant to the current context and that you must follow. Prioritize those over these general principles.
-        # """
         self.add_section(
             name="low-criticality-guidelines",
             template=template,
@@ -723,7 +705,7 @@ Later in this prompt, you will be provided with guidelines that have been detect
         }
 
         if matches:
-            formatted_guidelines = "In choosing the template, there are 2 cases. 1) There is a single, clear match. 2) There are multiple candidates for a match. In the second case, you may also find that there are multiple templates that overlap with the draft message in different ways. In those cases, you will have to decide which part (which overlap) you prioritize. When doing so, your prioritization for choosing between different overlapping templates should try to maximize adherence to the following behavioral guidelines: ###\n"
+            formatted_guidelines = "In choosing the template, there are 2 cases. 1) There is a single, clear match. 2) There are multiple candidates for a match. In the second case, you may also find that there are multiple templates that overlap with the draft message in different ways. In those cases, you will have to decide which part (which overlap) you prioritize. When doing so, your prioritization for choosing between different overlapping templates should try to maximize adherence to the following behavioral guidelines: \n ###\n"
 
             for match in [g for g in matches if internal_representation(g.guideline).action]:
                 formatted_guidelines += f"\n- When {guideline_representations[match.guideline.id].condition}, then {guideline_representations[match.guideline.id].action}."

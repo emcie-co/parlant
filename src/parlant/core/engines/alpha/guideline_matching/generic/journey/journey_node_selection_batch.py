@@ -102,13 +102,12 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
             g for g in self._node_guidelines if self._get_guideline_node_index(g) == ROOT_INDEX
         )
         root_follow_ups = self._get_follow_ups(root_guideline)
+        self._first_executable_node: Guideline | None = None
         if len(root_follow_ups) == 1:
             root_follow_up = next(
                 g for g in self._node_guidelines if g.id == GuidelineId(root_follow_ups[0])
             )
-            self._first_executable_node: Guideline | None = root_follow_up
-        else:
-            self._first_executable_node: Guideline | None = None
+            self._first_executable_node = root_follow_up
 
     @property
     @override

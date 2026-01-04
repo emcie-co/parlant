@@ -1092,18 +1092,18 @@ class JourneyVectorStore(JourneyStore):
 
         all_results = chain.from_iterable(await safe_gather(*tasks))
         unique_results = list(set(all_results))
-        top_vectors = sorted(unique_results, key=lambda r: r.distance)[:max_journeys]
+        top_results = sorted(unique_results, key=lambda r: r.distance)[:max_journeys]
 
         journey_docs: dict[str, JourneyDocument] = {
             doc["id"]: doc
             for doc in await self._collection.find(
-                filters={"id": {"$in": [r.document["journey_id"] for r in top_vectors]}}
+                filters={"id": {"$in": [r.document["journey_id"] for r in top_results]}}
             )
         }
 
         result = []
 
-        for vector_doc in top_vectors:
+        for vector_doc in top_results:
             if journey_doc := journey_docs.get(vector_doc.document["journey_id"]):
                 journey = await self._deserialize(journey_doc)
                 result.append(journey)

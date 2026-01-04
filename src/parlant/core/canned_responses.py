@@ -772,12 +772,27 @@ class CannedResponseVectorStore(CannedResponseStore):
 
         top_results = sorted(unique_sdocs.values(), key=lambda r: r.distance)[:max_count]
 
-        return [
-            CannedResponseRelevantResult(
-                canned_response=await self._deserialize_canned_response(d),
-                score=(1 - unique_sdocs[d["id"]].distance),
-            )
+        canrep_docs: dict[str, CannedResponseDocument] = {
+            d["id"]: d
             for d in await self._canreps_collection.find(
                 {"id": {"$in": [r.document["canned_response_id"] for r in top_results]}}
+            )
+        }
+
+        result = []
+
+        for vector_doc in top_results:
+            if canned_response_doc := canrep_docs.get(vector_doc.document["canned_response_id"]):
+                canned_response = await self._deserialize_canned_response(canned_response_doc)
+                result.append(canned_response)
+
+        return [
+            CannedResponseRelevantResult(
+                canned_response=canned_response,
+                score=1.0 - vector_doc.distance,
+            )
+            for canned_response, vector_doc in zip(
+                result,
+                top_results,
             )
         ]

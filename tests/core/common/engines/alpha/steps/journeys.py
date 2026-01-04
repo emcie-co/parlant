@@ -2448,7 +2448,7 @@ def given_the_journey_called(
 
             for key, val in metadata.items():
                 if key == "journey_node":
-                    value = {
+                    value: JSONSerializable = {
                         **cast(Mapping[str, str], node.metadata.get("journey_node", {})),
                         **cast(Mapping[str, str], val),
                     }

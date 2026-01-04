@@ -153,6 +153,9 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         guidelines: Sequence[Guideline],
         context: GuidelineMatchingContext,
     ) -> Sequence[GuidelineMatchingBatch]:
+        # Low criticality guidelines are batched separately form other criticalities.
+        # This will be used in the future to optimize guideline matching for each priority class.
+        # For now they are evaluated in the same manner as medium or high criticality guidelines.
         observational_guidelines: list[Guideline] = []
         previously_applied_actionable_guidelines: list[Guideline] = []
         previously_applied_actionable_customer_dependent_guidelines: list[Guideline] = []

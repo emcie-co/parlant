@@ -924,6 +924,18 @@ TOOLS: dict[str, dict[str, Any]] = {
         },
         "required": ["date"],
     },
+    "check_lab_results": {
+        "name": "check_lab_results",
+        "description": "Check the lab results for a patient",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "name": {
+                "type": "string",
+                "description": "The name of the patient",
+            }
+        },
+        "required": ["name"],
+    },
 }
 
 

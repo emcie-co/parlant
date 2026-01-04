@@ -2856,7 +2856,7 @@ def given_a_journey_path_for_the_journey(
 
     path = journey_path.strip("[]").split(", ")
     guideline_path = [cast(GuidelineId | None, p) for p in path]
-    guideline_path = [p if p.isdigit() else None for p in guideline_path]
+    guideline_path = [p if (p and p.isdigit()) else None for p in guideline_path]
 
     journey = context.journeys[journey_title]
 

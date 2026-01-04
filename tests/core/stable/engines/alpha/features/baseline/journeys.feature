@@ -333,7 +333,7 @@ Feature: Journeys
         And a customer message, "Can you help me get my lab results? My name is Beth Harmon"
         When processing is triggered
         Then a single message event is emitted
-        And the message contains that the beth harmon is healthy
+        And the message contains that beth harmon is healthy
 
     Scenario: Agent returns to root that requires tool calls on journeys reactivation
         Given an agent named "Digital Assistant" Whose job is to assist customer get information from our clinic
@@ -350,7 +350,7 @@ Feature: Journeys
         And a journey path "[2, 3, None]" for the journey "Simple Lab Journey"
         When processing is triggered
         Then a single message event is emitted
-        And the message contains that Bob Buckland is healthy
+        And the message contains that the customer (also known as the patient or Bob Buckland) is healthy
 
     Scenario: Agent chooses correct root for journey when some roots require tools 1
         Given an agent named "Digital Assistant" Whose job is to assist customer get information from our clinic
@@ -360,7 +360,7 @@ Feature: Journeys
         And a customer message, "Can you help me get my blood results? My name is Beth Harmon"
         When processing is triggered
         Then a single message event is emitted
-        And the message contains that beth harmon is healthy
+        And the message contains that the customer (also known as the patient or Beth Harmon) is healthy
 
     Scenario: Agent chooses correct root for journey when some roots require tools 2
         Given an agent named "Digital Assistant" Whose job is to assist customer get information from our clinic
@@ -370,5 +370,5 @@ Feature: Journeys
         And a customer message, "Can you help me get the results to my brain scan? My name is Beth Harmon"
         When processing is triggered
         Then a single message event is emitted
-        And the message contains that the requested results are not in yet
+        And the message contains that the requested results are not available yet
     

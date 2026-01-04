@@ -2444,12 +2444,22 @@ def given_the_journey_called(
         nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
 
         for index, metadata in nodes_metadata.items():
+            node = context.sync_await(journey_store.read_node(node_id=index))
+
             for key, val in metadata.items():
+                if key == "journey_node":
+                    value = {
+                        **cast(Mapping[str, str], node.metadata.get("journey_node", {})),
+                        **cast(Mapping[str, str], val),
+                    }
+                else:
+                    value = val
+
                 context.sync_await(
                     journey_store.set_node_metadata(
                         index,
                         key,
-                        val,
+                        value,
                     )
                 )
 

@@ -510,17 +510,23 @@ class CapabilityVectorStore(CapabilityStore):
             if len(unique_sdocs) >= max_count:
                 break
 
-        capability_ids = [
-            r.document["capability_id"]
-            for r in sorted(unique_sdocs.values(), key=lambda r: r.distance)[:max_count]
-        ]
+        top_result = sorted(unique_sdocs.values(), key=lambda r: r.distance)[:max_count]
 
-        return [
-            await self._deserialize(doc)
+        capability_docs: dict[str, CapabilityDocument] = {
+            doc["id"]: doc
             for doc in await self._collection.find(
-                filters={"id": {"$in": [ObjectId(cid) for cid in capability_ids]}}
+                filters={"id": {"$in": [r.document["capability_id"] for r in top_result]}}
             )
-        ]
+        }
+
+        result = []
+
+        for vector_doc in top_result:
+            if capability_doc := capability_docs.get(vector_doc.document["capability_id"]):
+                capability = await self._deserialize(capability_doc)
+                result.append(capability)
+
+        return result
 
     @override
     async def upsert_tag(

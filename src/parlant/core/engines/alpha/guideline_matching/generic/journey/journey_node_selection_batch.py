@@ -213,7 +213,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                     GuidelineMatch(
                         guideline=self._first_executable_node,
                         score=10,
-                        rationale="Root guideline requires tool, and was selected automatically",
+                        rationale="root node requires tool, and was selected automatically",
                         metadata={
                             "journey_path": [
                                 self._get_guideline_node_index(self._first_executable_node)
@@ -228,6 +228,15 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
 
     @override
     async def process(self) -> GuidelineMatchingBatchResult:
+        def _get_last_executed_step() -> Guideline | None:
+            if not self._previous_path or self._previous_path[-1] is None:
+                return None
+            return next(
+                g
+                for g in self._node_guidelines
+                if self._get_guideline_node_index(g) == self._previous_path[-1]
+            )
+
         if automatic_match := self.auto_return_match():
             return automatic_match
 
@@ -270,24 +279,30 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                     journey_path=self._previous_path,
                     journey_conditions=journey_conditions,
                 )
-
-                backtrack_checker = JourneyBacktrackCheck(
-                    logger=self._logger,
-                    guideline_store=self._guideline_store,
-                    optimization_policy=self._optimization_policy,
-                    schematic_generator=self._schematic_generator_journey_backtrack_check,
-                    examined_journey=self._examined_journey,
-                    context=self._context,
-                    node_guidelines=self._node_guidelines,
-                    journey_path=self._previous_path,
-                    journey_conditions=journey_conditions,
-                )
                 next_step_task = asyncio.create_task(next_step_selector.process())
-                backtrack_task = asyncio.create_task(backtrack_checker.process())
 
-                backtrack_result = await backtrack_task
+                last_step = _get_last_executed_step()
+                if (
+                    last_step and self._get_kind(last_step) != JourneyNodeKind.TOOL
+                ):  # If last executed step is a tool call, backtracking is not necessary
+                    backtrack_checker = JourneyBacktrackCheck(
+                        logger=self._logger,
+                        guideline_store=self._guideline_store,
+                        optimization_policy=self._optimization_policy,
+                        schematic_generator=self._schematic_generator_journey_backtrack_check,
+                        examined_journey=self._examined_journey,
+                        context=self._context,
+                        node_guidelines=self._node_guidelines,
+                        journey_path=self._previous_path,
+                        journey_conditions=journey_conditions,
+                    )
+                    backtrack_task = asyncio.create_task(backtrack_checker.process())
 
-                if backtrack_result.requires_backtracking:
+                    backtrack_result = await backtrack_task
+                else:
+                    backtrack_result = None
+
+                if backtrack_result and backtrack_result.requires_backtracking:
                     next_step_task.cancel()
                     try:
                         await next_step_task
@@ -343,11 +358,28 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                         )
                         return await node_selector.process()
                     else:
-                        self._previous_path = []
                         if (
-                            automatic_match := self.auto_return_match()
-                        ):  # Need to check for auto match in cases where journey root is a tool state
-                            return automatic_match
+                            self._first_executable_node
+                            and self._get_kind(self._first_executable_node) == JourneyNodeKind.TOOL
+                        ):  # Restarting a journey whose first step is to call a tool
+                            return GuidelineMatchingBatchResult(
+                                matches=[
+                                    GuidelineMatch(
+                                        guideline=self._first_executable_node,
+                                        score=10,
+                                        rationale="Root node requires tool, and was selected automatically",
+                                        metadata={
+                                            "journey_path": [
+                                                self._get_guideline_node_index(
+                                                    self._first_executable_node
+                                                )
+                                            ],
+                                            "step_selection_journey_id": self._examined_journey.id,
+                                        },
+                                    )
+                                ],
+                                generation_info=EMPTY_GENERATION_INFO,
+                            )
                         next_step_selector = JourneyNextStepSelection(
                             logger=self._logger,
                             guideline_store=self._guideline_store,

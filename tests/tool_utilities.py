@@ -524,6 +524,10 @@ def check_eligibility(account_id: int, amount: int) -> ToolResult:
     )
 
 
+def check_lab_results(name: str) -> ToolResult:
+    return ToolResult(data=f"Lab results for {name}: {name} is as healthy as a horse.")
+
+
 async def change_credit_limit(
     username: str,
     new_limit: float,

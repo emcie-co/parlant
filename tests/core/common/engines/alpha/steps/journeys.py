@@ -2306,6 +2306,332 @@ def given_the_journey_called(
 
         return journey
 
+    def create_simple_lab_journey() -> Journey:
+        conditions = [
+            "the customer asks for their lab results",
+        ]
+
+        condition_guidelines: Sequence[Guideline] = [
+            context.sync_await(
+                guideline_store.create_guideline(
+                    condition=condition,
+                    action=None,
+                    metadata={},
+                )
+            )
+            for condition in conditions
+        ]
+
+        journey = context.sync_await(
+            journey_store.create_journey(
+                title="Simple Lab Journey",
+                description="Check and report lab results to the customer",
+                conditions=[c.id for c in condition_guidelines],
+                tags=[],
+            )
+        )
+
+        for c in condition_guidelines:
+            context.sync_await(
+                guideline_store.upsert_tag(
+                    guideline_id=c.id,
+                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                )
+            )
+
+        # Node 1: Run check_lab_results tool
+        tool = context.sync_await(local_tool_service.create_tool(**TOOLS["check_lab_results"]))
+        node1 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Use check_lab_results tool to get the customer's lab results",
+                tools=[ToolId("local", tool.name)],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node1.id,
+                "tool_running_only",
+                True,
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node1.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node1.metadata.get("journey_node", {})),
+                    "kind": "tool",
+                },
+            )
+        )
+        context.sync_await(
+            relationship_store.create_relationship(
+                source=RelationshipEntity(
+                    id=ToolId("local", tool.name),
+                    kind=RelationshipEntityKind.TOOL,
+                ),
+                target=RelationshipEntity(
+                    id=Tag.for_journey_node_id(node1.id),
+                    kind=RelationshipEntityKind.TAG,
+                ),
+                kind=RelationshipKind.REEVALUATION,
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=journey.root_id,
+                target=node1.id,
+                condition=None,
+            )
+        )
+
+        # Node 2: Positive result - congratulate
+        node2 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Congratulate the customer for their good results",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node2.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node2.metadata.get("journey_node", {})),
+                    "kind": "chat",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node1.id,
+                target=node2.id,
+                condition="The lab results are good (patient is healthy)",
+            )
+        )
+
+        # Node 3: Negative result - contact lab
+        node3 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Tell the customer to contact the lab at 999-224-545 to get their results",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node3.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node3.metadata.get("journey_node", {})),
+                    "kind": "chat",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node1.id,
+                target=node3.id,
+                condition="The lab results are negative",
+            )
+        )
+
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
+
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
+                )
+
+        return journey
+
+    def create_complex_lab_journey() -> Journey:
+        conditions = [
+            "the customer requested blood test results",
+            "the customer requested plasma results",
+            "the customer requested brain scan results",
+        ]
+
+        condition_guidelines: Sequence[Guideline] = [
+            context.sync_await(
+                guideline_store.create_guideline(
+                    condition=condition,
+                    action=None,
+                    metadata={},
+                )
+            )
+            for condition in conditions
+        ]
+
+        journey = context.sync_await(
+            journey_store.create_journey(
+                title="Complex Lab Journey",
+                description="Handle different types of lab result requests",
+                conditions=[c.id for c in condition_guidelines],
+                tags=[],
+            )
+        )
+
+        for c in condition_guidelines:
+            context.sync_await(
+                guideline_store.upsert_tag(
+                    guideline_id=c.id,
+                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                )
+            )
+
+        # Node 1: Blood test - use check_lab_results tool
+        tool = context.sync_await(local_tool_service.create_tool(**TOOLS["check_lab_results"]))
+        node_blood = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Use check_lab_results tool to get the customer's blood test results",
+                tools=[ToolId("local", tool.name)],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node_blood.id,
+                "tool_running_only",
+                True,
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node_blood.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node_blood.metadata.get("journey_node", {})),
+                    "kind": "tool",
+                },
+            )
+        )
+        context.sync_await(
+            relationship_store.create_relationship(
+                source=RelationshipEntity(
+                    id=ToolId("local", tool.name),
+                    kind=RelationshipEntityKind.TOOL,
+                ),
+                target=RelationshipEntity(
+                    id=Tag.for_journey_node_id(node_blood.id),
+                    kind=RelationshipEntityKind.TAG,
+                ),
+                kind=RelationshipKind.REEVALUATION,
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=journey.root_id,
+                target=node_blood.id,
+                condition="The customer requested blood test results",
+            )
+        )
+
+        # Node 1b: Report results
+        node_blood_report = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Report the blood test results to the customer",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node_blood_report.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node_blood_report.metadata.get("journey_node", {})),
+                    "kind": "chat",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node_blood.id,
+                target=node_blood_report.id,
+                condition=None,
+            )
+        )
+
+        # Node 2: Plasma results - no tool
+        node_plasma = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Ask the customer to call their personal doctor for the full results",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node_plasma.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node_plasma.metadata.get("journey_node", {})),
+                    "kind": "chat",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=journey.root_id,
+                target=node_plasma.id,
+                condition="The customer requested plasma results",
+            )
+        )
+
+        # Node 3: Brain scan results - no tool
+        node_brain = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Tell the customer the results are not in yet, and ask them to check again later.",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node_brain.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node_brain.metadata.get("journey_node", {})),
+                    "kind": "chat",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=journey.root_id,
+                target=node_brain.id,
+                condition="The customer requested brain scan results",
+            )
+        )
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
+
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
+                )
+
+        return journey
+
     def book_hotel_journey() -> Journey:
         conditions = ["The customer expresses interest in booking a hotel"]
         condition_guidelines: Sequence[Guideline] = [
@@ -2502,6 +2828,8 @@ def given_the_journey_called(
         "Change Credit Limits": create_change_credit_limit_journey,
         "Lock Card Journey": create_lock_card_journey,
         "Book Hotel Journey": book_hotel_journey,
+        "Simple Lab Journey": create_simple_lab_journey,
+        "Complex Lab Journey": create_complex_lab_journey,
     }
 
     create_journey_func = JOURNEYS[journey_title]
@@ -2528,6 +2856,7 @@ def given_a_journey_path_for_the_journey(
 
     path = journey_path.strip("[]").split(", ")
     guideline_path = [cast(GuidelineId | None, p) for p in path]
+    guideline_path = [p if p.isdigit() else None for p in guideline_path]
 
     journey = context.journeys[journey_title]
 

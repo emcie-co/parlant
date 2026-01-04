@@ -296,7 +296,7 @@ Feature: Journeys
         And the message contains no mention of asking their name or tell them to reach the website 
 
     Scenario: The journey advances correctly when pruning is needed
-        Given an agent named "Chase Digital Assistant" Whose job is to assist with bank customers
+        Given an agent named "Digital Assistant" Whose job is to assist with bank customers
         And that the agent uses the canned_fluid message composition mode
         And a customer named "Guest"
         And an empty session
@@ -306,8 +306,8 @@ Feature: Journeys
         And an agent message, "There's a number of ways I can help you with that. Would you like to dispute a transaction, lock your card, or replace it?"
         And a customer message, "lock it"
         And an agent message, "On it."
-        And a tool event with data, {"tool_calls": [{"tool_id": "built-in:list_user_cards", "arguments": {}, "result": {"data": [{"card_id": 1, "card_name": "Chase Freedom", "card_number": "**** **** **** 1234", "card_type": "credit"}, {"card_id": 2, "card_name": "Chase Sapphire", "card_number": "**** **** **** 5678", "card_type": "credit"}]}}]}
-        And an agent message, "Here are your cards: \n- Chase Freedom, **** **** **** 1234\n- Chase Sapphire, **** **** **** 5678."
+        And a tool event with data, {"tool_calls": [{"tool_id": "built-in:list_user_cards", "arguments": {}, "result": {"data": [{"card_id": 1, "card_name": "Freedom", "card_number": "**** **** **** 1234", "card_type": "credit"}, {"card_id": 2, "card_name": "Sapphire", "card_number": "**** **** **** 5678", "card_type": "credit"}]}}]}
+        And an agent message, "Here are your cards: \n- Freedom, **** **** **** 1234\n- Sapphire, **** **** **** 5678."
         And an agent message, "Which one would you like to lock?"
         And a customer message, "1234"
         And an agent message, "Got it."
@@ -318,9 +318,57 @@ Feature: Journeys
         Then a single message event is emitted
         And the message contains that the card was locked
 
-Scenario: Agent confirms previously provided information when journey fast forward stops too early
+    Scenario: Agent confirms previously provided information when journey fast forward stops too early
         Given the journey called "Place Food Order"
         And a customer message, "Hi! I’d like to order a sandwich with pesto in baguette bread. No extras, please. I’m keeping it simple"
         When processing is triggered
         Then a single message event is emitted
         And the message contains a confirmation that the customer don't want any extras
+
+    Scenario: Agent executes tool on first step of journey
+        Given an agent named "Digital Assistant" Whose job is to assist customer get information from our clinic
+        And that the agent uses the canned_fluid message composition mode
+        And an empty session
+        And the journey called "Simple Lab Journey"
+        And a customer message, "Can you help me get my lab results? My name is Beth Harmon"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains that the beth harmon is healthy
+
+    Scenario: Agent returns to root that requires tool calls on journeys reactivation
+        Given an agent named "Digital Assistant" Whose job is to assist customer get information from our clinic
+        And that the agent uses the canned_fluid message composition mode
+        And an empty session
+        And the journey called "Simple Lab Journey"
+        And a customer message, "Can you help me get my lab results? My name is Beth Harmon, I'm here with my friend Bob Buckland"
+        And an agent message, "Your results are back! Please call your personal doctor to receive them."
+        And a customer message, "Can you just email them to me?"
+        And an agent message, "Unfortunately I cannot as they contain sensitive information. Please contact Dr. Spaceman for further details"
+        And a customer message, "What's his number?"
+        And an agent message, "943-123-4147"
+        And a customer message, "Thanks! This is Bob Buckland now. How about my results? Can you get them please?"
+        And a journey path "[2, 3, None]" for the journey "Simple Lab Journey"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains that Bob Buckland is healthy
+
+    Scenario: Agent chooses correct root for journey when some roots require tools 1
+        Given an agent named "Digital Assistant" Whose job is to assist customer get information from our clinic
+        And that the agent uses the canned_fluid message composition mode
+        And an empty session
+        And the journey called "Complex Lab Journey"
+        And a customer message, "Can you help me get my blood results? My name is Beth Harmon"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains that beth harmon is healthy
+
+    Scenario: Agent chooses correct root for journey when some roots require tools 2
+        Given an agent named "Digital Assistant" Whose job is to assist customer get information from our clinic
+        And that the agent uses the canned_fluid message composition mode
+        And an empty session
+        And the journey called "Complex Lab Journey"
+        And a customer message, "Can you help me get the results to my brain scan? My name is Beth Harmon"
+        When processing is triggered
+        Then a single message event is emitted
+        And the message contains that the requested results are not in yet
+    

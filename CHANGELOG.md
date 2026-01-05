@@ -6,6 +6,12 @@ All notable changes to Parlant will be documented here.
 
 TBD
 
+## [3.1.2] - 2026-01-05
+
+### Changed
+
+- Set EmcieService back as default NLPService
+
 ## [3.1.1] - 2026-01-05
 
 ### Changed

@@ -3147,7 +3147,7 @@ class Server:
         host: str = "0.0.0.0",
         port: int = 8800,
         tool_service_port: int = 8818,
-        nlp_service: Callable[[Container], NLPService] = NLPServices.openai,
+        nlp_service: Callable[[Container], NLPService] = NLPServices.emcie,
         session_store: Literal["transient", "local"] | str | SessionStore = "transient",
         customer_store: Literal["transient", "local"] | str | CustomerStore = "transient",
         variable_store: Literal["transient", "local"] | str | ContextVariableStore = "transient",

@@ -14,7 +14,7 @@ const newSessionObj: SessionInterface = {
 	customer_id: '',
 	title: 'New Conversation',
 	agent_id: '',
-	creation_utc: new Date().toLocaleString(),
+	creation_utc: new Date().toISOString(),
 	id: NEW_SESSION_ID,
 };
 

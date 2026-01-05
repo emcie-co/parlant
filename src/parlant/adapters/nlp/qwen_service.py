@@ -63,8 +63,30 @@ Recommended actions:
 - Check your Qwen account balance and billing status.
 - Review your API usage limits in Qwen's dashboard.
 - For more details on rate limits and usage tiers, visit:
-    https://docs.bigmodel.cn/cn/faq/api-code
+    https://help.aliyun.com/zh/model-studio/
 """
+
+QWEN_REGION_BASE_URLS = {
+    "international": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    "domestic": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+}
+
+
+def get_qwen_base_url() -> str:
+    """Get the base URL for Qwen API based on region configuration.
+
+    Priority:
+    1. QWEN_BASE_URL environment variable (explicit override)
+    2. QWEN_REGION environment variable (international/domestic)
+    3. Default to international region
+    """
+    if base_url := os.environ.get("QWEN_BASE_URL"):
+        return base_url
+
+    region = os.environ.get("QWEN_REGION", "international").lower()
+    if region not in QWEN_REGION_BASE_URLS:
+        raise ValueError(f"Invalid QWEN_REGION '{region}'. Must be 'international' or 'domestic'.")
+    return QWEN_REGION_BASE_URLS[region]
 
 
 class QwenEstimatingTokenizer(EstimatingTokenizer):
@@ -85,9 +107,7 @@ class QwenEmbedder(BaseEmbedder):
         super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
 
         self._client = AsyncClient(
-            base_url=os.environ.get(
-                "BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-            ),
+            base_url=get_qwen_base_url(),
             api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
         )
         self._tokenizer = QwenEstimatingTokenizer(model_name=self.model_name)
@@ -168,9 +188,7 @@ class QwenSchematicGenerator(BaseSchematicGenerator[T]):
         self._meter = meter
 
         self._client = AsyncClient(
-            base_url=os.environ.get(
-                "BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-            ),
+            base_url=get_qwen_base_url(),
             api_key=os.environ["DASHSCOPE_API_KEY"],
         )
 

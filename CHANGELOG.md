@@ -10,49 +10,49 @@ TBD
 
 ### Added
 
-- Allow specifying custom IDs when creating agents via SDK and API
-- Allow specifying custom IDs when creating customers via SDK and API
-- Allow bailing out of canned response selection and utilize the draft directly, using a hook
-- Allow controlling max tool result payload via environment variable
-- Allow journey transitions from one tool state to another
-- Add Snowflake Cortex service
+- Add .current property for Server, Agent, and Customer in SDK
+- Add /healthz endpoint
+- Add API for CRUD operations on session metadata
+- Add EmcieService
 - Add GLM service
 - Add Mistral service
 - Add OpenRouter service
-- Add EmcieService
-- Add /healthz endpoint
-- Add .current property for Server, Agent, and Customer in SDK
-- Add follow-up canned responses
-- Add persistence option for context variable values (variable store)
 - Add OpenTelemetry integration for Meter, Logger and Tracer
-- Add API for CRUD operations on session metadata
-- Add deferred retrievers
-- Allow controlling perceived performance policy per agent
-- Expose IoC container in server object
-- Support code-based, custom guideline matchers
-- Added guideline descriptions
-- Add guideline on_match() hooks
-- Allow specifying custom IDs when creating guidelines, journeys, and glossary terms via SDK and API
 - Add Qdrant VectorDatabase adapter
-- Add guideline criticality level
+- Add Snowflake Cortex service
 - Add ability to configure and extend the FastAPI app object
+- Add deferred retrievers
 - Add dynamic composition mode
+- Add follow-up canned responses
+- Add guideline criticality level
+- Add guideline on_match() hooks
+- Add persistence option for context variable values (variable store)
+- Added guideline descriptions
+- Allow bailing out of canned response selection and utilize the draft directly, using a hook
+- Allow controlling max tool result payload via environment variable
+- Allow controlling perceived performance policy per agent
+- Allow journey transitions from one tool state to another
+- Allow specifying custom IDs when creating agents via SDK and API
+- Allow specifying custom IDs when creating customers via SDK and API
+- Allow specifying custom IDs when creating guidelines, journeys, and glossary terms via SDK and API
+- Expose IoC container in server object
 - Support adding custom canrep fields to matched guidelines and journey states
+- Support code-based, custom guideline matchers
 
 ### Changed
 
 - Changed default NLPService to EmcieService
-- Support proxy URL for LiteLLM
+- Improved efficiency of journey state matching when first state is a tool state
 - Rename ContextualCorrelator to Tracer
 - Rename LoadedContext to EngineContext
-- Improved efficiency of journey state matching when first state is a tool state
+- Support proxy URL for LiteLLM
 
 ### Fixed
 
-- Improved Gemini Flash 2.5 output consistency by using function call trick instead of structured outputs
 - Fix critical bug with cancellation during response analysis
 - Fix critical similarity calculation error in TransientVectorDatabase
 - Fix unnecessary extra evaluation of journeys and tools in some edge cases
+- Improved Gemini Flash 2.5 output consistency by using function call trick instead of structured outputs
 
 ## [3.0.4] - 2025-11-18
 

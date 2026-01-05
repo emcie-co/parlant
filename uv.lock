@@ -3756,7 +3756,7 @@ requires-dist = [
     { name = "opentelemetry-exporter-otlp", specifier = ">=1.37.0" },
     { name = "opentelemetry-instrumentation", specifier = ">=0.58b0" },
     { name = "opentelemetry-sdk", specifier = ">=1.37.0" },
-    { name = "parlant-client", git = "https://github.com/emcie-co/parlant-client-python.git?rev=v3.1.0" },
+    { name = "parlant-client", specifier = ">=3.1.0" },
     { name = "pymongo", marker = "extra == 'mongo'", specifier = ">=4.11.1" },
     { name = "python-dateutil", specifier = ">=2.8.2" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
@@ -3818,12 +3818,16 @@ dev = [
 [[package]]
 name = "parlant-client"
 version = "3.1.0"
-source = { git = "https://github.com/emcie-co/parlant-client-python.git?rev=v3.1.0#f6a1b8cc5834cb6e8d28bfcc8b5495ea218098c7" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "mypy" },
     { name = "nanoid" },
     { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b4/f1/536e9960789099407d3f79626d29fe33f6b66ee26df494db6af640da1184/parlant_client-3.1.0.tar.gz", hash = "sha256:8eb13e8df674ddfd203569948cbcae5a293cedba6feed270ddcf5d4c1213dbf7", size = 52294, upload-time = "2026-01-05T12:45:54.789Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/13/03/4c6fad599466ccb0374d4c4097fd400042b1a1bca556c8b7be3465242b65/parlant_client-3.1.0-py3-none-any.whl", hash = "sha256:e348eb9bf7d82a5d8b8226194fab867fe6ef05075ff4d167d4be11991786d161", size = 111847, upload-time = "2026-01-05T12:45:53.791Z" },
 ]
 
 [[package]]

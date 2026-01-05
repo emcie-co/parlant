@@ -6,6 +6,12 @@ All notable changes to Parlant will be documented here.
 
 TBD
 
+## [3.1.1] - 2026-01-05
+
+### Changed
+
+- Set OpenAI as default service until EmcieService is live
+
 ## [3.1.0] - 2026-01-05
 
 ### Added

@@ -175,19 +175,19 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
 
                 if response.status_code == 429:
                     raise RateLimitError(
-                        f"Emcie API rate limit exceeded: {response.json()['detail']}"
+                        f"Emcie API rate limit exceeded: {response.json()['detail']} (RID={response.json()['detail']['request_id']})"
                     )
                 elif response.status_code == 402:
                     raise InsufficientCreditsError(
-                        f"Insufficient API credits for Emcie API: {response.json()['detail']}"
+                        f"Insufficient API credits for Emcie API: {response.json()['detail']} (RID={response.json()['detail']['request_id']})"
                     )
                 elif response.status_code == 403:
                     raise UnauthorizedError(
-                        f"Unauthorized access to Emcie API: {response.json()['detail']}"
+                        f"Unauthorized access to Emcie API: {response.json()['detail']} (RID={response.json()['detail']['request_id']})"
                     )
                 elif response.status_code >= 500:
                     raise EmcieAPIError(
-                        f"Emcie API error: {response.status_code} {response.json()['detail']}"
+                        f"Emcie API error: {response.status_code} {response.json()['detail']} (RID={response.json()['detail']['request_id']})"
                     )
 
                 response.raise_for_status()
@@ -354,19 +354,19 @@ class EmcieEmbedder(BaseEmbedder):
 
                 if response.status_code == 429:
                     raise RateLimitError(
-                        f"Emcie API rate limit exceeded: {response.json()['detail']}"
+                        f"Emcie API rate limit exceeded: {response.json()['detail']['message']} (RID={response.json()['detail']['request_id']})"
                     )
                 elif response.status_code == 402:
                     raise InsufficientCreditsError(
-                        f"Insufficient API credits for Emcie API: {response.json()['detail']}"
+                        f"Insufficient API credits for Emcie API: {response.json()['detail']['message']} (RID={response.json()['detail']['request_id']})"
                     )
                 elif response.status_code == 403:
                     raise UnauthorizedError(
-                        f"Unauthorized access to Emcie API: {response.json()['detail']}"
+                        f"Unauthorized access to Emcie API: {response.json()['detail']['message']} (RID={response.json()['detail']['request_id']})"
                     )
                 elif response.status_code >= 500:
                     raise EmcieAPIError(
-                        f"Emcie API error: {response.status_code} {response.json()['detail']}"
+                        f"Emcie API error: {response.status_code} {response.json()['detail']['message']} (RID={response.json()['detail']['request_id']})"
                     )
 
                 response.raise_for_status()

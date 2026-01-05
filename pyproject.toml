@@ -40,7 +40,7 @@ dependencies = [
     "opentelemetry-exporter-otlp>=1.37.0",
     "opentelemetry-instrumentation>=0.58b0",
     "opentelemetry-sdk>=1.37.0",
-    "parlant-client @ git+https://github.com/emcie-co/parlant-client-python.git@develop.1763631946",
+    "parlant-client @ git+https://github.com/emcie-co/parlant-client-python.git@v3.1.0",
     "python-dateutil>=2.8.2",
     "python-dotenv>=1.0.1",
     "requests>=2.32.5",

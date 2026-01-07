@@ -356,28 +356,18 @@ class GuidelineDocumentStore(GuidelineStore):
     async def _association_document_loader(
         self, doc: BaseDocument
     ) -> Optional[GuidelineTagAssociationDocument]:
-        if doc["version"] == "0.3.0":
+        # Migrate all older versions to the latest version (0.7.0)
+        if doc["version"] in ("0.3.0", "0.4.0", "0.5.0", "0.6.0"):
             d = cast(GuidelineTagAssociationDocument, doc)
             return GuidelineTagAssociationDocument(
                 id=d["id"],
-                version=Version.String("0.5.0"),
+                version=Version.String("0.7.0"),
                 creation_utc=d["creation_utc"],
                 guideline_id=d["guideline_id"],
                 tag_id=d["tag_id"],
             )
 
-        if doc["version"] == "0.4.0":
-            d = cast(GuidelineTagAssociationDocument, doc)
-            return GuidelineTagAssociationDocument(
-                id=d["id"],
-                version=Version.String("0.5.0"),
-                creation_utc=d["creation_utc"],
-                guideline_id=d["guideline_id"],
-                tag_id=d["tag_id"],
-            )
-
-        # 0.5.0+ all use the same schema - no migration needed
-        if doc["version"] in ("0.5.0", "0.6.0", "0.7.0"):
+        if doc["version"] == "0.7.0":
             return cast(GuidelineTagAssociationDocument, doc)
 
         return None

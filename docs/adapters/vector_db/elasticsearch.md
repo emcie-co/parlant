@@ -4,6 +4,150 @@ The Elasticsearch adapter provides persistent vector storage for Parlant using E
 
 For general Parlant usage, see the [official documentation](https://www.parlant.io/docs/).
 
+## Prerequisites
+
+1. **Install Elasticsearch package**: `uv add elasticsearch`
+2. **Running Elasticsearch cluster**: Local or cloud-hosted
+
+## Quick Start
+
+### Basic Usage (SDK)
+
+The simplest way to use Elasticsearch for vector storage is via the SDK's `vector_store` parameter:
+
+```python
+import parlant.sdk as p
+
+async def main():
+    async with p.Server(
+        vector_store="elasticsearch",  # Enable Elasticsearch vector storage
+    ) as server:
+        agent = await server.create_agent(
+            name="My Agent",
+            description="Agent using Elasticsearch for persistent vector storage",
+        )
+
+        # All vector operations now use Elasticsearch
+        term = await agent.create_term(
+            name="Example Term",
+            description="This is stored in Elasticsearch",
+        )
+        print(f"Created term: {term.name}")
+```
+
+Make sure to set the required environment variables (see [Environment Variables](#environment-variables) below).
+
+### Advanced Setup (Using configure_container)
+
+For more control over the Elasticsearch configuration, you can use `configure_container`:
+
+```python
+import parlant.sdk as p
+from contextlib import AsyncExitStack
+from parlant.adapters.vector_db.elasticsearch import (
+    ElasticsearchVectorDatabase,
+    create_elasticsearch_client_from_env,
+    get_elasticsearch_index_prefix_from_env,
+)
+from parlant.core.nlp.embedding import EmbedderFactory, EmbeddingCache, Embedder
+from parlant.core.loggers import Logger
+from parlant.core.nlp.service import NLPService
+from parlant.core.glossary import GlossaryVectorStore, GlossaryStore
+from parlant.core.canned_responses import CannedResponseVectorStore, CannedResponseStore
+from parlant.core.capabilities import CapabilityVectorStore, CapabilityStore
+from parlant.core.journeys import JourneyVectorStore, JourneyStore
+from parlant.adapters.db.transient import TransientDocumentDatabase
+
+EXIT_STACK = AsyncExitStack()
+
+
+async def configure_container(container: p.Container) -> p.Container:
+    embedder_factory = EmbedderFactory(container)
+
+    async def get_embedder_type() -> type[Embedder]:
+        return type(await container[NLPService].get_embedder())
+
+    # Create Elasticsearch client from environment variables
+    es_client = create_elasticsearch_client_from_env()
+    index_prefix = get_elasticsearch_index_prefix_from_env()
+
+    es_vector_db = await EXIT_STACK.enter_async_context(
+        ElasticsearchVectorDatabase(
+            elasticsearch_client=es_client,
+            index_prefix=index_prefix,
+            logger=container[Logger],
+            embedder_factory=embedder_factory,
+            embedding_cache_provider=lambda: container[EmbeddingCache],
+        )
+    )
+
+    # Configure stores using vector database
+    container[GlossaryStore] = await EXIT_STACK.enter_async_context(
+        GlossaryVectorStore(
+            id_generator=container[p.IdGenerator],
+            vector_db=es_vector_db,
+            document_db=TransientDocumentDatabase(),
+            embedder_factory=embedder_factory,
+            embedder_type_provider=get_embedder_type,
+        )  # type: ignore
+    )
+
+    container[CannedResponseStore] = await EXIT_STACK.enter_async_context(
+        CannedResponseVectorStore(
+            id_generator=container[p.IdGenerator],
+            vector_db=es_vector_db,
+            document_db=TransientDocumentDatabase(),
+            embedder_factory=embedder_factory,
+            embedder_type_provider=get_embedder_type,
+        )  # type: ignore
+    )
+
+    container[CapabilityStore] = await EXIT_STACK.enter_async_context(
+        CapabilityVectorStore(
+            id_generator=container[p.IdGenerator],
+            vector_db=es_vector_db,
+            document_db=TransientDocumentDatabase(),
+            embedder_factory=embedder_factory,
+            embedder_type_provider=get_embedder_type,
+        )  # type: ignore
+    )
+
+    container[JourneyStore] = await EXIT_STACK.enter_async_context(
+        JourneyVectorStore(
+            id_generator=container[p.IdGenerator],
+            vector_db=es_vector_db,
+            document_db=TransientDocumentDatabase(),
+            embedder_factory=embedder_factory,
+            embedder_type_provider=get_embedder_type,
+        )  # type: ignore
+    )
+
+    return container
+
+
+async def shutdown_elasticsearch() -> None:
+    await EXIT_STACK.aclose()
+
+
+async def main():
+    try:
+        async with p.Server(configure_container=configure_container) as server:
+            agent = await server.create_agent(
+                name="My Agent",
+                description="Agent using Elasticsearch for persistent vector storage",
+            )
+
+            # Test: Create a term to verify Elasticsearch is working
+            term = await agent.create_term(
+                name="Example Term",
+                description="This is stored in Elasticsearch",
+            )
+            print(f"Created term: {term.name}")
+            # All vector operations now use Elasticsearch
+    finally:
+        await shutdown_elasticsearch()
+```
+
 ## Environment Variables
 
 Parlant supports the following environment variables for Elasticsearch configuration:
@@ -43,9 +187,44 @@ Parlant supports the following environment variables for Elasticsearch configura
 | `ELASTICSEARCH__CODEC` | Compression codec for storage | `best_compression` | No |
 | `ELASTICSEARCH__ENABLE_QUERY_CACHE` | Enable query result caching | `true` | No |
 
-## Usage
+## Verification
 
-### Python Code
+To verify Elasticsearch vector integration is working correctly:
+
+### Check Indices
+
+Indices appear in your Elasticsearch cluster with names like:
+- `{prefix}_glossary_OpenAITextEmbedding3Large`
+- `{prefix}_glossary_unembedded`
+- `{prefix}_capabilities_OpenAITextEmbedding3Large`
+- `{prefix}_canned_responses_OpenAITextEmbedding3Large`
+
+### Confirm No Transient Storage
+
+When Elasticsearch is properly configured:
+- **No vector files** are created in the `parlant-data` folder
+- Vector data is stored only in Elasticsearch
+- Data persists across server restarts
+
+### Test Vector Search
+
+Create terms and test persistence:
+```python
+term = await agent.create_term(
+    name="Test Term",
+    description="This should be stored in Elasticsearch",
+)
+# Then chat with agent about "test term" - it should understand via vector search
+
+# Test persistence: close the server and run again
+# The term should still be available after restart
+```
+
+## Advanced Usage
+
+### Direct Database Access
+
+For advanced use cases, you can create the vector database directly:
 
 ```python
 from parlant.adapters.vector_db.elasticsearch import (
@@ -70,7 +249,7 @@ vector_db = ElasticsearchVectorDatabase(
 )
 ```
 
-### Manual Configuration
+### Manual Client Configuration
 
 If you prefer to configure the client manually:
 

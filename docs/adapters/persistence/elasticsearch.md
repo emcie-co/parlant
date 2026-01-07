@@ -1,8 +1,157 @@
-# Elasticsearch Document Database
+# Elasticsearch Persistence Adapter
 
-The Elasticsearch Document Database adapter provides a production-ready implementation of the `DocumentDatabase` interface using Elasticsearch 8 as the backend storage. This adapter is designed for document storage (non-vector) with full CRUD operations, complex filtering, and schema migration support.
+The Elasticsearch document adapter lets Parlant persist the long-lived parts of a
+deployment—sessions, customers, and context variables—inside your Elasticsearch
+cluster. This adapter is designed for document storage (non-vector) with full CRUD
+operations, complex filtering, and schema migration support.
+
+This page walks through the required environment variables and shows how to
+wire the stores into Elasticsearch when booting Parlant via the SDK.
 
 For general Parlant usage, see the [official documentation](https://www.parlant.io/docs/).
+
+## Requirements
+
+1. Install the optional dependency (or otherwise provide `elasticsearch`):
+
+   ```bash
+   uv add elasticsearch
+   ```
+
+2. Set the connection environment variables (see [Environment Variables](#environment-variables) below).
+
+## SDK / Module Setup
+
+Parlant's SDK exposes a `configure_container` hook that lets you replace the
+default persistence layer. The pattern below shows how to register
+Elasticsearch-backed implementations of the three configurable stores:
+
+- `SessionStore` → `SessionDocumentStore`
+- `CustomerStore` → `CustomerDocumentStore`
+- `ContextVariableStore` → `ContextVariableDocumentStore`
+
+Each store receives its own index prefix so their data never collides. We also
+rebind `EventEmitterFactory`, so system events get written into the same store.
+
+```python
+from contextlib import AsyncExitStack
+
+import parlant.sdk as p
+from parlant.adapters.db.elasticsearch import (
+    ElasticsearchDocumentDatabase,
+    create_elasticsearch_document_client_from_env,
+    get_elasticsearch_document_index_prefix_from_env,
+)
+from parlant.core.emission.event_publisher import EventPublisherFactory
+
+EXIT_STACK = AsyncExitStack()
+
+
+async def _make_session_store(container: p.Container) -> p.SessionStore:
+    es_client = create_elasticsearch_document_client_from_env()
+    index_prefix = get_elasticsearch_document_index_prefix_from_env()
+
+    database = await EXIT_STACK.enter_async_context(
+        ElasticsearchDocumentDatabase(
+            elasticsearch_client=es_client,
+            index_prefix=f"{index_prefix}_sessions",
+            logger=container[p.Logger],
+        )
+    )
+    store = p.SessionDocumentStore(database=database, allow_migration=True)
+    return await EXIT_STACK.enter_async_context(store)
+
+
+async def _make_customer_store(container: p.Container) -> p.CustomerStore:
+    es_client = create_elasticsearch_document_client_from_env()
+    index_prefix = get_elasticsearch_document_index_prefix_from_env()
+
+    database = await EXIT_STACK.enter_async_context(
+        ElasticsearchDocumentDatabase(
+            elasticsearch_client=es_client,
+            index_prefix=f"{index_prefix}_customers",
+            logger=container[p.Logger],
+        )
+    )
+    store = p.CustomerDocumentStore(
+        id_generator=container[p.IdGenerator],
+        database=database,
+        allow_migration=True,
+    )
+    return await EXIT_STACK.enter_async_context(store)
+
+
+async def _make_variable_store(container: p.Container) -> p.ContextVariableStore:
+    es_client = create_elasticsearch_document_client_from_env()
+    index_prefix = get_elasticsearch_document_index_prefix_from_env()
+
+    database = await EXIT_STACK.enter_async_context(
+        ElasticsearchDocumentDatabase(
+            elasticsearch_client=es_client,
+            index_prefix=f"{index_prefix}_context_variables",
+            logger=container[p.Logger],
+        )
+    )
+    store = p.ContextVariableDocumentStore(
+        id_generator=container[p.IdGenerator],
+        database=database,
+        allow_migration=True,
+    )
+    return await EXIT_STACK.enter_async_context(store)
+
+
+async def configure_container(container: p.Container) -> p.Container:
+    container = container.clone()
+
+    session_store = await _make_session_store(container)
+    container[p.SessionDocumentStore] = session_store
+    container[p.SessionStore] = session_store
+
+    customer_store = await _make_customer_store(container)
+    container[p.CustomerDocumentStore] = customer_store
+    container[p.CustomerStore] = customer_store
+
+    variable_store = await _make_variable_store(container)
+    container[p.ContextVariableDocumentStore] = variable_store
+    container[p.ContextVariableStore] = variable_store
+
+    container[p.EventEmitterFactory] = EventPublisherFactory(
+        container[p.AgentStore],
+        session_store,
+    )
+
+    return container
+
+
+async def shutdown_elasticsearch() -> None:
+    await EXIT_STACK.aclose()
+```
+
+### Using the SDK
+
+```python
+async def main() -> None:
+    try:
+        async with p.Server(
+            configure_container=configure_container,
+        ) as server:
+            ...
+    finally:
+        await shutdown_elasticsearch()
+```
+
+## What Gets Persisted?
+
+Once the Elasticsearch stores are registered, Elasticsearch becomes the source of truth for:
+
+- Sessions + events + inspections
+- Customers + their tag associations
+- Context variables + their values
+
+Other stores (agents, guidelines, journeys, etc.) continue to use their default
+backends. If you define them in code at startup, they will automatically be
+recreated each time the server runs. For dynamic authoring flows you can follow
+the same module approach to route additional stores into Elasticsearch.
 
 ## Features
 
@@ -81,9 +230,11 @@ ELASTICSEARCH_DOC__REFRESH_INTERVAL=1s     # Index refresh interval
 ELASTICSEARCH_DOC__CODEC=best_compression  # Compression codec
 ```
 
-## Usage Examples
+## Advanced Usage
 
-### Basic Usage
+### Direct Database Access
+
+For advanced use cases, you can access the database directly:
 
 ```python
 from parlant.adapters.db.elasticsearch import (

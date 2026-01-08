@@ -306,7 +306,12 @@ class Session:
         Args:
             steps: Sequence of CustomerMessage and AgentMessage steps.
         """
-        agent_indices = [i for i, step in enumerate(steps) if isinstance(step, AgentMessage)]
+        # Only AgentMessages with should conditions create tests
+        agent_indices = [
+            i
+            for i, step in enumerate(steps)
+            if isinstance(step, AgentMessage) and step.should is not None
+        ]
 
         if not agent_indices:
             return
@@ -352,7 +357,8 @@ class Session:
                         _skip_ui_notification=has_prefab,
                     )
 
-                    # Assert
+                    # Assert (should is guaranteed non-None by agent_indices filter)
+                    assert agent_step.should is not None
                     await response.should(agent_step.should)
 
                     # Success - notify listener immediately for real-time UI update

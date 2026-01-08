@@ -31,10 +31,11 @@ class AgentMessage:
         ideal: The ideal/reference response. Used as history content in subsequent tests.
         should: Assertion condition(s). Formatted as "The message should {should}".
                 Can be a single string or a sequence of strings (run in parallel).
+                If None, this message is just history and won't create a test.
     """
 
     ideal: str
-    should: Union[str, Sequence[str]]
+    should: Union[str, Sequence[str], None] = None
 
 
 @dataclass(frozen=True)

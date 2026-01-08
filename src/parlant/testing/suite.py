@@ -385,7 +385,7 @@ class Suite:
             async def make_scenario(
                 _prefab: List[Step] = prefab_steps,
                 _customer_msg: str = customer_message,
-                _should: Union[str, Sequence[str]] = should_condition,
+                _should: Union[str, Sequence[str], None] = should_condition,
                 _agent_id: str = effective_agent_id,
                 _customer_id: Optional[str] = effective_customer_id,
             ) -> None:

@@ -37,6 +37,7 @@ from parlant.core.loggers import LogLevel, Logger
 from parlant.core.meter import LocalMeter, Meter
 from parlant.core.nlp.service import NLPService
 from parlant.core.tracer import LocalTracer, Tracer
+from parlant.sdk import NLPServices
 from parlant.testing.assertions import nlp_test as _nlp_test
 from parlant.testing.session import Session
 
@@ -120,7 +121,6 @@ class Suite:
     Example:
         suite = Suite(
             server_url="http://localhost:8000",
-            nlp_service=lambda c: OpenAIService(c[Logger], c[Tracer], c[Meter]),
             default_agent_id="my_agent",
         )
 
@@ -134,19 +134,20 @@ class Suite:
     def __init__(
         self,
         server_url: str,
-        nlp_service: Callable[[Container], NLPService],
         default_agent_id: Optional[str] = None,
         default_customer_id: Optional[str] = None,
         response_timeout: int = 60,
+        nlp_service: Callable[[Container], NLPService] = NLPServices.emcie,
     ) -> None:
         """Initialize the test suite.
 
         Args:
             server_url: URL of the Parlant server.
-            nlp_service: Factory function that creates NLPService from Container.
             default_agent_id: Default agent ID for sessions.
             default_customer_id: Default customer ID (None = guest).
             response_timeout: Default timeout for agent responses in seconds.
+            nlp_service: Factory function that creates NLPService from Container.
+                         Defaults to Emcie.
         """
         self._server_url = server_url
         self._nlp_service_factory = nlp_service

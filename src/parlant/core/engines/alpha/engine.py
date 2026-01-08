@@ -329,7 +329,7 @@ class AlphaEngine(Engine):
                     _ = await self._generate_messages(context, latch)
 
                 # Mark that the agent is ready to receive and respond to new events.
-                await self._emit_ready_event(context)
+                await self._emit_ready_event(context, stage="completed")
 
                 await self._add_agent_state(
                     context=context,
@@ -394,7 +394,7 @@ class AlphaEngine(Engine):
             raise
         finally:
             # Mark that the agent is ready to receive and respond to new events.
-            await self._emit_ready_event(context)
+            await self._emit_ready_event(context, stage="completed")
 
     async def _load_context(
         self,
@@ -897,12 +897,12 @@ class AlphaEngine(Engine):
         if handler_tasks:
             await async_utils.safe_gather(*handler_tasks)
 
-    async def _emit_ready_event(self, context: EngineContext) -> None:
+    async def _emit_ready_event(self, context: EngineContext, stage: Optional[str] = None) -> None:
         await context.session_event_emitter.emit_status_event(
             trace_id=self._tracer.trace_id,
             data={
                 "status": "ready",
-                "data": {},
+                "data": {"stage": stage} if stage else {},
             },
         )
 

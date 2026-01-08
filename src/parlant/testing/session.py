@@ -73,6 +73,8 @@ class Session:
         # Test context - passed in for parallel safety
         self._test_name = test_name
         self._listener = listener
+        # Accumulated unfold results (for multiple unfold calls)
+        self._unfold_results: List[SubTestResult] = []
 
     @property
     def id(self) -> str:
@@ -101,9 +103,13 @@ class Session:
         exc_val: Optional[BaseException],
         exc_tb: Optional[Any],
     ) -> None:
-        """Queue session for deletion if transient."""
+        """Queue session for deletion if transient, raise accumulated unfold results."""
         if self._transient and self._session_id:
             self._suite._queue_session_for_deletion(self._session_id)
+
+        # Raise accumulated unfold results if any (only if no exception already in flight)
+        if self._unfold_results and exc_type is None:
+            raise UnfoldResults(self._unfold_results)
 
     async def send(
         self,
@@ -453,5 +459,5 @@ class Session:
             result = await run_subtest(*subtest)
             results.append(result)
 
-        # Raise UnfoldResults so runner can process sub-tests
-        raise UnfoldResults(list(results))
+        # Accumulate results (will be raised in __aexit__)
+        self._unfold_results.extend(results)

@@ -25,7 +25,6 @@ from typing import (
     Iterator,
     List,
     Optional,
-    Sequence,
     TypeVar,
     Union,
     overload,
@@ -39,9 +38,7 @@ from parlant.core.meter import LocalMeter, Meter
 from parlant.core.nlp.service import NLPService
 from parlant.core.tracer import LocalTracer, Tracer
 from parlant.testing.assertions import nlp_test as _nlp_test
-from parlant.testing.builder import InteractionBuilder
 from parlant.testing.session import Session
-from parlant.testing.steps import AgentMessage, CustomerMessage, Step
 
 # Context variables for coroutine-safe test context
 _current_test_name: ContextVar[Optional[str]] = ContextVar("current_test_name", default=None)
@@ -310,110 +307,6 @@ class Suite:
         if func is not None:
             return decorator(func)
         return decorator
-
-    def unfold(
-        self,
-        name: str,
-        steps: Sequence[Step],
-        agent_id: Optional[str] = None,
-        customer_id: Optional[str] = None,
-    ) -> None:
-        """Register multiple scenarios from a conversation flow.
-
-        Each AgentMessage in steps becomes a separate scenario that can run
-        in parallel with other tests.
-
-        Example:
-            suite.unfold("test_conversation", [
-                CustomerMessage("Hello"),
-                AgentMessage("Hi!", should="be a friendly greeting"),
-                CustomerMessage("Schedule appointment"),
-                AgentMessage("Sure!", should="offer appointment times"),
-            ])
-
-        This registers 2 scenarios:
-        - test_conversation[step_1]: Tests first AgentMessage
-        - test_conversation[step_2]: Tests second AgentMessage
-
-        Args:
-            name: Base name for the scenarios.
-            steps: Sequence of CustomerMessage and AgentMessage steps.
-            agent_id: Agent ID for sessions. Uses default if not provided.
-            customer_id: Customer ID. Uses default if not provided.
-        """
-        # Find all AgentMessage indices
-        agent_indices = [i for i, step in enumerate(steps) if isinstance(step, AgentMessage)]
-
-        if not agent_indices:
-            return
-
-        resolved_agent_id = agent_id or self._default_agent_id
-        if not resolved_agent_id:
-            raise ValueError(
-                "agent_id must be provided either in unfold() or as default_agent_id in Suite"
-            )
-        # Type narrowing for mypy
-        effective_agent_id: str = resolved_agent_id
-
-        effective_customer_id = (
-            customer_id if customer_id is not None else self._default_customer_id
-        )
-
-        for step_num, agent_idx in enumerate(agent_indices, start=1):
-            # Find preceding CustomerMessage
-            customer_idx = agent_idx - 1
-            while customer_idx >= 0 and not isinstance(steps[customer_idx], CustomerMessage):
-                customer_idx -= 1
-
-            if customer_idx < 0:
-                raise ValueError(
-                    f"AgentMessage at index {agent_idx} has no preceding CustomerMessage"
-                )
-
-            customer_step = steps[customer_idx]
-            assert isinstance(customer_step, CustomerMessage)
-            agent_step = steps[agent_idx]
-            assert isinstance(agent_step, AgentMessage)
-
-            # Capture values for closure
-            prefab_steps = list(steps[:customer_idx]) if customer_idx > 0 else []
-            customer_message = customer_step.message
-            should_condition = agent_step.should
-            scenario_name = f"{name}[step_{step_num}]"
-
-            # Create scenario function
-            async def make_scenario(
-                _prefab: List[Step] = prefab_steps,
-                _customer_msg: str = customer_message,
-                _should: Union[str, Sequence[str], None] = should_condition,
-                _agent_id: str = effective_agent_id,
-                _customer_id: Optional[str] = effective_customer_id,
-            ) -> None:
-                async with Session(
-                    suite=self,
-                    agent_id=_agent_id,
-                    customer_id=_customer_id,
-                    transient=True,
-                    test_name=_current_test_name.get(),
-                    listener=_current_listener.get(),
-                ) as session:
-                    # Add prefab history
-                    if _prefab:
-                        builder = InteractionBuilder.from_steps(_prefab)
-                        await session.add_events(builder.build())
-
-                    # Send customer message and assert
-                    response = await session.send(_customer_msg)
-                    await response.should(_should)
-
-            # Register the scenario
-            self._scenarios.append(
-                Scenario(
-                    name=scenario_name,
-                    func=make_scenario,
-                    repetitions=1,
-                )
-            )
 
     def before_all(self, func: Callable[[], Awaitable[None]]) -> Callable[[], Awaitable[None]]:
         """Decorator to register a before_all hook.

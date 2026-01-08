@@ -64,6 +64,7 @@ dependencies = [
 parlant = "parlant.bin.client:main"
 parlant-server = "parlant.bin.server:main"
 parlant-prepare-migration = "parlant.bin.prepare_migration:main"
+parlant-test = "parlant.testing.cli:main"
 
 [project.optional-dependencies]
 chroma = ["chromadb>=1.1.1"]

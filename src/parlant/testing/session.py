@@ -88,6 +88,7 @@ class Session:
             agent_id=self._agent_id,
             customer_id=self._customer_id,
             allow_greeting=False,
+            metadata={"__emcie__": {"createdById": "TEST"}},
         )
         self._session_id = session.id
         self._current_offset = 0

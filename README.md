@@ -228,6 +228,8 @@ async def test_booking_flow():
 
 Run with: `parlant-test your_tests.py`
 
+<img alt="Parlant Testing" src="https://github.com/emcie-co/parlant/blob/develop/docs/parlant-testing.gif?raw=true" width="100%" />
+
 ## 🔥 Why Developers Are Switching to Parlant
 
 <table width="100%">

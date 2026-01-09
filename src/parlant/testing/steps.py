@@ -20,7 +20,7 @@ from typing import Sequence, Union
 class CustomerMessage:
     """Represents a customer message in a conversation step."""
 
-    message: str
+    text: str
 
 
 @dataclass(frozen=True)
@@ -28,13 +28,13 @@ class AgentMessage:
     """Represents an expected agent message in a conversation step.
 
     Attributes:
-        ideal: The ideal/reference response. Used as history content in subsequent tests.
+        text: The reference response. Used as history content in subsequent tests.
         should: Assertion condition(s). Formatted as "The message should {should}".
                 Can be a single string or a sequence of strings (run in parallel).
                 If None, this message is just history and won't create a test.
     """
 
-    ideal: str
+    text: str
     should: Union[str, Sequence[str], None] = None
 
 

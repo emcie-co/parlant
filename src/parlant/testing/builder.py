@@ -62,7 +62,7 @@ class InteractionBuilder:
                     PrefabEvent(
                         source="customer",
                         kind="message",
-                        data={"message": current.message},
+                        data={"message": current.text},
                     )
                 )
 
@@ -90,7 +90,7 @@ class InteractionBuilder:
                     PrefabEvent(
                         source=agent_source,
                         kind="message",
-                        data={"message": current.ideal},
+                        data={"message": current.text},
                     )
                 )
 

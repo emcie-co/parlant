@@ -369,13 +369,13 @@ class Session:
                         builder = InteractionBuilder.from_steps(prefab_steps)
                         await test_session.add_events(
                             builder.build(),
-                            next_customer_message=customer_step.message,
+                            next_customer_message=customer_step.text,
                         )
 
                     # Send customer message and get response
                     # Skip UI notification if we already showed it in add_events
                     response = await test_session.send(
-                        customer_step.message,
+                        customer_step.text,
                         _skip_ui_notification=has_prefab,
                     )
 

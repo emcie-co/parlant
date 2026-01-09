@@ -359,22 +359,22 @@ async def test_booking_flow() -> None:
             # Steps with assertions create sub-tests
             CustomerMessage("I need to book an appointment"),
             AgentMessage(
-                ideal="What's the reason for your visit?",
+                text="What's the reason for your visit?",
                 should=["ask for the reason", "be polite"],
             ),
 
             CustomerMessage("Regular checkup"),
             AgentMessage(
-                ideal="I have Monday at 10am or Wednesday at 2pm available.",
+                text="I have Monday at 10am or Wednesday at 2pm available.",
                 should="offer appointment times",
             ),
         ])
 ```
 
 **How unfold() works:**
-- `CustomerMessage(message)` - Customer's message in the conversation
-- `AgentMessage(ideal, should)` - Expected agent response
-  - `ideal`: Reference response used as history for subsequent tests
+- `CustomerMessage(text)` - Customer's message in the conversation
+- `AgentMessage(text, should)` - Expected agent response
+  - `text`: Reference response used as history for subsequent tests
   - `should`: Assertion condition(s). Only steps with `should` create sub-tests
 - Each sub-test gets a fresh session with prefab history of all prior steps
 - Sub-tests run sequentially and report results independently

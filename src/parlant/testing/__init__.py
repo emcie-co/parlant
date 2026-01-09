@@ -36,8 +36,8 @@ Example:
     async def test_conversation():
         async with suite.session() as session:
             await session.unfold([
-                CustomerMessage(message="Hello"),
-                AgentMessage(ideal="Hi!", should="greet the customer"),
+                CustomerMessage("Hello"),
+                AgentMessage(text="Hi!", should="greet the customer"),
             ])
 """
 

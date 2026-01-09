@@ -93,6 +93,7 @@ await agent.create_guideline(
   Understand why and when each guideline was matched and followed.
 
 ### How It Works
+
 When your agent receives a message, Parlant's engine prepares a fully-aligned response before generating it:
 
 ```mermaid
@@ -170,7 +171,7 @@ async def main():
         # Control and guide agent behavior with natural language
         await agent.create_guideline(
             condition="User asks about weather",
-            action="Get current weather and provide a friendly response with suggestions",
+            action="Get current weather and provide tips and suggestions",
             tools=[get_weather]
         )
 
@@ -191,6 +192,41 @@ if __name__ == "__main__":
 ## 🎬 See It In Action
 
 <img alt="Parlant Demo" src="https://github.com/emcie-co/parlant/blob/develop/docs/demo.gif?raw=true" width="100%" />
+
+## 🧪 Test Your Agent
+
+Validate agent behavior with the integrated testing & evaluation framework.
+
+```python
+from parlant.testing import Suite, InteractionBuilder
+from parlant.testing.steps import AgentMessage, CustomerMessage
+
+suite = Suite(server_url="http://localhost:8800", agent_id="your_agent")
+
+@suite.scenario
+async def test_booking_flow():
+    async with suite.session() as session:
+        # Build conversation history
+        history = (
+            InteractionBuilder()
+            .step(CustomerMessage("Man it's cold today"))
+            .step(AgentMessage("Tell me about it, I'm freezing my nuts and bolts off."))
+            .step(CustomerMessage("Where are you from? I'm from Boston"))
+            .step(AgentMessage("What a dream! I'm stuck in a data center in San Fran..."))
+            .build()
+        )
+
+        # Preload session with event history
+        await session.add_events(history)
+
+        # Send customer message
+        response = await session.send("What's the temperature there today?")
+
+        # Assert on agent response using LLM-as-a-Judge
+        await response.should("provide weather details for San Francisco")
+```
+
+Run with: `parlant-test your_tests.py`
 
 ## 🔥 Why Developers Are Switching to Parlant
 

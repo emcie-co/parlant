@@ -121,7 +121,7 @@ class Suite:
     Example:
         suite = Suite(
             server_url="http://localhost:8000",
-            default_agent_id="my_agent",
+            agent_id="my_agent",
         )
 
         @suite.scenario
@@ -134,8 +134,8 @@ class Suite:
     def __init__(
         self,
         server_url: str,
-        default_agent_id: Optional[str] = None,
-        default_customer_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        customer_id: Optional[str] = None,
         response_timeout: int = 60,
         nlp_service: Callable[[Container], NLPService] = NLPServices.emcie,
     ) -> None:
@@ -143,16 +143,16 @@ class Suite:
 
         Args:
             server_url: URL of the Parlant server.
-            default_agent_id: Default agent ID for sessions.
-            default_customer_id: Default customer ID (None = guest).
+            agent_id: Default agent ID for sessions.
+            customer_id: Default customer ID (None = guest).
             response_timeout: Default timeout for agent responses in seconds.
             nlp_service: Factory function that creates NLPService from Container.
                          Defaults to Emcie.
         """
         self._server_url = server_url
         self._nlp_service_factory = nlp_service
-        self._default_agent_id = default_agent_id
-        self._default_customer_id = default_customer_id
+        self._agent_id = agent_id
+        self._customer_id = customer_id
         self._response_timeout = response_timeout
 
         # Lazy-initialized
@@ -231,15 +231,13 @@ class Suite:
         Raises:
             ValueError: If no agent_id provided and no default set.
         """
-        effective_agent_id = agent_id or self._default_agent_id
+        effective_agent_id = agent_id or self._agent_id
         if not effective_agent_id:
             raise ValueError(
-                "agent_id must be provided either in session() or as default_agent_id in Suite"
+                "agent_id must be provided either in session() or as agent_id in Suite"
             )
 
-        effective_customer_id = (
-            customer_id if customer_id is not None else self._default_customer_id
-        )
+        effective_customer_id = customer_id if customer_id is not None else self._customer_id
 
         return Session(
             suite=self,

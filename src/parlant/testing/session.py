@@ -75,6 +75,8 @@ class Session:
         self._listener = listener
         # Accumulated unfold results (for multiple unfold calls)
         self._unfold_results: List[SubTestResult] = []
+        # Conversation history for context in assertions
+        self._conversation: List[tuple[str, str]] = []  # (role, message) pairs
 
     @property
     def id(self) -> str:
@@ -144,6 +146,9 @@ class Session:
         if listener and test_name and not _skip_ui_notification:
             await listener.on_message_sent(test_name, "Customer", message)
 
+        # Record customer message in conversation
+        self._conversation.append(("Customer", message))
+
         # Send customer message
         event = await client.sessions.create_event(
             session_id=self._session_id,
@@ -165,14 +170,21 @@ class Session:
             timeout=effective_timeout,
         )
 
-        # Notify listener about agent response
+        # Create response with conversation context
         response = Response(
             events=response_events,
             trace_id=trace_id,
             suite=self._suite,
             test_name=test_name,
             listener=listener,
+            conversation=list(self._conversation),  # Copy conversation up to this point
         )
+
+        # Record agent response in conversation
+        if response.message:
+            self._conversation.append(("Agent", response.message))
+
+        # Notify listener about agent response
         if listener and test_name and response.message:
             await listener.on_message_received(test_name, "Agent", response.message)
 
@@ -265,21 +277,23 @@ class Session:
         test_name = self._test_name
         listener = self._listener
 
-        # Notify listener about all message events FIRST for immediate UI display
-        if listener and test_name:
-            for prefab in events:
-                if prefab.kind == "message":
-                    message = prefab.data.get("message", "")
+        # Record prefab messages in conversation and notify listener
+        for prefab in events:
+            if prefab.kind == "message":
+                message = prefab.data.get("message", "")
+                role = "Customer" if prefab.source == "customer" else "Agent"
+                self._conversation.append((role, message))
+                # Notify listener for UI display
+                if listener and test_name:
                     if prefab.source == "customer":
                         await listener.on_message_sent(test_name, "Customer", message)
                     else:
-                        # Agent messages (from prefab history)
                         await listener.on_message_received(test_name, "Agent", message)
 
-            # Show upcoming customer message immediately (before slow server calls)
-            if next_customer_message:
-                await listener.on_message_sent(test_name, "Customer", next_customer_message)
-                await listener.on_waiting_for_agent(test_name)
+        # Show upcoming customer message immediately (before slow server calls)
+        if listener and test_name and next_customer_message:
+            await listener.on_message_sent(test_name, "Customer", next_customer_message)
+            await listener.on_waiting_for_agent(test_name)
 
         # Switch to manual mode to prevent trigger_processing on prefab events
         await client.sessions.update(session_id=self._session_id, mode="manual")

@@ -21,6 +21,7 @@ from typing import (
     Iterator,
     List,
     Mapping,
+    Optional,
     Sequence,
     Union,
 )
@@ -54,12 +55,14 @@ class Response:
         suite: "Suite",
         test_name: Any = None,
         listener: Any = None,
+        conversation: Optional[List[tuple[str, str]]] = None,
     ) -> None:
         self._events = events
         self._trace_id = trace_id
         self._suite = suite
         self._test_name = test_name
         self._listener = listener
+        self._conversation = conversation or []  # (role, message) pairs
 
     @property
     def trace_id(self) -> str:
@@ -144,9 +147,17 @@ class Response:
         if self._listener and self._test_name:
             await self._listener.on_evaluating(self._test_name, conditions)
 
+        # Build full conversation context including the agent's response
+        context_parts = []
+        for role, msg in self._conversation:
+            context_parts.append(f"{role}: {msg}")
+        # Add the agent's response being evaluated
+        context_parts.append(f"Agent: {self.message}")
+        full_context = "\n".join(context_parts)
+
         async def check_condition(cond: str) -> tuple[str, bool, str]:
             formatted = f"The message should {cond}"
-            result, reasoning = await self._suite.nlp_test(self.message, formatted)
+            result, reasoning = await self._suite.nlp_test(full_context, formatted)
             # Notify listener of individual condition result
             if self._listener and self._test_name:
                 await self._listener.on_condition_result(self._test_name, cond, result)

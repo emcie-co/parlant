@@ -22,8 +22,8 @@ Example:
 
     suite = Suite(
         server_url="http://localhost:8000",
-        nlp_service=NLPServices.openai,
-        default_agent_id="my_agent",
+        nlp_service=NLPServices.emcie,
+        agent_id="my_agent",
     )
 
     @suite.scenario

@@ -297,6 +297,142 @@ if __name__ == "__main__":
 
 ---
 
+## Testing Framework
+
+Parlant includes a testing framework for validating agent behavior using NLP-based assertions.
+
+### Basic Test Structure
+
+```python
+from parlant.testing import Suite
+from parlant.testing.steps import AgentMessage, CustomerMessage
+
+suite = Suite(
+    server_url="http://localhost:8800",
+    agent_id="your_agent_id",
+)
+
+@suite.scenario
+async def test_greeting() -> None:
+    async with suite.session() as session:
+        response = await session.send("Hello!")
+        await response.should("be a friendly greeting or offer to help")
+
+@suite.scenario
+async def test_appointment_inquiry() -> None:
+    async with suite.session() as session:
+        response = await session.send("Can I schedule an appointment?")
+        await response.should("acknowledge the request or ask for more details")
+```
+
+Run tests with: `parlant-test your_test_file.py`
+
+### NLP-Based Assertions
+
+The `response.should()` method uses NLP to evaluate conditions against the full conversation context:
+
+```python
+# Single condition
+await response.should("be polite and professional")
+
+# Multiple conditions (evaluated in parallel)
+await response.should([
+    "ask for the reason for the visit",
+    "be polite",
+    "not mention pricing",
+])
+```
+
+### Multi-Turn Conversations with unfold()
+
+Test multi-turn conversations where each step builds on history:
+
+```python
+@suite.scenario
+async def test_booking_flow() -> None:
+    async with suite.session() as session:
+        await session.unfold([
+            # History-only steps (no assertion)
+            CustomerMessage("Hello"),
+            AgentMessage("Hi! How can I help you today?"),
+
+            # Steps with assertions create sub-tests
+            CustomerMessage("I need to book an appointment"),
+            AgentMessage(
+                ideal="What's the reason for your visit?",
+                should=["ask for the reason", "be polite"],
+            ),
+
+            CustomerMessage("Regular checkup"),
+            AgentMessage(
+                ideal="I have Monday at 10am or Wednesday at 2pm available.",
+                should="offer appointment times",
+            ),
+        ])
+```
+
+**How unfold() works:**
+- `CustomerMessage(message)` - Customer's message in the conversation
+- `AgentMessage(ideal, should)` - Expected agent response
+  - `ideal`: Reference response used as history for subsequent tests
+  - `should`: Assertion condition(s). Only steps with `should` create sub-tests
+- Each sub-test gets a fresh session with prefab history of all prior steps
+- Sub-tests run sequentially and report results independently
+
+### Repeated Scenarios
+
+Run the same scenario multiple times for consistency testing:
+
+```python
+@suite.scenario(repetitions=3)
+async def test_consistent_greeting() -> None:
+    async with suite.session() as session:
+        response = await session.send("Hello")
+        await response.should("greet the customer")
+```
+
+### Hooks
+
+```python
+@suite.before_all
+async def setup() -> None:
+    # Runs once before all tests
+    suite.context["api_key"] = "test-key"
+
+@suite.after_all
+async def teardown() -> None:
+    # Runs once after all tests
+    pass
+
+@suite.before_each
+async def before_test(test_name: str) -> None:
+    # Runs before each test
+    pass
+
+@suite.after_each
+async def after_test(test_name: str, passed: bool, error: str | None) -> None:
+    # Runs after each test
+    pass
+```
+
+### CLI Options
+
+```bash
+# Run all tests
+parlant-test tests.py
+
+# Filter by pattern
+parlant-test tests.py -k "greeting"
+
+# Run tests in parallel
+parlant-test tests.py --parallel
+
+# Custom timeout (seconds)
+parlant-test tests.py --timeout 120
+```
+
+---
+
 ## Links
 
 - Documentation: https://parlant.io/

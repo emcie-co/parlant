@@ -65,9 +65,10 @@ import httpx
 from lagom import Container
 
 
-from parlant.adapters.db.json_file import JSONFileDocumentCollection, JSONFileDocumentDatabase
+from parlant.adapters.db.json_file import JSONFileDocumentDatabase
 from parlant.adapters.db.transient import TransientDocumentDatabase
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
+from parlant.core.persistence.vector_database import VectorDatabase
 from parlant.api.authorization import (
     AuthorizationException,
     Operation,
@@ -143,10 +144,12 @@ from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationStore,
 )
 from parlant.core.nlp.embedding import (
+    BasicEmbeddingCache,
     Embedder,
     EmbedderFactory,
     EmbeddingCache,
     EmbeddingResult,
+    NullEmbeddingCache,
 )
 from parlant.core.nlp.generation import (
     FallbackSchematicGenerator,
@@ -155,7 +158,11 @@ from parlant.core.nlp.generation import (
 )
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.persistence.common import ObjectId
-from parlant.core.persistence.document_database import DocumentDatabase, identity_loader_for
+from parlant.core.persistence.document_database import (
+    DocumentCollection,
+    DocumentDatabase,
+    identity_loader_for,
+)
 from parlant.core.relationships import (
     RelationshipKind,
     RelationshipDocumentStore,
@@ -532,12 +539,12 @@ class _CachedEvaluator:
 
     def __init__(
         self,
-        db: JSONFileDocumentDatabase,
+        db: DocumentDatabase,
         container: Container,
     ) -> None:
-        self._db: JSONFileDocumentDatabase = db
-        self._guideline_collection: JSONFileDocumentCollection[_CachedGuidelineEvaluation]
-        self._journey_collection: JSONFileDocumentCollection[_CachedJourneyEvaluation]
+        self._db: DocumentDatabase = db
+        self._guideline_collection: DocumentCollection[_CachedGuidelineEvaluation]
+        self._journey_collection: DocumentCollection[_CachedJourneyEvaluation]
 
         self._container = container
         self._logger = container[Logger]
@@ -3151,6 +3158,8 @@ class Server:
         session_store: Literal["transient", "local"] | str | SessionStore = "transient",
         customer_store: Literal["transient", "local"] | str | CustomerStore = "transient",
         variable_store: Literal["transient", "local"] | str | ContextVariableStore = "transient",
+        vector_store: Literal["transient", "elasticsearch"] | VectorDatabase = "transient",
+        cache_store: Literal["transient", "local"] = "local",
         log_level: LogLevel = LogLevel.INFO,
         modules: list[str] = [],
         migrate: bool = False,
@@ -3172,6 +3181,8 @@ class Server:
         self._session_store = session_store
         self._customer_store = customer_store
         self._context_variable_store = variable_store
+        self._vector_store = vector_store
+        self._cache_store = cache_store
 
         self._configure_hooks = configure_hooks
         self._configure_container = configure_container
@@ -4261,8 +4272,9 @@ class Server:
                     return store
                 else:
                     raise SDKError(
-                        f"Invalid session store type: {self._session_store}. "
-                        "Expected 'transient', 'local', or a MongoDB connection string."
+                        f"Invalid store type: {spec}. "
+                        "Expected 'transient', 'local', or a MongoDB connection string. "
+                        "For Elasticsearch, use configure_container to set up stores manually."
                     )
 
             if isinstance(self._session_store, SessionStore):
@@ -4308,6 +4320,43 @@ class Server:
             async def get_embedder_type() -> type[Embedder]:
                 return type(await c()[NLPService].get_embedder())
 
+            # Create vector database based on configuration
+            vector_db: VectorDatabase
+            if isinstance(self._vector_store, VectorDatabase):
+                vector_db = self._vector_store
+            elif self._vector_store == "elasticsearch":
+                if importlib.util.find_spec("elasticsearch") is None:
+                    raise SDKError(
+                        "Elasticsearch requires an additional package to be installed. "
+                        "Install it with: pip install elasticsearch"
+                    )
+
+                from parlant.adapters.vector_db.elasticsearch import (
+                    ElasticsearchVectorDatabase,
+                    create_elasticsearch_client_from_env,
+                    get_elasticsearch_index_prefix_from_env,
+                )
+
+                es_vector_client = create_elasticsearch_client_from_env()
+                es_index_prefix = get_elasticsearch_index_prefix_from_env()
+
+                vector_db = await self._exit_stack.enter_async_context(
+                    ElasticsearchVectorDatabase(
+                        elasticsearch_client=es_vector_client,
+                        index_prefix=es_index_prefix,
+                        logger=c()[Logger],
+                        embedder_factory=embedder_factory,
+                        embedding_cache_provider=lambda: c()[EmbeddingCache],
+                    )
+                )
+            else:  # transient
+                vector_db = TransientVectorDatabase(
+                    c()[Logger],
+                    c()[Tracer],
+                    embedder_factory,
+                    lambda: c()[EmbeddingCache],
+                )
+
             for vector_store_interface, vector_store_type in [
                 (GlossaryStore, GlossaryVectorStore),
                 (CannedResponseStore, CannedResponseVectorStore),
@@ -4317,12 +4366,7 @@ class Server:
                 c()[vector_store_interface] = await self._exit_stack.enter_async_context(
                     vector_store_type(
                         id_generator=c()[IdGenerator],
-                        vector_db=TransientVectorDatabase(
-                            c()[Logger],
-                            c()[Tracer],
-                            embedder_factory,
-                            lambda: c()[EmbeddingCache],
-                        ),
+                        vector_db=vector_db,
                         document_db=TransientDocumentDatabase(),
                         embedder_factory=embedder_factory,
                         embedder_type_provider=get_embedder_type,
@@ -4343,6 +4387,15 @@ class Server:
             if self._configure_hooks:
                 hooks = await self._configure_hooks(c[EngineHooks])
                 latest_container[EngineHooks] = hooks
+
+            # Define embedding cache before server.py's initialize_container runs
+            # This prevents server.py from creating its own default version
+            if self._cache_store != "local":
+                if latest_container[OptimizationPolicy].use_embedding_cache():
+                    embedding_cache_db: DocumentDatabase = TransientDocumentDatabase()
+                    latest_container[EmbeddingCache] = BasicEmbeddingCache(embedding_cache_db)
+                else:
+                    latest_container[EmbeddingCache] = NullEmbeddingCache()
 
             return latest_container
 
@@ -4374,10 +4427,16 @@ class Server:
             await self._exit_stack.enter_async_context(self._plugin_server)
             self._exit_stack.push_async_callback(self._plugin_server.shutdown)
 
-            self._evaluator = _CachedEvaluator(
-                db=JSONFileDocumentDatabase(c[Logger], PARLANT_HOME_DIR / "evaluation_cache.json"),
-                container=c,
-            )
+            # Create evaluation cache database based on cache_store setting
+            eval_cache_db: DocumentDatabase
+            if self._cache_store == "local":
+                eval_cache_db = await self._exit_stack.enter_async_context(
+                    JSONFileDocumentDatabase(c[Logger], PARLANT_HOME_DIR / "evaluation_cache.json")
+                )
+            else:  # transient
+                eval_cache_db = TransientDocumentDatabase()
+
+            self._evaluator = _CachedEvaluator(db=eval_cache_db, container=c)
             await self._exit_stack.enter_async_context(self._evaluator)
 
             if self._initialize:
@@ -4417,6 +4476,7 @@ class Server:
 __all__ = [
     "Agent",
     "AgentId",
+    "AgentStore",
     "AuthorizationException",
     "AuthorizationPolicy",
     "BasicNoMatchResponseProvider",
@@ -4428,9 +4488,11 @@ __all__ = [
     "CapabilityId",
     "CompositionMode",
     "Container",
+    "ContextVariableDocumentStore",
     "ContextVariableId",
     "ContextVariableStore",
     "ControlOptions",
+    "CustomerDocumentStore",
     "Criticality",
     "Customer",
     "CustomerId",
@@ -4450,12 +4512,14 @@ __all__ = [
     "EngineHookResult",
     "EngineHooks",
     "EstimatingTokenizer",
+    "EventEmitterFactory",
     "EventKind",
     "EventSource",
     "FallbackSchematicGenerator",
     "Guideline",
     "GuidelineId",
     "GuidelineMatchingContext",
+    "IdGenerator",
     "Interaction",
     "InteractionMessage",
     "JSONSerializable",
@@ -4506,6 +4570,7 @@ __all__ = [
     "Server",
     "ServiceRegistry",
     "Session",
+    "SessionDocumentStore",
     "SessionId",
     "SessionMode",
     "SessionStatus",
@@ -4529,6 +4594,7 @@ __all__ = [
     "Tracer",
     "Variable",
     "Variable",
+    "VectorDatabase",
     "VoiceOptimizedPerceivedPerformancePolicy",
     "tool",
 ]

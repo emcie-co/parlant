@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Awaitable, Callable, Optional, cast
+from typing import Any, Awaitable, Callable, Optional
 from bson import CodecOptions
 from typing_extensions import Self
 from parlant.core.loggers import Logger
@@ -232,7 +232,7 @@ class MongoDocumentCollection(DocumentCollection[TDocument]):
 
     async def find_one(self, filters: Where) -> TDocument | None:
         result = await self._collection.find_one(filters)
-        return cast(TDocument | None, result)
+        return result
 
     async def insert_one(self, document: TDocument) -> InsertResult:
         insert_result = await self._collection.insert_one(document)

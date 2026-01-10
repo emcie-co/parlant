@@ -4,7 +4,7 @@ All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
 
-TBD
+- Add testing framework
 
 ## [3.1.0] - 2026-01-05
 

@@ -8,7 +8,7 @@ authors = [
     {name = "Yam Marcovitz", email = "yam@emcie.co"},
     {name = "Dor Zohar", email = "dor@emcie.co"},
 ]
-requires-python = ">=3.10,<3.14"  # Restricted for torch 2.8+ compatibility with triton
+requires-python = ">=3.10,<3.15"  # Restricted for torch 2.8+ compatibility with triton
 dependencies = [
     "aiofiles>=24.1.0",
     "aiopenapi3==0.9.0",

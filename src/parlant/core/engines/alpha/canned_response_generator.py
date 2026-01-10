@@ -527,6 +527,8 @@ class CannedResponseGenerator(MessageEventComposer):
         self._entity_queries = entity_queries
         self._no_match_provider = no_match_provider
         self._follow_ups_enabled = True
+
+        self.fluid_preamble_examples = fluid_preamble_examples
         self.candidate_similarity_threshold = 0.4
 
         self._define_histograms()
@@ -668,48 +670,52 @@ class CannedResponseGenerator(MessageEventComposer):
         preamble_choices: list[str] = []
 
         if composition_mode != CompositionMode.CANNED_STRICT:
-            preamble_choices = [
-                "Hey there!",
-                "Just a moment.",
-                "Hello.",
-                "Sorry to hear that.",
-                "Definitely.",
-                "Let me check that for you.",
-            ]
+            preamble_choices = self.fluid_preamble_examples
 
             preamble_choices_text = "".join([f"\n- {choice}" for choice in preamble_choices])
 
             instructions = f"""\
-Generate a brief, natural acknowledgment of the customer's most recent message. 
+Generate a brief, natural acknowledgment of the customer's most recent message.
 You must not assume anything about how to handle the interaction in any way, shape, or form, beyond just generating the right, nuanced preamble message.
 
 This preamble should:
 - Only acknowledge what the customer just said
 - Do NOT ask any questions (including "how can I help you"), make commitments, or indicate next steps
-- Your message may not dictate how the conversation should continue, or commit the agent to any future processes as a result. 
-- Do NOT repeat or paraphrase previous messages and preambles, as that would hurt the flow of the conversation. Acknowledge the latest customer message with a simple, UNIQUE response. 
+- Your message may not dictate how the conversation should continue, or commit the agent to any future processes as a result.
+- Do NOT repeat or paraphrase previous messages and preambles, as that would hurt the flow of the conversation. Acknowledge the latest customer message with a simple, UNIQUE response.
 - Keep your response on the shorter side, as seen in the examples.
 
-Example preamble messages:
+Here are some GOOD EXAMPLES of preamble messages - in their exact, complete form.
+Try to choose one of these that fits the context best, and in any case do not stray away from them too much: ###
 {preamble_choices_text}
 etc.
+###
 
 BAD EXAMPLES (what NOT to do):
 Customer: "I need to change my flight"
-WRONG: "I can help you with that" (commits to action)
-WRONG: "Can you provide more details?" (asks a question)
-WRONG: "Sure, I'll help you change your flight right away." (indicates next steps)
-RIGHT: "Got it. Let me check that for you."
+
+WRONG REPLY: "I can help you with that" (commits to action)
+WRONG REPLY: "Can you provide more details?" (asks a question)
+WRONG REPLY: "Sure, I'll help you change your flight right away." (indicates next steps)
+
+The GOOD EXAMPLE in this case would have been:
+CORRECT REPLY: "Got it."
 
 Customer: "My bag didn't arrive"
-WRONG: "I'm sorry to hear that. Can you tell me your flight number?" (asks question)
-WRONG: "Don't worry, we'll help you with that." (makes commitment)
-RIGHT: "I see, let me look into that."
+
+WRONG REPLY: "I'm sorry to hear that. Can you tell me your flight number?" (asks question)
+WRONG REPLY: "Don't worry, we'll help you with that." (makes commitment)
+
+The GOOD EXAMPLE in this case would have been:
+CORRECT REPLY: "I see."
 
 Customer: "Thanks, that's helpful"
-WRONG: "You're welcome! Is there anything else I can help you with?" (asks question)
-WRONG: "You're welcome! I'm here if you need anything else." (commits to future availability)
-RIGHT: "Glad I could help."
+
+WRONG REPLY: "You're welcome! Is there anything else I can help you with?" (asks question)
+WRONG REPLY: "You're welcome! I'm here if you need anything else." (commits to future availability)
+
+The GOOD EXAMPLE in this case would have been:
+CORRECT REPLY: "Glad I could help."
 
 Basically, the preamble is something very short that continues the interaction naturally, without committing to any later action or response.
 We leave that later response to another agent. Make sure you understand this.
@@ -2508,4 +2514,13 @@ follow_up_generation_shots: Sequence[FollowUpCannedResponseSelectionShot] = [
     follow_up_generation_example_2_shot,
     follow_up_generation_example_3_shot,
     follow_up_generation_example_4_shot,
+]
+
+fluid_preamble_examples: list[str] = [
+    "Hey there!",
+    "Just a moment.",
+    "Hello.",
+    "Sorry to hear that.",
+    "Definitely.",
+    "Let me check that for you.",
 ]

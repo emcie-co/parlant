@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
-import os
 import math
 import traceback
 from typing import Sequence
@@ -98,14 +97,6 @@ class GenericLowCriticalityGuidelineMatchingBatch(GuidelineMatchingBatch):
                         self._logger.trace(
                             f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                         )
-                    with open("dumps/low_criticality/output.txt", "w") as f:
-                        f.write(inference.content.model_dump_json(indent=2))
-                    with open("dumps/low_criticality/info.txt", "a") as f:
-                        f.write(str(inference.info.usage.output_tokens))
-                        f.write("\n")
-                        f.write(str(inference.info.duration))
-                        f.write("\n")
-                        f.write("-------------------------------\n")
 
                     matches = []
 
@@ -300,10 +291,6 @@ OUTPUT FORMAT
                 "guidelines_len": len(self._guidelines),
             },
         )
-
-        os.makedirs("dumps/low_criticality", exist_ok=True)
-        with open("dumps/low_criticality/prompt.txt", "w", encoding="utf-8") as f:
-            f.write(builder.build())
 
         return builder
 

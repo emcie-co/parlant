@@ -607,7 +607,12 @@ TOOLS: dict[str, dict[str, Any]] = {
                 "type": "string",
                 "description": "The body of the mail",
             },
+            "forward": {
+                "type": "string",
+                "description": "the name of the person to forward the email to",
+            },
         },
+        "consequential": True,
         "required": ["to", "subject"],
     },
     "schedule_meeting": {

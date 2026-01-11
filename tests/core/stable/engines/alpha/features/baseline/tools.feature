@@ -1074,3 +1074,14 @@ Feature: Tools
         Then a single tool calls event is emitted
         And the staged tool calls event contains an appointment was set to 2025-09-13
         And the message contains that an appointment was successfuly set for either tomorrow or the 2025-09-13
+
+    Scenario: Consequential tool with optional argument is sent with none 
+        Given a guideline "to_send_email" to compose the email based on their request. You're free to write it in your own words while fulfilling their requirements when customer asks to send an email to someone
+        And the tool "send_email"
+        And an association between "to_send_email" and "send_email"
+        And a customer message, "I need to ask my friend Ronny if they can meet with me tommorow. We comunicate by email so send them a mail please."
+        And an agent message, "I can send them a mail for you. What's the email address?"
+        And a customer message, "Ronny@emcie.co. Thanks."
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the tool calls event contains a call to "send_email" with None as forward

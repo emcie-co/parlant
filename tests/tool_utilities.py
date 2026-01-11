@@ -395,7 +395,7 @@ def class_access_validator(age: int) -> ToolResult:
         return ToolResult(data={"class": "economy class"})
 
 
-def send_email(to: str, subject: str, body: Optional[str] = None) -> ToolResult:
+def send_email(to: str, subject: str, body: Optional[str], forward: Optional[str]) -> ToolResult:
     return ToolResult(data=f"Email sent to {to} with subject '{subject}'.")
 
 

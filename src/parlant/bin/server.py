@@ -65,6 +65,10 @@ from parlant.core.engines.alpha.guideline_matching.generic import (
 from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch import (
     DisambiguationGuidelineMatchesSchema,
 )
+from parlant.core.engines.alpha.guideline_matching.generic.guideline_low_criticality_batch import (
+    GenericLowCriticalityGuidelineMatchesSchema,
+    GenericLowCriticalityGuidelineMatching,
+)
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
     JourneyBacktrackCheckSchema,
 )
@@ -609,6 +613,10 @@ async def setup_container() -> AsyncIterator[Container]:
     )
     _define_singleton(c, GenericActionableGuidelineMatching, GenericActionableGuidelineMatching)
     _define_singleton(
+        c, GenericLowCriticalityGuidelineMatching, GenericLowCriticalityGuidelineMatching
+    )
+
+    _define_singleton(
         c,
         GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatching,
         GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatching,
@@ -844,6 +852,7 @@ async def initialize_container(
         GenericResponseAnalysisSchema,
         GenericPreviouslyAppliedActionableGuidelineMatchesSchema,
         GenericActionableGuidelineMatchesSchema,
+        GenericLowCriticalityGuidelineMatchesSchema,
         GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchesSchema,
         GenericObservationalGuidelineMatchesSchema,
         MessageSchema,

@@ -429,6 +429,10 @@ class SingleToolBatch(ToolCallBatch):
                             # Note that if LLM provided 'None' for a required parameter with a default - it will get 'None' as value
                             arguments[evaluation.parameter_name] = evaluation.value_as_string
 
+                        for param_name in tool.parameters:
+                            if param_name not in tool.required and param_name not in arguments:
+                                arguments[param_name] = None
+
                     if all_values_valid:
                         self._logger.debug(
                             f"Inference::Completion::Activated: {tool_id.to_string()}:\n{tc.model_dump_json(indent=2)}"

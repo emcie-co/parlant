@@ -30,6 +30,10 @@ from parlant.core.engines.alpha.guideline_matching.generic.guideline_actionable_
     GenericActionableGuidelineMatchesSchema,
     GenericActionableGuidelineMatchingBatch,
 )
+from parlant.core.engines.alpha.guideline_matching.generic.guideline_low_criticality_batch import (
+    GenericLowCriticalityGuidelineMatchesSchema,
+    GenericLowCriticalityGuidelineMatchingBatch,
+)
 from parlant.core.engines.alpha.guideline_matching.generic.guideline_previously_applied_actionable_batch import (
     GenericPreviouslyAppliedActionableGuidelineMatchesSchema,
     GenericPreviouslyAppliedActionableGuidelineMatchingBatch,
@@ -99,6 +103,9 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         actionable_guideline_schematic_generator: SchematicGenerator[
             GenericActionableGuidelineMatchesSchema
         ],
+        low_criticality_guideline_schematic_generator: SchematicGenerator[
+            GenericLowCriticalityGuidelineMatchesSchema
+        ],
         disambiguation_guidelines_schematic_generator: SchematicGenerator[
             DisambiguationGuidelineMatchesSchema
         ],
@@ -127,6 +134,9 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
             observational_guideline_schematic_generator
         )
         self._actionable_guideline_schematic_generator = actionable_guideline_schematic_generator
+        self._low_criticality_guideline_schematic_generator = (
+            low_criticality_guideline_schematic_generator
+        )
         self._previously_applied_actionable_guideline_schematic_generator = (
             previously_applied_actionable_guideline_schematic_generator
         )
@@ -227,7 +237,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
             )
         if low_criticality_guidelines:
             guideline_batches.extend(
-                self._create_batches_actionable_guideline(low_criticality_guidelines, context)
+                self._create_batches_low_criticality_guideline(low_criticality_guidelines, context)
             )
         if disambiguation_groups:
             guideline_batches.extend(
@@ -562,6 +572,68 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
             meter=self._meter,
             optimization_policy=self._optimization_policy,
             schematic_generator=self._actionable_guideline_schematic_generator,
+            guidelines=guidelines,
+            journeys=journeys,
+            context=context,
+        )
+
+    def _create_batches_low_criticality_guideline(
+        self,
+        guidelines: Sequence[Guideline],
+        context: GuidelineMatchingContext,
+    ) -> Sequence[GuidelineMatchingBatch]:
+        journeys = list(
+            chain.from_iterable(
+                self._entity_queries.guideline_and_journeys_it_depends_on.get(g.id, [])
+                for g in guidelines
+            )
+        )
+
+        batches = []
+
+        guidelines_dict = {g.id: g for g in guidelines}
+        batch_size = self._get_optimal_batch_size(
+            guidelines_dict, GenericLowCriticalityGuidelineMatchingBatch
+        )
+        guidelines_list = list(guidelines_dict.items())
+        batch_count = math.ceil(len(guidelines_dict) / batch_size)
+
+        for batch_number in range(batch_count):
+            start_offset = batch_number * batch_size
+            end_offset = start_offset + batch_size
+            batch = dict(guidelines_list[start_offset:end_offset])
+            batches.append(
+                self._create_batch_low_criticality_guideline(
+                    guidelines=list(batch.values()),
+                    journeys=journeys,
+                    context=GuidelineMatchingContext(
+                        agent=context.agent,
+                        session=context.session,
+                        customer=context.customer,
+                        context_variables=context.context_variables,
+                        interaction_history=context.interaction_history,
+                        terms=context.terms,
+                        capabilities=context.capabilities,
+                        staged_events=context.staged_events,
+                        active_journeys=journeys,
+                        journey_paths=context.journey_paths,
+                    ),
+                )
+            )
+
+        return batches
+
+    def _create_batch_low_criticality_guideline(
+        self,
+        guidelines: Sequence[Guideline],
+        journeys: Sequence[Journey],
+        context: GuidelineMatchingContext,
+    ) -> GenericLowCriticalityGuidelineMatchingBatch:
+        return GenericLowCriticalityGuidelineMatchingBatch(
+            logger=self._logger,
+            meter=self._meter,
+            optimization_policy=self._optimization_policy,
+            schematic_generator=self._low_criticality_guideline_schematic_generator,
             guidelines=guidelines,
             journeys=journeys,
             context=context,

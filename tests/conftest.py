@@ -33,6 +33,10 @@ from parlant.api.authorization import AuthorizationPolicy, DevelopmentAuthorizat
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.common import IdGenerator
+from parlant.core.engines.alpha.guideline_matching.generic.guideline_low_criticality_batch import (
+    GenericLowCriticalityGuidelineMatchesSchema,
+    GenericLowCriticalityGuidelineMatching,
+)
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
     JourneyBacktrackCheckSchema,
 )
@@ -476,6 +480,7 @@ async def container(
         for generation_schema in (
             GenericObservationalGuidelineMatchesSchema,
             GenericActionableGuidelineMatchesSchema,
+            GenericLowCriticalityGuidelineMatchesSchema,
             GenericPreviouslyAppliedActionableGuidelineMatchesSchema,
             GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchesSchema,
             MessageSchema,
@@ -552,6 +557,9 @@ async def container(
         container[GenericActionableGuidelineMatching] = Singleton(
             GenericActionableGuidelineMatching
         )
+        container[GenericLowCriticalityGuidelineMatching] = Singleton(
+            GenericLowCriticalityGuidelineMatching
+        )
         container[GenericPreviouslyAppliedActionableGuidelineMatching] = Singleton(
             GenericPreviouslyAppliedActionableGuidelineMatching
         )
@@ -625,6 +633,14 @@ def no_cache(container: Container) -> None:
         cast(
             CachedSchematicGenerator[GenericActionableGuidelineMatchesSchema],
             container[SchematicGenerator[GenericActionableGuidelineMatchesSchema]],
+        ).use_cache = False
+    if isinstance(
+        container[SchematicGenerator[GenericLowCriticalityGuidelineMatchesSchema]],
+        CachedSchematicGenerator,
+    ):
+        cast(
+            CachedSchematicGenerator[GenericLowCriticalityGuidelineMatchesSchema],
+            container[SchematicGenerator[GenericLowCriticalityGuidelineMatchesSchema]],
         ).use_cache = False
     if isinstance(
         container[

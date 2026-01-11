@@ -73,7 +73,7 @@ from parlant.core.sessions import (
     ToolCall,
     ToolEventData,
 )
-from parlant.core.common import DefaultBaseModel, JSONSerializable
+from parlant.core.common import Criticality, DefaultBaseModel, JSONSerializable
 from parlant.core.loggers import Logger
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import ToolId
@@ -1545,7 +1545,8 @@ Produce a valid JSON object according to the following spec. Use the values prov
             name="canned-response-generator-draft-disclaimer",
             template="""REMINDER: Only offer information and offer services that are sourced from this prompt. Never use your intrinsic knowledge to offer services or provide information.""",
         )
-
+        with open("dumps/Canned response draft/prompt.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
     def _get_draft_output_format(
@@ -1589,7 +1590,12 @@ Produce a valid JSON object according to the following spec. Use the values prov
             last_user_message = ""
 
         guidelines_list_text = ", ".join(
-            [f'"{g.guideline}"' for g in guidelines if internal_representation(g.guideline).action]
+            [
+                f'"{g.guideline}"'
+                for g in guidelines
+                if internal_representation(g.guideline).action
+                and not g.guideline.criticality == Criticality.LOW
+            ]
         )
 
         return f"""
@@ -1672,7 +1678,8 @@ Output a JSON object with three properties:
                 "draft_message": draft_message,
             },
         )
-
+        with open("dumps/Canned response selection/prompt.txt", "w") as f:
+            f.write(builder.build())
         return builder
 
     async def _generate_response(
@@ -1741,6 +1748,8 @@ Output a JSON object with three properties:
         self._logger.trace(
             f"Canned Response Draft Completion:\n{draft_response.content.model_dump_json(indent=2)}"
         )
+        with open("dumps/Canned response draft/output.json", "w") as f:
+            f.write(draft_response.content.model_dump_json(indent=2))
 
         draft_message = draft_response.content.response_body
 
@@ -1862,6 +1871,9 @@ Output a JSON object with three properties:
         self._logger.trace(
             f"Canned Response Selection Completion:\n{selection_response.content.model_dump_json(indent=2)}"
         )
+
+        with open("dumps/Canned response selection/output.json", "w") as f:
+            f.write(selection_response.content.model_dump_json(indent=2))
 
         # Step 5: Respond based on the match quality
 

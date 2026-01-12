@@ -8,9 +8,6 @@ from typing_extensions import override
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.common import measure_guideline_matching_batch
 from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
-from parlant.core.engines.alpha.guideline_matching.generic.guideline_actionable_batch import (
-    GenericActionableGuidelineGuidelineMatchingShot,
-)
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingBatch,
@@ -503,14 +500,14 @@ example_2_expected = GenericLowCriticalityGuidelineMatchesSchema(
 )
 
 
-_baseline_shots: Sequence[GenericActionableGuidelineGuidelineMatchingShot] = [
-    GenericActionableGuidelineGuidelineMatchingShot(
+_baseline_shots: Sequence[GenericLowCriticalityGuidelineMatchingShot] = [
+    GenericLowCriticalityGuidelineMatchingShot(
         description="",
         interaction_events=example_1_events,
         guidelines=example_1_guidelines,
         expected_result=example_1_expected,
     ),
-    GenericActionableGuidelineGuidelineMatchingShot(
+    GenericLowCriticalityGuidelineMatchingShot(
         description="",
         interaction_events=example_2_events,
         guidelines=example_2_guidelines,

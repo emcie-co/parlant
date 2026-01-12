@@ -344,6 +344,13 @@ You're using the Qwen NLP service, but DASHSCOPE_API_KEY is not set.
 Please set DASHSCOPE_API_KEY in your environment before running Parlant.
 """
 
+        if region := os.environ.get("QWEN_REGION"):
+            if region.lower() not in QWEN_REGION_BASE_URLS:
+                return f"""\
+Invalid QWEN_REGION '{region}'.
+Must be one of: {', '.join(QWEN_REGION_BASE_URLS.keys())}
+"""
+
         return None
 
     def __init__(

@@ -31,6 +31,19 @@ def test_that_missing_api_key_returns_error_message() -> None:
         assert "DASHSCOPE_API_KEY is not set" in error
 
 
+def test_that_verify_environment_returns_error_for_invalid_region() -> None:
+    """Test that verify_environment returns error for invalid QWEN_REGION."""
+    with patch.dict(
+        os.environ,
+        {"DASHSCOPE_API_KEY": "test-key", "QWEN_REGION": "invalid-region"},
+        clear=True,
+    ):
+        error = QwenService.verify_environment()
+        assert error is not None
+        assert "Invalid QWEN_REGION 'invalid-region'" in error
+        assert "Must be one of: international, domestic" in error
+
+
 def test_that_get_qwen_base_url_returns_international_by_default() -> None:
     """Test that get_qwen_base_url returns international URL by default."""
     with patch.dict(os.environ, {}, clear=True):

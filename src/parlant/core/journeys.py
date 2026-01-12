@@ -924,8 +924,8 @@ class JourneyVectorStore(JourneyStore):
                 else:
                     journey_ids.intersection_update(condition_journey_ids)
 
-            if journey_ids:
-                filters = {"$or": [{"id": {"$eq": id}} for id in journey_ids]}
+                if journey_ids:
+                    filters = {"$or": [{"id": {"$eq": id}} for id in journey_ids]}
 
             return [
                 await self._deserialize(d) for d in await self._collection.find(filters=filters)

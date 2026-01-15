@@ -88,6 +88,7 @@ class TestEventListener(Protocol):
     async def on_message_received(self, test_name: str, role: str, content: str) -> None: ...
     async def on_evaluating(self, test_name: str, conditions: List[str]) -> None: ...
     async def on_condition_result(self, test_name: str, condition: str, passed: bool) -> None: ...
+    async def on_assertion_score(self, test_name: str, score: float) -> None: ...
     async def on_test_passed(self, test_name: str, duration_ms: float) -> None: ...
     async def on_test_failed(
         self, test_name: str, duration_ms: float, error: str, details: Optional[Dict[str, Any]]
@@ -117,6 +118,9 @@ class NullEventListener:
         pass
 
     async def on_condition_result(self, test_name: str, condition: str, passed: bool) -> None:
+        pass
+
+    async def on_assertion_score(self, test_name: str, score: float) -> None:
         pass
 
     async def on_test_passed(self, test_name: str, duration_ms: float) -> None:

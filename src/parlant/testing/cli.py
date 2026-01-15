@@ -170,8 +170,9 @@ def main(
         finally:
             reporter.stop_live()
 
-        # Print summary
-        print_summary(console, report)
+        # Print summary with final score
+        final_score = reporter.get_final_score()
+        print_summary(console, report, final_score)
 
         # Write JSON output
         if output:

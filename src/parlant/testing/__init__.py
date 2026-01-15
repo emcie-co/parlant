@@ -42,7 +42,7 @@ Example:
 """
 
 from parlant.testing.builder import InteractionBuilder, PrefabEvent
-from parlant.testing.response import Response, ToolCall
+from parlant.testing.response import Response, Should, ToolCall
 from parlant.testing.runner import TestReport, TestResult, TestRunner, TestStatus
 from parlant.testing.session import Session
 from parlant.testing.steps import AgentMessage, CustomerMessage, StatusEvent, Step
@@ -68,6 +68,7 @@ __all__ = [
     "TestStatus",
     # Supporting types
     "ToolCall",
+    "Should",
     "Scenario",
     "HookSet",
 ]

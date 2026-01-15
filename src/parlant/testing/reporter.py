@@ -81,6 +81,8 @@ class RichReporter:
         self._total_tests: int = 0
         self._started_tests: int = 0  # Dynamically tracks tests as they start
         self._completed_tests: int = 0
+        # Score tracking: maps test_name -> list of scores (a test can have multiple assertions)
+        self._test_scores: Dict[str, List[float]] = {}
 
     async def on_suite_start(self, suite_name: str, total_tests: int) -> None:
         """Called when test suite starts."""
@@ -161,6 +163,13 @@ class RichReporter:
             ]
             self._refresh_display()
 
+    async def on_assertion_score(self, test_name: str, score: float) -> None:
+        """Called when an assertion completes with a score."""
+        if test_name not in self._test_scores:
+            self._test_scores[test_name] = []
+        self._test_scores[test_name].append(score)
+        self._refresh_display()
+
     async def on_test_passed(self, test_name: str, duration_ms: float) -> None:
         """Called when a test passes."""
         if test_name in self._panels:
@@ -201,6 +210,15 @@ class RichReporter:
         self._completed_tests = report.total
         self._started_tests = report.total
         self._refresh_display()
+
+    def get_final_score(self) -> Optional[float]:
+        """Get the final average score across all tests."""
+        all_scores: List[float] = []
+        for scores in self._test_scores.values():
+            all_scores.extend(scores)
+        if all_scores:
+            return sum(all_scores) / len(all_scores)
+        return None
 
     def _move_to_next_test(self, completed_test: str) -> None:
         """Move panel slot to next queued test."""
@@ -253,15 +271,30 @@ class RichReporter:
         # Add progress line
         running = self._started_tests - self._completed_tests
         if running > 0:
-            progress = Text(
-                f"\nProgress: {self._completed_tests} completed, {running} running",
-                style="bold",
-            )
+            progress_text = f"\nProgress: {self._completed_tests} completed, {running} running"
         else:
-            progress = Text(
-                f"\nProgress: {self._completed_tests} tests completed",
-                style="bold",
+            progress_text = f"\nProgress: {self._completed_tests} tests completed"
+
+        # Calculate and display running score
+        all_scores: List[float] = []
+        for scores in self._test_scores.values():
+            all_scores.extend(scores)
+
+        if all_scores:
+            avg_score = sum(all_scores) / len(all_scores)
+            # Color based on score
+            if avg_score >= 80:
+                score_style = "bold green"
+            elif avg_score >= 50:
+                score_style = "bold yellow"
+            else:
+                score_style = "bold red"
+            score_text = Text("  |  Current Score: ", style="bold") + Text(
+                f"{avg_score:.1f}/100", style=score_style
             )
+            progress = Text(progress_text, style="bold") + score_text
+        else:
+            progress = Text(progress_text, style="bold")
 
         return Group(grid, progress)
 
@@ -383,7 +416,25 @@ class RichReporter:
             self._live = None
 
 
-def print_summary(console: Console, report: TestReport) -> None:
+def _extract_score_from_error(error: Optional[str]) -> Optional[float]:
+    """Extract score from assertion error message.
+
+    Looks for pattern like "(score: 62.5/100)" in the error message.
+    Returns the score as a float (0-100) or None if not found.
+    """
+    if not error:
+        return None
+    import re
+
+    match = re.search(r"\(score:\s*([\d.]+)/100\)", error)
+    if match:
+        return float(match.group(1))
+    return None
+
+
+def print_summary(
+    console: Console, report: TestReport, final_score: Optional[float] = None
+) -> None:
     """Print the final summary to console."""
     console.print()
     console.print("[bold]parlant-test[/bold]")
@@ -394,6 +445,17 @@ def print_summary(console: Console, report: TestReport) -> None:
         f"Results: [bold green]{report.passed} passed[/bold green], "
         f"[bold red]{report.failed} failed[/bold red]"
     )
+
+    # Score line
+    if final_score is not None:
+        if final_score >= 80:
+            score_style = "bold green"
+        elif final_score >= 50:
+            score_style = "bold yellow"
+        else:
+            score_style = "bold red"
+        console.print(f"Score: [{score_style}]{final_score:.1f}/100[/{score_style}]")
+
     console.print(f"Duration: {report.duration_ms / 1000:.2f}s")
     console.print()
 
@@ -403,7 +465,14 @@ def print_summary(console: Console, report: TestReport) -> None:
         for scenario in report.scenarios:
             for test in scenario.tests:
                 if test.status == TestStatus.FAILED:
-                    console.print(f"  [bold]{test.name}[/bold]")
+                    # Extract score from error message if present
+                    test_score = _extract_score_from_error(test.error)
+                    if test_score is not None:
+                        console.print(
+                            f"  [bold]{test.name}[/bold] | Score: [red]{test_score:.0f}%[/red]"
+                        )
+                    else:
+                        console.print(f"  [bold]{test.name}[/bold]")
                     if test.expected:
                         console.print(f"    Expected: {test.expected}")
                     if test.actual:

@@ -41,6 +41,19 @@ class ToolCall:
     result: Any
 
 
+@dataclass(frozen=True)
+class Should:
+    """A weighted assertion condition.
+
+    Args:
+        value: The condition string to evaluate.
+        weight: The weight of this condition for scoring (default 1.0).
+    """
+
+    value: str
+    weight: float = 1.0
+
+
 class Response:
     """Wraps all events from a single agent turn (same trace_id).
 
@@ -126,26 +139,40 @@ class Response:
         """Only kind=STATUS events."""
         return [e for e in self._events if e.kind == "status"]
 
-    async def should(self, condition: Union[str, Sequence[str]]) -> None:
-        """Assert condition(s) on response.message.
+    async def should(self, condition: Union[str, Should, Sequence[Union[str, Should]]]) -> float:
+        """Assert condition(s) on response.message and return a normalized score.
 
         Formats condition as "The message should {condition}" and runs nlp_test.
         For multiple conditions, runs all in parallel with safe_gather.
+        Returns a score from 0-100 based on weighted conditions.
         Raises AssertionError on failure.
 
         Args:
-            condition: Single condition string or sequence of conditions.
+            condition: Single condition (str or Should) or sequence of conditions.
+                       Use Should(value, weight) for weighted assertions.
+                       Unweighted strings default to weight=1.
+
+        Returns:
+            A normalized score from 0 to 100.
         """
         from parlant.core.async_utils import safe_gather
 
+        # Normalize input to list of Should objects
         if isinstance(condition, str):
+            conditions = [Should(value=condition, weight=1.0)]
+        elif isinstance(condition, Should):
             conditions = [condition]
         else:
-            conditions = list(condition)
+            conditions = [
+                c if isinstance(c, Should) else Should(value=c, weight=1.0) for c in condition
+            ]
+
+        # Extract condition strings for listener
+        condition_strs = [c.value for c in conditions]
 
         # Notify listener that we're evaluating (with conditions)
         if self._listener and self._test_name:
-            await self._listener.on_evaluating(self._test_name, conditions)
+            await self._listener.on_evaluating(self._test_name, condition_strs)
 
         # Build full conversation context including the agent's response
         context_parts = []
@@ -155,27 +182,43 @@ class Response:
         context_parts.append(f"Agent: {self.message}")
         full_context = "\n".join(context_parts)
 
-        async def check_condition(cond: str) -> tuple[str, bool, str]:
-            formatted = f"The message should {cond}"
+        async def check_condition(cond: Should) -> tuple[Should, bool, str]:
+            formatted = f"The message should {cond.value}"
             result, reasoning = await self._suite.nlp_test(full_context, formatted)
             # Notify listener of individual condition result
             if self._listener and self._test_name:
-                await self._listener.on_condition_result(self._test_name, cond, result)
+                await self._listener.on_condition_result(self._test_name, cond.value, result)
             return cond, result, reasoning
 
         results = await safe_gather(*[check_condition(c) for c in conditions])
 
-        failures: List[tuple[str, str]] = []
+        # Calculate weighted score
+        total_weight = sum(c.weight for c in conditions)
+        earned_weight = 0.0
+        failures: List[tuple[str, float, str]] = []
+
         for cond, passed, reasoning in results:
-            if not passed:
-                failures.append((cond, reasoning))
+            if passed:
+                earned_weight += cond.weight
+            else:
+                failures.append((cond.value, cond.weight, reasoning))
+
+        # Normalize to 0-100
+        score = (earned_weight / total_weight) * 100 if total_weight > 0 else 0.0
+
+        # Notify listener of the assertion score
+        if self._listener and self._test_name:
+            await self._listener.on_assertion_score(self._test_name, score)
 
         if failures:
             failure_details = "\n".join(
-                f"  - '{cond}': {reasoning}" for cond, reasoning in failures
+                f"  - '{cond}' ({(weight / total_weight * 100):.0f}%): {reasoning}"
+                for cond, weight, reasoning in failures
             )
             raise AssertionError(
-                f"Response assertion failed:\n"
+                f"Response assertion failed (score: {score:.1f}/100):\n"
                 f"Actual message: {self.message!r}\n"
                 f"Failed conditions:\n{failure_details}"
             )
+
+        return score

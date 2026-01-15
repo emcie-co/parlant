@@ -14,6 +14,7 @@
 
 from dataclasses import dataclass
 from typing import Sequence, Union
+from parlant.testing.response import Should
 
 
 @dataclass(frozen=True)
@@ -30,12 +31,13 @@ class AgentMessage:
     Attributes:
         text: The reference response. Used as history content in subsequent tests.
         should: Assertion condition(s). Formatted as "The message should {should}".
-                Can be a single string or a sequence of strings (run in parallel).
+                Can be a single string, a Should object with weight, or a sequence
+                of strings/Should objects (run in parallel).
                 If None, this message is just history and won't create a test.
     """
 
     text: str
-    should: Union[str, Sequence[str], None] = None
+    should: Union[str, "Should", Sequence[Union[str, "Should"]], None] = None
 
 
 @dataclass(frozen=True)

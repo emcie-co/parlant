@@ -148,7 +148,7 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
             t_start = time.time()
 
             timeout = httpx.Timeout(
-                connect=5.0,
+                connect=30.0,
                 read=120.0,
                 write=30.0,
                 pool=5.0,

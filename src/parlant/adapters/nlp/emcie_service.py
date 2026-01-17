@@ -14,8 +14,9 @@
 
 from __future__ import annotations
 from pprint import pformat
+import re
 import time
-from typing import Any, Mapping, TypeAlias, cast
+from typing import Any, AsyncIterator, Callable, Mapping, TypeAlias, cast
 from httpx import AsyncClient
 import httpx
 from typing_extensions import Literal, override
@@ -43,6 +44,7 @@ from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
     BaseSchematicGenerator,
+    BaseStreamingTextGenerator,
     SchematicGenerationResult,
     StreamingTextGenerator,
 )
@@ -71,6 +73,13 @@ EmbeddingModelTier: TypeAlias = Literal["jackal-embedding", "bison-embedding"]
 ModelRole: TypeAlias = Literal["teacher", "student", "auto"]
 
 BASE_URL = os.environ.get("EMCIE_API_URL", "https://api.emcie.co/inference")
+
+# Pattern to detect word boundaries for chunking
+# Matches after any whitespace character
+_WORD_BOUNDARY_PATTERN = re.compile(r"(?<=\s)")
+
+# Number of words to buffer before yielding a chunk
+_WORDS_PER_CHUNK = 3
 
 
 class EmcieEstimatingTokenizer(EstimatingTokenizer):
@@ -302,6 +311,217 @@ class Bison(EmcieSchematicGenerator[T]):
         return 128 * 1024
 
 
+# ============================================================================
+# Streaming Text Generators
+# ============================================================================
+
+
+class EmcieStreamingTextGenerator(BaseStreamingTextGenerator):
+    """Streaming text generator using Emcie's streaming API.
+
+    Buffers tokens into word-sized chunks for smoother frontend rendering.
+    """
+
+    supported_emcie_params = ["temperature"]
+
+    def __init__(
+        self,
+        model_name: str,
+        model_role: ModelRole,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+    ) -> None:
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+        self._model_role = model_role
+        self._tokenizer = EmcieEstimatingTokenizer()
+
+    @property
+    @override
+    def id(self) -> str:
+        return f"emcie-streaming/{self.model_name}"
+
+    @property
+    @override
+    def tokenizer(self) -> EmcieEstimatingTokenizer:
+        return self._tokenizer
+
+    @override
+    async def do_generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> tuple[AsyncIterator[str | None], Callable[[], UsageInfo]]:
+        if isinstance(prompt, PromptBuilder):
+            prompt = prompt.build()
+
+        # Track usage from the done event
+        usage_info: UsageInfo | None = None
+
+        async def chunk_generator() -> AsyncIterator[str | None]:
+            nonlocal usage_info
+
+            timeout = httpx.Timeout(
+                connect=30.0,
+                read=120.0,
+                write=30.0,
+                pool=5.0,
+            )
+
+            # Buffer for accumulating tokens into word-sized chunks
+            buffer = ""
+
+            async with AsyncClient(timeout=timeout) as client:
+                async with client.stream(
+                    "POST",
+                    f"{BASE_URL}/v1/completions",
+                    headers={
+                        "Authorization": f"Bearer {os.environ['EMCIE_API_KEY']}",
+                        "X-Parlant-Version": VERSION,
+                    },
+                    json={
+                        "model_tier": self.model_name,
+                        "model_role": self._model_role,
+                        "prompt": prompt,
+                        "stream": True,
+                        "hints": {
+                            k: v for k, v in hints.items() if k in self.supported_emcie_params
+                        },
+                    },
+                ) as response:
+                    # Check status before iterating to catch auth/rate-limit errors early
+                    if response.status_code == 429:
+                        await response.aread()
+                        response_data = response.json()
+                        self.logger.error(ERROR_MESSAGE)
+                        raise RateLimitError(
+                            f"Emcie API rate limit exceeded: {response_data['detail']['error']['message']} (RID={response_data['detail']['request_id']})"
+                        )
+                    elif response.status_code == 402:
+                        await response.aread()
+                        response_data = response.json()
+                        self.logger.error(ERROR_MESSAGE)
+                        raise InsufficientCreditsError(
+                            f"Insufficient API credits for Emcie API: {response_data['detail']['error']['message']} (RID={response_data['detail']['request_id']})"
+                        )
+                    elif response.status_code == 403:
+                        await response.aread()
+                        response_data = response.json()
+                        raise UnauthorizedError(
+                            f"Unauthorized access to Emcie API: {response_data['detail']['error']['message']} (RID={response_data['detail']['request_id']})"
+                        )
+                    elif response.status_code >= 500:
+                        await response.aread()
+                        response_data = response.json()
+                        raise EmcieAPIError(
+                            f"Emcie API error: {response.status_code} {response_data['detail']['error']['message']} (RID={response_data['detail']['request_id']})"
+                        )
+
+                    response.raise_for_status()
+
+                    # Parse SSE events
+                    event_type: str | None = None
+
+                    async for line in response.aiter_lines():
+                        if line.startswith("event: "):
+                            event_type = line[7:]
+                        elif line.startswith("data: ") and event_type:
+                            data = json.loads(line[6:])
+
+                            if event_type == "chunk":
+                                text = data.get("text", "")
+                                if text:
+                                    buffer += text
+
+                                    # Count word boundaries in buffer
+                                    boundaries = list(_WORD_BOUNDARY_PATTERN.finditer(buffer))
+                                    if len(boundaries) >= _WORDS_PER_CHUNK:
+                                        # Yield up to the last complete word boundary
+                                        last_boundary = boundaries[_WORDS_PER_CHUNK - 1]
+                                        chunk_text = buffer[: last_boundary.end()]
+                                        buffer = buffer[last_boundary.end() :]
+                                        yield chunk_text
+
+                            elif event_type == "done":
+                                usage = data.get("usage", {})
+                                usage_info = UsageInfo(
+                                    input_tokens=int(usage.get("input_tokens", 0)),
+                                    output_tokens=int(usage.get("output_tokens", 0)),
+                                    extra={},
+                                )
+
+                                self.logger.trace(f"Emcie streaming usage data:\n{pformat(data)}")
+
+                                # Yield any remaining content in the buffer
+                                if buffer:
+                                    yield buffer
+                                    buffer = ""
+
+                            elif event_type == "error":
+                                error_msg = data.get("error", {}).get("message", "Unknown error")
+                                raise EmcieAPIError(f"Emcie streaming error: {error_msg}")
+
+            # Record metrics if we have usage info
+            if usage_info is not None:
+                await record_llm_metrics(
+                    self.meter,
+                    self.model_name,
+                    schema_name="streaming",
+                    input_tokens=usage_info.input_tokens,
+                    output_tokens=usage_info.output_tokens,
+                    cached_input_tokens=0,
+                )
+
+            # Signal completion
+            yield None
+
+        def get_usage() -> UsageInfo:
+            if usage_info is None:
+                return UsageInfo(input_tokens=0, output_tokens=0, extra={})
+            return usage_info
+
+        return chunk_generator(), get_usage
+
+
+class JackalStreaming(EmcieStreamingTextGenerator):
+    def __init__(
+        self,
+        model_role: ModelRole,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+    ) -> None:
+        super().__init__(
+            model_name="jackal",
+            model_role=model_role,
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+        )
+
+
+class BisonStreaming(EmcieStreamingTextGenerator):
+    def __init__(
+        self,
+        model_role: ModelRole,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+    ) -> None:
+        super().__init__(
+            model_name="bison",
+            model_role=model_role,
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+        )
+
+
+# ============================================================================
+# Embedders
+# ============================================================================
+
+
 class EmcieEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
@@ -466,13 +686,27 @@ Get an API key for Emcie by signing up at https://www.emcie.co."""
     @property
     @override
     def supports_streaming(self) -> bool:
-        return False
+        return True
 
     @override
     async def get_streaming_text_generator(
         self, hints: StreamingTextGeneratorHints = {}
     ) -> StreamingTextGenerator:
-        raise NotImplementedError("Streaming is not supported. Check supports_streaming first.")
+        match self._model_tier:
+            case "bison":
+                return BisonStreaming(
+                    model_role=cast(ModelRole, self._model_role),
+                    logger=self._logger,
+                    tracer=self._tracer,
+                    meter=self._meter,
+                )
+            case _:
+                return JackalStreaming(
+                    model_role=cast(ModelRole, self._model_role),
+                    logger=self._logger,
+                    tracer=self._tracer,
+                    meter=self._meter,
+                )
 
     @override
     async def get_schematic_generator(

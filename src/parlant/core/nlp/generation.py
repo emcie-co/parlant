@@ -15,7 +15,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any, Generic, Mapping, TypeVar, cast, get_args
+from typing import Any, AsyncIterator, Generic, Mapping, TypeVar, cast, get_args
 from typing_extensions import override
 
 from parlant.core.async_utils import Stopwatch
@@ -28,6 +28,117 @@ from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.tracer import Tracer
 
 T = TypeVar("T", bound=DefaultBaseModel)
+
+
+# ============================================================================
+# Streaming Text Generator
+# ============================================================================
+
+
+class StreamingTextGenerator(ABC):
+    """An interface for generating streaming text content based on a prompt.
+
+    Unlike SchematicGenerator which returns structured content, this generator
+    yields plain text chunks progressively, terminated by None to signal completion.
+    """
+
+    @abstractmethod
+    def generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> AsyncIterator[str | None]:
+        """Generate text content based on the provided prompt and hints.
+
+        Yields text chunks progressively, followed by None to signal completion.
+        """
+        ...
+
+    @property
+    @abstractmethod
+    def id(self) -> str:
+        """Return a unique identifier for the generator."""
+        ...
+
+    @property
+    @abstractmethod
+    def tokenizer(self) -> EstimatingTokenizer:
+        """Return a tokenizer that approximates that of the underlying model."""
+        ...
+
+
+_STREAMING_REQUEST_DURATION_HISTOGRAM: DurationHistogram | None = None
+
+
+class BaseStreamingTextGenerator(StreamingTextGenerator):
+    """Base class for streaming text generators with tracing and metrics."""
+
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, model_name: str) -> None:
+        self.logger = logger
+        self.tracer = tracer
+        self.meter = meter
+        self.model_name = model_name
+
+        global _STREAMING_REQUEST_DURATION_HISTOGRAM
+        if _STREAMING_REQUEST_DURATION_HISTOGRAM is None:
+            _STREAMING_REQUEST_DURATION_HISTOGRAM = meter.create_duration_histogram(
+                name="streaming_gen",
+                description="Duration of streaming generation requests in milliseconds",
+            )
+
+    @abstractmethod
+    async def do_generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> AsyncIterator[str | None]:
+        """Subclasses implement this to perform the actual generation."""
+        ...
+        # This yield is needed to make this an async generator
+        yield  # type: ignore
+
+    @override
+    async def generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> AsyncIterator[str | None]:
+        assert _STREAMING_REQUEST_DURATION_HISTOGRAM is not None
+
+        start = Stopwatch.start()
+
+        try:
+            self.tracer.add_event(
+                "streaming_gen.request_started",
+                attributes={
+                    "model.name": self.model_name,
+                },
+            )
+
+            async for chunk in self.do_generate(prompt, hints):
+                yield chunk
+
+            self.tracer.add_event(
+                "streaming_gen.request_completed",
+                attributes={
+                    "model.name": self.model_name,
+                    "duration": start.elapsed,
+                },
+            )
+        except Exception:
+            self.tracer.add_event(
+                "streaming_gen.request_failed",
+                attributes={
+                    "model.name": self.model_name,
+                    "duration": start.elapsed,
+                },
+            )
+            raise
+
+
+# ============================================================================
+# Schematic Generator
+# ============================================================================
 
 
 @dataclass(frozen=True)

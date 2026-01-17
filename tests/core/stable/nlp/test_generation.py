@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import asyncio
-from typing import Any, Mapping, cast
+from typing import Any, AsyncIterator, Mapping, cast
 from typing_extensions import override
 from lagom import Container
 from unittest.mock import AsyncMock
@@ -28,15 +28,19 @@ from parlant.core.engines.alpha.prompt_builder import (
     SectionStatus,
 )
 from parlant.core.loggers import Logger
+from parlant.core.meter import Meter
 from parlant.core.nlp.embedding import EmbeddingResult
 from parlant.core.nlp.generation import (
+    BaseStreamingTextGenerator,
     FallbackSchematicGenerator,
     SchematicGenerationResult,
     SchematicGenerator,
+    StreamingTextGenerator,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer, ZeroEstimatingTokenizer
+from parlant.core.tracer import Tracer
 
 
 class DummySchema(DefaultBaseModel):
@@ -406,3 +410,142 @@ async def test_that_retry_succeeds_after_failures_with_higher_concurrency(
         assert mock_generators[i].generate.await_count == 3
         mock_generators[i].generate.assert_awaited_with(prompt="test prompt", hints={"a": i})
         assert results[i].content.result == "Success"
+
+
+# ============================================================================
+# StreamingTextGenerator Tests
+# ============================================================================
+
+
+class MockStreamingTextGenerator(StreamingTextGenerator):
+    """Mock streaming generator for testing."""
+
+    def __init__(self, chunks: list[str]) -> None:
+        self._chunks = chunks
+
+    @override
+    async def generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> AsyncIterator[str | None]:
+        for chunk in self._chunks:
+            yield chunk
+        yield None
+
+    @property
+    @override
+    def id(self) -> str:
+        return "mock-streaming-generator"
+
+    @property
+    @override
+    def tokenizer(self) -> EstimatingTokenizer:
+        return ZeroEstimatingTokenizer()
+
+
+async def test_that_streaming_text_generator_yields_chunks_and_terminates_with_none() -> None:
+    chunks = ["Hello", " ", "world", "!"]
+    generator = MockStreamingTextGenerator(chunks)
+
+    collected_chunks: list[str | None] = []
+    async for chunk in generator.generate("test prompt"):
+        collected_chunks.append(chunk)
+
+    # Should yield all chunks followed by None
+    assert collected_chunks == ["Hello", " ", "world", "!", None]
+
+
+async def test_that_streaming_text_generator_yields_none_immediately_for_empty_response() -> None:
+    generator = MockStreamingTextGenerator([])
+
+    collected_chunks: list[str | None] = []
+    async for chunk in generator.generate("test prompt"):
+        collected_chunks.append(chunk)
+
+    # Should yield only None for empty response
+    assert collected_chunks == [None]
+
+
+async def test_that_streaming_text_generator_can_be_collected_into_full_text() -> None:
+    chunks = ["The ", "quick ", "brown ", "fox"]
+    generator = MockStreamingTextGenerator(chunks)
+
+    full_text = ""
+    async for chunk in generator.generate("test prompt"):
+        if chunk is not None:
+            full_text += chunk
+
+    assert full_text == "The quick brown fox"
+
+
+class TestableBaseStreamingTextGenerator(BaseStreamingTextGenerator):
+    """Testable implementation of BaseStreamingTextGenerator."""
+
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        chunks: list[str],
+        should_fail: bool = False,
+    ) -> None:
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name="test-model")
+        self._chunks = chunks
+        self._should_fail = should_fail
+
+    @override
+    async def do_generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> AsyncIterator[str | None]:
+        for chunk in self._chunks:
+            if self._should_fail:
+                raise Exception("Generation failed mid-stream")
+            yield chunk
+        yield None
+
+    @property
+    @override
+    def id(self) -> str:
+        return "test-streaming-generator"
+
+    @property
+    @override
+    def tokenizer(self) -> EstimatingTokenizer:
+        return ZeroEstimatingTokenizer()
+
+
+async def test_that_base_streaming_text_generator_wraps_generation_with_tracing(
+    container: Container,
+) -> None:
+    chunks = ["Hello", " world"]
+    generator = TestableBaseStreamingTextGenerator(
+        logger=container[Logger],
+        tracer=container[Tracer],
+        meter=container[Meter],
+        chunks=chunks,
+    )
+
+    collected_chunks: list[str | None] = []
+    async for chunk in generator.generate("test prompt"):
+        collected_chunks.append(chunk)
+
+    assert collected_chunks == ["Hello", " world", None]
+
+
+async def test_that_base_streaming_text_generator_propagates_exceptions(
+    container: Container,
+) -> None:
+    generator = TestableBaseStreamingTextGenerator(
+        logger=container[Logger],
+        tracer=container[Tracer],
+        meter=container[Meter],
+        chunks=["chunk1", "chunk2"],
+        should_fail=True,
+    )
+
+    with raises(Exception, match="Generation failed mid-stream"):
+        async for _ in generator.generate("test prompt"):
+            pass

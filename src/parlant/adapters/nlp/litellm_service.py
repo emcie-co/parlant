@@ -32,7 +32,13 @@ from parlant.core.loggers import Logger
 from parlant.core.tracer import Tracer
 from parlant.core.meter import Meter
 from parlant.core.nlp.tokenization import EstimatingTokenizer
-from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
+from parlant.core.nlp.service import (
+    EmbedderHints,
+    NLPService,
+    SchematicGeneratorHints,
+    StreamingTextGenerator,
+    StreamingTextGeneratorHints,
+)
 from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
@@ -296,6 +302,17 @@ Please set LITELLM_PROVIDER_MODEL_NAME in your environment before running Parlan
         if self._base_url:
             log_msg += f" at {self._base_url}"
         self.logger.info(log_msg)
+
+    @property
+    @override
+    def supports_streaming(self) -> bool:
+        return False
+
+    @override
+    async def get_streaming_text_generator(
+        self, hints: StreamingTextGeneratorHints = {}
+    ) -> StreamingTextGenerator | None:
+        return None
 
     @override
     async def get_schematic_generator(

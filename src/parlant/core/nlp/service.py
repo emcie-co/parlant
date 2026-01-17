@@ -17,7 +17,7 @@ from enum import IntEnum
 from typing_extensions import TypedDict, NotRequired, TypeAlias, Literal
 
 from parlant.core.nlp.embedding import Embedder
-from parlant.core.nlp.generation import T, SchematicGenerator
+from parlant.core.nlp.generation import T, SchematicGenerator, StreamingTextGenerator
 from parlant.core.nlp.moderation import ModerationService
 
 
@@ -39,15 +39,33 @@ class SchematicGeneratorHints(TypedDict, total=False):
     model_type: NotRequired[ModelType]
 
 
+class StreamingTextGeneratorHints(TypedDict, total=False):
+    model_size: NotRequired[ModelSize]
+    model_generation: NotRequired[ModelGeneration]
+
+
 class EmbedderHints(TypedDict, total=False):
     model_size: NotRequired[ModelSize]
 
 
 class NLPService(ABC):
+    @property
+    @abstractmethod
+    def supports_streaming(self) -> bool:
+        """Return whether this NLP service supports streaming text generation."""
+        ...
+
     @abstractmethod
     async def get_schematic_generator(
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> SchematicGenerator[T]: ...
+
+    @abstractmethod
+    async def get_streaming_text_generator(
+        self, hints: StreamingTextGeneratorHints = {}
+    ) -> StreamingTextGenerator | None:
+        """Return a streaming text generator, or None if streaming is not supported."""
+        ...
 
     @abstractmethod
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder: ...

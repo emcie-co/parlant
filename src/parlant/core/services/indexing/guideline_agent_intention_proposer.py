@@ -109,7 +109,7 @@ class AgentIntentionProposer:
 GENERAL INSTRUCTIONS
 -----------------
 In our system, the behavior of a conversational AI agent is guided by "guidelines". You make use of these guidelines whenever it interacts with a user (also referred to as the customer).
-Each guideline is composed of two parts: 
+Each guideline is composed of two parts:
 - "condition": This is a natural-language condition that specifies when a guideline should apply. We test against this condition to determine whether this guideline should be applied when generating your next reply.
 - "action": This is a natural-language instruction that should be followed by you whenever the "condition" part of the guideline applies to the conversation in its particular state.
 Any instruction described here applies only to you, and not to the user.
@@ -122,21 +122,17 @@ Any instruction described here applies only to you, and not to the user.
             template="""
 TASK DESCRIPTION
 -----------------
-Your task is to determine whether a guideline condition reflects your intention. That is, whether it describes something you are doing or is about to do (e.g., "You discusses a patient's 
-medical record" or "You explain the conditions and terms"). Note: If the condition refers to something you have already done, it should not be considered an agent intention.
+Your task is to determine whether a guideline's condition reflects your intention. That is, whether it describes something you are about to do or likely to do (e.g., "You are going to discuss a patient's medical record" or "You need to explain the terms and conditions"). Note: If the condition refers to something you have already done, it should not be considered an agent intention.
 
 If the condition reflects agent intention, rephrase it to describe what you are likely to do next, using the following format:
 "You are likely to (do something)."
 
 For example:
-Original: "You discusses a patient's medical record"
+Original: "You are going to discuss a patient's medical record"
 Rewritten: "You are likely to discuss a patient's medical record"
 
 Why this matters:
 Although the original condition can be written in present tense, guideline matching happens before you reply. So we need the condition to reflect your probable upcoming behavior, based on the customer's latest message.
-
-
-
 
 """,
         )
@@ -215,7 +211,7 @@ Expected Response:
 
 
 example_1_guideline = GuidelineContent(
-    condition="You discuss a patient's medical record",
+    condition="You're going to discuss a patient's medical record",
     action="Do not send any personal information",
 )
 example_1_shot = AgentIntentionProposerShot(

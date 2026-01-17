@@ -40,7 +40,7 @@ from parlant.core.app_modules.sessions import (
 from parlant.core.agents import AgentId
 from parlant.core.application import Application
 from parlant.core.async_utils import Timeout
-from parlant.core.common import DefaultBaseModel
+from parlant.core.common import DefaultBaseModel, ItemNotFoundError
 from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.engines.types import UtteranceRationale, UtteranceRequest
 from parlant.core.nlp.generation_info import GenerationInfo
@@ -1935,34 +1935,38 @@ def create_router(
             # Return SSE stream
             async def event_stream() -> AsyncIterator[str]:
                 current_offset = min_offset or 0
-                while True:
-                    # Wait for new events
-                    has_events = await app.sessions.wait_for_more_events(
-                        session_id=session_id,
-                        min_offset=current_offset,
-                        source=event_source,
-                        kinds=kind_list,
-                        trace_id=trace_id,
-                        timeout=Timeout(wait_for_data),
-                    )
+                try:
+                    while True:
+                        # Wait for new events
+                        has_events = await app.sessions.wait_for_more_events(
+                            session_id=session_id,
+                            min_offset=current_offset,
+                            source=event_source,
+                            kinds=kind_list,
+                            trace_id=trace_id,
+                            timeout=Timeout(wait_for_data),
+                        )
 
-                    if not has_events:
-                        # Timeout - close the stream
-                        break
+                        if not has_events:
+                            # Timeout - close the stream
+                            break
 
-                    # Get new events
-                    events = await app.sessions.find_events(
-                        session_id=session_id,
-                        min_offset=current_offset,
-                        source=event_source,
-                        kinds=kind_list,
-                        trace_id=trace_id,
-                    )
+                        # Get new events
+                        events = await app.sessions.find_events(
+                            session_id=session_id,
+                            min_offset=current_offset,
+                            source=event_source,
+                            kinds=kind_list,
+                            trace_id=trace_id,
+                        )
 
-                    for e in events:
-                        event_dto = event_to_dto(e)
-                        yield f"data: {event_dto.model_dump_json()}\n\n"
-                        current_offset = max(current_offset, e.offset + 1)
+                        for e in events:
+                            event_dto = event_to_dto(e)
+                            yield f"data: {event_dto.model_dump_json()}\n\n"
+                            current_offset = max(current_offset, e.offset + 1)
+                except ItemNotFoundError:
+                    # Session was deleted or doesn't exist - gracefully close the stream
+                    return
 
             return StreamingResponse(
                 event_stream(),

@@ -1,6 +1,5 @@
 /* eslint-disable react-hooks/exhaustive-deps */
-import React, {ReactElement, useEffect, useRef, useState} from 'react';
-import useFetch from '@/hooks/useFetch';
+import React, {ReactElement, useCallback, useEffect, useRef, useState} from 'react';
 import {Textarea} from '../ui/textarea';
 import {Button} from '../ui/button';
 import {BASE_URL, deleteData, postData} from '@/utils/api';
@@ -50,7 +49,79 @@ const SessionView = (): ReactElement => {
 	const [newSession, setNewSession] = useAtom(newSessionAtom);
 	const [, setViewingMessage] = useAtom(viewingMessageDetailsAtom);
 	const [, setSessions] = useAtom(sessionsAtom);
-	const {data: lastEvents, refetch, ErrorTemplate, abortFetch} = useFetch<EventInterface[]>(`sessions/${session?.id}/events`, {min_offset: lastOffset}, [], session?.id !== NEW_SESSION_ID, !!(session?.id && session?.id !== NEW_SESSION_ID), false);
+
+	// SSE connection for list_events
+	const [lastEvents, setLastEvents] = useState<EventInterface[]>([]);
+	const listEventsConnectionRef = useRef<EventSource | null>(null);
+	const [sseReconnectTrigger, setSseReconnectTrigger] = useState(0);
+
+	// Refetch function for manual reconnection
+	const refetch = useCallback(() => {
+		setSseReconnectTrigger((prev) => prev + 1);
+	}, []);
+
+	// Abort function for SSE connection
+	const abortFetch = useCallback(() => {
+		if (listEventsConnectionRef.current) {
+			listEventsConnectionRef.current.close();
+			listEventsConnectionRef.current = null;
+		}
+	}, []);
+
+	// Ref to track the current offset for SSE reconnection
+	const sseOffsetRef = useRef(0);
+	// Ref to track the previous session ID
+	const prevSessionIdRef = useRef<string | null>(null);
+
+	// SSE connection effect for list_events
+	useEffect(() => {
+		if (!session?.id || session?.id === NEW_SESSION_ID) return;
+
+		// Close existing connection
+		if (listEventsConnectionRef.current) {
+			listEventsConnectionRef.current.close();
+		}
+
+		// Detect session change (not just reconnection)
+		const isSessionChange = prevSessionIdRef.current !== session.id;
+		if (isSessionChange) {
+			setLastEvents([]);
+			sseOffsetRef.current = 0;
+			prevSessionIdRef.current = session.id;
+		}
+
+		// Open SSE connection for list_events
+		const url = `${BASE_URL}/sessions/${session.id}/events?sse=true&min_offset=${sseOffsetRef.current}&wait_for_data=60`;
+		const eventSource = new EventSource(url);
+		listEventsConnectionRef.current = eventSource;
+
+		eventSource.onmessage = (event) => {
+			try {
+				const newEvent = JSON.parse(event.data);
+				// Update the offset ref for reconnection
+				if (newEvent.offset !== undefined) {
+					sseOffsetRef.current = Math.max(sseOffsetRef.current, newEvent.offset + 1);
+				}
+				setLastEvents((prev) => [...prev, newEvent]);
+			} catch (error) {
+				console.error('Error parsing SSE event:', error);
+			}
+		};
+
+		eventSource.onerror = () => {
+			eventSource.close();
+			listEventsConnectionRef.current = null;
+			// Reconnect after a short delay
+			setTimeout(() => {
+				setSseReconnectTrigger((prev) => prev + 1);
+			}, 1000);
+		};
+
+		return () => {
+			eventSource.close();
+			listEventsConnectionRef.current = null;
+		};
+	}, [session?.id, sseReconnectTrigger]);
 
 	const resetChat = () => {
 		setMessage('');
@@ -170,7 +241,8 @@ const SessionView = (): ReactElement => {
 
 			setShowTyping(lastStatusEventStatus === 'typing');
 		}
-		refetch();
+		// Clear processed events to avoid reprocessing them
+		setLastEvents([]);
 	};
 
 	const scrollToLastMessage = () => {
@@ -199,7 +271,12 @@ const SessionView = (): ReactElement => {
 	}, [session?.id, refreshFlag]);
 
 	useEffect(() => {
-		if (lastOffset === 0) refetch();
+		if (lastOffset === 0) {
+			// Reset SSE connection when offset is reset (e.g., after deleting messages)
+			sseOffsetRef.current = 0;
+			setLastEvents([]);
+			refetch();
+		}
 	}, [lastOffset]);
 	useEffect(() => setViewingMessage(showLogsForMessage), [showLogsForMessage]);
 	useEffect(formatMessagesFromEvents, [lastEvents]);
@@ -355,7 +432,7 @@ const SessionView = (): ReactElement => {
 								aria-live='polite'
 								role='log'
 								aria-label='Chat messages'>
-								{ErrorTemplate && <ErrorTemplate />}
+								{/* SSE connection handles errors through reconnection */}
 								{visibleMessages.map((event, i) => (
 									<React.Fragment key={(event.trace_id || 0) + `${i}`}>
 										{!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) && <DateHeader date={event.creation_utc} isFirst={!i} bgColor='bg-white' />}

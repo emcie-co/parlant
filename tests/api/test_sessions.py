@@ -678,6 +678,39 @@ async def test_that_events_can_be_filtered_by_offset(
         assert event_is_according_to_params(event=listed_event, params=event_params)
 
 
+async def test_that_events_can_be_streamed_via_sse(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    session_id: SessionId,
+) -> None:
+    """Test that list_events endpoint streams events via SSE when sse=true."""
+    import json
+
+    session_events = [
+        make_event_params(EventSource.CUSTOMER),
+        make_event_params(EventSource.AI_AGENT),
+    ]
+    await populate_session_id(container, session_id, session_events)
+
+    collected_events: list[dict[str, Any]] = []
+    async with async_client.stream(
+        "GET",
+        f"/sessions/{session_id}/events",
+        params={"sse": "true", "wait_for_data": 1},
+    ) as response:
+        assert response.status_code == status.HTTP_200_OK
+        assert response.headers["content-type"] == "text/event-stream; charset=utf-8"
+
+        async for line in response.aiter_lines():
+            if line.startswith("data: "):
+                event_data = json.loads(line[6:])
+                collected_events.append(event_data)
+
+    assert len(collected_events) == len(session_events)
+    for i, event in enumerate(collected_events):
+        assert event["offset"] == i
+
+
 @mark.skipif(not os.environ.get("LAKERA_API_KEY", False), reason="Lakera API key is missing")
 async def test_that_a_jailbreak_message_is_flagged_and_tagged_as_such(
     async_client: httpx.AsyncClient,

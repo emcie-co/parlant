@@ -37,7 +37,12 @@ from parlant.core.tracer import Tracer
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
-from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints, StreamingTextGeneratorHints
+from parlant.core.nlp.service import (
+    EmbedderHints,
+    NLPService,
+    SchematicGeneratorHints,
+    StreamingTextGeneratorHints,
+)
 from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,

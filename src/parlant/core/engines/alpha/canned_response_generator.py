@@ -934,41 +934,42 @@ You will now be given the current state of the interaction to which you must gen
         loaded_context: EngineContext,
         latch: Optional[CancellationSuppressionLatch[None]] = None,
     ) -> Sequence[MessageEventComposition]:
+        # Build the context once for all code paths
+        context = CannedResponseContext(
+            start_of_processing=loaded_context.creation,
+            event_emitter=loaded_context.session_event_emitter,
+            agent=loaded_context.agent,
+            customer=loaded_context.customer,
+            session=loaded_context.session,
+            context_variables=loaded_context.state.context_variables,
+            interaction_history=loaded_context.interaction.events,
+            terms=list(loaded_context.state.glossary_terms),
+            ordinary_guideline_matches=loaded_context.state.ordinary_guideline_matches,
+            tool_enabled_guideline_matches=loaded_context.state.tool_enabled_guideline_matches,
+            journeys=loaded_context.state.journeys,
+            capabilities=loaded_context.state.capabilities,
+            tool_insights=loaded_context.state.tool_insights,
+            staged_tool_events=loaded_context.state.tool_events,
+            staged_message_events=loaded_context.state.message_events,
+            additional_canned_response_fields=loaded_context.state.additional_canned_response_fields,
+        )
+
         # Check for streaming mode
         if (
             loaded_context.agent.message_output_mode == MessageOutputMode.STREAMING
             and self._streaming_text_generator is not None
         ):
-            # Build the context for streaming
-            context = CannedResponseContext(
-                start_of_processing=loaded_context.creation,
-                event_emitter=loaded_context.session_event_emitter,
-                agent=loaded_context.agent,
-                customer=loaded_context.customer,
-                session=loaded_context.session,
-                context_variables=loaded_context.state.context_variables,
-                interaction_history=loaded_context.interaction.events,
-                terms=list(loaded_context.state.glossary_terms),
-                ordinary_guideline_matches=loaded_context.state.ordinary_guideline_matches,
-                tool_enabled_guideline_matches=loaded_context.state.tool_enabled_guideline_matches,
-                journeys=loaded_context.state.journeys,
-                capabilities=loaded_context.state.capabilities,
-                tool_insights=loaded_context.state.tool_insights,
-                staged_tool_events=loaded_context.state.tool_events,
-                staged_message_events=loaded_context.state.message_events,
-                additional_canned_response_fields=loaded_context.state.additional_canned_response_fields,
-            )
             return await self._generate_streaming_response(context)
 
         # Resolve effective composition mode
         composition_mode = await self._resolve_composition_mode(loaded_context)
 
-        is_first_message_emitted = False
+        first_message_already_emitted = False
 
         async def output_messages(
             generation_result: _CannedResponseSelectionResult,
         ) -> list[EmittedEvent]:
-            nonlocal is_first_message_emitted
+            nonlocal first_message_already_emitted
             emitted_events: list[EmittedEvent] = []
             if generation_result is not None:
                 policy = self._perceived_performance_policy_provider.get_policy(context.agent.id)
@@ -987,27 +988,31 @@ You will now be given the current state of the interaction to which you must gen
                     if await self._hooks.call_on_message_generated(loaded_context, payload=m):
                         # If we're in, the hook did not bail out.
 
-                        handle = await event_emitter.emit_message_event(
+                        handle = await context.event_emitter.emit_message_event(
                             trace_id=self._tracer.trace_id,
                             data=MessageEventData(
                                 message=m,
-                                participant=Participant(id=agent.id, display_name=agent.name),
+                                participant=Participant(
+                                    id=context.agent.id, display_name=context.agent.name
+                                ),
                                 draft=generation_result.draft,
                                 canned_responses=generation_result.chosen_canned_responses,
                             )
                             if generation_result.draft
                             else MessageEventData(
                                 message=m,
-                                participant=Participant(id=agent.id, display_name=agent.name),
+                                participant=Participant(
+                                    id=context.agent.id, display_name=context.agent.name
+                                ),
                             ),
                             metadata=event_metadata,
                         )
-                        if not is_first_message_emitted:
+                        if not first_message_already_emitted:
                             await self._hist_ttfm_duration.record(
                                 context.start_of_processing.elapsed * 1000
                             )
                             self._tracer.add_event("canrep.ttfm")
-                            is_first_message_emitted = True
+                            first_message_already_emitted = True
 
                         emitted_events.append(handle.event)
 
@@ -1089,57 +1094,20 @@ You will now be given the current state of the interaction to which you must gen
 
             return metadata
 
-        event_emitter = loaded_context.session_event_emitter
-        agent = loaded_context.agent
-        customer = loaded_context.customer
-        session = loaded_context.session
-        context_variables = loaded_context.state.context_variables
-        interaction_history = loaded_context.interaction.events
-        terms = list(loaded_context.state.glossary_terms)
-        ordinary_guideline_matches = loaded_context.state.ordinary_guideline_matches
-        journeys = loaded_context.state.journeys
-        capabilities = loaded_context.state.capabilities
-        tool_enabled_guideline_matches = loaded_context.state.tool_enabled_guideline_matches
-        tool_insights = loaded_context.state.tool_insights
-        staged_tool_events = loaded_context.state.tool_events
-        staged_message_events = loaded_context.state.message_events
-        additional_canned_response_fields = loaded_context.state.additional_canned_response_fields
-
         if (
-            not interaction_history
-            and not ordinary_guideline_matches
-            and not tool_enabled_guideline_matches
+            not context.interaction_history
+            and not context.ordinary_guideline_matches
+            and not context.tool_enabled_guideline_matches
         ):
             # No interaction and no guidelines that could trigger
             # a proactive start of the interaction
             self._logger.info("Skipping response; interaction is empty and there are no guidelines")
             return []
 
-        context = CannedResponseContext(
-            start_of_processing=loaded_context.creation,
-            event_emitter=event_emitter,
-            agent=agent,
-            customer=customer,
-            session=session,
-            context_variables=context_variables,
-            interaction_history=interaction_history,
-            terms=terms,
-            ordinary_guideline_matches=ordinary_guideline_matches,
-            tool_enabled_guideline_matches=tool_enabled_guideline_matches,
-            journeys=journeys,
-            capabilities=capabilities,
-            tool_insights=tool_insights,
-            staged_tool_events=staged_tool_events,
-            staged_message_events=staged_message_events,
-            additional_canned_response_fields=additional_canned_response_fields,
-        )
-
         canreps = await self._get_relevant_canned_responses(context)
 
-        follow_up_selection_attempt_temperatures = (
-            self._optimization_policy.get_message_generation_retry_temperatures(
-                hints={"type": "canned-response-generation"}
-            )
+        attempt_temperatures = self._optimization_policy.get_message_generation_retry_temperatures(
+            hints={"type": "canned-response-generation"}
         )
 
         last_generation_exception: Exception | None = None
@@ -1154,7 +1122,7 @@ You will now be given the current state of the interaction to which you must gen
                     context,
                     canreps,
                     composition_mode,
-                    temperature=follow_up_selection_attempt_temperatures[generation_attempt],
+                    attempt_temperatures[generation_attempt],
                 )
 
                 if latch:
@@ -1172,15 +1140,13 @@ You will now be given the current state of the interaction to which you must gen
 
             except Exception as exc:
                 self._logger.warning(
-                    f"Follow-up Generation attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                    f"Message Generation attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
                 )
 
                 last_generation_exception = exc
 
-        follow_up_selection_attempt_temperatures = (
-            self._optimization_policy.get_message_generation_retry_temperatures(
-                hints={"type": "follow-up_canned_response-selection"}
-            )
+        attempt_temperatures = self._optimization_policy.get_message_generation_retry_temperatures(
+            hints={"type": "follow-up-canned-response-selection"}
         )
         for generation_attempt in range(3):
             try:
@@ -1191,7 +1157,7 @@ You will now be given the current state of the interaction to which you must gen
                     ) = await self.generate_follow_up_response(
                         context=context,
                         last_response_generation=generation_result,
-                        temperature=follow_up_selection_attempt_temperatures[generation_attempt],
+                        temperature=attempt_temperatures[generation_attempt],
                     )
 
                     if follow_up_canrep_response:
@@ -1203,13 +1169,17 @@ You will now be given the current state of the interaction to which you must gen
                             },
                         )
 
-                        follow_up_delay_time = 1.5
-                        await asyncio.sleep(follow_up_delay_time)
+                        policy = self._perceived_performance_policy_provider.get_policy(
+                            context.agent.id
+                        )
+
+                        await asyncio.sleep(await policy.get_follow_up_delay())
 
                         follow_up_response_events = await output_messages(follow_up_canrep_response)
                         events += follow_up_response_events
+
                         if not follow_up_response_events:
-                            self._logger.debug(
+                            self._logger.trace(
                                 "Skipping follow up response; no additional response deemed necessary"
                             )
 
@@ -1656,7 +1626,6 @@ Produce a valid JSON object according to the following spec. Use the values prov
         staged_message_events: Sequence[EmittedEvent],
         tool_insights: ToolInsights,
     ) -> PromptBuilder:
-        """Build a prompt for streaming text generation (no JSON schema required)."""
         guideline_representations = {
             m.guideline.id: internal_representation(m.guideline)
             for m in chain(ordinary_guideline_matches, tool_enabled_guideline_matches)
@@ -1851,17 +1820,6 @@ in order to run tools. You should inform the user about this invalid data: ###
         if agent_preamble:
             recap_parts.append(f'Your preamble already sent: "{agent_preamble}"')
 
-        if recap_parts:
-            builder.add_section(
-                name="streaming-generator-context-recap",
-                template="""
-QUICK RECAP (for reference before responding):
-----------------------------------------------
-{recap_content}
-""",
-                props={"recap_content": "\n\n".join(recap_parts)},
-            )
-
         builder.add_section(
             name="streaming-generator-output-format",
             template="""
@@ -1872,6 +1830,17 @@ Just write your natural, conversational response to the user.
 REMINDER: Only offer information and services that are sourced from this prompt.
 """,
         )
+
+        if recap_parts:
+            builder.add_section(
+                name="streaming-generator-context-recap",
+                template="""
+QUICK RECAP (for reference before responding):
+----------------------------------------------
+{recap_content}
+""",
+                props={"recap_content": "\n\n".join(recap_parts)},
+            )
 
         return builder
 

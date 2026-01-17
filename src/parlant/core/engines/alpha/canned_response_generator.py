@@ -62,7 +62,7 @@ from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder, BuiltInSection
 from parlant.core.glossary import Term
-from parlant.core.emissions import EmittedEvent, EventEmitter
+from parlant.core.emissions import EmittedEvent, EventEmitter, MessageEventHandle
 from parlant.core.sessions import (
     Event,
     EventKind,
@@ -1879,22 +1879,10 @@ QUICK RECAP (for reference before responding):
             },
         )
 
-        # Emit initial message event with empty chunks
+        # Initialize chunks and message - emit first event only when first chunk arrives
         chunks: list[str | None] = []
         message_text = ""
-
-        handle = await event_emitter.emit_message_event(
-            trace_id=self._tracer.trace_id,
-            data=MessageEventData(
-                message=message_text,
-                participant=Participant(id=agent.id, display_name=agent.name),
-                chunks=chunks,
-            ),
-        )
-
-        # Record time to first message
-        await self._hist_ttfm_duration.record(context.start_of_processing.elapsed * 1000)
-        self._tracer.add_event("canrep.streaming.ttfm")
+        handle: MessageEventHandle | None = None
 
         try:
             # Stream the response
@@ -1907,26 +1895,44 @@ QUICK RECAP (for reference before responding):
                     chunks.append(chunk)
                     message_text += chunk
 
-                # Update the event with new data
-                handle = await handle.update(
+                if handle is None:
+                    # First chunk arrived - emit the initial message event now
+                    handle = await event_emitter.emit_message_event(
+                        trace_id=self._tracer.trace_id,
+                        data=MessageEventData(
+                            message=message_text,
+                            participant=Participant(id=agent.id, display_name=agent.name),
+                            chunks=chunks,
+                        ),
+                    )
+
+                    # Record time to first message
+                    await self._hist_ttfm_duration.record(
+                        context.start_of_processing.elapsed * 1000
+                    )
+                    self._tracer.add_event("canrep.streaming.ttfm")
+                else:
+                    # Update the event with new data
+                    handle = await handle.update(
+                        MessageEventData(
+                            message=message_text,
+                            participant=Participant(id=agent.id, display_name=agent.name),
+                            chunks=chunks,
+                        )
+                    )
+
+        except Exception as e:
+            # On failure, add None terminator and emit the partial message
+            self._logger.error(f"Streaming generation failed: {e}")
+            chunks.append(None)
+            if handle is not None:
+                await handle.update(
                     MessageEventData(
                         message=message_text,
                         participant=Participant(id=agent.id, display_name=agent.name),
                         chunks=chunks,
                     )
                 )
-
-        except Exception as e:
-            # On failure, add None terminator and emit the partial message
-            self._logger.error(f"Streaming generation failed: {e}")
-            chunks.append(None)
-            await handle.update(
-                MessageEventData(
-                    message=message_text,
-                    participant=Participant(id=agent.id, display_name=agent.name),
-                    chunks=chunks,
-                )
-            )
             raise
 
         # Emit ready status
@@ -1937,6 +1943,22 @@ QUICK RECAP (for reference before responding):
                 "data": {},
             },
         )
+
+        # If no chunks were received, return empty composition
+        if handle is None:
+            return [
+                MessageEventComposition(
+                    generation_info={
+                        "streaming": GenerationInfo(
+                            schema_name="streaming",
+                            model=self._streaming_text_generator.id,
+                            duration=context.start_of_processing.elapsed,
+                            usage=UsageInfo(input_tokens=0, output_tokens=0),
+                        )
+                    },
+                    events=[],
+                )
+            ]
 
         return [
             MessageEventComposition(

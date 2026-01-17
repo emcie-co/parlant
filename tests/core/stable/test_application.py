@@ -125,7 +125,7 @@ async def test_that_a_new_customer_session_with_a_proactive_agent_contains_a_mes
         allow_greeting=True,
     )
 
-    assert await context.app.sessions.wait_for_update(
+    assert await context.app.sessions.wait_for_more_events(
         session_id=session.id,
         min_offset=0,
         kinds=[EventKind.MESSAGE],
@@ -153,7 +153,7 @@ async def test_that_when_a_client_event_is_posted_then_new_server_events_are_emi
         metadata={},
     )
 
-    await context.app.sessions.wait_for_update(
+    await context.app.sessions.wait_for_more_events(
         session_id=session.id,
         min_offset=1 + event.offset,
         kinds=[EventKind.MESSAGE],
@@ -181,7 +181,7 @@ async def test_that_a_session_update_is_detected_as_soon_as_a_client_event_is_po
         metadata={},
     )
 
-    assert await context.app.sessions.wait_for_update(
+    assert await context.app.sessions.wait_for_more_events(
         session_id=session.id,
         min_offset=event.offset,
         kinds=[],
@@ -251,7 +251,7 @@ async def test_that_a_response_is_not_generated_automatically_after_a_tool_switc
         metadata={},
     )
 
-    await context.app.sessions.wait_for_update(
+    await context.app.sessions.wait_for_more_events(
         session_id=session.id,
         min_offset=event.offset,
         kinds=[EventKind.MESSAGE],
@@ -276,7 +276,7 @@ async def test_that_a_response_is_not_generated_automatically_after_a_tool_switc
         metadata={},
     )
 
-    assert not await context.app.sessions.wait_for_update(
+    assert not await context.app.sessions.wait_for_more_events(
         session_id=session.id,
         min_offset=event.offset + 1,
         timeout=Timeout(3),

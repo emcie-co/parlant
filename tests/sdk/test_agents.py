@@ -355,3 +355,70 @@ class Test_that_an_agent_with_null_policy_sends_only_message(SDKTest):
         message_data = agent_messages[0].model_dump().get("data", {})
         message_tags = message_data.get("tags", [])
         assert not any("preamble" in str(tag) for tag in message_tags)
+
+
+class Test_that_an_agent_can_be_created_with_streaming_output_mode(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Streaming Agent",
+            description="Agent with streaming output mode",
+            output_mode=p.OutputMode.STREAMING,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        # Verify the agent was created with streaming output mode
+        agent = await ctx.server.find_agent(id=self.agent.id)
+        assert agent is not None
+        assert agent.output_mode == p.OutputMode.STREAMING
+
+        # Send a message and verify streaming behavior
+        session = await ctx.client.sessions.create(
+            agent_id=self.agent.id,
+            allow_greeting=False,
+        )
+
+        customer_event = await ctx.client.sessions.create_event(
+            session_id=session.id,
+            kind="message",
+            source="customer",
+            message="Hello",
+        )
+
+        # Wait for the agent to start responding, then check for chunks
+        start_time = time.time()
+        agent_message = None
+
+        while time.time() - start_time < 30:
+            agent_messages = await ctx.client.sessions.list_events(
+                session_id=session.id,
+                min_offset=customer_event.offset,
+                source="ai_agent",
+                kinds="message",
+                wait_for_data=5,
+            )
+
+            if agent_messages:
+                agent_message = agent_messages[0]
+                message_data = agent_message.model_dump().get("data", {})
+                chunks = message_data.get("chunks")
+
+                # Streaming response should have chunks
+                if chunks is not None and len(chunks) > 0:
+                    # If the last chunk is None, streaming is complete
+                    if chunks[-1] is None:
+                        break
+
+            await asyncio.sleep(0.1)
+
+        assert agent_message is not None
+        message_data = agent_message.model_dump().get("data", {})
+        chunks = message_data.get("chunks")
+
+        # Verify that chunks exist and streaming completed (last chunk is None)
+        assert chunks is not None
+        assert len(chunks) > 0
+        assert chunks[-1] is None  # Null terminator indicates completion
+
+        # Verify the final message contains content
+        assert message_data.get("message") is not None
+        assert len(message_data.get("message", "")) > 0

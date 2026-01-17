@@ -1036,7 +1036,7 @@ async def test_that_an_agent_message_can_be_regenerated(
         .json()
     )
 
-    await container[SessionListener].wait_for_events(
+    await container[SessionListener].wait_for_more_events(
         session_id=session_id,
         kinds=[EventKind.MESSAGE],
         trace_id=event["trace_id"],

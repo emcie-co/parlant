@@ -116,6 +116,7 @@ class Operation(Enum):
     CREATE_STATUS_EVENT = "create_status_event"
     CREATE_CUSTOM_EVENT = "create_custom_event"
     LIST_EVENTS = "list_events"
+    READ_EVENT = "read_event"
     DELETE_EVENTS = "delete_events"
     UPDATE_EVENT = "update_event"
 

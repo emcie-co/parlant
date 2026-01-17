@@ -14,9 +14,10 @@
 
 from datetime import datetime
 from enum import Enum
-from fastapi import APIRouter, HTTPException, Path, Query, Request, status
+from fastapi import APIRouter, HTTPException, Path, Query, Request, Response, status
+from fastapi.responses import StreamingResponse
 from pydantic import Field
-from typing import Annotated, Mapping, Sequence, TypeAlias, cast
+from typing import Annotated, AsyncIterator, Mapping, Sequence, TypeAlias, Union, cast
 
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
@@ -1897,22 +1898,29 @@ def create_router(
         trace_id: TraceIdQuery | None = None,
         kinds: KindsQuery | None = None,
         wait_for_data: int = 60,
-    ) -> Sequence[EventDTO]:
+        sse: bool = False,
+    ) -> Union[Sequence[EventDTO], Response]:
         """Lists events from a session with optional filtering and waiting capabilities.
 
         This endpoint retrieves events from a specified session and can:
         1. Filter events by their offset, source, type, and trace ID
         2. Wait for new events to arrive if requested
         3. Return events in chronological order based on their offset
+        4. Stream events via Server-Sent Events (SSE) when sse=true
 
         Notes:
-            Long Polling Behavior:
+            Long Polling Behavior (when sse=false):
             - When wait_for_data = 0:
                 Returns immediately with any existing events that match the criteria
             - When wait_for_data > 0:
                 - If new matching events arrive within the timeout period, returns with those events
                 - If no new events arrive before timeout, raises 504 Gateway Timeout
                 - If matching events already exist, returns immediately with those events
+
+            SSE Mode (when sse=true):
+            - Returns a text/event-stream response
+            - Continuously sends events as they arrive
+            - wait_for_data is used as the timeout between events before closing the stream
         """
         await authorization_policy.authorize(request=request, operation=Operation.LIST_EVENTS)
 
@@ -1923,8 +1931,51 @@ def create_router(
 
         event_source = _event_source_dto_to_event_source(source) if source else None
 
+        if sse:
+            # Return SSE stream
+            async def event_stream() -> AsyncIterator[str]:
+                current_offset = min_offset or 0
+                while True:
+                    # Wait for new events
+                    has_events = await app.sessions.wait_for_more_events(
+                        session_id=session_id,
+                        min_offset=current_offset,
+                        source=event_source,
+                        kinds=kind_list,
+                        trace_id=trace_id,
+                        timeout=Timeout(wait_for_data),
+                    )
+
+                    if not has_events:
+                        # Timeout - close the stream
+                        break
+
+                    # Get new events
+                    events = await app.sessions.find_events(
+                        session_id=session_id,
+                        min_offset=current_offset,
+                        source=event_source,
+                        kinds=kind_list,
+                        trace_id=trace_id,
+                    )
+
+                    for e in events:
+                        event_dto = event_to_dto(e)
+                        yield f"data: {event_dto.model_dump_json()}\n\n"
+                        current_offset = max(current_offset, e.offset + 1)
+
+            return StreamingResponse(
+                event_stream(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                },
+            )
+
+        # Standard long-polling behavior
         if wait_for_data > 0:
-            if not await app.sessions.wait_for_update(
+            if not await app.sessions.wait_for_more_events(
                 session_id=session_id,
                 min_offset=min_offset or 0,
                 source=event_source,
@@ -1960,6 +2011,111 @@ def create_router(
             )
             for e in events
         ]
+
+    @router.get(
+        "/{session_id}/events/{event_id}",
+        operation_id="read_event",
+        response_model=EventDTO,
+        responses={
+            status.HTTP_200_OK: {
+                "description": "Event details successfully retrieved",
+                "content": {"application/json": {"example": event_example}},
+            },
+            status.HTTP_404_NOT_FOUND: {
+                "description": "Session or event not found",
+            },
+        },
+        **apigen_config(group_name=API_GROUP, method_name="read_event"),
+    )
+    async def read_event(
+        request: Request,
+        session_id: SessionIdPath,
+        event_id: EventIdPath,
+        wait_for_completion: bool = False,
+        wait_for_data: int = 60,
+        sse: bool = False,
+    ) -> Union[EventDTO, Response]:
+        """Reads a single event from a session.
+
+        This endpoint retrieves a specific event by its ID and optionally waits
+        for the event to complete (useful for streaming messages).
+
+        Args:
+            wait_for_completion: If true, wait for the event to complete (for streaming events,
+                this means waiting until chunks contains None terminator)
+            wait_for_data: Timeout in seconds for wait_for_completion
+            sse: If true, stream event updates via Server-Sent Events until completion
+
+        Notes:
+            For streaming message events (events with 'chunks' property):
+            - The event is considered complete when chunks contains a None terminator
+            - Use wait_for_completion=true to wait for the full message
+            - Use sse=true to stream updates as chunks are added
+
+            SSE Mode (when sse=true):
+            - Returns a text/event-stream response
+            - Sends the event each time it's updated
+            - Closes when the event is complete (chunks ends with None)
+        """
+        await authorization_policy.authorize(request=request, operation=Operation.READ_EVENT)
+
+        if sse:
+            # Return SSE stream that sends event updates until completion
+            async def event_stream() -> AsyncIterator[str]:
+                while True:
+                    event = await app.sessions.read_event(
+                        session_id=session_id,
+                        event_id=event_id,
+                    )
+                    event_dto = event_to_dto(event)
+                    yield f"data: {event_dto.model_dump_json()}\n\n"
+
+                    # Check if event is complete (for streaming events)
+                    data = cast(dict[str, object], event.data)
+                    if "chunks" in data:
+                        chunks = cast(list[str | None], data["chunks"])
+                        if chunks and chunks[-1] is None:
+                            break
+                    else:
+                        # Non-streaming event, just return it once
+                        break
+
+                    # Wait for event to update
+                    if not await app.sessions.wait_for_event_completion(
+                        session_id=session_id,
+                        event_id=event_id,
+                        timeout=Timeout(wait_for_data),
+                    ):
+                        break
+
+            return StreamingResponse(
+                event_stream(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                },
+            )
+
+        # Standard read
+        event = await app.sessions.read_event(
+            session_id=session_id,
+            event_id=event_id,
+        )
+
+        if wait_for_completion:
+            await app.sessions.wait_for_event_completion(
+                session_id=session_id,
+                event_id=event_id,
+                timeout=Timeout(wait_for_data),
+            )
+            # Re-read the event after waiting
+            event = await app.sessions.read_event(
+                session_id=session_id,
+                event_id=event_id,
+            )
+
+        return event_to_dto(event)
 
     @router.delete(
         "/{session_id}/events",

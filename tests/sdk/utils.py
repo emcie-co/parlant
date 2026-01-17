@@ -80,7 +80,57 @@ class Context:
 
         assert len(agent_messages) >= 1
 
-        return agent_messages[0]
+        agent_message = agent_messages[0]
+
+        # For streaming mode, wait for the message to be complete
+        # (chunks array ends with null terminator)
+        if self._is_streaming_in_progress(agent_message):
+            agent_message = await self._wait_for_streaming_completion(
+                session_id=self._session_id,
+                event_id=agent_message.id,
+            )
+
+        return agent_message
+
+    def _is_streaming_in_progress(self, event: ClientEvent) -> bool:
+        """Check if the event is still streaming (chunks property exists and not yet terminated with null)."""
+        event_data = event.model_dump().get("data", {})
+        chunks = event_data.get("chunks")
+        # If chunks property doesn't exist, this is block mode - not streaming
+        if chunks is None:
+            return False
+        # If chunks exists but is empty, streaming has started but no chunks yet - still in progress
+        if len(chunks) == 0:
+            return True
+        # If chunks has content, check if the last element is None (completion marker)
+        return chunks[-1] is not None
+
+    async def _wait_for_streaming_completion(
+        self,
+        session_id: str,
+        event_id: str,
+        timeout: float = 60.0,
+    ) -> ClientEvent:
+        """Wait for a streaming message to complete."""
+        start_time = time.time()
+
+        while True:
+            if time.time() - start_time > timeout:
+                raise TimeoutError(f"Streaming message did not complete within {timeout} seconds")
+
+            events = await self.client.sessions.list_events(
+                session_id=session_id,
+                source="ai_agent",
+                kinds="message",
+            )
+
+            for event in events:
+                if event.id == event_id:
+                    if not self._is_streaming_in_progress(event):
+                        return event
+                    break
+
+            await asyncio.sleep(0.1)
 
     async def send_and_receive_message(
         self,

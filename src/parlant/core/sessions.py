@@ -1297,7 +1297,7 @@ class SessionDocumentStore(SessionStore):
 
 class SessionListener(ABC):
     @abstractmethod
-    async def wait_for_events(
+    async def wait_for_more_events(
         self,
         session_id: SessionId,
         kinds: Sequence[EventKind] = [],
@@ -1305,7 +1305,26 @@ class SessionListener(ABC):
         source: EventSource | None = None,
         trace_id: str | None = None,
         timeout: Timeout = Timeout.infinite(),
-    ) -> bool: ...
+    ) -> bool:
+        """Wait for new events to arrive in the session.
+
+        Returns True if new events arrived, False if timeout expired.
+        """
+        ...
+
+    @abstractmethod
+    async def wait_for_event_completion(
+        self,
+        session_id: SessionId,
+        event_id: EventId,
+        timeout: Timeout = Timeout.infinite(),
+    ) -> bool:
+        """Wait for a streaming event to complete (chunks ends with None).
+
+        Returns True if the event completed, False if timeout expired.
+        For non-streaming events (no chunks property), returns True immediately.
+        """
+        ...
 
 
 class PollingSessionListener(SessionListener):
@@ -1313,7 +1332,7 @@ class PollingSessionListener(SessionListener):
         self._session_store = session_store
 
     @override
-    async def wait_for_events(
+    async def wait_for_more_events(
         self,
         session_id: SessionId,
         kinds: Sequence[EventKind] = [],
@@ -1340,3 +1359,32 @@ class PollingSessionListener(SessionListener):
                 return False
             else:
                 await timeout.wait_up_to(0.25)
+
+    @override
+    async def wait_for_event_completion(
+        self,
+        session_id: SessionId,
+        event_id: EventId,
+        timeout: Timeout = Timeout.infinite(),
+    ) -> bool:
+        # Trigger exception if not found
+        _ = await self._session_store.read_session(session_id)
+
+        while True:
+            event = await self._session_store.read_event(session_id, event_id)
+
+            # Check if the event has chunks property
+            data = cast(dict[str, object], event.data)
+            if "chunks" in data:
+                chunks = cast(list[str | None], data["chunks"])
+                # Check if the last chunk is None (completion signal)
+                if chunks and chunks[-1] is None:
+                    return True
+            else:
+                # Non-streaming event, return immediately
+                return True
+
+            if timeout.expired():
+                return False
+            else:
+                await timeout.wait_up_to(0.1)

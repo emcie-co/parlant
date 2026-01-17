@@ -20,10 +20,13 @@ from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import (
     CompositionModeDTO,
     ExampleJson,
+    MessageOutputModeDTO,
     apigen_config,
     composition_mode_dto_to_composition_mode,
     composition_mode_to_composition_mode_dto,
     example_json_content,
+    message_output_mode_dto_to_message_output_mode,
+    message_output_mode_to_message_output_mode_dto,
 )
 from parlant.core.app_modules.agents import AgentTagUpdateParamsModel
 from parlant.core.agents import AgentId
@@ -99,6 +102,7 @@ agent_example: ExampleJson = {
     "creation_utc": "2024-03-24T12:00:00Z",
     "max_engine_iterations": 3,
     "composition_mode": "fluid",
+    "message_output_mode": "block",
     "tags": ["tag1", "tag2"],
 }
 
@@ -121,6 +125,7 @@ class AgentDTO(
     description: AgentDescriptionField | None = None
     max_engine_iterations: AgentMaxEngineIterationsField = 1
     composition_mode: CompositionModeDTO
+    message_output_mode: MessageOutputModeDTO
     tags: AgentTagsField = []
 
 
@@ -129,6 +134,7 @@ agent_creation_params_example: ExampleJson = {
     "description": "Technical Support Assistant",
     "max_engine_iterations": 3,
     "composition_mode": "fluid",
+    "message_output_mode": "block",
     "tags": ["tag1", "tag2"],
 }
 
@@ -147,6 +153,7 @@ class AgentCreationParamsDTO(
     - `description`: Detailed explanation of the agent's purpose
     - `max_engine_iterations`: Processing limit per request
     - `composition_mode`: How the agent composes responses
+    - `message_output_mode`: How the agent outputs messages (block or streaming)
     - `tags`: List of tag IDs to associate with the agent
 
     Note: Agents must be created via the API before they can be used.
@@ -157,6 +164,7 @@ class AgentCreationParamsDTO(
     description: AgentDescriptionField | None = None
     max_engine_iterations: AgentMaxEngineIterationsField | None = None
     composition_mode: CompositionModeDTO | None = None
+    message_output_mode: MessageOutputModeDTO | None = None
     tags: AgentTagsField | None = None
 
 
@@ -165,6 +173,7 @@ agent_update_params_example: ExampleJson = {
     "description": "Technical Support Assistant",
     "max_engine_iterations": 3,
     "composition_mode": "fluid",
+    "message_output_mode": "block",
 }
 
 
@@ -207,6 +216,7 @@ class AgentUpdateParamsDTO(
     description: AgentDescriptionField | None = None
     max_engine_iterations: AgentMaxEngineIterationsField | None = None
     composition_mode: CompositionModeDTO | None = None
+    message_output_mode: MessageOutputModeDTO | None = None
     tags: AgentTagUpdateParamsDTO | None = None
 
 
@@ -260,6 +270,11 @@ def create_router(
             composition_mode=composition_mode_dto_to_composition_mode(params.composition_mode)
             if params and params.composition_mode
             else None,
+            message_output_mode=message_output_mode_dto_to_message_output_mode(
+                params.message_output_mode
+            )
+            if params and params.message_output_mode
+            else None,
             tags=params.tags,
             id=params.id if params else None,
         )
@@ -271,6 +286,9 @@ def create_router(
             creation_utc=agent.creation_utc,
             max_engine_iterations=agent.max_engine_iterations,
             composition_mode=composition_mode_to_composition_mode_dto(agent.composition_mode),
+            message_output_mode=message_output_mode_to_message_output_mode_dto(
+                agent.message_output_mode
+            ),
             tags=agent.tags,
         )
 
@@ -308,6 +326,9 @@ def create_router(
                 creation_utc=a.creation_utc,
                 max_engine_iterations=a.max_engine_iterations,
                 composition_mode=composition_mode_to_composition_mode_dto(a.composition_mode),
+                message_output_mode=message_output_mode_to_message_output_mode_dto(
+                    a.message_output_mode
+                ),
                 tags=a.tags,
             )
             for a in agents
@@ -354,6 +375,9 @@ def create_router(
             creation_utc=agent.creation_utc,
             max_engine_iterations=agent.max_engine_iterations,
             composition_mode=composition_mode_to_composition_mode_dto(agent.composition_mode),
+            message_output_mode=message_output_mode_to_message_output_mode_dto(
+                agent.message_output_mode
+            ),
             tags=agent.tags,
         )
 
@@ -399,6 +423,11 @@ def create_router(
             composition_mode=composition_mode_dto_to_composition_mode(params.composition_mode)
             if params.composition_mode
             else None,
+            message_output_mode=message_output_mode_dto_to_message_output_mode(
+                params.message_output_mode
+            )
+            if params.message_output_mode
+            else None,
             tags=AgentTagUpdateParamsModel(add=params.tags.add, remove=params.tags.remove)
             if params.tags
             else None,
@@ -411,6 +440,9 @@ def create_router(
             creation_utc=agent.creation_utc,
             max_engine_iterations=agent.max_engine_iterations,
             composition_mode=composition_mode_to_composition_mode_dto(agent.composition_mode),
+            message_output_mode=message_output_mode_to_message_output_mode_dto(
+                agent.message_output_mode
+            ),
             tags=agent.tags,
         )
 

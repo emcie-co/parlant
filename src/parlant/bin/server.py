@@ -202,7 +202,7 @@ from parlant.core.nlp.embedding import (
     EmbeddingCache,
     NullEmbeddingCache,
 )
-from parlant.core.nlp.generation import SchematicGenerator
+from parlant.core.nlp.generation import SchematicGenerator, StreamingTextGenerator
 from parlant.core.persistence.data_collection import DataCollectingSchematicGenerator
 from parlant.core.services.tools.service_registry import (
     ServiceRegistry,
@@ -889,6 +889,12 @@ async def initialize_container(
             SchematicGenerator[schema],  # type: ignore
             generator,
         )
+
+    # Bind the streaming text generator if available
+    if nlp_service_instance.supports_streaming:
+        streaming_generator = await nlp_service_instance.get_streaming_text_generator()
+        if streaming_generator:
+            try_define(StreamingTextGenerator, streaming_generator)
 
 
 async def recover_server_tasks(

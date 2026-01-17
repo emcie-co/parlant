@@ -17,7 +17,7 @@ from enum import Enum
 from pydantic import Field
 from typing import Annotated, Any, Mapping, Sequence, TypeAlias
 
-from parlant.core.agents import CompositionMode
+from parlant.core.agents import CompositionMode, MessageOutputMode
 from parlant.core.common import DefaultBaseModel
 from parlant.core.evaluations import PayloadOperation
 from parlant.core.persistence.common import SortDirection
@@ -70,6 +70,41 @@ def composition_mode_to_composition_mode_dto(
             return CompositionModeDTO.CANNED_COMPOSITED
         case CompositionMode.CANNED_FLUID:
             return CompositionModeDTO.CANNED_FLUID
+
+
+class MessageOutputModeDTO(Enum):
+    """
+    Defines how the agent outputs messages.
+
+    Available options:
+    - block: Full message is sent at once (default behavior)
+    - streaming: Message is streamed token by token
+    """
+
+    BLOCK = "block"
+    STREAMING = "streaming"
+
+
+def message_output_mode_dto_to_message_output_mode(
+    dto: MessageOutputModeDTO,
+) -> MessageOutputMode:
+    """Convert MessageOutputModeDTO to core MessageOutputMode."""
+    match dto:
+        case MessageOutputModeDTO.BLOCK:
+            return MessageOutputMode.BLOCK
+        case MessageOutputModeDTO.STREAMING:
+            return MessageOutputMode.STREAMING
+
+
+def message_output_mode_to_message_output_mode_dto(
+    mode: MessageOutputMode,
+) -> MessageOutputModeDTO:
+    """Convert core MessageOutputMode to MessageOutputModeDTO."""
+    match mode:
+        case MessageOutputMode.BLOCK:
+            return MessageOutputModeDTO.BLOCK
+        case MessageOutputMode.STREAMING:
+            return MessageOutputModeDTO.STREAMING
 
 
 def apigen_config(group_name: str, method_name: str) -> Mapping[str, Any]:

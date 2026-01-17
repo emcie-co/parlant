@@ -118,7 +118,7 @@ class SessionModule:
 
         self._lock = asyncio.Lock()
 
-    async def wait_for_update(
+    async def wait_for_more_events(
         self,
         session_id: SessionId,
         min_offset: int,
@@ -127,12 +127,24 @@ class SessionModule:
         trace_id: str | None = None,
         timeout: Timeout = Timeout.infinite(),
     ) -> bool:
-        return await self._session_listener.wait_for_events(
+        return await self._session_listener.wait_for_more_events(
             session_id=session_id,
             min_offset=min_offset,
             kinds=kinds,
             source=source,
             trace_id=trace_id,
+            timeout=timeout,
+        )
+
+    async def wait_for_event_completion(
+        self,
+        session_id: SessionId,
+        event_id: EventId,
+        timeout: Timeout = Timeout.infinite(),
+    ) -> bool:
+        return await self._session_listener.wait_for_event_completion(
+            session_id=session_id,
+            event_id=event_id,
             timeout=timeout,
         )
 
@@ -395,7 +407,7 @@ class SessionModule:
 
         trace_id = await self.dispatch_processing_task(session)
 
-        await self._session_listener.wait_for_events(
+        await self._session_listener.wait_for_more_events(
             session_id=session_id,
             trace_id=trace_id,
             timeout=Timeout(60),

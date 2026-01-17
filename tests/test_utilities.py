@@ -384,7 +384,7 @@ async def post_message(
     )
 
     if response_timeout:
-        await container[Application].sessions.wait_for_update(
+        await container[Application].sessions.wait_for_more_events(
             session_id=session_id,
             min_offset=event.offset + 1,
             kinds=[EventKind.MESSAGE],

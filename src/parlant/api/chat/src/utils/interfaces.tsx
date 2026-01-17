@@ -36,6 +36,7 @@ export interface EventInterface {
 		message: string;
 		data?: { exception?: string, stage?: string };
 		tags?: string;
+		chunks?: (string | null)[];
 	};
 	index?: number;
 }

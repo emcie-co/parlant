@@ -17,6 +17,10 @@ module.exports = {
 					'0%': {opacity: 0},
 					'100%': {opacity: 1},
 				},
+				'fade-in-fast': {
+					'0%': {opacity: 0, transform: 'translateY(2px)'},
+					'100%': {opacity: 1, transform: 'translateY(0)'},
+				},
 				'scroll-down': {
 					'0%': {height: 0},
 					'100%': {height: '100%'},
@@ -32,6 +36,7 @@ module.exports = {
 			},
 			animation: {
 				'fade-in': 'fade-in 300ms linear',
+				'fade-in-fast': 'fade-in-fast 250ms ease-out',
 				'scroll-down': 'scroll-down 300ms linear',
 				'background-shift': 'background-shift 5s linear infinite',
 				rotate: 'rotate 5s linear infinite',

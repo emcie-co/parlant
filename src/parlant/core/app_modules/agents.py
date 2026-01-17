@@ -2,7 +2,14 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from parlant.core.loggers import Logger
-from parlant.core.agents import AgentId, AgentStore, Agent, AgentUpdateParams, CompositionMode
+from parlant.core.agents import (
+    AgentId,
+    AgentStore,
+    Agent,
+    AgentUpdateParams,
+    CompositionMode,
+    MessageOutputMode,
+)
 from parlant.core.tags import TagId, TagStore
 
 
@@ -32,6 +39,7 @@ class AgentModule:
         description: str | None,
         max_engine_iterations: int | None,
         composition_mode: CompositionMode | None,
+        message_output_mode: MessageOutputMode | None,
         tags: list[TagId] | None,
         id: AgentId | None = None,
     ) -> Agent:
@@ -46,6 +54,7 @@ class AgentModule:
             description=description,
             max_engine_iterations=max_engine_iterations,
             composition_mode=composition_mode,
+            message_output_mode=message_output_mode,
             tags=tags,
             id=id,
         )
@@ -66,6 +75,7 @@ class AgentModule:
         description: str | None,
         max_engine_iterations: int | None,
         composition_mode: CompositionMode | None,
+        message_output_mode: MessageOutputMode | None,
         tags: AgentTagUpdateParamsModel | None,
     ) -> Agent:
         update_params: AgentUpdateParams = {}
@@ -81,6 +91,9 @@ class AgentModule:
 
         if composition_mode:
             update_params["composition_mode"] = composition_mode
+
+        if message_output_mode:
+            update_params["message_output_mode"] = message_output_mode
 
         await self._agent_store.update_agent(agent_id=agent_id, params=update_params)
 

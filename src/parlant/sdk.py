@@ -231,8 +231,10 @@ from parlant.core.nlp.moderation import (
     NoModeration,
 )
 from parlant.core.engines.alpha.canned_response_generator import (
+    CannedResponseGenerator,
     NoMatchResponseProvider,
     BasicNoMatchResponseProvider,
+    PreambleConfiguration,
 )
 from parlant.core.engines.alpha.optimization_policy import (
     OptimizationPolicy,
@@ -3860,6 +3862,7 @@ class Server:
         tags: Sequence[TagId] = [],
         id: str | None = None,
         perceived_performance_policy: PerceivedPerformancePolicy | None = None,
+        preamble_config: PreambleConfiguration | None = None,
     ) -> Agent:
         """Creates a new agent with the specified name, description, and composition mode.
 
@@ -3883,6 +3886,8 @@ class Server:
                 agent identifiers across deployments or integrations.
             perceived_performance_policy: Optional perceived performance policy for this agent.
                 If not specified, the agent will use the default policy (BasicPerceivedPerformancePolicy).
+            preamble_config: Optional preamble configuration for this agent.
+                Allows customizing the preamble examples and adding additional instructions.
 
         Returns:
             The created Agent instance.
@@ -3903,6 +3908,9 @@ class Server:
             self._container[PerceivedPerformancePolicyProvider].set_policy(
                 agent.id, perceived_performance_policy
             )
+
+        if preamble_config is not None:
+            self._container[CannedResponseGenerator].set_preamble_config(agent.id, preamble_config)
 
         return Agent(
             id=agent.id,
@@ -4505,6 +4513,7 @@ __all__ = [
     "PerceivedPerformancePolicy",
     "PerceivedPerformancePolicyProvider",
     "PluginServer",
+    "PreambleConfiguration",
     "ProductionAuthorizationPolicy",
     "PromptBuilder",
     "PromptSection",

@@ -25,14 +25,14 @@ import jinja2
 import jinja2.meta
 import json
 import traceback
-from typing import Any, Iterable, Mapping, Optional, Sequence, cast
+from typing import Any, Awaitable, Callable, Iterable, Mapping, Optional, Sequence, cast
 from typing_extensions import override
 
 from parlant.core.async_utils import Stopwatch, safe_gather, CancellationSuppressionLatch
 from parlant.core.capabilities import Capability
 from parlant.core.meter import DurationHistogram, Meter
 from parlant.core.tracer import Tracer
-from parlant.core.agents import Agent, CompositionMode, MessageOutputMode
+from parlant.core.agents import Agent, AgentId, CompositionMode, MessageOutputMode
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.customers import Customer
 from parlant.core.engines.alpha.guideline_matching.generic.common import (
@@ -127,6 +127,20 @@ class CannedResponsePreambleSchema(DefaultBaseModel):
 
 class CannedResponseRevisionSchema(DefaultBaseModel):
     revised_canned_response: str
+
+
+@dataclass
+class PreambleConfiguration:
+    """Per-agent configuration for preamble generation.
+
+    Attributes:
+        examples: Custom preamble examples for this agent. If None, uses default examples.
+        get_instructions: Async callable that returns additional instructions to add to
+            the preamble prompt. If None, no additional instructions are added.
+    """
+
+    examples: Sequence[str] | None = None
+    get_instructions: Callable[[EngineContext], Awaitable[Sequence[str]]] | None = None
 
 
 @dataclass
@@ -530,10 +544,20 @@ class CannedResponseGenerator(MessageEventComposer):
         self._follow_ups_enabled = True
         self._streaming_text_generator = streaming_text_generator
 
-        self.fluid_preamble_examples = fluid_preamble_examples
+        self.default_fluid_preamble_examples = default_fluid_preamble_examples
+        self.default_fluid_preamble_greeting_responses = default_fluid_preamble_greeting_responses
+        self._preamble_configs: dict[AgentId, PreambleConfiguration] = {}
         self.candidate_similarity_threshold = 0.4
 
         self._define_histograms()
+
+    def set_preamble_config(self, agent_id: AgentId, config: PreambleConfiguration) -> None:
+        """Set preamble configuration for a specific agent."""
+        self._preamble_configs[agent_id] = config
+
+    def get_preamble_config(self, agent_id: AgentId) -> PreambleConfiguration | None:
+        """Get preamble configuration for a specific agent, or None if not set."""
+        return self._preamble_configs.get(agent_id)
 
     def _define_histograms(self) -> None:
         def _create_histogram(name: str, description: str) -> DurationHistogram:
@@ -672,11 +696,45 @@ class CannedResponseGenerator(MessageEventComposer):
         preamble_choices: list[str] = []
 
         if composition_mode != CompositionMode.CANNED_STRICT:
-            preamble_choices = self.fluid_preamble_examples
+            # Get agent-specific preamble config if available
+            preamble_config = self.get_preamble_config(agent.id)
+
+            # Use agent-specific examples if provided, otherwise use default
+            if preamble_config and preamble_config.examples is not None:
+                preamble_choices = list(preamble_config.examples)
+            else:
+                # Check if this is the first agent message (greeting scenario)
+                agent_message_count = sum(
+                    1
+                    for e in canrep_context.interaction_history
+                    if e.source == EventSource.AI_AGENT and e.kind == EventKind.MESSAGE
+                )
+                if agent_message_count == 0:
+                    preamble_choices = self.default_fluid_preamble_greeting_responses
+                else:
+                    preamble_choices = self.default_fluid_preamble_examples
 
             preamble_choices_text = "".join([f"\n- {choice}" for choice in preamble_choices])
 
-            instructions = f"""\
+            # Get additional instructions if configured
+            additional_instructions_section = ""
+            if preamble_config and preamble_config.get_instructions is not None:
+                additional_instructions = await preamble_config.get_instructions(context)
+                if additional_instructions:
+                    instructions_text = "\n".join(f"- {instr}" for instr in additional_instructions)
+                    additional_instructions_section = f"""
+
+ADDITIONAL INSTRUCTIONS:
+{instructions_text}
+"""
+
+            prompt_builder.add_section(
+                name="canned-response-fluid-preamble-instructions",
+                template="""\
+You are an AI agent that is expected to generate a preamble message for the customer.
+
+The actual message will be sent later by a smarter agent. Your job is only to generate the right preamble while the smarter agent generates a comprehensive response.
+
 Generate a brief, natural acknowledgment of the customer's most recent message.
 You must not assume anything about how to handle the interaction in any way, shape, or form, beyond just generating the right, nuanced preamble message.
 
@@ -693,7 +751,12 @@ Try to choose one of these that fits the context best, and in any case do not st
 etc.
 ###
 
+Note: Pay attention to punctuation in the examples above. Preambles often don't end with a period.
+
 BAD EXAMPLES (what NOT to do):
+
+Example 1:
+----------
 Customer: "I need to change my flight"
 
 WRONG REPLY: "I can help you with that" (commits to action)
@@ -701,30 +764,53 @@ WRONG REPLY: "Can you provide more details?" (asks a question)
 WRONG REPLY: "Sure, I'll help you change your flight right away." (indicates next steps)
 
 The GOOD EXAMPLE in this case would have been:
-CORRECT REPLY: "Got it."
+CORRECT REPLY: "Got it"
 
+Example 2:
+----------
 Customer: "My bag didn't arrive"
 
 WRONG REPLY: "I'm sorry to hear that. Can you tell me your flight number?" (asks question)
 WRONG REPLY: "Don't worry, we'll help you with that." (makes commitment)
 
 The GOOD EXAMPLE in this case would have been:
-CORRECT REPLY: "I see."
+CORRECT REPLY: "I understand"
 
+Example 3:
+----------
 Customer: "Thanks, that's helpful"
 
 WRONG REPLY: "You're welcome! Is there anything else I can help you with?" (asks question)
 WRONG REPLY: "You're welcome! I'm here if you need anything else." (commits to future availability)
 
 The GOOD EXAMPLE in this case would have been:
-CORRECT REPLY: "Glad I could help."
+CORRECT REPLY: "Glad I could help!"
+
+Example 4:
+----------
+Customer: "Can you help me with this?"
+
+WRONG REPLY: "I understand." (doesn't fit a question)
+WRONG REPLY: "I see." (doesn't fit a question)
+
+The GOOD EXAMPLE in this case would have been:
+CORRECT REPLY: "Let me see"
 
 Basically, the preamble is something very short that continues the interaction naturally, without committing to any later action or response.
 We leave that later response to another agent. Make sure you understand this.
-
+{additional_instructions_section}
 
 You must generate the preamble message. You must produce a JSON object with a single key, "preamble", holding the preamble message as a string.
-"""
+
+You will now be given the current state of the interaction to which you must generate the next preamble message.
+""",
+                props={
+                    "preamble_choices_text": preamble_choices_text,
+                    "additional_instructions_section": additional_instructions_section,
+                    "composition_mode": composition_mode,
+                    "preamble_choices": preamble_choices,
+                },
+            )
         else:
             preamble_responses = [
                 canrep
@@ -751,7 +837,13 @@ You must generate the preamble message. You must produce a JSON object with a si
 
             preamble_choices_text = "".join([f'\n- "{c}"' for c in preamble_choices])
 
-            instructions = f"""\
+            prompt_builder.add_section(
+                name="canned-response-strict-preamble-instructions",
+                template="""\
+You are an AI agent that is expected to generate a preamble message for the customer.
+
+The actual message will be sent later by a smarter agent. Your job is only to generate the right preamble while the smarter agent generates a comprehensive response.
+
 These are the preamble messages you can choose from. You must ONLY choose one of these: ###
 {preamble_choices_text}
 ###
@@ -768,25 +860,15 @@ Instructions:
 
 You must now choose the preamble message. You must produce a JSON object with a single key, "preamble", holding the preamble message as a string,
 EXACTLY as it is given (pay attention to subtleties like punctuation and copy your choice EXACTLY as it is given above).
-"""
-
-        prompt_builder.add_section(
-            name="canned-response-fluid-preamble-instructions",
-            template="""\
-You are an AI agent that is expected to generate a preamble message for the customer.
-
-The actual message will be sent later by a smarter agent. Your job is only to generate the right preamble while the smarter agent generates a comprehensive response.
-
-{composition_mode_specific_instructions}
 
 You will now be given the current state of the interaction to which you must generate the next preamble message.
 """,
-            props={
-                "composition_mode_specific_instructions": instructions,
-                "composition_mode": composition_mode,
-                "preamble_choices": preamble_choices,
-            },
-        )
+                props={
+                    "preamble_choices_text": preamble_choices_text,
+                    "composition_mode": composition_mode,
+                    "preamble_choices": preamble_choices,
+                },
+            )
 
         prompt_builder.add_interaction_history_for_message_generation(
             canrep_context.interaction_history,
@@ -2874,11 +2956,18 @@ follow_up_generation_shots: Sequence[FollowUpCannedResponseSelectionShot] = [
     follow_up_generation_example_4_shot,
 ]
 
-fluid_preamble_examples: list[str] = [
-    "Hey there!",
-    "Just a moment.",
-    "Hello.",
-    "Sorry to hear that.",
-    "Definitely.",
-    "Let me check that for you.",
+default_fluid_preamble_examples: list[str] = [
+    "Hey there",
+    "Just a moment",
+    "Hello",
+    "Sorry to hear that",
+    "Definitely",
+    "Let me check that for you",
+]
+
+default_fluid_preamble_greeting_responses: list[str] = [
+    "Hey there",
+    "Hello",
+    "Hi",
+    "Hey",
 ]

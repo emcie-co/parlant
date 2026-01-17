@@ -5,7 +5,8 @@ All notable changes to Parlant will be documented here.
 ## [Unreleased]
 
 - Add testing framework
-- Add option to override fluid preamble response examples
+- Add per-agent preamble configuration (custom examples and instructions)
+- Add separate default greeting responses for first agent message in fluid mode
 - Add streaming message output mode
 
 ## [3.1.0] - 2026-01-05

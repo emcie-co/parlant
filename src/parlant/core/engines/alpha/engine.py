@@ -784,7 +784,9 @@ class AlphaEngine(Engine):
                 return True
 
             else:
-                return True  # No preamble message is needed
+                # No preamble message is needed, but still show processing indicator
+                await self._emit_processing_event(context, stage="Interpreting")
+                return True
 
         return asyncio.create_task(preamble_task())
 

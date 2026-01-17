@@ -8,6 +8,9 @@ All notable changes to Parlant will be documented here.
 - Add per-agent preamble configuration (custom examples and instructions)
 - Add separate default greeting responses for first agent message in fluid mode
 - Add streaming message output mode
+- Fixed agent intention proposer (guidelines were getting rewritten incorrectly)
+- Tweak default preamble examples
+- Soften log levels for relational guideline resolver
 
 ## [3.1.0] - 2026-01-05
 

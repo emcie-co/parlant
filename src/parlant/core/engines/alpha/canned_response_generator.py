@@ -2957,12 +2957,12 @@ follow_up_generation_shots: Sequence[FollowUpCannedResponseSelectionShot] = [
 ]
 
 default_fluid_preamble_examples: list[str] = [
-    "Hey there",
     "Just a moment",
-    "Hello",
     "Sorry to hear that",
     "Definitely",
     "Let me check that for you",
+    "Great",
+    "Understood",
 ]
 
 default_fluid_preamble_greeting_responses: list[str] = [

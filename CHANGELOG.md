@@ -6,6 +6,7 @@ All notable changes to Parlant will be documented here.
 
 - Add testing framework
 - Add option to override fluid preamble response examples
+- Add streaming message output mode
 
 ## [3.1.0] - 2026-01-05
 

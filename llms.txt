@@ -126,6 +126,24 @@ await agent.add_canned_response(
 
 Learn more: [Canned Responses Documentation](https://parlant.io/docs/concepts/customization/canned-responses)
 
+### 7. Streaming Mode
+Agents can deliver responses in real-time chunks for a more interactive experience:
+```python
+from parlant.sdk import MessageOutputMode
+
+agent = await server.create_agent(
+    name="Support Agent",
+    description="Helpful support agent",
+    message_output_mode=MessageOutputMode.STREAMING,  # Enable streaming
+)
+```
+
+Output modes:
+- `MessageOutputMode.BLOCK` (default): Complete response delivered at once
+- `MessageOutputMode.STREAMING`: Response delivered in real-time chunks with token-by-token animation
+
+Streaming mode provides actual token usage information (input/output tokens) in generation metadata.
+
 ---
 
 ## Common Patterns

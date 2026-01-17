@@ -271,9 +271,9 @@ const SessionView = (): ReactElement => {
 	}, [session?.id, refreshFlag]);
 
 	useEffect(() => {
-		if (lastOffset === 0) {
-			// Reset SSE connection when offset is reset (e.g., after deleting messages)
-			sseOffsetRef.current = 0;
+		// Reconnect SSE when offset decreases (e.g., after deleting/regenerating messages)
+		if (lastOffset < sseOffsetRef.current) {
+			sseOffsetRef.current = lastOffset;
 			setLastEvents([]);
 			refetch();
 		}

@@ -200,9 +200,9 @@ class Session:
             raise RuntimeError("Session not initialized.")
 
         client = await self._suite._get_client()
-        collected_events: List[Event] = []
         start_time = asyncio.get_event_loop().time()
 
+        # Poll until we see the completion status event
         while True:
             elapsed = asyncio.get_event_loop().time() - start_time
             remaining = timeout - elapsed
@@ -234,18 +234,24 @@ class Session:
                 for event in events:
                     if event.offset > self._current_offset:
                         self._current_offset = event.offset
-                        collected_events.append(event)
 
-                        # Check for ready status with stage="completed"
-                        if event.kind == "status":
-                            data = event.data
-                            if isinstance(data, dict) and data.get("status") == "ready":
-                                inner_data = data.get("data", {})
-                                if (
-                                    isinstance(inner_data, dict)
-                                    and inner_data.get("stage") == "completed"
-                                ):
-                                    return collected_events
+                    # Check for ready status with stage="completed"
+                    if event.kind == "status":
+                        data = event.data
+                        if isinstance(data, dict) and data.get("status") == "ready":
+                            inner_data = data.get("data", {})
+                            if (
+                                isinstance(inner_data, dict)
+                                and inner_data.get("stage") == "completed"
+                            ):
+                                # Fetch all events with this trace_id to get final state
+                                # (ensures streaming message chunks are complete)
+                                all_events = await client.sessions.list_events(
+                                    session_id=self._session_id,
+                                    source="ai_agent",
+                                    trace_id=trace_id,
+                                )
+                                return list(all_events)
 
             except Exception as e:
                 # Handle timeout from long polling (504 Gateway Timeout)
@@ -253,7 +259,7 @@ class Session:
                     continue
                 raise
 
-        return collected_events
+        return []
 
     async def add_events(
         self,

@@ -893,8 +893,7 @@ async def initialize_container(
     # Bind the streaming text generator if available
     if nlp_service_instance.supports_streaming:
         streaming_generator = await nlp_service_instance.get_streaming_text_generator()
-        if streaming_generator:
-            try_define(StreamingTextGenerator, streaming_generator)
+        try_define(StreamingTextGenerator, streaming_generator)
 
 
 async def recover_server_tasks(

@@ -776,8 +776,8 @@ class VertexAIService(NLPService):
     @override
     async def get_streaming_text_generator(
         self, hints: StreamingTextGeneratorHints = {}
-    ) -> StreamingTextGenerator | None:
-        return None
+    ) -> StreamingTextGenerator:
+        raise NotImplementedError("Streaming is not supported. Check supports_streaming first.")
 
     def _normalize_model_name(self, model_name: str) -> str:
         """Normalize model name to full version string."""

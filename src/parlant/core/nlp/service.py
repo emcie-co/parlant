@@ -63,8 +63,13 @@ class NLPService(ABC):
     @abstractmethod
     async def get_streaming_text_generator(
         self, hints: StreamingTextGeneratorHints = {}
-    ) -> StreamingTextGenerator | None:
-        """Return a streaming text generator, or None if streaming is not supported."""
+    ) -> StreamingTextGenerator:
+        """Return a streaming text generator.
+
+        Raises:
+            NotImplementedError: If streaming is not supported (supports_streaming is False).
+                Callers should check supports_streaming before calling this method.
+        """
         ...
 
     @abstractmethod

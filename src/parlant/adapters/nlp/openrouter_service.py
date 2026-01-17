@@ -544,8 +544,8 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
     @override
     async def get_streaming_text_generator(
         self, hints: StreamingTextGeneratorHints = {}
-    ) -> StreamingTextGenerator | None:
-        return None
+    ) -> StreamingTextGenerator:
+        raise NotImplementedError("Streaming is not supported. Check supports_streaming first.")
 
     def _get_specialized_generator_class(
         self,

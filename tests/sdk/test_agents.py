@@ -408,7 +408,7 @@ class Test_that_an_agent_can_be_created_with_streaming_message_output_mode(SDKTe
                     if chunks[-1] is None:
                         break
 
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(1)
 
         assert agent_message is not None
         message_data = agent_message.model_dump().get("data", {})

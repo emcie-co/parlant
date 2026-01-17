@@ -122,17 +122,24 @@ Any instruction described here applies only to you, and not to the user.
             template="""
 TASK DESCRIPTION
 -----------------
-Your task is to determine whether a guideline's condition reflects your intention. That is, whether it describes something you are about to do or likely to do (e.g., "You are going to discuss a patient's medical record" or "You need to explain the terms and conditions"). Note: If the condition refers to something you have already done, it should not be considered an agent intention.
+Your task is to determine whether a guideline's condition MAY reflect your next intention. That is, whether it describes something which is not known at this point, but that you are likely to do next (e.g., "You are going to discuss a patient's medical record" or "You need to explain the terms and conditions"). Note: If the condition refers to something you have already done, or something that is already apparent given the context here, then it should not be considered a likely agent intention.
 
-If the condition reflects agent intention, rephrase it to describe what you are likely to do next, using the following format:
+If the condition reflects likely agent intention, rephrase it to more clearly describe that you are LIKELY to do it next, using the following format:
 "You are likely to (do something)."
 
 For example:
 Original: "You are going to discuss a patient's medical record"
 Rewritten: "You are likely to discuss a patient's medical record"
 
+On the other hand, if the condition does NOT reflect likely agent intention, simply indicate that it is not an agent intention. For example:
+Examples that aren't considered likely agent intentions:
+- "You're discussing the customer's order status"
+- "You have just confirmed that the order will be shipped to the customer"
+- "The customer is asking about the opening hours"
+- "You don't yet know the customer's order number"
+
 Why this matters:
-Although the original condition can be written in present tense, guideline matching happens before you reply. So we need the condition to reflect your probable upcoming behavior, based on the customer's latest message.
+We need to help conditions be clearer to evaluate. Although people who install guidelines often write the original condition in present tense, guideline matching happens before you reply - so we need the condition to reflect your probable upcoming behavior, based on the customer's latest message.
 
 """,
         )

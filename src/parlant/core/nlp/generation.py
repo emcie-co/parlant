@@ -82,7 +82,7 @@ class BaseStreamingTextGenerator(StreamingTextGenerator):
         global _STREAMING_REQUEST_DURATION_HISTOGRAM
         if _STREAMING_REQUEST_DURATION_HISTOGRAM is None:
             _STREAMING_REQUEST_DURATION_HISTOGRAM = meter.create_duration_histogram(
-                name="streaming_gen",
+                name="stream",
                 description="Duration of streaming generation requests in milliseconds",
             )
 
@@ -109,7 +109,7 @@ class BaseStreamingTextGenerator(StreamingTextGenerator):
 
         try:
             self.tracer.add_event(
-                "streaming_gen.request_started",
+                "stream.request_started",
                 attributes={
                     "model.name": self.model_name,
                 },
@@ -119,7 +119,7 @@ class BaseStreamingTextGenerator(StreamingTextGenerator):
                 yield chunk
 
             self.tracer.add_event(
-                "streaming_gen.request_completed",
+                "stream.request_completed",
                 attributes={
                     "model.name": self.model_name,
                     "duration": start.elapsed,
@@ -127,7 +127,7 @@ class BaseStreamingTextGenerator(StreamingTextGenerator):
             )
         except Exception:
             self.tracer.add_event(
-                "streaming_gen.request_failed",
+                "stream.request_failed",
                 attributes={
                     "model.name": self.model_name,
                     "duration": start.elapsed,

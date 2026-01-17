@@ -504,8 +504,6 @@ class OpenAIStreamingTextGenerator(BaseStreamingTextGenerator):
 
 
 class GPT_4_1_Streaming(OpenAIStreamingTextGenerator):
-    """GPT-4.1 streaming text generator."""
-
     def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(
             model_name="gpt-4.1",
@@ -513,18 +511,6 @@ class GPT_4_1_Streaming(OpenAIStreamingTextGenerator):
             tracer=tracer,
             meter=meter,
             tokenizer_model_name="gpt-4o-2024-11-20",
-        )
-
-
-class GPT_4o_Streaming(OpenAIStreamingTextGenerator):
-    """GPT-4o streaming text generator."""
-
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(
-            model_name="gpt-4o-2024-11-20",
-            logger=logger,
-            tracer=tracer,
-            meter=meter,
         )
 
 
@@ -707,21 +693,13 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
     @property
     @override
     def supports_streaming(self) -> bool:
-        """OpenAI supports streaming text generation."""
         return True
 
     @override
     async def get_streaming_text_generator(
         self, hints: StreamingTextGeneratorHints = {}
     ) -> StreamingTextGenerator:
-        """Return a streaming text generator based on the provided hints."""
-        match hints.get("model_size", ModelSize.AUTO):
-            case ModelSize.AUTO | ModelSize.LARGE:
-                return GPT_4_1_Streaming(self._logger, self._tracer, self._meter)
-            case ModelSize.MINI:
-                return GPT_4_1_Streaming(self._logger, self._tracer, self._meter)
-            case _:
-                return GPT_4o_Streaming(self._logger, self._tracer, self._meter)
+        return GPT_4_1_Streaming(self._logger, self._tracer, self._meter)
 
     @override
     async def get_schematic_generator(

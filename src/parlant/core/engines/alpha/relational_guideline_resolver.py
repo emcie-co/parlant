@@ -208,7 +208,7 @@ class RelationalGuidelineResolver:
                         m.guideline for m in matches if m.guideline.id == prioritized_guideline_id
                     )
 
-                    self._logger.info(
+                    self._logger.debug(
                         f"Skipped: Guideline {match.guideline.id} ({match.guideline.content.action}) deactivated due to contextual prioritization by {prioritized_guideline_id} ({prioritized_guideline.content.action})"
                     )
                     self._tracer.add_event(
@@ -221,7 +221,7 @@ class RelationalGuidelineResolver:
                         },
                     )
                 elif prioritized_journey_id:
-                    self._logger.info(
+                    self._logger.debug(
                         f"Skipped: Guideline {match.guideline.id} ({match.guideline.content.action}) deactivated due to contextual prioritization by journey {prioritized_journey_id}"
                     )
                     self._tracer.add_event(
@@ -336,7 +336,7 @@ class RelationalGuidelineResolver:
         ]
 
         for m in entailed_matches:
-            self._logger.info(f"Activated: Entailed guideline {m.guideline.id}")
+            self._logger.debug(f"Activated: Entailed guideline {m.guideline.id}")
             self._tracer.add_event(
                 "gm.activate",
                 attributes={
@@ -432,7 +432,7 @@ class RelationalGuidelineResolver:
             if not dependent_on_inactive_guidelines:
                 result.append(match)
             else:
-                self._logger.info(
+                self._logger.debug(
                     f"Skipped: Guideline {match.guideline.id} deactivated due to unmet dependencies"
                 )
                 self._tracer.add_event(

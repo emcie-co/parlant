@@ -357,19 +357,19 @@ class Test_that_an_agent_with_null_policy_sends_only_message(SDKTest):
         assert not any("preamble" in str(tag) for tag in message_tags)
 
 
-class Test_that_an_agent_can_be_created_with_streaming_output_mode(SDKTest):
+class Test_that_an_agent_can_be_created_with_streaming_message_output_mode(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Streaming Agent",
-            description="Agent with streaming output mode",
-            output_mode=p.OutputMode.STREAMING,
+            description="Agent with streaming message output mode",
+            message_output_mode=p.MessageOutputMode.STREAMING,
         )
 
     async def run(self, ctx: Context) -> None:
-        # Verify the agent was created with streaming output mode
+        # Verify the agent was created with streaming message output mode
         agent = await ctx.server.find_agent(id=self.agent.id)
         assert agent is not None
-        assert agent.output_mode == p.OutputMode.STREAMING
+        assert agent.message_output_mode == p.MessageOutputMode.STREAMING
 
         # Send a message and verify streaming behavior
         session = await ctx.client.sessions.create(

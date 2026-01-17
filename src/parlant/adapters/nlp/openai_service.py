@@ -25,7 +25,7 @@ from openai import (
     InternalServerError,
     RateLimitError,
 )
-from typing import Any, AsyncIterator, Mapping
+from typing import Any, AsyncIterator, Callable, Mapping
 from typing_extensions import override
 import json
 import jsonfinder  # type: ignore
@@ -416,8 +416,11 @@ class GPT_5_Nano(OpenAISchematicGenerator[T]):
 # ============================================================================
 
 # Pattern to detect word boundaries for chunking
-# Matches after any whitespace character to yield individual words
+# Matches after any whitespace character
 _WORD_BOUNDARY_PATTERN = re.compile(r"(?<=\s)")
+
+# Number of words to buffer before yielding a chunk
+_WORDS_PER_CHUNK = 3
 
 
 class OpenAIStreamingTextGenerator(BaseStreamingTextGenerator):
@@ -461,7 +464,7 @@ class OpenAIStreamingTextGenerator(BaseStreamingTextGenerator):
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
-    ) -> AsyncIterator[str | None]:
+    ) -> tuple[AsyncIterator[str | None], Callable[[], UsageInfo]]:
         if isinstance(prompt, PromptBuilder):
             prompt = prompt.build()
 
@@ -472,35 +475,77 @@ class OpenAIStreamingTextGenerator(BaseStreamingTextGenerator):
                 messages=[{"role": "developer", "content": prompt}],
                 model=self.model_name,
                 stream=True,
+                stream_options={"include_usage": True},
                 **openai_api_arguments,
             )
         except RateLimitError:
             self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
 
-        # Buffer for accumulating tokens into word-sized chunks
-        buffer = ""
+        # Track usage from final chunk
+        usage_info: UsageInfo | None = None
 
-        async for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                token = chunk.choices[0].delta.content
-                buffer += token
+        async def chunk_generator() -> AsyncIterator[str | None]:
+            nonlocal usage_info
 
-                # Check if buffer contains a word boundary
-                # If so, yield everything up to and including the boundary
-                match = _WORD_BOUNDARY_PATTERN.search(buffer)
-                if match:
-                    # Yield the word up to the boundary
-                    word = buffer[: match.end()]
-                    buffer = buffer[match.end() :]
-                    yield word
+            # Buffer for accumulating tokens into word-sized chunks
+            buffer = ""
 
-        # Yield any remaining content in the buffer
-        if buffer:
-            yield buffer
+            async for chunk in stream:
+                # Check for usage in final chunk (when stream_options include_usage is set)
+                if chunk.usage is not None:
+                    self.logger.trace(chunk.usage.model_dump_json(indent=2))
 
-        # Signal completion
-        yield None
+                    cached_tokens = 0
+                    if chunk.usage.prompt_tokens_details:
+                        cached_tokens = chunk.usage.prompt_tokens_details.cached_tokens or 0
+
+                    usage_info = UsageInfo(
+                        input_tokens=chunk.usage.prompt_tokens,
+                        output_tokens=chunk.usage.completion_tokens,
+                        extra={"cached_input_tokens": cached_tokens},
+                    )
+
+                if chunk.choices and chunk.choices[0].delta.content:
+                    token = chunk.choices[0].delta.content
+                    buffer += token
+
+                    # Count word boundaries in buffer
+                    boundaries = list(_WORD_BOUNDARY_PATTERN.finditer(buffer))
+                    if len(boundaries) >= _WORDS_PER_CHUNK:
+                        # Yield up to the last complete word boundary
+                        last_boundary = boundaries[_WORDS_PER_CHUNK - 1]
+                        chunk_text = buffer[: last_boundary.end()]
+                        buffer = buffer[last_boundary.end() :]
+                        yield chunk_text
+
+            # Yield any remaining content in the buffer
+            if buffer:
+                yield buffer
+
+            # Record metrics if we have usage info
+            if usage_info is not None:
+                await record_llm_metrics(
+                    self.meter,
+                    self.model_name,
+                    schema_name="streaming",
+                    input_tokens=usage_info.input_tokens,
+                    output_tokens=usage_info.output_tokens,
+                    cached_input_tokens=usage_info.extra.get("cached_input_tokens", 0)
+                    if usage_info.extra
+                    else 0,
+                )
+
+            # Signal completion
+            yield None
+
+        def get_usage() -> UsageInfo:
+            if usage_info is None:
+                # Fallback if usage wasn't available
+                return UsageInfo(input_tokens=0, output_tokens=0)
+            return usage_info
+
+        return chunk_generator(), get_usage
 
 
 class GPT_4_1_Streaming(OpenAIStreamingTextGenerator):

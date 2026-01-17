@@ -58,7 +58,7 @@ from parlant.core.journeys import Journey
 from parlant.core.tags import Tag
 from parlant.core.canned_responses import CannedResponse, CannedResponseId, CannedResponseStore
 from parlant.core.nlp.generation import SchematicGenerator, StreamingTextGenerator
-from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
+from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder, BuiltInSection
 from parlant.core.glossary import Term
@@ -1884,9 +1884,12 @@ QUICK RECAP (for reference before responding):
         message_text = ""
         handle: MessageEventHandle | None = None
 
+        # Get the streaming result
+        streaming_result = self._streaming_text_generator.generate(prompt=prompt)
+
         try:
             # Stream the response
-            async for chunk in self._streaming_text_generator.generate(prompt=prompt):
+            async for chunk in streaming_result.stream:
                 if chunk is None:
                     # End of stream - add None terminator
                     chunks.append(None)
@@ -1944,32 +1947,21 @@ QUICK RECAP (for reference before responding):
             },
         )
 
+        # Get actual generation info from the completed stream
+        generation_info = streaming_result.info
+
         # If no chunks were received, return empty composition
         if handle is None:
             return [
                 MessageEventComposition(
-                    generation_info={
-                        "streaming": GenerationInfo(
-                            schema_name="streaming",
-                            model=self._streaming_text_generator.id,
-                            duration=context.start_of_processing.elapsed,
-                            usage=UsageInfo(input_tokens=0, output_tokens=0),
-                        )
-                    },
+                    generation_info={"streaming": generation_info},
                     events=[],
                 )
             ]
 
         return [
             MessageEventComposition(
-                generation_info={
-                    "streaming": GenerationInfo(
-                        schema_name="streaming",
-                        model=self._streaming_text_generator.id,
-                        duration=context.start_of_processing.elapsed,
-                        usage=UsageInfo(input_tokens=0, output_tokens=0),
-                    )
-                },
+                generation_info={"streaming": generation_info},
                 events=[handle.event],
             )
         ]

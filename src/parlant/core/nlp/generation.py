@@ -15,7 +15,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any, AsyncIterator, Generic, Mapping, TypeVar, cast, get_args
+from typing import Any, AsyncIterator, Callable, Generic, Mapping, TypeVar, cast, get_args
 from typing_extensions import override
 
 from parlant.core.async_utils import Stopwatch
@@ -23,7 +23,7 @@ from parlant.core.common import DefaultBaseModel
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
 from parlant.core.meter import DurationHistogram, Meter
-from parlant.core.nlp.generation_info import GenerationInfo
+from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.tracer import Tracer
 
@@ -33,6 +33,35 @@ T = TypeVar("T", bound=DefaultBaseModel)
 # ============================================================================
 # Streaming Text Generator
 # ============================================================================
+
+
+class StreamingTextGenerationResult:
+    """Result of a streaming text generation operation.
+
+    Provides access to both the chunk stream and the generation info.
+    The info property raises RuntimeError if accessed before the stream is fully consumed.
+    """
+
+    def __init__(
+        self,
+        stream: AsyncIterator[str | None],
+        info_getter: Callable[[], GenerationInfo],
+    ) -> None:
+        self._stream = stream
+        self._info_getter = info_getter
+
+    @property
+    def stream(self) -> AsyncIterator[str | None]:
+        """The async iterator that yields text chunks, terminated by None."""
+        return self._stream
+
+    @property
+    def info(self) -> GenerationInfo:
+        """Generation info including usage statistics.
+
+        Raises RuntimeError if accessed before the stream is fully consumed.
+        """
+        return self._info_getter()
 
 
 class StreamingTextGenerator(ABC):
@@ -47,10 +76,12 @@ class StreamingTextGenerator(ABC):
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
-    ) -> AsyncIterator[str | None]:
+    ) -> StreamingTextGenerationResult:
         """Generate text content based on the provided prompt and hints.
 
-        Yields text chunks progressively, followed by None to signal completion.
+        Returns a StreamingTextGenerationResult containing:
+        - stream: AsyncIterator yielding text chunks, followed by None to signal completion
+        - info: GenerationInfo with usage statistics (available after stream completes)
         """
         ...
 
@@ -91,49 +122,81 @@ class BaseStreamingTextGenerator(StreamingTextGenerator):
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
-    ) -> AsyncIterator[str | None]:
-        """Subclasses implement this to perform the actual generation."""
+    ) -> tuple[AsyncIterator[str | None], Callable[[], UsageInfo]]:
+        """Subclasses implement this to perform the actual generation.
+
+        Returns:
+            A tuple of:
+            - AsyncIterator yielding text chunks, terminated by None
+            - A callable that returns UsageInfo (may raise if called before stream completes)
+        """
         ...
-        # This yield is needed to make this an async generator
-        yield  # type: ignore
 
     @override
-    async def generate(
+    def generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
-    ) -> AsyncIterator[str | None]:
+    ) -> StreamingTextGenerationResult:
         assert _STREAMING_REQUEST_DURATION_HISTOGRAM is not None
 
         start = Stopwatch.start()
+        stream_complete = False
+        duration: float = 0.0
+        usage_getter: Callable[[], UsageInfo] | None = None
 
-        try:
-            self.tracer.add_event(
-                "stream.request_started",
-                attributes={
-                    "model.name": self.model_name,
-                },
+        async def wrapped_stream() -> AsyncIterator[str | None]:
+            nonlocal stream_complete, duration, usage_getter
+
+            try:
+                self.tracer.add_event(
+                    "stream.request_started",
+                    attributes={
+                        "model.name": self.model_name,
+                    },
+                )
+
+                inner_stream, usage_getter = await self.do_generate(prompt, hints)
+
+                async for chunk in inner_stream:
+                    yield chunk
+
+                duration = start.elapsed
+                stream_complete = True
+
+                self.tracer.add_event(
+                    "stream.request_completed",
+                    attributes={
+                        "model.name": self.model_name,
+                        "duration": duration,
+                    },
+                )
+            except Exception:
+                duration = start.elapsed
+                self.tracer.add_event(
+                    "stream.request_failed",
+                    attributes={
+                        "model.name": self.model_name,
+                        "duration": duration,
+                    },
+                )
+                raise
+
+        def info_getter() -> GenerationInfo:
+            if not stream_complete:
+                raise RuntimeError("Cannot access generation info before stream is fully consumed")
+            assert usage_getter is not None
+            return GenerationInfo(
+                schema_name="streaming",
+                model=self.id,
+                duration=duration,
+                usage=usage_getter(),
             )
 
-            async for chunk in self.do_generate(prompt, hints):
-                yield chunk
-
-            self.tracer.add_event(
-                "stream.request_completed",
-                attributes={
-                    "model.name": self.model_name,
-                    "duration": start.elapsed,
-                },
-            )
-        except Exception:
-            self.tracer.add_event(
-                "stream.request_failed",
-                attributes={
-                    "model.name": self.model_name,
-                    "duration": start.elapsed,
-                },
-            )
-            raise
+        return StreamingTextGenerationResult(
+            stream=wrapped_stream(),
+            info_getter=info_getter,
+        )
 
 
 # ============================================================================

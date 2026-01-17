@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import asyncio
-from typing import Any, AsyncIterator, Mapping, cast
+from typing import Any, AsyncIterator, Callable, Mapping, cast
 from typing_extensions import override
 from lagom import Container
 from unittest.mock import AsyncMock
@@ -35,6 +35,7 @@ from parlant.core.nlp.generation import (
     FallbackSchematicGenerator,
     SchematicGenerationResult,
     SchematicGenerator,
+    StreamingTextGenerationResult,
     StreamingTextGenerator,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -424,14 +425,25 @@ class MockStreamingTextGenerator(StreamingTextGenerator):
         self._chunks = chunks
 
     @override
-    async def generate(
+    def generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
-    ) -> AsyncIterator[str | None]:
-        for chunk in self._chunks:
-            yield chunk
-        yield None
+    ) -> StreamingTextGenerationResult:
+        async def stream() -> AsyncIterator[str | None]:
+            for chunk in self._chunks:
+                yield chunk
+            yield None
+
+        def info_getter() -> GenerationInfo:
+            return GenerationInfo(
+                schema_name="streaming",
+                model=self.id,
+                duration=0.0,
+                usage=UsageInfo(input_tokens=0, output_tokens=0),
+            )
+
+        return StreamingTextGenerationResult(stream=stream(), info_getter=info_getter)
 
     @property
     @override
@@ -448,8 +460,9 @@ async def test_that_streaming_text_generator_yields_chunks_and_terminates_with_n
     chunks = ["Hello", " ", "world", "!"]
     generator = MockStreamingTextGenerator(chunks)
 
+    result = generator.generate("test prompt")
     collected_chunks: list[str | None] = []
-    async for chunk in generator.generate("test prompt"):
+    async for chunk in result.stream:
         collected_chunks.append(chunk)
 
     # Should yield all chunks followed by None
@@ -459,8 +472,9 @@ async def test_that_streaming_text_generator_yields_chunks_and_terminates_with_n
 async def test_that_streaming_text_generator_yields_none_immediately_for_empty_response() -> None:
     generator = MockStreamingTextGenerator([])
 
+    result = generator.generate("test prompt")
     collected_chunks: list[str | None] = []
-    async for chunk in generator.generate("test prompt"):
+    async for chunk in result.stream:
         collected_chunks.append(chunk)
 
     # Should yield only None for empty response
@@ -471,8 +485,9 @@ async def test_that_streaming_text_generator_can_be_collected_into_full_text() -
     chunks = ["The ", "quick ", "brown ", "fox"]
     generator = MockStreamingTextGenerator(chunks)
 
+    result = generator.generate("test prompt")
     full_text = ""
-    async for chunk in generator.generate("test prompt"):
+    async for chunk in result.stream:
         if chunk is not None:
             full_text += chunk
 
@@ -499,12 +514,18 @@ class TestableBaseStreamingTextGenerator(BaseStreamingTextGenerator):
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
-    ) -> AsyncIterator[str | None]:
-        for chunk in self._chunks:
-            if self._should_fail:
-                raise Exception("Generation failed mid-stream")
-            yield chunk
-        yield None
+    ) -> tuple[AsyncIterator[str | None], Callable[[], UsageInfo]]:
+        async def stream() -> AsyncIterator[str | None]:
+            for chunk in self._chunks:
+                if self._should_fail:
+                    raise Exception("Generation failed mid-stream")
+                yield chunk
+            yield None
+
+        def get_usage() -> UsageInfo:
+            return UsageInfo(input_tokens=10, output_tokens=5)
+
+        return stream(), get_usage
 
     @property
     @override
@@ -528,8 +549,9 @@ async def test_that_base_streaming_text_generator_wraps_generation_with_tracing(
         chunks=chunks,
     )
 
+    result = generator.generate("test prompt")
     collected_chunks: list[str | None] = []
-    async for chunk in generator.generate("test prompt"):
+    async for chunk in result.stream:
         collected_chunks.append(chunk)
 
     assert collected_chunks == ["Hello", " world", None]
@@ -546,6 +568,7 @@ async def test_that_base_streaming_text_generator_propagates_exceptions(
         should_fail=True,
     )
 
+    result = generator.generate("test prompt")
     with raises(Exception, match="Generation failed mid-stream"):
-        async for _ in generator.generate("test prompt"):
+        async for _ in result.stream:
             pass

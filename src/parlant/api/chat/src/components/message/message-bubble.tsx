@@ -45,6 +45,7 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 	const [animatedLength, setAnimatedLength] = useState(0); // tracks what's been animated (for fade effect)
 	const messageText = event?.data?.message || '';
 	const revealedLengthRef = useRef(0);
+	const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	useEffect(() => {
 		if (!markdownRef?.current) return;
@@ -87,18 +88,38 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 	}, [messageText]);
 
 	// Update animated length to catch up with revealed length (for fade effect)
+	const revealedLengthForAnimation = useRef(0);
+	revealedLengthForAnimation.current = revealedLength;
+
 	useEffect(() => {
-		if (revealedLength > animatedLength) {
-			const timer = setTimeout(() => {
-				setAnimatedLength(revealedLength);
-			}, 200); // Fade duration
-			return () => clearTimeout(timer);
-		}
 		// Reset if revealed length is less (new message)
 		if (revealedLength < animatedLength) {
+			if (animationTimerRef.current) {
+				clearTimeout(animationTimerRef.current);
+				animationTimerRef.current = null;
+			}
 			setAnimatedLength(revealedLength);
+			return;
+		}
+
+		// Only start a new timer if there's no active timer and we have text to animate
+		if (revealedLength > animatedLength && !animationTimerRef.current) {
+			animationTimerRef.current = setTimeout(() => {
+				animationTimerRef.current = null;
+				// Use current revealedLength so all visible text becomes stable
+				setAnimatedLength(revealedLengthForAnimation.current);
+			}, 400); // Match animation duration
 		}
 	}, [revealedLength, animatedLength]);
+
+	// Cleanup timer on unmount
+	useEffect(() => {
+		return () => {
+			if (animationTimerRef.current) {
+				clearTimeout(animationTimerRef.current);
+			}
+		};
+	}, []);
 
 	// FIXME:
 	// rowCount SHOULD in fact be automatically calculated to
@@ -128,22 +149,32 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 	const chunks = event?.data?.chunks;
 	const isStreaming = chunks !== undefined && (chunks.length === 0 || chunks[chunks.length - 1] !== null);
 
-	// Check if we're still revealing text (either streaming or reveal hasn't caught up)
-	const isRevealing = isStreaming || (chunks !== undefined && revealedLength < messageText.length);
+	// Check if we're still revealing text (either streaming, reveal hasn't caught up, or animation hasn't caught up)
+	const isRevealing = isStreaming || (chunks !== undefined && (revealedLength < messageText.length || animatedLength < revealedLength));
+
+	// Track previous isRevealing state to detect when streaming completes
+	const wasRevealingRef = useRef(false);
 
 	// Auto-scroll during streaming to keep new text visible
 	useEffect(() => {
-		if (isRevealing && ref.current) {
-			// Check if user is near the bottom of the scroll container before auto-scrolling
-			const scrollContainer = ref.current.closest('.messages');
-			if (scrollContainer) {
-				const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
-				const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
-				if (isNearBottom) {
-					ref.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
-				}
-			}
+		const scrollContainer = ref.current?.closest('.messages');
+		if (!scrollContainer) return;
+
+		const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+		const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
+
+		if (isRevealing && ref.current && isNearBottom) {
+			// During streaming: scroll to keep message visible
+			ref.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+		} else if (wasRevealingRef.current && !isRevealing && isNearBottom) {
+			// Streaming just completed: scroll to very bottom of container
+			scrollContainer.scrollTo({
+				top: scrollContainer.scrollHeight,
+				behavior: 'smooth'
+			});
 		}
+
+		wasRevealingRef.current = isRevealing;
 	}, [revealedLength, isRevealing]);
 
 	return (
@@ -223,7 +254,7 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 												{/* During reveal: split into stable text and newly revealed text with fade */}
 												<span className={twJoin(!isOneLiner && 'leading-[26px]')}>{messageText.slice(0, animatedLength)}</span>
 												{revealedLength > animatedLength && (
-													<span className={twJoin(!isOneLiner && 'leading-[26px]', 'animate-fade-in-fast')}>{messageText.slice(animatedLength, revealedLength)}</span>
+													<span key={animatedLength} className={twJoin(!isOneLiner && 'leading-[26px]', 'animate-fade-in-fast')}>{messageText.slice(animatedLength, revealedLength)}</span>
 												)}
 											</>
 										) : (

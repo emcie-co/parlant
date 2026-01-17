@@ -18,8 +18,8 @@ module.exports = {
 					'100%': {opacity: 1},
 				},
 				'fade-in-fast': {
-					'0%': {opacity: 0, transform: 'translateY(2px)'},
-					'100%': {opacity: 1, transform: 'translateY(0)'},
+					'0%': {opacity: 0, transform: 'translateY(6px) scale(0.98)', filter: 'blur(1px)'},
+					'100%': {opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0)'},
 				},
 				'scroll-down': {
 					'0%': {height: 0},
@@ -36,7 +36,7 @@ module.exports = {
 			},
 			animation: {
 				'fade-in': 'fade-in 300ms linear',
-				'fade-in-fast': 'fade-in-fast 250ms ease-out',
+				'fade-in-fast': 'fade-in-fast 400ms ease-out',
 				'scroll-down': 'scroll-down 300ms linear',
 				'background-shift': 'background-shift 5s linear infinite',
 				rotate: 'rotate 5s linear infinite',

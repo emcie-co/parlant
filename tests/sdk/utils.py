@@ -88,6 +88,7 @@ class Context:
             agent_message = await self._wait_for_streaming_completion(
                 session_id=self._session_id,
                 event_id=agent_message.id,
+                min_offset=event.offset,
             )
 
         return agent_message
@@ -109,6 +110,7 @@ class Context:
         self,
         session_id: str,
         event_id: str,
+        min_offset: int,
         timeout: float = 60.0,
     ) -> ClientEvent:
         """Wait for a streaming message to complete."""
@@ -122,6 +124,8 @@ class Context:
                 session_id=session_id,
                 source="ai_agent",
                 kinds="message",
+                min_offset=min_offset,
+                wait_for_data=10,
             )
 
             for event in events:

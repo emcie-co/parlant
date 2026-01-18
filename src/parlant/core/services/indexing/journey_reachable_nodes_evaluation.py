@@ -390,9 +390,6 @@ class JourneyReachableNodesEvaluator:
                 children_info,
             )
 
-            if progress_report:
-                await progress_report.increment(1)
-
             result: list[tuple[str, Sequence[str]]] = []
             for r in reachable_follow_ups:
                 path = [duplicate_to_orig_id.get(id, id) for id in r.path]
@@ -400,6 +397,9 @@ class JourneyReachableNodesEvaluator:
 
             if node_idx not in duplicate_to_orig_id:
                 node_to_reachable_follow_ups[node_idx] = result
+
+            if progress_report:
+                await progress_report.increment(1)
 
         return ReachableNodesEvaluation(node_to_reachable_follow_ups=node_to_reachable_follow_ups)
 

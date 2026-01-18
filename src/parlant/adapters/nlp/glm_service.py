@@ -88,7 +88,8 @@ class GLMEmbedder(BaseEmbedder):
         self._meter = meter
 
         self._client = AsyncClient(
-            base_url="https://open.bigmodel.cn/api/paas/v4", api_key=os.environ["GLM_API_KEY"]
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            api_key=os.environ["GLM_API_KEY"],
         )
         self._tokenizer = GLMEstimatingTokenizer(model_name=self.model_name)
 

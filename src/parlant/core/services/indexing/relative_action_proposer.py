@@ -98,9 +98,6 @@ class RelativeActionProposer:
                         temperature=generation_attempt_temperatures[generation_attempt],
                     )
 
-                    if progress_report:
-                        await progress_report.increment(1)
-
                     rewritten_actions = []
                     for a in result.actions:
                         if a.needs_rewrite:
@@ -110,6 +107,10 @@ class RelativeActionProposer:
                                     rewritten_actions=a.rewritten_action,
                                 )
                             )
+
+                    if progress_report:
+                        await progress_report.increment(1)
+
                     return RelativeActionProposition(actions=rewritten_actions)
                 except Exception as exc:
                     self._logger.warning(

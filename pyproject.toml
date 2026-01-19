@@ -124,6 +124,7 @@ dev = [
     "types-requests>=2.32.0.20240712",
     "types-toml>=0.10.8",
     "pytest-xdist>=3.6.1",
+    "types-grpcio>=1.0.0.20251009",
 ]
 
 [tool.uv]

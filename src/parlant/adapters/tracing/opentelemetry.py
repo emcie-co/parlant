@@ -137,7 +137,7 @@ class OpenTelemetryTracer(Tracer):
 
         if not current_spans:
             new_spans = span_id
-            custom_trace_id = generate_id({"strategy": "uuid4"})
+            custom_trace_id = self._generate_trace_id()
             trace_id_reset_token = self._trace_id.set(custom_trace_id)
 
             # Convert UUID hex to proper OpenTelemetry format

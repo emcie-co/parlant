@@ -4577,6 +4577,7 @@ dev = [
     { name = "pytest-xdist" },
     { name = "python-dotenv" },
     { name = "ruff" },
+    { name = "types-grpcio" },
     { name = "types-python-dateutil" },
     { name = "types-requests" },
     { name = "types-toml" },
@@ -4686,6 +4687,7 @@ dev = [
     { name = "pytest-xdist", specifier = ">=3.6.1" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "ruff", specifier = ">=0.9.1" },
+    { name = "types-grpcio", specifier = ">=1.0.0.20251009" },
     { name = "types-python-dateutil", specifier = ">=2.8.19.20240106" },
     { name = "types-requests", specifier = ">=2.32.0.20240712" },
     { name = "types-toml", specifier = ">=0.10.8" },
@@ -6947,6 +6949,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/c5/e4/89a0101471d6fe4e912dad24c54ae7afd90a9eaa5c74adef2c81f383f8da/types_croniter-6.2.2.20260408.tar.gz", hash = "sha256:a28a18908db371654990d30a3fd99856adc5137e475a23dbda4b10dce85525da", size = 12040, upload-time = "2026-04-08T04:27:20.068Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c3/05/b32e67944ff33e83c181cadf5835858d63f4292a2f2ff5bf6a1edb7f6fed/types_croniter-6.2.2.20260408-py3-none-any.whl", hash = "sha256:242087a5b6e201b7004e55f71ed34f466951b74551c64ef1c6a8a08c47d3cc0d", size = 9732, upload-time = "2026-04-08T04:27:19.229Z" },
+]
+
+[[package]]
+name = "types-grpcio"
+version = "1.0.0.20251009"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/de/93/78aa083216853c667c9412df4ef8284b2a68c6bcd2aef833f970b311f3c1/types_grpcio-1.0.0.20251009.tar.gz", hash = "sha256:a8f615ea7a47b31f10da028ab5258d4f1611fbd70719ca450fc0ab3fb9c62b63", size = 14479, upload-time = "2025-10-09T02:54:14.539Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d4/93/66d28f41b16bb4e6b611bd608ef28dffc740facec93250b30cf83138da21/types_grpcio-1.0.0.20251009-py3-none-any.whl", hash = "sha256:112ac4312a5b0a273a4c414f7f2c7668f342990d9c6ab0f647391c36331f95ed", size = 15208, upload-time = "2025-10-09T02:54:13.588Z" },
 ]
 
 [[package]]

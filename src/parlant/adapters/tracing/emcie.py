@@ -19,6 +19,7 @@ import os
 import time
 from collections import deque
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from types import TracebackType
 from typing import Any, Iterator, Mapping, Optional, Callable, TypedDict
 from typing_extensions import override, Self, NotRequired
@@ -95,10 +96,6 @@ class GuidelineMatchEventAttributesOutput(EventAttributesBase):
 
     guideline_id: NotRequired[str]
     rationale: NotRequired[str]
-
-
-# Note: Using dict[str, Any] in function signatures for compatibility with existing code
-# The TypedDict definitions above serve as documentation of the expected structure
 
 
 def _transform_trace(span_data: dict[str, Any]) -> dict[str, Any]:
@@ -181,7 +178,7 @@ def _transform_journey_activate_event(event: dict[str, Any]) -> dict[str, Any]:
         input_attrs = event["attributes"]
         safe_attributes: dict[str, Any] = {}
 
-        for key in ["node_id", "journey_id", "sub_journey_id"]:
+        for key in ["edge_id", "node_id", "journey_id", "sub_journey_id"]:
             if key in input_attrs:
                 safe_attributes[key] = input_attrs[key]
         # Remove sensitive fields like "condition", "action", "rationale"
@@ -216,30 +213,19 @@ TRACE_TRANSFORMS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
 }
 
 
+@dataclass
 class EmcieSpanData:
     """Internal representation of a span for OTLP export."""
 
-    def __init__(
-        self,
-        span_name: str,
-        trace_id: str,
-        span_id: str,
-        parent_span_id: str = "",
-        attributes: Mapping[str, AttributeValue] | None = None,
-        start_time_ns: int | None = None,
-        end_time_ns: int | None = None,
-        status_code: StatusCode = StatusCode.UNSET,
-        status_message: str = "",
-    ):
-        self.span_name = span_name
-        self.trace_id = trace_id
-        self.span_id = span_id
-        self.parent_span_id = parent_span_id
-        self.attributes = attributes or {}
-        self.start_time_ns = start_time_ns or time.time_ns()
-        self.end_time_ns = end_time_ns
-        self.status_code = status_code
-        self.status_message = status_message
+    span_name: str
+    trace_id: str
+    span_id: str
+    parent_span_id: str = ""
+    attributes: Mapping[str, AttributeValue] = field(default_factory=dict)
+    start_time_ns: int = field(default_factory=lambda: time.time_ns())
+    end_time_ns: int | None = None
+    status_code: StatusCode = StatusCode.UNSET
+    status_message: str = ""
 
 
 class EmcieExporter:
@@ -341,12 +327,12 @@ class EmcieExporter:
 
         try:
             # Run the blocking gRPC call in a thread pool
-            return await asyncio.to_thread(self._export_spans_sync, spans)
+            return await asyncio.to_thread(self._export_spans, spans)
         except Exception as e:
             self._log_error_rate_limited(f"Failed to export spans: {e}")
             return False
 
-    def _export_spans_sync(self, spans: list[EmcieSpanData]) -> bool:
+    def _export_spans(self, spans: list[EmcieSpanData]) -> bool:
         """Synchronous span export implementation."""
         try:
             # Create request
@@ -535,7 +521,7 @@ class EmcieTracer(Tracer):
         # Determine if this is a root span
         if not current_spans:
             new_spans = span_id
-            custom_trace_id = generate_id({"strategy": "uuid4"})
+            custom_trace_id = self._generate_trace_id()
             trace_id_reset_token = self._trace_id.set(custom_trace_id)
             parent_span_id = ""
         else:
@@ -551,7 +537,7 @@ class EmcieTracer(Tracer):
         span_data = EmcieSpanData(
             span_name=span_id,
             trace_id=custom_trace_id,
-            span_id=generate_id({"strategy": "uuid4"}),
+            span_id=str(generate_id({"strategy": "uuid4"})),
             parent_span_id=parent_span_id,
             attributes=new_attributes,
             start_time_ns=time.time_ns(),

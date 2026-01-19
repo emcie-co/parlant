@@ -1454,12 +1454,12 @@ EXAMPLES
         builder.add_glossary(terms)
         builder.add_context_variables(context_variables)
         builder.add_capabilities_for_message_generation(capabilities)
-        builder.add_guidelines_for_message_generation(
+        builder.add_low_criticality_guidelines(
             ordinary_guideline_matches,
             tool_enabled_guideline_matches,
             guideline_representations,
         )
-        builder.add_low_criticality_guidelines(
+        builder.add_guidelines_for_message_generation(
             ordinary_guideline_matches,
             tool_enabled_guideline_matches,
             guideline_representations,

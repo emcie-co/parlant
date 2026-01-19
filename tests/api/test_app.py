@@ -21,3 +21,16 @@ async def test_health_check_endpoint(async_client: httpx.AsyncClient) -> None:
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json() == {"status": "ok"}
+
+
+async def test_that_404_error_responses_include_cors_headers(
+    async_client: httpx.AsyncClient,
+) -> None:
+    """CORS headers must be present on error responses for cross-origin clients."""
+    response = await async_client.get(
+        "/agents/nonexistent-agent-id",
+        headers={"Origin": "http://localhost:3000"},
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert "access-control-allow-origin" in response.headers

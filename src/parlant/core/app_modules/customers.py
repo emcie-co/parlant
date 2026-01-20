@@ -76,11 +76,13 @@ class CustomerModule:
 
     async def find(
         self,
+        name: str | None = None,
         limit: int | None = None,
         cursor: Cursor | None = None,
         sort_direction: SortDirection | None = None,
     ) -> CustomerListing:
         result = await self._customer_store.list_customers(
+            name=name,
             limit=limit,
             cursor=cursor,
             sort_direction=sort_direction,

@@ -138,6 +138,16 @@ SortQuery: TypeAlias = Annotated[
     ),
 ]
 
+NameQuery: TypeAlias = Annotated[
+    str,
+    Query(
+        description="Filter customers by name (case-insensitive partial match)",
+        examples=["john", "VIP"],
+        min_length=1,
+        max_length=100,
+    ),
+]
+
 
 class CustomerDTO(
     DefaultBaseModel,
@@ -393,6 +403,7 @@ def create_router(
     )
     async def list_customers(
         request: Request,
+        name: NameQuery | None = None,
         limit: LimitQuery | None = None,
         cursor: CursorQuery | None = None,
         sort: SortQuery | None = None,
@@ -404,11 +415,13 @@ def create_router(
         with a configurable sort direction. If no cursor is provided, the full list of
         customers is returned.
 
+        Optionally filter by name using a case-insensitive partial match.
+
         Returns an empty list if no customers exist.
 
         Note:
-            When using paginated results, the first page will always include the special
-            'guest' customer as first item.
+            When using paginated results and no name filter is applied, the first page
+            will always include the special 'guest' customer as first item.
         """
         await authorization_policy.authorize(
             request=request,
@@ -416,6 +429,7 @@ def create_router(
         )
 
         customers_result = await app.customers.find(
+            name=name,
             limit=limit,
             cursor=decode_cursor(cursor) if cursor else None,
             sort_direction=sort_direction_dto_to_sort_direction(sort) if sort else None,

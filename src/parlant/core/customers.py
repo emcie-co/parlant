@@ -95,6 +95,7 @@ class CustomerStore(ABC):
     async def list_customers(
         self,
         tags: Optional[Sequence[TagId]] = None,
+        name: Optional[str] = None,
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
         sort_direction: Optional[SortDirection] = None,
@@ -345,6 +346,7 @@ class CustomerDocumentStore(CustomerStore):
     async def list_customers(
         self,
         tags: Optional[Sequence[TagId]] = None,
+        name: Optional[str] = None,
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
         sort_direction: Optional[SortDirection] = None,
@@ -381,7 +383,49 @@ class CustomerDocumentStore(CustomerStore):
 
                     filters = {"$or": [{"id": {"$eq": id}} for id in customer_ids]}
 
-            # Use the document collection's find method with pagination
+            # When name filter is provided, fetch all and filter in memory
+            # (pagination will be applied after filtering)
+            if name is not None:
+                result = await self._customers_collection.find(
+                    filters=filters,
+                    sort_direction=sort_direction,
+                )
+
+                # Convert and filter by name
+                name_lower = name.lower()
+                all_customers = [
+                    await self._deserialize_customer(doc)
+                    for doc in result.items
+                ]
+                filtered_customers = [
+                    c for c in all_customers if name_lower in c.name.lower()
+                ]
+
+                # Include guest if it matches the name filter and no tag filter
+                include_guest = tags is None and name_lower in "guest".lower()
+                if include_guest:
+                    guest = await self.read_customer(CustomerStore.GUEST_ID)
+                    filtered_customers = [guest] + filtered_customers
+
+                total_count = len(filtered_customers)
+
+                # Apply pagination in memory if needed
+                if limit is not None:
+                    # Simple offset-based pagination for name filter
+                    # (cursor-based pagination not supported with name filter)
+                    filtered_customers = filtered_customers[:limit]
+                    has_more = total_count > limit
+                else:
+                    has_more = False
+
+                return CustomerListing(
+                    items=filtered_customers,
+                    total_count=total_count,
+                    has_more=has_more,
+                    next_cursor=None,  # Cursor not supported with name filter
+                )
+
+            # Standard pagination path (no name filter)
             result = await self._customers_collection.find(
                 filters=filters,
                 limit=limit - 1

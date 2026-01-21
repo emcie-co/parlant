@@ -170,7 +170,7 @@ class _AgentDisabledRuleDocument(TypedDict, total=False):
 
 
 class AgentDocumentStore(AgentStore):
-    VERSION = Version.from_string("0.6.0")
+    VERSION = Version.from_string("0.4.1")
 
     def __init__(
         self,
@@ -227,13 +227,13 @@ class AgentDocumentStore(AgentStore):
 
             return None
 
-        async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
+        async def v0_4_0_to_v0_4_1(doc: BaseDocument) -> Optional[BaseDocument]:
             doc = cast(_AgentDocument, doc)
 
             if doc["version"] == "0.4.0":
                 return _AgentDocument(
                     id=ObjectId(doc["id"]),
-                    version=Version.String("0.5.0"),
+                    version=Version.String("0.4.1"),
                     creation_utc=doc["creation_utc"],
                     name=doc["name"],
                     description=doc.get("description"),
@@ -242,27 +242,7 @@ class AgentDocumentStore(AgentStore):
                     playbook_id=None,
                 )
 
-            if doc["version"] == "0.5.0":
-                return doc
-
-            return None
-
-        async def v0_5_0_to_v0_6_0(doc: BaseDocument) -> Optional[BaseDocument]:
-            doc = cast(_AgentDocument, doc)
-
-            if doc["version"] == "0.5.0":
-                return _AgentDocument(
-                    id=ObjectId(doc["id"]),
-                    version=Version.String("0.6.0"),
-                    creation_utc=doc["creation_utc"],
-                    name=doc["name"],
-                    description=doc.get("description"),
-                    max_engine_iterations=doc["max_engine_iterations"],
-                    composition_mode=doc.get("composition_mode", CompositionMode.FLUID.value),
-                    playbook_id=doc.get("playbook_id"),
-                )
-
-            if doc["version"] == "0.6.0":
+            if doc["version"] == "0.4.1":
                 return doc
 
             return None
@@ -273,8 +253,7 @@ class AgentDocumentStore(AgentStore):
                 "0.1.0": v0_1_0_to_v0_2_0,
                 "0.2.0": v0_2_0_to_v0_3_0,
                 "0.3.0": v0_3_0_to_v0_4_0,
-                "0.4.0": v0_4_0_to_v0_5_0,
-                "0.5.0": v0_5_0_to_v0_6_0,
+                "0.4.0": v0_4_0_to_v0_4_1,
             },
         ).migrate(doc)
 
@@ -286,7 +265,7 @@ class AgentDocumentStore(AgentStore):
         if doc["version"] == "0.3.0":
             return _AgentTagAssociationDocument(
                 id=ObjectId(doc["id"]),
-                version=Version.String("0.5.0"),
+                version=Version.String("0.4.1"),
                 creation_utc=doc["creation_utc"],
                 agent_id=AgentId(doc["agent_id"]),
                 tag_id=TagId(doc["tag_id"]),
@@ -295,22 +274,13 @@ class AgentDocumentStore(AgentStore):
         if doc["version"] == "0.4.0":
             return _AgentTagAssociationDocument(
                 id=ObjectId(doc["id"]),
-                version=Version.String("0.5.0"),
+                version=Version.String("0.4.1"),
                 creation_utc=doc["creation_utc"],
                 agent_id=AgentId(doc["agent_id"]),
                 tag_id=TagId(doc["tag_id"]),
             )
 
-        if doc["version"] == "0.5.0":
-            return _AgentTagAssociationDocument(
-                id=ObjectId(doc["id"]),
-                version=Version.String("0.6.0"),
-                creation_utc=doc["creation_utc"],
-                agent_id=AgentId(doc["agent_id"]),
-                tag_id=TagId(doc["tag_id"]),
-            )
-
-        if doc["version"] == "0.6.0":
+        if doc["version"] == "0.4.1":
             return doc
 
         return None
@@ -320,7 +290,7 @@ class AgentDocumentStore(AgentStore):
     ) -> Optional[_AgentDisabledRuleDocument]:
         doc = cast(_AgentDisabledRuleDocument, doc)
 
-        if doc["version"] == "0.6.0":
+        if doc["version"] == "0.4.1":
             return doc
 
         return None

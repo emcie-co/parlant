@@ -81,11 +81,6 @@ class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
     ) -> None:
         super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
 
-        self.model_name = model_name
-        self._logger = logger
-        self._tracer = tracer
-        self._meter = meter
-
         self._client = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
         self._estimating_tokenizer = AnthropicEstimatingTokenizer(self._client, model_name)
 
@@ -118,7 +113,7 @@ class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.scope(f"Anthropic LLM Request ({self.schema.__name__})"):
+        with self.logger.scope(f"Anthropic LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     async def _do_generate(
@@ -140,7 +135,7 @@ class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
                 **anthropic_api_arguments,
             )
         except RateLimitError:
-            self._logger.error(
+            self.logger.error(
                 (
                     "Anthropic API rate limit exceeded. Possible reasons:\n"
                     "1. Your account may have insufficient API credits.\n"
@@ -158,7 +153,7 @@ class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
         t_end = time.time()
 
         if response.usage:
-            self._logger.trace(response.usage.model_dump_json(indent=2))
+            self.logger.trace(response.usage.model_dump_json(indent=2))
 
         raw_content = response.content[0].text
 
@@ -166,7 +161,7 @@ class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
             json_content = normalize_json_output(raw_content)
             json_object = jsonfinder.only_json(json_content)[2]
         except Exception:
-            self._logger.error(
+            self.logger.error(
                 f"Failed to extract JSON returned by {self.model_name}:\n{raw_content}"
             )
             raise
@@ -175,7 +170,7 @@ class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
             model_content = self.schema.model_validate(json_object)
 
             await record_llm_metrics(
-                self._meter,
+                self.meter,
                 self.model_name,
                 schema_name=self.schema.__name__,
                 input_tokens=response.usage.input_tokens,
@@ -195,7 +190,7 @@ class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
                 ),
             )
         except ValidationError:
-            self._logger.error(
+            self.logger.error(
                 f"JSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
             )
             raise
@@ -260,11 +255,11 @@ Please set ANTHROPIC_API_KEY in your environment before running Parlant.
         return None
 
     def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        self._logger = logger
+        self.logger = logger
         self._tracer = tracer
         self._meter = meter
 
-        self._logger.info("Initialized AnthropicService")
+        self.logger.info("Initialized AnthropicService")
 
     @override
     async def get_schematic_generator(
@@ -275,12 +270,12 @@ Please set ANTHROPIC_API_KEY in your environment before running Parlant.
             or t == DisambiguationGuidelineMatchesSchema
             or t == CannedResponseSelectionSchema
         ):
-            return Claude_Opus_4_1[t](self._logger, self._tracer, self._meter)  # type: ignore
-        return Claude_Sonnet_4[t](self._logger, self._tracer, self._meter)  # type: ignore
+            return Claude_Opus_4_1[t](self.logger, self._tracer, self._meter)  # type: ignore
+        return Claude_Sonnet_4[t](self.logger, self._tracer, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return JinaAIEmbedder(self._logger, self._tracer, self._meter)
+        return JinaAIEmbedder(self.logger, self._tracer, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

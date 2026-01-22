@@ -90,11 +90,6 @@ class LiteLLMSchematicGenerator(BaseSchematicGenerator[T]):
         super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
 
         self.base_url = base_url
-        self.model_name = model_name
-        self._logger = logger
-        self._tracer = tracer
-        self._meter = meter
-
         self._client = litellm
 
         self._tokenizer = LiteLLMEstimatingTokenizer(model_name=self.model_name)
@@ -115,7 +110,7 @@ class LiteLLMSchematicGenerator(BaseSchematicGenerator[T]):
         prompt: PromptBuilder | str,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.scope(f"LiteLLM LLM Request ({self.schema.__name__})"):
+        with self.logger.scope(f"LiteLLM LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     async def _do_generate(
@@ -145,25 +140,25 @@ class LiteLLMSchematicGenerator(BaseSchematicGenerator[T]):
         t_end = time.time()
 
         if response.usage:
-            self._logger.trace(response.usage.model_dump_json(indent=2))
+            self.logger.trace(response.usage.model_dump_json(indent=2))
 
         raw_content = response.choices[0].message.content or "{}"
 
         try:
             json_content = json.loads(normalize_json_output(raw_content))
         except json.JSONDecodeError:
-            self._logger.warning(
+            self.logger.warning(
                 f"Invalid JSON returned by litellm/{self.model_name}:\n{raw_content})"
             )
             json_content = jsonfinder.only_json(raw_content)[2]
-            self._logger.warning("Found JSON content within model response; continuing...")
+            self.logger.warning("Found JSON content within model response; continuing...")
 
         try:
             content = self.schema.model_validate(json_content)
             assert response.usage
 
             await record_llm_metrics(
-                self._meter,
+                self.meter,
                 self.model_name,
                 schema_name=self.schema.__name__,
                 input_tokens=response.usage.prompt_tokens,
@@ -195,7 +190,7 @@ class LiteLLMSchematicGenerator(BaseSchematicGenerator[T]):
                 ),
             )
         except ValidationError:
-            self._logger.error(
+            self.logger.error(
                 f"JSON content returned by litellm/{self.model_name} does not match expected schema:\n{raw_content}"
             )
             raise
@@ -242,11 +237,11 @@ Please set LITELLM_PROVIDER_API_KEY in your environment before running Parlant.
     def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         self._base_url = os.environ.get("LITELLM_PROVIDER_BASE_URL")
         self._model_name = os.environ["LITELLM_PROVIDER_MODEL_NAME"]
-        self._logger = logger
+        self.logger = logger
         self._tracer = tracer
         self._meter = meter
 
-        self._logger.info(
+        self.logger.info(
             f"Initialized LiteLLMService with {self._model_name}"
             + (f" at {self._base_url}" if self._base_url else "")
         )
@@ -256,12 +251,12 @@ Please set LITELLM_PROVIDER_API_KEY in your environment before running Parlant.
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> LiteLLMSchematicGenerator[T]:
         return LiteLLM_Default[t](  # type: ignore
-            self._logger, self._tracer, self._meter, self._base_url, self._model_name
+            self.logger, self._tracer, self._meter, self._base_url, self._model_name
         )
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return JinaAIEmbedder(self._logger, self._tracer, self._meter)
+        return JinaAIEmbedder(self.logger, self._tracer, self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

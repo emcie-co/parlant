@@ -361,7 +361,6 @@ class OpenRouterEmbedder(BaseEmbedder):
 
     def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(logger, tracer, meter, model_name)
-        self.model_name = model_name
 
         # Build extra headers from environment variables
         extra_headers = {}

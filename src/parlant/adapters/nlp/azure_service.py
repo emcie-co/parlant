@@ -76,10 +76,6 @@ class AzureSchematicGenerator(BaseSchematicGenerator[T]):
     ) -> None:
         super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
 
-        self.model_name = model_name
-        self._logger = logger
-        self._tracer = tracer
-        self._meter = meter
         self._client = client
         self._tokenizer = AzureEstimatingTokenizer(model_name=self.model_name)
 
@@ -123,7 +119,7 @@ class AzureSchematicGenerator(BaseSchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.scope(f"Azure LLM Request ({self.schema.__name__})"):
+        with self.logger.scope(f"Azure LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     async def _do_generate(
@@ -146,7 +142,7 @@ class AzureSchematicGenerator(BaseSchematicGenerator[T]):
                     **azure_api_arguments,
                 )
             except RateLimitError:
-                self._logger.error(
+                self.logger.error(
                     "Azure API rate limit exceeded. Possible reasons:\n"
                     "1. Your account may have insufficient API credits.\n"
                     "2. You may be using a free-tier account with limited request capacity.\n"
@@ -162,7 +158,7 @@ class AzureSchematicGenerator(BaseSchematicGenerator[T]):
             t_end = time.time()
 
             if response.usage:
-                self._logger.trace(response.usage.model_dump_json(indent=2))
+                self.logger.trace(response.usage.model_dump_json(indent=2))
 
             parsed_object = response.choices[0].message.parsed
             assert parsed_object
@@ -170,7 +166,7 @@ class AzureSchematicGenerator(BaseSchematicGenerator[T]):
             assert response.usage
 
             await record_llm_metrics(
-                self._meter,
+                self.meter,
                 self.model_name,
                 schema_name=self.schema.__name__,
                 input_tokens=response.usage.prompt_tokens,
@@ -212,7 +208,7 @@ class AzureSchematicGenerator(BaseSchematicGenerator[T]):
                     **azure_api_arguments,
                 )
             except RateLimitError:
-                self._logger.error(
+                self.logger.error(
                     "Azure API rate limit exceeded. Possible reasons:\n"
                     "1. Your account may have insufficient API credits.\n"
                     "2. You may be using a free-tier account with limited request capacity.\n"
@@ -228,16 +224,16 @@ class AzureSchematicGenerator(BaseSchematicGenerator[T]):
             t_end = time.time()
 
             if response.usage:
-                self._logger.trace(response.usage.model_dump_json(indent=2))
+                self.logger.trace(response.usage.model_dump_json(indent=2))
 
             raw_content = response.choices[0].message.content or "{}"
 
             try:
                 json_content = json.loads(normalize_json_output(raw_content))
             except json.JSONDecodeError:
-                self._logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
+                self.logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
                 json_content = jsonfinder.only_json(raw_content)[2]
-                self._logger.warning("Found JSON content within model response; continuing...")
+                self.logger.warning("Found JSON content within model response; continuing...")
 
             try:
                 content = self.schema.model_validate(json_content)
@@ -265,7 +261,7 @@ class AzureSchematicGenerator(BaseSchematicGenerator[T]):
                     ),
                 )
             except ValidationError:
-                self._logger.error(
+                self.logger.error(
                     f"JSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
                 )
                 raise
@@ -389,8 +385,7 @@ class AzureEmbedder(BaseEmbedder):
         meter: Meter,
         client: AsyncAzureOpenAI,
     ) -> None:
-        super().__init__(logger, tracer, meter, model_name)
-        self.model_name = model_name
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
 
         self._client = client
         self._tokenizer = AzureEstimatingTokenizer(model_name=self.model_name)
@@ -420,7 +415,7 @@ class AzureEmbedder(BaseEmbedder):
                 **filtered_hints,
             )
         except RateLimitError:
-            self._logger.error(
+            self.logger.error(
                 "Azure API rate limit exceeded. Possible reasons:\n"
                 "1. Your account may have insufficient API credits.\n"
                 "2. You may be using a free-tier account with limited request capacity.\n"
@@ -640,7 +635,7 @@ https://docs.microsoft.com/en-us/python/api/overview/azure/identity-readme
         tracer: Tracer,
         meter: Meter,
     ) -> None:
-        self._logger = logger
+        self.logger = logger
         self._tracer = tracer
         self._meter = meter
 
@@ -649,14 +644,14 @@ https://docs.microsoft.com/en-us/python/api/overview/azure/identity-readme
     ) -> AzureSchematicGenerator[T]:
         if os.environ.get("AZURE_GENERATIVE_MODEL_NAME"):
             return CustomAzureSchematicGenerator[t](  # type: ignore
-                logger=self._logger, tracer=self._tracer, meter=self._meter
+                logger=self.logger, tracer=self._tracer, meter=self._meter
             )
-        return GPT_4o[t](self._logger, self._tracer, self._meter)  # type: ignore
+        return GPT_4o[t](self.logger, self._tracer, self._meter)  # type: ignore
 
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         if os.environ.get("AZURE_EMBEDDING_MODEL_NAME"):
-            return CustomAzureEmbedder(self._logger, self._tracer, self._meter)
-        return AzureTextEmbedding3Large(self._logger, self._tracer, self._meter)
+            return CustomAzureEmbedder(self.logger, self._tracer, self._meter)
+        return AzureTextEmbedding3Large(self.logger, self._tracer, self._meter)
 
     async def get_moderation_service(self) -> ModerationService:
         return NoModeration()

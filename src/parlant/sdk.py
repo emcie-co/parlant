@@ -104,6 +104,7 @@ from parlant.core.context_variables import (
     ContextVariableId,
     ContextVariableStore,
 )
+from parlant.core.emission.event_publisher import EventPublisherFactory
 from parlant.core.engines.alpha.guideline_matching.generic.common import (
     format_journey_node_guideline_id,
 )
@@ -4291,6 +4292,11 @@ class Server:
                     "context_variables",
                     id_generator=c()[IdGenerator],
                 )
+
+            c()[EventEmitterFactory] = EventPublisherFactory(
+                agent_store=c()[AgentStore],
+                session_store=c()[SessionStore],
+            )
 
             c()[ServiceRegistry] = await self._exit_stack.enter_async_context(
                 ServiceDocumentRegistry(

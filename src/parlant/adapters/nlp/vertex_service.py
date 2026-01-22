@@ -135,9 +135,6 @@ class VertexAIClaudeSchematicGenerator(BaseSchematicGenerator[T]):
 
         self.project_id = project_id
         self.region = region
-        self.model_name = model_name
-        self._logger = logger
-        self._meter = meter
 
         self._client = AsyncAnthropicVertex(
             project_id=project_id,
@@ -184,7 +181,7 @@ class VertexAIClaudeSchematicGenerator(BaseSchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.scope(f"Vertex LLM Request ({self.schema.__name__})"):
+        with self.logger.scope(f"Vertex LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     async def _do_generate(
@@ -206,7 +203,7 @@ class VertexAIClaudeSchematicGenerator(BaseSchematicGenerator[T]):
                 **anthropic_api_arguments,
             )
         except RateLimitError:
-            self._logger.error(
+            self.logger.error(
                 "Vertex AI rate limit exceeded. Possible reasons:\n"
                 "1. Your GCP project may have insufficient quota.\n"
                 "2. The model may not be enabled in Vertex AI Model Garden.\n"
@@ -220,7 +217,7 @@ class VertexAIClaudeSchematicGenerator(BaseSchematicGenerator[T]):
             raise
         except Exception as e:
             if "403" in str(e) or "permission" in str(e).lower():
-                self._logger.error(
+                self.logger.error(
                     f"Permission denied accessing Vertex AI. Ensure:\n"
                     f"1. ADC is properly configured (run 'gcloud auth application-default login')\n"
                     f"2. The service account has 'Vertex AI User' role\n"
@@ -237,7 +234,7 @@ class VertexAIClaudeSchematicGenerator(BaseSchematicGenerator[T]):
             json_content = normalize_json_output(raw_content)
             json_object = jsonfinder.only_json(json_content)[2]
         except Exception:
-            self._logger.error(
+            self.logger.error(
                 f"Failed to extract JSON returned by {self.model_name}:\n{raw_content}"
             )
             raise
@@ -246,7 +243,7 @@ class VertexAIClaudeSchematicGenerator(BaseSchematicGenerator[T]):
             model_content = self.schema.model_validate(json_object)
 
             await record_llm_metrics(
-                self._meter,
+                self.meter,
                 self.model_name,
                 schema_name=self.schema.__name__,
                 input_tokens=response.usage.input_tokens,
@@ -266,7 +263,7 @@ class VertexAIClaudeSchematicGenerator(BaseSchematicGenerator[T]):
                 ),
             )
         except ValidationError:
-            self._logger.error(
+            self.logger.error(
                 f"JSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
             )
             raise
@@ -288,13 +285,8 @@ class VertexAIGeminiSchematicGenerator(BaseSchematicGenerator[T]):
     ) -> None:
         super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
 
-        self._logger = logger
-        self._tracer = tracer
-        self._meter = meter
-
         self.project_id = project_id
         self.region = region
-        self.model_name = model_name
 
         self._client = google.genai.Client(project=project_id, location=region, vertexai=True)
         self._tokenizer = VertexAIEstimatingTokenizer(self._client, model_name)
@@ -337,7 +329,7 @@ class VertexAIGeminiSchematicGenerator(BaseSchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.scope(f"Vertex LLM Request ({self.schema.__name__})"):
+        with self.logger.scope(f"Vertex LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     async def _do_generate(
@@ -363,7 +355,7 @@ class VertexAIGeminiSchematicGenerator(BaseSchematicGenerator[T]):
                 config=cast(google.genai.types.GenerateContentConfigOrDict, config),
             )
         except TooManyRequests:
-            self._logger.error(
+            self.logger.error(
                 "Google API rate limit exceeded.\n\n"
                 "Possible reasons:\n"
                 "1. Insufficient API credits in your account.\n"
@@ -378,7 +370,7 @@ class VertexAIGeminiSchematicGenerator(BaseSchematicGenerator[T]):
             raise
         except Exception as e:
             if "403" in str(e) or "permission" in str(e).lower():
-                self._logger.error(
+                self.logger.error(
                     f"Permission denied accessing Google Gen AI. Ensure:\n"
                     f"1. GEMINI_API_KEY is properly configured\n"
                     f"2. The API key has proper permissions\n"
@@ -402,11 +394,11 @@ class VertexAIGeminiSchematicGenerator(BaseSchematicGenerator[T]):
 
             json_object = jsonfinder.only_json(json_content)[2]
         except Exception:
-            self._logger.error(f"Failed to extract JSON from {self.model_name}:\n{raw_content}")
+            self.logger.error(f"Failed to extract JSON from {self.model_name}:\n{raw_content}")
             raise
 
         if response.usage_metadata:
-            self._logger.trace(response.usage_metadata.model_dump_json(indent=2))
+            self.logger.trace(response.usage_metadata.model_dump_json(indent=2))
 
         try:
             model_content = self.schema.model_validate(json_object)
@@ -434,7 +426,7 @@ class VertexAIGeminiSchematicGenerator(BaseSchematicGenerator[T]):
                 ),
             )
         except ValidationError:
-            self._logger.error(f"JSON from {self.model_name} doesn't match schema:\n{raw_content}")
+            self.logger.error(f"JSON from {self.model_name} doesn't match schema:\n{raw_content}")
             raise
 
 
@@ -761,11 +753,11 @@ class VertexAIService(NLPService):
             os.environ.get("VERTEX_AI_MODEL", "claude-sonnet-3.5")
         )
 
-        self._logger = logger
+        self.logger = logger
         self._tracer = tracer
         self._meter = meter
 
-        self._logger.info(
+        self.logger.info(
             f"Initialized VertexAIService with model {self.model_name} "
             f"in project {self.project_id}, region {self.project_id}"
         )
@@ -792,25 +784,25 @@ class VertexAIService(NLPService):
                 primary = VertexClaudeOpus4[t](  # type: ignore
                     project_id=self.project_id,
                     region=self.region,
-                    logger=self._logger,
+                    logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
                 )
                 fallback = VertexClaudeSonnet4[t](  # type: ignore
                     project_id=self.project_id,
                     region=self.region,
-                    logger=self._logger,
+                    logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
                 )
                 return FallbackSchematicGenerator[t](  # type: ignore
-                    primary, fallback, logger=self._logger
+                    primary, fallback, logger=self.logger
                 )
             elif "sonnet-4" in self.model_name:
                 return VertexClaudeSonnet4[t](  # type: ignore
                     project_id=self.project_id,
                     region=self.region,
-                    logger=self._logger,
+                    logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
                 )
@@ -818,7 +810,7 @@ class VertexAIService(NLPService):
                 return VertexClaudeSonnet35[t](  # type: ignore
                     project_id=self.project_id,
                     region=self.region,
-                    logger=self._logger,
+                    logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
                 )
@@ -826,7 +818,7 @@ class VertexAIService(NLPService):
                 return VertexClaudeHaiku35[t](  # type: ignore
                     project_id=self.project_id,
                     region=self.region,
-                    logger=self._logger,
+                    logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
                 )
@@ -835,7 +827,7 @@ class VertexAIService(NLPService):
                 return VertexClaudeSonnet35[t](  # type: ignore
                     project_id=self.project_id,
                     region=self.region,
-                    logger=self._logger,
+                    logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
                 )
@@ -845,7 +837,7 @@ class VertexAIService(NLPService):
                 return VertexGemini15Flash[t](  # type: ignore
                     project_id=self.project_id,
                     region=self.region,
-                    logger=self._logger,
+                    logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
                 )
@@ -853,7 +845,7 @@ class VertexAIService(NLPService):
                 return VertexGemini15Pro[t](  # type: ignore
                     project_id=self.project_id,
                     region=self.region,
-                    logger=self._logger,
+                    logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
                 )
@@ -861,7 +853,7 @@ class VertexAIService(NLPService):
                 return VertexGemini20Flash[t](  # type: ignore
                     project_id=self.project_id,
                     region=self.region,
-                    logger=self._logger,
+                    logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
                 )
@@ -869,7 +861,7 @@ class VertexAIService(NLPService):
                 return VertexGemini25Flash[t](  # type: ignore
                     project_id=self.project_id,
                     region=self.region,
-                    logger=self._logger,
+                    logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
                 )
@@ -877,7 +869,7 @@ class VertexAIService(NLPService):
                 return VertexGemini25Pro[t](  # type: ignore
                     project_id=self.project_id,
                     region=self.region,
-                    logger=self._logger,
+                    logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
                 )
@@ -886,7 +878,7 @@ class VertexAIService(NLPService):
                 return VertexGemini25Flash[t](  # type: ignore
                     project_id=self.project_id,
                     region=self.region,
-                    logger=self._logger,
+                    logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
                 )
@@ -897,7 +889,7 @@ class VertexAIService(NLPService):
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         """Get an embedder for text embeddings using Google Gen AI."""
-        return VertexTextEmbedding004(logger=self._logger, tracer=self._tracer, meter=self._meter)
+        return VertexTextEmbedding004(logger=self.logger, tracer=self._tracer, meter=self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:  # @Todo - add moderation service

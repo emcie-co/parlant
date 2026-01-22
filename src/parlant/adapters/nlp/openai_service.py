@@ -407,7 +407,6 @@ class OpenAIEmbedder(BaseEmbedder):
 
     def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(logger, tracer, meter, model_name)
-        self.model_name = model_name
 
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
         self._tokenizer = OpenAIEstimatingTokenizer(model_name=self.model_name)

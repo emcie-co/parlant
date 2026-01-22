@@ -68,10 +68,6 @@ class CerebrasSchematicGenerator(BaseSchematicGenerator[T]):
     ) -> None:
         super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
 
-        self.model_name = model_name
-
-        self._logger = logger
-        self._meter = meter
         self._client = AsyncCerebras(api_key=os.environ.get("CEREBRAS_API_KEY"))
 
     @policy(
@@ -92,7 +88,7 @@ class CerebrasSchematicGenerator(BaseSchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.scope(f"Cerebras LLM Request ({self.schema.__name__})"):
+        with self.logger.scope(f"Cerebras LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     async def _do_generate(
@@ -121,7 +117,7 @@ class CerebrasSchematicGenerator(BaseSchematicGenerator[T]):
                 **cerebras_api_arguments,
             )
         except RateLimitError:
-            self._logger.error(
+            self.logger.error(
                 "Cerebras API rate limit exceeded.\n"
                 "Your account may have reached the maximum number of requests allowed per minute for the tier you are using.\n"
                 "Please contact with Cerebras support for more information."
@@ -131,7 +127,7 @@ class CerebrasSchematicGenerator(BaseSchematicGenerator[T]):
         t_end = time.time()
 
         if response.usage:  # type: ignore
-            self._logger.trace(response.usage.model_dump_json(indent=2))  # type: ignore
+            self.logger.trace(response.usage.model_dump_json(indent=2))  # type: ignore
 
         raw_content = response.choices[0].message.content or "{}"  # type: ignore
 
@@ -139,7 +135,7 @@ class CerebrasSchematicGenerator(BaseSchematicGenerator[T]):
             json_content = normalize_json_output(raw_content)
             json_object = jsonfinder.only_json(json_content)[2]
         except Exception:
-            self._logger.error(
+            self.logger.error(
                 f"Failed to extract JSON returned by {self.model_name}:\n{raw_content}"
             )
             raise
@@ -148,7 +144,7 @@ class CerebrasSchematicGenerator(BaseSchematicGenerator[T]):
             model_content = self.schema.model_validate(json_object)
 
             await record_llm_metrics(
-                self._meter,
+                self.meter,
                 self.model_name,
                 input_tokens=response.usage.prompt_tokens,  # type: ignore
                 output_tokens=response.usage.completion_tokens,  # type: ignore
@@ -168,7 +164,7 @@ class CerebrasSchematicGenerator(BaseSchematicGenerator[T]):
                 ),
             )
         except ValidationError:
-            self._logger.error(
+            self.logger.error(
                 f"JSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
             )
             raise
@@ -246,20 +242,20 @@ Please set CEREBRAS_API_KEY in your environment before running Parlant.
         tracer: Tracer,
         meter: Meter,
     ) -> None:
-        self._logger = logger
+        self.logger = logger
         self._tracer = tracer
-        self._meter = meter
-        self._logger.info("Initialized CerebrasService")
+        self.meter = meter
+        self.logger.info("Initialized CerebrasService")
 
     @override
     async def get_schematic_generator(
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> CerebrasSchematicGenerator[T]:
-        return Llama3_3_70B[t](self._logger, self._tracer, self._meter)  # type: ignore
+        return Llama3_3_70B[t](self.logger, self._tracer, self.meter)  # type: ignore
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return JinaAIEmbedder(self._logger, self._tracer, self._meter)
+        return JinaAIEmbedder(self.logger, self._tracer, self.meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

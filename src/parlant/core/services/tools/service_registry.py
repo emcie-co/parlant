@@ -162,7 +162,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
         return service
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[_ToolServiceDocument]:
-        if doc["version"] == "0.1.0":
+        if doc["version"] in ("0.1.0", "0.2.0"):
             return cast(_ToolServiceDocument, doc)
         return None
 

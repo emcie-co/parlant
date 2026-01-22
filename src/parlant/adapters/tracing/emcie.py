@@ -287,9 +287,7 @@ class EmcieTracer(Tracer):
 
     def __init__(self) -> None:
         # Use gRPC endpoint format (host:port instead of HTTP URL)
-        grpc_host = os.getenv("EMCIE_OTEL_HOST", "134.199.242.220")
-        grpc_port = os.getenv("EMCIE_OTEL_PORT", "4317")  # Standard OTLP gRPC port
-        self._endpoint = f"{grpc_host}:{grpc_port}"
+        self._endpoint = os.getenv("EMCIE_OTEL_URL", "https://api.emcie.xyz/v1/traces")
 
         self._api_key = os.getenv(
             "EMCIE_API_KEY", "sk-mc-qtSvL271_LWbJQoDFrtRFYTyl2lsFFDA2qx3Amb_0wn4Gt-bIQ"

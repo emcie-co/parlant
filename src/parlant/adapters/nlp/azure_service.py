@@ -389,11 +389,8 @@ class AzureEmbedder(BaseEmbedder):
         meter: Meter,
         client: AsyncAzureOpenAI,
     ) -> None:
+        super().__init__(logger, tracer, meter, model_name)
         self.model_name = model_name
-
-        self._logger = logger
-        self._tracer = tracer
-        self._meter = meter
 
         self._client = client
         self._tokenizer = AzureEstimatingTokenizer(model_name=self.model_name)
@@ -408,6 +405,7 @@ class AzureEmbedder(BaseEmbedder):
     def tokenizer(self) -> AzureEstimatingTokenizer:
         return self._tokenizer
 
+    @override
     async def do_embed(
         self,
         texts: list[str],

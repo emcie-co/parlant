@@ -479,14 +479,18 @@ async def _define_logger(container: Container) -> None:
 
 
 async def _define_tracer(container: Container) -> None:
-    if os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"):
-        from parlant.adapters.tracing.opentelemetry import OpenTelemetryTracer
+    from parlant.adapters.tracing.emcie import EmcieTracer
 
-        print("OpenTelemetry tracing is enabled.")
-        container[Tracer] = await EXIT_STACK.enter_async_context(OpenTelemetryTracer())
+    container[Tracer] = await EXIT_STACK.enter_async_context(EmcieTracer())
 
-    else:
-        _define_singleton(container, Tracer, LocalTracer)
+    # if os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"):
+    #     from parlant.adapters.tracing.opentelemetry import OpenTelemetryTracer
+
+    #     print("OpenTelemetry tracing is enabled.")
+    #     container[Tracer] = await EXIT_STACK.enter_async_context(EmcieTracer())
+
+    # else:
+    #     _define_singleton(container, Tracer, LocalTracer)
 
 
 async def _define_meter(container: Container) -> None:

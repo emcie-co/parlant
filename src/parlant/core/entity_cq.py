@@ -50,6 +50,7 @@ from parlant.core.guideline_tool_associations import (
 )
 from parlant.core.glossary import GlossaryStore, Term
 from parlant.core.app_modules.sessions import SessionUpdateParamsModel
+from parlant.core.playbooks import Playbook, PlaybookId, PlaybookStore
 from parlant.core.sessions import (
     SessionId,
     Session,
@@ -57,7 +58,7 @@ from parlant.core.sessions import (
     Event,
 )
 from parlant.core.services.tools.service_registry import ServiceRegistry
-from parlant.core.tags import Tag
+from parlant.core.tags import Tag, TagId
 from parlant.core.tools import ToolId, ToolService
 from parlant.core.canned_responses import CannedResponse, CannedResponseStore
 
@@ -78,6 +79,7 @@ class EntityQueries:
         canned_response_store: CannedResponseStore,
         capability_store: CapabilityStore,
         journey_guideline_projection: JourneyGuidelineProjection,
+        playbook_store: PlaybookStore,
     ) -> None:
         self._agent_store = agent_store
         self._session_store = session_store
@@ -92,6 +94,7 @@ class EntityQueries:
         self._service_registry = service_registry
         self._canned_response_store = canned_response_store
         self._journey_guideline_projection = journey_guideline_projection
+        self._playbook_store = playbook_store
 
         self.guideline_and_journeys_it_depends_on = TTLCache[GuidelineId, list[Journey]](
             maxsize=1024, ttl=120
@@ -114,6 +117,58 @@ class EntityQueries:
         customer_id: CustomerId,
     ) -> Customer:
         return await self._customer_store.read_customer(customer_id)
+
+    async def _resolve_playbook_chain(
+        self,
+        playbook_id: PlaybookId,
+    ) -> list[Playbook]:
+        """Returns playbook chain from child to root (most specific first)."""
+        playbook_chain: list[Playbook] = []
+        current_id: Optional[PlaybookId] = playbook_id
+        seen: set[PlaybookId] = set()
+
+        while current_id and current_id not in seen:
+            seen.add(current_id)
+            playbook = await self._playbook_store.read_playbook(current_id)
+            playbook_chain.append(playbook)
+            current_id = playbook.parent_id
+
+        return playbook_chain
+
+    def _get_playbook_tags(self, playbook_chain: list[Playbook]) -> list[TagId]:
+        """Returns list of playbook tags for the chain."""
+        return [Tag.for_playbook_id(pb.id) for pb in playbook_chain]
+
+    def _get_disabled_rule_ids(
+        self, playbook_chain: list[Playbook], rule_type: str
+    ) -> set[str]:
+        """Returns set of disabled rule IDs for a given rule type from the entire playbook chain.
+
+        Args:
+            playbook_chain: List of playbooks from child to root.
+            rule_type: The rule type prefix (e.g., "guideline", "term", "journey").
+
+        Returns:
+            Set of rule IDs that are disabled at any level of the chain.
+        """
+        if not playbook_chain:
+            return set()
+
+        prefix = f"{rule_type}:"
+        prefix_len = len(prefix)
+        disabled_ids: set[str] = set()
+
+        # Collect disabled rules from ALL playbooks in the chain
+        for playbook in playbook_chain:
+            for rule_ref in playbook.disabled_rules:
+                if rule_ref.startswith(prefix):
+                    disabled_ids.add(rule_ref[prefix_len:])
+
+        return disabled_ids
+
+    def _get_disabled_guideline_ids(self, playbook_chain: list[Playbook]) -> set[str]:
+        """Returns set of disabled guideline IDs from the entire playbook chain."""
+        return self._get_disabled_rule_ids(playbook_chain, "guideline")
 
     async def find_guidelines_for_context(
         self,
@@ -141,12 +196,44 @@ class EntityQueries:
         ]
         projected_journey_guidelines = await async_utils.safe_gather(*tasks)
 
+        # Collect disabled guideline IDs from playbook chain AND agent
+        disabled_guideline_ids: set[str] = set()
+
+        # Add agent's own disabled rules
+        for rule_ref in agent.disabled_rules:
+            if rule_ref.startswith("guideline:"):
+                disabled_guideline_ids.add(rule_ref[10:])
+
+        # Playbook guidelines (only if agent has a playbook assigned)
+        playbook_guidelines: list[Guideline] = []
+
+        if agent.playbook_id:
+            playbook_chain = await self._resolve_playbook_chain(agent.playbook_id)
+            playbook_tags = self._get_playbook_tags(playbook_chain)
+            # Add disabled rules from entire playbook chain
+            disabled_guideline_ids.update(self._get_disabled_guideline_ids(playbook_chain))
+
+            if playbook_tags:
+                all_playbook_guidelines = await self._guideline_store.list_guidelines(
+                    tags=playbook_tags
+                )
+                # Filter out disabled guidelines
+                playbook_guidelines = [
+                    g for g in all_playbook_guidelines if g.id not in disabled_guideline_ids
+                ]
+
+        # Filter global guidelines by disabled rules too
+        filtered_global_guidelines = [
+            g for g in global_guidelines if g.id not in disabled_guideline_ids
+        ]
+
         all_guidelines = set(
             chain(
                 agent_guidelines,
-                global_guidelines,
+                filtered_global_guidelines,
                 guidelines_for_agent_tags,
                 guidelines_for_journeys,
+                playbook_guidelines,
                 *projected_journey_guidelines,
             )
         )
@@ -219,11 +306,22 @@ class EntityQueries:
             tags=[tag for tag in agent.tags]
         )
 
+        # Playbook context variables (only if agent has a playbook assigned)
+        playbook_context_variables: list[ContextVariable] = []
+        if agent.playbook_id:
+            playbook_chain = await self._resolve_playbook_chain(agent.playbook_id)
+            playbook_tags = self._get_playbook_tags(playbook_chain)
+            if playbook_tags:
+                playbook_context_variables = list(
+                    await self._context_variable_store.list_variables(tags=playbook_tags)
+                )
+
         all_context_variables = set(
             chain(
                 agent_context_variables,
                 global_context_variables,
                 context_variables_for_agent_tags,
+                playbook_context_variables,
             )
         )
         return list(all_context_variables)
@@ -267,11 +365,22 @@ class EntityQueries:
             tags=[tag for tag in agent.tags]
         )
 
+        # Playbook capabilities (only if agent has a playbook assigned)
+        playbook_capabilities: list[Capability] = []
+        if agent.playbook_id:
+            playbook_chain = await self._resolve_playbook_chain(agent.playbook_id)
+            playbook_tags = self._get_playbook_tags(playbook_chain)
+            if playbook_tags:
+                playbook_capabilities = list(
+                    await self._capability_store.list_capabilities(tags=playbook_tags)
+                )
+
         all_capabilities = set(
             chain(
                 agent_capabilities,
                 global_capabilities,
                 capabilities_for_agent_tags,
+                playbook_capabilities,
             )
         )
 
@@ -297,7 +406,15 @@ class EntityQueries:
             tags=[tag for tag in agent.tags]
         )
 
-        all_terms = set(chain(agent_terms, global_terms, glossary_for_agent_tags))
+        # Playbook terms (only if agent has a playbook assigned)
+        playbook_terms: list[Term] = []
+        if agent.playbook_id:
+            playbook_chain = await self._resolve_playbook_chain(agent.playbook_id)
+            playbook_tags = self._get_playbook_tags(playbook_chain)
+            if playbook_tags:
+                playbook_terms = list(await self._glossary_store.list_terms(tags=playbook_tags))
+
+        all_terms = set(chain(agent_terms, global_terms, glossary_for_agent_tags, playbook_terms))
 
         return await self._glossary_store.find_relevant_terms(query, list(all_terms))
 
@@ -323,7 +440,19 @@ class EntityQueries:
             else []
         )
 
-        return list(set(chain(agent_journeys, global_journeys, journeys_for_agent_tags)))
+        # Playbook journeys (only if agent has a playbook assigned)
+        playbook_journeys: list[Journey] = []
+        if agent.playbook_id:
+            playbook_chain = await self._resolve_playbook_chain(agent.playbook_id)
+            playbook_tags = self._get_playbook_tags(playbook_chain)
+            if playbook_tags:
+                playbook_journeys = list(
+                    await self._journey_store.list_journeys(tags=playbook_tags)
+                )
+
+        return list(
+            set(chain(agent_journeys, global_journeys, journeys_for_agent_tags, playbook_journeys))
+        )
 
     async def sort_journeys_by_contextual_relevance(
         self,
@@ -357,6 +486,16 @@ class EntityQueries:
 
         guideline_canreps = await self.find_canned_responses_for_guidelines(guidelines)
 
+        # Playbook canned responses (only if agent has a playbook assigned)
+        playbook_canreps: list[CannedResponse] = []
+        if agent.playbook_id:
+            playbook_chain = await self._resolve_playbook_chain(agent.playbook_id)
+            playbook_tags = self._get_playbook_tags(playbook_chain)
+            if playbook_tags:
+                playbook_canreps = list(
+                    await self._canned_response_store.list_canned_responses(tags=playbook_tags)
+                )
+
         all_canreps = set(
             chain(
                 agent_canreps,
@@ -364,6 +503,7 @@ class EntityQueries:
                 canreps_for_agent_tags,
                 journey_canreps,
                 guideline_canreps,
+                playbook_canreps,
             )
         )
 

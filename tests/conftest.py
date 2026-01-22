@@ -214,6 +214,7 @@ from parlant.core.services.indexing.behavioral_change_evaluation import (
 from parlant.core.loggers import LogLevel, Logger, StdoutLogger
 from parlant.core.application import Application
 from parlant.core.agents import AgentDocumentStore, AgentStore
+from parlant.core.playbooks import PlaybookDocumentStore, PlaybookStore
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
     GuidelineToolAssociationStore,
@@ -350,6 +351,9 @@ async def container(
 
         container[AgentStore] = await stack.enter_async_context(
             AgentDocumentStore(container[IdGenerator], TransientDocumentDatabase())
+        )
+        container[PlaybookStore] = await stack.enter_async_context(
+            PlaybookDocumentStore(container[IdGenerator], TransientDocumentDatabase())
         )
         container[GuidelineStore] = await stack.enter_async_context(
             GuidelineDocumentStore(container[IdGenerator], TransientDocumentDatabase())

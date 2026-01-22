@@ -379,6 +379,12 @@ class GuidelineDocumentStore(GuidelineStore):
         if doc["version"] == "0.5.0":
             return cast(GuidelineTagAssociationDocument, doc)
 
+        if doc["version"] == "0.6.0":
+            return cast(GuidelineTagAssociationDocument, doc)
+
+        if doc["version"] == "0.7.0":
+            return cast(GuidelineTagAssociationDocument, doc)
+
         return None
 
     async def __aenter__(self) -> Self:

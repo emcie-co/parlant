@@ -88,6 +88,12 @@ from parlant.core.agents import (
     CompositionMode as _CompositionMode,
 )
 from parlant.core.async_utils import Timeout, default_done_callback
+from parlant.core.playbooks import (
+    DisabledRuleRef,
+    Playbook as _Playbook,
+    PlaybookId,
+    PlaybookStore,
+)
 from parlant.core.capabilities import CapabilityId, CapabilityStore, CapabilityVectorStore
 from parlant.core.common import (
     Criticality,
@@ -2630,6 +2636,176 @@ class CompositionMode(enum.Enum):
             return None
 
 
+@dataclass(frozen=True)
+class Playbook:
+    """A playbook defines a reusable set of behavioral rules that can be assigned to agents.
+
+    Playbooks support single inheritance - a child playbook inherits all rules from
+    its parent playbook. Rules can be selectively disabled in child playbooks.
+    """
+
+    _server: Server
+    _container: Container
+
+    id: PlaybookId
+    name: str
+    description: str | None
+    parent_id: PlaybookId | None
+    disabled_rules: Sequence[DisabledRuleRef]
+    tags: Sequence[TagId]
+
+    async def create_guideline(
+        self,
+        condition: str,
+        action: str | None = None,
+        description: str | None = None,
+        tools: Iterable[ToolEntry] = [],
+        metadata: dict[str, JSONSerializable] = {},
+        canned_responses: Sequence[CannedResponseId] = [],
+        criticality: Criticality = Criticality.MEDIUM,
+        composition_mode: CompositionMode | None = None,
+        matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
+        | None = None,
+        on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
+        on_message: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
+        canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
+        | None = None,
+        id: GuidelineId | None = None,
+    ) -> Guideline:
+        """Creates a guideline tagged to this playbook."""
+        return await self._server._create_guideline(
+            condition=condition,
+            action=action,
+            description=description,
+            tools=tools,
+            metadata=metadata,
+            canned_responses=canned_responses,
+            criticality=criticality,
+            composition_mode=composition_mode,
+            matcher=matcher,
+            on_match=on_match,
+            on_message=on_message,
+            canned_response_field_provider=canned_response_field_provider,
+            tags=[_Tag.for_playbook_id(self.id)],
+            relationship_target_tag_id=None,
+            id=id,
+        )
+
+    async def create_journey(
+        self,
+        title: str,
+        description: str,
+        conditions: list[str | Guideline],
+        id: JourneyId | None = None,
+        composition_mode: CompositionMode | None = None,
+    ) -> Journey:
+        """Creates a new journey tagged to this playbook."""
+        self._server._advance_creation_progress()
+
+        journey = await self._server.create_journey(
+            title, description, conditions, id=id, composition_mode=composition_mode
+        )
+
+        # Tag the journey with this playbook
+        await self._container[JourneyStore].upsert_tag(
+            journey.id,
+            _Tag.for_playbook_id(self.id),
+        )
+
+        return Journey(
+            id=journey.id,
+            title=journey.title,
+            description=description,
+            conditions=journey.conditions,
+            tags=journey.tags,
+            states=journey.states,
+            transitions=journey.transitions,
+            composition_mode=journey.composition_mode,
+            _start_state_id=journey._start_state_id,
+            _server=self._server,
+            _container=self._container,
+        )
+
+    async def disable_rule(self, rule_ref: str) -> Playbook:
+        """Disable an inherited rule.
+
+        Args:
+            rule_ref: Reference to the rule to disable, e.g. "guideline:abc123"
+
+        Returns:
+            Updated Playbook with the rule disabled.
+        """
+        await self._container[PlaybookStore].add_disabled_rule(
+            playbook_id=self.id,
+            rule_ref=DisabledRuleRef(rule_ref),
+        )
+
+        playbook = await self._container[PlaybookStore].read_playbook(self.id)
+
+        return Playbook(
+            id=playbook.id,
+            name=playbook.name,
+            description=playbook.description,
+            parent_id=playbook.parent_id,
+            disabled_rules=playbook.disabled_rules,
+            tags=playbook.tags,
+            _server=self._server,
+            _container=self._container,
+        )
+
+    async def enable_rule(self, rule_ref: str) -> Playbook:
+        """Re-enable a previously disabled rule.
+
+        Args:
+            rule_ref: Reference to the rule to enable, e.g. "guideline:abc123"
+
+        Returns:
+            Updated Playbook with the rule enabled.
+        """
+        await self._container[PlaybookStore].remove_disabled_rule(
+            playbook_id=self.id,
+            rule_ref=DisabledRuleRef(rule_ref),
+        )
+
+        playbook = await self._container[PlaybookStore].read_playbook(self.id)
+
+        return Playbook(
+            id=playbook.id,
+            name=playbook.name,
+            description=playbook.description,
+            parent_id=playbook.parent_id,
+            disabled_rules=playbook.disabled_rules,
+            tags=playbook.tags,
+            _server=self._server,
+            _container=self._container,
+        )
+
+    async def get_inheritance_chain(self) -> Sequence[Playbook]:
+        """Get the full inheritance chain (root to self)."""
+        chain: list[Playbook] = []
+        current_id: PlaybookId | None = self.id
+        seen: set[PlaybookId] = set()
+
+        while current_id and current_id not in seen:
+            seen.add(current_id)
+            playbook = await self._container[PlaybookStore].read_playbook(current_id)
+            chain.append(
+                Playbook(
+                    id=playbook.id,
+                    name=playbook.name,
+                    description=playbook.description,
+                    parent_id=playbook.parent_id,
+                    disabled_rules=playbook.disabled_rules,
+                    tags=playbook.tags,
+                    _server=self._server,
+                    _container=self._container,
+                )
+            )
+            current_id = playbook.parent_id
+
+        return list(reversed(chain))
+
+
 class ExperimentalAgentFeatures:
     def __init__(self, agent: Agent) -> None:
         self._agent = agent
@@ -2673,6 +2849,7 @@ class Agent:
     max_engine_iterations: int
     composition_mode: CompositionMode
     tags: Sequence[TagId]
+    playbook_id: PlaybookId | None = None
 
     retrievers: Mapping[str, RetrieverFunction] = field(default_factory=dict)
 
@@ -2984,6 +3161,61 @@ class Agent:
 
         self._server._retrievers[self.id][id] = retriever
 
+    async def set_playbook(
+        self,
+        playbook: Playbook | PlaybookId | None,
+    ) -> Agent:
+        """Sets or clears the playbook assigned to this agent.
+
+        Args:
+            playbook: The playbook to assign, its ID, or None to clear.
+
+        Returns:
+            Updated Agent with the new playbook assignment.
+        """
+        playbook_id = playbook.id if isinstance(playbook, Playbook) else playbook
+
+        await self._container[AgentStore].update_agent(
+            agent_id=self.id,
+            params={"playbook_id": playbook_id},
+        )
+
+        agent = await self._container[AgentStore].read_agent(self.id)
+
+        return Agent(
+            id=agent.id,
+            name=agent.name,
+            description=agent.description,
+            max_engine_iterations=agent.max_engine_iterations,
+            composition_mode=CompositionMode(agent.composition_mode),
+            tags=agent.tags,
+            playbook_id=agent.playbook_id,
+            _server=self._server,
+            _container=self._container,
+        )
+
+    async def get_playbook(self) -> Playbook | None:
+        """Gets the playbook assigned to this agent.
+
+        Returns:
+            The Playbook if one is assigned, None otherwise.
+        """
+        if self.playbook_id is None:
+            return None
+
+        playbook = await self._container[PlaybookStore].read_playbook(self.playbook_id)
+
+        return Playbook(
+            id=playbook.id,
+            name=playbook.name,
+            description=playbook.description,
+            parent_id=playbook.parent_id,
+            disabled_rules=playbook.disabled_rules,
+            tags=playbook.tags,
+            _server=self._server,
+            _container=self._container,
+        )
+
     @classproperty
     def current(cls) -> Agent:
         """Get the current agent from the asyncio task context.
@@ -3018,6 +3250,7 @@ class Agent:
             max_engine_iterations=core_agent.max_engine_iterations,
             composition_mode=composition_mode_map[core_agent.composition_mode],
             tags=core_agent.tags,
+            playbook_id=core_agent.playbook_id,
         )
 
 
@@ -3856,6 +4089,7 @@ class Server:
         tags: Sequence[TagId] = [],
         id: str | None = None,
         perceived_performance_policy: PerceivedPerformancePolicy | None = None,
+        playbook: Playbook | PlaybookId | None = None,
     ) -> Agent:
         """Creates a new agent with the specified name, description, and composition mode.
 
@@ -3876,6 +4110,8 @@ class Server:
                 agent identifiers across deployments or integrations.
             perceived_performance_policy: Optional perceived performance policy for this agent.
                 If not specified, the agent will use the default policy (BasicPerceivedPerformancePolicy).
+            playbook: Optional playbook to assign to the agent. Can be a Playbook object
+                or a PlaybookId string.
 
         Returns:
             The created Agent instance.
@@ -3883,12 +4119,15 @@ class Server:
 
         self._advance_creation_progress()
 
+        playbook_id = playbook.id if isinstance(playbook, Playbook) else playbook
+
         agent = await self._container[AgentStore].create_agent(
             name=name,
             description=description,
             max_engine_iterations=max_engine_iterations or 3,
             composition_mode=composition_mode.value,
             id=AgentId(id) if id is not None else None,
+            playbook_id=playbook_id,
         )
 
         if perceived_performance_policy is not None:
@@ -3903,6 +4142,7 @@ class Server:
             max_engine_iterations=agent.max_engine_iterations,
             composition_mode=CompositionMode(agent.composition_mode),
             tags=tags,
+            playbook_id=agent.playbook_id,
             _server=self,
             _container=self._container,
         )
@@ -3920,6 +4160,7 @@ class Server:
                 max_engine_iterations=a.max_engine_iterations,
                 composition_mode=CompositionMode(a.composition_mode),
                 tags=a.tags,
+                playbook_id=a.playbook_id,
                 _server=self,
                 _container=self._container,
             )
@@ -3939,6 +4180,7 @@ class Server:
                 max_engine_iterations=agent.max_engine_iterations,
                 composition_mode=CompositionMode(agent.composition_mode),
                 tags=agent.tags,
+                playbook_id=agent.playbook_id,
                 _server=self,
                 _container=self._container,
             )
@@ -3951,6 +4193,102 @@ class Server:
         if agent := await self.find_agent(id=id):
             return agent
         raise SDKError(f"Agent with id {id} not found.")
+
+    async def create_playbook(
+        self,
+        name: str,
+        description: str | None = None,
+        parent: Playbook | PlaybookId | None = None,
+        tags: Sequence[TagId] = [],
+        id: str | None = None,
+    ) -> Playbook:
+        """Creates a new playbook.
+
+        Args:
+            name: The playbook's name (required).
+            description: A description of the playbook's purpose (optional).
+            parent: Parent playbook for inheritance (optional). Can be a Playbook
+                object or a PlaybookId string.
+            tags: List of tag IDs to associate with the playbook. Defaults to empty list.
+            id: Custom playbook ID string (optional). If not provided, an ID will
+                be automatically generated.
+
+        Returns:
+            The created Playbook instance.
+        """
+
+        self._advance_creation_progress()
+
+        parent_id = parent.id if isinstance(parent, Playbook) else parent
+
+        playbook = await self._container[PlaybookStore].create_playbook(
+            name=name,
+            description=description,
+            parent_id=parent_id,
+            tags=list(tags) if tags else None,
+            id=PlaybookId(id) if id is not None else None,
+        )
+
+        return Playbook(
+            id=playbook.id,
+            name=playbook.name,
+            description=playbook.description,
+            parent_id=playbook.parent_id,
+            disabled_rules=playbook.disabled_rules,
+            tags=playbook.tags,
+            _server=self,
+            _container=self._container,
+        )
+
+    async def list_playbooks(self) -> Sequence[Playbook]:
+        """Lists all playbooks."""
+
+        playbooks = await self._container[PlaybookStore].list_playbooks()
+
+        return [
+            Playbook(
+                id=p.id,
+                name=p.name,
+                description=p.description,
+                parent_id=p.parent_id,
+                disabled_rules=p.disabled_rules,
+                tags=p.tags,
+                _server=self,
+                _container=self._container,
+            )
+            for p in playbooks
+        ]
+
+    async def find_playbook(self, *, id: str) -> Playbook | None:
+        """Finds a playbook by its ID."""
+
+        try:
+            playbook = await self._container[PlaybookStore].read_playbook(PlaybookId(id))
+
+            return Playbook(
+                id=playbook.id,
+                name=playbook.name,
+                description=playbook.description,
+                parent_id=playbook.parent_id,
+                disabled_rules=playbook.disabled_rules,
+                tags=playbook.tags,
+                _server=self,
+                _container=self._container,
+            )
+        except ItemNotFoundError:
+            return None
+
+    async def get_playbook(self, *, id: str) -> Playbook:
+        """Retrieves a playbook by its ID, raising an error if not found."""
+
+        if playbook := await self.find_playbook(id=id):
+            return playbook
+        raise SDKError(f"Playbook with id {id} not found.")
+
+    async def delete_playbook(self, *, id: str) -> None:
+        """Deletes a playbook by its ID."""
+
+        await self._container[PlaybookStore].delete_playbook(PlaybookId(id))
 
     async def create_customer(
         self,

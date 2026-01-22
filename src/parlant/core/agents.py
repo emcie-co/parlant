@@ -41,6 +41,7 @@ from parlant.core.persistence.document_database_helper import (
     DocumentStoreMigrationHelper,
 )
 from parlant.core.tags import TagId
+from parlant.core.playbooks import PlaybookId, DisabledRuleRef
 
 AgentId = NewType("AgentId", str)
 
@@ -57,6 +58,7 @@ class AgentUpdateParams(TypedDict, total=False):
     description: Optional[str]
     max_engine_iterations: int
     composition_mode: CompositionMode
+    playbook_id: Optional[PlaybookId]
 
 
 @dataclass(frozen=True)
@@ -67,7 +69,9 @@ class Agent:
     creation_utc: datetime
     max_engine_iterations: int
     tags: Sequence[TagId]
+    disabled_rules: Sequence[DisabledRuleRef] = ()
     composition_mode: CompositionMode = CompositionMode.FLUID
+    playbook_id: Optional[PlaybookId] = None
 
 
 class AgentStore(ABC):
@@ -81,6 +85,7 @@ class AgentStore(ABC):
         composition_mode: Optional[CompositionMode] = None,
         tags: Optional[Sequence[TagId]] = None,
         id: Optional[AgentId] = None,
+        playbook_id: Optional[PlaybookId] = None,
     ) -> Agent: ...
 
     @abstractmethod
@@ -122,6 +127,20 @@ class AgentStore(ABC):
         tag_id: TagId,
     ) -> None: ...
 
+    @abstractmethod
+    async def add_disabled_rule(
+        self,
+        agent_id: AgentId,
+        rule_ref: DisabledRuleRef,
+    ) -> bool: ...
+
+    @abstractmethod
+    async def remove_disabled_rule(
+        self,
+        agent_id: AgentId,
+        rule_ref: DisabledRuleRef,
+    ) -> None: ...
+
 
 class _AgentDocument(TypedDict, total=False):
     id: ObjectId
@@ -131,6 +150,7 @@ class _AgentDocument(TypedDict, total=False):
     description: Optional[str]
     max_engine_iterations: int
     composition_mode: str
+    playbook_id: Optional[str]
 
 
 class _AgentTagAssociationDocument(TypedDict, total=False):
@@ -141,8 +161,16 @@ class _AgentTagAssociationDocument(TypedDict, total=False):
     tag_id: TagId
 
 
+class _AgentDisabledRuleDocument(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    agent_id: AgentId
+    rule_ref: DisabledRuleRef
+
+
 class AgentDocumentStore(AgentStore):
-    VERSION = Version.from_string("0.4.0")
+    VERSION = Version.from_string("0.6.0")
 
     def __init__(
         self,
@@ -155,6 +183,7 @@ class AgentDocumentStore(AgentStore):
         self._database = database
         self._agents_collection: DocumentCollection[_AgentDocument]
         self._tag_association_collection: DocumentCollection[_AgentTagAssociationDocument]
+        self._disabled_rules_collection: DocumentCollection[_AgentDisabledRuleDocument]
         self._allow_migration = allow_migration
 
         self._lock = ReaderWriterLock()
@@ -198,12 +227,54 @@ class AgentDocumentStore(AgentStore):
 
             return None
 
+        async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(_AgentDocument, doc)
+
+            if doc["version"] == "0.4.0":
+                return _AgentDocument(
+                    id=ObjectId(doc["id"]),
+                    version=Version.String("0.5.0"),
+                    creation_utc=doc["creation_utc"],
+                    name=doc["name"],
+                    description=doc.get("description"),
+                    max_engine_iterations=doc["max_engine_iterations"],
+                    composition_mode=doc.get("composition_mode", CompositionMode.FLUID.value),
+                    playbook_id=None,
+                )
+
+            if doc["version"] == "0.5.0":
+                return doc
+
+            return None
+
+        async def v0_5_0_to_v0_6_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(_AgentDocument, doc)
+
+            if doc["version"] == "0.5.0":
+                return _AgentDocument(
+                    id=ObjectId(doc["id"]),
+                    version=Version.String("0.6.0"),
+                    creation_utc=doc["creation_utc"],
+                    name=doc["name"],
+                    description=doc.get("description"),
+                    max_engine_iterations=doc["max_engine_iterations"],
+                    composition_mode=doc.get("composition_mode", CompositionMode.FLUID.value),
+                    playbook_id=doc.get("playbook_id"),
+                )
+
+            if doc["version"] == "0.6.0":
+                return doc
+
+            return None
+
         return await DocumentMigrationHelper[_AgentDocument](
             self,
             {
                 "0.1.0": v0_1_0_to_v0_2_0,
                 "0.2.0": v0_2_0_to_v0_3_0,
                 "0.3.0": v0_3_0_to_v0_4_0,
+                "0.4.0": v0_4_0_to_v0_5_0,
+                "0.5.0": v0_5_0_to_v0_6_0,
             },
         ).migrate(doc)
 
@@ -215,13 +286,41 @@ class AgentDocumentStore(AgentStore):
         if doc["version"] == "0.3.0":
             return _AgentTagAssociationDocument(
                 id=ObjectId(doc["id"]),
-                version=Version.String("0.4.0"),
+                version=Version.String("0.5.0"),
                 creation_utc=doc["creation_utc"],
                 agent_id=AgentId(doc["agent_id"]),
                 tag_id=TagId(doc["tag_id"]),
             )
 
         if doc["version"] == "0.4.0":
+            return _AgentTagAssociationDocument(
+                id=ObjectId(doc["id"]),
+                version=Version.String("0.5.0"),
+                creation_utc=doc["creation_utc"],
+                agent_id=AgentId(doc["agent_id"]),
+                tag_id=TagId(doc["tag_id"]),
+            )
+
+        if doc["version"] == "0.5.0":
+            return _AgentTagAssociationDocument(
+                id=ObjectId(doc["id"]),
+                version=Version.String("0.6.0"),
+                creation_utc=doc["creation_utc"],
+                agent_id=AgentId(doc["agent_id"]),
+                tag_id=TagId(doc["tag_id"]),
+            )
+
+        if doc["version"] == "0.6.0":
+            return doc
+
+        return None
+
+    async def _disabled_rule_document_loader(
+        self, doc: BaseDocument
+    ) -> Optional[_AgentDisabledRuleDocument]:
+        doc = cast(_AgentDisabledRuleDocument, doc)
+
+        if doc["version"] == "0.6.0":
             return doc
 
         return None
@@ -244,6 +343,12 @@ class AgentDocumentStore(AgentStore):
                 document_loader=self._association_document_loader,
             )
 
+            self._disabled_rules_collection = await self._database.get_or_create_collection(
+                name="agent_disabled_rules",
+                schema=_AgentDisabledRuleDocument,
+                document_loader=self._disabled_rule_document_loader,
+            )
+
         return self
 
     async def __aexit__(
@@ -263,6 +368,7 @@ class AgentDocumentStore(AgentStore):
             description=agent.description,
             max_engine_iterations=agent.max_engine_iterations,
             composition_mode=agent.composition_mode.value,
+            playbook_id=agent.playbook_id,
         )
 
     async def _deserialize_agent(self, agent_document: _AgentDocument) -> Agent:
@@ -273,6 +379,15 @@ class AgentDocumentStore(AgentStore):
             )
         ]
 
+        disabled_rules = [
+            d["rule_ref"]
+            for d in await self._disabled_rules_collection.find(
+                {"agent_id": {"$eq": agent_document["id"]}}
+            )
+        ]
+
+        playbook_id_str = agent_document.get("playbook_id")
+
         return Agent(
             id=AgentId(agent_document["id"]),
             creation_utc=datetime.fromisoformat(agent_document["creation_utc"]),
@@ -280,7 +395,9 @@ class AgentDocumentStore(AgentStore):
             description=agent_document["description"],
             max_engine_iterations=agent_document["max_engine_iterations"],
             tags=tags,
+            disabled_rules=disabled_rules,
             composition_mode=CompositionMode(agent_document.get("composition_mode", "fluid")),
+            playbook_id=PlaybookId(playbook_id_str) if playbook_id_str else None,
         )
 
     @override
@@ -293,6 +410,7 @@ class AgentDocumentStore(AgentStore):
         composition_mode: Optional[CompositionMode] = None,
         tags: Optional[Sequence[TagId]] = None,
         id: Optional[AgentId] = None,
+        playbook_id: Optional[PlaybookId] = None,
     ) -> Agent:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
@@ -318,6 +436,7 @@ class AgentDocumentStore(AgentStore):
                 max_engine_iterations=max_engine_iterations,
                 tags=tags or [],
                 composition_mode=composition_mode or CompositionMode.FLUID,
+                playbook_id=playbook_id,
             )
 
             await self._agents_collection.insert_one(document=self._serialize_agent(agent=agent))
@@ -403,6 +522,15 @@ class AgentDocumentStore(AgentStore):
                     filters={"id": {"$eq": doc["id"]}}
                 )
 
+            for rule_doc in await self._disabled_rules_collection.find(
+                filters={
+                    "agent_id": {"$eq": agent_id},
+                }
+            ):
+                await self._disabled_rules_collection.delete_one(
+                    filters={"id": {"$eq": rule_doc["id"]}}
+                )
+
         if result.deleted_count == 0:
             raise ItemNotFoundError(item_id=UniqueId(agent_id))
 
@@ -456,6 +584,61 @@ class AgentDocumentStore(AgentStore):
 
             if delete_result.deleted_count == 0:
                 raise ItemNotFoundError(item_id=UniqueId(tag_id))
+
+            agent_document = await self._agents_collection.find_one({"id": {"$eq": agent_id}})
+
+        if not agent_document:
+            raise ItemNotFoundError(item_id=UniqueId(agent_id))
+
+    @override
+    async def add_disabled_rule(
+        self,
+        agent_id: AgentId,
+        rule_ref: DisabledRuleRef,
+    ) -> bool:
+        async with self._lock.writer_lock:
+            agent = await self.read_agent(agent_id)
+
+            if rule_ref in agent.disabled_rules:
+                return False
+
+            creation_utc = datetime.now(timezone.utc)
+
+            rule_checksum = md5_checksum(f"{agent_id}{rule_ref}")
+
+            rule_document: _AgentDisabledRuleDocument = {
+                "id": ObjectId(self._id_generator.generate(rule_checksum)),
+                "version": self.VERSION.to_string(),
+                "creation_utc": creation_utc.isoformat(),
+                "agent_id": agent_id,
+                "rule_ref": rule_ref,
+            }
+
+            _ = await self._disabled_rules_collection.insert_one(document=rule_document)
+
+            agent_document = await self._agents_collection.find_one({"id": {"$eq": agent_id}})
+
+        if not agent_document:
+            raise ItemNotFoundError(item_id=UniqueId(agent_id))
+
+        return True
+
+    @override
+    async def remove_disabled_rule(
+        self,
+        agent_id: AgentId,
+        rule_ref: DisabledRuleRef,
+    ) -> None:
+        async with self._lock.writer_lock:
+            delete_result = await self._disabled_rules_collection.delete_one(
+                {
+                    "agent_id": {"$eq": agent_id},
+                    "rule_ref": {"$eq": rule_ref},
+                }
+            )
+
+            if delete_result.deleted_count == 0:
+                raise ItemNotFoundError(item_id=UniqueId(rule_ref))
 
             agent_document = await self._agents_collection.find_one({"id": {"$eq": agent_id}})
 

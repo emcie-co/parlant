@@ -125,6 +125,12 @@ class Operation(Enum):
     UPDATE_TAG = "update_tag"
     DELETE_TAG = "delete_tag"
 
+    CREATE_PLAYBOOK = "create_playbook"
+    READ_PLAYBOOK = "read_playbook"
+    LIST_PLAYBOOKS = "list_playbooks"
+    UPDATE_PLAYBOOK = "update_playbook"
+    DELETE_PLAYBOOK = "delete_playbook"
+
 
 class AuthorizationException(Exception):
     def __init__(

@@ -31,12 +31,10 @@ from oci.generative_ai_inference import GenerativeAiInferenceClient
 from oci.generative_ai_inference.models import (
     ChatDetails,
     CohereChatRequest,
-    CohereResponseFormat,
     EmbedTextDetails,
     GenericChatRequest,
     JsonSchemaResponseFormat,
     OnDemandServingMode,
-    ResponseFormat,
     ResponseJsonSchema,
     TextContent,
     UserMessage,
@@ -345,9 +343,7 @@ class OCISchematicGenerator(BaseSchematicGenerator[T]):
         try:
             json_content = json.loads(normalize_json_output(raw_content))
         except json.JSONDecodeError:
-            self.logger.warning(
-                f"Invalid JSON returned by {self.model_name}:\n{raw_content}"
-            )
+            self.logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content}")
             json_content = jsonfinder.only_json(raw_content)[2]
             self.logger.warning("Found JSON content within model response; continuing...")
 

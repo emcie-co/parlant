@@ -381,7 +381,6 @@ class NLPServices:
 
         return ModelScopeService(container[Logger], container[Tracer], container[Meter])
 
-
     @staticmethod
     def oci(container: Container) -> NLPService:
         """Creates an OCI NLPService instance using the provided container."""

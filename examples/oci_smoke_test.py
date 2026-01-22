@@ -78,9 +78,7 @@ def _load_oci_env_from_yaml(yaml_path: Path) -> None:
 
 
 async def main() -> None:
-    infrastructure = Path(
-        "C:/Users/GLoverde/PycharmProjects/Obelix/config/infrastructure.yaml"
-    )
+    infrastructure = Path("C:/Users/GLoverde/PycharmProjects/Obelix/config/infrastructure.yaml")
     _load_oci_env_from_yaml(infrastructure)
 
     async with p.Server(nlp_service=NLPServices.oci) as server:

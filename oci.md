@@ -204,6 +204,7 @@ OCI espone **embedding models** (Cohere) e un endpoint dedicato di inference.
     2) `do_embed`: dopo `embeddings = ...`, se `_cached_dimensions` è `None`, imposta `_cached_dimensions = len(embeddings[0])`.
     3) `dimensions` property: se env/`_cached_dimensions` è settata, usarla; altrimenti usare come fallback **1024** (dimensione di `cohere.embed-multilingual-v3.0`). citeturn0view0
     4) Loggare la dimensione rilevata (come OpenRouter) per trasparenza.
+- **Nota DI (Lagom)**: `OCIEmbedder` richiede parametri (model_id/config/compartment) che il container non puo risolvere da solo. Serve una classe embedder dinamica creata in `OCIService.__init__` (pattern come `OpenRouterService`) e `get_embedder()` deve restituire un'istanza di quella classe.
 
 ### 5) Moderation
 OCI non ha moderation standard per Parlant → `NoModeration`.

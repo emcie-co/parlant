@@ -281,6 +281,7 @@ NLPServiceName = Literal[
     "together",
     "litellm",
     "modelscope",
+    "oci",
 ]
 
 
@@ -369,6 +370,16 @@ def load_modelscope(container: Container) -> NLPService:
     )
 
 
+def load_oci(container: Container) -> NLPService:
+    return load_nlp_service(
+        container,
+        "OCI",
+        "oci",
+        "OCIService",
+        "parlant.adapters.nlp.oci_service",
+    )
+
+
 def load_gemini(container: Container) -> NLPService:
     return load_nlp_service(
         container, "Gemini", "gemini", "GeminiService", "parlant.adapters.nlp.gemini_service"
@@ -412,6 +423,7 @@ NLP_SERVICE_INITIALIZERS: dict[NLPServiceName, Callable[[Container], NLPService]
     "together": load_together,
     "litellm": load_litellm,
     "modelscope": load_modelscope,
+    "oci": load_oci,
 }
 
 
@@ -1177,6 +1189,12 @@ def main() -> None:
         default=False,
     )
     @click.option(
+        "--oci",
+        is_flag=True,
+        help="Run with OCI Generative AI. The environment variable OCI_COMPARTMENT_ID must be set and install the extra package parlant[oci].",
+        default=False,
+    )
+    @click.option(
         "--gemini",
         is_flag=True,
         help="Run with Gemini. The environment variable GEMINI_API_KEY must be set and install the extra package parlant[gemini].",
@@ -1247,6 +1265,7 @@ def main() -> None:
         together: bool,
         litellm: bool,
         modelscope: bool,
+        oci: bool,
         log_level: str,
         module: tuple[str],
         version: bool,
@@ -1269,6 +1288,7 @@ def main() -> None:
                     together,
                     litellm,
                     modelscope,
+                    oci,
                 ]
             )
             > 2
@@ -1277,7 +1297,7 @@ def main() -> None:
             sys.exit(1)
 
         non_default_service_selected = any(
-            (aws, azure, deepseek, gemini, anthropic, cerebras, together, litellm, modelscope)
+            (aws, azure, deepseek, gemini, anthropic, cerebras, together, litellm, modelscope, oci)
         )
 
         if not non_default_service_selected:
@@ -1298,6 +1318,9 @@ def main() -> None:
         elif modelscope:
             nlp_service = "modelscope"
             require_env_keys(["MODELSCOPE_API_KEY"])
+        elif oci:
+            nlp_service = "oci"
+            require_env_keys(["OCI_COMPARTMENT_ID"])
         elif anthropic:
             nlp_service = "anthropic"
             require_env_keys(["ANTHROPIC_API_KEY"])

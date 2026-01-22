@@ -105,15 +105,8 @@ class LiteLLMSchematicGenerator(BaseSchematicGenerator[T]):
         return self._tokenizer
 
     @override
-    async def generate(
-        self,
-        prompt: PromptBuilder | str,
-        hints: Mapping[str, Any] = {},
-    ) -> SchematicGenerationResult[T]:
-        with self.logger.scope(f"LiteLLM LLM Request ({self.schema.__name__})"):
-            return await self._do_generate(prompt, hints)
-
-    async def _do_generate(
+    @override
+    async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
@@ -125,11 +118,15 @@ class LiteLLMSchematicGenerator(BaseSchematicGenerator[T]):
             k: v for k, v in hints.items() if k in self.supported_litellm_params
         }
 
+        # Only pass api_key if explicitly set; otherwise let LiteLLM auto-detect
+        # provider-specific keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
+        api_key = os.environ.get("LITELLM_PROVIDER_API_KEY") or None
+
         t_start = time.time()
 
-        response = self._client.completion(
+        response = await self._client.acompletion(
             base_url=self.base_url,
-            api_key=os.environ.get("LITELLM_PROVIDER_API_KEY"),
+            api_key=api_key,
             messages=[{"role": "user", "content": prompt}],
             model=self.model_name,
             max_tokens=5000,
@@ -226,11 +223,8 @@ class LiteLLMService(NLPService):
 You're using the LITELLM NLP service, but LITELLM_PROVIDER_MODEL_NAME is not set.
 Please set LITELLM_PROVIDER_MODEL_NAME in your environment before running Parlant.
 """
-        if not os.environ.get("LITELLM_PROVIDER_API_KEY"):
-            return """\
-You're using the LITELLM NLP service, but LITELLM_PROVIDER_API_KEY is not set.
-Please set LITELLM_PROVIDER_API_KEY in your environment before running Parlant.
-"""
+        # Note: LITELLM_PROVIDER_API_KEY is optional. If not set, LiteLLM will
+        # auto-detect provider-specific keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
 
         return None
 

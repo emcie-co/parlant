@@ -58,7 +58,7 @@ from parlant.core.sessions import (
     Event,
 )
 from parlant.core.services.tools.service_registry import ServiceRegistry
-from parlant.core.tags import Tag, TagId
+from parlant.core.tags import Tag, TagId, TagStore
 from parlant.core.tools import ToolId, ToolService
 from parlant.core.canned_responses import CannedResponse, CannedResponseStore
 
@@ -80,6 +80,7 @@ class EntityQueries:
         capability_store: CapabilityStore,
         journey_guideline_projection: JourneyGuidelineProjection,
         playbook_store: PlaybookStore,
+        tag_store: TagStore,
     ) -> None:
         self._agent_store = agent_store
         self._session_store = session_store
@@ -95,6 +96,7 @@ class EntityQueries:
         self._canned_response_store = canned_response_store
         self._journey_guideline_projection = journey_guideline_projection
         self._playbook_store = playbook_store
+        self._tag_store = tag_store
 
         self.guideline_and_journeys_it_depends_on = TTLCache[GuidelineId, list[Journey]](
             maxsize=1024, ttl=120
@@ -135,9 +137,29 @@ class EntityQueries:
 
         return playbook_chain
 
-    def _get_playbook_tags(self, playbook_chain: list[Playbook]) -> list[TagId]:
-        """Returns list of playbook tags for the chain."""
-        return [Tag.for_playbook_id(pb.id) for pb in playbook_chain]
+    async def _get_playbook_tags(self, playbook_chain: list[Playbook]) -> list[TagId]:
+        """Returns list of actual tag IDs for the playbook chain.
+
+        Looks up tags by their name format (playbook:{id}) and returns
+        the actual tag IDs that guidelines are associated with.
+        """
+        if not playbook_chain:
+            return []
+
+        # Get all tags to find the ones matching our playbook names
+        all_tags = await self._tag_store.list_tags()
+
+        # Build a mapping of tag name -> tag ID
+        tag_name_to_id = {tag.name: tag.id for tag in all_tags}
+
+        # Look up actual tag IDs for each playbook
+        tag_ids: list[TagId] = []
+        for pb in playbook_chain:
+            tag_name = f"playbook:{pb.id}"
+            if tag_name in tag_name_to_id:
+                tag_ids.append(tag_name_to_id[tag_name])
+
+        return tag_ids
 
     def _get_disabled_rule_ids(
         self, playbook_chain: list[Playbook], rule_type: str
@@ -209,7 +231,7 @@ class EntityQueries:
 
         if agent.playbook_id:
             playbook_chain = await self._resolve_playbook_chain(agent.playbook_id)
-            playbook_tags = self._get_playbook_tags(playbook_chain)
+            playbook_tags = await self._get_playbook_tags(playbook_chain)
             # Add disabled rules from entire playbook chain
             disabled_guideline_ids.update(self._get_disabled_guideline_ids(playbook_chain))
 
@@ -310,7 +332,7 @@ class EntityQueries:
         playbook_context_variables: list[ContextVariable] = []
         if agent.playbook_id:
             playbook_chain = await self._resolve_playbook_chain(agent.playbook_id)
-            playbook_tags = self._get_playbook_tags(playbook_chain)
+            playbook_tags = await self._get_playbook_tags(playbook_chain)
             if playbook_tags:
                 playbook_context_variables = list(
                     await self._context_variable_store.list_variables(tags=playbook_tags)
@@ -369,7 +391,7 @@ class EntityQueries:
         playbook_capabilities: list[Capability] = []
         if agent.playbook_id:
             playbook_chain = await self._resolve_playbook_chain(agent.playbook_id)
-            playbook_tags = self._get_playbook_tags(playbook_chain)
+            playbook_tags = await self._get_playbook_tags(playbook_chain)
             if playbook_tags:
                 playbook_capabilities = list(
                     await self._capability_store.list_capabilities(tags=playbook_tags)
@@ -410,7 +432,7 @@ class EntityQueries:
         playbook_terms: list[Term] = []
         if agent.playbook_id:
             playbook_chain = await self._resolve_playbook_chain(agent.playbook_id)
-            playbook_tags = self._get_playbook_tags(playbook_chain)
+            playbook_tags = await self._get_playbook_tags(playbook_chain)
             if playbook_tags:
                 playbook_terms = list(await self._glossary_store.list_terms(tags=playbook_tags))
 
@@ -444,7 +466,7 @@ class EntityQueries:
         playbook_journeys: list[Journey] = []
         if agent.playbook_id:
             playbook_chain = await self._resolve_playbook_chain(agent.playbook_id)
-            playbook_tags = self._get_playbook_tags(playbook_chain)
+            playbook_tags = await self._get_playbook_tags(playbook_chain)
             if playbook_tags:
                 playbook_journeys = list(
                     await self._journey_store.list_journeys(tags=playbook_tags)
@@ -490,7 +512,7 @@ class EntityQueries:
         playbook_canreps: list[CannedResponse] = []
         if agent.playbook_id:
             playbook_chain = await self._resolve_playbook_chain(agent.playbook_id)
-            playbook_tags = self._get_playbook_tags(playbook_chain)
+            playbook_tags = await self._get_playbook_tags(playbook_chain)
             if playbook_tags:
                 playbook_canreps = list(
                     await self._canned_response_store.list_canned_responses(tags=playbook_tags)

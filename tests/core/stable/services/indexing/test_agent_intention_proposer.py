@@ -257,7 +257,6 @@ def analyze_response_and_update_session(
         GuidelineMatch(
             guideline=g,
             rationale="",
-            score=10,
         )
         for g in previously_matched_guidelines
         if (not session.agent_states or g.id not in session.agent_states[-1].applied_guideline_ids)

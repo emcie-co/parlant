@@ -3641,7 +3641,7 @@ class Server:
             # Create a shim that translates between SDK and core types
             async def shim_matcher(
                 core_ctx: _GuidelineMatchingContext, core_guideline: _Guideline
-            ) -> _GuidelineMatch:
+            ) -> _GuidelineMatch | None:
                 sdk_ctx = await GuidelineMatchingContext._from_core(
                     core_ctx=core_ctx,
                     server=self,
@@ -3649,10 +3649,13 @@ class Server:
                 )
                 result = await matcher(sdk_ctx, result_guideline)
 
-                return _GuidelineMatch(
-                    guideline=core_guideline,
-                    score=10 if result.matched else 1,
-                    rationale=result.rationale,
+                return (
+                    _GuidelineMatch(
+                        guideline=core_guideline,
+                        rationale=result.rationale,
+                    )
+                    if result.matched
+                    else None
                 )
 
             strategy = CustomGuidelineMatchingStrategy(

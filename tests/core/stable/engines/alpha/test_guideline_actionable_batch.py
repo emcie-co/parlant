@@ -231,7 +231,7 @@ async def base_test_that_correct_guidelines_are_matched(
 
     result = await guideline_actionable_matcher.process()
 
-    matched_guidelines = [p.guideline for p in result.matches]
+    matched_guidelines = [p.guideline for p in result.matched_guidelines]
 
     assert set(matched_guidelines) == set(target_guidelines)
 

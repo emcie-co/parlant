@@ -361,7 +361,7 @@ class GenerativeFieldExtraction(CannedResponseFieldExtractionMethod):
                             f"Guideline #{i}) {guideline_representations[p.guideline.id].action}"
                         )
 
-                    guideline += f"\n    [Priority (1-10): {p.score}; Rationale: {p.rationale}]"
+                    guideline += f"\n    [Rationale: {p.rationale}]"
                     guidelines_texts.append(guideline)
             return "\n".join(guidelines_texts)
 
@@ -1326,7 +1326,7 @@ However, in this case, no special behavioral guidelines were provided.
                         f"Guideline #{i}) {guideline_representations[p.guideline.id].action}"
                     )
 
-                guideline += f"\n    [Priority (1-10): {p.score}; Rationale: {p.rationale}]"
+                guideline += f"\n    [Rationale: {p.rationale}]"
                 if p.guideline.metadata.get("agent_intention_condition"):
                     agent_intention_guidelines.append(guideline)
                 else:

@@ -1155,10 +1155,12 @@ async def base_test_that_correct_node_is_selected(
         ),
     )
     result = await journey_node_selector.process()
-    if len(result.matches) == 0:
+    if len(result.matched_guidelines) == 0:
         assert expected_next_node_index is None or "None" in expected_next_node_index
     else:
-        result_path: Sequence[str] = cast(list[str], result.matches[0].metadata["journey_path"])
+        result_path: Sequence[str] = cast(
+            list[str], result.matched_guidelines[0].metadata["journey_path"]
+        )
         if run_backtrack_journey_selector is not None:
             if run_backtrack_journey_selector:
                 assert result.generation_info.schema_name == "JourneyBacktrackNodeSelectionSchema"

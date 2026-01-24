@@ -63,6 +63,7 @@ from parlant.core.engines.alpha.message_event_composer import (
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineContent
 from parlant.core.glossary import Term
 from parlant.core.journey_guideline_projection import (
+    extract_edge_id_from_journey_node_guideline_id,
     extract_node_id_from_journey_node_guideline_id,
 )
 from parlant.core.journeys import Journey, JourneyId
@@ -118,7 +119,8 @@ class _PreparationIterationResult:
 @dataclass(frozen=True)
 class _GuidelineAndJourneyMatchingResult:
     matching_result: GuidelineMatchingResult
-    matches_guidelines: list[GuidelineMatch]
+    matched_guidelines: list[GuidelineMatch]
+    skipped_guidelines: list[GuidelineMatch]
     resolved_guidelines: list[GuidelineMatch]
     journeys: list[Journey]
 
@@ -493,7 +495,10 @@ class AlphaEngine(Engine):
                 result = await self._run_additional_preparation_iteration(context)
 
             context.state.iterations.append(result.state)
-            context.state.journey_paths = self._list_journey_paths(context=context)
+            context.state.journey_paths = self._list_journey_paths(
+                context=context,
+                skipped_guidelines=result.state.skipped_guidelines,
+            )
 
             # If there's no new information to consider (which would have come from
             # the tools), then we can consider ourselves prepared to respond.
@@ -580,7 +585,8 @@ class AlphaEngine(Engine):
             # hook decided we should not proceed with processing.
             return _PreparationIterationResult(
                 state=IterationState(
-                    matched_guidelines=guideline_and_journey_matching_result.matches_guidelines,
+                    matched_guidelines=guideline_and_journey_matching_result.matched_guidelines,
+                    skipped_guidelines=guideline_and_journey_matching_result.skipped_guidelines,
                     resolved_guidelines=guideline_and_journey_matching_result.resolved_guidelines,
                     tool_insights=ToolInsights(),
                     executed_tools=[],
@@ -630,7 +636,8 @@ class AlphaEngine(Engine):
         # Return structured inspection information, useful for later troubleshooting.
         return _PreparationIterationResult(
             state=IterationState(
-                matched_guidelines=guideline_and_journey_matching_result.matches_guidelines,
+                matched_guidelines=guideline_and_journey_matching_result.matched_guidelines,
+                skipped_guidelines=guideline_and_journey_matching_result.skipped_guidelines,
                 resolved_guidelines=guideline_and_journey_matching_result.resolved_guidelines,
                 tool_insights=tool_insights,
                 executed_tools=[
@@ -674,7 +681,7 @@ class AlphaEngine(Engine):
         context.state.tool_enabled_guideline_matches = (
             await self._find_tool_enabled_guideline_matches(
                 guideline_matches=list(
-                    set(guideline_and_journey_matching_result.matches_guidelines).intersection(
+                    set(guideline_and_journey_matching_result.matched_guidelines).intersection(
                         set(guideline_and_journey_matching_result.resolved_guidelines)
                     )
                 ),
@@ -720,7 +727,8 @@ class AlphaEngine(Engine):
 
         return _PreparationIterationResult(
             state=IterationState(
-                matched_guidelines=guideline_and_journey_matching_result.matches_guidelines,
+                matched_guidelines=guideline_and_journey_matching_result.matched_guidelines,
+                skipped_guidelines=guideline_and_journey_matching_result.skipped_guidelines,
                 resolved_guidelines=guideline_and_journey_matching_result.resolved_guidelines,
                 tool_insights=tool_insights,
                 executed_tools=[
@@ -1091,13 +1099,17 @@ class AlphaEngine(Engine):
 
     def _add_match_events_to_tracer(
         self,
-        matches: Sequence[GuidelineMatch],
+        matched_guidelines: Sequence[GuidelineMatch],
+        skipped_guidelines: Sequence[GuidelineMatch],
     ) -> None:
-        for match in matches:
+        for match in matched_guidelines:
             if match.guideline.metadata.get("journey_node"):
+                edge_id = extract_edge_id_from_journey_node_guideline_id(match.guideline.id)
+
                 self._tracer.add_event(
                     "journey.state.activate",
                     attributes={
+                        **({"edge_id": edge_id} if edge_id else {}),
                         "node_id": extract_node_id_from_journey_node_guideline_id(
                             match.guideline.id
                         ),
@@ -1139,6 +1151,58 @@ class AlphaEngine(Engine):
                         "condition": match.guideline.content.condition,
                         "action": match.guideline.content.action or "",
                         "rationale": match.rationale,
+                    },
+                )
+
+        for skip in skipped_guidelines:
+            if skip.guideline.metadata.get("journey_node"):
+                edge_id = extract_edge_id_from_journey_node_guideline_id(skip.guideline.id)
+
+                self._tracer.add_event(
+                    "journey.skipped",
+                    attributes={
+                        **({"edge_id": edge_id} if edge_id else {}),
+                        "node_id": extract_node_id_from_journey_node_guideline_id(
+                            skip.guideline.id
+                        ),
+                        "condition": skip.guideline.content.condition,
+                        "action": skip.guideline.content.action or "",
+                        "rationale": skip.rationale,
+                        "journey_id": cast(
+                            str,
+                            cast(
+                                dict[str, JSONSerializable],
+                                skip.guideline.metadata["journey_node"],
+                            )["journey_id"],
+                        ),
+                        **(
+                            {
+                                "sub_journey_id": cast(
+                                    str,
+                                    cast(
+                                        dict[str, JSONSerializable],
+                                        skip.guideline.metadata["journey_node"],
+                                    )["sub_journey_id"],
+                                )
+                            }
+                            if "sub_journey_id"
+                            in cast(
+                                dict[str, JSONSerializable],
+                                skip.guideline.metadata["journey_node"],
+                            )
+                            else {}
+                        ),
+                    },
+                )
+
+            else:
+                self._tracer.add_event(
+                    "gm.skipped",
+                    attributes={
+                        "guideline_id": skip.guideline.id,
+                        "condition": skip.guideline.content.condition,
+                        "action": skip.guideline.content.action or "",
+                        "rationale": skip.rationale,
                     },
                 )
 
@@ -1184,11 +1248,13 @@ class AlphaEngine(Engine):
                 guidelines=relevant_guidelines,
             )
 
-        self._add_match_events_to_tracer(matching_result.matches)
+        self._add_match_events_to_tracer(
+            matching_result.matched_guidelines, matching_result.skipped_guidelines
+        )
 
         # Step 5: Filter the journeys that are activated by the matched guidelines.
         activated_journeys = self._filter_activated_journeys(
-            context, matching_result.matches, available_journeys
+            context, matching_result.matched_guidelines, available_journeys
         )
 
         # Step 6: If any of the lower-probability journeys (those originally filtered out)
@@ -1200,9 +1266,6 @@ class AlphaEngine(Engine):
             high_prob_journeys=high_prob_journeys,
             activated_journeys=activated_journeys,
         ):
-            batches = list(chain(matching_result.batches, second_match_result.batches))
-            matches = list(chain.from_iterable(batches))
-
             matching_result = GuidelineMatchingResult(
                 total_duration=matching_result.total_duration + second_match_result.total_duration,
                 batch_count=matching_result.batch_count + second_match_result.batch_count,
@@ -1212,17 +1275,28 @@ class AlphaEngine(Engine):
                         second_match_result.batch_generations,
                     )
                 ),
-                batches=batches,
-                matches=matches,
+                batches=list(chain(matching_result.batches, second_match_result.batches)),
+                matched_guidelines=list(
+                    chain.from_iterable(
+                        [matching_result.matched_guidelines, second_match_result.matched_guidelines]
+                    )
+                ),
+                skipped_guidelines=list(
+                    chain.from_iterable(
+                        [matching_result.skipped_guidelines, second_match_result.skipped_guidelines]
+                    )
+                ),
             )
 
-            self._add_match_events_to_tracer(second_match_result.matches)
+            self._add_match_events_to_tracer(
+                second_match_result.matched_guidelines, second_match_result.skipped_guidelines
+            )
 
         # Step 7: Build the set of matched guidelines:
         matched_guidelines = await self._build_matched_guidelines(
             context=context,
             evaluated_guidelines=relevant_guidelines,
-            current_matched=set(matching_result.matches),
+            current_matched=set(matching_result.matched_guidelines),
             active_journeys=activated_journeys,
         )
 
@@ -1236,7 +1310,8 @@ class AlphaEngine(Engine):
 
         return _GuidelineAndJourneyMatchingResult(
             matching_result=matching_result,
-            matches_guidelines=list(matching_result.matches),
+            matched_guidelines=list(matching_result.matched_guidelines),
+            skipped_guidelines=list(matching_result.skipped_guidelines),
             resolved_guidelines=list(resolver_result.matches),
             journeys=list(resolver_result.journeys),
         )
@@ -1278,13 +1353,16 @@ class AlphaEngine(Engine):
                 guidelines=guidelines_to_reevaluate,
             )
 
-        self._add_match_events_to_tracer(matching_result.matches)
+        self._add_match_events_to_tracer(
+            matching_result.matched_guidelines,
+            matching_result.skipped_guidelines,
+        )
 
         # Step 5: Filter out the journeys activated by the matched guidelines.
         # If a journey was already active in a previous guideline-matching iteration, we still retrieve it
         # so we can exclude it from the next guideline-matching iteration.
         activated_journeys = self._filter_activated_journeys_for_advanced_iterations(
-            matching_result.matches,
+            matching_result.matched_guidelines,
             all_journeys,
         )
 
@@ -1297,9 +1375,6 @@ class AlphaEngine(Engine):
             already_examined_guidelines={g.id for g in guidelines_to_reevaluate},
             activated_journeys=activated_journeys,
         ):
-            batches = list(chain(matching_result.batches, second_match_result.batches))
-            matches = list(chain.from_iterable(batches))
-
             matching_result = GuidelineMatchingResult(
                 total_duration=matching_result.total_duration + second_match_result.total_duration,
                 batch_count=matching_result.batch_count + second_match_result.batch_count,
@@ -1309,10 +1384,22 @@ class AlphaEngine(Engine):
                         second_match_result.batch_generations,
                     )
                 ),
-                batches=batches,
-                matches=matches,
+                batches=list(chain(matching_result.batches, second_match_result.batches)),
+                matched_guidelines=list(
+                    chain.from_iterable(
+                        [matching_result.matched_guidelines, second_match_result.matched_guidelines]
+                    )
+                ),
+                skipped_guidelines=list(
+                    chain.from_iterable(
+                        [matching_result.skipped_guidelines, second_match_result.skipped_guidelines]
+                    )
+                ),
             )
-            self._add_match_events_to_tracer(second_match_result.matches)
+            self._add_match_events_to_tracer(
+                second_match_result.matched_guidelines,
+                second_match_result.skipped_guidelines,
+            )
 
         # Step 7: Build the final set of matched guidelines:
         all_activated_journeys = list(set(context.state.journeys + activated_journeys))
@@ -1320,7 +1407,7 @@ class AlphaEngine(Engine):
         matched_guidelines = await self._build_matched_guidelines(
             context=context,
             evaluated_guidelines=guidelines_to_reevaluate,
-            current_matched=set(matching_result.matches),
+            current_matched=set(matching_result.matched_guidelines),
             active_journeys=all_activated_journeys,
         )
 
@@ -1332,7 +1419,8 @@ class AlphaEngine(Engine):
 
         return _GuidelineAndJourneyMatchingResult(
             matching_result=matching_result,
-            matches_guidelines=list(matching_result.matches),
+            matched_guidelines=list(matching_result.matched_guidelines),
+            skipped_guidelines=list(matching_result.skipped_guidelines),
             resolved_guidelines=list(resolver_result.matches),
             journeys=list(resolver_result.journeys),
         )
@@ -1340,10 +1428,13 @@ class AlphaEngine(Engine):
     def _list_journey_paths(
         self,
         context: EngineContext,
+        skipped_guidelines: list[GuidelineMatch],
     ) -> dict[JourneyId, list[Optional[str]]]:
         journey_paths = copy.deepcopy(context.state.journey_paths)
 
-        new_journey_paths = self._list_journey_paths_from_guideline_matches(context)
+        new_journey_paths = self._list_journey_paths_from_guideline_matches(
+            context, skipped_guidelines
+        )
 
         for journey_id, path in new_journey_paths.items():
             journey_paths[journey_id] = path
@@ -1866,7 +1957,6 @@ class AlphaEngine(Engine):
                     metadata={},
                 ),
                 rationale=rationales[utterance_request.rationale],
-                score=10,
             )
 
         return [
@@ -1963,8 +2053,9 @@ class AlphaEngine(Engine):
     def _list_journey_paths_from_guideline_matches(
         self,
         context: EngineContext,
+        skipped_guidelines: list[GuidelineMatch],
     ) -> dict[JourneyId, list[Optional[str]]]:
-        # 1. Iterate over all guideline matches:
+        # 1. Iterate over all matched and skipped guidelines:
         #       • If a `journey_id` is found in the matched guideline metadata:
         #             – Remove that journey from the `journeys` set, since it
         #               successfully matched a guideline. This also ensures we catch the
@@ -1973,18 +2064,10 @@ class AlphaEngine(Engine):
         #               If missing, log an error and skip.
         #             – Store the extracted path as:
         #                   journey_paths[journey_id] = <list[GuidelineId | None]>
-        #
-        #             – If the matched guideline represents the *root* journey node:
-        #                   • Treat it as a placeholder and insert `None` into the path.
-        #                   • Remove the root-node guideline ID from the returned path
-        #                     (root guidelines have empty content and do not represent
-        #                     actionable journey steps).
-        #
-        #
         #       • If no `journey_id` can be resolved from the match metadata:
         #             – Skip this match.
         #
-        # 2. After processing all matches, any remaining journeys in the `journeys`
+        # 3. After processing all matches, any remaining journeys in the `journeys`
         #    set did *not* match any node guideline. Assign:
         #         journey_paths[journey_id] = [None]
         #    This indicates that the journey is inactive for the current interaction.
@@ -1998,7 +2081,7 @@ class AlphaEngine(Engine):
         journeys = {j.id: j for j in context.state.journeys}
         journey_paths: dict[JourneyId, list[Optional[str]]] = {}
 
-        for match in guideline_matches:
+        for match in chain(guideline_matches, skipped_guidelines):
             # Validate that this guideline belongs to a journey-node
             node_metadata = cast(
                 dict[str, JSONSerializable], match.guideline.metadata.get("journey_node", {})
@@ -2012,7 +2095,7 @@ class AlphaEngine(Engine):
 
             # Remove journey ID so we can detect unmatched journeys afterwards
             journey = journeys.pop(journey_id, None)
-            if journey is None:
+            if journey is None and journey_id in journey_paths:
                 # This means journey matched twice → unexpected behavior
                 self._logger.error(
                     f"Multiple guideline-node matches found for journey {journey_id}. Match: {match}"
@@ -2027,18 +2110,6 @@ class AlphaEngine(Engine):
                 continue
 
             path = cast(list[Optional[str]], match.metadata.get("journey_path"))
-
-            # Detect whether this guideline is the root node
-            # root node are placeholder for exit the journey
-            # since they have no content, will be deleted from the guideline matches as well
-            # we only look it in ordinary guidelines since root nodes cannot have tools attached
-            if journey.root_id == extract_node_id_from_journey_node_guideline_id(
-                match.guideline.id
-            ):
-                for i, m in enumerate(context.state.ordinary_guideline_matches):
-                    if m.guideline.id == match.guideline.id:
-                        del context.state.ordinary_guideline_matches[i]
-                        break
 
             journey_paths[journey_id] = path
 

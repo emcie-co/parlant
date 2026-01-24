@@ -124,24 +124,31 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
                             f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                         )
 
-                    matches = []
+                    matched_guidelines = []
+                    skipped_guidelines = []
 
                     for match in inference.content.checks:
                         if match.should_reapply:
                             self._logger.debug(f"Activated:\n{match.model_dump_json(indent=2)}")
 
-                            matches.append(
+                            matched_guidelines.append(
                                 GuidelineMatch(
                                     guideline=self._guidelines[match.guideline_id],
-                                    score=10 if match.should_reapply else 1,
                                     rationale="",
                                 )
                             )
                         else:
                             self._logger.debug(f"Skipped:\n{match.model_dump_json(indent=2)}")
+                            skipped_guidelines.append(
+                                GuidelineMatch(
+                                    guideline=self._guidelines[match.guideline_id],
+                                    rationale="",
+                                )
+                            )
 
                     return GuidelineMatchingBatchResult(
-                        matches=matches,
+                        matched_guidelines=matched_guidelines,
+                        skipped_guidelines=skipped_guidelines,
                         generation_info=inference.info,
                     )
 

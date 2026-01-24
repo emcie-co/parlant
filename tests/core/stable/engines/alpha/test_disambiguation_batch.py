@@ -335,9 +335,9 @@ async def base_test_that_ambiguity_detected_with_relevant_guidelines(
     )
     result = await disambiguation_resolver.process()
 
-    assert (result.matches[0].score == 10) == is_ambiguous
+    assert len(result.matched_guidelines) == is_ambiguous
 
-    data = result.matches[0].metadata
+    data = result.matched_guidelines[0].metadata
     if data and isinstance(data, dict):
         if is_ambiguous:
             disambiguation = data.get("disambiguation")

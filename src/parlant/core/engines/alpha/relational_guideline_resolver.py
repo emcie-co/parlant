@@ -306,21 +306,10 @@ class RelationalGuidelineResolver:
                     existing_related_guideline = existing_related_guidelines[0]
 
                     # We're basically saying, if this related guideline is already
-                    # related to a match with a higher priority than the match
-                    # at hand, then we want to keep the associated with the match
-                    # that has the higher priority, because it will go down as the inferred
-                    # priority of our related guideline's match...
-                    #
-                    # Now try to read that out loud in one go :)
-                    if existing_related_guideline[0].score >= match.score:
-                        continue  # Stay with existing one
-                    else:
-                        # This match's score is higher, so it's better that
-                        # we associate the related guideline with this one.
-                        # we'll add it soon, but meanwhile let's remove the old one.
-                        match_and_inferred_guideline_pairs.remove(
-                            existing_related_guideline,
-                        )
+                    # related to a match we will just take the later one, to avoid duplications
+                    match_and_inferred_guideline_pairs.remove(
+                        existing_related_guideline,
+                    )
 
                 match_and_inferred_guideline_pairs.append(
                     (match, related_guideline),
@@ -329,7 +318,6 @@ class RelationalGuidelineResolver:
         entailed_matches = [
             GuidelineMatch(
                 guideline=inferred_guideline,
-                score=match.score,
                 rationale="Automatically inferred from context",
             )
             for match, inferred_guideline in match_and_inferred_guideline_pairs

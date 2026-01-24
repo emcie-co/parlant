@@ -66,14 +66,14 @@ async def test_that_relational_guideline_resolver_prioritizes_indirectly_between
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=8, rationale=""),
-            GuidelineMatch(guideline=g2, score=5, rationale=""),
-            GuidelineMatch(guideline=g3, score=9, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
 
-    assert result == [GuidelineMatch(guideline=g1, score=8, rationale="")]
+    assert result == [GuidelineMatch(guideline=g1, rationale="")]
 
 
 async def test_that_relational_guideline_resolver_prioritizes_between_journey_nodes(
@@ -125,13 +125,13 @@ async def test_that_relational_guideline_resolver_prioritizes_between_journey_no
     result = await resolver.resolve(
         [j1_guidelines[0], j2_guidelines[0]],
         [
-            GuidelineMatch(guideline=j1_guidelines[0], score=8, rationale=""),
-            GuidelineMatch(guideline=j2_guidelines[0], score=5, rationale=""),
+            GuidelineMatch(guideline=j1_guidelines[0], rationale=""),
+            GuidelineMatch(guideline=j2_guidelines[0], rationale=""),
         ],
         journeys=[j1, j2],
     )
 
-    assert result == [GuidelineMatch(guideline=j1_guidelines[0], score=8, rationale="")]
+    assert result == [GuidelineMatch(guideline=j1_guidelines[0], rationale="")]
 
 
 async def test_that_relational_guideline_resolver_does_not_ignore_a_deprioritized_guideline_when_its_prioritized_counterpart_is_not_active(
@@ -157,12 +157,12 @@ async def test_that_relational_guideline_resolver_does_not_ignore_a_deprioritize
     )
 
     matches: list[GuidelineMatch] = [
-        GuidelineMatch(guideline=deprioritized_guideline, score=5, rationale=""),
+        GuidelineMatch(guideline=deprioritized_guideline, rationale=""),
     ]
 
     result = await resolver.resolve([prioritized_guideline, deprioritized_guideline], matches, [])
 
-    assert result == [GuidelineMatch(guideline=deprioritized_guideline, score=5, rationale="")]
+    assert result == [GuidelineMatch(guideline=deprioritized_guideline, rationale="")]
 
 
 async def test_that_relational_guideline_resolver_does_not_ignore_deprioritized_journey_node_when_prioritized_journey_is_not_active(
@@ -218,12 +218,12 @@ async def test_that_relational_guideline_resolver_does_not_ignore_deprioritized_
     result = await resolver.resolve(
         [prioritized_guideline, deprioritized_guideline],
         [
-            GuidelineMatch(guideline=deprioritized_guideline, score=5, rationale=""),
+            GuidelineMatch(guideline=deprioritized_guideline, rationale=""),
         ],
         journeys=[],
     )
 
-    assert result == [GuidelineMatch(guideline=deprioritized_guideline, score=5, rationale="")]
+    assert result == [GuidelineMatch(guideline=deprioritized_guideline, rationale="")]
 
 
 async def test_that_relational_guideline_resolver_prioritizes_guidelines(
@@ -249,13 +249,13 @@ async def test_that_relational_guideline_resolver_prioritizes_guidelines(
     )
 
     matches: list[GuidelineMatch] = [
-        GuidelineMatch(guideline=prioritized_guideline, score=8, rationale=""),
-        GuidelineMatch(guideline=deprioritized_guideline, score=5, rationale=""),
+        GuidelineMatch(guideline=prioritized_guideline, rationale=""),
+        GuidelineMatch(guideline=deprioritized_guideline, rationale=""),
     ]
 
     result = await resolver.resolve([prioritized_guideline, deprioritized_guideline], matches, [])
 
-    assert result == [GuidelineMatch(guideline=prioritized_guideline, score=8, rationale="")]
+    assert result == [GuidelineMatch(guideline=prioritized_guideline, rationale="")]
 
 
 async def test_that_relational_guideline_resolver_infers_guidelines_from_tags(
@@ -303,7 +303,7 @@ async def test_that_relational_guideline_resolver_infers_guidelines_from_tags(
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=8, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
         ],
         journeys=[],
     )
@@ -357,7 +357,7 @@ async def test_that_relational_guideline_resolver_does_not_ignore_a_deprioritize
     result = await resolver.resolve(
         [prioritized_guideline, deprioritized_guideline],
         [
-            GuidelineMatch(guideline=deprioritized_guideline, score=5, rationale=""),
+            GuidelineMatch(guideline=deprioritized_guideline, rationale=""),
         ],
         journeys=[],
     )
@@ -408,8 +408,8 @@ async def test_that_relational_guideline_resolver_prioritizes_guidelines_from_ta
     result = await resolver.resolve(
         [g1, g2],
         [
-            GuidelineMatch(guideline=g1, score=8, rationale=""),
-            GuidelineMatch(guideline=g2, score=5, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
         ],
         journeys=[],
     )
@@ -461,8 +461,8 @@ async def test_that_relational_guideline_resolver_handles_indirect_guidelines_fr
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=8, rationale=""),
-            GuidelineMatch(guideline=g3, score=9, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -501,7 +501,7 @@ async def test_that_relational_guideline_resolver_filters_out_guidelines_with_un
     result = await resolver.resolve(
         [source_guideline, target_guideline],
         [
-            GuidelineMatch(guideline=source_guideline, score=8, rationale=""),
+            GuidelineMatch(guideline=source_guideline, rationale=""),
         ],
         journeys=[],
     )
@@ -542,8 +542,8 @@ async def test_that_relational_guideline_resolver_filters_out_guidelines_with_un
     result = await resolver.resolve(
         [source_guideline, tagged_guideline_1, tagged_guideline_2],
         [
-            GuidelineMatch(guideline=source_guideline, score=8, rationale=""),
-            GuidelineMatch(guideline=tagged_guideline_1, score=10, rationale=""),
+            GuidelineMatch(guideline=source_guideline, rationale=""),
+            GuidelineMatch(guideline=tagged_guideline_1, rationale=""),
             # Missing match for tagged_guideline_2
         ],
         journeys=[],
@@ -597,7 +597,7 @@ async def test_that_relational_guideline_resolver_filters_out_journey_nodes_with
     result = await resolver.resolve(
         [source_journey_guidelines[0], guideline],
         [
-            GuidelineMatch(guideline=source_journey_guidelines[0], score=8, rationale=""),
+            GuidelineMatch(guideline=source_journey_guidelines[0], rationale=""),
         ],
         journeys=[],
     )
@@ -652,7 +652,7 @@ async def test_that_relational_guideline_resolver_filters_out_journey_nodes_with
     result = await resolver.resolve(
         [source_journey_guidelines[0], target_journey_guidelines[0]],
         [
-            GuidelineMatch(guideline=source_journey_guidelines[0], score=8, rationale=""),
+            GuidelineMatch(guideline=source_journey_guidelines[0], rationale=""),
         ],
         journeys=[source_journey],
     )
@@ -713,8 +713,8 @@ async def test_that_relational_guideline_resolver_filters_dependent_guidelines_b
     result = await resolver.resolve(
         [enabled_journey_tagged_guideline, disabled_journey_tagged_guideline],
         [
-            GuidelineMatch(guideline=enabled_journey_tagged_guideline, score=8, rationale=""),
-            GuidelineMatch(guideline=disabled_journey_tagged_guideline, score=10, rationale=""),
+            GuidelineMatch(guideline=enabled_journey_tagged_guideline, rationale=""),
+            GuidelineMatch(guideline=disabled_journey_tagged_guideline, rationale=""),
         ],
         journeys=[enabled_journey],
     )

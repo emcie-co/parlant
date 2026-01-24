@@ -32,12 +32,15 @@ from parlant.core.loggers import Logger
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 
 
+DEFAULT_SKIPPED_RATIONALE = "Skipped by custom matcher"
+
+
 class CustomGuidelineMatchingBatch(GuidelineMatchingBatch):
     def __init__(
         self,
         guideline: Guideline,
         context: GuidelineMatchingContext,
-        matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]],
+        matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch | None]],
         logger: Logger,
     ) -> None:
         self._guideline = guideline
@@ -59,7 +62,14 @@ class CustomGuidelineMatchingBatch(GuidelineMatchingBatch):
         t_end = asyncio.get_event_loop().time()
 
         return GuidelineMatchingBatchResult(
-            matches=[match] if match and match.score == 10 else [],
+            matched_guidelines=[match] if match else [],
+            skipped_guidelines=[
+                GuidelineMatch(
+                    guideline=self._guideline, rationale=DEFAULT_SKIPPED_RATIONALE, metadata={}
+                )
+            ]
+            if match is None
+            else [],
             generation_info=GenerationInfo(
                 schema_name="custom_matcher",
                 model="python",
@@ -84,7 +94,7 @@ class CustomGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     def __init__(
         self,
         guideline: Guideline,
-        matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]],
+        matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch | None]],
         logger: Logger,
     ) -> None:
         self._guideline = guideline

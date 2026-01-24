@@ -24,8 +24,8 @@ from opentelemetry.trace import Span
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
-    OTLPSpanExporter as GRPCOTLPSpanExporter,
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+    OTLPSpanExporter as HTTPOTLPSpanExporter,
 )
 
 from parlant.core.tracer import Tracer, AttributeValue
@@ -230,10 +230,9 @@ class EmcieSpanProcessor(BatchSpanProcessor):
 
         # Use gRPC for all endpoints (production ready)
         logger.debug(f"Creating OTLPSpanExporter (gRPC) with headers: {list(headers.keys())}")
-        span_exporter = GRPCOTLPSpanExporter(
+        span_exporter = HTTPOTLPSpanExporter(
             endpoint=endpoint,
             headers=headers,
-            insecure=True,
         )
 
         # Initialize BatchSpanProcessor with our exporter

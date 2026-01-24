@@ -308,7 +308,6 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                             tags=[],
                             metadata={},
                         ),
-                        score=10,
                         rationale=m.rationale,
                         metadata=m.metadata,
                     )

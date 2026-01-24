@@ -50,6 +50,7 @@ class IterationState:
     """State of a single iteration in the response process"""
 
     matched_guidelines: list[GuidelineMatch]
+    skipped_guidelines: list[GuidelineMatch]
     resolved_guidelines: list[GuidelineMatch]
     tool_insights: ToolInsights
     executed_tools: list[ToolId]

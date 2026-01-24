@@ -24,12 +24,11 @@ from parlant.core.guidelines import Guideline
 @dataclass(frozen=True)
 class GuidelineMatch:
     guideline: Guideline
-    score: int
     rationale: str
     metadata: Mapping[str, JSONSerializable] = field(default_factory=dict)
 
     def __hash__(self) -> int:
-        return hash(f"{self.guideline.id}_{self.score}_{self.rationale}")
+        return hash(f"{self.guideline.id}_{self.rationale}")
 
 
 @dataclass(frozen=True)

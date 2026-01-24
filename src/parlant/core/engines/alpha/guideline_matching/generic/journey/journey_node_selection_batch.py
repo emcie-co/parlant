@@ -205,10 +205,9 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                         f"Journey '{self._examined_journey.title}': auto-advanced to node {guideline_id_to_node_index[current_node]}"
                     )
                     return GuidelineMatchingBatchResult(
-                        matches=[
+                        matched_guidelines=[
                             GuidelineMatch(
                                 guideline=guideline_id_to_guideline[current_node],
-                                score=10,
                                 rationale="This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. It was automatically selected as the only viable follow up for the last step that was executed",
                                 metadata={
                                     "journey_path": journey_path,
@@ -216,15 +215,16 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                                 },
                             )
                         ],
+                        skipped_guidelines=[],
                         generation_info=EMPTY_GENERATION_INFO,
                     )
                 else:
                     self._logger.debug(f"Journey '{self._examined_journey.title}': auto-exited")
                     return GuidelineMatchingBatchResult(
-                        matches=[
+                        matched_guidelines=[],
+                        skipped_guidelines=[
                             GuidelineMatch(
                                 guideline=root_guideline,
-                                score=10,
                                 rationale="Root guideline returned to indicate exit journey",
                                 metadata={
                                     "journey_path": journey_path,
@@ -243,10 +243,10 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                 f"Journey '{self._examined_journey.title}': auto-advanced to node {self._get_guideline_node_index(self._first_executable_node)}"
             )
             return GuidelineMatchingBatchResult(
-                matches=[
+                matched_guidelines=[],
+                skipped_guidelines=[
                     GuidelineMatch(
                         guideline=self._first_executable_node,
-                        score=10,
                         rationale="root node requires tool, and was selected automatically",
                         metadata={
                             "journey_path": [
@@ -375,7 +375,9 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
 
                 if not backtrack_result.requires_backtracking:
                     return GuidelineMatchingBatchResult(
-                        matches=[], generation_info=backtrack_result.generation_info
+                        matched_guidelines=[],
+                        skipped_guidelines=[],
+                        generation_info=backtrack_result.generation_info,
                     )
                 else:
                     if backtrack_result.backtrack_to_same_journey_process:
@@ -397,10 +399,9 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                             and self._get_kind(self._first_executable_node) == JourneyNodeKind.TOOL
                         ):  # Restarting a journey whose first step is to call a tool
                             return GuidelineMatchingBatchResult(
-                                matches=[
+                                matched_guidelines=[
                                     GuidelineMatch(
                                         guideline=self._first_executable_node,
-                                        score=10,
                                         rationale="Root node requires tool, and was selected automatically",
                                         metadata={
                                             "journey_path": [
@@ -412,6 +413,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                                         },
                                     )
                                 ],
+                                skipped_guidelines=[],
                                 generation_info=EMPTY_GENERATION_INFO,
                             )
                         next_step_selector = JourneyNextStepSelection(

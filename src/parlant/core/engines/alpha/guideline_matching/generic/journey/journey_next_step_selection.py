@@ -265,12 +265,12 @@ class JourneyNextStepSelection:
                         self._logger.debug(f"Journey '{self._examined_journey.title}': exited")
                         journey_path = list(self._previous_path) + [None]
                         return GuidelineMatchingBatchResult(
-                            matches=[
+                            matched_guidelines=[],
+                            skipped_guidelines=[
                                 GuidelineMatch(
                                     guideline=self._guideline_id_to_guideline[
                                         self._node_index_to_guideline_id[ROOT_INDEX]
                                     ],
-                                    score=10,
                                     rationale=f"Root guideline was selected indicating should exit the journey, the rational for this choice: {inference.content.next_step_rationale}",
                                     metadata={
                                         "journey_path": journey_path,
@@ -289,10 +289,9 @@ class JourneyNextStepSelection:
                             self._node_index_to_guideline_id[self._current_node.id]
                         ]
                         return GuidelineMatchingBatchResult(
-                            matches=[
+                            matched_guidelines=[
                                 GuidelineMatch(
                                     guideline=matched_guideline,
-                                    score=10,
                                     rationale=f"This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. Use this rationale to better understand how the conversation got to its current point. The rationale for choosing this specific step in the journey was: {inference.content.next_step_rationale}",
                                     metadata={
                                         "journey_path": self._previous_path
@@ -302,6 +301,7 @@ class JourneyNextStepSelection:
                                     },
                                 )
                             ],
+                            skipped_guidelines=[],
                             generation_info=inference.info,
                         )
                     else:
@@ -323,12 +323,12 @@ class JourneyNextStepSelection:
                                 journey_path = list(self._previous_path) + [None]
 
                                 return GuidelineMatchingBatchResult(
-                                    matches=[
+                                    matched_guidelines=[],
+                                    skipped_guidelines=[
                                         GuidelineMatch(
                                             guideline=self._guideline_id_to_guideline[
                                                 self._node_index_to_guideline_id[ROOT_INDEX]
                                             ],
-                                            score=10,
                                             rationale=f"Root guideline was selected indicating should exit the journey, the rational for this choice: {inference.content.next_step_rationale}",
                                             metadata={
                                                 "journey_path": journey_path,
@@ -353,10 +353,9 @@ class JourneyNextStepSelection:
                                     self._node_index_to_guideline_id[next_node]
                                 ]
                                 return GuidelineMatchingBatchResult(
-                                    matches=[
+                                    matched_guidelines=[
                                         GuidelineMatch(
                                             guideline=matched_guideline,
-                                            score=10,
                                             rationale=f"This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. Use this rationale to better understand how the conversation got to its current point. The rationale for choosing this specific step in the journey was: {inference.content.next_step_rationale}",
                                             metadata={
                                                 "journey_path": journey_path,
@@ -364,6 +363,7 @@ class JourneyNextStepSelection:
                                             },
                                         )
                                     ],
+                                    skipped_guidelines=[],
                                     generation_info=inference.info,
                                 )
                         else:  # condition index invalid
@@ -371,7 +371,8 @@ class JourneyNextStepSelection:
                                 f"Journey '{self._examined_journey.title}': invalid condition id {condition_id}"
                             )
                             return GuidelineMatchingBatchResult(
-                                matches=[],
+                                matched_guidelines=[],
+                                skipped_guidelines=[],
                                 generation_info=inference.info,
                             )
             except Exception as exc:

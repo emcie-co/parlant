@@ -577,7 +577,6 @@ def given_was_matched_in_previous_iteration(
 
     context.guideline_matches[guideline_name] = GuidelineMatch(
         guideline=guideline,
-        score=10,
         rationale="",
     )
 
@@ -591,14 +590,12 @@ def given_was_matched_in_previous_iteration(
 def given_a_guideline_match(
     context: ContextOfTest,
     guideline_name: str,
-    score: int,
     rationale: str,
 ) -> None:
     guideline = context.guidelines[guideline_name]
 
     context.guideline_matches[guideline_name] = GuidelineMatch(
         guideline=guideline,
-        score=score,
         rationale=rationale,
     )
 

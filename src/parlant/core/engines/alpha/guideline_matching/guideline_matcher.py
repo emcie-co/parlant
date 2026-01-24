@@ -71,7 +71,8 @@ class GuidelineMatchingResult:
     batch_count: int
     batch_generations: Sequence[GenerationInfo]
     batches: Sequence[Sequence[GuidelineMatch]]
-    matches: Sequence[GuidelineMatch]
+    matched_guidelines: Sequence[GuidelineMatch]
+    skipped_guidelines: Sequence[GuidelineMatch]
 
 
 @dataclass(frozen=True)
@@ -88,7 +89,8 @@ class ResponseAnalysisResult:
 
 @dataclass(frozen=True)
 class GuidelineMatchingBatchResult:
-    matches: Sequence[GuidelineMatch]
+    matched_guidelines: Sequence[GuidelineMatch]
+    skipped_guidelines: Sequence[GuidelineMatch]
     generation_info: GenerationInfo
 
 
@@ -206,7 +208,8 @@ class GuidelineMatcher:
                 batch_count=0,
                 batch_generations=[],
                 batches=[],
-                matches=[],
+                matched_guidelines=[],
+                skipped_guidelines=[],
             )
 
         t_start = time.time()
@@ -256,18 +259,27 @@ class GuidelineMatcher:
 
         t_end = time.time()
 
-        result_batches = [result.matches for result in batch_results]
-        matches: Sequence[GuidelineMatch] = list(chain.from_iterable(result_batches))
+        result_batches = [
+            list(chain.from_iterable([result.matched_guidelines, result.skipped_guidelines]))
+            for result in batch_results
+        ]
+        matched_guidelines: Sequence[GuidelineMatch] = list(
+            chain.from_iterable([result.matched_guidelines for result in batch_results])
+        )
+        skipped_guidelines: Sequence[GuidelineMatch] = list(
+            chain.from_iterable([result.skipped_guidelines for result in batch_results])
+        )
 
         for strategy, _ in guideline_strategies.values():
-            matches = await strategy.transform_matches(matches)
+            matched_guidelines = await strategy.transform_matches(matched_guidelines)
 
         return GuidelineMatchingResult(
             total_duration=t_end - t_start,
             batch_count=sum(map(len, batches)),
             batch_generations=[result.generation_info for result in batch_results],
             batches=result_batches,
-            matches=matches,
+            matched_guidelines=matched_guidelines,
+            skipped_guidelines=skipped_guidelines,
         )
 
     async def analyze_response(

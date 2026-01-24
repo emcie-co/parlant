@@ -16,6 +16,16 @@ from parlant.core.journeys import (
 )
 
 
+def extract_edge_id_from_journey_node_guideline_id(
+    guideline_id: GuidelineId,
+) -> JourneyEdgeId | None:
+    parts = guideline_id.split(":")
+    if len(parts) < 2 or parts[0] != "journey_node":
+        raise ValueError(f"Invalid guideline ID format: {guideline_id}")
+
+    return JourneyEdgeId(parts[2]) if len(parts) > 2 else None
+
+
 def extract_node_id_from_journey_node_guideline_id(
     guideline_id: GuidelineId,
 ) -> JourneyNodeId:

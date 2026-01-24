@@ -475,11 +475,10 @@ class JourneyBacktrackNodeSelection:
                             .incoming_edges[0]
                             .target_guideline
                         )
-                return GuidelineMatchingBatchResult(
-                    matches=[
+                if matched_guideline:
+                    matched_guidelines = [
                         GuidelineMatch(
                             guideline=matched_guideline,
-                            score=10,
                             rationale=f"This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. Use this rationale to better understand how the conversation got to its current point. The rationale for choosing this specific step in the journey was: {inference.content.rationale}",
                             metadata={
                                 "journey_path": list(self._previous_path) + journey_path,
@@ -487,18 +486,23 @@ class JourneyBacktrackNodeSelection:
                             },
                         )
                     ]
-                    if matched_guideline  # If either 'None' or an illegal step was returned, return root guideline, a place holder for "exit journey"
-                    else [
+                    skipped_guidelines = []
+                else:
+                    matched_guidelines = []
+                    skipped_guidelines = [
                         GuidelineMatch(
                             guideline=self._root_guideline,
-                            score=10,
                             rationale=f"Root guideline was selected indicating should exit the journey, the rational for this choice: {inference.content.rationale}",
                             metadata={
                                 "journey_path": list(self._previous_path) + journey_path + [None],
                                 "step_selection_journey_id": self._examined_journey.id,
                             },
                         )
-                    ],
+                    ]
+
+                return GuidelineMatchingBatchResult(
+                    matched_guidelines=matched_guidelines,
+                    skipped_guidelines=skipped_guidelines,
                     generation_info=inference.info,
                 )
             except Exception as exc:

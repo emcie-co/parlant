@@ -65,7 +65,7 @@ async def _make_session_store(container: p.Container) -> p.SessionStore:
             table_prefix="PARLANT_SESSIONS_",
         )
     )
-    store = p.SessionDocumentStore(database=database, allow_migration=True)
+    store = SessionDocumentStore(database=database, allow_migration=True)
     return await EXIT_STACK.enter_async_context(store)
 
 
@@ -103,15 +103,12 @@ async def configure_container(container: p.Container) -> p.Container:
     container = container.clone()
 
     session_store = await _make_session_store(container)
-    container[p.SessionDocumentStore] = session_store
     container[p.SessionStore] = session_store
 
     customer_store = await _make_customer_store(container)
-    container[p.CustomerDocumentStore] = customer_store
     container[p.CustomerStore] = customer_store
 
     variable_store = await _make_variable_store(container)
-    container[p.ContextVariableDocumentStore] = variable_store
     container[p.ContextVariableStore] = variable_store
 
     container[p.EventEmitterFactory] = EventPublisherFactory(

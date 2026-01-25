@@ -119,7 +119,7 @@ class LiteLLMSchematicGenerator(BaseSchematicGenerator[T]):
 
         # Only pass api_key if explicitly set; otherwise let LiteLLM auto-detect
         # provider-specific keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
-        api_key = os.environ.get("LITELLM_PROVIDER_API_KEY") or None
+        api_key = os.environ.get("LITELLM_PROVIDER_API_KEY")
 
         t_start = time.time()
 
@@ -224,7 +224,6 @@ class LiteLLMEmbedder(BaseEmbedder):
         base_url: str | None = None,
     ) -> None:
         super().__init__(logger, tracer, meter, model_name)
-        self._model_name = model_name
         self._base_url = base_url
         self._client = litellm
         self._tokenizer = LiteLLMEstimatingTokenizer(model_name=model_name)
@@ -232,7 +231,7 @@ class LiteLLMEmbedder(BaseEmbedder):
     @property
     @override
     def id(self) -> str:
-        return f"litellm/{self._model_name}"
+        return f"litellm/{self.model_name}"
 
     @property
     @override
@@ -242,13 +241,12 @@ class LiteLLMEmbedder(BaseEmbedder):
     @property
     @override
     def max_tokens(self) -> int:
-        return 8192
+        return int(os.environ.get("LITELLM_EMBEDDING_MAX_TOKENS", 8192))
 
     @property
     @override
     def dimensions(self) -> int:
-        # Common dimensions for popular models; may need adjustment per model
-        return 1536
+        return int(os.environ.get("LITELLM_EMBEDDING_DIMENSIONS", 1536))
 
     @override
     async def do_embed(
@@ -256,11 +254,10 @@ class LiteLLMEmbedder(BaseEmbedder):
         texts: list[str],
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
-        # Only pass api_key if explicitly set
-        api_key = os.environ.get("LITELLM_PROVIDER_API_KEY") or None
+        api_key = os.environ.get("LITELLM_PROVIDER_API_KEY")
 
         response = await self._client.aembedding(
-            model=self._model_name,
+            model=self.model_name,
             input=texts,
             api_key=api_key,
             api_base=self._base_url,

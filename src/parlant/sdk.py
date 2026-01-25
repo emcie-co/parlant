@@ -419,16 +419,6 @@ class NLPServices:
         return OllamaService(container[Logger], container[Tracer], container[Meter])
 
     @staticmethod
-    def glm(container: Container) -> NLPService:
-        """Creates a GLM NLPService instance using the provided container."""
-        from parlant.adapters.nlp.glm_service import GLMService
-
-        if error := GLMService.verify_environment():
-            raise NLPServiceConfigurationError(error)
-
-        return GLMService(container[Logger], container[Tracer], container[Meter])
-
-    @staticmethod
     def qwen(container: Container) -> NLPService:
         """Creates a Qwen NLPService instance using the provided container."""
         from parlant.adapters.nlp.qwen_service import QwenService

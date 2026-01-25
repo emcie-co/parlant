@@ -249,22 +249,18 @@ class EmcieSpanProcessor(BatchSpanProcessor):
         self._error_log_interval = 60.0
 
     def on_end(self, span: ReadableSpan) -> None:
-        """Called when a span ends. Apply filtering and transformation."""
-        transformed_span = self._transform_span(span)
-
-        # Send to parent processor for batching and export
-        super().on_end(transformed_span)
+        """Called when a span ends. Only queue spans that should be exported."""
+        if self._should_export_span(span):
+            transformed_span = self._transform_span(span)
+            super().on_end(transformed_span)
+        # else: do not queue the span for export
 
     def _should_export_span(self, span: ReadableSpan) -> bool:
         """Determine if a span should be exported based on our filtering rules."""
-        span_name = span.name
         attributes = dict(span.attributes) if span.attributes else {}
 
-        # Only export http.request spans with specific operation
-        if span_name == "http.request":
-            operation = attributes.get("http.request.operation")
-            should_export = operation == "create_event"
-            return should_export
+        if attributes.get("http.request.operation") == "create_event":
+            return True
 
         return False
 

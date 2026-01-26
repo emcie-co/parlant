@@ -12,6 +12,7 @@ cache/
 .DS_STORE
 *~
 .vscode
+.idea
 .venv
 .cursor
 logs

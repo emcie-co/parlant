@@ -4201,6 +4201,29 @@ class Server:
                 )
 
             mongo_client: object | None = None
+            postgres_db_instances: dict[str, DocumentDatabase] = {}
+
+            async def make_postgres_db(connection_string: str, name: str) -> DocumentDatabase:
+                nonlocal postgres_db_instances
+
+                if importlib.util.find_spec("asyncpg") is None:
+                    raise SDKError(
+                        "PostgreSQL requires an additional package to be installed. "
+                        "Please install parlant[postgres] to use PostgreSQL."
+                    )
+
+                from parlant.adapters.db.postgres_db import PostgresDocumentDatabase
+
+                if name not in postgres_db_instances:
+                    postgres_db_instances[name] = await self._exit_stack.enter_async_context(
+                        PostgresDocumentDatabase(
+                            connection_string=connection_string,
+                            logger=c()[Logger],
+                            table_prefix=f"parlant_{name}_",
+                        )
+                    )
+
+                return postgres_db_instances[name]
 
             async def make_mongo_db(url: str, name: str) -> DocumentDatabase:
                 nonlocal mongo_client
@@ -4260,10 +4283,20 @@ class Server:
                     )
 
                     return store
+                elif spec.startswith("postgresql://") or spec.startswith("postgres://"):
+                    store = await self._exit_stack.enter_async_context(
+                        t(
+                            database=await make_postgres_db(spec, name),
+                            allow_migration=self._migrate,
+                            **kwargs,
+                        )  # type: ignore
+                    )
+
+                    return store
                 else:
                     raise SDKError(
                         f"Invalid session store type: {self._session_store}. "
-                        "Expected 'transient', 'local', or a MongoDB connection string."
+                        "Expected 'transient', 'local', or a MongoDB/PostgreSQL connection string."
                     )
 
             if isinstance(self._session_store, SessionStore):

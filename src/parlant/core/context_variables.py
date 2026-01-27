@@ -442,6 +442,13 @@ class ContextVariableDocumentStore(ContextVariableStore):
             data=context_variable_value_document["data"],
         )
 
+    def _validate_freshness_rules(self, freshness_rules: Optional[str]) -> None:
+        if freshness_rules is not None:
+            try:
+                croniter(freshness_rules)
+            except Exception:
+                raise ValueError("Invalid cron expression for freshness_rules")
+
     @override
     async def create_variable(
         self,
@@ -452,6 +459,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
         freshness_rules: Optional[str] = None,
         tags: Optional[Sequence[TagId]] = None,
     ) -> ContextVariable:
+        self._validate_freshness_rules(freshness_rules)
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
             context_variable_checksum = md5_checksum(
@@ -493,6 +501,8 @@ class ContextVariableDocumentStore(ContextVariableStore):
         variable_id: ContextVariableId,
         params: ContextVariableUpdateParams,
     ) -> ContextVariable:
+        if "freshness_rules" in params:
+            self._validate_freshness_rules(params["freshness_rules"])
         async with self._lock.writer_lock:
             variable_document = await self._variable_collection.find_one(
                 filters={

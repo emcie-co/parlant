@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass
+import json
 from typing import Optional, cast
 
 from parlant.core.guidelines import Guideline, GuidelineId
@@ -26,9 +27,17 @@ class GuidelineInternalRepresentation:
     description: Optional[str]
 
 
+def escape_json_string(s: str) -> str:
+    return json.dumps(s)[1:-1]
+
+
 def internal_representation(g: Guideline) -> GuidelineInternalRepresentation:
     action, condition = g.content.action, g.content.condition
     description = g.content.description
+
+    # Escape special characters (newlines, quotes, etc.) for valid JSON outputs
+    condition = escape_json_string(condition)
+    action = escape_json_string(action) if action else None
 
     if agent_intention_condition := g.metadata.get("agent_intention_condition"):
         condition = cast(str, agent_intention_condition) or condition

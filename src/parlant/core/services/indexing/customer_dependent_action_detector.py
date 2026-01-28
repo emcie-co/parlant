@@ -17,6 +17,7 @@ import json
 import traceback
 from typing import Optional, Sequence
 from parlant.core.common import DefaultBaseModel
+from parlant.core.engines.alpha.guideline_matching.generic.common import escape_json_string
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.guidelines import GuidelineContent
@@ -164,7 +165,10 @@ GUIDELINE
 condition: {condition}
 action: {action}
 """,
-            props={"condition": guideline.condition, "action": guideline.action},
+            props={
+                "condition": escape_json_string(guideline.condition),
+                "action": escape_json_string(guideline.action) if guideline.action else None,
+            },
         )
 
         builder.add_section(
@@ -182,7 +186,7 @@ Expected output (JSON):
 }}
 ```
 """,
-            props={"action": guideline.action},
+            props={"action": escape_json_string(guideline.action) if guideline.action else None},
         )
 
         return builder

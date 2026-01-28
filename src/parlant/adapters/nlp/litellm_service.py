@@ -33,7 +33,7 @@ from parlant.core.tracer import Tracer
 from parlant.core.meter import Meter
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
-from parlant.core.nlp.embedding import Embedder
+from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
     BaseSchematicGenerator,
@@ -105,15 +105,7 @@ class LiteLLMSchematicGenerator(BaseSchematicGenerator[T]):
         return self._tokenizer
 
     @override
-    async def generate(
-        self,
-        prompt: PromptBuilder | str,
-        hints: Mapping[str, Any] = {},
-    ) -> SchematicGenerationResult[T]:
-        with self.logger.scope(f"LiteLLM LLM Request ({self.schema.__name__})"):
-            return await self._do_generate(prompt, hints)
-
-    async def _do_generate(
+    async def do_generate(
         self,
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
@@ -125,11 +117,15 @@ class LiteLLMSchematicGenerator(BaseSchematicGenerator[T]):
             k: v for k, v in hints.items() if k in self.supported_litellm_params
         }
 
+        # Only pass api_key if explicitly set; otherwise let LiteLLM auto-detect
+        # provider-specific keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
+        api_key = os.environ.get("LITELLM_PROVIDER_API_KEY")
+
         t_start = time.time()
 
-        response = self._client.completion(
+        response = await self._client.acompletion(
             base_url=self.base_url,
-            api_key=os.environ.get("LITELLM_PROVIDER_API_KEY"),
+            api_key=api_key,
             messages=[{"role": "user", "content": prompt}],
             model=self.model_name,
             max_tokens=5000,
@@ -216,6 +212,61 @@ class LiteLLM_Default(LiteLLMSchematicGenerator[T]):
     # 8192 16381
 
 
+class LiteLLMEmbedder(BaseEmbedder):
+    """Embedder that uses LiteLLM to access various embedding providers."""
+
+    def __init__(
+        self,
+        model_name: str,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        base_url: str | None = None,
+    ) -> None:
+        super().__init__(logger, tracer, meter, model_name)
+        self._base_url = base_url
+        self._client = litellm
+        self._tokenizer = LiteLLMEstimatingTokenizer(model_name=model_name)
+
+    @property
+    @override
+    def id(self) -> str:
+        return f"litellm/{self.model_name}"
+
+    @property
+    @override
+    def tokenizer(self) -> LiteLLMEstimatingTokenizer:
+        return self._tokenizer
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return int(os.environ.get("LITELLM_EMBEDDING_MAX_TOKENS", 8192))
+
+    @property
+    @override
+    def dimensions(self) -> int:
+        return int(os.environ.get("LITELLM_EMBEDDING_DIMENSIONS", 1536))
+
+    @override
+    async def do_embed(
+        self,
+        texts: list[str],
+        hints: Mapping[str, Any] = {},
+    ) -> EmbeddingResult:
+        api_key = os.environ.get("LITELLM_PROVIDER_API_KEY")
+
+        response = await self._client.aembedding(
+            model=self.model_name,
+            input=texts,
+            api_key=api_key,
+            api_base=self._base_url,
+        )
+
+        vectors = [data["embedding"] for data in response.data]
+        return EmbeddingResult(vectors=vectors)
+
+
 class LiteLLMService(NLPService):
     @staticmethod
     def verify_environment() -> str | None:
@@ -226,25 +277,25 @@ class LiteLLMService(NLPService):
 You're using the LITELLM NLP service, but LITELLM_PROVIDER_MODEL_NAME is not set.
 Please set LITELLM_PROVIDER_MODEL_NAME in your environment before running Parlant.
 """
-        if not os.environ.get("LITELLM_PROVIDER_API_KEY"):
-            return """\
-You're using the LITELLM NLP service, but LITELLM_PROVIDER_API_KEY is not set.
-Please set LITELLM_PROVIDER_API_KEY in your environment before running Parlant.
-"""
+        # Note: LITELLM_PROVIDER_API_KEY is optional. If not set, LiteLLM will
+        # auto-detect provider-specific keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
 
         return None
 
     def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         self._base_url = os.environ.get("LITELLM_PROVIDER_BASE_URL")
         self._model_name = os.environ["LITELLM_PROVIDER_MODEL_NAME"]
+        self._embedding_model_name = os.environ.get("LITELLM_EMBEDDING_MODEL_NAME")
         self.logger = logger
         self._tracer = tracer
         self._meter = meter
 
-        self.logger.info(
-            f"Initialized LiteLLMService with {self._model_name}"
-            + (f" at {self._base_url}" if self._base_url else "")
-        )
+        log_msg = f"Initialized LiteLLMService with {self._model_name}"
+        if self._embedding_model_name:
+            log_msg += f" (embeddings: {self._embedding_model_name})"
+        if self._base_url:
+            log_msg += f" at {self._base_url}"
+        self.logger.info(log_msg)
 
     @override
     async def get_schematic_generator(
@@ -256,6 +307,14 @@ Please set LITELLM_PROVIDER_API_KEY in your environment before running Parlant.
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
+        if self._embedding_model_name:
+            return LiteLLMEmbedder(
+                model_name=self._embedding_model_name,
+                logger=self.logger,
+                tracer=self._tracer,
+                meter=self._meter,
+                base_url=self._base_url,
+            )
         return JinaAIEmbedder(self.logger, self._tracer, self._meter)
 
     @override

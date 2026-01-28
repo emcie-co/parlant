@@ -53,7 +53,7 @@ def _create_tokenizer(model_name: str) -> PreTrainedTokenizer:
     save_dir = os.environ.get("PARLANT_HOME", _model_temp_dir())
     os.makedirs(save_dir, exist_ok=True)
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name)  # type: ignore
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)  # type: ignore
     tokenizer = cast(PreTrainedTokenizer, tokenizer)
     tokenizer.save_pretrained(save_dir)
 
@@ -86,7 +86,9 @@ def _create_auto_model(model_name: str) -> PreTrainedModel:
     os.makedirs(save_dir, exist_ok=True)
 
     model = AutoModel.from_pretrained(
-        pretrained_model_name_or_path=model_name, attn_implementation="eager"
+        pretrained_model_name_or_path=model_name,
+        attn_implementation="eager",
+        trust_remote_code=True,
     ).to(_get_device())
     model = cast(PreTrainedModel, model)
 

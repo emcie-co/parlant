@@ -18,6 +18,7 @@ import asyncio
 import json
 import os
 import time
+from copy import deepcopy
 from typing import Any, Mapping
 
 import jsonfinder  # type: ignore
@@ -26,17 +27,18 @@ import tiktoken
 from pydantic import ValidationError
 from typing_extensions import override
 
-import oci
-from oci.generative_ai_inference import GenerativeAiInferenceClient
-from oci.generative_ai_inference.models import (
+import oci  # type: ignore[import-untyped]
+from oci.generative_ai_inference import GenerativeAiInferenceClient  # type: ignore[import-untyped]
+from oci.generative_ai_inference.models import (  # type: ignore[import-untyped]  # type: ignore[import-untyped]
     ChatDetails,
     CohereChatRequest,
+    CohereResponseJsonFormat,
     EmbedTextDetails,
+    FunctionDefinition,
     GenericChatRequest,
-    JsonSchemaResponseFormat,
     OnDemandServingMode,
-    ResponseJsonSchema,
     TextContent,
+    ToolChoiceAuto,
     UserMessage,
 )
 
@@ -102,7 +104,66 @@ def load_oci_config() -> dict[str, Any]:
 
     config_file = _expand_path(os.environ.get("OCI_CONFIG_FILE", "~/.oci/config"))
     profile_name = os.environ.get("OCI_CONFIG_PROFILE", "DEFAULT")
-    return oci.config.from_file(file_location=config_file, profile_name=profile_name)
+    result: dict[str, Any] = oci.config.from_file(
+        file_location=config_file, profile_name=profile_name
+    )
+    return result
+
+
+def _fix_double_encoded_fields(data: Any, schema: dict[str, Any]) -> Any:
+    """Fix for models (e.g. Meta Llama) that serialize array/object fields as JSON strings in function calls."""
+    if not isinstance(data, dict):
+        return data
+
+    properties = schema.get("properties", {})
+    for key, value in data.items():
+        if key not in properties:
+            continue
+        expected_type = properties[key].get("type")
+        if expected_type in ("array", "object") and isinstance(value, str):
+            try:
+                data[key] = json.loads(value)
+            except json.JSONDecodeError:
+                pass
+
+    return data
+
+
+def _flatten_json_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    # OCI rejects JSON Schema references ($ref/$defs); inline them for compatibility.
+    resolved = deepcopy(schema)
+    defs = resolved.get("$defs", {}) or {}
+    definitions = resolved.get("definitions", {}) or {}
+
+    def resolve_ref(ref: str) -> Any:
+        if ref.startswith("#/$defs/"):
+            key = ref.split("/", 2)[2]
+            return defs.get(key)
+        if ref.startswith("#/definitions/"):
+            key = ref.split("/", 2)[2]
+            return definitions.get(key)
+        return None
+
+    def walk(node: Any) -> Any:
+        if isinstance(node, dict):
+            if "$ref" in node:
+                target = resolve_ref(node["$ref"])
+                merged = {k: v for k, v in node.items() if k != "$ref"}
+                if target is None:
+                    return {k: walk(v) for k, v in merged.items()}
+                resolved_target = walk(target)
+                if isinstance(resolved_target, dict):
+                    return {**resolved_target, **merged}
+                return merged
+            return {k: walk(v) for k, v in node.items() if k not in ("$defs", "definitions")}
+        if isinstance(node, list):
+            return [walk(item) for item in node]
+        return node
+
+    flattened: dict[str, Any] = walk(resolved)
+    flattened.pop("$defs", None)
+    flattened.pop("definitions", None)
+    return flattened
 
 
 class OCIEstimatingTokenizer(EstimatingTokenizer):
@@ -177,12 +238,12 @@ class OCISchematicGenerator(BaseSchematicGenerator[T]):
                 stop_value = [stop_value]
             args["stop"] = stop_value
 
-        response_format = JsonSchemaResponseFormat(
-            json_schema=ResponseJsonSchema(
-                name=self.schema.__name__,
-                schema=self.schema.model_json_schema(),
-                is_strict=True,
-            )
+        # Use function calling instead of response_format for better reliability
+        tool_definition = FunctionDefinition(
+            type="FUNCTION",
+            name=self.schema.__name__,
+            description=f"Generate a response following the {self.schema.__name__} schema",
+            parameters=_flatten_json_schema(self.schema.model_json_schema()),
         )
 
         return GenericChatRequest(
@@ -196,7 +257,8 @@ class OCISchematicGenerator(BaseSchematicGenerator[T]):
                     ]
                 )
             ],
-            response_format=response_format,
+            tools=[tool_definition],
+            tool_choice=ToolChoiceAuto(),
             **args,
         )
 
@@ -212,13 +274,9 @@ class OCISchematicGenerator(BaseSchematicGenerator[T]):
                 stop_value = [stop_value]
             args["stop_sequences"] = stop_value
 
-        response_format = JsonSchemaResponseFormat(
-            json_schema=ResponseJsonSchema(
-                name=self.schema.__name__,
-                schema=self.schema.model_json_schema(),
-                is_strict=True,
-            )
-        )
+        # Cohere only supports JSON_OBJECT, not JSON_SCHEMA
+        # The schema constraint is in the prompt itself
+        response_format = CohereResponseJsonFormat()
 
         return CohereChatRequest(
             api_format="COHERE",
@@ -244,6 +302,43 @@ class OCISchematicGenerator(BaseSchematicGenerator[T]):
             chat_request=request,
         )
 
+    def _extract_tool_call_arguments(self, response: Any) -> str | None:
+        """Extract arguments from function call response (Generic API only)."""
+        data = getattr(response, "data", response)
+        chat_response = getattr(data, "chat_response", None)
+        if not chat_response:
+            return None
+
+        choices = getattr(chat_response, "choices", None)
+        if not choices:
+            return None
+
+        message = getattr(choices[0], "message", None)
+        if not message:
+            return None
+
+        tool_calls = getattr(message, "tool_calls", None)
+        if not tool_calls:
+            return None
+
+        # Get first tool call
+        tool_call = tool_calls[0]
+
+        if getattr(tool_call, "type", None) != "FUNCTION":
+            return None
+
+        arguments = getattr(tool_call, "arguments", None)
+        if arguments is None:
+            return None
+
+        # Arguments can be string or dict
+        if isinstance(arguments, str):
+            return arguments
+        if isinstance(arguments, dict):
+            return json.dumps(arguments)
+
+        return None
+
     def _extract_text(self, response: Any) -> str:
         data = getattr(response, "data", response)
         chat_response = getattr(data, "chat_response", None)
@@ -253,9 +348,9 @@ class OCISchematicGenerator(BaseSchematicGenerator[T]):
         if self._is_cohere:
             text = getattr(chat_response, "text", None)
             if text:
-                return text
+                return str(text)
             message = getattr(chat_response, "message", None)
-            return message or ""
+            return str(message) if message else ""
 
         choices = getattr(chat_response, "choices", None)
         if choices:
@@ -277,7 +372,7 @@ class OCISchematicGenerator(BaseSchematicGenerator[T]):
 
         text = getattr(chat_response, "text", None)
         if text:
-            return text
+            return str(text)
         message = getattr(chat_response, "message", None)
         if isinstance(message, str):
             return message
@@ -338,7 +433,14 @@ class OCISchematicGenerator(BaseSchematicGenerator[T]):
 
         t_end = time.time()
 
-        raw_content = self._extract_text(response) or "{}"
+        # For Generic API, try to extract from tool call first
+        raw_content = None
+        if not self._is_cohere:
+            raw_content = self._extract_tool_call_arguments(response)
+
+        # Fallback to text extraction
+        if not raw_content:
+            raw_content = self._extract_text(response) or "{}"
 
         try:
             json_content = json.loads(normalize_json_output(raw_content))
@@ -346,6 +448,8 @@ class OCISchematicGenerator(BaseSchematicGenerator[T]):
             self.logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content}")
             json_content = jsonfinder.only_json(raw_content)[2]
             self.logger.warning("Found JSON content within model response; continuing...")
+
+        json_content = _fix_double_encoded_fields(json_content, self.schema.model_json_schema())
 
         try:
             content = self.schema.model_validate(json_content)
@@ -492,9 +596,9 @@ class OCIService(NLPService):
     def verify_environment() -> str | None:
         if not os.environ.get("OCI_COMPARTMENT_ID"):
             return """\
-You're using the OCI NLP service, but OCI_COMPARTMENT_ID is not set.
-Please set OCI_COMPARTMENT_ID in your environment before running Parlant.
-"""
+            You're using the OCI NLP service, but OCI_COMPARTMENT_ID is not set.
+            Please set OCI_COMPARTMENT_ID in your environment before running Parlant.
+            """
 
         required_env_keys = [
             "OCI_USER",
@@ -508,17 +612,17 @@ Please set OCI_COMPARTMENT_ID in your environment before running Parlant.
             key_path = _expand_path(os.environ["OCI_KEY_FILE"])
             if not os.path.exists(key_path):
                 return """\
-OCI_KEY_FILE was provided but the file does not exist.
-Please check the path in OCI_KEY_FILE.
-"""
+                OCI_KEY_FILE was provided but the file does not exist.
+                Please check the path in OCI_KEY_FILE.
+                """
             return None
 
         config_file = _expand_path(os.environ.get("OCI_CONFIG_FILE", "~/.oci/config"))
         if not os.path.exists(config_file):
             return f"""\
-OCI config file not found at: {config_file}
-Please create a config file or set OCI_CONFIG_FILE to a valid path.
-"""
+                OCI config file not found at: {config_file}
+                Please create a config file or set OCI_CONFIG_FILE to a valid path.
+                """
 
         return None
 
@@ -529,17 +633,18 @@ Please create a config file or set OCI_CONFIG_FILE to a valid path.
 
         self._config = load_oci_config()
         self._compartment_id = os.environ["OCI_COMPARTMENT_ID"]
-        self._model_id = os.environ.get("OCI_MODEL_ID", "meta.llama-3.3-70b-instruct")
+        self._model_id = os.environ.get("OCI_MODEL_ID", "openai.gpt-oss-120b")
         self._embedding_model_id = os.environ.get(
             "OCI_EMBEDDING_MODEL_ID",
             "cohere.embed-multilingual-v3.0",
         )
 
-        self._default_temperature = None
+        self._default_temperature = 0.2
         if os.environ.get("OCI_TEMPERATURE"):
             self._default_temperature = float(os.environ["OCI_TEMPERATURE"])
 
-        self._default_max_tokens = None
+        # Default to 4096 tokens if not specified - prevents truncation issues
+        self._default_max_tokens = 4096
         if os.environ.get("OCI_MAX_TOKENS"):
             self._default_max_tokens = int(os.environ["OCI_MAX_TOKENS"])
 

@@ -5,12 +5,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="e87567fa-e244-4bd7-be32-b91258bff2ec" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/Parlant.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/Parlant.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/llms.txt" beforeDir="false" afterPath="$PROJECT_DIR$/llms.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/oci.md" beforeDir="false" afterPath="$PROJECT_DIR$/oci.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/pyproject.toml" beforeDir="false" afterPath="$PROJECT_DIR$/pyproject.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/parlant/bin/server.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/parlant/bin/server.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/parlant/sdk.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/parlant/sdk.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/oci_smoke_test.py" beforeDir="false" afterPath="$PROJECT_DIR$/examples/oci_smoke_test.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -28,7 +25,7 @@
 }</component>
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
-    &quot;url&quot;: &quot;https://github.com/emcie-co/parlant.git&quot;,
+    &quot;url&quot;: &quot;https://github.com/emcie-co/parlant&quot;,
     &quot;accountId&quot;: &quot;43bd3326-0ab4-46c1-b1f1-066a7b443800&quot;
   }
 }</component>
@@ -40,23 +37,25 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Python.oci_smoke_test.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "develop",
-    "last_opened_file_path": "C:/Users/GLoverde/PycharmProjects/Parlant"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Python tests.Python tests for tests.adapters.nlp.test_azure_service.test_that_api_key_authentication_takes_priority_over_azure_ad.executor&quot;: &quot;Run&quot;,
+    &quot;Python tests.pytest for tests.adapters.nlp.test_azure_service.test_that_azure_ad_error_messages_contain_helpful_information.executor&quot;: &quot;Run&quot;,
+    &quot;Python.oci_smoke_test.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;develop&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/GLoverde/PycharmProjects/Parlant&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="C:\Users\GLoverde\PycharmProjects\Parlant" />
     </key>
   </component>
-  <component name="RunManager">
+  <component name="RunManager" selected="Python.oci_smoke_test">
     <configuration name="oci_smoke_test" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="Parlant" />
       <option name="ENV_FILES" value="" />
@@ -79,9 +78,43 @@
       <option name="INPUT_FILE" value="" />
       <method v="2" />
     </configuration>
+    <configuration name="Python tests for tests.adapters.nlp.test_azure_service.test_that_api_key_authentication_takes_priority_over_azure_ad" type="tests" factoryName="Autodetect" temporary="true" nameIsGenerated="true">
+      <module name="Parlant" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="_new_additionalArguments" value="&quot;&quot;" />
+      <option name="_new_target" value="&quot;tests.adapters.nlp.test_azure_service.test_that_api_key_authentication_takes_priority_over_azure_ad&quot;" />
+      <option name="_new_targetType" value="&quot;PYTHON&quot;" />
+      <method v="2" />
+    </configuration>
+    <configuration name="pytest for tests.adapters.nlp.test_azure_service.test_that_azure_ad_error_messages_contain_helpful_information" type="tests" factoryName="py.test" temporary="true" nameIsGenerated="true">
+      <module name="Parlant" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="_new_keywords" value="&quot;&quot;" />
+      <option name="_new_parameters" value="&quot;&quot;" />
+      <option name="_new_additionalArguments" value="&quot;&quot;" />
+      <option name="_new_target" value="&quot;tests.adapters.nlp.test_azure_service.test_that_azure_ad_error_messages_contain_helpful_information&quot;" />
+      <option name="_new_targetType" value="&quot;PYTHON&quot;" />
+      <method v="2" />
+    </configuration>
     <recent_temporary>
       <list>
         <item itemvalue="Python.oci_smoke_test" />
+        <item itemvalue="Python tests.pytest for tests.adapters.nlp.test_azure_service.test_that_azure_ad_error_messages_contain_helpful_information" />
+        <item itemvalue="Python tests.Python tests for tests.adapters.nlp.test_azure_service.test_that_api_key_authentication_takes_priority_over_azure_ad" />
       </list>
     </recent_temporary>
   </component>
@@ -101,5 +134,16 @@
       <updated>1767883353868</updated>
     </task>
     <servers />
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/examples/oci_smoke_test.py</url>
+          <line>101</line>
+          <option name="timeStamp" value="1" />
+        </line-breakpoint>
+      </breakpoints>
+    </breakpoint-manager>
   </component>
 </project>

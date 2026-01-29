@@ -376,7 +376,8 @@ async def create_api_app(
 
     api_app.include_router(
         router=logs.create_router(
-            websocket_logger,
+            websocket_logger=websocket_logger,
+            authorization_policy=authorization_policy,
         )
     )
 

@@ -271,6 +271,12 @@ class JourneyNextStepSelection:
                                     rationale=f"Root guideline was selected indicating should exit the journey, the rational for this choice: {inference.content.next_step_rationale}",
                                     metadata={
                                         "journey_path": journey_path,
+                                        "journey_path_guideline_ids": [
+                                            self._node_index_to_guideline_id.get(
+                                                node_id or "", None
+                                            )
+                                            for node_id in journey_path
+                                        ],
                                         "step_selection_journey_id": self._examined_journey.id,
                                     },
                                 )
@@ -282,16 +288,23 @@ class JourneyNextStepSelection:
                         matched_guideline = self._guideline_id_to_guideline[
                             self._node_index_to_guideline_id[self._current_node.id]
                         ]
+                        journey_path = (
+                            self._previous_path if self._previous_path else [self._current_node.id]
+                        )
                         return GuidelineMatchingBatchResult(
                             matched_guidelines=[
                                 GuidelineMatch(
                                     guideline=matched_guideline,
                                     rationale=f"This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. Use this rationale to better understand how the conversation got to its current point. The rationale for choosing this specific step in the journey was: {inference.content.next_step_rationale}",
                                     metadata={
-                                        "journey_path": self._previous_path
-                                        if self._previous_path
-                                        else [self._current_node.id],
                                         "step_selection_journey_id": self._examined_journey.id,
+                                        "journey_path": journey_path,
+                                        "journey_path_guideline_ids": [
+                                            self._node_index_to_guideline_id.get(
+                                                node_id or "", None
+                                            )
+                                            for node_id in journey_path
+                                        ],
                                     },
                                 )
                             ],
@@ -323,6 +336,12 @@ class JourneyNextStepSelection:
                                             rationale=f"Root guideline was selected indicating should exit the journey, the rational for this choice: {inference.content.next_step_rationale}",
                                             metadata={
                                                 "journey_path": journey_path,
+                                                "journey_path_guideline_ids": [
+                                                    self._node_index_to_guideline_id.get(
+                                                        node_id or "", None
+                                                    )
+                                                    for node_id in journey_path
+                                                ],
                                                 "step_selection_journey_id": self._examined_journey.id,
                                             },
                                         )
@@ -347,6 +366,12 @@ class JourneyNextStepSelection:
                                             rationale=f"This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. Use this rationale to better understand how the conversation got to its current point. The rationale for choosing this specific step in the journey was: {inference.content.next_step_rationale}",
                                             metadata={
                                                 "journey_path": journey_path,
+                                                "journey_path_guideline_ids": [
+                                                    self._node_index_to_guideline_id.get(
+                                                        node_id or "", None
+                                                    )
+                                                    for node_id in journey_path
+                                                ],
                                                 "step_selection_journey_id": self._examined_journey.id,
                                             },
                                         )

@@ -72,7 +72,7 @@ GenerationModelTier: TypeAlias = Literal["jackal", "bison"]
 EmbeddingModelTier: TypeAlias = Literal["jackal-embedding", "bison-embedding"]
 ModelRole: TypeAlias = Literal["teacher", "student", "auto"]
 
-BASE_URL = os.environ.get("EMCIE_API_URL", "https://api.emcie.co/inference")
+BASE_URL = f"{os.environ.get('EMCIE_BASE_URL', 'https://api.emcie.co')}/inference"
 
 # Pattern to detect word boundaries for chunking
 # Matches after any whitespace character

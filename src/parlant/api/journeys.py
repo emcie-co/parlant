@@ -36,6 +36,7 @@ from parlant.core.app_modules.journeys import (
 )
 from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel, JSONSerializable
+from typing import Any
 from parlant.core.journeys import (
     JourneyEdge,
     JourneyId,
@@ -43,6 +44,7 @@ from parlant.core.journeys import (
     JourneyNodeId,
     JourneyStore,
 )
+from datetime import datetime
 from parlant.core.guidelines import GuidelineId
 from parlant.core.tags import TagId
 import re
@@ -137,6 +139,25 @@ stateDiagram
 ]
 
 
+class JourneyNodeDTO(DefaultBaseModel):
+    id: str
+    creation_utc: datetime
+    action: str | None = None
+    tools: list[str] = []
+    metadata: dict[str, Any] = {}
+    description: str | None = None
+    composition_mode: str | None = None
+
+
+class JourneyEdgeDTO(DefaultBaseModel):
+    id: str
+    creation_utc: datetime
+    source: str
+    target: str
+    condition: str | None = None
+    metadata: dict[str, Any] = {}
+
+
 class JourneyDTO(
     DefaultBaseModel,
     json_schema_extra={"example": journey_example},
@@ -154,6 +175,11 @@ class JourneyDTO(
     tags: JourneyTagsField = []
     composition_mode: CompositionModeDTO | None = None
     labels: JourneyLabelsField = set()
+
+
+class JourneyGraphDTO(JourneyDTO):
+    nodes: list[JourneyNodeDTO] = []
+    edges: list[JourneyEdgeDTO] = []
 
 
 class JourneyCreationParamsDTO(
@@ -531,7 +557,7 @@ def create_router(
     @router.get(
         "/{journey_id}",
         operation_id="read_journey",
-        response_model=JourneyDTO,
+        response_model=JourneyGraphDTO,
         responses={
             status.HTTP_200_OK: {
                 "description": "Journey details successfully retrieved. Returns the complete journey object.",
@@ -546,7 +572,7 @@ def create_router(
     async def read_journey(
         request: Request,
         journey_id: JourneyIdPath,
-    ) -> JourneyDTO:
+    ) -> JourneyGraphDTO:
         """
         Retrieves details of a specific journey by ID.
         """
@@ -554,7 +580,28 @@ def create_router(
 
         model = await app.journeys.read(journey_id=journey_id)
 
-        return JourneyDTO(
+        def node_to_dto(node: JourneyNode) -> JourneyNodeDTO:
+            return JourneyNodeDTO(
+                id=str(node.id),
+                creation_utc=node.creation_utc,
+                action=node.action,
+                tools=[str(t) for t in node.tools],
+                metadata=dict(node.metadata),
+                description=node.description,
+                composition_mode=str(node.composition_mode) if node.composition_mode else None,
+            )
+
+        def edge_to_dto(edge: JourneyEdge) -> JourneyEdgeDTO:
+            return JourneyEdgeDTO(
+                id=str(edge.id),
+                creation_utc=edge.creation_utc,
+                source=str(edge.source),
+                target=str(edge.target),
+                condition=edge.condition,
+                metadata=dict(edge.metadata),
+            )
+
+        return JourneyGraphDTO(
             id=model.journey.id,
             title=model.journey.title,
             description=model.journey.description,
@@ -566,6 +613,8 @@ def create_router(
             if model.journey.composition_mode
             else None,
             labels=model.journey.labels,
+            nodes=[node_to_dto(n) for n in model.nodes],
+            edges=[edge_to_dto(e) for e in model.edges],
         )
 
     @router.get(

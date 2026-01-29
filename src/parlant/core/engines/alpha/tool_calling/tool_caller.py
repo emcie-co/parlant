@@ -58,6 +58,7 @@ ToolResultId = NewType("ToolResultId", str)
 @dataclass(frozen=True)
 class ToolCall:
     id: ToolCallId
+    rationale: str
     tool_id: ToolId
     arguments: Mapping[str, JSONSerializable]
 

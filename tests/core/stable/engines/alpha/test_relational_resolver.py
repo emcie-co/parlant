@@ -498,9 +498,7 @@ async def test_that_relational_resolver_does_not_ignore_a_deprioritized_guidelin
 
     result = await resolver.resolve([prioritized_guideline, deprioritized_guideline], matches, [])
 
-    assert result.matches == [
-        GuidelineMatch(guideline=deprioritized_guideline,  rationale="")
-    ]
+    assert result.matches == [GuidelineMatch(guideline=deprioritized_guideline, rationale="")]
 
     assert_resolutions(result, deprioritized_guideline.id, [ResolutionKind.NONE])
 
@@ -563,9 +561,7 @@ async def test_that_relational_resolver_does_not_ignore_deprioritized_journey_no
         journeys=[],
     )
 
-    assert result.matches == [
-        GuidelineMatch(guideline=deprioritized_guideline, rationale="")
-    ]
+    assert result.matches == [GuidelineMatch(guideline=deprioritized_guideline, rationale="")]
 
     assert_resolutions(result, deprioritized_guideline.id, [ResolutionKind.NONE])
 
@@ -599,9 +595,7 @@ async def test_that_relational_resolver_prioritizes_guidelines(
 
     result = await resolver.resolve([prioritized_guideline, deprioritized_guideline], matches, [])
 
-    assert result.matches == [
-        GuidelineMatch(guideline=prioritized_guideline,rationale="")
-    ]
+    assert result.matches == [GuidelineMatch(guideline=prioritized_guideline, rationale="")]
 
     assert_resolutions(result, prioritized_guideline.id, [ResolutionKind.NONE])
     assert_resolutions(result, deprioritized_guideline.id, [ResolutionKind.DEPRIORITIZED])

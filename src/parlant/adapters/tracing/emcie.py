@@ -17,8 +17,8 @@ import logging
 import os
 from contextlib import contextmanager
 from types import TracebackType
-from typing import Any, Iterator, Mapping, Callable, TypedDict
-from typing_extensions import override, Self, NotRequired
+from typing import Iterator, Mapping
+from typing_extensions import override, Self
 
 from opentelemetry.trace import Span
 from opentelemetry.sdk.trace import ReadableSpan
@@ -31,190 +31,6 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
 from parlant.core.tracer import Tracer, AttributeValue
 
 logger = logging.getLogger(__name__)
-
-
-# TypedDict definitions for event structures (for documentation and type hinting)
-
-
-class EventAttributesBase(TypedDict):
-    """Base attributes structure for all events."""
-
-    pass
-
-
-class ToolCallEventAttributesInput(EventAttributesBase):
-    """Attributes for tool call events as they come in."""
-
-    tool_id: str
-    arguments: NotRequired[Any]  # Contains tool arguments (sensitive)
-    result: NotRequired[Any]  # Contains tool results (sensitive)
-
-
-class ToolCallEventAttributesOutput(EventAttributesBase):
-    """Attributes for tool call events after transformation."""
-
-    tool_id: str
-
-
-class JourneyActivateEventAttributesInput(EventAttributesBase):
-    """Attributes for journey.state.activate events as they come in."""
-
-    edge_id: str
-    node_id: str
-    journey_id: str
-    sub_journey_id: NotRequired[str]
-    condition: NotRequired[str]  # Sensitive - removed in output
-    action: NotRequired[str]  # Sensitive - removed in output
-    rationale: NotRequired[str]  # Sensitive - removed in output
-
-
-class JourneyActivateEventAttributesOutput(EventAttributesBase):
-    """Attributes for journey.state.activate events after transformation."""
-
-    edge_id: NotRequired[str]
-    node_id: NotRequired[str]
-    journey_id: NotRequired[str]
-    sub_journey_id: NotRequired[str]
-
-
-class GuidelineMatchEventAttributesInput(EventAttributesBase):
-    """Attributes for gm.activate events as they come in."""
-
-    guideline_id: str
-    condition: NotRequired[str]  # Sensitive - removed in output
-    action: NotRequired[str]  # Sensitive - removed in output
-    rationale: NotRequired[str]  # Keep in output
-
-
-class GuidelineMatchEventAttributesOutput(EventAttributesBase):
-    """Attributes for gm.activate events after transformation."""
-
-    guideline_id: NotRequired[str]
-    rationale: NotRequired[str]
-
-
-def _transform_trace(span_data: dict[str, Any]) -> dict[str, Any]:
-    """Transform http.request spans - refactor content for create_event operations."""
-    sanitized = span_data.copy()
-
-    # Remove sensitive attributes from the main span
-    if "attributes" in sanitized:
-        safe_attributes = {}
-        for key, value in sanitized["attributes"].items():
-            # Keep only safe attributes, remove sensitive ones
-            if key not in ["request_body", "response_body", "sensitive_data"]:
-                safe_attributes[key] = value
-        sanitized["attributes"] = safe_attributes
-
-    if "spans" in sanitized:
-        sanitized["spans"] = _transform_nested_spans(sanitized["spans"])
-
-    return sanitized
-
-
-def _transform_nested_spans(spans: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Transform nested spans, focusing on 'process' spans and their events."""
-    transformed_spans: list[dict[str, Any]] = []
-
-    for span in spans:
-        if span.get("name") == "process":
-            transformed_span = _transform_process_span(span)
-            transformed_spans.append(transformed_span)
-        else:
-            transformed_spans.append(span)
-
-    return transformed_spans
-
-
-def _transform_process_span(span: dict[str, Any]) -> dict[str, Any]:
-    """Transform process spans by filtering and transforming their events."""
-    result: dict[str, Any] = {"name": span["name"]}
-
-    if "events" in span:
-        result["events"] = _transform_process_events(span["events"])
-
-    return result
-
-
-def _transform_process_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Transform events within process spans - handle tc, journey.state.activate, and gm.activate."""
-    transformed_events: list[dict[str, Any]] = []
-
-    for event in events:
-        event_name = event.get("name", "")
-
-        if event_name == "tc":  # Tool call event
-            transformed_event = _transform_tc_event(event)
-            transformed_events.append(transformed_event)
-        elif event_name == "journey.state.activate":
-            transformed_event = _transform_journey_activate_event(event)
-            transformed_events.append(transformed_event)
-        elif event_name == "gm.activate":
-            transformed_event = _transform_gm_activate_event(event)
-            transformed_events.append(transformed_event)
-        # Skip other events not in our allow list
-
-    return transformed_events
-
-
-def _transform_tc_event(event: dict[str, Any]) -> dict[str, Any]:
-    """Transform tool call (tc) events - keep only tool metadata, remove arguments and results."""
-    result: dict[str, Any] = {"name": event["name"], "attributes": {}}
-
-    if "attributes" in event:
-        input_attrs = event["attributes"]
-        safe_attributes: dict[str, Any] = {}
-
-        if "tool_id" in input_attrs:
-            safe_attributes["tool_id"] = input_attrs["tool_id"]
-        # Remove sensitive fields like "arguments" and "result"
-
-        result["attributes"] = safe_attributes
-
-    return result
-
-
-def _transform_journey_activate_event(event: dict[str, Any]) -> dict[str, Any]:
-    """Transform journey.state.activate events - keep node and journey IDs, remove condition details."""
-    result: dict[str, Any] = {"name": event["name"], "attributes": {}}
-
-    if "attributes" in event:
-        input_attrs = event["attributes"]
-        safe_attributes: dict[str, Any] = {}
-
-        for key in ["edge_id", "node_id", "journey_id", "sub_journey_id"]:
-            if key in input_attrs:
-                safe_attributes[key] = input_attrs[key]
-        # Remove sensitive fields like "condition", "action", "rationale"
-
-        result["attributes"] = safe_attributes
-
-    return result
-
-
-def _transform_gm_activate_event(event: dict[str, Any]) -> dict[str, Any]:
-    """Transform gm.activate (guideline match) events - keep guideline ID and rationale, remove condition and action."""
-    result: dict[str, Any] = {"name": event["name"], "attributes": {}}
-
-    if "attributes" in event:
-        input_attrs = event["attributes"]
-        safe_attributes: dict[str, Any] = {}
-
-        if "guideline_id" in input_attrs:
-            safe_attributes["guideline_id"] = input_attrs["guideline_id"]
-        if "rationale" in input_attrs:
-            safe_attributes["rationale"] = input_attrs["rationale"]
-        # Remove sensitive fields like "condition" and "action"
-
-        result["attributes"] = safe_attributes
-
-    return result
-
-
-# Map of supported trace names to their transform functions
-TRACE_TRANSFORMS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
-    "http.request": _transform_trace,
-}
 
 
 class EmcieSpanProcessor(BatchSpanProcessor):
@@ -248,13 +64,6 @@ class EmcieSpanProcessor(BatchSpanProcessor):
         self._last_error_log = 0.0
         self._error_log_interval = 60.0
 
-    def on_end(self, span: ReadableSpan) -> None:
-        """Called when a span ends. Only queue spans that should be exported."""
-        if self._should_export_span(span):
-            transformed_span = self._transform_span(span)
-            super().on_end(transformed_span)
-        # else: do not queue the span for export
-
     def _should_export_span(self, span: ReadableSpan) -> bool:
         """Determine if a span should be exported based on our filtering rules."""
         attributes = dict(span.attributes) if span.attributes else {}
@@ -263,18 +72,6 @@ class EmcieSpanProcessor(BatchSpanProcessor):
             return True
 
         return False
-
-    def _transform_span(self, span: ReadableSpan) -> ReadableSpan:
-        """Apply transformation logic to a span if needed."""
-        span_name = span.name
-
-        if span_name not in TRACE_TRANSFORMS:
-            return span
-
-        # For now, return the span as-is since transformation is complex
-        # The existing transform functions work on dict representations
-        # We could enhance this later if needed
-        return span
 
 
 class EmcieTracer(Tracer):
@@ -406,15 +203,6 @@ class EmcieTracer(Tracer):
                 otel_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
                 raise
             finally:
-                # The span will be automatically ended when exiting the context
-                # Queue it for export when it ends
-                if hasattr(self, "_processor") and self._processor:
-                    # Convert to ReadableSpan and export
-                    from opentelemetry.sdk.trace import ReadableSpan
-
-                    if isinstance(otel_span, ReadableSpan):
-                        self._queue_for_export(otel_span)
-
                 # Reset context variables
                 self._spans.reset(spans_reset_token)
                 self._attributes.reset(attributes_reset_token)
@@ -486,9 +274,21 @@ class EmcieTracer(Tracer):
         name: str,
         attributes: Mapping[str, AttributeValue] = {},
     ) -> None:
+        if name in ["journey.state.activate", "journey.state.skip"]:
+            allowed_keys = {"edge_id", "node_id", "journey_id", "sub_journey_id", "journey_path"}
+            transformed_attributes = {k: v for k, v in attributes.items() if k in allowed_keys}
+        elif name in ["gm.activate", "gm.skip"]:
+            allowed_keys = {"guideline_id", "rationale"}
+            transformed_attributes = {k: v for k, v in attributes.items() if k in allowed_keys}
+        elif name == "tc":
+            allowed_keys = {"tool_id", "rationale", "arguments", "result"}
+            transformed_attributes = {k: v for k, v in attributes.items() if k in allowed_keys}
+        else:
+            transformed_attributes = dict(attributes)
+
         current_span = self._current_span.get()
         if current_span and current_span.is_recording():
-            current_span.add_event(name, attributes)
+            current_span.add_event(name, transformed_attributes)
 
     @override
     def flush(self) -> None:

@@ -14,19 +14,19 @@
 
 import asyncio
 import os
-from unittest.mock import AsyncMock, patch, Mock
+from unittest.mock import patch, Mock
 
-import pytest
 from lagom import Container
 
 from parlant.adapters.nlp.litellm_service import (
     LiteLLMEmbedder,
     LiteLLMService,
 )
-from parlant.adapters.nlp.hugging_face import JinaAIEmbedder
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.tracer import Tracer
+
+import pytest
 
 
 @pytest.fixture
@@ -47,96 +47,60 @@ def container() -> Container:
     return container
 
 
-def test_that_litellm_embedder_initializes_correctly(container: Container) -> None:
-    """Test LiteLLMEmbedder initialization with correct properties."""
-    embedder = LiteLLMEmbedder(
-        model_name="text-embedding-3-small",
-        logger=container[Logger],
-        tracer=container[Tracer],
-        meter=container[Meter],
-        base_url=None,
-    )
-
-    assert embedder._model_name == "text-embedding-3-small"
-    assert embedder.id == "litellm/text-embedding-3-small"
-    assert embedder.max_tokens == 8192
-    assert embedder.dimensions == 1536
+def test_that_missing_model_name_returns_error_message() -> None:
+    with patch.dict(os.environ, {}, clear=True):
+        error = LiteLLMService.verify_environment()
+        assert error is not None
+        assert "LITELLM_PROVIDER_MODEL_NAME" in error
 
 
-def test_that_litellm_embedder_accepts_base_url(container: Container) -> None:
-    """Test LiteLLMEmbedder initialization with custom base_url."""
-    embedder = LiteLLMEmbedder(
-        model_name="text-embedding-3-small",
-        logger=container[Logger],
-        tracer=container[Tracer],
-        meter=container[Meter],
-        base_url="http://localhost:8000",
-    )
-
-    assert embedder._base_url == "http://localhost:8000"
+def test_that_verify_environment_returns_none_when_model_name_is_set() -> None:
+    with patch.dict(
+        os.environ,
+        {"LITELLM_PROVIDER_MODEL_NAME": "gpt-4"},
+        clear=True,
+    ):
+        error = LiteLLMService.verify_environment()
+        assert error is None
 
 
-@patch("parlant.adapters.nlp.litellm_service.litellm")
-def test_that_litellm_embedder_calls_aembedding_with_correct_params(
-    mock_litellm: Mock, container: Container
-) -> None:
-    """Test LiteLLMEmbedder calls litellm.aembedding with correct parameters."""
-    mock_response = Mock()
-    mock_response.data = [
-        {"embedding": [0.1, 0.2, 0.3]},
-        {"embedding": [0.4, 0.5, 0.6]},
-    ]
-    mock_litellm.aembedding = AsyncMock(return_value=mock_response)
-
-    embedder = LiteLLMEmbedder(
-        model_name="text-embedding-3-small",
-        logger=container[Logger],
-        tracer=container[Tracer],
-        meter=container[Meter],
-        base_url="http://localhost:8000",
-    )
-
-    with patch.dict(os.environ, {"LITELLM_PROVIDER_API_KEY": "test-key"}, clear=False):
-        result = asyncio.run(embedder.do_embed(["hello", "world"]))
-
-    mock_litellm.aembedding.assert_called_once_with(
-        model="text-embedding-3-small",
-        input=["hello", "world"],
-        api_key="test-key",
-        api_base="http://localhost:8000",
-    )
-    assert result.vectors == [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
+def test_that_service_reads_base_url_from_env(container: Container) -> None:
+    with patch.dict(
+        os.environ,
+        {
+            "LITELLM_PROVIDER_MODEL_NAME": "gpt-4",
+            "LITELLM_PROVIDER_BASE_URL": "http://localhost:8000",
+        },
+        clear=False,
+    ):
+        service = LiteLLMService(
+            logger=container[Logger],
+            tracer=container[Tracer],
+            meter=container[Meter],
+        )
+        assert service._base_url == "http://localhost:8000"
 
 
-@patch("parlant.adapters.nlp.litellm_service.litellm")
-def test_that_litellm_embedder_passes_none_api_key_when_not_set(
-    mock_litellm: Mock, container: Container
-) -> None:
-    """Test LiteLLMEmbedder passes None for api_key when env var not set."""
-    mock_response = Mock()
-    mock_response.data = [{"embedding": [0.1, 0.2, 0.3]}]
-    mock_litellm.aembedding = AsyncMock(return_value=mock_response)
-
-    embedder = LiteLLMEmbedder(
-        model_name="text-embedding-3-small",
-        logger=container[Logger],
-        tracer=container[Tracer],
-        meter=container[Meter],
-    )
-
-    # Ensure LITELLM_PROVIDER_API_KEY is not set
-    env = {k: v for k, v in os.environ.items() if k != "LITELLM_PROVIDER_API_KEY"}
-    with patch.dict(os.environ, env, clear=True):
-        asyncio.run(embedder.do_embed(["test"]))
-
-    call_kwargs = mock_litellm.aembedding.call_args[1]
-    assert call_kwargs["api_key"] is None
+def test_that_service_reads_embedding_model_name_from_env(container: Container) -> None:
+    with patch.dict(
+        os.environ,
+        {
+            "LITELLM_PROVIDER_MODEL_NAME": "gpt-4",
+            "LITELLM_EMBEDDING_MODEL_NAME": "text-embedding-3-small",
+        },
+        clear=False,
+    ):
+        service = LiteLLMService(
+            logger=container[Logger],
+            tracer=container[Tracer],
+            meter=container[Meter],
+        )
+        assert service._embedding_model_name == "text-embedding-3-small"
 
 
-def test_that_litellm_service_returns_litellm_embedder_when_embedding_model_configured(
+def test_that_get_embedder_returns_litellm_embedder_when_embedding_model_configured(
     container: Container,
 ) -> None:
-    """Test LiteLLMService.get_embedder returns LiteLLMEmbedder when LITELLM_EMBEDDING_MODEL_NAME is set."""
     with patch.dict(
         os.environ,
         {
@@ -153,14 +117,13 @@ def test_that_litellm_service_returns_litellm_embedder_when_embedding_model_conf
         embedder = asyncio.run(service.get_embedder())
 
         assert isinstance(embedder, LiteLLMEmbedder)
-        assert embedder._model_name == "text-embedding-3-small"
+        assert embedder.model_name == "text-embedding-3-small"
 
 
 @patch("parlant.adapters.nlp.litellm_service.JinaAIEmbedder")
-def test_that_litellm_service_returns_jina_embedder_when_embedding_model_not_configured(
+def test_that_get_embedder_falls_back_to_jina_when_embedding_model_not_configured(
     mock_jina_embedder: Mock, container: Container
 ) -> None:
-    """Test LiteLLMService.get_embedder falls back to JinaAIEmbedder when LITELLM_EMBEDDING_MODEL_NAME is not set."""
     mock_jina_instance = Mock()
     mock_jina_embedder.return_value = mock_jina_instance
 
@@ -177,3 +140,67 @@ def test_that_litellm_service_returns_jina_embedder_when_embedding_model_not_con
 
         assert embedder is mock_jina_instance
         mock_jina_embedder.assert_called_once()
+
+
+def test_that_embedder_max_tokens_defaults_to_8192(container: Container) -> None:
+    env = {k: v for k, v in os.environ.items() if k != "LITELLM_EMBEDDING_MAX_TOKENS"}
+    with patch.dict(os.environ, env, clear=True):
+        embedder = LiteLLMEmbedder(
+            model_name="text-embedding-3-small",
+            logger=container[Logger],
+            tracer=container[Tracer],
+            meter=container[Meter],
+        )
+        assert embedder.max_tokens == 8192
+
+
+def test_that_embedder_max_tokens_reads_from_env(container: Container) -> None:
+    with patch.dict(
+        os.environ,
+        {"LITELLM_EMBEDDING_MAX_TOKENS": "4096"},
+        clear=False,
+    ):
+        embedder = LiteLLMEmbedder(
+            model_name="text-embedding-3-small",
+            logger=container[Logger],
+            tracer=container[Tracer],
+            meter=container[Meter],
+        )
+        assert embedder.max_tokens == 4096
+
+
+def test_that_embedder_dimensions_defaults_to_1536(container: Container) -> None:
+    env = {k: v for k, v in os.environ.items() if k != "LITELLM_EMBEDDING_DIMENSIONS"}
+    with patch.dict(os.environ, env, clear=True):
+        embedder = LiteLLMEmbedder(
+            model_name="text-embedding-3-small",
+            logger=container[Logger],
+            tracer=container[Tracer],
+            meter=container[Meter],
+        )
+        assert embedder.dimensions == 1536
+
+
+def test_that_embedder_dimensions_reads_from_env(container: Container) -> None:
+    with patch.dict(
+        os.environ,
+        {"LITELLM_EMBEDDING_DIMENSIONS": "768"},
+        clear=False,
+    ):
+        embedder = LiteLLMEmbedder(
+            model_name="text-embedding-3-small",
+            logger=container[Logger],
+            tracer=container[Tracer],
+            meter=container[Meter],
+        )
+        assert embedder.dimensions == 768
+
+
+def test_that_api_key_is_optional_for_verify_environment() -> None:
+    with patch.dict(
+        os.environ,
+        {"LITELLM_PROVIDER_MODEL_NAME": "gpt-4"},
+        clear=True,
+    ):
+        error = LiteLLMService.verify_environment()
+        assert error is None

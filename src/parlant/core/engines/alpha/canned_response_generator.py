@@ -1596,7 +1596,7 @@ Produce a valid JSON object according to the following spec. Use the values prov
 
         guidelines_list_text = ", ".join(
             [
-                f'"{g.guideline}"'
+                f'"When {internal_representation(g.guideline).condition}, then {internal_representation(g.guideline).action}"'
                 for g in guidelines
                 if internal_representation(g.guideline).action
                 and not g.guideline.criticality == Criticality.LOW

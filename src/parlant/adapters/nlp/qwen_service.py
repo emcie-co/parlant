@@ -344,7 +344,7 @@ Please set DASHSCOPE_API_KEY in your environment before running Parlant.
             if region.lower() not in QWEN_REGION_BASE_URLS:
                 return f"""\
 Invalid QWEN_REGION '{region}'.
-Must be one of: {', '.join(QWEN_REGION_BASE_URLS.keys())}
+Must be one of: {", ".join(QWEN_REGION_BASE_URLS.keys())}
 """
 
         return None

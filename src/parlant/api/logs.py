@@ -15,15 +15,19 @@
 from fastapi import APIRouter, WebSocket
 
 from parlant.adapters.loggers.websocket import WebSocketLogger
+from parlant.api.authorization import AuthorizationPolicy, Operation
 
 
 def create_router(
     websocket_logger: WebSocketLogger,
+    authorization_policy: AuthorizationPolicy,
 ) -> APIRouter:
     router = APIRouter()
 
     @router.websocket("/logs")
     async def stream_logs(websocket: WebSocket) -> None:
+        await authorization_policy.authorize_websocket(websocket, Operation.STREAM_LOGS)
+
         await websocket.accept()
         subscription = await websocket_logger.subscribe(websocket)
         await subscription.expiration.wait()

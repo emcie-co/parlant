@@ -1005,6 +1005,7 @@ async def test_that_tool_calling_batchers_can_be_overridden(
                 tool_calls=[
                     ToolCall(
                         id=ToolCallId(generate_id()),
+                        rationale="Auto-approved non-consequential tool with no parameters",
                         tool_id=k[0],
                         arguments={},
                     )

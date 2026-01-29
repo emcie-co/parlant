@@ -173,6 +173,7 @@ class ToolResult(TypedDict):
 
 class ToolCall(TypedDict):
     tool_id: str
+    rationale: str
     arguments: Mapping[str, JSONSerializable]
     result: ToolResult
 
@@ -810,6 +811,7 @@ class SessionDocumentStore(SessionStore):
                         tool_calls=[
                             ToolCall(
                                 tool_id=tc["tool_id"],
+                                rationale="",
                                 arguments=tc["arguments"],
                                 result=ToolResult(
                                     data=tc["result"]["data"],

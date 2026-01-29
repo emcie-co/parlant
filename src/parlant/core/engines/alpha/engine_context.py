@@ -222,6 +222,7 @@ class EngineContext:
     async def add_tool_event(
         self,
         tool_id: ToolId,
+        rationale: str,
         arguments: dict[str, JSONSerializable],
         result: ToolResult,
     ) -> None:
@@ -238,6 +239,7 @@ class EngineContext:
                         tool_calls=[
                             {
                                 "tool_id": tool_id.to_string(),
+                                "rationale": rationale,
                                 "arguments": arguments,
                                 "result": {
                                     "data": result.data,

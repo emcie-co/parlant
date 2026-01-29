@@ -3337,7 +3337,7 @@ class Server:
         customer_store: Literal["transient", "local"] | str | CustomerStore = "transient",
         variable_store: Literal["transient", "local"] | str | ContextVariableStore = "transient",
         log_level: LogLevel = LogLevel.INFO,
-        modules: list[str] = [],
+        modules: list[str] = ["parlant.adapters.modules.emcie"],
         migrate: bool = False,
         configure_hooks: Callable[[EngineHooks], Awaitable[EngineHooks]] | None = None,
         configure_container: Callable[[Container], Awaitable[Container]] | None = None,
@@ -4101,6 +4101,7 @@ class Server:
                                             service_name=INTEGRATED_TOOL_SERVICE_NAME,
                                             tool_name=retriever_id,
                                         ).to_string(),
+                                        rationale="Retriever",
                                         arguments={},
                                         result=_SessionToolResult(
                                             data=retriever_result.data,

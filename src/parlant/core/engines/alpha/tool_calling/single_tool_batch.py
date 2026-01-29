@@ -218,6 +218,7 @@ class SingleToolBatch(ToolCallBatch):
                 tool_calls=[
                     ToolCall(
                         id=ToolCallId(generate_id()),
+                        rationale="Auto-approved non-consequential tool with no parameters",
                         tool_id=tool_id,
                         arguments={},
                     )
@@ -441,6 +442,7 @@ class SingleToolBatch(ToolCallBatch):
                         tool_calls.append(
                             ToolCall(
                                 id=ToolCallId(generate_id()),
+                                rationale=tc.applicability_rationale,
                                 tool_id=tool_id,
                                 arguments=arguments,
                             )
@@ -1286,6 +1288,7 @@ OUTPUT FORMAT:
                     tool_calls.append(
                         ToolCall(
                             id=ToolCallId(generate_id()),
+                            rationale="Auto-approved non-consequential tool with parameters",
                             tool_id=tool_id,
                             arguments=arguments,
                         )

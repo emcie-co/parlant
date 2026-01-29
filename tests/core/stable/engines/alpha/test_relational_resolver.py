@@ -73,11 +73,7 @@ async def test_that_relational_resolver_prioritizes_indirectly_between_guideline
         journeys=[],
     )
 
-<<<<<<< HEAD:tests/core/stable/engines/alpha/test_relational_resolver.py
-    assert result.matches == [GuidelineMatch(guideline=g1, score=8, rationale="")]
-=======
-    assert result == [GuidelineMatch(guideline=g1, rationale="")]
->>>>>>> 439b78aaf (Add skipped guideline and journey trace events):tests/core/stable/engines/alpha/test_relational_guideline_resolver.py
+    assert result.matches == [GuidelineMatch(guideline=g1, rationale="")]
 
 
 async def test_that_relational_resolver_prioritizes_between_journey_nodes(
@@ -135,11 +131,7 @@ async def test_that_relational_resolver_prioritizes_between_journey_nodes(
         journeys=[j1, j2],
     )
 
-<<<<<<< HEAD:tests/core/stable/engines/alpha/test_relational_resolver.py
-    assert result.matches == [GuidelineMatch(guideline=j1_guidelines[0], score=8, rationale="")]
-=======
-    assert result == [GuidelineMatch(guideline=j1_guidelines[0], rationale="")]
->>>>>>> 439b78aaf (Add skipped guideline and journey trace events):tests/core/stable/engines/alpha/test_relational_guideline_resolver.py
+    assert result.matches == [GuidelineMatch(guideline=j1_guidelines[0], rationale="")]
 
 
 async def test_that_relational_resolver_prioritizes_guideline_over_journey(
@@ -409,9 +401,8 @@ async def test_that_relational_resolver_does_not_ignore_a_deprioritized_guidelin
 
     result = await resolver.resolve([prioritized_guideline, deprioritized_guideline], matches, [])
 
-    assert result.matches == [
-        GuidelineMatch(guideline=deprioritized_guideline,  rationale="")
-    ]
+    assert result.matches == [GuidelineMatch(guideline=deprioritized_guideline, rationale="")]
+
 
 async def test_that_relational_resolver_does_not_ignore_deprioritized_journey_node_when_prioritized_journey_is_not_active(
     container: Container,
@@ -471,9 +462,7 @@ async def test_that_relational_resolver_does_not_ignore_deprioritized_journey_no
         journeys=[],
     )
 
-    assert result.matches == [
-        GuidelineMatch(guideline=deprioritized_guideline, rationale="")
-    ]
+    assert result.matches == [GuidelineMatch(guideline=deprioritized_guideline, rationale="")]
 
 
 async def test_that_relational_resolver_prioritizes_guidelines(
@@ -505,9 +494,7 @@ async def test_that_relational_resolver_prioritizes_guidelines(
 
     result = await resolver.resolve([prioritized_guideline, deprioritized_guideline], matches, [])
 
-    assert result.matches == [
-        GuidelineMatch(guideline=prioritized_guideline,rationale="")
-    ]
+    assert result.matches == [GuidelineMatch(guideline=prioritized_guideline, rationale="")]
 
 
 async def test_that_relational_resolver_infers_guidelines_from_tags(

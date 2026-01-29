@@ -311,6 +311,7 @@ class OverlappingToolsBatch(ToolCallBatch):
                                 tool_calls.append(
                                     ToolCall(
                                         id=ToolCallId(generate_id()),
+                                        rationale=tool_inference.applicability_rationale,
                                         tool_id=tool_id,
                                         arguments=arguments,
                                     )

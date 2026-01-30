@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import email.utils
 import hashlib
@@ -144,14 +145,44 @@ class OCIAsyncHttpClient:
             user=config["user"],
             fingerprint=config["fingerprint"],
             private_key_file_location=config.get("key_file"),
+            private_key_content=config.get("key_content"),
             pass_phrase=config.get("pass_phrase"),
         )
         self._client: httpx.AsyncClient | None = None
+        self._client_loop: asyncio.AbstractEventLoop | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or lazily create the async HTTP client."""
-        if self._client is None:
+        """
+        Get or lazily create the async HTTP client.
+
+        Handles event loop changes: if the current event loop is different from
+        the one where the client was created (e.g., after asyncio.run() completes
+        and a new one starts), recreates the client for the new loop.
+        """
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+
+        need_new_client = (
+            self._client is None
+            or self._client_loop is None
+            or self._client_loop != current_loop
+            or self._client_loop.is_closed()
+        )
+
+        if need_new_client:
+            if self._client is not None:
+                try:
+                    if self._client_loop and not self._client_loop.is_closed():
+                        await self._client.aclose()
+                except Exception:
+                    pass
+
             self._client = httpx.AsyncClient(timeout=120.0)
+            self._client_loop = current_loop
+
+        assert self._client is not None
         return self._client
 
     async def close(self) -> None:

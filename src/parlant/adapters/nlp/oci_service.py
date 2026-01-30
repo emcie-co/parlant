@@ -14,21 +14,24 @@
 
 from __future__ import annotations
 
-import asyncio
+import base64
+import email.utils
+import hashlib
 import json
 import os
 import time
 from copy import deepcopy
 from typing import Any, Mapping
+from urllib.parse import urlparse
 
+import httpx
 import jsonfinder  # type: ignore
-import requests
 import tiktoken
 from pydantic import ValidationError
 from typing_extensions import override
 
 import oci  # type: ignore[import-untyped]
-from oci.generative_ai_inference import GenerativeAiInferenceClient  # type: ignore[import-untyped]
+from oci.signer import Signer  # type: ignore[import-untyped]
 from oci.generative_ai_inference.models import (  # type: ignore[import-untyped]  # type: ignore[import-untyped]
     ChatDetails,
     CohereChatRequest,
@@ -38,7 +41,7 @@ from oci.generative_ai_inference.models import (  # type: ignore[import-untyped]
     GenericChatRequest,
     OnDemandServingMode,
     TextContent,
-    ToolChoiceAuto,
+    ToolChoiceRequired,
     UserMessage,
 )
 
@@ -75,6 +78,197 @@ Recommended actions:
 
 class OCIRetryableError(Exception):
     pass
+
+
+def _calculate_content_sha256(body: bytes) -> str:
+    """Calculate SHA256 hash of body, base64 encoded (required for OCI request signing)."""
+    m = hashlib.sha256()
+    m.update(body)
+    return base64.b64encode(m.digest()).decode("utf-8")
+
+
+def _build_service_endpoint(region: str) -> str:
+    """Build the OCI Generative AI service endpoint for a region."""
+    return f"https://inference.generativeai.{region}.oci.oraclecloud.com"
+
+
+def _serialize_oci_model(obj: Any) -> Any:
+    """
+    Serialize OCI model to JSON-compatible dict using camelCase keys.
+
+    OCI API expects camelCase field names, but Python models use snake_case.
+    The SDK stores the mapping in `attribute_map` on each model class.
+    """
+    if obj is None:
+        return None
+
+    if isinstance(obj, (str, int, float, bool)):
+        return obj
+
+    if isinstance(obj, list):
+        return [_serialize_oci_model(item) for item in obj if item is not None]
+
+    if isinstance(obj, dict):
+        return {k: _serialize_oci_model(v) for k, v in obj.items() if v is not None}
+
+    # OCI model objects have swagger_types and attribute_map
+    if hasattr(obj, "swagger_types") and hasattr(obj, "attribute_map"):
+        result: dict[str, Any] = {}
+        for attr in obj.swagger_types:
+            value = getattr(obj, attr, None)
+            if value is not None:
+                # Use attribute_map to get the camelCase key name
+                key = obj.attribute_map.get(attr, attr)
+                result[key] = _serialize_oci_model(value)
+        return result
+
+    # Fallback for unknown types
+    return obj
+
+
+class OCIAsyncHttpClient:
+    """
+    Async HTTP client for OCI Generative AI API.
+
+    Uses httpx.AsyncClient for native async I/O instead of blocking threads.
+    Reuses OCI SDK's Signer for request authentication.
+    """
+
+    BASE_PATH = "/20231130"
+
+    def __init__(self, config: dict[str, Any]) -> None:
+        self._region = config.get("region", "us-chicago-1")
+        self._endpoint = _build_service_endpoint(self._region)
+        self._signer = Signer(
+            tenancy=config["tenancy"],
+            user=config["user"],
+            fingerprint=config["fingerprint"],
+            private_key_file_location=config.get("key_file"),
+            pass_phrase=config.get("pass_phrase"),
+        )
+        self._client: httpx.AsyncClient | None = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or lazily create the async HTTP client."""
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=120.0)
+        return self._client
+
+    async def close(self) -> None:
+        """Close the HTTP client."""
+        if self._client:
+            await self._client.aclose()
+            self._client = None
+
+    def _sign_request(
+        self,
+        method: str,
+        url: str,
+        body: bytes | None = None,
+    ) -> dict[str, str]:
+        """
+        Sign a request using OCI's Signer and return headers.
+
+        Args:
+            method: HTTP method (GET, POST, etc.)
+            url: Full URL
+            body: Request body as bytes (for POST/PUT/PATCH)
+
+        Returns:
+            Dictionary of signed headers including Authorization
+        """
+        parsed = urlparse(url)
+        host = parsed.netloc
+        path = parsed.path
+        if parsed.query:
+            path = f"{path}?{parsed.query}"
+
+        headers: dict[str, str] = {
+            "date": email.utils.formatdate(usegmt=True),
+            "host": host,
+            "content-type": "application/json",
+        }
+
+        if body and method.upper() in ("POST", "PUT", "PATCH"):
+            headers["content-length"] = str(len(body))
+            headers["x-content-sha256"] = _calculate_content_sha256(body)
+
+            signed = self._signer._body_signer.sign(
+                headers,
+                host=host,
+                method=method.upper(),
+                path=path,
+            )
+        else:
+            signed = self._signer._basic_signer.sign(
+                headers,
+                host=host,
+                method=method.upper(),
+                path=path,
+            )
+
+        return dict(signed)
+
+    async def request(
+        self,
+        method: str,
+        path: str,
+        body: Any | None = None,
+    ) -> dict[str, Any]:
+        """
+        Make a signed async request to OCI.
+
+        Args:
+            method: HTTP method
+            path: API path (e.g., "/actions/chat")
+            body: Request body (will be serialized with oci.util.to_dict if OCI model)
+
+        Returns:
+            Response JSON as dictionary
+
+        Raises:
+            OCIRetryableError: For rate limit (429) or server errors (5xx)
+            httpx.HTTPStatusError: For other HTTP errors
+        """
+        url = f"{self._endpoint}{self.BASE_PATH}{path}"
+
+        if body is not None:
+            if hasattr(body, "swagger_types"):
+                body_dict = _serialize_oci_model(body)
+            else:
+                body_dict = body
+            body_bytes = json.dumps(body_dict).encode("utf-8")
+        else:
+            body_bytes = None
+
+        headers = self._sign_request(method, url, body_bytes)
+        headers["accept"] = "application/json"
+
+        client = await self._get_client()
+
+        response = await client.request(
+            method=method,
+            url=url,
+            headers=headers,
+            content=body_bytes,
+        )
+
+        if response.status_code == 429:
+            raise OCIRetryableError(f"Rate limit exceeded: {response.text}")
+        if 500 <= response.status_code < 600:
+            raise OCIRetryableError(f"Server error {response.status_code}: {response.text}")
+
+        response.raise_for_status()
+        result: dict[str, Any] = response.json()
+        return result
+
+    async def chat(self, chat_details: Any) -> dict[str, Any]:
+        """Call the chat endpoint."""
+        return await self.request("POST", "/actions/chat", chat_details)
+
+    async def embed_text(self, embed_details: Any) -> dict[str, Any]:
+        """Call the embed text endpoint."""
+        return await self.request("POST", "/actions/embedText", embed_details)
 
 
 def _expand_path(path: str) -> str:
@@ -194,7 +388,7 @@ class OCISchematicGenerator(BaseSchematicGenerator[T]):
         super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_id)
 
         self._compartment_id = compartment_id
-        self._client = GenerativeAiInferenceClient(config)
+        self._client = OCIAsyncHttpClient(config)
         self._is_cohere = model_id.startswith("cohere.")
         self._tokenizer = OCIEstimatingTokenizer()
         self._default_temperature = default_temperature
@@ -258,7 +452,7 @@ class OCISchematicGenerator(BaseSchematicGenerator[T]):
                 )
             ],
             tools=[tool_definition],
-            tool_choice=ToolChoiceAuto(),
+            tool_choice=ToolChoiceRequired(),
             **args,
         )
 
@@ -273,6 +467,10 @@ class OCISchematicGenerator(BaseSchematicGenerator[T]):
             if isinstance(stop_value, str):
                 stop_value = [stop_value]
             args["stop_sequences"] = stop_value
+
+        # Cohere models have a max of 4096 tokens
+        if "max_tokens" in args and args["max_tokens"] > 4096:
+            args["max_tokens"] = 4096
 
         # Cohere only supports JSON_OBJECT, not JSON_SCHEMA
         # The schema constraint is in the prompt itself
@@ -302,36 +500,46 @@ class OCISchematicGenerator(BaseSchematicGenerator[T]):
             chat_request=request,
         )
 
-    def _extract_tool_call_arguments(self, response: Any) -> str | None:
+    def _get_nested(self, data: Any, *keys: str, default: Any = None) -> Any:
+        """Safely get nested values from dict or object."""
+        current = data
+        for key in keys:
+            if current is None:
+                return default
+            if isinstance(current, dict):
+                current = current.get(key)
+            else:
+                current = getattr(current, key, None)
+        return current if current is not None else default
+
+    def _extract_tool_call_arguments(self, response: dict[str, Any]) -> str | None:
         """Extract arguments from function call response (Generic API only)."""
-        data = getattr(response, "data", response)
-        chat_response = getattr(data, "chat_response", None)
+        # OCI API returns camelCase keys
+        chat_response = self._get_nested(response, "chatResponse")
         if not chat_response:
             return None
 
-        choices = getattr(chat_response, "choices", None)
+        choices = self._get_nested(chat_response, "choices")
         if not choices:
             return None
 
-        message = getattr(choices[0], "message", None)
+        message = self._get_nested(choices[0], "message") if choices else None
         if not message:
             return None
 
-        tool_calls = getattr(message, "tool_calls", None)
+        tool_calls = self._get_nested(message, "toolCalls")
         if not tool_calls:
             return None
 
-        # Get first tool call
         tool_call = tool_calls[0]
-
-        if getattr(tool_call, "type", None) != "FUNCTION":
+        tool_type = self._get_nested(tool_call, "type")
+        if tool_type != "FUNCTION":
             return None
 
-        arguments = getattr(tool_call, "arguments", None)
+        arguments = self._get_nested(tool_call, "arguments")
         if arguments is None:
             return None
 
-        # Arguments can be string or dict
         if isinstance(arguments, str):
             return arguments
         if isinstance(arguments, dict):
@@ -339,30 +547,28 @@ class OCISchematicGenerator(BaseSchematicGenerator[T]):
 
         return None
 
-    def _extract_text(self, response: Any) -> str:
-        data = getattr(response, "data", response)
-        chat_response = getattr(data, "chat_response", None)
+    def _extract_text(self, response: dict[str, Any]) -> str:
+        # OCI API returns camelCase keys
+        chat_response = self._get_nested(response, "chatResponse")
         if not chat_response:
             return ""
 
         if self._is_cohere:
-            text = getattr(chat_response, "text", None)
+            text = self._get_nested(chat_response, "text")
             if text:
                 return str(text)
-            message = getattr(chat_response, "message", None)
+            message = self._get_nested(chat_response, "message")
             return str(message) if message else ""
 
-        choices = getattr(chat_response, "choices", None)
+        choices = self._get_nested(chat_response, "choices")
         if choices:
-            message = getattr(choices[0], "message", None)
+            message = self._get_nested(choices[0], "message") if choices else None
             if message:
-                content = getattr(message, "content", None)
+                content = self._get_nested(message, "content")
                 if isinstance(content, list):
                     parts = []
                     for part in content:
-                        text = getattr(part, "text", None)
-                        if text is None and isinstance(part, dict):
-                            text = part.get("text")
+                        text = self._get_nested(part, "text")
                         if text:
                             parts.append(text)
                     if parts:
@@ -370,22 +576,22 @@ class OCISchematicGenerator(BaseSchematicGenerator[T]):
                 if isinstance(content, str):
                     return content
 
-        text = getattr(chat_response, "text", None)
+        text = self._get_nested(chat_response, "text")
         if text:
             return str(text)
-        message = getattr(chat_response, "message", None)
+        message = self._get_nested(chat_response, "message")
         if isinstance(message, str):
             return message
 
         return ""
 
-    def _extract_usage(self, response: Any) -> tuple[int, int]:
-        data = getattr(response, "data", response)
-        chat_response = getattr(data, "chat_response", None)
-        usage = getattr(chat_response, "usage", None) if chat_response else None
+    def _extract_usage(self, response: dict[str, Any]) -> tuple[int, int]:
+        # OCI API returns camelCase keys
+        chat_response = self._get_nested(response, "chatResponse")
+        usage = self._get_nested(chat_response, "usage") if chat_response else None
 
-        prompt_tokens = getattr(usage, "prompt_tokens", 0) if usage else 0
-        completion_tokens = getattr(usage, "completion_tokens", 0) if usage else 0
+        prompt_tokens = self._get_nested(usage, "promptTokens", default=0) if usage else 0
+        completion_tokens = self._get_nested(usage, "completionTokens", default=0) if usage else 0
         return prompt_tokens, completion_tokens
 
     @policy(
@@ -393,8 +599,8 @@ class OCISchematicGenerator(BaseSchematicGenerator[T]):
             retry(
                 exceptions=(
                     OCIRetryableError,
-                    requests.exceptions.Timeout,
-                    requests.exceptions.ConnectionError,
+                    httpx.TimeoutException,
+                    httpx.ConnectError,
                 ),
                 max_exceptions=3,
                 wait_times=(1.0, 2.0, 4.0),
@@ -422,14 +628,12 @@ class OCISchematicGenerator(BaseSchematicGenerator[T]):
 
         t_start = time.time()
         try:
-            response = await asyncio.to_thread(self._client.chat, chat_details)
-        except oci.exceptions.ServiceError as e:
-            if e.status == 429:
-                self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
-                raise OCIRetryableError(str(e)) from e
-            if 500 <= e.status <= 599:
-                raise OCIRetryableError(str(e)) from e
+            response = await self._client.chat(chat_details)
+        except OCIRetryableError:
+            self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
+        except httpx.HTTPStatusError as e:
+            raise OCIRetryableError(str(e)) from e
 
         t_end = time.time()
 
@@ -501,7 +705,7 @@ class OCIEmbedder(BaseEmbedder):
         super().__init__(logger, tracer, meter, model_id)
 
         self._compartment_id = compartment_id
-        self._client = GenerativeAiInferenceClient(config)
+        self._client = OCIAsyncHttpClient(config)
         self._tokenizer = OCIEstimatingTokenizer()
         self._dimensions_override = dimensions_override
         self._cached_dimensions: int | None = None
@@ -530,13 +734,25 @@ class OCIEmbedder(BaseEmbedder):
             return self._cached_dimensions
         return 1024
 
+    def _get_nested(self, data: Any, *keys: str, default: Any = None) -> Any:
+        """Safely get nested values from dict or object."""
+        current = data
+        for key in keys:
+            if current is None:
+                return default
+            if isinstance(current, dict):
+                current = current.get(key)
+            else:
+                current = getattr(current, key, None)
+        return current if current is not None else default
+
     @policy(
         [
             retry(
                 exceptions=(
                     OCIRetryableError,
-                    requests.exceptions.Timeout,
-                    requests.exceptions.ConnectionError,
+                    httpx.TimeoutException,
+                    httpx.ConnectError,
                 ),
                 max_exceptions=3,
                 wait_times=(1.0, 2.0, 4.0),
@@ -559,26 +775,23 @@ class OCIEmbedder(BaseEmbedder):
         )
 
         try:
-            response = await asyncio.to_thread(self._client.embed_text, details)
-        except oci.exceptions.ServiceError as e:
-            if e.status == 429:
-                self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
-                raise OCIRetryableError(str(e)) from e
-            if 500 <= e.status <= 599:
-                raise OCIRetryableError(str(e)) from e
+            response = await self._client.embed_text(details)
+        except OCIRetryableError:
+            self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
+        except httpx.HTTPStatusError as e:
+            raise OCIRetryableError(str(e)) from e
 
-        data = getattr(response, "data", response)
-        embeddings = getattr(data, "embeddings", []) or []
+        embeddings = self._get_nested(response, "embeddings", default=[]) or []
 
         vectors: list[list[float]] = []
         for item in embeddings:
             if isinstance(item, list):
                 vectors.append(item)
                 continue
-            vector = getattr(item, "embedding", None)
+            vector = self._get_nested(item, "embedding")
             if vector is None:
-                vector = getattr(item, "values", None)
+                vector = self._get_nested(item, "values")
             if vector is not None:
                 vectors.append(list(vector))
 
@@ -644,7 +857,7 @@ class OCIService(NLPService):
             self._default_temperature = float(os.environ["OCI_TEMPERATURE"])
 
         # Default to 4096 tokens if not specified - prevents truncation issues
-        self._default_max_tokens = 4096
+        self._default_max_tokens = 10000
         if os.environ.get("OCI_MAX_TOKENS"):
             self._default_max_tokens = int(os.environ["OCI_MAX_TOKENS"])
 

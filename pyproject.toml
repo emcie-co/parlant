@@ -70,6 +70,7 @@ parlant-test = "parlant.testing.cli:main"
 chroma = ["chromadb>=1.1.1"]
 qdrant = ["qdrant-client>=1.7.0"]
 mongo = ["pymongo>=4.11.1"]
+postgres = ["asyncpg>=0.29.0", "pgvector>=0.3.0"]
 
 anthropic = ["anthropic>=0.60.0", "torch>=2.8.0", "transformers>=4.53.0"]
 

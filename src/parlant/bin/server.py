@@ -174,6 +174,7 @@ from parlant.api.app import create_api_app, ASGIApplication
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.tracer import LocalTracer, Tracer
 from parlant.core.agents import AgentDocumentStore, AgentStore
+from parlant.core.playbooks import PlaybookDocumentStore, PlaybookStore
 from parlant.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from parlant.core.emission.event_publisher import EventPublisherFactory
 from parlant.core.emissions import EventEmitterFactory
@@ -761,6 +762,7 @@ async def initialize_container(
     try:
         for interface, implementation, filename in [
             (AgentStore, AgentDocumentStore, "agents.json"),
+            (PlaybookStore, PlaybookDocumentStore, "playbooks.json"),
             (ContextVariableStore, ContextVariableDocumentStore, "context_variables.json"),
             (CustomerStore, CustomerDocumentStore, "customers.json"),
             (EvaluationStore, EvaluationDocumentStore, "evaluations.json"),

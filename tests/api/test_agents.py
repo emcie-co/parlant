@@ -480,3 +480,103 @@ async def test_that_agent_composition_mode_can_be_set_and_updated(
     assert response.status_code == status.HTTP_200_OK
     agent = response.json()
     assert agent["composition_mode"] == "strict_canned"
+
+
+async def test_that_agent_has_empty_disabled_rules_by_default(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/agents",
+        json={"name": "test-agent"},
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    agent = response.json()
+
+    assert agent["disabled_rules"] == []
+
+
+async def test_that_disabled_rules_can_be_added_to_agent(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # Create an agent
+    create_response = await async_client.post(
+        "/agents",
+        json={"name": "test-agent"},
+    )
+    agent_id = create_response.json()["id"]
+
+    # Add disabled rules
+    response = await async_client.patch(
+        f"/agents/{agent_id}/disabled-rules",
+        json={"add": ["guideline:abc123", "term:xyz789"]},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+
+    agent = response.json()
+
+    assert "guideline:abc123" in agent["disabled_rules"]
+    assert "term:xyz789" in agent["disabled_rules"]
+
+
+async def test_that_disabled_rules_can_be_removed_from_agent(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # Create an agent
+    create_response = await async_client.post(
+        "/agents",
+        json={"name": "test-agent"},
+    )
+    agent_id = create_response.json()["id"]
+
+    # Add disabled rules
+    await async_client.patch(
+        f"/agents/{agent_id}/disabled-rules",
+        json={"add": ["guideline:abc123", "term:xyz789"]},
+    )
+
+    # Remove one
+    response = await async_client.patch(
+        f"/agents/{agent_id}/disabled-rules",
+        json={"remove": ["guideline:abc123"]},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+
+    agent = response.json()
+
+    assert "guideline:abc123" not in agent["disabled_rules"]
+    assert "term:xyz789" in agent["disabled_rules"]
+
+
+async def test_that_disabled_rules_can_be_added_and_removed_in_same_request(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # Create an agent
+    create_response = await async_client.post(
+        "/agents",
+        json={"name": "test-agent"},
+    )
+    agent_id = create_response.json()["id"]
+
+    # Add initial rules
+    await async_client.patch(
+        f"/agents/{agent_id}/disabled-rules",
+        json={"add": ["guideline:abc123", "term:xyz789"]},
+    )
+
+    # Add and remove in same request
+    response = await async_client.patch(
+        f"/agents/{agent_id}/disabled-rules",
+        json={"add": ["capability:cap456"], "remove": ["guideline:abc123"]},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+
+    agent = response.json()
+
+    assert "guideline:abc123" not in agent["disabled_rules"]
+    assert "term:xyz789" in agent["disabled_rules"]
+    assert "capability:cap456" in agent["disabled_rules"]

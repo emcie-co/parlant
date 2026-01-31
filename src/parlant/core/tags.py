@@ -87,6 +87,17 @@ class Tag:
 
         return str(tag_id.split(":")[1])
 
+    @staticmethod
+    def for_playbook_id(playbook_id: str) -> TagId:
+        return TagId(f"playbook:{playbook_id}")
+
+    @staticmethod
+    def extract_playbook_id(tag_id: TagId) -> Optional[str]:
+        if not tag_id.startswith("playbook:"):
+            return None
+
+        return str(tag_id.split(":")[1])
+
 
 class TagUpdateParams(TypedDict, total=False):
     name: str

@@ -50,6 +50,32 @@ class Test_that_journey_can_be_created_without_conditions(SDKTest):
         assert journey.description == "1. Offer the customer a Pepsi"
 
 
+class Test_that_scoped_guideline_of_matched_journey_without_states_influence_response(SDKTest):
+    """Test that providing a custom ID to transition_to uses that ID."""
+
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Test Agent",
+            description="Test agent for custom state ID",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Test Journey",
+            conditions=["Customer greets you"],
+            description="Test journey",
+        )
+
+        await self.journey.create_guideline(
+            matcher=p.Guideline.MATCH_ALWAYS,
+            condition="The customer greets you",
+            action="Immediately offer a Pepsi",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message("Hello!", recipient=self.agent)
+        assert "pepsi" in response.lower()
+
+
 class Test_that_condition_guidelines_are_tagged_for_created_journey(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
@@ -1517,3 +1543,140 @@ class Test_that_journey_is_not_reevaluated_when_not_associated_tool_is_called(SD
         assert "500" in response
         assert "Howdy" in response
         assert "Hahoy" not in response
+
+
+class Test_that_ready_event_contains_matched_guidelines_journeys_and_states(SDKTest):
+    """Test that the ready event with stage=completed contains match data."""
+
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Test Agent",
+            description="Test agent for match data verification",
+        )
+
+        # Create a guideline
+        self.guideline = await self.agent.create_guideline(
+            condition="Customer greets you",
+            action="Greet them back warmly",
+        )
+
+        # Create a journey with a custom state ID
+        self.journey = await self.agent.create_journey(
+            title="Greeting Journey",
+            conditions=["Customer greets you"],
+            description="Handle customer greetings",
+        )
+
+        # Create a state with a custom ID
+        self.transition = await self.journey.initial_state.transition_to(
+            chat_state="Say hello back warmly",
+            condition="Customer greets you",
+            id=p.JourneyStateId("test-greeting-state"),
+        )
+
+    async def run(self, ctx: Context) -> None:
+        # Create a session and send a message
+        session = await ctx.client.sessions.create(
+            agent_id=self.agent.id,
+            allow_greeting=False,
+        )
+
+        customer_event = await ctx.client.sessions.create_event(
+            session_id=session.id,
+            kind="message",
+            source="customer",
+            message="Hello there!",
+        )
+
+        # Wait for the agent to respond
+        await ctx.client.sessions.list_events(
+            session_id=session.id,
+            min_offset=customer_event.offset,
+            source="ai_agent",
+            kinds="message",
+            wait_for_data=30,
+        )
+
+        # Get all status events
+        status_events = await ctx.client.sessions.list_events(
+            session_id=session.id,
+            source="ai_agent",
+            kinds="status",
+        )
+
+        # Find the ready event with stage=completed
+        ready_completed_events = []
+        for e in status_events:
+            if e.data is None:
+                continue
+            inner_data = e.data.get("data", {})
+            if not isinstance(inner_data, dict):
+                continue
+            if e.data.get("status") == "ready" and inner_data.get("stage") == "completed":
+                ready_completed_events.append(e)
+
+        assert len(ready_completed_events) >= 1, "Expected at least one ready/completed event"
+
+        ready_event = ready_completed_events[-1]  # Get the last one
+        assert ready_event.data is not None
+        event_data = ready_event.data.get("data", {})
+        assert isinstance(event_data, dict)
+
+        # Verify matched_guidelines is present and contains guideline IDs
+        assert "matched_guidelines" in event_data, "matched_guidelines not found in ready event"
+        matched_guidelines = event_data["matched_guidelines"]
+        assert isinstance(matched_guidelines, list), "matched_guidelines should be a list"
+
+        # Verify matched_journeys is present
+        assert "matched_journeys" in event_data, "matched_journeys not found in ready event"
+        matched_journeys = event_data["matched_journeys"]
+        assert isinstance(matched_journeys, list), "matched_journeys should be a list"
+
+        # Verify matched_journey_states is present
+        assert "matched_journey_states" in event_data, (
+            "matched_journey_states not found in ready event"
+        )
+        matched_journey_states = event_data["matched_journey_states"]
+        assert isinstance(matched_journey_states, list), "matched_journey_states should be a list"
+
+        # Verify structure - each should have an "id" key
+        for g in matched_guidelines:
+            assert "id" in g, "Each matched guideline should have an 'id' key"
+
+        for j in matched_journeys:
+            assert "id" in j, "Each matched journey should have an 'id' key"
+
+        for s in matched_journey_states:
+            assert "id" in s, "Each matched journey state should have an 'id' key"
+
+
+class Test_that_custom_state_id_is_used_when_provided(SDKTest):
+    """Test that providing a custom ID to transition_to uses that ID."""
+
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Test Agent",
+            description="Test agent for custom state ID",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Test Journey",
+            conditions=["Customer greets you"],
+            description="Test journey",
+        )
+
+        # Create a state with a custom ID
+        self.custom_state_id = p.JourneyStateId("my-custom-state-id")
+        self.transition = await self.journey.initial_state.transition_to(
+            chat_state="Test action",
+            condition="Test condition",
+            id=self.custom_state_id,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        journey_store = ctx.container[JourneyStore]
+
+        # Read the node and verify the ID
+        node = await journey_store.read_node(self.custom_state_id)
+
+        assert node.id == self.custom_state_id, f"Expected ID {self.custom_state_id}, got {node.id}"

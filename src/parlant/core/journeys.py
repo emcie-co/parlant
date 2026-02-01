@@ -204,6 +204,7 @@ class JourneyStore(ABC):
         tools: Sequence[ToolId],
         description: Optional[str] = None,
         composition_mode: Optional[CompositionMode] = None,
+        id: Optional[JourneyNodeId] = None,
     ) -> JourneyNode: ...
 
     @abstractmethod
@@ -1118,15 +1119,20 @@ class JourneyVectorStore(JourneyStore):
         tools: Sequence[ToolId],
         description: Optional[str] = None,
         composition_mode: Optional[CompositionMode] = None,
+        id: Optional[JourneyNodeId] = None,
         creation_utc: Optional[datetime] = None,
     ) -> JourneyNode:
         creation_utc = creation_utc or datetime.now(timezone.utc)
 
-        node_checksum = md5_checksum(f"{journey_id}{action}{tools}")
+        if id is not None:
+            node_id = id
+        else:
+            node_checksum = md5_checksum(f"{journey_id}{action}{tools}")
+            node_id = JourneyNodeId(self._id_generator.generate(node_checksum))
 
         async with self._lock.writer_lock:
             node = JourneyNode(
-                id=JourneyNodeId(self._id_generator.generate(node_checksum)),
+                id=node_id,
                 creation_utc=creation_utc,
                 action=action,
                 tools=tools,

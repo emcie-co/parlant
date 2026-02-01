@@ -1100,6 +1100,7 @@ class JourneyState:
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
     ) -> JourneyTransition[JourneyState]:
         if not self._journey:
             raise SDKError("EndState cannot be connected to any other states.")
@@ -1123,6 +1124,7 @@ class JourneyState:
                 tools=tools,
                 metadata=metadata,
                 composition_mode=composition_mode,
+                id=id,
             )
 
             [
@@ -1148,6 +1150,7 @@ class JourneyState:
                 tools=[],
                 metadata=metadata,
                 composition_mode=composition_mode,
+                id=id,
             )
         elif fork:
             actual_state = await self._journey._create_state(
@@ -1155,6 +1158,7 @@ class JourneyState:
                 description=description,
                 metadata=metadata,
                 composition_mode=composition_mode,
+                id=id,
             )
         elif journey:
             if canned_responses:
@@ -1179,9 +1183,9 @@ class JourneyState:
         if actual_state:
             cast(list[JourneyState], self._journey.states).append(actual_state)
 
-            for id in canned_responses:
+            for canrep_id in canned_responses:
                 await self._journey._container[CannedResponseStore].upsert_tag(
-                    canned_response_id=id, tag_id=_Tag.for_journey_node_id(actual_state.id)
+                    canned_response_id=canrep_id, tag_id=_Tag.for_journey_node_id(actual_state.id)
                 )
 
         cast(list[JourneyTransition[JourneyState]], self._journey.transitions).append(transition)
@@ -1605,6 +1609,7 @@ class InitialJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
     ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
@@ -1620,6 +1625,7 @@ class InitialJourneyState(JourneyState):
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1635,6 +1641,7 @@ class InitialJourneyState(JourneyState):
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1662,6 +1669,7 @@ class InitialJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
     ) -> JourneyTransition[Any]:
         # Validate parameters against overload signatures
         _validate_transition_parameters(
@@ -1690,6 +1698,7 @@ class InitialJourneyState(JourneyState):
             on_message=on_message,
             composition_mode=composition_mode,
             canned_response_field_provider=canned_response_field_provider,
+            id=id,
         )
 
 
@@ -1725,6 +1734,7 @@ class ToolJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
     ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
@@ -1740,6 +1750,7 @@ class ToolJourneyState(JourneyState):
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1755,6 +1766,7 @@ class ToolJourneyState(JourneyState):
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1782,6 +1794,7 @@ class ToolJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
     ) -> JourneyTransition[Any]:
         # Validate parameters against overload signatures
         _validate_transition_parameters(
@@ -1810,6 +1823,7 @@ class ToolJourneyState(JourneyState):
             on_message=on_message,
             composition_mode=composition_mode,
             canned_response_field_provider=canned_response_field_provider,
+            id=id,
         )
 
     async def fork(self) -> JourneyTransition[ForkJourneyState]:
@@ -1848,6 +1862,7 @@ class ChatJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
     ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
@@ -1863,6 +1878,7 @@ class ChatJourneyState(JourneyState):
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1878,6 +1894,7 @@ class ChatJourneyState(JourneyState):
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1905,6 +1922,7 @@ class ChatJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
     ) -> JourneyTransition[Any]:
         # Validate parameters against overload signatures
         _validate_transition_parameters(
@@ -1933,6 +1951,7 @@ class ChatJourneyState(JourneyState):
             on_message=on_message,
             composition_mode=composition_mode,
             canned_response_field_provider=canned_response_field_provider,
+            id=id,
         )
 
     async def fork(self) -> JourneyTransition[ForkJourneyState]:
@@ -1970,6 +1989,7 @@ class ForkJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
     ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
@@ -1985,6 +2005,7 @@ class ForkJourneyState(JourneyState):
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -2000,6 +2021,7 @@ class ForkJourneyState(JourneyState):
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -2027,6 +2049,7 @@ class ForkJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
     ) -> JourneyTransition[Any]:
         # Validate parameters against overload signatures
         _validate_transition_parameters(
@@ -2055,6 +2078,7 @@ class ForkJourneyState(JourneyState):
             on_message=on_message,
             composition_mode=composition_mode,
             canned_response_field_provider=canned_response_field_provider,
+            id=id,
         )
 
 
@@ -2090,6 +2114,7 @@ class Journey:
         tools: Sequence[ToolEntry] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         composition_mode: CompositionMode | None = None,
+        id: JourneyStateId | None = None,
     ) -> TState:
         metadata_type = {
             ForkJourneyState: "fork",
@@ -2118,6 +2143,7 @@ class Journey:
             ],
             description=description,
             composition_mode=CompositionMode._to_core_composition_mode(effective_composition_mode),
+            id=id,
         )
 
         node = await self._container[JourneyStore].set_node_metadata(
@@ -2731,6 +2757,7 @@ class Agent:
         self,
         condition: str,
         action: str | None = None,
+        id: GuidelineId | None = None,
         description: str | None = None,
         tools: Iterable[ToolEntry] = [],
         metadata: dict[str, JSONSerializable] = {},
@@ -2743,7 +2770,6 @@ class Agent:
         on_message: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
-        id: GuidelineId | None = None,
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
         return await self._server._create_guideline(
@@ -2839,8 +2865,8 @@ class Agent:
         self,
         name: str,
         description: str,
-        synonyms: Sequence[str] = [],
         id: Optional[TermId] = None,
+        synonyms: Sequence[str] = [],
     ) -> Term:
         """Creates a glossary term with the specified name, description, and synonyms."""
 

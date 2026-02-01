@@ -87,9 +87,6 @@ class EngineHooks:
     on_message_generated: list[EngineHook] = field(default_factory=list)
     """Called right after a message was generated (but not yet emitted)"""
 
-    on_message_emitted: list[EngineHook] = field(default_factory=list)
-    """Called right after a single message was emitted into the session"""
-
     on_messages_emitted: list[EngineHook] = field(default_factory=list)
     """Called right after all messages were emitted into the session"""
 

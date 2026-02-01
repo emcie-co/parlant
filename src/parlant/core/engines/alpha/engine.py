@@ -23,7 +23,7 @@ from itertools import chain
 import json
 from pprint import pformat
 import traceback
-from typing import Awaitable, Callable, Mapping, Optional, Sequence, cast
+from typing import Any, Awaitable, Callable, Mapping, Optional, Sequence, cast
 from croniter import croniter
 from typing_extensions import override
 
@@ -900,11 +900,33 @@ class AlphaEngine(Engine):
             await async_utils.safe_gather(*handler_tasks)
 
     async def _emit_ready_event(self, context: EngineContext, stage: Optional[str] = None) -> None:
+        event_data: dict[str, Any] = {"stage": stage} if stage else {}
+
+        # Include match data when completing successfully
+        if stage == "completed" and context.state:
+            all_matches = list(
+                chain(
+                    context.state.ordinary_guideline_matches,
+                    context.state.tool_enabled_guideline_matches.keys(),
+                )
+            )
+
+            event_data["matched_guidelines"] = [{"id": m.guideline.id} for m in all_matches]
+
+            event_data["matched_journeys"] = [{"id": j.id} for j in context.state.journeys]
+
+            # Extract journey states from guideline matches with journey_node metadata
+            event_data["matched_journey_states"] = [
+                {"id": extract_node_id_from_journey_node_guideline_id(m.guideline.id)}
+                for m in all_matches
+                if m.guideline.metadata.get("journey_node")
+            ]
+
         await context.session_event_emitter.emit_status_event(
             trace_id=self._tracer.trace_id,
             data={
                 "status": "ready",
-                "data": {"stage": stage} if stage else {},
+                "data": event_data,
             },
         )
 

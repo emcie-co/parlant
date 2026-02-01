@@ -20,8 +20,8 @@ from types import TracebackType
 from typing import Iterator, Mapping
 from typing_extensions import override, Self
 
-from opentelemetry.trace import Span
-from opentelemetry.sdk.trace import ReadableSpan
+from opentelemetry.trace import Span, set_tracer_provider
+from opentelemetry.sdk.trace import TracerProvider, ReadableSpan
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
@@ -33,53 +33,10 @@ from parlant.core.tracer import Tracer, AttributeValue
 logger = logging.getLogger(__name__)
 
 
-class EmcieSpanProcessor(BatchSpanProcessor):
-    """Custom span processor that filters and transforms spans before export."""
-
-    def __init__(self, endpoint: str, api_key: str | None = None):
-        headers = {}
-        if api_key:
-            headers["authorization"] = f"Bearer {api_key}"
-            logger.debug("API key configured for OTLP export")
-        else:
-            logger.warning("No API key provided for OTLP export")
-
-        # Use gRPC for all endpoints (production ready)
-        logger.debug(f"Creating OTLPSpanExporter (gRPC) with headers: {list(headers.keys())}")
-        span_exporter = HTTPOTLPSpanExporter(
-            endpoint=endpoint,
-            headers=headers,
-        )
-
-        # Initialize BatchSpanProcessor with our exporter
-        super().__init__(
-            span_exporter=span_exporter,
-            schedule_delay_millis=1000,  # Export every 1 second
-            max_queue_size=1000,
-            max_export_batch_size=100,
-        )
-        logger.debug("EmcieSpanProcessor initialized successfully")
-
-        # Rate limiting for log messages to avoid spam
-        self._last_error_log = 0.0
-        self._error_log_interval = 60.0
-
-    def _should_export_span(self, span: ReadableSpan) -> bool:
-        """Determine if a span should be exported based on our filtering rules."""
-        attributes = dict(span.attributes) if span.attributes else {}
-
-        if attributes.get("http.request.operation") == "create_event":
-            return True
-
-        return False
-
-
 class EmcieTracer(Tracer):
-    """Tracer that exports selected traces to Emcie via OTLP gRPC."""
-
     def __init__(self) -> None:
         # Use gRPC endpoint format (host:port instead of HTTP URL)
-        self._endpoint = os.getenv("EMCIE_OTEL_URL", "https://api.emcie.xyz/v1/traces")
+        self._endpoint = f"{os.getenv('EMCIE_BASE_URL', 'https://api.emcie.co')}/v1/traces"
 
         self._api_key = os.getenv(
             "EMCIE_API_KEY", "sk-mc-qtSvL271_LWbJQoDFrtRFYTyl2lsFFDA2qx3Amb_0wn4Gt-bIQ"
@@ -106,18 +63,54 @@ class EmcieTracer(Tracer):
             default=None,
         )
 
-        self._processor: EmcieSpanProcessor
-
     async def __aenter__(self) -> Self:
-        try:
-            self._processor = EmcieSpanProcessor(
-                endpoint=self._endpoint,
-                api_key=self._api_key,
-            )
-        except Exception as e:
-            logger.warning(
-                f"Failed to initialize EmcieTracer processor: {e}. Continuing without export."
-            )
+        # Setup headers for API authentication
+        headers = {}
+        if self._api_key:
+            headers["authorization"] = f"Bearer {self._api_key}"
+            logger.debug("API key configured for OTLP export")
+        else:
+            logger.warning("No API key provided for OTLP export")
+
+        # Create OTLP exporter
+        span_exporter = HTTPOTLPSpanExporter(
+            endpoint=self._endpoint,
+            headers=headers,
+        )
+
+        # Create processor with custom filtering
+        processor = BatchSpanProcessor(
+            span_exporter=span_exporter,
+            schedule_delay_millis=1000,  # Export every 1 second
+            max_queue_size=1000,
+            max_export_batch_size=100,
+        )
+
+        # Override the on_end method to add filtering
+        original_on_end = processor.on_end
+
+        def filtered_on_end(span: ReadableSpan) -> None:
+            """Custom on_end with filtering logic."""
+            attributes = dict(span.attributes) if span.attributes else {}
+
+            if attributes.get("http.request.operation") == "create_event":
+                original_on_end(span)
+
+        setattr(processor, "on_end", filtered_on_end)
+
+        resource_attributes = {
+            "service.name": "parlant-emcie-tracer",
+            "api_key": self._api_key,
+        }
+        resource = Resource.create(resource_attributes)
+        provider = TracerProvider(resource=resource)
+        provider.add_span_processor(processor)
+        set_tracer_provider(provider)
+        self._tracer_provider = provider
+        self._otel_tracer = provider.get_tracer(__name__)
+        self._processor = processor
+        self._initialized = True
+
         return self
 
     async def __aexit__(
@@ -126,7 +119,6 @@ class EmcieTracer(Tracer):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> bool:
-        logger.debug("EmcieTracer shutting down")
         # Force flush on exit
         if self._processor:
             try:
@@ -137,23 +129,6 @@ class EmcieTracer(Tracer):
 
         return False
 
-    def _queue_for_export(self, span: ReadableSpan) -> None:
-        """Send ReadableSpan to processor for export."""
-        self._processor.on_end(span)
-
-    def _should_export_span(
-        self, span_name: str, attributes: Mapping[str, AttributeValue] | None = None
-    ) -> bool:
-        # Only export http.request spans with specific operation
-        if span_name == "http.request":
-            if not attributes:
-                return False
-            operation = attributes.get("http.request.operation")
-            return operation == "create_event"
-
-        # Reject all other span types
-        return False
-
     @contextmanager
     @override
     def span(
@@ -161,9 +136,6 @@ class EmcieTracer(Tracer):
         span_id: str,
         attributes: Mapping[str, AttributeValue] = {},
     ) -> Iterator[None]:
-        from opentelemetry import trace
-        from opentelemetry.sdk.trace import TracerProvider
-
         current_span_chain = self._spans.get()
         current_attributes = self._attributes.get()
         new_attributes = {**current_attributes, **attributes}
@@ -180,15 +152,7 @@ class EmcieTracer(Tracer):
         spans_reset_token = self._spans.set(new_span_chain)
         attributes_reset_token = self._attributes.set(new_attributes)
 
-        # Create resource with service name and API key
-        resource_attributes = {
-            "service.name": "parlant-emcie-tracer",
-        }
-        resource_attributes["api_key"] = self._api_key
-
-        resource = Resource.create(resource_attributes)
-        tracer_provider = TracerProvider(resource=resource)
-        otel_tracer = tracer_provider.get_tracer(__name__)
+        otel_tracer = self._otel_tracer
 
         with otel_tracer.start_as_current_span(span_id) as otel_span:
             # Set attributes on the real span
@@ -200,7 +164,9 @@ class EmcieTracer(Tracer):
             try:
                 yield
             except Exception as e:
-                otel_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+                from opentelemetry import trace as ot_trace
+
+                otel_span.set_status(ot_trace.Status(ot_trace.StatusCode.ERROR, str(e)))
                 raise
             finally:
                 # Reset context variables
@@ -293,7 +259,7 @@ class EmcieTracer(Tracer):
     @override
     def flush(self) -> None:
         """Flush pending spans immediately."""
-        if self._processor:
+        if hasattr(self, "_processor") and self._processor:
             try:
                 self._processor.force_flush()
             except Exception as e:

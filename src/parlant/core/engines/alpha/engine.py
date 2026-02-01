@@ -1115,7 +1115,7 @@ class AlphaEngine(Engine):
                             match.guideline.id
                         ),
                         "journey_path": json.dumps(
-                            match.guideline.metadata.get("journey_path_guideline_ids", [])
+                            match.metadata.get("journey_path_guideline_ids", [])
                         ),
                         "condition": match.guideline.content.condition,
                         "action": match.guideline.content.action or "",

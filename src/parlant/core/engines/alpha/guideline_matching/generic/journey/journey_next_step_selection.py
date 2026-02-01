@@ -288,8 +288,13 @@ class JourneyNextStepSelection:
                         matched_guideline = self._guideline_id_to_guideline[
                             self._node_index_to_guideline_id[self._current_node.id]
                         ]
-                        journey_path = (
-                            self._previous_path if self._previous_path else [self._current_node.id]
+                        journey_path = cast(
+                            list[str | None],
+                            (
+                                self._previous_path
+                                if self._previous_path
+                                else [self._current_node.id]
+                            ),
                         )
                         return GuidelineMatchingBatchResult(
                             matched_guidelines=[

@@ -22,6 +22,7 @@ import importlib
 import inspect
 import os
 import traceback
+import warnings
 from fastapi import FastAPI
 from lagom import Container, Singleton
 from typing import (
@@ -34,6 +35,7 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
+    TextIO,
     cast,
 )
 import rich
@@ -241,6 +243,33 @@ from parlant.core.services.indexing.behavioral_change_evaluation import Behavior
 from parlant.core.loggers import CompositeLogger, FileLogger, LogLevel, Logger
 from parlant.core.application import Application
 from parlant.core.version import VERSION
+
+
+# Suppress known deprecation warnings from websockets library used by dependencies
+# This must be done early to catch warnings from FastAPI/uvicorn websocket handling
+def _suppress_websocket_deprecation_warnings(
+    message: Warning | str,
+    category: type[Warning],
+    filename: str,
+    lineno: int,
+    file: Optional[TextIO] = None,
+    line: Optional[str] = None,
+) -> None:
+    if category is DeprecationWarning:
+        msg_str = str(message)
+        if any(
+            keyword in msg_str
+            for keyword in ["ws_handler", "websockets", "WebSocketServerProtocol"]
+        ):
+            return  # Suppress websocket-related deprecation warnings
+    # Let all other warnings through
+    original_showwarning = getattr(warnings, "_default_showwarning", warnings.showwarning)
+    original_showwarning(message, category, filename, lineno, file, line)
+
+
+if not hasattr(warnings, "_default_showwarning"):
+    warnings._default_showwarning = warnings.showwarning  # type: ignore[attr-defined]
+warnings.showwarning = _suppress_websocket_deprecation_warnings
 
 
 DEFAULT_HOST = "0.0.0.0"

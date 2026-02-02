@@ -2474,6 +2474,9 @@ class Variable:
     _server: Server
     _container: Container
 
+    def __hash__(self) -> int:
+        return hash(self.id)
+
     async def set_value_for_customer(self, customer: Customer, value: JSONSerializable) -> None:
         """Sets the value of the variable for a specific customer."""
 

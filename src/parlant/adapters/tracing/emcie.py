@@ -20,6 +20,7 @@ from types import TracebackType
 from typing import Iterator, Mapping
 from typing_extensions import override, Self
 
+from opentelemetry import trace, context
 from opentelemetry.trace import Span, set_tracer_provider
 from opentelemetry.sdk.trace import TracerProvider, ReadableSpan
 from opentelemetry.sdk.resources import Resource
@@ -60,6 +61,12 @@ class EmcieTracer(Tracer):
 
         self._current_span = contextvars.ContextVar[Span | None](
             "tracer_current_span",
+            default=None,
+        )
+
+        # Store the OpenTelemetry context for this tracer to maintain isolation
+        self._otel_context = contextvars.ContextVar[context.Context | None](
+            "emcie_tracer_otel_context",
             default=None,
         )
 
@@ -145,36 +152,58 @@ class EmcieTracer(Tracer):
             new_span_chain = span_id
             custom_trace_id = self._generate_trace_id()
             trace_id_reset_token = self._trace_id.set(custom_trace_id)
+            # Create isolated context for root span - don't use global context
+            isolated_ctx = context.Context()
+            otel_context_reset_token = self._otel_context.set(isolated_ctx)
         else:
             new_span_chain = current_span_chain + f"::{span_id}"
             trace_id_reset_token = None
+            # Use the stored context from parent span
+            stored_ctx = self._otel_context.get()
+            if stored_ctx is None:
+                # Fallback to isolated context if something went wrong
+                isolated_ctx = context.Context()
+            else:
+                isolated_ctx = stored_ctx
+            otel_context_reset_token = None
 
         spans_reset_token = self._spans.set(new_span_chain)
         attributes_reset_token = self._attributes.set(new_attributes)
 
         otel_tracer = self._otel_tracer
 
-        with otel_tracer.start_as_current_span(span_id) as otel_span:
-            # Set attributes on the real span
-            for key, value in new_attributes.items():
-                otel_span.set_attribute(key, value)
+        # Use start_span with explicit context instead of start_as_current_span
+        # This prevents picking up spans from other tracers in the global context
+        otel_span = otel_tracer.start_span(name=span_id, context=isolated_ctx)
 
-            span_reset_token = self._current_span.set(otel_span)
+        # Set attributes on the span
+        for key, value in new_attributes.items():
+            otel_span.set_attribute(key, value)
 
-            try:
+        # Update the context with this span for child spans to use
+        new_ctx = trace.set_span_in_context(otel_span, isolated_ctx)
+        ctx_token = self._otel_context.set(new_ctx)
+
+        span_reset_token = self._current_span.set(otel_span)
+
+        try:
+            # Use the span without setting it in global context
+            with trace.use_span(otel_span, end_on_exit=True):
                 yield
-            except Exception as e:
-                from opentelemetry import trace as ot_trace
-
-                otel_span.set_status(ot_trace.Status(ot_trace.StatusCode.ERROR, str(e)))
-                raise
-            finally:
-                # Reset context variables
-                self._spans.reset(spans_reset_token)
-                self._attributes.reset(attributes_reset_token)
-                self._current_span.reset(span_reset_token)
-                if trace_id_reset_token is not None:
-                    self._trace_id.reset(trace_id_reset_token)
+        except Exception as e:
+            otel_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+            otel_span.record_exception(e)
+            raise
+        finally:
+            # Reset context variables
+            self._spans.reset(spans_reset_token)
+            self._attributes.reset(attributes_reset_token)
+            self._current_span.reset(span_reset_token)
+            self._otel_context.reset(ctx_token)
+            if trace_id_reset_token is not None:
+                self._trace_id.reset(trace_id_reset_token)
+            if otel_context_reset_token is not None:
+                self._otel_context.reset(otel_context_reset_token)
 
     @contextmanager
     @override

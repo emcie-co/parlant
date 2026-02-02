@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,7 +28,9 @@ from itertools import chain
 from pathlib import Path
 import sys
 import rich
-from rich.console import Group
+from rich.console import Console, Group
+from rich.panel import Panel
+import rich.box
 from rich.progress import (
     BarColumn,
     Progress,
@@ -63,10 +65,9 @@ import httpx
 from lagom import Container
 
 
-from parlant.adapters.db.json_file import JSONFileDocumentDatabase
+from parlant.adapters.db.json_file import JSONFileDocumentCollection, JSONFileDocumentDatabase
 from parlant.adapters.db.transient import TransientDocumentDatabase
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
-from parlant.core.persistence.vector_database import VectorDatabase
 from parlant.api.authorization import (
     AuthorizationException,
     Operation,
@@ -103,6 +104,7 @@ from parlant.core.context_variables import (
     ContextVariableId,
     ContextVariableStore,
 )
+from parlant.core.emission.event_publisher import EventPublisherFactory
 from parlant.core.engines.alpha.guideline_matching.generic.common import (
     format_journey_node_guideline_id,
 )
@@ -142,12 +144,10 @@ from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationStore,
 )
 from parlant.core.nlp.embedding import (
-    BasicEmbeddingCache,
     Embedder,
     EmbedderFactory,
     EmbeddingCache,
     EmbeddingResult,
-    NullEmbeddingCache,
 )
 from parlant.core.nlp.generation import (
     FallbackSchematicGenerator,
@@ -156,11 +156,7 @@ from parlant.core.nlp.generation import (
 )
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.persistence.common import ObjectId
-from parlant.core.persistence.document_database import (
-    DocumentCollection,
-    DocumentDatabase,
-    identity_loader_for,
-)
+from parlant.core.persistence.document_database import DocumentDatabase, identity_loader_for
 from parlant.core.relationships import (
     RelationshipKind,
     RelationshipDocumentStore,
@@ -282,6 +278,13 @@ class SDKError(Exception):
         super().__init__(message)
 
 
+class NLPServiceConfigurationError(SDKError):
+    """Raised when there is a configuration error with an NLP service."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
 class NLPServices:
     """A collection of static methods to create built-in NLPService instances for the SDK."""
 
@@ -291,7 +294,7 @@ class NLPServices:
         from parlant.adapters.nlp.emcie_service import EmcieService
 
         if error := EmcieService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return EmcieService(
             container[Logger],
@@ -305,7 +308,7 @@ class NLPServices:
         from parlant.adapters.nlp.azure_service import AzureService
 
         if error := AzureService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return AzureService(container[Logger], container[Tracer], container[Meter])
 
@@ -315,7 +318,7 @@ class NLPServices:
         from parlant.adapters.nlp.openai_service import OpenAIService
 
         if error := OpenAIService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return OpenAIService(container[Logger], container[Tracer], container[Meter])
 
@@ -325,7 +328,7 @@ class NLPServices:
         from parlant.adapters.nlp.anthropic_service import AnthropicService
 
         if error := AnthropicService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return AnthropicService(container[Logger], container[Tracer], container[Meter])
 
@@ -335,7 +338,7 @@ class NLPServices:
         from parlant.adapters.nlp.cerebras_service import CerebrasService
 
         if error := CerebrasService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return CerebrasService(container[Logger], container[Tracer], container[Meter])
 
@@ -345,7 +348,7 @@ class NLPServices:
         from parlant.adapters.nlp.together_service import TogetherService
 
         if error := TogetherService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return TogetherService(container[Logger], container[Tracer], container[Meter])
 
@@ -355,7 +358,7 @@ class NLPServices:
         from parlant.adapters.nlp.gemini_service import GeminiService
 
         if error := GeminiService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return GeminiService(container[Logger], container[Tracer], container[Meter])
 
@@ -365,7 +368,7 @@ class NLPServices:
         from parlant.adapters.nlp.litellm_service import LiteLLMService
 
         if error := LiteLLMService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return LiteLLMService(container[Logger], container[Tracer], container[Meter])
 
@@ -375,7 +378,7 @@ class NLPServices:
         from parlant.adapters.nlp.modelscope_service import ModelScopeService
 
         if error := ModelScopeService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return ModelScopeService(container[Logger], container[Tracer], container[Meter])
 
@@ -385,10 +388,10 @@ class NLPServices:
         from parlant.adapters.nlp.vertex_service import VertexAIService
 
         if error := VertexAIService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         if err := VertexAIService.validate_adc():
-            raise SDKError(err)
+            raise NLPServiceConfigurationError(err)
 
         return VertexAIService(container[Logger], container[Tracer], container[Meter])
 
@@ -398,7 +401,7 @@ class NLPServices:
         from parlant.adapters.nlp.mistral_service import MistralService
 
         if error := MistralService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return MistralService(container[Logger], container[Tracer], container[Meter])
 
@@ -408,10 +411,10 @@ class NLPServices:
         from parlant.adapters.nlp.ollama_service import OllamaService
 
         if error := OllamaService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         if err := OllamaService.verify_models():
-            raise SDKError(err)
+            raise NLPServiceConfigurationError(err)
 
         return OllamaService(container[Logger], container[Tracer], container[Meter])
 
@@ -421,7 +424,7 @@ class NLPServices:
         from parlant.adapters.nlp.glm_service import GLMService
 
         if error := GLMService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return GLMService(container[Logger], container[Tracer], container[Meter])
 
@@ -431,7 +434,7 @@ class NLPServices:
         from parlant.adapters.nlp.qwen_service import QwenService
 
         if error := QwenService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return QwenService(container[Logger], container[Tracer], container[Meter])
 
@@ -441,7 +444,7 @@ class NLPServices:
         from parlant.adapters.nlp.deepseek_service import DeepSeekService
 
         if error := DeepSeekService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return DeepSeekService(container[Logger], container[Tracer], container[Meter])
 
@@ -451,7 +454,7 @@ class NLPServices:
         from parlant.adapters.nlp.snowflake_cortex_service import SnowflakeCortexService
 
         if error := SnowflakeCortexService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return SnowflakeCortexService(container[Logger], container[Tracer], container[Meter])
 
@@ -480,7 +483,7 @@ class NLPServices:
 
         def factory(c: Container) -> NLPService:
             if error := OpenRouterService.verify_environment():
-                raise SDKError(error)
+                raise NLPServiceConfigurationError(error)
             return OpenRouterService(
                 c[Logger],
                 c[Tracer],
@@ -498,7 +501,7 @@ class NLPServices:
         from parlant.adapters.nlp.zhipu_service import ZhipuService
 
         if error := ZhipuService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return ZhipuService(container[Logger], container[Tracer], container[Meter])
 
@@ -530,12 +533,12 @@ class _CachedEvaluator:
 
     def __init__(
         self,
-        db: DocumentDatabase,
+        db: JSONFileDocumentDatabase,
         container: Container,
     ) -> None:
-        self._db: DocumentDatabase = db
-        self._guideline_collection: DocumentCollection[_CachedGuidelineEvaluation]
-        self._journey_collection: DocumentCollection[_CachedJourneyEvaluation]
+        self._db: JSONFileDocumentDatabase = db
+        self._guideline_collection: JSONFileDocumentCollection[_CachedGuidelineEvaluation]
+        self._journey_collection: JSONFileDocumentCollection[_CachedJourneyEvaluation]
 
         self._container = container
         self._logger = container[Logger]
@@ -3090,6 +3093,31 @@ def _die(message: str, exc: Exception | None) -> NoReturn:
     sys.exit(1)
 
 
+def _die_nlp_config_error(error: NLPServiceConfigurationError) -> NoReturn:
+    console = Console(stderr=True)
+
+    header = Text()
+    header.append("🔧 ", style="bold")
+    header.append("NLP SERVICE CONFIGURATION ERROR", style="bold white")
+
+    content = Text(str(error), style="white")
+
+    panel = Panel(
+        content,
+        title=header,
+        title_align="left",
+        border_style="white",
+        box=rich.box.DOUBLE_EDGE,
+        padding=(1, 3),
+        width=100,
+    )
+
+    console.print()
+    console.print(panel)
+    console.print()
+    sys.exit(1)
+
+
 class Server:
     """The main server class that manages the agent, journeys, tools, and other components.
 
@@ -3120,12 +3148,10 @@ class Server:
         host: str = "0.0.0.0",
         port: int = 8800,
         tool_service_port: int = 8818,
-        nlp_service: Callable[[Container], NLPService] = NLPServices.openai,
+        nlp_service: Callable[[Container], NLPService] = NLPServices.emcie,
         session_store: Literal["transient", "local"] | str | SessionStore = "transient",
         customer_store: Literal["transient", "local"] | str | CustomerStore = "transient",
         variable_store: Literal["transient", "local"] | str | ContextVariableStore = "transient",
-        vector_store: Literal["transient"] | VectorDatabase = "transient",
-        cache_store: Literal["transient", "local"] = "local",
         log_level: LogLevel = LogLevel.INFO,
         modules: list[str] = [],
         migrate: bool = False,
@@ -3147,8 +3173,6 @@ class Server:
         self._session_store = session_store
         self._customer_store = customer_store
         self._context_variable_store = variable_store
-        self._vector_store = vector_store
-        self._cache_store = cache_store
 
         self._configure_hooks = configure_hooks
         self._configure_container = configure_container
@@ -3218,6 +3242,9 @@ class Server:
         )
 
     async def __aenter__(self) -> Server:
+        # Set this server instance as the current server in the context
+        self._current_server_var.set(self)
+
         try:
             self._startup_context_manager = start_parlant(self._get_startup_params())
             self._container = await self._startup_context_manager.__aenter__()
@@ -3228,11 +3255,10 @@ class Server:
                 "Caching entity embeddings", total=None
             )
 
-            # Set this server instance as the current server in the context
-            self._current_server_var.set(self)
-
             return self
 
+        except NLPServiceConfigurationError as e:
+            _die_nlp_config_error(e)
         except SDKError as e:
             _die(str(e), e)
             raise
@@ -4236,9 +4262,8 @@ class Server:
                     return store
                 else:
                     raise SDKError(
-                        f"Invalid store type: {spec}. "
-                        "Expected 'transient', 'local', or a MongoDB connection string. "
-                        "For Elasticsearch, use configure_container to set up stores manually."
+                        f"Invalid session store type: {self._session_store}. "
+                        "Expected 'transient', 'local', or a MongoDB connection string."
                     )
 
             if isinstance(self._session_store, SessionStore):
@@ -4268,6 +4293,11 @@ class Server:
                     id_generator=c()[IdGenerator],
                 )
 
+            c()[EventEmitterFactory] = EventPublisherFactory(
+                agent_store=c()[AgentStore],
+                session_store=c()[SessionStore],
+            )
+
             c()[ServiceRegistry] = await self._exit_stack.enter_async_context(
                 ServiceDocumentRegistry(
                     database=TransientDocumentDatabase(),
@@ -4284,18 +4314,6 @@ class Server:
             async def get_embedder_type() -> type[Embedder]:
                 return type(await c()[NLPService].get_embedder())
 
-            # Create vector database based on configuration
-            vector_db: VectorDatabase
-            if isinstance(self._vector_store, VectorDatabase):
-                vector_db = self._vector_store
-            else:  # transient
-                vector_db = TransientVectorDatabase(
-                    c()[Logger],
-                    c()[Tracer],
-                    embedder_factory,
-                    lambda: c()[EmbeddingCache],
-                )
-
             for vector_store_interface, vector_store_type in [
                 (GlossaryStore, GlossaryVectorStore),
                 (CannedResponseStore, CannedResponseVectorStore),
@@ -4305,7 +4323,12 @@ class Server:
                 c()[vector_store_interface] = await self._exit_stack.enter_async_context(
                     vector_store_type(
                         id_generator=c()[IdGenerator],
-                        vector_db=vector_db,
+                        vector_db=TransientVectorDatabase(
+                            c()[Logger],
+                            c()[Tracer],
+                            embedder_factory,
+                            lambda: c()[EmbeddingCache],
+                        ),
                         document_db=TransientDocumentDatabase(),
                         embedder_factory=embedder_factory,
                         embedder_type_provider=get_embedder_type,
@@ -4326,15 +4349,6 @@ class Server:
             if self._configure_hooks:
                 hooks = await self._configure_hooks(c[EngineHooks])
                 latest_container[EngineHooks] = hooks
-
-            # Define embedding cache before server.py's initialize_container runs
-            # This prevents server.py from creating its own default version
-            if self._cache_store != "local":
-                if latest_container[OptimizationPolicy].use_embedding_cache():
-                    embedding_cache_db: DocumentDatabase = TransientDocumentDatabase()
-                    latest_container[EmbeddingCache] = BasicEmbeddingCache(embedding_cache_db)
-                else:
-                    latest_container[EmbeddingCache] = NullEmbeddingCache()
 
             return latest_container
 
@@ -4366,16 +4380,10 @@ class Server:
             await self._exit_stack.enter_async_context(self._plugin_server)
             self._exit_stack.push_async_callback(self._plugin_server.shutdown)
 
-            # Create evaluation cache database based on cache_store setting
-            eval_cache_db: DocumentDatabase
-            if self._cache_store == "local":
-                eval_cache_db = await self._exit_stack.enter_async_context(
-                    JSONFileDocumentDatabase(c[Logger], PARLANT_HOME_DIR / "evaluation_cache.json")
-                )
-            else:  # transient
-                eval_cache_db = TransientDocumentDatabase()
-
-            self._evaluator = _CachedEvaluator(db=eval_cache_db, container=c)
+            self._evaluator = _CachedEvaluator(
+                db=JSONFileDocumentDatabase(c[Logger], PARLANT_HOME_DIR / "evaluation_cache.json"),
+                container=c,
+            )
             await self._exit_stack.enter_async_context(self._evaluator)
 
             if self._initialize:
@@ -4391,6 +4399,9 @@ class Server:
             configure=configure,
             initialize=initialize,
             configure_api=self._configure_api,
+            contextvar_propagation={
+                self._current_server_var: self,
+            },
         )
 
     @classproperty
@@ -4412,7 +4423,6 @@ class Server:
 __all__ = [
     "Agent",
     "AgentId",
-    "AgentStore",
     "AuthorizationException",
     "AuthorizationPolicy",
     "BasicNoMatchResponseProvider",
@@ -4424,11 +4434,9 @@ __all__ = [
     "CapabilityId",
     "CompositionMode",
     "Container",
-    "ContextVariableDocumentStore",
     "ContextVariableId",
     "ContextVariableStore",
     "ControlOptions",
-    "CustomerDocumentStore",
     "Criticality",
     "Customer",
     "CustomerId",
@@ -4448,14 +4456,12 @@ __all__ = [
     "EngineHookResult",
     "EngineHooks",
     "EstimatingTokenizer",
-    "EventEmitterFactory",
     "EventKind",
     "EventSource",
     "FallbackSchematicGenerator",
     "Guideline",
     "GuidelineId",
     "GuidelineMatchingContext",
-    "IdGenerator",
     "Interaction",
     "InteractionMessage",
     "JSONSerializable",
@@ -4506,7 +4512,6 @@ __all__ = [
     "Server",
     "ServiceRegistry",
     "Session",
-    "SessionDocumentStore",
     "SessionId",
     "SessionMode",
     "SessionStatus",
@@ -4530,7 +4535,6 @@ __all__ = [
     "Tracer",
     "Variable",
     "Variable",
-    "VectorDatabase",
     "VoiceOptimizedPerceivedPerformancePolicy",
     "tool",
 ]

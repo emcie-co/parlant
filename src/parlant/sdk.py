@@ -3124,7 +3124,7 @@ class Server:
         session_store: Literal["transient", "local"] | str | SessionStore = "transient",
         customer_store: Literal["transient", "local"] | str | CustomerStore = "transient",
         variable_store: Literal["transient", "local"] | str | ContextVariableStore = "transient",
-        vector_store: Literal["transient", "elasticsearch"] | VectorDatabase = "transient",
+        vector_store: Literal["transient"] | VectorDatabase = "transient",
         cache_store: Literal["transient", "local"] = "local",
         log_level: LogLevel = LogLevel.INFO,
         modules: list[str] = [],
@@ -4288,31 +4288,6 @@ class Server:
             vector_db: VectorDatabase
             if isinstance(self._vector_store, VectorDatabase):
                 vector_db = self._vector_store
-            elif self._vector_store == "elasticsearch":
-                if importlib.util.find_spec("elasticsearch") is None:
-                    raise SDKError(
-                        "Elasticsearch requires an additional package to be installed. "
-                        "Install it with: pip install elasticsearch"
-                    )
-
-                from parlant.adapters.vector_db.elasticsearch import (
-                    ElasticsearchVectorDatabase,
-                    create_elasticsearch_client_from_env,
-                    get_elasticsearch_index_prefix_from_env,
-                )
-
-                es_vector_client = create_elasticsearch_client_from_env()
-                es_index_prefix = get_elasticsearch_index_prefix_from_env()
-
-                vector_db = await self._exit_stack.enter_async_context(
-                    ElasticsearchVectorDatabase(
-                        elasticsearch_client=es_vector_client,
-                        index_prefix=es_index_prefix,
-                        logger=c()[Logger],
-                        embedder_factory=embedder_factory,
-                        embedding_cache_provider=lambda: c()[EmbeddingCache],
-                    )
-                )
             else:  # transient
                 vector_db = TransientVectorDatabase(
                     c()[Logger],

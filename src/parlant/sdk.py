@@ -2251,7 +2251,7 @@ class Journey:
 
     async def create_guideline(
         self,
-        condition: str,
+        condition: str | None = None,
         action: str | None = None,
         description: str | None = None,
         tools: Iterable[ToolEntry] = [],
@@ -2758,7 +2758,7 @@ class Agent:
 
     async def create_guideline(
         self,
-        condition: str,
+        condition: str | None = None,
         action: str | None = None,
         id: GuidelineId | None = None,
         description: str | None = None,
@@ -3394,7 +3394,7 @@ class Server:
 
     async def _create_guideline(
         self,
-        condition: str,
+        condition: str | None,
         action: str | None,
         description: str | None,
         tools: Iterable[ToolEntry],
@@ -3412,6 +3412,9 @@ class Server:
         id: GuidelineId | None = None,
     ) -> Guideline:
         """Internal method to create a guideline with common logic."""
+        if condition is None and action is None:
+            raise SDKError("Either condition or action must be specified to create a guideline.")
+
         self._advance_creation_progress()
 
         tool_ids = [
@@ -3422,7 +3425,7 @@ class Server:
             await self._plugin_server.enable_tool(t)
 
         guideline = await self.container[GuidelineStore].create_guideline(
-            condition=condition,
+            condition=condition or "",
             action=action,
             description=description,
             criticality=criticality,

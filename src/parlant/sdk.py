@@ -3448,7 +3448,7 @@ class Server:
         if matcher is None:
             self._add_guideline_evaluation(
                 guideline.id,
-                GuidelineContent(condition=condition, action=action),
+                GuidelineContent(condition=condition or "", action=action),
                 tool_ids,
             )
 

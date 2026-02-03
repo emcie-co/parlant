@@ -341,6 +341,39 @@ class Test_that_guideline_can_use_custom_matcher(SDKTest):
         assert await nlp_test(answer, "It offers a banana")
 
 
+class Test_that_multiple_guidelines_can_use_custom_matcher(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Dummy Agent",
+            description="Dummy agent",
+        )
+
+        self.g1 = await self.agent.create_guideline(
+            action="Offer a cookie",
+            matcher=p.Guideline.MATCH_ALWAYS,
+        )
+
+        self.g2 = await self.agent.create_guideline(
+            action="Greet with 'Howdy'",
+            matcher=p.Guideline.MATCH_ALWAYS,
+        )
+
+        self.g3 = await self.agent.create_guideline(
+            action="Offer milk",
+            matcher=p.Guideline.MATCH_ALWAYS,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        answer = await ctx.send_and_receive_message(
+            customer_message="Hello, sir.",
+            recipient=self.agent,
+        )
+
+        assert await nlp_test(answer, "It offers milk")
+        assert await nlp_test(answer, "It greets with 'Howdy'")
+        assert await nlp_test(answer, "It offers a cookie")
+
+
 class Test_that_custom_matcher_can_return_no_match(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
@@ -508,7 +541,35 @@ class Test_that_match_handlers_for_different_guidelines_are_independent(SDKTest)
         assert not self.guideline2_handler_called, "Guideline 2 handler should NOT be called"
 
 
-class Test_that_match_handler_on_journey_guideline_works(SDKTest):
+class Test_that_journey_scoped_guideline_can_use_custom_matcher(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Dummy Agent",
+            description="Dummy agent",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Order Something",
+            description="Journey to handle orders",
+            conditions=["Customer wants to order something"],
+        )
+
+        self.guideline = await self.journey.create_guideline(
+            condition="",
+            action="Offer a banana",
+            matcher=p.Guideline.MATCH_ALWAYS,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        answer = await ctx.send_and_receive_message(
+            customer_message="Hello, I'd like to order something.",
+            recipient=self.agent,
+        )
+
+        assert await nlp_test(answer, "It offers a banana")
+
+
+class Test_that_match_handler_on_journey_scoped_guideline_works(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Journey Match Handler Agent",

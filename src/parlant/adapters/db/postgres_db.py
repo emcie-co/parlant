@@ -610,8 +610,14 @@ class _WhereTranslator:
             "$ne": "!=",
         }[operator]
 
+        is_numeric = isinstance(operand, (int, float)) and not isinstance(operand, bool)
         placeholder = self._add_param(operand)
         column = self._column_expr(field)
+
+        if is_numeric and field not in self._indexed_fields:
+            # JSONB ->> returns text; cast both sides for correct numeric ordering
+            return f"({column})::numeric {sql_operator} ({placeholder})::numeric"
+
         return f"{column} {sql_operator} {placeholder}"
 
     def _membership_clause(self, field: str, operand: Any, *, negate: bool) -> str:

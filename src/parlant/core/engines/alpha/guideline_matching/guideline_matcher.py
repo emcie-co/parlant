@@ -214,14 +214,15 @@ class GuidelineMatcher:
         with self._logger.scope("GuidelineMatcher"):
             async with self._hist_match_duration.measure():
                 guideline_strategies: dict[
-                    str, tuple[GuidelineMatchingStrategy, list[Guideline]]
+                    int, tuple[GuidelineMatchingStrategy, list[Guideline]]
                 ] = {}
 
                 for guideline in guidelines:
                     strategy = await self.strategy_resolver.resolve(guideline)
-                    if strategy.__class__.__name__ not in guideline_strategies:
-                        guideline_strategies[strategy.__class__.__name__] = (strategy, [])
-                    guideline_strategies[strategy.__class__.__name__][1].append(guideline)
+                    strategy_id = id(strategy)
+                    if strategy_id not in guideline_strategies:
+                        guideline_strategies[strategy_id] = (strategy, [])
+                    guideline_strategies[strategy_id][1].append(guideline)
 
                 matching_context = GuidelineMatchingContext(
                     agent=context.agent,
@@ -293,14 +294,14 @@ class GuidelineMatcher:
 
         with self._logger.scope("GuidelineMatcher"):
             guideline_strategies: dict[
-                str, tuple[GuidelineMatchingStrategy, list[GuidelineMatch]]
+                int, tuple[GuidelineMatchingStrategy, list[GuidelineMatch]]
             ] = {}
             for match in guideline_matches:
                 strategy = await self.strategy_resolver.resolve(match.guideline)
-                key = strategy.__class__.__name__
-                if key not in guideline_strategies:
-                    guideline_strategies[key] = (strategy, [])
-                guideline_strategies[key][1].append(match)
+                strategy_id = id(strategy)
+                if strategy_id not in guideline_strategies:
+                    guideline_strategies[strategy_id] = (strategy, [])
+                guideline_strategies[strategy_id][1].append(match)
 
             batches = await async_utils.safe_gather(
                 *[

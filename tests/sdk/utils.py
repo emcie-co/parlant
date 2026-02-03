@@ -53,12 +53,14 @@ class Context:
         self,
         customer_message: str,
         recipient: p.Agent,
+        sender: p.Customer | None = None,
         reuse_session: bool = False,
     ) -> ClientEvent:
         if (not self._session_id) or (not reuse_session):
             self._session_id = (
                 await self.client.sessions.create(
                     agent_id=recipient.id,
+                    customer_id=sender.id if sender else None,
                     allow_greeting=False,
                 )
             ).id
@@ -140,11 +142,13 @@ class Context:
         self,
         customer_message: str,
         recipient: p.Agent,
+        sender: p.Customer | None = None,
         reuse_session: bool = False,
     ) -> str:
         agent_message = await self.send_and_receive_message_event(
             customer_message=customer_message,
             recipient=recipient,
+            sender=sender,
             reuse_session=reuse_session,
         )
 

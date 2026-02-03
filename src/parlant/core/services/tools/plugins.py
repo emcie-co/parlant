@@ -21,6 +21,7 @@ import inspect
 import json
 import os
 import traceback
+import uuid
 import dateutil.parser
 from types import TracebackType, UnionType
 from typing import (
@@ -71,6 +72,10 @@ from parlant.core.sessions import SessionId, SessionStatus
 from parlant.core.tools import ToolExecutionError, ToolService
 
 TOOL_RESULT_MAX_PAYLOAD_KB = int(os.environ.get("PARLANT_TOOL_RESULT_MAX_PAYLOAD_KB", 16))
+
+# Registry for passing EngineContext across HTTP boundary to PluginServer (same-process only)
+# Uses Any type to avoid circular import with EngineContext
+_engine_context_registry: dict[str, Any] = {}
 
 ToolFunction = Union[
     Callable[
@@ -477,6 +482,7 @@ class CallToolRequest(DefaultBaseModel):
     session_id: str
     customer_id: str
     arguments: dict[str, _ToolParameterType]
+    engine_context_id: str | None = None
 
 
 class _ToolResultShim(DefaultBaseModel):
@@ -634,6 +640,13 @@ class PluginServer:
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Tool: '{name}' does not exists",
                 )
+
+            # Restore EngineContext if context_id was provided (same-process hosted mode)
+            if request.engine_context_id and request.engine_context_id in _engine_context_registry:
+                # Late import to avoid circular dependency
+                from parlant.core.engines.alpha.entity_context import EntityContext
+
+                EntityContext.set(_engine_context_registry[request.engine_context_id])
 
             end = asyncio.Event()
             chunks_received = asyncio.Semaphore(value=0)
@@ -869,6 +882,17 @@ class PluginClient(ToolService):
         context: ToolContext,
         arguments: Mapping[str, JSONSerializable],
     ) -> ToolResult:
+        # Register the current EngineContext for same-process PluginServer access
+        # Late import to avoid circular dependency
+        from parlant.core.engines.alpha.entity_context import EntityContext
+
+        engine_context_id: str | None = None
+        engine_context = EntityContext.get()
+
+        if engine_context is not None:
+            engine_context_id = str(uuid.uuid4())
+            _engine_context_registry[engine_context_id] = engine_context
+
         try:
             tool = await self.read_tool(name)
             validate_tool_arguments(tool, arguments)
@@ -881,6 +905,7 @@ class PluginClient(ToolService):
                     "session_id": context.session_id,
                     "customer_id": context.customer_id,
                     "arguments": arguments,
+                    "engine_context_id": engine_context_id,
                 },
             ) as response:
                 if response.status_code == status.HTTP_404_NOT_FOUND:
@@ -960,6 +985,10 @@ class PluginClient(ToolService):
             raise exc
         except Exception as exc:
             raise ToolExecutionError(tool_name=name) from exc
+        finally:
+            # Clean up context registry entry
+            if engine_context_id is not None and engine_context_id in _engine_context_registry:
+                del _engine_context_registry[engine_context_id]
 
         raise ToolExecutionError(
             tool_name=name,

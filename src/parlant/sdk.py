@@ -3474,7 +3474,7 @@ class Server:
 
         result_guideline = Guideline(
             id=guideline.id,
-            condition=condition,
+            condition=condition or "",
             action=action,
             tags=guideline.tags,
             metadata=guideline.metadata,

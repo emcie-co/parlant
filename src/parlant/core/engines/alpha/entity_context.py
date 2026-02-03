@@ -36,6 +36,15 @@ class EntityContext:
     )
 
     @classmethod
+    def get(self) -> EngineContext | None:
+        """Get the current engine context from the asyncio task context.
+
+        Returns:
+            The current engine context, or None if no context is set
+        """
+        return self._var.get()
+
+    @classmethod
     def set(
         self,
         context: EngineContext,

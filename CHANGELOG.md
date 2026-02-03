@@ -8,7 +8,12 @@ All notable changes to Parlant will be documented here.
 - Add per-agent preamble configuration (custom examples and instructions)
 - Add separate default greeting responses for first agent message in fluid mode
 - Add streaming message output mode
+- Allow specifying custom journey node ID
+- Make condition optional for SDK guidelines
+- Add matched guidelines/journey states to completion ready event
 - Fixed agent intention proposer (guidelines were getting rewritten incorrectly)
+- Fix multiple customer guideline matchers not working
+- Fix bug with context variable access in SDK
 - Tweak default preamble examples
 - Soften log levels for relational guideline resolver
 

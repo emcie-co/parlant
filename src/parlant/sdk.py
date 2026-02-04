@@ -1002,6 +1002,24 @@ class Guideline:
             target=relationship.target.id,
         )
 
+    async def attach_retriever(
+        self,
+        retriever: Callable[[RetrieverContext], Awaitable[RetrieverResult | None]],
+        id: str | None = None,
+    ) -> None:
+        """Attaches a retriever that runs only when this guideline is matched."""
+
+        def is_guideline_matched(ctx: EngineContext) -> bool:
+            return any(
+                m.guideline.id == self.id for m in ctx.state.ordinary_guideline_matches
+            ) or any(m.guideline.id == self.id for m in ctx.state.tool_enabled_guideline_matches)
+
+        self._server._attach_conditional_retriever(
+            retriever_id=id or f"guideline-retriever-{self.id}",
+            retriever=retriever,
+            should_run=is_guideline_matched,
+        )
+
     async def _create_relationship(
         self,
         target: Guideline | Journey,
@@ -2349,6 +2367,22 @@ class Journey:
 
         return guideline.id
 
+    async def attach_retriever(
+        self,
+        retriever: Callable[[RetrieverContext], Awaitable[RetrieverResult | None]],
+        id: str | None = None,
+    ) -> None:
+        """Attaches a retriever that runs only when this journey is active."""
+
+        def is_journey_active(ctx: EngineContext) -> bool:
+            return self.id in [j.id for j in ctx.state.journeys]
+
+        self._server._attach_conditional_retriever(
+            retriever_id=id or f"journey-retriever-{self.id}",
+            retriever=retriever,
+            should_run=is_journey_active,
+        )
+
     async def create_canned_response(
         self,
         template: str,
@@ -3559,6 +3593,94 @@ class Server:
         journey = await self._container[JourneyStore].read_journey(journey_id)
 
         return f"Journey: {journey.title}"
+
+    def _attach_conditional_retriever(
+        self,
+        retriever_id: str,
+        retriever: Callable[[RetrieverContext], Awaitable[RetrieverResult | None]],
+        should_run: Callable[[EngineContext], bool],
+    ) -> None:
+        """Register a retriever that fires only when the condition is met.
+
+        Args:
+            retriever_id: Unique identifier for this retriever.
+            retriever: The retriever function to call.
+            should_run: A function that takes EngineContext and returns True if the retriever should run.
+        """
+
+        async def on_generating_messages(
+            ctx: EngineContext,
+            payload: Any,
+            exc: Optional[Exception],
+        ) -> EngineHookResult:
+            if not should_run(ctx):
+                return EngineHookResult.CALL_NEXT
+
+            # Build RetrieverContext
+            agent = await self.get_agent(id=ctx.agent.id)
+            customer = await self.get_customer(id=ctx.customer.id)
+
+            retriever_context = RetrieverContext(
+                server=self,
+                container=self._container,
+                logger=self._container[Logger],
+                tracer=ctx.tracer,
+                session=Session(
+                    id=ctx.session.id,
+                    interaction=ctx.interaction,
+                ),
+                agent=agent,
+                customer=customer,
+                variables={
+                    await agent.get_variable(id=var.id): val.data
+                    for var, val in ctx.state.context_variables
+                },
+                interaction=ctx.interaction,
+            )
+
+            # Call retriever
+            result = await retriever(retriever_context)
+
+            if result is None:
+                return EngineHookResult.CALL_NEXT
+
+            if not (
+                result.data
+                or result.metadata
+                or result.canned_responses
+                or result.canned_response_fields
+            ):
+                # No need to emit tool event if nothing was retrieved.
+                return EngineHookResult.CALL_NEXT
+
+            # Emit tool event with retriever data
+            ctx.state.tool_events.append(
+                await ctx.response_event_emitter.emit_tool_event(
+                    ctx.tracer.trace_id,
+                    ToolEventData(
+                        tool_calls=[
+                            _SessionToolCall(
+                                tool_id=ToolId(
+                                    service_name=INTEGRATED_TOOL_SERVICE_NAME,
+                                    tool_name=retriever_id,
+                                ).to_string(),
+                                arguments={},
+                                result=_SessionToolResult(
+                                    data=result.data,
+                                    metadata=result.metadata,
+                                    control={"lifespan": "response"},
+                                    canned_responses=[u for u in result.canned_responses],
+                                    canned_response_fields=result.canned_response_fields,
+                                ),
+                            )
+                        ]
+                    ),
+                )
+            )
+
+            return EngineHookResult.CALL_NEXT
+
+        self._container[EngineHooks].on_generating_messages.append(on_generating_messages)
 
     async def _process_evaluations(self) -> None:
         _render_functions: dict[

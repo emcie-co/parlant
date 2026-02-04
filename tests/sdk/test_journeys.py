@@ -1680,3 +1680,59 @@ class Test_that_custom_state_id_is_used_when_provided(SDKTest):
         node = await journey_store.read_node(self.custom_state_id)
 
         assert node.id == self.custom_state_id, f"Expected ID {self.custom_state_id}, got {node.id}"
+
+
+class Test_that_journey_retriever_runs_when_journey_is_active(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Journey Retriever Agent",
+            description="Agent for testing journey retrievers",
+        )
+
+        journey = await self.agent.create_journey(
+            title="Secret Journey",
+            description="A journey about secrets",
+            conditions=["the user wants to learn secrets"],
+        )
+
+        async def my_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            return p.RetrieverResult(data="The journey secret is 99")
+
+        await journey.attach_retriever(my_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="I want to learn secrets",
+            recipient=self.agent,
+        )
+        assert "99" in response
+
+
+class Test_that_journey_retriever_does_not_run_when_journey_is_inactive(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Journey Retriever Agent",
+            description="Agent for testing journey retrievers",
+        )
+
+        self.retriever_called = False
+
+        journey = await self.agent.create_journey(
+            title="Secret Journey",
+            description="A journey about secrets",
+            conditions=["the user wants to learn secrets"],
+        )
+
+        async def my_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            self.retriever_called = True
+            return p.RetrieverResult(data="The journey secret is 99")
+
+        await journey.attach_retriever(my_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        # Ask about something unrelated, journey should not be active
+        await ctx.send_and_receive_message(
+            customer_message="What is the weather like today?",
+            recipient=self.agent,
+        )
+        assert not self.retriever_called, "Retriever should not be called when journey is inactive"

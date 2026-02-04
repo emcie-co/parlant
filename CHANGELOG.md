@@ -4,6 +4,7 @@ All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
 
+- Add `attach_retriever()` to Guideline and Journey for conditional data retrieval
 - Add testing framework
 - Add per-agent preamble configuration (custom examples and instructions)
 - Add separate default greeting responses for first agent message in fluid mode

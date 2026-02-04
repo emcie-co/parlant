@@ -935,3 +935,59 @@ class Test_that_multiple_guidelines_can_provide_fields(SDKTest):
         )
 
         assert response == "First: ALPHA, Second: BETA."
+
+
+class Test_that_guideline_retriever_runs_when_guideline_matches(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Retriever Agent",
+            description="Agent for testing guideline retrievers",
+        )
+
+        guideline = await self.agent.create_guideline(
+            condition="the user asks about the secret code",
+            action="tell them the secret code from the retrieved data",
+        )
+
+        async def my_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            return p.RetrieverResult(data="The secret code is 42")
+
+        await guideline.attach_retriever(my_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="What is the secret code?",
+            recipient=self.agent,
+        )
+        assert "42" in response
+
+
+class Test_that_guideline_retriever_does_not_run_when_guideline_does_not_match(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Retriever Agent",
+            description="Agent for testing guideline retrievers",
+        )
+
+        self.retriever_called = False
+
+        guideline = await self.agent.create_guideline(
+            condition="the user asks about the secret code",
+            action="tell them the secret code from the retrieved data",
+        )
+
+        async def my_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            self.retriever_called = True
+            return p.RetrieverResult(data="The secret code is 42")
+
+        await guideline.attach_retriever(my_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        # Ask about something unrelated, guideline should not match
+        await ctx.send_and_receive_message(
+            customer_message="What is the weather like today?",
+            recipient=self.agent,
+        )
+        assert not self.retriever_called, (
+            "Retriever should not be called when guideline doesn't match"
+        )

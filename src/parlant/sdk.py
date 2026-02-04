@@ -4033,9 +4033,8 @@ class Server:
             description: A description of the agent's purpose and capabilities (required).
             composition_mode: How the agent composes responses. Defaults to FLUID.
                 - FLUID: Dynamic response composition
-                - CANNED_FLUID: Mix of canned and dynamic responses
-                - CANNED_COMPOSITED: Composed from canned responses
-                - CANNED_STRICT: Strictly uses canned responses
+                - COMPOSITED: Composed from canned responses
+                - STRICT: Strictly uses canned responses
             output_mode: How the agent delivers responses. Defaults to BLOCK.
                 - BLOCK: Complete response delivered after generation finishes
                 - STREAMING: Response streamed progressively as generated
@@ -4054,6 +4053,11 @@ class Server:
         Returns:
             The created Agent instance.
         """
+
+        if output_mode == OutputMode.STREAMING and composition_mode != CompositionMode.FLUID:
+            raise SDKError(
+                "Streaming output mode is only supported with a fluid base composition mode."
+            )
 
         self._advance_creation_progress()
 

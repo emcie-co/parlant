@@ -1036,15 +1036,16 @@ You will now be given the current state of the interaction to which you must gen
             additional_canned_response_fields=loaded_context.state.additional_canned_response_fields,
         )
 
+        # Resolve effective composition mode
+        composition_mode = await self._resolve_composition_mode(loaded_context)
+
         # Check for streaming mode
         if (
-            loaded_context.agent.message_output_mode == MessageOutputMode.STREAMING
+            composition_mode == CompositionMode.FLUID
+            and loaded_context.agent.message_output_mode == MessageOutputMode.STREAMING
             and self._streaming_text_generator is not None
         ):
             return await self._generate_streaming_response(context)
-
-        # Resolve effective composition mode
-        composition_mode = await self._resolve_composition_mode(loaded_context)
 
         first_message_already_emitted = False
 

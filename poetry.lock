@@ -5257,6 +5257,22 @@ dev = ["pre-commit", "tox"]
 testing = ["coverage", "pytest", "pytest-benchmark"]
 
 [[package]]
+name = "pocketbase"
+version = "0.15.0"
+description = "PocketBase SDK for python."
+optional = true
+python-versions = ">=3.9"
+groups = ["main"]
+markers = "extra == \"pocketbase\""
+files = [
+    {file = "pocketbase-0.15.0-py3-none-any.whl", hash = "sha256:f5a77e73a661859353cf2f51422ee54b77374c21ea1781cf7e0baffb6e110cc7"},
+    {file = "pocketbase-0.15.0.tar.gz", hash = "sha256:dd3a8ce20da09a83f5e0a5b55fc72d40874f562c15d886d5ec5a072e346d3fd9"},
+]
+
+[package.dependencies]
+httpx = ">=0.27.2"
+
+[[package]]
 name = "portalocker"
 version = "3.2.0"
 description = "Wraps the portalocker recipe for easy usage"
@@ -8772,6 +8788,7 @@ litellm = ["litellm", "torch", "transformers"]
 mistral = ["mistralai"]
 mongo = ["pymongo"]
 ollama = ["ollama"]
+pocketbase = ["pocketbase"]
 qdrant = ["qdrant-client"]
 snowflake = ["snowflake-connector-python"]
 together = ["together", "torch", "transformers"]

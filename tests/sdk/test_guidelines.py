@@ -31,31 +31,38 @@ from tests.sdk.utils import Context, SDKTest
 from tests.test_utilities import nlp_test
 
 
-class Test_that_guideline_priority_relationship_can_be_created(SDKTest):
+class Test_that_guideline_can_take_priority_over_another_guideline(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
-            name="Rel Agent",
-            description="Agent for guideline relationships",
+            name="Priority Agent",
+            description="Agent for testing guideline priority",
         )
 
-        self.g1 = await self.agent.create_guideline(
-            condition="Customer requests a refund",
-            action="process the refund if the transaction is not frozen",
-        )
-        self.g2 = await self.agent.create_guideline(
-            condition="An error is detected on an account",
-            action="freeze all account transactions",
+        # Both guidelines match when customer asks about drinks
+        self.high_priority = await self.agent.create_guideline(
+            condition="Customer asks about drinks",
+            action="Recommend Pepsi",
         )
 
-        self.relationship = await self.g1.prioritize_over(self.g2)
+        self.low_priority = await self.agent.create_guideline(
+            condition="Customer asks about drinks",
+            action="Recommend Coca-Cola",
+        )
+
+        await self.high_priority.prioritize_over(self.low_priority)
 
     async def run(self, ctx: Context) -> None:
-        relationship_store = ctx.container[RelationshipStore]
-
-        relationship = await relationship_store.read_relationship(
-            relationship_id=self.relationship.id
+        response = await ctx.send_and_receive_message(
+            customer_message="What drinks do you have?",
+            recipient=self.agent,
         )
-        assert relationship.kind == RelationshipKind.PRIORITY
+
+        # High priority guideline's action should apply
+        assert "pepsi" in response.lower(), f"Expected Pepsi in response: {response}"
+        # Low priority guideline's action should NOT apply
+        assert "cola" not in response.lower() and "coke" not in response.lower(), (
+            f"Did not expect Coca-Cola in response: {response}"
+        )
 
 
 class Test_that_guideline_entailment_relationship_can_be_created(SDKTest):
@@ -100,13 +107,13 @@ class Test_that_guideline_dependency_relationship_can_be_created(SDKTest):
             action="end your response with the word sorry",
         )
 
-        self.relationship = await self.g2.depend_on(self.g2)
+        self.relationships = await self.g2.depend_on(self.g2)
 
     async def run(self, ctx: Context) -> None:
         relationship_store = ctx.container[RelationshipStore]
 
         relationship = await relationship_store.read_relationship(
-            relationship_id=self.relationship.id
+            relationship_id=self.relationships[0].id
         )
         assert relationship.kind == RelationshipKind.DEPENDENCY
 
@@ -177,36 +184,45 @@ class Test_that_a_reevaluation_relationship_can_be_created(SDKTest):
         assert relationship.kind == RelationshipKind.REEVALUATION
 
 
-class Test_that_guideline_can_prioritize_over_journey(SDKTest):
+class Test_that_guideline_can_take_priority_over_journey(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
-            name="Guideline to Journey Agent",
-            description="Agent for guideline to journey priority",
+            name="Test Agent",
+            description="",
         )
 
+        # Guideline that matches when customer asks about drinks
         self.guideline = await self.agent.create_guideline(
-            condition="Customer asks about shipping",
-            action="Explain standard shipping policy",
+            condition="Customer asks about drinks",
+            action="Recommend Pepsi",
         )
 
+        # Journey that also matches when customer asks about drinks
         self.journey = await self.agent.create_journey(
-            title="Handle Complaints",
-            conditions=["Customer is upset"],
-            description="Resolve the complaint flow",
+            title="Drink Recommendation Journey",
+            conditions=["Customer asks about drinks"],
+            description="Recommend Coca-Cola to the customer",
         )
 
-        self.relationship = await self.guideline.prioritize_over(self.journey)
+        await self.journey.create_guideline(
+            matcher=p.Guideline.MATCH_ALWAYS,
+            action="Recommend Coca-Cola",
+        )
+
+        await self.guideline.prioritize_over(self.journey)
 
     async def run(self, ctx: Context) -> None:
-        relationship_store = ctx.container[RelationshipStore]
-
-        relationship = await relationship_store.read_relationship(
-            relationship_id=self.relationship.id
+        response = await ctx.send_and_receive_message(
+            customer_message="What drinks do you have?",
+            recipient=self.agent,
         )
 
-        assert relationship.kind == RelationshipKind.PRIORITY
-        assert relationship.source.id == self.guideline.id
-        assert relationship.target.id == Tag.for_journey_id(self.journey.id)
+        # Guideline's action should apply
+        assert "pepsi" in response.lower(), f"Expected Pepsi in response: {response}"
+        # Journey's recommendation should NOT apply
+        assert "cola" not in response.lower() and "coke" not in response.lower(), (
+            f"Did not expect Coca-Cola in response: {response}"
+        )
 
 
 class Test_that_guideline_can_depend_on_journey(SDKTest):
@@ -227,13 +243,13 @@ class Test_that_guideline_can_depend_on_journey(SDKTest):
             description="Assist the customer in a premium flow",
         )
 
-        self.relationship = await self.guideline.depend_on(self.journey)
+        self.relationships = await self.guideline.depend_on(self.journey)
 
     async def run(self, ctx: Context) -> None:
         relationship_store = ctx.container[RelationshipStore]
 
         relationship = await relationship_store.read_relationship(
-            relationship_id=self.relationship.id
+            relationship_id=self.relationships[0].id
         )
 
         assert relationship.kind == RelationshipKind.DEPENDENCY

@@ -922,41 +922,33 @@ class Guideline:
             direction="source",
         )
 
-    async def prioritize_over(self, target: Guideline | Journey) -> Relationship:
-        """Creates a priority relationship with another guideline or journey."""
-        if isinstance(target, Guideline):
-            return await self._create_relationship(
-                target=target,
-                kind=RelationshipKind.PRIORITY,
-                direction="source",
-            )
-        elif isinstance(target, Journey):
-            return await self._create_relationship(
-                target=target,
-                kind=RelationshipKind.PRIORITY,
-                direction="source",
-            )
-        else:
-            raise SDKError("Either guideline or journey must be provided for prioritization.")
+    async def prioritize_over(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
+        """Creates priority relationships with other guidelines or journeys."""
+        if not targets:
+            raise SDKError("At least one target must be provided for prioritization.")
 
-    async def depend_on(
-        self,
-        target: Guideline | Journey,
-    ) -> Relationship:
-        if isinstance(target, Guideline):
-            return await self._create_relationship(
-                target=target,
+        return [
+            await self._create_relationship(
+                target=t,
+                kind=RelationshipKind.PRIORITY,
+                direction="source",
+            )
+            for t in targets
+        ]
+
+    async def depend_on(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
+        """Creates dependency relationships with other guidelines or journeys."""
+        if not targets:
+            raise SDKError("At least one target must be provided for dependency.")
+
+        return [
+            await self._create_relationship(
+                target=t,
                 kind=RelationshipKind.DEPENDENCY,
                 direction="source",
             )
-        elif isinstance(target, Journey):
-            return await self._create_relationship(
-                target=target,
-                kind=RelationshipKind.DEPENDENCY,
-                direction="source",
-            )
-        else:
-            raise SDKError("Either guideline or journey must be provided for dependency.")
+            for t in targets
+        ]
 
     async def disambiguate(
         self,
@@ -2406,34 +2398,33 @@ class Journey:
 
         return canrep.id
 
-    async def prioritize_over(
-        self,
-        target: Guideline | Journey,
-    ) -> Relationship:
-        """Creates a priority relationship with another guideline or journey."""
-        if isinstance(target, Guideline):
-            return await self._create_relationship(
-                target=target,
-                kind=RelationshipKind.PRIORITY,
-                direction="source",
-            )
-        else:
-            return await self._create_relationship(
-                target=target,
-                kind=RelationshipKind.PRIORITY,
-                direction="source",
-            )
+    async def prioritize_over(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
+        """Creates priority relationships with other guidelines or journeys."""
+        if not targets:
+            raise SDKError("At least one target must be provided for prioritization.")
 
-    async def depend_on(
-        self,
-        target: Guideline,
-    ) -> Relationship:
-        """Creates a dependency relationship with a guideline."""
-        return await self._create_relationship(
-            target=target,
-            kind=RelationshipKind.DEPENDENCY,
-            direction="source",
-        )
+        return [
+            await self._create_relationship(
+                target=t,
+                kind=RelationshipKind.PRIORITY,
+                direction="source",
+            )
+            for t in targets
+        ]
+
+    async def depend_on(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
+        """Creates dependency relationships with other guidelines or journeys."""
+        if not targets:
+            raise SDKError("At least one target must be provided for dependency.")
+
+        return [
+            await self._create_relationship(
+                target=t,
+                kind=RelationshipKind.DEPENDENCY,
+                direction="source",
+            )
+            for t in targets
+        ]
 
     async def _create_relationship(
         self,

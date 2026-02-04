@@ -227,6 +227,7 @@ class GuidelineCreationParamsDTO(
     enabled: GuidelineEnabledField | None = None
     tags: GuidelineTagsField | None = None
     composition_mode: CompositionModeDTO | None = None
+    track: bool = True
 
 
 GuidelineMetadataUnsetField: TypeAlias = Annotated[
@@ -418,6 +419,7 @@ def _guideline_relationship_to_dto(
             )
             if rel_source_guideline.composition_mode
             else None,
+            track=rel_source_guideline.track,
         )
         if relationship.source_type == RelationshipEntityKind.GUIDELINE
         else None,
@@ -443,6 +445,7 @@ def _guideline_relationship_to_dto(
             )
             if rel_target_guideline.composition_mode
             else None,
+            track=rel_target_guideline.track,
         )
         if relationship.target_type == RelationshipEntityKind.GUIDELINE
         else None,
@@ -509,6 +512,7 @@ def create_router(
                 composition_mode=composition_mode_dto_to_composition_mode(params.composition_mode)
                 if params.composition_mode
                 else None,
+                track=params.track,
             )
         except ValueError as e:
             raise HTTPException(
@@ -528,6 +532,7 @@ def create_router(
             composition_mode=composition_mode_to_composition_mode_dto(guideline.composition_mode)
             if guideline.composition_mode
             else None,
+            track=guideline.track,
         )
 
     @router.get(
@@ -572,6 +577,7 @@ def create_router(
                 )
                 if guideline.composition_mode
                 else None,
+                track=guideline.track,
             )
             for guideline in guidelines
         ]
@@ -633,6 +639,7 @@ def create_router(
                 )
                 if guideline.composition_mode
                 else None,
+                track=guideline.track,
             ),
             relationships=[
                 _guideline_relationship_to_dto(relationship, indirect)
@@ -745,6 +752,7 @@ def create_router(
                 )
                 if updated_guideline.composition_mode
                 else None,
+                track=updated_guideline.track,
             ),
             relationships=[
                 _guideline_relationship_to_dto(relationship, indirect)

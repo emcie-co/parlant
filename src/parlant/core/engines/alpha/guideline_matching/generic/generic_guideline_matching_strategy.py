@@ -200,7 +200,8 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                     actionable_guidelines.append(g)
                 else:
                     if (
-                        context.session.agent_states
+                        g.track
+                        and context.session.agent_states
                         and g.id in context.session.agent_states[-1].applied_guideline_ids
                     ):
                         data = g.metadata.get("customer_dependent_action_data", False)

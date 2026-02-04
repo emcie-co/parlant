@@ -90,6 +90,7 @@ class GuidelineModule:
         tags: Sequence[TagId] | None,
         id: GuidelineId | None = None,
         composition_mode: CompositionMode | None = None,
+        track: bool = True,
     ) -> Guideline:
         if tags:
             for tag_id in tags:
@@ -107,6 +108,7 @@ class GuidelineModule:
             tags=tags,
             id=id,
             composition_mode=composition_mode,
+            track=track,
         )
 
         return guideline

@@ -61,6 +61,7 @@ class Guideline:
     metadata: Mapping[str, JSONSerializable]
     criticality: Criticality
     composition_mode: Optional[CompositionMode] = None
+    track: bool = True
 
     def __str__(self) -> str:
         if self.content.condition and self.content.action:
@@ -87,6 +88,7 @@ class GuidelineUpdateParams(TypedDict, total=False):
     enabled: bool
     metadata: Mapping[str, JSONSerializable]
     composition_mode: Optional[CompositionMode]
+    track: bool
 
 
 class GuidelineStore(ABC):
@@ -103,6 +105,7 @@ class GuidelineStore(ABC):
         tags: Optional[Sequence[TagId]] = None,
         id: Optional[GuidelineId] = None,
         composition_mode: Optional[CompositionMode] = None,
+        track: bool = True,
     ) -> Guideline: ...
 
     @abstractmethod
@@ -229,6 +232,19 @@ class GuidelineDocument_v0_6_0(TypedDict, total=False):
     metadata: Mapping[str, JSONSerializable]
 
 
+class GuidelineDocument_v0_7_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    condition: str
+    action: Optional[str]
+    description: Optional[str]
+    criticality: str
+    enabled: bool
+    metadata: Mapping[str, JSONSerializable]
+    composition_mode: Optional[str]
+
+
 class GuidelineDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
@@ -240,6 +256,7 @@ class GuidelineDocument(TypedDict, total=False):
     enabled: bool
     metadata: Mapping[str, JSONSerializable]
     composition_mode: Optional[str]
+    track: bool
 
 
 class GuidelineTagAssociationDocument(TypedDict, total=False):
@@ -264,7 +281,7 @@ async def guideline_document_converter_0_1_0_to_0_2_0(doc: BaseDocument) -> Opti
 
 
 class GuidelineDocumentStore(GuidelineStore):
-    VERSION = Version.from_string("0.7.0")
+    VERSION = Version.from_string("0.8.0")
 
     def __init__(
         self,
@@ -282,9 +299,25 @@ class GuidelineDocumentStore(GuidelineStore):
         self._lock = ReaderWriterLock()
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[GuidelineDocument]:
+        async def v0_7_0_to_v0_8_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(GuidelineDocument_v0_7_0, doc)
+            return GuidelineDocument(
+                id=d["id"],
+                version=Version.String("0.8.0"),
+                creation_utc=d["creation_utc"],
+                condition=d["condition"],
+                action=d["action"],
+                description=d.get("description", None),
+                criticality=d["criticality"],
+                enabled=d["enabled"],
+                metadata=d["metadata"],
+                composition_mode=d.get("composition_mode"),
+                track=True,  # Default to True for existing guidelines
+            )
+
         async def v0_6_0_to_v0_7_0(doc: BaseDocument) -> Optional[BaseDocument]:
             d = cast(GuidelineDocument_v0_6_0, doc)
-            return GuidelineDocument(
+            return GuidelineDocument_v0_7_0(
                 id=d["id"],
                 version=Version.String("0.7.0"),
                 creation_utc=d["creation_utc"],
@@ -350,6 +383,7 @@ class GuidelineDocumentStore(GuidelineStore):
                 "0.4.0": v0_4_0_to_v0_5_0,
                 "0.5.0": v0_5_0_to_v0_6_0,
                 "0.6.0": v0_6_0_to_v0_7_0,
+                "0.7.0": v0_7_0_to_v0_8_0,
             },
         ).migrate(doc)
 
@@ -426,6 +460,7 @@ class GuidelineDocumentStore(GuidelineStore):
             composition_mode=(
                 guideline.composition_mode.value if guideline.composition_mode else None
             ),
+            track=guideline.track,
         )
 
     async def _deserialize(
@@ -455,6 +490,7 @@ class GuidelineDocumentStore(GuidelineStore):
             tags=[TagId(tag_id) for tag_id in tag_ids],
             metadata=guideline_document["metadata"],
             composition_mode=composition_mode,
+            track=guideline_document.get("track", True),
         )
 
     @override
@@ -470,6 +506,7 @@ class GuidelineDocumentStore(GuidelineStore):
         tags: Optional[Sequence[TagId]] = None,
         id: Optional[GuidelineId] = None,
         composition_mode: Optional[CompositionMode] = None,
+        track: bool = True,
     ) -> Guideline:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
@@ -500,6 +537,7 @@ class GuidelineDocumentStore(GuidelineStore):
                 tags=tags or [],
                 metadata=metadata,
                 composition_mode=composition_mode,
+                track=track,
             )
 
             await self._collection.insert_one(

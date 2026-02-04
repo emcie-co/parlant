@@ -4,6 +4,7 @@ All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
 
+- Add `track` parameter to guidelines to control "previously applied" tracking
 - Add `attach_retriever()` to Guideline and Journey for conditional data retrieval
 - Add testing framework
 - Add per-agent preamble configuration (custom examples and instructions)

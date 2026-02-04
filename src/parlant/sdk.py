@@ -2284,6 +2284,7 @@ class Journey:
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         id: GuidelineId | None = None,
+        track: bool = True,
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
         return await self._server._create_guideline(
@@ -2302,6 +2303,7 @@ class Journey:
             tags=None,
             relationship_target_tag_id=_Tag.for_journey_id(self.id),
             id=id,
+            track=track,
         )
 
     async def create_observation(
@@ -2810,6 +2812,7 @@ class Agent:
         on_message: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        track: bool = True,
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
         return await self._server._create_guideline(
@@ -2828,6 +2831,7 @@ class Agent:
             tags=[_Tag.for_agent_id(self.id)],
             relationship_target_tag_id=None,
             id=id,
+            track=track,
         )
 
     async def create_observation(
@@ -3450,6 +3454,7 @@ class Server:
         tags: Sequence[TagId] | None,
         relationship_target_tag_id: TagId | None,
         id: GuidelineId | None = None,
+        track: bool = True,
     ) -> Guideline:
         """Internal method to create a guideline with common logic."""
         if condition is None and action is None:
@@ -3473,6 +3478,7 @@ class Server:
             composition_mode=CompositionMode._to_core_composition_mode(composition_mode),
             id=id,
             tags=tags,
+            track=track,
         )
 
         if canned_responses:

@@ -991,3 +991,41 @@ class Test_that_guideline_retriever_does_not_run_when_guideline_does_not_match(S
         assert not self.retriever_called, (
             "Retriever should not be called when guideline doesn't match"
         )
+
+
+class Test_that_untracked_guideline_is_reapplied_in_same_session(SDKTest):
+    """Test that a guideline with track=False is always treated as actionable,
+    even after being applied once in the same session."""
+
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Test Agent",
+            description="",
+        )
+
+        await self.agent.create_guideline(
+            condition="The customer wants something to drink",
+            action="Insist that your favorite drink is Pepsi",
+            track=False,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        # First message - customer is thirsty
+        first_response = await ctx.send_and_receive_message(
+            customer_message="Hi, I want a drink please...",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert "pepsi" in first_response.lower(), (
+            f"First response should offer Pepsi, got: {first_response}"
+        )
+
+        # Second message - customer is still thirsty (ignores the offer)
+        second_response = await ctx.send_and_receive_message(
+            customer_message="Hmmm... What do you have?",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert "pepsi" in second_response.lower(), (
+            f"Second response should still offer Pepsi, got: {second_response}"
+        )

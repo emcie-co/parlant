@@ -332,6 +332,7 @@ class GuidelineDTO(
     tags: GuidelineTagsField
     metadata: GuidelineMetadataField
     composition_mode: CompositionModeDTO | None = None
+    track: bool = True
 
 
 EnumValueTypeDTO: TypeAlias = str | int

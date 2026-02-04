@@ -2288,10 +2288,12 @@ class Journey:
 
     async def create_observation(
         self,
-        condition: str,
+        condition: str | None = None,
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         composition_mode: CompositionMode | None = None,
+        matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
+        | None = None,
         on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2303,6 +2305,7 @@ class Journey:
             description=description,
             canned_responses=canned_responses,
             composition_mode=composition_mode,
+            matcher=matcher,
             on_match=on_match,
             canned_response_field_provider=canned_response_field_provider,
         )
@@ -2795,11 +2798,13 @@ class Agent:
 
     async def create_observation(
         self,
-        condition: str,
+        condition: str | None = None,
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         criticality: Criticality = Criticality.MEDIUM,
         composition_mode: CompositionMode | None = None,
+        matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
+        | None = None,
         on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2811,6 +2816,7 @@ class Agent:
             description=description,
             canned_responses=canned_responses,
             composition_mode=composition_mode,
+            matcher=matcher,
             on_match=on_match,
             criticality=criticality,
             canned_response_field_provider=canned_response_field_provider,

@@ -36,7 +36,6 @@ from parlant.core.nlp.service import (
     EmbedderHints,
     NLPService,
     SchematicGeneratorHints,
-    StreamingTextGenerator,
     StreamingTextGeneratorHints,
 )
 from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
@@ -44,6 +43,7 @@ from parlant.core.nlp.generation import (
     T,
     BaseSchematicGenerator,
     SchematicGenerationResult,
+    StreamingTextGenerator,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.moderation import (

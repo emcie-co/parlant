@@ -28,6 +28,7 @@ from parlant.core.relationships import (
 )
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
 from parlant.core.tags import TagId, Tag
+from parlant.core.tools import ToolId
 from parlant.core.tracer import Tracer
 
 
@@ -101,7 +102,8 @@ class RelationalResolver:
             with self._logger.scope("RelationalResolver"):
                 # Cache for relationship queries to avoid redundant calls
                 relationship_cache: dict[
-                    tuple[RelationshipKind, bool, str, str], list[Relationship]
+                    tuple[RelationshipKind, bool, str, GuidelineId | TagId | ToolId],
+                    list[Relationship],
                 ] = {}
 
                 # Track deactivation reasons for guidelines
@@ -137,7 +139,7 @@ class RelationalResolver:
                         usable_guidelines, prioritization_result.matches, relationship_cache
                     )
 
-                    new_matches = list(prioritization_result.matches) + entailed_matches
+                    new_matches = list(prioritization_result.matches) + list(entailed_matches)
                     new_journeys = list(prioritization_result.journeys)
 
                     # Check if we've reached a stable state
@@ -158,7 +160,7 @@ class RelationalResolver:
 
                 # Emit tracer events for final results
                 final_match_ids = {m.guideline.id for m in current_matches}
-                matches_by_id = {m.guideline.id: m for m in matches + current_matches}
+                matches_by_id = {m.guideline.id: m for m in list(matches) + current_matches}
 
                 # Emit events for activated guidelines (entailed)
                 for match in current_matches:
@@ -194,11 +196,13 @@ class RelationalResolver:
 
     async def _get_relationships(
         self,
-        cache: dict[tuple[RelationshipKind, bool, str, str], list[Relationship]],
+        cache: dict[
+            tuple[RelationshipKind, bool, str, GuidelineId | TagId | ToolId], list[Relationship]
+        ],
         kind: RelationshipKind,
         indirect: bool,
-        source_id: Optional[str] = None,
-        target_id: Optional[str] = None,
+        source_id: Optional[GuidelineId | TagId | ToolId] = None,
+        target_id: Optional[GuidelineId | TagId | ToolId] = None,
     ) -> list[Relationship]:
         """Get relationships with caching."""
         entity_id = source_id if source_id else target_id
@@ -233,7 +237,9 @@ class RelationalResolver:
         usable_guidelines: Sequence[Guideline],
         matches: Sequence[GuidelineMatch],
         journeys: Sequence[Journey],
-        cache: dict[tuple[RelationshipKind, bool, str, str], list[Relationship]],
+        cache: dict[
+            tuple[RelationshipKind, bool, str, GuidelineId | TagId | ToolId], list[Relationship]
+        ],
         deactivation_reasons: dict[GuidelineId, str],
     ) -> Sequence[GuidelineMatch]:
         """Filter out guidelines with unmet dependencies."""
@@ -317,7 +323,9 @@ class RelationalResolver:
         self,
         matches: Sequence[GuidelineMatch],
         journeys: Sequence[Journey],
-        cache: dict[tuple[RelationshipKind, bool, str, str], list[Relationship]],
+        cache: dict[
+            tuple[RelationshipKind, bool, str, GuidelineId | TagId | ToolId], list[Relationship]
+        ],
         deactivation_reasons: dict[GuidelineId, str],
     ) -> RelationalResolverResult:
         """Apply priority relationships and filter both matches and journeys."""
@@ -496,7 +504,9 @@ class RelationalResolver:
         self,
         usable_guidelines: Sequence[Guideline],
         matches: Sequence[GuidelineMatch],
-        cache: dict[tuple[RelationshipKind, bool, str, str], list[Relationship]],
+        cache: dict[
+            tuple[RelationshipKind, bool, str, GuidelineId | TagId | ToolId], list[Relationship]
+        ],
     ) -> Sequence[GuidelineMatch]:
         """Add guidelines based on entailment relationships."""
         # This is the logic from get_entailed in the old implementation

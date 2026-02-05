@@ -920,25 +920,25 @@ class Test_that_multiple_guidelines_can_provide_fields(SDKTest):
 
         # Create a canned response that uses fields from multiple providers
         canrep_id = await self.agent.create_canned_response(
-            template="First: {{field_a}}, Second: {{field_b}}.",
+            template="Fruit: {{fruit}}, Vegetable: {{vegetable}}.",
         )
 
         async def provide_field_a(ctx: p.EngineContext) -> dict[str, str]:
-            return {"field_a": "ALPHA"}
+            return {"fruit": "banana"}
 
         async def provide_field_b(ctx: p.EngineContext) -> dict[str, str]:
-            return {"field_b": "BETA"}
+            return {"vegetable": "carrot"}
 
         # Create two guidelines that both match
         self.guideline_a = await self.agent.create_guideline(
-            condition="Customer asks a question",
-            action="Respond with info",
+            condition="Customer asks for a fruit recommendation",
+            action="Recommend a banana",
             canned_response_field_provider=provide_field_a,
         )
 
         self.guideline_b = await self.agent.create_guideline(
-            condition="Customer wants data",
-            action="Provide the requested data",
+            condition="Customer wants a vegetable recommendation",
+            action="Suggest a carrot",
             composition_mode=p.CompositionMode.STRICT,
             canned_responses=[canrep_id],
             canned_response_field_provider=provide_field_b,
@@ -946,11 +946,11 @@ class Test_that_multiple_guidelines_can_provide_fields(SDKTest):
 
     async def run(self, ctx: Context) -> None:
         response = await ctx.send_and_receive_message(
-            customer_message="I have a question and I want some data please",
+            customer_message="I'd like both a fruit and a vegetable recommendation.",
             recipient=self.agent,
         )
 
-        assert response == "First: ALPHA, Second: BETA."
+        assert response == "Fruit: banana, Vegetable: carrot."
 
 
 class Test_that_guideline_retriever_runs_when_guideline_matches(SDKTest):

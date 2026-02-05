@@ -225,7 +225,8 @@ class RelationalResolver:
                     )
                 )
 
-        return cache[cache_key]
+        # Return a copy to prevent callers from modifying the cached list
+        return list(cache[cache_key])
 
     async def _apply_dependencies(
         self,

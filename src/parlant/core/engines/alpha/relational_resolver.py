@@ -114,30 +114,30 @@ class RelationalResolver:
                 for iteration in range(self.MAX_ITERATIONS):
                     self._logger.debug(f"RelationalResolver iteration {iteration + 1}")
 
-                    # Step 1: Apply prioritization (filter based on priority relationships and filter journeys)
-                    prioritization_result = await self._apply_prioritization(
-                        current_matches, current_journeys, relationship_cache, deactivation_reasons
-                    )
-
-                    # Step 2: Apply entailment (add new matches based on entailment relationships)
-                    entailed_matches = await self._apply_entailment(
-                        usable_guidelines, prioritization_result.matches, relationship_cache
-                    )
-
-                    # Combine prioritized and entailed matches
-                    combined_matches = list(prioritization_result.matches) + entailed_matches
-
-                    # Step 3: Apply dependencies (filter out matches with unmet dependencies)
-                    # This must run AFTER prioritization because we need to filter based on deprioritized entities
-                    filtered_matches = await self._apply_dependencies(
+                    # Step 1: Apply dependencies (filter out matches with unmet dependencies)
+                    filtered_by_dependencies = await self._apply_dependencies(
                         usable_guidelines,
-                        combined_matches,
-                        prioritization_result.journeys,
+                        current_matches,
+                        current_journeys,
                         relationship_cache,
                         deactivation_reasons,
                     )
 
-                    new_matches = filtered_matches
+                    # Step 2: Apply prioritization (filter based on priority relationships and filter journeys)
+                    # This also handles transitive filtering (guidelines that depend on deprioritized entities)
+                    prioritization_result = await self._apply_prioritization(
+                        filtered_by_dependencies,
+                        current_journeys,
+                        relationship_cache,
+                        deactivation_reasons,
+                    )
+
+                    # Step 3: Apply entailment (add new matches based on entailment relationships)
+                    entailed_matches = await self._apply_entailment(
+                        usable_guidelines, prioritization_result.matches, relationship_cache
+                    )
+
+                    new_matches = list(prioritization_result.matches) + entailed_matches
                     new_journeys = list(prioritization_result.journeys)
 
                     # Check if we've reached a stable state

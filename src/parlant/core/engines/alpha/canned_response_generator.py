@@ -1046,9 +1046,13 @@ You will now be given the current state of the interaction to which you must gen
         if (
             composition_mode == CompositionMode.FLUID
             and loaded_context.agent.message_output_mode == MessageOutputMode.STREAMING
-            and self._streaming_text_generator is not None
         ):
-            return await self._generate_streaming_response(context)
+            if self._streaming_text_generator is not None:
+                return await self._generate_streaming_response(context)
+            else:
+                self._logger.warning(
+                    "Agent is configured for streaming message output, but no streaming text generator is available in active NLP Service. Falling back to standard response generation."
+                )
 
         first_message_already_emitted = False
 

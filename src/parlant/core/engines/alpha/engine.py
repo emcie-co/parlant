@@ -49,7 +49,7 @@ from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.alpha.perceived_performance_policy import (
     PerceivedPerformancePolicyProvider,
 )
-from parlant.core.engines.alpha.relational_guideline_resolver import RelationalGuidelineResolver
+from parlant.core.engines.alpha.relational_resolver import RelationalResolver
 from parlant.core.engines.alpha.tool_calling.tool_caller import (
     MissingToolData,
     ToolInsights,
@@ -140,7 +140,7 @@ class AlphaEngine(Engine):
         entity_queries: EntityQueries,
         entity_commands: EntityCommands,
         guideline_matcher: GuidelineMatcher,
-        relational_guideline_resolver: RelationalGuidelineResolver,
+        relational_resolver: RelationalResolver,
         tool_event_generator: ToolEventGenerator,
         fluid_message_generator: MessageGenerator,
         canned_response_generator: CannedResponseGenerator,
@@ -155,7 +155,7 @@ class AlphaEngine(Engine):
         self._entity_commands = entity_commands
 
         self._guideline_matcher = guideline_matcher
-        self._relational_guideline_resolver = relational_guideline_resolver
+        self._relational_resolver = relational_resolver
         self._tool_event_generator = tool_event_generator
         self._fluid_message_generator = fluid_message_generator
         self._canned_response_generator = canned_response_generator
@@ -1149,7 +1149,7 @@ class AlphaEngine(Engine):
 
         # Step 8: Resolve guideline matches by loading related guidelines that may not have
         # been inferrable just by looking at the interaction.
-        all_relevant_guidelines = await self._relational_guideline_resolver.resolve(
+        resolver_result = await self._relational_resolver.resolve(
             usable_guidelines=list(all_stored_guidelines.values()),
             matches=matched_guidelines,
             journeys=activated_journeys,
@@ -1158,8 +1158,8 @@ class AlphaEngine(Engine):
         return _GuidelineAndJourneyMatchingResult(
             matching_result=matching_result,
             matches_guidelines=list(matching_result.matches),
-            resolved_guidelines=list(all_relevant_guidelines),
-            journeys=activated_journeys,
+            resolved_guidelines=list(resolver_result.matches),
+            journeys=list(resolver_result.journeys),
         )
 
     async def _load_additional_matched_guidelines_and_journeys(
@@ -1245,7 +1245,7 @@ class AlphaEngine(Engine):
             active_journeys=all_activated_journeys,
         )
 
-        all_relevant_guidelines = await self._relational_guideline_resolver.resolve(
+        resolver_result = await self._relational_resolver.resolve(
             usable_guidelines=list(all_stored_guidelines.values()),
             matches=list(matched_guidelines),
             journeys=all_activated_journeys,
@@ -1254,8 +1254,8 @@ class AlphaEngine(Engine):
         return _GuidelineAndJourneyMatchingResult(
             matching_result=matching_result,
             matches_guidelines=list(matching_result.matches),
-            resolved_guidelines=list(all_relevant_guidelines),
-            journeys=activated_journeys,
+            resolved_guidelines=list(resolver_result.matches),
+            journeys=list(resolver_result.journeys),
         )
 
     def _list_journey_paths(

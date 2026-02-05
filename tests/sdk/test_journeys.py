@@ -1552,7 +1552,7 @@ class Test_that_three_journeys_can_be_concatenated(SDKTest):
 
 
 @pytest.mark.engine
-class Test_that_journey_is_not_reevaluated_when_not_associated_tool_is_called(SDKTest):
+class Test_that_journey_is_not_reevaluated_when_no_associated_tool_is_called(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Bank Agent",
@@ -1584,12 +1584,12 @@ class Test_that_journey_is_not_reevaluated_when_not_associated_tool_is_called(SD
 
         self.second_transition = await self.initial_transition.target.transition_to(
             chat_state="Greet the customer to our bank with 'Hahoy!'",
-            condition="The customer balance is known",
+            condition="The customer's account balance is known",
         )
 
     async def run(self, ctx: Context) -> None:
         response = await ctx.send_and_receive_message(
-            "Hey, Whats my balance?", recipient=self.agent
+            "Good morning! What's my balance, please?", recipient=self.agent
         )
 
         assert "500" in response

@@ -104,6 +104,10 @@ class RelationalResolver:
                     tuple[RelationshipKind, bool, str, str], list[Relationship]
                 ] = {}
 
+                # Track deactivation reasons for guidelines
+                deactivation_reasons: dict[GuidelineId, str] = {}
+
+                initial_match_ids = {m.guideline.id for m in matches}
                 current_matches = list(matches)
                 current_journeys = list(journeys)
 
@@ -112,7 +116,7 @@ class RelationalResolver:
 
                     # Step 1: Apply prioritization (filter based on priority relationships and filter journeys)
                     prioritization_result = await self._apply_prioritization(
-                        current_matches, current_journeys, relationship_cache
+                        current_matches, current_journeys, relationship_cache, deactivation_reasons
                     )
 
                     # Step 2: Apply entailment (add new matches based on entailment relationships)
@@ -130,6 +134,7 @@ class RelationalResolver:
                         combined_matches,
                         prioritization_result.journeys,
                         relationship_cache,
+                        deactivation_reasons,
                     )
 
                     new_matches = filtered_matches
@@ -149,6 +154,37 @@ class RelationalResolver:
                 else:
                     self._logger.debug(
                         f"RelationalResolver reached max iterations ({self.MAX_ITERATIONS})"
+                    )
+
+                # Emit tracer events for final results
+                final_match_ids = {m.guideline.id for m in current_matches}
+                matches_by_id = {m.guideline.id: m for m in matches + current_matches}
+
+                # Emit events for activated guidelines (entailed)
+                for match in current_matches:
+                    if match.guideline.id not in initial_match_ids:
+                        self._tracer.add_event(
+                            "gm.activate",
+                            attributes={
+                                "guideline_id": match.guideline.id,
+                                "condition": match.guideline.content.condition,
+                                "action": match.guideline.content.action or "",
+                                "rationale": "Activated via entailment",
+                            },
+                        )
+
+                # Emit events for deactivated guidelines
+                for guideline_id in initial_match_ids - final_match_ids:
+                    match = matches_by_id[guideline_id]
+                    rationale = deactivation_reasons.get(guideline_id, "Unknown reason")
+                    self._tracer.add_event(
+                        "gm.deactivate",
+                        attributes={
+                            "guideline_id": guideline_id,
+                            "condition": match.guideline.content.condition,
+                            "action": match.guideline.content.action or "",
+                            "rationale": rationale,
+                        },
                     )
 
                 return RelationalResolverResult(
@@ -197,6 +233,7 @@ class RelationalResolver:
         matches: Sequence[GuidelineMatch],
         journeys: Sequence[Journey],
         cache: dict[tuple[RelationshipKind, bool, str, str], list[Relationship]],
+        deactivation_reasons: dict[GuidelineId, str],
     ) -> Sequence[GuidelineMatch]:
         """Filter out guidelines with unmet dependencies."""
         # This is the logic from filter_unmet_dependencies in the old implementation
@@ -271,15 +308,7 @@ class RelationalResolver:
                 self._logger.debug(
                     f"Skipped: Guideline {match.guideline.id} deactivated due to unmet dependencies"
                 )
-                self._tracer.add_event(
-                    "gm.deactivate",
-                    attributes={
-                        "guideline_id": match.guideline.id,
-                        "condition": match.guideline.content.condition,
-                        "action": match.guideline.content.action or "",
-                        "rationale": "Unmet dependencies",
-                    },
-                )
+                deactivation_reasons[match.guideline.id] = "Unmet dependencies"
 
         return result
 
@@ -288,6 +317,7 @@ class RelationalResolver:
         matches: Sequence[GuidelineMatch],
         journeys: Sequence[Journey],
         cache: dict[tuple[RelationshipKind, bool, str, str], list[Relationship]],
+        deactivation_reasons: dict[GuidelineId, str],
     ) -> RelationalResolverResult:
         """Apply priority relationships and filter both matches and journeys."""
         # This is the logic from replace_with_prioritized in the old implementation
@@ -394,28 +424,16 @@ class RelationalResolver:
                     self._logger.debug(
                         f"Skipped: Guideline {match.guideline.id} ({match.guideline.content.action}) deactivated due to contextual prioritization by {prioritized_guideline_id} ({prioritized_guideline.content.action})"
                     )
-                    self._tracer.add_event(
-                        "gm.deactivate",
-                        attributes={
-                            "guideline_id": match.guideline.id,
-                            "condition": match.guideline.content.condition,
-                            "action": match.guideline.content.action or "",
-                            "rationale": f"Deprioritized by guideline {prioritized_guideline_id}",
-                        },
+                    deactivation_reasons[match.guideline.id] = (
+                        f"Deprioritized by guideline {prioritized_guideline_id}"
                     )
                 elif prioritized_journey_id:
                     deprioritized_journey_ids.add(cast(JourneyId, prioritized_journey_id))
                     self._logger.debug(
                         f"Skipped: Guideline {match.guideline.id} ({match.guideline.content.action}) deactivated due to contextual prioritization by journey {prioritized_journey_id}"
                     )
-                    self._tracer.add_event(
-                        "gm.deactivate",
-                        attributes={
-                            "guideline_id": match.guideline.id,
-                            "condition": match.guideline.content.condition,
-                            "action": match.guideline.content.action or "",
-                            "rationale": f"Deprioritized by journey {prioritized_journey_id}",
-                        },
+                    deactivation_reasons[match.guideline.id] = (
+                        f"Deprioritized by journey {prioritized_journey_id}"
                     )
 
         # Check if any matched guidelines prioritize over active journeys
@@ -466,15 +484,7 @@ class RelationalResolver:
                 self._logger.debug(
                     f"Skipped: Guideline {match.guideline.id} ({match.guideline.content.action}) deactivated due to dependency on deprioritized entity"
                 )
-                self._tracer.add_event(
-                    "gm.deactivate",
-                    attributes={
-                        "guideline_id": match.guideline.id,
-                        "condition": match.guideline.content.condition,
-                        "action": match.guideline.content.action or "",
-                        "rationale": "Depends on deprioritized entity",
-                    },
-                )
+                deactivation_reasons[match.guideline.id] = "Depends on deprioritized entity"
 
         # Filter journeys to remove deprioritized ones
         filtered_journeys = [j for j in journeys if j.id not in deprioritized_journey_ids]
@@ -561,17 +571,5 @@ class RelationalResolver:
             )
             for match, inferred_guideline in match_and_inferred_guideline_pairs
         ]
-
-        for m in entailed_matches:
-            self._logger.debug(f"Activated: Entailed guideline {m.guideline.id}")
-            self._tracer.add_event(
-                "gm.activate",
-                attributes={
-                    "guideline_id": m.guideline.id,
-                    "condition": m.guideline.content.condition,
-                    "action": m.guideline.content.action or "",
-                    "rationale": "Activated via entailment",
-                },
-            )
 
         return entailed_matches

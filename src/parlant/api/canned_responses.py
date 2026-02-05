@@ -115,6 +115,16 @@ CannedResponseSignalSequenceField: TypeAlias = Annotated[
     ),
 ]
 
+CannedResponseFieldDependenciesField: TypeAlias = Annotated[
+    Sequence[str],
+    Field(
+        description="A sequence of field names that must be available in context for this response to be considered.",
+        examples=[
+            ["order", "customer"],
+        ],
+    ),
+]
+
 CannedResponseMetadataField: TypeAlias = Annotated[
     dict[str, JSONSerializableDTO],
     Field(
@@ -164,6 +174,7 @@ canned_response_example: ExampleJson = {
     "tags": ["private", "office"],
     "signals": ["What is your balance?", "How much money do I have?"],
     "metadata": {"category": "account", "priority": 1},
+    "field_dependencies": ["account"],
 }
 
 
@@ -178,6 +189,7 @@ class CannedResponseDTO(
     tags: TagIdSequenceField
     signals: CannedResponseSignalSequenceField
     metadata: CannedResponseMetadataField
+    field_dependencies: CannedResponseFieldDependenciesField = []
 
 
 canned_response_creation_params_example: ExampleJson = {
@@ -190,6 +202,7 @@ canned_response_creation_params_example: ExampleJson = {
         }
     ],
     "metadata": {"category": "account", "priority": 1},
+    "field_dependencies": ["account"],
 }
 
 
@@ -204,6 +217,7 @@ class CannedResponseCreationParamsDTO(
     tags: TagIdSequenceField | None = None
     signals: CannedResponseSignalSequenceField | None = None
     metadata: CannedResponseMetadataField | None = None
+    field_dependencies: CannedResponseFieldDependenciesField | None = None
 
 
 CannedResponseTagUpdateAddField: TypeAlias = Annotated[
@@ -353,6 +367,7 @@ def create_router(
             tags=params.tags or None,
             signals=params.signals or None,
             metadata=params.metadata or {},
+            field_dependencies=params.field_dependencies or None,
         )
 
         return CannedResponseDTO(
@@ -363,6 +378,7 @@ def create_router(
             tags=canrep.tags,
             signals=canrep.signals,
             metadata=canrep.metadata,
+            field_dependencies=canrep.field_dependencies,
         )
 
     @router.get(
@@ -397,6 +413,7 @@ def create_router(
             tags=canrep.tags,
             signals=canrep.signals,
             metadata=canrep.metadata,
+            field_dependencies=canrep.field_dependencies,
         )
 
     @router.get(
@@ -428,6 +445,7 @@ def create_router(
                 tags=f.tags,
                 signals=f.signals,
                 metadata=f.metadata,
+                field_dependencies=f.field_dependencies,
             )
             for f in canreps
         ]
@@ -497,6 +515,7 @@ def create_router(
             tags=canrep.tags,
             signals=canrep.signals,
             metadata=canrep.metadata,
+            field_dependencies=canrep.field_dependencies,
         )
 
     @router.delete(

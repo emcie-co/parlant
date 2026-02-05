@@ -81,6 +81,7 @@ class CannedResponse:
             tags=[],
             signals=[],
             metadata={},
+            field_dependencies=[],
         )
 
     TRANSIENT_ID = CannedResponseId("<transient>")
@@ -93,6 +94,7 @@ class CannedResponse:
     signals: Sequence[str]
     metadata: Mapping[str, JSONSerializable]
     tags: Sequence[TagId]
+    field_dependencies: Sequence[str]
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -109,6 +111,7 @@ class CannedResponseUpdateParams(TypedDict, total=False):
     fields: Sequence[CannedResponseField]
     signals: Sequence[str]
     metadata: Mapping[str, JSONSerializable]
+    field_dependencies: Sequence[str]
 
 
 class CannedResponseStore(ABC):
@@ -121,6 +124,7 @@ class CannedResponseStore(ABC):
         creation_utc: Optional[datetime] = None,
         metadata: Mapping[str, JSONSerializable] = {},
         tags: Optional[Sequence[TagId]] = None,
+        field_dependencies: Optional[Sequence[str]] = None,
     ) -> CannedResponse: ...
 
     @abstractmethod
@@ -217,6 +221,16 @@ class CannedResponseDocument_v0_4_0(TypedDict, total=False):
     signals: Sequence[str]
 
 
+class CannedResponseDocument_v0_5_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    value: str
+    fields: str
+    signals: Sequence[str]
+    metadata: Mapping[str, JSONSerializable]
+
+
 class CannedResponseDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
@@ -225,6 +239,7 @@ class CannedResponseDocument(TypedDict, total=False):
     fields: str
     signals: Sequence[str]
     metadata: Mapping[str, JSONSerializable]
+    field_dependencies: Sequence[str]
 
 
 class CannedResponseVectorDocument(TypedDict, total=False):
@@ -252,7 +267,7 @@ class CannedResponseTagAssociationDocument(TypedDict, total=False):
 
 
 class CannedResponseVectorStore(CannedResponseStore):
-    VERSION = Version.from_string("0.5.0")
+    VERSION = Version.from_string("0.6.0")
 
     def __init__(
         self,
@@ -298,6 +313,17 @@ class CannedResponseVectorStore(CannedResponseStore):
                 checksum=doc["checksum"],
             )
 
+        async def v0_5_0_to_v0_6_0(doc: VectorDocument) -> Optional[VectorDocument]:
+            doc = cast(CannedResponseVectorDocument, doc)
+
+            return CannedResponseVectorDocument(
+                id=doc["id"],
+                canned_response_id=doc["canned_response_id"],
+                version=Version.String("0.6.0"),
+                content=doc["content"],
+                checksum=doc["checksum"],
+            )
+
         return await VectorDocumentMigrationHelper[CannedResponseVectorDocument](
             self,
             {
@@ -305,6 +331,7 @@ class CannedResponseVectorStore(CannedResponseStore):
                 "0.2.0": v0_1_0_to_v0_4_0,
                 "0.3.0": v0_1_0_to_v0_4_0,
                 "0.4.0": v0_4_0_to_v0_5_0,
+                "0.5.0": v0_5_0_to_v0_6_0,
             },
         ).migrate(doc)
 
@@ -315,9 +342,9 @@ class CannedResponseVectorStore(CannedResponseStore):
             )
 
         async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
-            doc = cast(CannedResponseDocument, doc)
+            doc = cast(CannedResponseDocument_v0_5_0, doc)
 
-            return CannedResponseDocument(
+            return CannedResponseDocument_v0_5_0(
                 id=doc["id"],
                 version=Version.String("0.5.0"),
                 creation_utc=doc["creation_utc"],
@@ -327,6 +354,20 @@ class CannedResponseVectorStore(CannedResponseStore):
                 metadata={},
             )
 
+        async def v0_5_0_to_v0_6_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(CannedResponseDocument_v0_5_0, doc)
+
+            return CannedResponseDocument(
+                id=doc["id"],
+                version=Version.String("0.6.0"),
+                creation_utc=doc["creation_utc"],
+                value=doc["value"],
+                fields=doc["fields"],
+                signals=doc["signals"],
+                metadata=doc.get("metadata", {}),
+                field_dependencies=[],
+            )
+
         return await DocumentMigrationHelper[CannedResponseDocument](
             self,
             {
@@ -334,6 +375,7 @@ class CannedResponseVectorStore(CannedResponseStore):
                 "0.2.0": v0_1_0_to_v0_4_0,
                 "0.3.0": v0_1_0_to_v0_4_0,
                 "0.4.0": v0_4_0_to_v0_5_0,
+                "0.5.0": v0_5_0_to_v0_6_0,
             },
         ).migrate(doc)
 
@@ -378,6 +420,17 @@ class CannedResponseVectorStore(CannedResponseStore):
                 tag_id=TagId(doc["tag_id"]),
             )
 
+        async def v0_5_0_to_v0_6_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(CannedResponseTagAssociationDocument, doc)
+
+            return CannedResponseTagAssociationDocument(
+                id=doc["id"],
+                version=Version.String("0.6.0"),
+                creation_utc=doc["creation_utc"],
+                canned_response_id=CannedResponseId(doc["canned_response_id"]),
+                tag_id=TagId(doc["tag_id"]),
+            )
+
         return await DocumentMigrationHelper[CannedResponseTagAssociationDocument](
             self,
             {
@@ -385,6 +438,7 @@ class CannedResponseVectorStore(CannedResponseStore):
                 "0.2.0": v0_2_0_to_v0_3_0,
                 "0.3.0": v0_3_0_to_v0_4_0,
                 "0.4.0": v0_4_0_to_v0_5_0,
+                "0.5.0": v0_5_0_to_v0_6_0,
             },
         ).migrate(doc)
 
@@ -449,6 +503,7 @@ class CannedResponseVectorStore(CannedResponseStore):
             ),
             signals=canned_response_id.signals,
             metadata=canned_response_id.metadata,
+            field_dependencies=canned_response_id.field_dependencies,
         )
 
     async def _deserialize_canned_response(
@@ -474,6 +529,7 @@ class CannedResponseVectorStore(CannedResponseStore):
             metadata=canned_response_document["metadata"],
             tags=tags,
             signals=canned_response_document["signals"],
+            field_dependencies=canned_response_document.get("field_dependencies", []),
         )
 
     def _list_canned_response_contents(self, canned_response: CannedResponse) -> list[str]:
@@ -512,6 +568,7 @@ class CannedResponseVectorStore(CannedResponseStore):
         creation_utc: Optional[datetime] = None,
         metadata: Mapping[str, JSONSerializable] = {},
         tags: Optional[Sequence[TagId]] = None,
+        field_dependencies: Optional[Sequence[str]] = None,
     ) -> CannedResponse:
         self._validate_template(value)
 
@@ -529,6 +586,7 @@ class CannedResponseVectorStore(CannedResponseStore):
                 metadata=metadata,
                 tags=tags or [],
                 signals=signals or [],
+                field_dependencies=field_dependencies or [],
             )
 
             await self._insert_canned_response(canrep)
@@ -607,6 +665,9 @@ class CannedResponseVectorStore(CannedResponseStore):
                 signals=params.get("signals", existing_value.signals),
                 metadata=params.get("metadata", existing_value.metadata),
                 tags=existing_value.tags,
+                field_dependencies=params.get(
+                    "field_dependencies", existing_value.field_dependencies
+                ),
             )
 
             doc = await self._insert_canned_response(canrep)

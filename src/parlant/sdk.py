@@ -2383,6 +2383,7 @@ class Journey:
         tags: list[TagId] = [],
         signals: list[str] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        field_dependencies: Sequence[str] = (),
     ) -> CannedResponseId:
         """Creates a journey-scoped canned response with the specified template, tags, and signals."""
 
@@ -2394,6 +2395,7 @@ class Journey:
             fields=[],
             signals=signals,
             metadata=metadata,
+            field_dependencies=field_dependencies,
         )
 
         return canrep.id
@@ -2884,6 +2886,7 @@ class Agent:
         tags: list[TagId] = [],
         signals: list[str] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        field_dependencies: Sequence[str] = (),
     ) -> CannedResponseId:
         """Creates a canned response with the specified template, tags, and signals."""
 
@@ -2895,6 +2898,7 @@ class Agent:
             fields=[],
             signals=signals,
             metadata=metadata,
+            field_dependencies=field_dependencies,
         )
 
         return canrep.id
@@ -4334,6 +4338,7 @@ class Server:
         tags: list[TagId] = [],
         signals: list[str] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        field_dependencies: Sequence[str] = (),
     ) -> CannedResponseId:
         """Creates a canned response with the specified template, tags, and signals."""
 
@@ -4345,6 +4350,7 @@ class Server:
             fields=[],
             signals=signals,
             metadata=metadata,
+            field_dependencies=field_dependencies,
         )
 
         return canrep.id

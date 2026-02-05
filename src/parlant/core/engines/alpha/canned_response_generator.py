@@ -538,7 +538,7 @@ class CannedResponseGenerator(MessageEventComposer):
         self._perceived_performance_policy_provider = perceived_performance_policy_provider
         self._field_extractor = field_extractor
         self._message_generator = message_generator
-        self._cached_response_fields: dict[CannedResponseId, set[str]] = {}
+        self._cached_response_field_dependencies: dict[CannedResponseId, set[str]] = {}
         self._entity_queries = entity_queries
         self._no_match_provider = no_match_provider
         self._follow_ups_enabled = True
@@ -994,18 +994,21 @@ You will now be given the current state of the interaction to which you must gen
         for canrep in all_candidates:
             if (
                 canrep.id != CannedResponse.TRANSIENT_ID
-                and canrep.id not in self._cached_response_fields
+                and canrep.id not in self._cached_response_field_dependencies
             ):
-                self._cached_response_fields[canrep.id] = _get_response_template_fields(
-                    canrep.value
-                )
+                # Add explicit dependencies
+                dependencies = set(canrep.field_dependencies)
+                # Add tool-based dependencies
+                dependencies.update(_get_response_template_fields(canrep.value))
+
+                self._cached_response_field_dependencies[canrep.id] = dependencies
 
             # Conditions for a response being relevant:
             # 1. It's a transient response just generated (e.g., by a tool)
             # 2. Its relevant fields are in-context
             if canrep.id == CannedResponse.TRANSIENT_ID or all(
                 field in fields_available_in_context
-                for field in self._cached_response_fields[canrep.id]
+                for field in self._cached_response_field_dependencies[canrep.id]
             ):
                 relevant_responses.append(canrep)
 

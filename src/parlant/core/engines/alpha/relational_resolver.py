@@ -106,7 +106,7 @@ class RelationalResolver:
                     list[Relationship],
                 ] = {}
 
-                # Track deactivation reasons for guidelines
+                # Track deactivation reasons
                 deactivation_reasons: dict[GuidelineId, str] = {}
 
                 initial_match_ids = {m.guideline.id for m in matches}
@@ -229,7 +229,6 @@ class RelationalResolver:
                     )
                 )
 
-        # Return a copy to prevent callers from modifying the cached list
         return list(cache[cache_key])
 
     async def _apply_dependencies(
@@ -434,7 +433,7 @@ class RelationalResolver:
                         f"Skipped: Guideline {match.guideline.id} ({match.guideline.content.action}) deactivated due to contextual prioritization by {prioritized_guideline_id} ({prioritized_guideline.content.action})"
                     )
                     deactivation_reasons[match.guideline.id] = (
-                        f"Deprioritized by guideline {prioritized_guideline_id}"
+                        f"[Unmatched due to deprioritized by guideline {prioritized_guideline_id}] {match.rationale}"
                     )
                 elif prioritized_journey_id:
                     deprioritized_journey_ids.add(cast(JourneyId, prioritized_journey_id))
@@ -442,7 +441,7 @@ class RelationalResolver:
                         f"Skipped: Guideline {match.guideline.id} ({match.guideline.content.action}) deactivated due to contextual prioritization by journey {prioritized_journey_id}"
                     )
                     deactivation_reasons[match.guideline.id] = (
-                        f"Deprioritized by journey {prioritized_journey_id}"
+                        f"[Unmatched due to deprioritized by journey {prioritized_journey_id}] {match.rationale}"
                     )
 
         # Check if any matched guidelines prioritize over active journeys
@@ -493,7 +492,9 @@ class RelationalResolver:
                 self._logger.debug(
                     f"Skipped: Guideline {match.guideline.id} ({match.guideline.content.action}) deactivated due to dependency on deprioritized entity"
                 )
-                deactivation_reasons[match.guideline.id] = "Depends on deprioritized entity"
+                deactivation_reasons[match.guideline.id] = (
+                    f"[Unmatched due to unmet dependencies] {match.rationale}"
+                )
 
         # Filter journeys to remove deprioritized ones
         filtered_journeys = [j for j in journeys if j.id not in deprioritized_journey_ids]
@@ -578,7 +579,7 @@ class RelationalResolver:
             GuidelineMatch(
                 guideline=inferred_guideline,
                 score=match.score,
-                rationale="Automatically inferred from context",
+                rationale="[Activated via entailment] Automatically inferred from context",
             )
             for match, inferred_guideline in match_and_inferred_guideline_pairs
         ]

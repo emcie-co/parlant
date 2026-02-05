@@ -323,6 +323,9 @@ class AlphaEngine(Engine):
                     context, self._hooks.on_guideline_match_handlers
                 )
 
+                # Call on_match handlers for all active journeys (before generating messages)
+                await self._call_journey_handlers(context, self._hooks.on_journey_match_handlers)
+
                 # Money time: communicate with the customer given
                 # all of the information we have prepared.
                 with self._tracer.span(_MESSAGE_GENERATION_SPAN_NAME):
@@ -348,6 +351,9 @@ class AlphaEngine(Engine):
                 await self._call_guideline_handlers(
                     context, self._hooks.on_guideline_message_handlers
                 )
+
+                # Call on_message handlers for active journeys (after messages emitted)
+                await self._call_journey_handlers(context, self._hooks.on_journey_message_handlers)
 
             await async_utils.latched_shield(uncancellable_section)
 
@@ -894,6 +900,46 @@ class AlphaEngine(Engine):
             for match in all_guideline_matches
             if match.guideline.id in handlers
             for handler in handlers[match.guideline.id]
+        ]
+
+        if handler_tasks:
+            await async_utils.safe_gather(*handler_tasks)
+
+    async def _call_journey_handlers(
+        self,
+        context: EngineContext,
+        handlers: dict[JourneyId, list[Callable[[EngineContext], Awaitable[None]]]],
+    ) -> None:
+        """Call handlers for all active journeys, including linked journeys.
+
+        Args:
+            context: The engine context
+            handlers: Dict mapping JourneyId to list of handlers to call
+        """
+        # Collect journey IDs from directly activated journeys
+        active_journey_ids: set[JourneyId] = {journey.id for journey in context.state.journeys}
+
+        # Also collect linked journey IDs from guideline match metadata
+        all_matches = list(
+            chain(
+                context.state.ordinary_guideline_matches,
+                context.state.tool_enabled_guideline_matches.keys(),
+            )
+        )
+
+        for match in all_matches:
+            journey_node = match.guideline.metadata.get("journey_node")
+            if isinstance(journey_node, dict) and "sub_journey_id" in journey_node:
+                sub_journey_id = journey_node["sub_journey_id"]
+                if isinstance(sub_journey_id, str):
+                    active_journey_ids.add(JourneyId(sub_journey_id))
+
+        # Call handlers for all active journeys (including linked ones)
+        handler_tasks = [
+            handler(context)
+            for journey_id in active_journey_ids
+            if journey_id in handlers
+            for handler in handlers[journey_id]
         ]
 
         if handler_tasks:

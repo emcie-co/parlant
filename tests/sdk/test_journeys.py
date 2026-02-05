@@ -1788,3 +1788,178 @@ class Test_that_journey_retriever_does_not_run_when_journey_is_inactive(SDKTest)
             recipient=self.agent,
         )
         assert not self.retriever_called, "Retriever should not be called when journey is inactive"
+
+
+class Test_that_journey_on_match_is_called_when_journey_without_states_is_activated(SDKTest):
+    """Test that journey on_match handler is called when a journey without states is activated."""
+
+    async def setup(self, server: p.Server) -> None:
+        self.on_match_called = False
+        self.captured_journey_id = None
+
+        async def on_match_handler(_ctx: p.EngineContext, match: p.JourneyMatch) -> None:
+            self.on_match_called = True
+            self.captured_journey_id = match.journey_id
+
+        self.agent = await server.create_agent(
+            name="Journey Handler Agent",
+            description="Agent for testing journey on_match handler",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Simple Journey",
+            description="A journey without any states",
+            conditions=["Customer asks about ordering"],
+            on_match=on_match_handler,
+        )
+
+        # Add a scoped guideline so the journey has some effect
+        await self.journey.create_guideline(
+            matcher=p.Guideline.MATCH_ALWAYS,
+            action="Offer the customer a Pepsi",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="I'd like to order something",
+            recipient=self.agent,
+        )
+
+        assert self.on_match_called, "Journey on_match handler should have been called"
+        assert self.captured_journey_id == self.journey.id, (
+            f"Expected journey ID {self.journey.id}, got {self.captured_journey_id}"
+        )
+
+
+class Test_that_journey_on_match_is_called_when_journey_with_states_is_activated(SDKTest):
+    """Test that journey on_match handler is called when a journey with states is activated."""
+
+    async def setup(self, server: p.Server) -> None:
+        self.on_match_called = False
+        self.captured_journey_id = None
+
+        async def on_match_handler(_ctx: p.EngineContext, match: p.JourneyMatch) -> None:
+            self.on_match_called = True
+            self.captured_journey_id = match.journey_id
+
+        self.agent = await server.create_agent(
+            name="Journey Handler Agent",
+            description="Agent for testing journey on_match handler with states",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Stateful Journey",
+            description="A journey with states",
+            conditions=["Customer wants to order a pizza"],
+            on_match=on_match_handler,
+        )
+
+        # Add states to the journey
+        self.transition = await self.journey.initial_state.transition_to(
+            chat_state="Ask the customer what toppings they want",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="I want to order a pizza",
+            recipient=self.agent,
+        )
+
+        assert self.on_match_called, "Journey on_match handler should have been called"
+        assert self.captured_journey_id == self.journey.id, (
+            f"Expected journey ID {self.journey.id}, got {self.captured_journey_id}"
+        )
+
+
+class Test_that_journey_on_match_is_called_when_linked_journey_is_activated(SDKTest):
+    """Test that journey on_match handler is called when a linked journey is activated."""
+
+    async def setup(self, server: p.Server) -> None:
+        self.parent_on_match_called = False
+        self.linked_on_match_called = False
+        self.parent_journey_id = None
+        self.linked_journey_id = None
+
+        async def parent_on_match_handler(_ctx: p.EngineContext, match: p.JourneyMatch) -> None:
+            self.parent_on_match_called = True
+            self.parent_journey_id = match.journey_id
+
+        async def linked_on_match_handler(_ctx: p.EngineContext, match: p.JourneyMatch) -> None:
+            self.linked_on_match_called = True
+            self.linked_journey_id = match.journey_id
+
+        self.agent = await server.create_agent(
+            name="Linked Journey Agent",
+            description="Agent for testing linked journey on_match handlers",
+            composition_mode=p.CompositionMode.STRICT,
+        )
+
+        # Create canned responses for deterministic testing
+        self.ask_room_response = await server.create_canned_response(
+            template="Would you like the red room or the blue room?"
+        )
+        self.ask_name_response = await server.create_canned_response(
+            template="Please provide your name for verification."
+        )
+
+        # Create a linked journey (will be activated via link, not via conditions)
+        self.linked_journey = await self.agent.create_journey(
+            title="User Validation",
+            description="Validate the user",
+            conditions=[],  # No conditions - activated only via link
+            on_match=linked_on_match_handler,
+        )
+
+        # Add a state to the linked journey
+        await self.linked_journey.initial_state.transition_to(
+            chat_state="Ask the customer for their name",
+            canned_responses=[self.ask_name_response],
+        )
+
+        # Create the parent journey that links to the validation journey
+        self.parent_journey = await self.agent.create_journey(
+            title="Hotel Booking",
+            description="Book a hotel room",
+            conditions=["Customer wants to book a hotel"],
+            on_match=parent_on_match_handler,
+        )
+
+        # First state: ask for room type
+        self.room_transition = await self.parent_journey.initial_state.transition_to(
+            chat_state="Ask the customer which room they want",
+            canned_responses=[self.ask_room_response],
+        )
+
+        # Link to the validation journey
+        await self.room_transition.target.transition_to(
+            journey=self.linked_journey,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        # First message activates parent journey
+        await ctx.send_and_receive_message(
+            customer_message="I want to book a hotel room",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+
+        assert self.parent_on_match_called, (
+            "Parent journey on_match handler should have been called"
+        )
+        assert self.parent_journey_id == self.parent_journey.id, (
+            f"Expected parent journey ID {self.parent_journey.id}, got {self.parent_journey_id}"
+        )
+
+        # Second message triggers transition to linked journey
+        await ctx.send_and_receive_message(
+            customer_message="I want the blue room",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+
+        assert self.linked_on_match_called, (
+            "Linked journey on_match handler should have been called"
+        )
+        assert self.linked_journey_id == self.linked_journey.id, (
+            f"Expected linked journey ID {self.linked_journey.id}, got {self.linked_journey_id}"
+        )

@@ -8,6 +8,7 @@ All notable changes to Parlant will be documented here.
 - Support multiple targets in `prioritize_over()` and `depend_on()` methods
 - Add `field_dependencies` to canned responses for explicit field availability requirements
 - Add `attach_retriever()` to Guideline and Journey for conditional data retrieval
+- Add `on_match` and `on_message` hooks to journeys for lifecycle callbacks
 - Add testing framework
 - Add per-agent preamble configuration (custom examples and instructions)
 - Add separate default greeting responses for first agent message in fluid mode

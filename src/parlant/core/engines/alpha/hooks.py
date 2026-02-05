@@ -20,6 +20,7 @@ from typing import Any, Awaitable, Callable, Optional, Sequence, TypeAlias, Unio
 from parlant.core.engines.alpha.engine_context import EngineContext
 from parlant.core.engines.alpha.engine_context import LoadedContext  # type: ignore
 from parlant.core.guidelines import GuidelineId
+from parlant.core.journeys import JourneyId
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 
 
@@ -99,6 +100,16 @@ class EngineHooks:
         GuidelineId, list[Callable[[EngineContext, GuidelineMatch], Awaitable[None]]]
     ] = field(default_factory=lambda: defaultdict(list))
     """Map from GuidelineId to list of handlers called when messages are generated for that guideline"""
+
+    on_journey_match_handlers: dict[JourneyId, list[Callable[[EngineContext], Awaitable[None]]]] = (
+        field(default_factory=lambda: defaultdict(list))
+    )
+    """Map from JourneyId to list of handlers called when that journey is activated"""
+
+    on_journey_message_handlers: dict[
+        JourneyId, list[Callable[[EngineContext], Awaitable[None]]]
+    ] = field(default_factory=lambda: defaultdict(list))
+    """Map from JourneyId to list of handlers called when messages are generated for that journey"""
 
     async def call_on_error(self, context: EngineContext, exception: Exception) -> bool:
         return await self.call_hooks(self.on_error, context, None, exception)

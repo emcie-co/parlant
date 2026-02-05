@@ -899,6 +899,14 @@ class JourneyStateMatch:
     """Explanation of why the state transition matched or didn't match."""
 
 
+@dataclass
+class JourneyMatch:
+    """Result of a journey match."""
+
+    journey_id: JourneyId
+    """The ID of the journey that was matched."""
+
+
 @dataclass(frozen=True)
 class Guideline:
     """A guideline that defines a condition and an action to be taken."""
@@ -2755,13 +2763,21 @@ class Agent:
         conditions: list[str | Guideline],
         id: JourneyId | None = None,
         composition_mode: CompositionMode | None = None,
+        on_match: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
+        on_message: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
     ) -> Journey:
         """Creates a new journey with the specified title, description, and conditions."""
 
         self._server._advance_creation_progress()
 
         journey = await self._server.create_journey(
-            title, description, conditions, id=id, composition_mode=composition_mode
+            title,
+            description,
+            conditions,
+            id=id,
+            composition_mode=composition_mode,
+            on_match=on_match,
+            on_message=on_message,
         )
 
         await self.attach_journey(journey)
@@ -4252,6 +4268,8 @@ class Server:
         tags: Sequence[TagId] = [],
         id: JourneyId | None = None,
         composition_mode: CompositionMode | None = None,
+        on_match: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
+        on_message: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
     ) -> Journey:
         """Creates a new journey with the specified title, description, and conditions."""
 
@@ -4329,6 +4347,23 @@ class Server:
             )
 
         self._add_journey_evaluation(journey)
+
+        # Register journey-level on_match and on_message handlers
+        if on_match:
+            engine_hooks = self._container[EngineHooks]
+
+            async def on_match_shim(ctx: EngineContext) -> None:
+                await on_match(ctx, JourneyMatch(journey_id=journey.id))
+
+            engine_hooks.on_journey_match_handlers[journey.id].append(on_match_shim)
+
+        if on_message:
+            engine_hooks = self._container[EngineHooks]
+
+            async def on_message_shim(ctx: EngineContext) -> None:
+                await on_message(ctx, JourneyMatch(journey_id=journey.id))
+
+            engine_hooks.on_journey_message_handlers[journey.id].append(on_message_shim)
 
         return journey
 

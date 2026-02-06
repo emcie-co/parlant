@@ -671,3 +671,94 @@ async def test_that_journey_composition_mode_can_be_set_and_updated(
     assert response.status_code == status.HTTP_200_OK
     journey = response.json()
     assert journey["composition_mode"] == "strict_canned"
+
+
+###############################################################################
+## Labels Tests
+###############################################################################
+
+
+async def test_that_a_journey_can_be_created_with_labels(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/journeys",
+        json={
+            "title": "Labeled Journey",
+            "description": "A journey with labels",
+            "conditions": ["Customer asks about something"],
+            "labels": ["premium", "support"],
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    journey = response.json()
+    assert journey["title"] == "Labeled Journey"
+    assert set(journey["labels"]) == {"premium", "support"}
+
+
+async def test_that_a_journey_is_created_with_empty_labels_by_default(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/journeys",
+        json={
+            "title": "Journey without labels",
+            "description": "A journey",
+            "conditions": ["Customer asks about something"],
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    journey = response.json()
+    assert journey["labels"] == []
+
+
+async def test_that_labels_can_be_added_to_a_journey(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    journey_store = container[JourneyStore]
+
+    journey = await journey_store.create_journey(
+        title="Test Journey",
+        description="A test journey",
+        conditions=[],
+        labels={"initial"},
+    )
+
+    response = await async_client.patch(
+        f"/journeys/{journey.id}",
+        json={"labels": {"upsert": ["new_label", "another_label"]}},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_journey = response.json()
+
+    assert set(updated_journey["labels"]) == {"initial", "new_label", "another_label"}
+
+
+async def test_that_labels_can_be_removed_from_a_journey(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    journey_store = container[JourneyStore]
+
+    journey = await journey_store.create_journey(
+        title="Test Journey",
+        description="A test journey",
+        conditions=[],
+        labels={"label1", "label2", "label3"},
+    )
+
+    response = await async_client.patch(
+        f"/journeys/{journey.id}",
+        json={"labels": {"remove": ["label2"]}},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_journey = response.json()
+
+    assert set(updated_journey["labels"]) == {"label1", "label3"}

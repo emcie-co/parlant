@@ -31,6 +31,7 @@ from parlant.api.common import (
 from parlant.core.app_modules.journeys import (
     JourneyConditionUpdateParams,
     JourneyGraph,
+    JourneyLabelsUpdateParams,
     JourneyTagUpdateParams,
 )
 from parlant.core.application import Application
@@ -96,6 +97,14 @@ JourneyTagsField: TypeAlias = Annotated[
     ),
 ]
 
+JourneyLabelsField: TypeAlias = Annotated[
+    set[str],
+    Field(
+        description="Labels associated with the journey",
+        examples=[{"vip", "priority"}],
+    ),
+]
+
 journey_example: ExampleJson = {
     "id": "IUCGT-lvpS",
     "title": "Customer Onboarding",
@@ -107,6 +116,7 @@ journey_example: ExampleJson = {
         "customer needs help with card",
     ],
     "tags": ["tag1", "tag2"],
+    "labels": ["vip", "priority"],
 }
 
 JourneyMermaidChartDTO: TypeAlias = Annotated[
@@ -143,6 +153,7 @@ class JourneyDTO(
     conditions: Sequence[GuidelineId]
     tags: JourneyTagsField = []
     composition_mode: CompositionModeDTO | None = None
+    labels: JourneyLabelsField = set()
 
 
 class JourneyCreationParamsDTO(
@@ -159,6 +170,7 @@ class JourneyCreationParamsDTO(
     id: JourneyIdPath | None = None
     tags: JourneyTagsField | None = None
     composition_mode: CompositionModeDTO | None = None
+    labels: JourneyLabelsField | None = None
 
 
 JourneyConditionUpdateAddField: TypeAlias = Annotated[
@@ -241,6 +253,24 @@ class JourneyTagUpdateParamsDTO(
     remove: JourneyTagUpdateRemoveField | None = None
 
 
+journey_labels_update_params_example: ExampleJson = {
+    "upsert": ["vip", "priority"],
+    "remove": ["old_label"],
+}
+
+
+class JourneyLabelsUpdateParamsDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": journey_labels_update_params_example},
+):
+    """
+    Parameters for updating an existing journey's labels.
+    """
+
+    upsert: JourneyLabelsField | None = None
+    remove: JourneyLabelsField | None = None
+
+
 class JourneyUpdateParamsDTO(
     DefaultBaseModel,
     json_schema_extra={"example": journey_example},
@@ -255,6 +285,7 @@ class JourneyUpdateParamsDTO(
     conditions: JourneyConditionUpdateParamsDTO | None = None
     tags: JourneyTagUpdateParamsDTO | None = None
     composition_mode: CompositionModeDTO | None = None
+    labels: JourneyLabelsUpdateParamsDTO | None = None
 
 
 TagIdQuery: TypeAlias = Annotated[
@@ -439,6 +470,7 @@ def create_router(
             composition_mode=composition_mode_dto_to_composition_mode(params.composition_mode)
             if params.composition_mode
             else None,
+            labels=params.labels,
         )
 
         return JourneyDTO(
@@ -450,6 +482,7 @@ def create_router(
             composition_mode=composition_mode_to_composition_mode_dto(journey.composition_mode)
             if journey.composition_mode
             else None,
+            labels=journey.labels,
         )
 
     @router.get(
@@ -489,6 +522,7 @@ def create_router(
                     )
                     if journey.composition_mode
                     else None,
+                    labels=journey.labels,
                 )
             )
 
@@ -531,6 +565,7 @@ def create_router(
             )
             if model.journey.composition_mode
             else None,
+            labels=model.journey.labels,
         )
 
     @router.get(
@@ -606,6 +641,11 @@ def create_router(
             composition_mode=composition_mode_dto_to_composition_mode(params.composition_mode)
             if params.composition_mode
             else None,
+            labels=JourneyLabelsUpdateParams(
+                upsert=params.labels.upsert, remove=params.labels.remove
+            )
+            if params.labels
+            else None,
         )
 
         return JourneyDTO(
@@ -617,6 +657,7 @@ def create_router(
             composition_mode=composition_mode_to_composition_mode_dto(journey.composition_mode)
             if journey.composition_mode
             else None,
+            labels=journey.labels,
         )
 
     @router.delete(

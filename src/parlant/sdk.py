@@ -54,6 +54,7 @@ from typing import (
     NoReturn,
     Optional,
     Sequence,
+    Set,
     TypeVar,
     TypeAlias,
     TypedDict,
@@ -864,6 +865,8 @@ class GuidelineMatchingContext:
             session=Session(
                 id=core_ctx.session.id,
                 interaction=interaction,
+                metadata=core_ctx.session.metadata,
+                labels=core_ctx.session.labels,
             ),
             agent=agent,
             customer=customer,
@@ -921,6 +924,8 @@ class Guideline:
 
     _server: Server
     _container: Container
+
+    labels: set[str] = field(default_factory=set)
 
     async def entail(self, guideline: Guideline) -> Relationship:
         """Creates an entailment relationship with another guideline."""
@@ -1119,6 +1124,7 @@ class JourneyState:
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[JourneyState]:
         if not self._journey:
             raise SDKError("EndState cannot be connected to any other states.")
@@ -1143,6 +1149,7 @@ class JourneyState:
                 metadata=metadata,
                 composition_mode=composition_mode,
                 id=id,
+                labels=labels,
             )
 
             [
@@ -1169,6 +1176,7 @@ class JourneyState:
                 metadata=metadata,
                 composition_mode=composition_mode,
                 id=id,
+                labels=labels,
             )
         elif fork:
             actual_state = await self._journey._create_state(
@@ -1177,6 +1185,7 @@ class JourneyState:
                 metadata=metadata,
                 composition_mode=composition_mode,
                 id=id,
+                labels=labels,
             )
         elif journey:
             if canned_responses:
@@ -1612,6 +1621,7 @@ class InitialJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[TState]: ...
 
     @overload
@@ -1628,6 +1638,7 @@ class InitialJourneyState(JourneyState):
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
@@ -1644,6 +1655,7 @@ class InitialJourneyState(JourneyState):
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1660,6 +1672,7 @@ class InitialJourneyState(JourneyState):
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1688,6 +1701,7 @@ class InitialJourneyState(JourneyState):
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[Any]:
         # Validate parameters against overload signatures
         _validate_transition_parameters(
@@ -1717,6 +1731,7 @@ class InitialJourneyState(JourneyState):
             composition_mode=composition_mode,
             canned_response_field_provider=canned_response_field_provider,
             id=id,
+            labels=labels,
         )
 
 
@@ -1737,6 +1752,7 @@ class ToolJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[TState]: ...
 
     @overload
@@ -1753,6 +1769,7 @@ class ToolJourneyState(JourneyState):
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
@@ -1769,6 +1786,7 @@ class ToolJourneyState(JourneyState):
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1785,6 +1803,7 @@ class ToolJourneyState(JourneyState):
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1813,6 +1832,7 @@ class ToolJourneyState(JourneyState):
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[Any]:
         # Validate parameters against overload signatures
         _validate_transition_parameters(
@@ -1842,6 +1862,7 @@ class ToolJourneyState(JourneyState):
             composition_mode=composition_mode,
             canned_response_field_provider=canned_response_field_provider,
             id=id,
+            labels=labels,
         )
 
     async def fork(self) -> JourneyTransition[ForkJourneyState]:
@@ -1865,6 +1886,7 @@ class ChatJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[TState]: ...
 
     @overload
@@ -1881,6 +1903,7 @@ class ChatJourneyState(JourneyState):
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
@@ -1897,6 +1920,7 @@ class ChatJourneyState(JourneyState):
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1913,6 +1937,7 @@ class ChatJourneyState(JourneyState):
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1941,6 +1966,7 @@ class ChatJourneyState(JourneyState):
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[Any]:
         # Validate parameters against overload signatures
         _validate_transition_parameters(
@@ -1970,6 +1996,7 @@ class ChatJourneyState(JourneyState):
             composition_mode=composition_mode,
             canned_response_field_provider=canned_response_field_provider,
             id=id,
+            labels=labels,
         )
 
     async def fork(self) -> JourneyTransition[ForkJourneyState]:
@@ -1992,6 +2019,7 @@ class ForkJourneyState(JourneyState):
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[TState]: ...
 
     @overload
@@ -2008,6 +2036,7 @@ class ForkJourneyState(JourneyState):
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
@@ -2024,6 +2053,7 @@ class ForkJourneyState(JourneyState):
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -2040,6 +2070,7 @@ class ForkJourneyState(JourneyState):
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -2068,6 +2099,7 @@ class ForkJourneyState(JourneyState):
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[Any]:
         # Validate parameters against overload signatures
         _validate_transition_parameters(
@@ -2097,6 +2129,7 @@ class ForkJourneyState(JourneyState):
             composition_mode=composition_mode,
             canned_response_field_provider=canned_response_field_provider,
             id=id,
+            labels=labels,
         )
 
 
@@ -2117,6 +2150,8 @@ class Journey:
     _server: Server
     _container: Container
 
+    labels: set[str] = field(default_factory=set)
+
     @property
     def initial_state(self) -> InitialJourneyState:
         """Returns the initial state of the journey."""
@@ -2133,6 +2168,7 @@ class Journey:
         metadata: Mapping[str, JSONSerializable] = {},
         composition_mode: CompositionMode | None = None,
         id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> TState:
         metadata_type = {
             ForkJourneyState: "fork",
@@ -2162,6 +2198,7 @@ class Journey:
             description=description,
             composition_mode=CompositionMode._to_core_composition_mode(effective_composition_mode),
             id=id,
+            labels=set(labels) if labels else None,
         )
 
         node = await self._container[JourneyStore].set_node_metadata(
@@ -2285,6 +2322,7 @@ class Journey:
         | None = None,
         id: GuidelineId | None = None,
         track: bool = True,
+        labels: Iterable[str] = (),
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
         return await self._server._create_guideline(
@@ -2304,6 +2342,7 @@ class Journey:
             relationship_target_tag_id=_Tag.for_journey_id(self.id),
             id=id,
             track=track,
+            labels=labels,
         )
 
     async def create_observation(
@@ -2317,6 +2356,7 @@ class Journey:
         on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        labels: Iterable[str] = (),
     ) -> Guideline:
         """A shorthand for creating an observational guideline with the specified condition."""
 
@@ -2328,6 +2368,7 @@ class Journey:
             matcher=matcher,
             on_match=on_match,
             canned_response_field_provider=canned_response_field_provider,
+            labels=labels,
         )
 
     async def attach_tool(
@@ -2765,6 +2806,7 @@ class Agent:
         composition_mode: CompositionMode | None = None,
         on_match: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
+        labels: Iterable[str] = (),
     ) -> Journey:
         """Creates a new journey with the specified title, description, and conditions."""
 
@@ -2778,6 +2820,7 @@ class Agent:
             composition_mode=composition_mode,
             on_match=on_match,
             on_message=on_message,
+            labels=labels,
         )
 
         await self.attach_journey(journey)
@@ -2791,6 +2834,7 @@ class Agent:
             states=journey.states,
             transitions=journey.transitions,
             composition_mode=journey.composition_mode,
+            labels=journey.labels,
             _start_state_id=journey._start_state_id,
             _server=self._server,
             _container=self._container,
@@ -2822,6 +2866,7 @@ class Agent:
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         track: bool = True,
+        labels: Iterable[str] = (),
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
         return await self._server._create_guideline(
@@ -2841,6 +2886,7 @@ class Agent:
             relationship_target_tag_id=None,
             id=id,
             track=track,
+            labels=labels,
         )
 
     async def create_observation(
@@ -2855,6 +2901,7 @@ class Agent:
         on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        labels: Iterable[str] = (),
     ) -> Guideline:
         """A shorthand for creating an observational guideline with the specified condition."""
 
@@ -2867,6 +2914,7 @@ class Agent:
             on_match=on_match,
             criticality=criticality,
             canned_response_field_provider=canned_response_field_provider,
+            labels=labels,
         )
 
     async def attach_tool(
@@ -3122,6 +3170,12 @@ class Session:
     interaction: Interaction
     """The interaction history of this session."""
 
+    metadata: Mapping[str, JSONSerializable]
+    """Additional metadata associated with the session."""
+
+    labels: Set[str]
+    """Associated labels that can be used for categorization and filtering."""
+
     @classproperty
     def current(cls) -> Session:
         """Get the current session from the asyncio task context.
@@ -3145,6 +3199,8 @@ class Session:
         return Session(
             id=core_session.id,
             interaction=interaction,
+            metadata=core_session.metadata,
+            labels=core_session.labels,
         )
 
 
@@ -3466,6 +3522,7 @@ class Server:
         relationship_target_tag_id: TagId | None,
         id: GuidelineId | None = None,
         track: bool = True,
+        labels: Iterable[str] = (),
     ) -> Guideline:
         """Internal method to create a guideline with common logic."""
         if condition is None and matcher is None and action is None:
@@ -3492,6 +3549,7 @@ class Server:
             id=id,
             tags=tags,
             track=track,
+            labels=set(labels) if labels else None,
         )
 
         if canned_responses:
@@ -3537,6 +3595,7 @@ class Server:
             action=action,
             tags=guideline.tags,
             metadata=guideline.metadata,
+            labels=guideline.labels,
             _server=self,
             _container=self.container,
         )
@@ -3647,6 +3706,8 @@ class Server:
                 session=Session(
                     id=ctx.session.id,
                     interaction=ctx.interaction,
+                    metadata=ctx.session.metadata,
+                    labels=ctx.session.labels,
                 ),
                 agent=agent,
                 customer=customer,
@@ -3926,6 +3987,8 @@ class Server:
                         session=Session(
                             id=ctx.session.id,
                             interaction=ctx.interaction,
+                            metadata=ctx.session.metadata,
+                            labels=ctx.session.labels,
                         ),
                         agent=agent,
                         customer=customer,
@@ -4272,6 +4335,7 @@ class Server:
         composition_mode: CompositionMode | None = None,
         on_match: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
+        labels: Iterable[str] = (),
     ) -> Journey:
         """Creates a new journey with the specified title, description, and conditions."""
 
@@ -4311,6 +4375,7 @@ class Server:
             tags=[],
             id=id,
             composition_mode=CompositionMode._to_core_composition_mode(composition_mode),
+            labels=set(labels) if labels else None,
         )
 
         journey = Journey(
@@ -4324,6 +4389,7 @@ class Server:
             composition_mode=CompositionMode._from_core_composition_mode(
                 stored_journey.composition_mode
             ),
+            labels=stored_journey.labels,
             _start_state_id=stored_journey.root_id,
             _server=self,
             _container=self._container,

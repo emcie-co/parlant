@@ -35,6 +35,7 @@ from parlant.core.app_modules.sessions import (
     EventMetadataUpdateParamsModel,
     EventUpdateParamsModel,
     Moderation,
+    SessionLabelsUpdateParams,
     SessionUpdateParamsModel,
 )
 from parlant.core.agents import AgentId
@@ -193,6 +194,14 @@ SessionMetadataField: TypeAlias = Annotated[
     ),
 ]
 
+SessionLabelsField: TypeAlias = Annotated[
+    set[str],
+    Field(
+        description="Labels associated with the session",
+        examples=[{"vip", "priority"}],
+    ),
+]
+
 
 session_example: ExampleJson = {
     "id": "sess_123yz",
@@ -203,6 +212,7 @@ session_example: ExampleJson = {
     "mode": "auto",
     "consumption_offsets": consumption_offsets_example,
     "metadata": {"simulation": True, "priority": "high"},
+    "labels": ["vip", "priority"],
 }
 
 
@@ -220,6 +230,7 @@ class SessionDTO(
     mode: SessionModeField
     consumption_offsets: ConsumptionOffsetsDTO
     metadata: SessionMetadataField
+    labels: SessionLabelsField = set()
 
 
 class SessionListingDTO(DefaultBaseModel):
@@ -245,6 +256,7 @@ session_creation_params_example: ExampleJson = {
     "customer_id": "cust_123xy",
     "title": "Product inquiry session",
     "metadata": {"project": "demo", "priority": "high"},
+    "labels": ["vip", "priority"],
 }
 
 
@@ -258,6 +270,7 @@ class SessionCreationParamsDTO(
     customer_id: SessionCreationParamsCustomerIdField = None
     title: SessionTitleField | None = None
     metadata: SessionMetadataField | None = None
+    labels: SessionLabelsField | None = None
 
 
 message_example = "Hello, I need help with my order"
@@ -490,7 +503,27 @@ session_update_params_example: ExampleJson = {
         "set": {"simulation": True, "priority": "low"},
         "unset": ["old_project"],
     },
+    "labels": {
+        "upsert": ["vip", "priority"],
+        "remove": ["old_label"],
+    },
 }
+
+
+session_labels_update_params_example: ExampleJson = {
+    "upsert": ["vip", "priority"],
+    "remove": ["old_label"],
+}
+
+
+class SessionLabelsUpdateParamsDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": session_labels_update_params_example},
+):
+    """Parameters for updating a session's labels."""
+
+    upsert: SessionLabelsField | None = None
+    remove: SessionLabelsField | None = None
 
 
 class SessionUpdateParamsDTO(
@@ -505,6 +538,7 @@ class SessionUpdateParamsDTO(
     customer_id: CustomerId | None = None
     agent_id: AgentId | None = None
     metadata: SessionMetadataUpdateParamsDTO | None = None
+    labels: SessionLabelsUpdateParamsDTO | None = None
 
 
 ToolResultDataField: TypeAlias = Annotated[
@@ -1351,6 +1385,7 @@ def create_router(
             title=params.title,
             allow_greeting=allow_greeting,
             metadata=params.metadata or {},
+            labels=params.labels,
         )
 
         return SessionDTO(
@@ -1362,6 +1397,7 @@ def create_router(
             title=session.title,
             mode=SessionModeDTO(session.mode),
             metadata=session.metadata,
+            labels=session.labels,
         )
 
     @router.get(
@@ -1397,6 +1433,7 @@ def create_router(
             ),
             mode=SessionModeDTO(session.mode),
             metadata=session.metadata,
+            labels=session.labels,
         )
 
     @router.get(
@@ -1430,6 +1467,7 @@ def create_router(
         request: Request,
         agent_id: AgentIdQuery | None = None,
         customer_id: CustomerIdQuery | None = None,
+        labels: list[str] = Query(default=[]),
         limit: LimitQuery | None = None,
         cursor: CursorQuery | None = None,
         sort: SortQuery | None = None,
@@ -1446,6 +1484,7 @@ def create_router(
             limit=limit,
             cursor=decode_cursor(cursor) if cursor else None,
             sort_direction=sort_direction_dto_to_sort_direction(sort) if sort else None,
+            labels=set(labels) if labels else None,
         )
 
         if limit is None:
@@ -1461,6 +1500,7 @@ def create_router(
                     ),
                     mode=SessionModeDTO(s.mode),
                     metadata=s.metadata,
+                    labels=s.labels,
                 )
                 for s in sessions_result.items
             ]
@@ -1478,6 +1518,7 @@ def create_router(
                     ),
                     mode=SessionModeDTO(s.mode),
                     metadata=s.metadata,
+                    labels=s.labels,
                 )
                 for s in sessions_result.items
             ],
@@ -1603,7 +1644,16 @@ def create_router(
 
             return params
 
-        session = await app.sessions.update(session_id=session_id, params=await from_dto(params))
+        session = await app.sessions.update(
+            session_id=session_id,
+            params=await from_dto(params),
+            labels=SessionLabelsUpdateParams(
+                upsert=params.labels.upsert,
+                remove=params.labels.remove,
+            )
+            if params.labels
+            else None,
+        )
 
         return SessionDTO(
             id=session.id,
@@ -1616,6 +1666,7 @@ def create_router(
             ),
             mode=SessionModeDTO(session.mode),
             metadata=session.metadata,
+            labels=session.labels,
         )
 
     @router.post(

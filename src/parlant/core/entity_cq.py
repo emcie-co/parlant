@@ -510,3 +510,11 @@ class EntityCommands:
         data: JSONSerializable,
     ) -> ContextVariableValue:
         return await self._context_variable_store.update_value(variable_id, key, data)
+
+    async def upsert_session_labels(
+        self,
+        session_id: SessionId,
+        labels: set[str],
+    ) -> Session:
+        """Upserts labels to a session."""
+        return await self._session_store.upsert_labels(session_id, labels)

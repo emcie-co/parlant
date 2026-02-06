@@ -18,12 +18,15 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+from dataclasses import field
 from typing import (
     Iterator,
     Literal,
     Mapping,
     NewType,
+    Optional,
     Sequence,
+    Set,
     TypeAlias,
     cast,
 )
@@ -244,6 +247,7 @@ class Session:
     consumption_offsets: Mapping[ConsumerId, int]
     agent_states: Sequence[AgentState]
     metadata: Mapping[str, JSONSerializable]
+    labels: Set[str] = field(default_factory=set)
 
 
 class SessionUpdateParams(TypedDict, total=False):
@@ -285,6 +289,7 @@ class SessionStore(ABC):
         title: str | None = None,
         mode: SessionMode | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
+        labels: Optional[Set[str]] = None,
     ) -> Session: ...
 
     @abstractmethod
@@ -314,6 +319,7 @@ class SessionStore(ABC):
         limit: int | None = None,
         cursor: Cursor | None = None,
         sort_direction: SortDirection | None = None,
+        labels: Optional[Set[str]] = None,
     ) -> SessionListing: ...
 
     @abstractmethod
@@ -329,6 +335,20 @@ class SessionStore(ABC):
         self,
         session_id: SessionId,
         key: str,
+    ) -> Session: ...
+
+    @abstractmethod
+    async def upsert_labels(
+        self,
+        session_id: SessionId,
+        labels: Set[str],
+    ) -> Session: ...
+
+    @abstractmethod
+    async def remove_labels(
+        self,
+        session_id: SessionId,
+        labels: Set[str],
     ) -> Session: ...
 
     @abstractmethod
@@ -423,6 +443,19 @@ class _SessionDocument_v0_6_0(TypedDict, total=False):
     agent_states: Sequence[_AgentStateDocument_v0_6_0]
 
 
+class _SessionDocument_v0_8_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    customer_id: CustomerId
+    agent_id: AgentId
+    mode: SessionMode
+    title: str | None
+    consumption_offsets: Mapping[ConsumerId, int]
+    agent_states: Sequence[_AgentStateDocument]
+    metadata: Mapping[str, JSONSerializable]
+
+
 class _SessionDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
@@ -434,6 +467,7 @@ class _SessionDocument(TypedDict, total=False):
     consumption_offsets: Mapping[ConsumerId, int]
     agent_states: Sequence[_AgentStateDocument]
     metadata: Mapping[str, JSONSerializable]
+    labels: Sequence[str]
 
 
 class _EventDocument_v0_6_0(TypedDict, total=False):
@@ -603,7 +637,7 @@ class _ToolEventData_v0_5_0(TypedDict):
 
 
 class SessionDocumentStore(SessionStore):
-    VERSION = Version.from_string("0.8.0")
+    VERSION = Version.from_string("0.9.0")
 
     def __init__(self, database: DocumentDatabase, allow_migration: bool = False):
         self._database = database
@@ -686,9 +720,9 @@ class SessionDocumentStore(SessionStore):
             )
 
         async def v0_7_0_to_v0_8_0(doc: BaseDocument) -> BaseDocument | None:
-            doc = cast(_SessionDocument, doc)
+            doc = cast(_SessionDocument_v0_8_0, doc)
 
-            return _SessionDocument(
+            return _SessionDocument_v0_8_0(
                 id=doc["id"],
                 version=Version.String("0.8.0"),
                 creation_utc=doc["creation_utc"],
@@ -701,6 +735,23 @@ class SessionDocumentStore(SessionStore):
                 metadata=doc["metadata"],
             )
 
+        async def v0_8_0_to_v0_9_0(doc: BaseDocument) -> BaseDocument | None:
+            doc = cast(_SessionDocument_v0_8_0, doc)
+
+            return _SessionDocument(
+                id=doc["id"],
+                version=Version.String("0.9.0"),
+                creation_utc=doc["creation_utc"],
+                customer_id=doc["customer_id"],
+                agent_id=doc["agent_id"],
+                mode=doc["mode"],
+                title=doc["title"],
+                consumption_offsets=doc["consumption_offsets"],
+                agent_states=doc["agent_states"],
+                metadata=doc.get("metadata", {}),
+                labels=[],  # Default to empty labels for existing sessions
+            )
+
         return await DocumentMigrationHelper[_SessionDocument](
             self,
             {
@@ -711,6 +762,7 @@ class SessionDocumentStore(SessionStore):
                 "0.5.0": v0_5_0_to_v0_6_0,
                 "0.6.0": v0_6_0_to_v0_7_0,
                 "0.7.0": v0_7_0_to_v0_8_0,
+                "0.8.0": v0_8_0_to_v0_9_0,
             },
         ).migrate(doc)
 
@@ -911,6 +963,7 @@ class SessionDocumentStore(SessionStore):
                 for s in session.agent_states
             ],
             metadata=session.metadata,
+            labels=list(session.labels),
         )
 
     def _deserialize_session(
@@ -934,6 +987,7 @@ class SessionDocumentStore(SessionStore):
                 for s in session_document["agent_states"]
             ],
             metadata=session_document.get("metadata", {}),
+            labels=set(session_document.get("labels", [])),
         )
 
     def _serialize_event(
@@ -980,6 +1034,7 @@ class SessionDocumentStore(SessionStore):
         title: str | None = None,
         mode: SessionMode | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
+        labels: Optional[Set[str]] = None,
     ) -> Session:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
@@ -996,6 +1051,7 @@ class SessionDocumentStore(SessionStore):
                 title=title,
                 agent_states=[],
                 metadata=metadata,
+                labels=labels or set(),
             )
 
             await self._session_collection.insert_one(document=self._serialize_session(session))
@@ -1064,6 +1120,7 @@ class SessionDocumentStore(SessionStore):
         limit: int | None = None,
         cursor: Cursor | None = None,
         sort_direction: SortDirection | None = None,
+        labels: Optional[Set[str]] = None,
     ) -> SessionListing:
         async with self._lock.reader_lock:
             filters = {
@@ -1078,11 +1135,21 @@ class SessionDocumentStore(SessionStore):
                 sort_direction=sort_direction,
             )
 
+            # Filter by labels if specified
+            if labels:
+                items = [
+                    self._deserialize_session(d)
+                    for d in result.items
+                    if labels.issubset(set(d.get("labels", [])))
+                ]
+            else:
+                items = [self._deserialize_session(d) for d in result.items]
+
             return SessionListing(
-                items=[self._deserialize_session(d) for d in result.items],
-                total_count=result.total_count,
-                has_more=result.has_more,
-                next_cursor=result.next_cursor,
+                items=items,
+                total_count=len(items) if labels else result.total_count,
+                has_more=result.has_more if not labels else False,
+                next_cursor=result.next_cursor if not labels else None,
             )
 
     @override
@@ -1134,12 +1201,51 @@ class SessionDocumentStore(SessionStore):
 
         assert result.updated_document
 
-        result = await self._session_collection.update_one(
-            filters={"id": {"$eq": session_id}},
-            params={
-                "metadata": updated_metadata,
-            },
-        )
+        return self._deserialize_session(session_document=result.updated_document)
+
+    @override
+    async def upsert_labels(
+        self,
+        session_id: SessionId,
+        labels: Set[str],
+    ) -> Session:
+        async with self._lock.writer_lock:
+            session_document = await self._session_collection.find_one({"id": {"$eq": session_id}})
+
+            if not session_document:
+                raise ItemNotFoundError(item_id=UniqueId(session_id))
+
+            existing_labels = set(session_document.get("labels", []))
+            updated_labels = list(existing_labels | labels)
+
+            result = await self._session_collection.update_one(
+                filters={"id": {"$eq": session_id}},
+                params={"labels": updated_labels},
+            )
+
+        assert result.updated_document
+
+        return self._deserialize_session(session_document=result.updated_document)
+
+    @override
+    async def remove_labels(
+        self,
+        session_id: SessionId,
+        labels: Set[str],
+    ) -> Session:
+        async with self._lock.writer_lock:
+            session_document = await self._session_collection.find_one({"id": {"$eq": session_id}})
+
+            if not session_document:
+                raise ItemNotFoundError(item_id=UniqueId(session_id))
+
+            existing_labels = set(session_document.get("labels", []))
+            updated_labels = list(existing_labels - labels)
+
+            result = await self._session_collection.update_one(
+                filters={"id": {"$eq": session_id}},
+                params={"labels": updated_labels},
+            )
 
         assert result.updated_document
 

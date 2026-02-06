@@ -306,6 +306,7 @@ guideline_dto_example = {
     "tags": ["tag1", "tag2"],
     "metadata": {"key1": "value1", "key2": "value2"},
     "composition_mode": None,
+    "labels": ["vip", "priority"],
 }
 
 GuidelineTagsField: TypeAlias = Annotated[
@@ -313,6 +314,15 @@ GuidelineTagsField: TypeAlias = Annotated[
     Field(
         description="The tags associated with the guideline",
         examples=[["tag1", "tag2"], []],
+    ),
+]
+
+
+GuidelineLabelsField: TypeAlias = Annotated[
+    set[str],
+    Field(
+        description="The labels associated with the guideline",
+        examples=[{"vip", "priority"}, set()],
     ),
 ]
 
@@ -333,6 +343,7 @@ class GuidelineDTO(
     metadata: GuidelineMetadataField
     composition_mode: CompositionModeDTO | None = None
     track: bool = True
+    labels: GuidelineLabelsField = set()
 
 
 EnumValueTypeDTO: TypeAlias = str | int

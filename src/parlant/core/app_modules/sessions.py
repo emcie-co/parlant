@@ -64,6 +64,14 @@ class EventUpdateParamsModel(TypedDict, total=False):
 
 
 @dataclass(frozen=True)
+class SessionLabelsUpdateParams:
+    """Parameters for updating session labels."""
+
+    upsert: Set[str] | None = None
+    remove: Set[str] | None = None
+
+
+@dataclass(frozen=True)
 class SessionListingModel:
     """Paginated result model for sessions at the application layer"""
 
@@ -155,6 +163,7 @@ class SessionModule:
         title: str | None = None,
         allow_greeting: bool = False,
         metadata: Mapping[str, JSONSerializable] | None = None,
+        labels: Set[str] | None = None,
     ) -> Session:
         _ = await self._agent_store.read_agent(agent_id=agent_id)
 
@@ -164,6 +173,7 @@ class SessionModule:
             agent_id=agent_id,
             title=title,
             metadata=metadata or {},
+            labels=labels,
         )
 
         if allow_greeting:
@@ -182,6 +192,7 @@ class SessionModule:
         limit: int | None = None,
         cursor: Cursor | None = None,
         sort_direction: SortDirection | None = None,
+        labels: Set[str] | None = None,
     ) -> SessionListingModel:
         result = await self._session_store.list_sessions(
             agent_id=agent_id,
@@ -189,6 +200,7 @@ class SessionModule:
             limit=limit,
             cursor=cursor,
             sort_direction=sort_direction,
+            labels=labels,
         )
 
         return SessionListingModel(
@@ -202,11 +214,25 @@ class SessionModule:
         self,
         session_id: SessionId,
         params: SessionUpdateParamsModel,
+        labels: SessionLabelsUpdateParams | None = None,
     ) -> Session:
         session = await self._session_store.update_session(
             session_id=session_id,
             params=params,
         )
+
+        if labels:
+            if labels.upsert:
+                session = await self._session_store.upsert_labels(
+                    session_id=session_id,
+                    labels=labels.upsert,
+                )
+
+            if labels.remove:
+                session = await self._session_store.remove_labels(
+                    session_id=session_id,
+                    labels=labels.remove,
+                )
 
         return session
 

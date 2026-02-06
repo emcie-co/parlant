@@ -326,6 +326,9 @@ class AlphaEngine(Engine):
                 # Call on_match handlers for all active journeys (before generating messages)
                 await self._call_journey_handlers(context, self._hooks.on_journey_match_handlers)
 
+                # Update session labels from matched entities
+                await self._update_session_labels(context)
+
                 # Money time: communicate with the customer given
                 # all of the information we have prepared.
                 with self._tracer.span(_MESSAGE_GENERATION_SPAN_NAME):
@@ -944,6 +947,36 @@ class AlphaEngine(Engine):
 
         if handler_tasks:
             await async_utils.safe_gather(*handler_tasks)
+
+    async def _update_session_labels(self, context: EngineContext) -> None:
+        """Collect labels from matched entities and upsert to session."""
+        labels_to_add: set[str] = set()
+
+        # From matched guidelines
+        all_guideline_matches = list(
+            chain(
+                context.state.ordinary_guideline_matches,
+                context.state.tool_enabled_guideline_matches.keys(),
+            )
+        )
+
+        for match in all_guideline_matches:
+            labels_to_add.update(match.guideline.labels)
+
+        # From matched journeys
+        for journey in context.state.journeys:
+            labels_to_add.update(journey.labels)
+
+        # From matched journey nodes (via guideline metadata)
+        for match in all_guideline_matches:
+            if node_metadata := match.guideline.metadata.get("journey_node"):
+                if isinstance(node_metadata, dict):
+                    if node_labels := node_metadata.get("labels"):
+                        if isinstance(node_labels, (list, set)):
+                            labels_to_add.update(str(label) for label in node_labels)
+
+        if labels_to_add:
+            await self._entity_commands.upsert_session_labels(context.session.id, labels_to_add)
 
     async def _emit_ready_event(self, context: EngineContext, stage: Optional[str] = None) -> None:
         event_data: dict[str, Any] = {"stage": stage} if stage else {}

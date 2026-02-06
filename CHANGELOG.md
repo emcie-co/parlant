@@ -4,6 +4,8 @@ All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
 
+- Add labels to Guidelines, Journeys, JourneyNodes, and Sessions for categorization and filtering
+- Add automatic session label propagation from matched entities (guidelines, observations, journeys)
 - Add `track` parameter to guidelines to control "previously applied" tracking
 - Support multiple targets in `prioritize_over()` and `depend_on()` methods
 - Add `field_dependencies` to canned responses for explicit field availability requirements

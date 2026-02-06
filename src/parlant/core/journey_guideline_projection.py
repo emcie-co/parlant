@@ -69,6 +69,7 @@ class JourneyGuidelineProjection:
                 "follow_ups": [],
                 "index": str(node_indexes[node.id]),
                 "journey_id": journey_id,
+                "labels": list(node.labels),
             }
 
             # Extract nested journey_node metadata from edge and node

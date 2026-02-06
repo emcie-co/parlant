@@ -1002,3 +1002,119 @@ async def test_that_guideline_composition_mode_can_be_set_and_updated(
     assert response.status_code == status.HTTP_200_OK
     guideline = response.json()["guideline"]
     assert guideline["composition_mode"] == "strict_canned"
+
+
+###############################################################################
+## Labels Tests
+###############################################################################
+
+
+async def test_that_a_guideline_can_be_created_with_labels(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/guidelines",
+        json={
+            "condition": "the customer asks about pricing",
+            "action": "provide current pricing information",
+            "labels": ["premium", "sales"],
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    guideline = response.json()
+    assert guideline["condition"] == "the customer asks about pricing"
+    assert guideline["action"] == "provide current pricing information"
+    assert set(guideline["labels"]) == {"premium", "sales"}
+
+
+async def test_that_a_guideline_is_created_with_empty_labels_by_default(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/guidelines",
+        json={
+            "condition": "the customer asks about something",
+            "action": "help them out",
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    guideline = response.json()
+    assert guideline["labels"] == []
+
+
+async def test_that_labels_can_be_added_to_a_guideline(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer wants help",
+        action="help them",
+        labels={"initial"},
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json={"labels": {"upsert": ["new_label", "another_label"]}},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_guideline = response.json()["guideline"]
+
+    assert set(updated_guideline["labels"]) == {"initial", "new_label", "another_label"}
+
+
+async def test_that_labels_can_be_removed_from_a_guideline(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer wants help",
+        action="help them",
+        labels={"label1", "label2", "label3"},
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json={"labels": {"remove": ["label2"]}},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_guideline = response.json()["guideline"]
+
+    assert set(updated_guideline["labels"]) == {"label1", "label3"}
+
+
+async def test_that_labels_can_be_upserted_and_removed_in_same_operation(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="test condition",
+        action="test action",
+        labels={"keep", "remove_me"},
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json={
+            "labels": {
+                "upsert": ["new_label"],
+                "remove": ["remove_me"],
+            }
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_guideline = response.json()["guideline"]
+
+    assert set(updated_guideline["labels"]) == {"keep", "new_label"}

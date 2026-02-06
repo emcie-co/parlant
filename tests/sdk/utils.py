@@ -24,6 +24,7 @@ from parlant.client.types.event import Event as ClientEvent
 from parlant.adapters.nlp.emcie_service import EmcieService
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
+from parlant.core.sessions import Session
 from parlant.core.tracer import Tracer
 import parlant.sdk as p
 
@@ -48,6 +49,13 @@ class Context:
     client: Client
     container: p.Container
     _session_id: str | None = None
+
+    async def get_session(self) -> Session:
+        if self._session_id is None:
+            raise ValueError("No session has been created yet")
+
+        session_store = self.container[p.SessionStore]
+        return await session_store.read_session(p.SessionId(self._session_id))
 
     async def send_and_receive_message_event(
         self,

@@ -231,6 +231,9 @@ const SessionView = (): ReactElement => {
 
 		const lastStatusEventStatus = lastStatusEvent?.data?.status;
 
+		// Check if any new message is streaming (has chunks) - if so, don't show typing indicator
+		const hasNewStreamingMessage = newMessages.some((msg) => msg?.data?.chunks !== undefined);
+
 		if (newMessages?.length && (showThinking || showTyping)) soundDoubleBlip(true);
 		if (lastStatusEventStatus) {
 			setShowThinking(lastStatusEventStatus === 'processing');
@@ -239,7 +242,11 @@ const SessionView = (): ReactElement => {
 				setThinkingDisplay(lastStatusEvent?.data?.data?.stage ?? 'Thinking');
 			}
 
-			setShowTyping(lastStatusEventStatus === 'typing');
+			// Don't show typing if we already have a streaming message arriving
+			setShowTyping(lastStatusEventStatus === 'typing' && !hasNewStreamingMessage);
+		} else if (hasNewStreamingMessage) {
+			// Clear typing indicator when streaming message chunks arrive (even without status event)
+			setShowTyping(false);
 		}
 		// Clear processed events to avoid reprocessing them
 		setLastEvents([]);

@@ -570,6 +570,7 @@ class PluginServer:
             host=self.host,
             port=self.port,
             log_level="critical",
+            ws="wsproto",
         )
 
         self._server = uvicorn.Server(config)

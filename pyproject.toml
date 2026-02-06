@@ -58,6 +58,7 @@ dependencies = [
     "types-jsonschema>=4.22.0.20240610",
     "uvicorn>=0.38.0",
     "websocket-client>=1.5.3",
+    "wsproto>=1.2.0",
 ]
 
 [project.scripts]

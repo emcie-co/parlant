@@ -4,6 +4,7 @@ All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
 
+- Fix websocket warning upon startup
 - Add labels to Guidelines, Journeys, JourneyNodes, and Sessions for categorization and filtering
 - Add automatic session label propagation from matched entities (guidelines, observations, journeys)
 - Add `track` parameter to guidelines to control "previously applied" tracking

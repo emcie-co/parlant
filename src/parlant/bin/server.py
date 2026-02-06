@@ -1022,6 +1022,7 @@ async def serve_app(
         port=port,
         log_level="critical",
         timeout_graceful_shutdown=1,
+        ws="wsproto",
     )
     server = uvicorn.Server(config)
     host_txt = "localhost" if host in ["127.0.0.1", "0.0.0.0"] else host

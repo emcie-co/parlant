@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import json
 from typing import Awaitable, Callable, Sequence
 from typing_extensions import override
 
@@ -58,8 +59,27 @@ class CustomGuidelineMatchingBatch(GuidelineMatchingBatch):
 
         t_end = asyncio.get_event_loop().time()
 
+        data = json.dumps(
+            {
+                "guideline_id": self._guideline.id,
+                "condition": self._guideline.content.condition,
+                "action": self._guideline.content.action,
+            },
+            indent=2,
+        )
+
+        is_matched = match is not None and match.score == 10
+
+        if is_matched:
+            self._logger.debug(f"Activated:\n{data}")
+            assert match is not None
+            matches = [match]
+        else:
+            self._logger.debug(f"Skipped:\n{data}")
+            matches = []
+
         return GuidelineMatchingBatchResult(
-            matches=[match] if match and match.score == 10 else [],
+            matches=matches,
             generation_info=GenerationInfo(
                 schema_name="custom_matcher",
                 model="python",

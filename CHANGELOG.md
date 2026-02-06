@@ -4,7 +4,12 @@ All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
 
-- Fix websocket warning upon startup
+TBD
+
+## [3.2.0] - 2026-02-08
+
+### Added
+
 - Add labels to Guidelines, Journeys, JourneyNodes, and Sessions for categorization and filtering
 - Add automatic session label propagation from matched entities (guidelines, observations, journeys)
 - Add `track` parameter to guidelines to control "previously applied" tracking
@@ -17,13 +22,21 @@ All notable changes to Parlant will be documented here.
 - Add separate default greeting responses for first agent message in fluid mode
 - Add streaming message output mode
 - Allow specifying custom journey node ID
-- Make condition optional for SDK guidelines
 - Add matched guidelines/journey states to completion ready event
-- Fixed agent intention proposer (guidelines were getting rewritten incorrectly)
-- Fix multiple customer guideline matchers not working
-- Fix bug with context variable access in SDK
+
+### Changed
+
+- Make condition optional for SDK guidelines
 - Tweak default preamble examples
 - Soften log levels for relational guideline resolver
+- Add activated/skipped logs to custom guideline matcher batches
+
+### Fixed
+
+- Fix websocket warning upon startup
+- Fix agent intention proposer (guidelines were getting rewritten incorrectly)
+- Fix multiple customer guideline matchers not working
+- Fix bug with context variable access in SDK
 
 ## [3.1.0] - 2026-01-05
 

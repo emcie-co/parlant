@@ -3468,8 +3468,10 @@ class Server:
         track: bool = True,
     ) -> Guideline:
         """Internal method to create a guideline with common logic."""
-        if condition is None and action is None:
-            raise SDKError("Either condition or action must be specified to create a guideline.")
+        if condition is None and matcher is None and action is None:
+            raise SDKError(
+                "Either condition, matcher, or action must be specified to create a guideline."
+            )
 
         self._advance_creation_progress()
 

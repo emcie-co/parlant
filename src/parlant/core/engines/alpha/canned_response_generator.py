@@ -1045,7 +1045,7 @@ You will now be given the current state of the interaction to which you must gen
         # Check for streaming mode
         if (
             composition_mode == CompositionMode.CANNED_FLUID
-            and loaded_context.agent.message_output_mode == MessageOutputMode.STREAMING
+            and loaded_context.agent.message_output_mode == MessageOutputMode.STREAM
         ):
             if self._streaming_text_generator is not None:
                 return await self._generate_streaming_response(context)

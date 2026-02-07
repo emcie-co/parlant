@@ -362,14 +362,14 @@ class Test_that_an_agent_can_be_created_with_streaming_output_mode(SDKTest):
         self.agent = await server.create_agent(
             name="Streaming Agent",
             description="Agent with streaming output mode",
-            output_mode=p.OutputMode.STREAMING,
+            output_mode=p.OutputMode.STREAM,
         )
 
     async def run(self, ctx: Context) -> None:
         # Verify the agent was created with streaming output mode
         agent = await ctx.server.find_agent(id=self.agent.id)
         assert agent is not None
-        assert agent.output_mode == p.OutputMode.STREAMING
+        assert agent.output_mode == p.OutputMode.STREAM
 
         # Send a message and verify streaming behavior
         session = await ctx.client.sessions.create(

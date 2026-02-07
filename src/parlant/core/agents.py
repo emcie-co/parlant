@@ -58,7 +58,7 @@ class MessageOutputMode(Enum):
     BLOCK = "block"
     """Full message is sent at once (default behavior)."""
 
-    STREAMING = "streaming"
+    STREAM = "stream"
     """Message is streamed token by token."""
 
 

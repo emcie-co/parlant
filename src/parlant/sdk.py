@@ -4119,7 +4119,7 @@ class Server:
                 - STRICT: Strictly uses canned responses
             output_mode: How the agent delivers responses. Defaults to BLOCK.
                 - BLOCK: Complete response delivered after generation finishes
-                - STREAMING: Response streamed progressively as generated
+                - STREAM: Response streamed progressively as generated
             max_engine_iterations: Maximum number of engine iterations per turn.
                 Defaults to 3 if not specified.
             tags: List of tag IDs to associate with the agent. Defaults to empty list.
@@ -4136,7 +4136,7 @@ class Server:
             The created Agent instance.
         """
 
-        if output_mode == OutputMode.STREAMING and composition_mode != CompositionMode.FLUID:
+        if output_mode == OutputMode.STREAM and composition_mode != CompositionMode.FLUID:
             raise SDKError(
                 "Streaming output mode is only supported with a fluid base composition mode."
             )

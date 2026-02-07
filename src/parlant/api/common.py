@@ -78,11 +78,11 @@ class MessageOutputModeDTO(Enum):
 
     Available options:
     - block: Full message is sent at once (default behavior)
-    - streaming: Message is streamed token by token
+    - stream: Message is streamed token by token
     """
 
     BLOCK = "block"
-    STREAMING = "streaming"
+    STREAM = "stream"
 
 
 def message_output_mode_dto_to_message_output_mode(
@@ -92,8 +92,8 @@ def message_output_mode_dto_to_message_output_mode(
     match dto:
         case MessageOutputModeDTO.BLOCK:
             return MessageOutputMode.BLOCK
-        case MessageOutputModeDTO.STREAMING:
-            return MessageOutputMode.STREAMING
+        case MessageOutputModeDTO.STREAM:
+            return MessageOutputMode.STREAM
 
 
 def message_output_mode_to_message_output_mode_dto(
@@ -103,8 +103,8 @@ def message_output_mode_to_message_output_mode_dto(
     match mode:
         case MessageOutputMode.BLOCK:
             return MessageOutputModeDTO.BLOCK
-        case MessageOutputMode.STREAMING:
-            return MessageOutputModeDTO.STREAMING
+        case MessageOutputMode.STREAM:
+            return MessageOutputModeDTO.STREAM
 
 
 def apigen_config(group_name: str, method_name: str) -> Mapping[str, Any]:

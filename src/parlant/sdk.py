@@ -1488,6 +1488,43 @@ class JourneyState:
 
         return result_transition
 
+    async def attach_retriever(
+        self,
+        retriever: Callable[[RetrieverContext], Awaitable[RetrieverResult | None]],
+        id: str | None = None,
+    ) -> None:
+        """Attaches a retriever that runs only when this journey state is active."""
+        from itertools import chain
+
+        from parlant.core.journey_guideline_projection import (
+            extract_node_id_from_journey_node_guideline_id,
+        )
+
+        if self._journey is None:
+            raise SDKError("Cannot attach retriever to a journey state without a parent journey.")
+
+        def is_journey_state_active(ctx: EngineContext) -> bool:
+            for m in chain(
+                ctx.state.ordinary_guideline_matches,
+                ctx.state.tool_enabled_guideline_matches,
+            ):
+                # Check if this is a journey node guideline
+                if "journey_node" not in m.guideline.metadata:
+                    continue
+
+                node_id = extract_node_id_from_journey_node_guideline_id(m.guideline.id)
+
+                if node_id == self.id:
+                    return True
+
+            return False
+
+        self._journey._server._attach_conditional_retriever(
+            retriever_id=id or f"journey-state-retriever-{self.id}",
+            retriever=retriever,
+            should_run=is_journey_state_active,
+        )
+
 
 END_JOURNEY = JourneyState(
     id=JourneyStore.END_NODE_ID,

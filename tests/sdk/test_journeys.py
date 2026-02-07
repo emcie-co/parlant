@@ -1963,3 +1963,77 @@ class Test_that_journey_on_match_is_called_when_linked_journey_is_activated(SDKT
         assert self.linked_journey_id == self.linked_journey.id, (
             f"Expected linked journey ID {self.linked_journey.id}, got {self.linked_journey_id}"
         )
+
+
+class Test_that_journey_state_retriever_runs_when_state_is_active(SDKTest):
+    """Test that a retriever attached to a journey state runs only when that state is active."""
+
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Journey State Retriever Agent",
+            description="Agent for testing journey state retrievers",
+        )
+
+        journey = await self.agent.create_journey(
+            title="Order Journey",
+            description="A journey about ordering products",
+            conditions=["the customer wants to place an order"],
+        )
+
+        # Create a state transition and attach retriever to the target state
+        transition = await journey.initial_state.transition_to(
+            chat_state="Help the customer complete their order",
+        )
+
+        async def state_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            return p.RetrieverResult(data="The special discount code is SAVE42")
+
+        await transition.target.attach_retriever(state_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        # Send a message that triggers the journey and transitions to the state with retriever
+        response = await ctx.send_and_receive_message(
+            customer_message="I want to place an order",
+            recipient=self.agent,
+        )
+        # The retriever data should be available in the response
+        assert "SAVE42" in response, f"Expected 'SAVE42' in response, got: {response}"
+
+
+class Test_that_journey_state_retriever_does_not_run_when_state_is_inactive(SDKTest):
+    """Test that a retriever attached to a journey state does not run when that state is not active."""
+
+    async def setup(self, server: p.Server) -> None:
+        self.retriever_called = False
+
+        self.agent = await server.create_agent(
+            name="Journey State Retriever Agent",
+            description="Agent for testing journey state retrievers",
+        )
+
+        journey = await self.agent.create_journey(
+            title="Order Journey",
+            description="A journey about ordering products",
+            conditions=["the customer wants to place an order"],
+        )
+
+        # Create a state transition and attach retriever to the target state
+        transition = await journey.initial_state.transition_to(
+            chat_state="Help the customer complete their order",
+        )
+
+        async def state_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            self.retriever_called = True
+            return p.RetrieverResult(data="The special discount code is SAVE42")
+
+        await transition.target.attach_retriever(state_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        # Send a message that does NOT trigger the journey
+        await ctx.send_and_receive_message(
+            customer_message="What is the weather like today?",
+            recipient=self.agent,
+        )
+        assert not self.retriever_called, (
+            "Retriever should not be called when journey state is inactive"
+        )

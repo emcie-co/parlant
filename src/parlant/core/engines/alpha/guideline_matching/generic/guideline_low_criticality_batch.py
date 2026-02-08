@@ -113,7 +113,15 @@ class GenericLowCriticalityGuidelineMatchingBatch(GuidelineMatchingBatch):
                                 )
                             )
                         else:
-                            self._logger.debug(f"Not matched:\n{per_item}")
+                            self._logger.debug(
+                                f"Skipped:\n{inference.content.model_dump_json(indent=2)}"
+                            )
+                            skipped_guidelines.append(
+                                GuidelineMatch(
+                                    guideline=self._guidelines[id],
+                                    rationale="Does not apply as per model evaluation.",
+                                )
+                            )
 
                             skipped_guidelines.append(
                                 GuidelineMatch(

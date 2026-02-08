@@ -71,7 +71,7 @@ class CustomGuidelineMatchingBatch(GuidelineMatchingBatch):
             indent=2,
         )
 
-        is_matched = match is not None and match.score == 10
+        is_matched = match is not None
 
         if is_matched:
             self._logger.debug(f"Activated:\n{data}")

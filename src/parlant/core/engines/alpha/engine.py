@@ -1365,12 +1365,12 @@ class AlphaEngine(Engine):
         )
 
         self._add_match_events_to_tracer(
-            all_relevant_guidelines,
+            resolver_result.matches,
             list(
                 set(matching_result.skipped_guidelines).union(
                     set(
                         second_match_result.skipped_guidelines if second_match_result else []
-                    ).difference(all_relevant_guidelines)
+                    ).difference(resolver_result.matches)
                 )
             ),
         )
@@ -1475,12 +1475,12 @@ class AlphaEngine(Engine):
         )
 
         self._add_match_events_to_tracer(
-            all_relevant_guidelines,
+            resolver_result.matches,
             list(
                 set(matching_result.skipped_guidelines).union(
                     set(
                         second_match_result.skipped_guidelines if second_match_result else []
-                    ).difference(all_relevant_guidelines)
+                    ).difference(resolver_result.matches)
                 )
             ),
         )

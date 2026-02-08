@@ -212,11 +212,13 @@ class RelationalResolver:
 
     def __init__(
         self,
-        relationship_store: RelationshipStore,
+        store_provider: StoreProvider,
         logger: Logger,
         tracer: Tracer,
     ) -> None:
-        self._relationship_store = relationship_store
+        self._relationship_store = store_provider.get_store(
+            RelationshipStore, StoreProviderHints(call_site="engine")
+        )
         self._logger = logger
         self._tracer = tracer
 
@@ -1268,28 +1270,22 @@ class RelationalResolver:
         result: list[tuple[GuidelineMatch, list[RelationshipId | None]]] = []
         seen_guidelines: set[GuidelineId] = set()
         for gid, entries in related_by_match.items():
-            if gid in seen_guidelines:
-                continue
-            seen_guidelines.add(gid)
+            # We're basically saying, if this related guideline is already
+            # related to a match we will just take the later one, to avoid duplications
+            if entries and gid not in seen_guidelines:
+                pairs.append(entries[-1])
+                seen_guidelines.add(gid)
 
-            best: tuple[GuidelineMatch, Guideline, RelationshipId | None] | None = None
-            for entry in entries:
-                if best is None or entry[0].score > best[0].score:
-                    best = entry
-            if best is not None:
-                all_rel_ids = [entry[2] for entry in entries]
-                result.append(
-                    (
-                        GuidelineMatch(
-                            guideline=best[1],
-                            score=best[0].score,
-                            rationale="[Activated via entailment] Automatically inferred from context",
-                        ),
-                        all_rel_ids,
-                    )
-                )
-
-        return result
+        return [
+            (
+                GuidelineMatch(
+                    guideline=guideline,
+                    rationale="[Activated via entailment] Automatically inferred from context",
+                ),
+                rel_id,
+            )
+            for match, guideline, rel_id in pairs
+        ]
 
     # -- Shared helpers -----------------------------------------------------
 
@@ -1356,7 +1352,7 @@ class RelationalResolver:
     def _matches_equal(a: Sequence[GuidelineMatch], b: Sequence[GuidelineMatch]) -> bool:
         if len(a) != len(b):
             return False
-        return all(x.guideline.id == y.guideline.id and x.score == y.score for x, y in zip(a, b))
+        return all(x.guideline.id == y.guideline.id for x, y in zip(a, b))
 
     @staticmethod
     def _journeys_equal(a: Sequence[Journey], b: Sequence[Journey]) -> bool:

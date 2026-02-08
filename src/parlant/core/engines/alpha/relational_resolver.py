@@ -78,10 +78,7 @@ class RelationalResolver:
         """Check if two match sequences are equal (same guidelines, same order)."""
         if len(matches1) != len(matches2):
             return False
-        return all(
-            m1.guideline.id == m2.guideline.id and m1.score == m2.score
-            for m1, m2 in zip(matches1, matches2)
-        )
+        return all(m1.guideline.id == m2.guideline.id for m1, m2 in zip(matches1, matches2))
 
     def _journeys_equal(self, journeys1: Sequence[Journey], journeys2: Sequence[Journey]) -> bool:
         """Check if two journey sequences are equal (same IDs)."""
@@ -562,14 +559,11 @@ class RelationalResolver:
                     assert len(existing_related_guidelines) == 1
                     existing_related_guideline = existing_related_guidelines[0]
 
-                    if existing_related_guideline[0].score >= match.score:
-                        continue  # Stay with existing one
-                    else:
-                        # This match's score is higher, so it's better that
-                        # we associate the related guideline with this one.
-                        match_and_inferred_guideline_pairs.remove(
-                            existing_related_guideline,
-                        )
+                    # We're basically saying, if this related guideline is already
+                    # related to a match we will just take the later one, to avoid duplications
+                    match_and_inferred_guideline_pairs.remove(
+                        existing_related_guideline,
+                    )
 
                 match_and_inferred_guideline_pairs.append(
                     (match, related_guideline),
@@ -578,7 +572,6 @@ class RelationalResolver:
         entailed_matches = [
             GuidelineMatch(
                 guideline=inferred_guideline,
-                score=match.score,
                 rationale="[Activated via entailment] Automatically inferred from context",
             )
             for match, inferred_guideline in match_and_inferred_guideline_pairs

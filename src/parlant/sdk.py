@@ -4550,6 +4550,7 @@ class Server:
                                     tool_name=retriever_id,
                                 ).to_string(),
                                 arguments={},
+                                rationale="Retriever result",
                                 result=tool_result,
                             )
                         ]

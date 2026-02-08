@@ -208,8 +208,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
             and self._get_kind(self._first_executable_node) == JourneyNodeKind.TOOL
         ):
             return GuidelineMatchingBatchResult(
-                matched_guidelines=[],
-                skipped_guidelines=[
+                matched_guidelines=[
                     GuidelineMatch(
                         guideline=self._first_executable_node,
                         rationale="root node requires tool, and was selected automatically",
@@ -221,6 +220,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                         },
                     )
                 ],
+                skipped_guidelines=[],
                 generation_info=EMPTY_GENERATION_INFO,
             )
         return None

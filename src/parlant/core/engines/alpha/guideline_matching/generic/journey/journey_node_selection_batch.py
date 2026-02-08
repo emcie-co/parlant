@@ -243,8 +243,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                 f"Journey '{self._examined_journey.title}': auto-advanced to node {self._get_guideline_node_index(self._first_executable_node)}"
             )
             return GuidelineMatchingBatchResult(
-                matched_guidelines=[],
-                skipped_guidelines=[
+                matched_guidelines=[
                     GuidelineMatch(
                         guideline=self._first_executable_node,
                         rationale="root node requires tool, and was selected automatically",
@@ -256,6 +255,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                         },
                     )
                 ],
+                skipped_guidelines=[],
                 generation_info=EMPTY_GENERATION_INFO,
             )
         return None

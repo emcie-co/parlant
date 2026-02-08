@@ -1242,7 +1242,7 @@ OUTPUT FORMAT:
         tool_id: ToolId,
         prompt: PromptBuilder,
         temperature: float,
-    ) -> tuple[GenerationInfo, Sequence[NonConsequentialToolCallEvaluation]]:
+    ) -> tuple[GenerationInfo, NonConsequentialToolBatchSchema]:
         inference = await self._non_consequential_schema_generator.generate(
             prompt=prompt,
             hints={"temperature": temperature},
@@ -1251,11 +1251,11 @@ OUTPUT FORMAT:
             f"Inference::Completion: {tool_id.to_string()}\n{inference.content.model_dump_json(indent=2)}"
         )
 
-        return inference.info, inference.content.calls
+        return inference.info, inference.content
 
     def _evaluate_non_consequential_tool_calls(
         self,
-        output: Sequence[NonConsequentialToolCallEvaluation],
+        output: NonConsequentialToolBatchSchema,
         candidate_descriptor: tuple[ToolId, Tool, Sequence[GuidelineMatch]],
     ) -> tuple[
         list[ToolCall],
@@ -1269,7 +1269,7 @@ OUTPUT FORMAT:
         missing_data: list[MissingToolData] = []
         invalid_data: list[InvalidToolData] = []
 
-        for tc in output:
+        for tc in output.calls:
             if not self._is_tool_call_already_staged(tool_id, tc.args):
                 arguments: dict[str, str | None] = {}
 
@@ -1288,7 +1288,7 @@ OUTPUT FORMAT:
                     tool_calls.append(
                         ToolCall(
                             id=ToolCallId(generate_id()),
-                            rationale="Auto-approved non-consequential tool with parameters",
+                            rationale=output.reasoning_tldr or "N/A",
                             tool_id=tool_id,
                             arguments=arguments,
                         )

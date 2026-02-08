@@ -185,6 +185,7 @@ class ToolEventGenerator:
                         "tool_id": r.tool_call.tool_id.to_string(),
                         "arguments": r.tool_call.arguments,
                         "result": r.result,
+                        "rationale": r.tool_call.rationale,
                     }
                 ]
             }

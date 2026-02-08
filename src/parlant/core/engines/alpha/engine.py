@@ -1345,12 +1345,14 @@ class AlphaEngine(Engine):
             )
 
         # Step 7: Build the set of matched guidelines:
-        matched_guidelines = list(await self._build_matched_guidelines(
-            context=context,
-            evaluated_guidelines=relevant_guidelines,
-            current_matched=set(matching_result.matched_guidelines),
-            active_journeys=activated_journeys,
-        ))
+        matched_guidelines = list(
+            await self._build_matched_guidelines(
+                context=context,
+                evaluated_guidelines=relevant_guidelines,
+                current_matched=set(matching_result.matched_guidelines),
+                active_journeys=activated_journeys,
+            )
+        )
 
         # Step 8: Let the plan potentially intervene
         await plan.on_guidelines_matched(context, matched_guidelines)
@@ -1455,12 +1457,14 @@ class AlphaEngine(Engine):
         # Step 7: Build the final set of matched guidelines:
         all_activated_journeys = list(set(context.state.journeys + activated_journeys))
 
-        matched_guidelines = list(await self._build_matched_guidelines(
-            context=context,
-            evaluated_guidelines=guidelines_to_reevaluate,
-            current_matched=set(matching_result.matched_guidelines),
-            active_journeys=all_activated_journeys,
-        ))
+        matched_guidelines = list(
+            await self._build_matched_guidelines(
+                context=context,
+                evaluated_guidelines=guidelines_to_reevaluate,
+                current_matched=set(matching_result.matched_guidelines),
+                active_journeys=all_activated_journeys,
+            )
+        )
 
         # Step 8: Let the plan potentially intervene
         await plan.on_guidelines_matched(context, matched_guidelines)
@@ -2100,7 +2104,6 @@ class AlphaEngine(Engine):
                                 priority=guideline_data.get("priority", 0),
                             ),
                             rationale=f"Returned by tool '{tool_id}'",
-                            score=10,
                         )
                     )
 

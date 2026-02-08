@@ -2194,6 +2194,13 @@ Output a JSON object with three properties:
                 hints={"temperature": temperature},
             )
 
+            self._tracer.add_event(
+                "canrep.draft",
+                attributes={
+                    "insights": draft_response.content.insights or "N/A",
+                },
+            )
+
         self._logger.trace(
             f"Canned Response Draft Completion:\n{draft_response.content.model_dump_json(indent=2)}"
         )

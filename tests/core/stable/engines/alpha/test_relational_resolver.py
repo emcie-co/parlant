@@ -200,17 +200,16 @@ async def test_that_relational_resolver_prioritizes_guideline_over_journey(
 
     # Both the standalone guideline and journey-guidelines match
     journey_matches = [
-        GuidelineMatch(guideline=g, score=5 + i, rationale="")
-        for i, g in enumerate(journey_guidelines)
+        GuidelineMatch(guideline=g, rationale="") for i, g in enumerate(journey_guidelines)
     ]
     result = await resolver.resolve(
         [standalone_guideline] + list(journey_guidelines),
-        [GuidelineMatch(guideline=standalone_guideline, score=8, rationale="")] + journey_matches,
+        [GuidelineMatch(guideline=standalone_guideline, rationale="")] + journey_matches,
         journeys=[journey],
     )
 
     # Only the standalone guideline should remain (all journey-guidelines are filtered out)
-    assert result.matches == [GuidelineMatch(guideline=standalone_guideline, score=8, rationale="")]
+    assert result.matches == [GuidelineMatch(guideline=standalone_guideline, rationale="")]
 
 
 async def test_that_relational_resolver_prioritizes_journey_over_guideline(
@@ -279,12 +278,11 @@ async def test_that_relational_resolver_prioritizes_journey_over_guideline(
 
     # Both journey-guidelines and standalone guideline match
     journey_matches = [
-        GuidelineMatch(guideline=g, score=8 - i, rationale="")
-        for i, g in enumerate(journey_guidelines)
+        GuidelineMatch(guideline=g, rationale="") for i, g in enumerate(journey_guidelines)
     ]
     result = await resolver.resolve(
         list(journey_guidelines) + [standalone_guideline],
-        journey_matches + [GuidelineMatch(guideline=standalone_guideline, score=10, rationale="")],
+        journey_matches + [GuidelineMatch(guideline=standalone_guideline, rationale="")],
         journeys=[journey],
     )
 
@@ -361,8 +359,8 @@ async def test_that_relational_resolver_filters_journey_dependent_guideline_when
     result = await resolver.resolve(
         [guideline_y, guideline_x],
         [
-            GuidelineMatch(guideline=guideline_y, score=8, rationale=""),
-            GuidelineMatch(guideline=guideline_x, score=6, rationale=""),
+            GuidelineMatch(guideline=guideline_y, rationale=""),
+            GuidelineMatch(guideline=guideline_x, rationale=""),
         ],
         journeys=[journey],
     )
@@ -370,7 +368,7 @@ async def test_that_relational_resolver_filters_journey_dependent_guideline_when
     # Only Y should remain:
     # - Y prioritizes over J, so J is effectively deprioritized
     # - X depends on J, so when J is deprioritized, X is also filtered out
-    assert result.matches == [GuidelineMatch(guideline=guideline_y, score=8, rationale="")]
+    assert result.matches == [GuidelineMatch(guideline=guideline_y, rationale="")]
 
 
 async def test_that_relational_resolver_does_not_ignore_a_deprioritized_guideline_when_its_prioritized_counterpart_is_not_active(
@@ -1040,10 +1038,10 @@ async def test_that_relational_resolver_iterates_until_stable_with_cascading_pri
     result = await resolver.resolve(
         [guideline_a, guideline_b, guideline_c, guideline_d],
         [
-            GuidelineMatch(guideline=guideline_a, score=8, rationale=""),
-            GuidelineMatch(guideline=guideline_b, score=7, rationale=""),
-            GuidelineMatch(guideline=guideline_c, score=6, rationale=""),
-            GuidelineMatch(guideline=guideline_d, score=5, rationale=""),
+            GuidelineMatch(guideline=guideline_a, rationale=""),
+            GuidelineMatch(guideline=guideline_b, rationale=""),
+            GuidelineMatch(guideline=guideline_c, rationale=""),
+            GuidelineMatch(guideline=guideline_d, rationale=""),
         ],
         journeys=[],
     )
@@ -1135,9 +1133,9 @@ async def test_that_relational_resolver_handles_priority_affecting_dependency_in
     result = await resolver.resolve(
         [guideline_a, guideline_x, guideline_y, guideline_z],
         [
-            GuidelineMatch(guideline=guideline_a, score=8, rationale=""),
-            GuidelineMatch(guideline=guideline_x, score=7, rationale=""),
-            GuidelineMatch(guideline=guideline_y, score=6, rationale=""),
+            GuidelineMatch(guideline=guideline_a, rationale=""),
+            GuidelineMatch(guideline=guideline_x, rationale=""),
+            GuidelineMatch(guideline=guideline_y, rationale=""),
         ],
         journeys=[],
     )

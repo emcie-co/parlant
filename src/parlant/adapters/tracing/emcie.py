@@ -269,10 +269,10 @@ class EmcieTracer(Tracer):
         name: str,
         attributes: Mapping[str, AttributeValue] = {},
     ) -> None:
-        if name in ["journey.state.activate", "journey.state.skip"]:
+        if name in ["journey.state.activate", "journey.state.skipped"]:
             allowed_keys = {"edge_id", "node_id", "journey_id", "sub_journey_id", "journey_path"}
             transformed_attributes = {k: v for k, v in attributes.items() if k in allowed_keys}
-        elif name in ["gm.activate", "gm.skip"]:
+        elif name in ["gm.activate", "gm.skipped"]:
             allowed_keys = {"guideline_id", "rationale"}
             transformed_attributes = {k: v for k, v in attributes.items() if k in allowed_keys}
         elif name == "tc":

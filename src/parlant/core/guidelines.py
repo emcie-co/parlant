@@ -320,6 +320,7 @@ class GuidelineDocumentStore(GuidelineStore):
         id_generator: IdGenerator,
         database: DocumentDatabase,
         allow_migration: bool = False,
+        collections_prefix: str = "",
     ) -> None:
         self._id_generator = id_generator
 
@@ -328,6 +329,7 @@ class GuidelineDocumentStore(GuidelineStore):
         self._tag_association_collection: DocumentCollection[GuidelineTagAssociationDocument]
 
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
         self._lock = ReaderWriterLock()
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[GuidelineDocument]:
@@ -472,13 +474,13 @@ class GuidelineDocumentStore(GuidelineStore):
             allow_migration=self._allow_migration,
         ):
             self._collection = await self._database.get_or_create_collection(
-                name="guidelines",
+                name=f"{self._collections_prefix}_guidelines",
                 schema=GuidelineDocument,
                 document_loader=self._document_loader,
             )
 
             self._tag_association_collection = await self._database.get_or_create_collection(
-                name="guideline_tag_associations",
+                name=f"{self._collections_prefix}_guideline_tag_associations",
                 schema=GuidelineTagAssociationDocument,
                 document_loader=self._association_document_loader,
             )

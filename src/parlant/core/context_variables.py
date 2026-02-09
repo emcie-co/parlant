@@ -232,6 +232,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
         id_generator: IdGenerator,
         database: DocumentDatabase,
         allow_migration: bool = False,
+        collections_prefix: str = "",
     ):
         self._id_generator = id_generator
 
@@ -242,6 +243,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
         ]
         self._value_collection: DocumentCollection[_ContextVariableValueDocument]
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
 
         self._lock = ReaderWriterLock()
 
@@ -349,21 +351,21 @@ class ContextVariableDocumentStore(ContextVariableStore):
             allow_migration=self._allow_migration,
         ):
             self._variable_collection = await self._database.get_or_create_collection(
-                name="variables",
+                name=f"{self._collections_prefix}_variables",
                 schema=_ContextVariableDocument,
                 document_loader=self._variable_document_loader,
             )
 
             self._variable_tag_association_collection = (
                 await self._database.get_or_create_collection(
-                    name="variable_tag_associations",
+                    name=f"{self._collections_prefix}_variable_tag_associations",
                     schema=ContextVariableTagAssociationDocument,
                     document_loader=self._variable_tag_association_document_loader,
                 )
             )
 
             self._value_collection = await self._database.get_or_create_collection(
-                name="values",
+                name=f"{self._collections_prefix}_values",
                 schema=_ContextVariableValueDocument,
                 document_loader=self._value_document_loader,
             )

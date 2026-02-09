@@ -170,6 +170,7 @@ class RelationshipDocumentStore(RelationshipStore):
         id_generator: IdGenerator,
         database: DocumentDatabase,
         allow_migration: bool = False,
+        collections_prefix: str = "",
     ) -> None:
         self._id_generator = id_generator
 
@@ -177,6 +178,7 @@ class RelationshipDocumentStore(RelationshipStore):
         self._collection: DocumentCollection[RelationshipDocument]
         self._graphs: dict[RelationshipKind | RelationshipKind, networkx.DiGraph] = {}
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
         self._lock = ReaderWriterLock()
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[RelationshipDocument]:
@@ -201,7 +203,7 @@ class RelationshipDocumentStore(RelationshipStore):
             allow_migration=self._allow_migration,
         ):
             self._collection = await self._database.get_or_create_collection(
-                name="relationships",
+                name=f"{self._collections_prefix}_relationships",
                 schema=RelationshipDocument,
                 document_loader=self._document_loader,
             )

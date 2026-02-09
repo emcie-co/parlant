@@ -640,11 +640,17 @@ class _ToolEventData_v0_5_0(TypedDict):
 class SessionDocumentStore(SessionStore):
     VERSION = Version.from_string("0.9.0")
 
-    def __init__(self, database: DocumentDatabase, allow_migration: bool = False):
+    def __init__(
+        self,
+        database: DocumentDatabase,
+        allow_migration: bool = False,
+        collections_prefix: str = "",
+    ):
         self._database = database
         self._session_collection: DocumentCollection[_SessionDocument]
         self._event_collection: DocumentCollection[_EventDocument]
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
 
         self._lock = ReaderWriterLock()
 
@@ -896,12 +902,12 @@ class SessionDocumentStore(SessionStore):
             allow_migration=self._allow_migration,
         ):
             self._session_collection = await self._database.get_or_create_collection(
-                name="sessions",
+                name=f"{self._collections_prefix}_sessions",
                 schema=_SessionDocument,
                 document_loader=self._session_document_loader,
             )
             self._event_collection = await self._database.get_or_create_collection(
-                name="events",
+                name=f"{self._collections_prefix}_events",
                 schema=_EventDocument,
                 document_loader=self._event_document_loader,
             )

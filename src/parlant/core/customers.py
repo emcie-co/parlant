@@ -155,6 +155,7 @@ class CustomerDocumentStore(CustomerStore):
         id_generator: IdGenerator,
         database: DocumentDatabase,
         allow_migration: bool = False,
+        collections_prefix: str = "",
     ) -> None:
         self._id_generator = id_generator
 
@@ -163,6 +164,7 @@ class CustomerDocumentStore(CustomerStore):
         self._tag_association_collection: DocumentCollection[_CustomerTagAssociationDocument]
 
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
 
         self._lock = ReaderWriterLock()
 
@@ -197,13 +199,13 @@ class CustomerDocumentStore(CustomerStore):
             allow_migration=self._allow_migration,
         ):
             self._customers_collection = await self._database.get_or_create_collection(
-                name="customers",
+                name=f"{self._collections_prefix}_customers",
                 schema=_CustomerDocument,
                 document_loader=self._document_loader,
             )
 
             self._tag_association_collection = await self._database.get_or_create_collection(
-                name="customer_tag_associations",
+                name=f"{self._collections_prefix}_customer_tag_associations",
                 schema=_CustomerTagAssociationDocument,
                 document_loader=self._association_document_loader,
             )

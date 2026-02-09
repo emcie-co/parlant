@@ -1195,7 +1195,7 @@ class Test_that_journey_state_field_provider_contributes_fields_to_canned_respon
             return {"order_number": 12345}
 
         self.state = await self.journey.initial_state.transition_to(
-            chat_state="Confirm the order",
+            chat_state="Tell them their order number is 12345",
             composition_mode=p.CompositionMode.STRICT,
             canned_responses=[canrep_id],
             canned_response_field_provider=provide_order_fields,

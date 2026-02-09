@@ -85,6 +85,7 @@ class GuidelineToolAssociationDocumentStore(GuidelineToolAssociationStore):
         id_generator: IdGenerator,
         database: DocumentDatabase,
         allow_migration: bool = False,
+        collections_prefix: str = "",
     ) -> None:
         self._id_generator = id_generator
 
@@ -92,6 +93,7 @@ class GuidelineToolAssociationDocumentStore(GuidelineToolAssociationStore):
         self._collection: DocumentCollection[_GuidelineToolAssociationDocument]
 
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
         self._lock = ReaderWriterLock()
 
     async def _document_loader(
@@ -109,7 +111,7 @@ class GuidelineToolAssociationDocumentStore(GuidelineToolAssociationStore):
             allow_migration=self._allow_migration,
         ):
             self._collection = await self._database.get_or_create_collection(
-                name="associations",
+                name=f"{self._collections_prefix}_associations",
                 schema=_GuidelineToolAssociationDocument,
                 document_loader=self._document_loader,
             )

@@ -72,6 +72,8 @@ chroma = ["chromadb>=1.1.1"]
 qdrant = ["qdrant-client>=1.7.0"]
 mongo = ["pymongo>=4.11.1"]
 
+elasticsearch = ["elasticsearch>=8.18.0"]
+
 anthropic = ["anthropic>=0.60.0", "torch>=2.8.0", "transformers>=4.53.0"]
 
 aws = ["anthropic>=0.60.0", "transformers>=4.53.0", "torch>=2.8.0"]

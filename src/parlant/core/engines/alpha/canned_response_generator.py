@@ -273,7 +273,8 @@ class ToolBasedFieldExtraction(CannedResponseFieldExtractionMethod):
         )
 
         for tool_call in tool_calls_in_order_of_importance:
-            if value := tool_call["result"].get("canned_response_fields", {}).get(field_name, None):
+            value = tool_call["result"].get("canned_response_fields", {}).get(field_name, None)
+            if value is not None:
                 return True, value
 
         return False, None

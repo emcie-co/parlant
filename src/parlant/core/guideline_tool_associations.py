@@ -85,7 +85,7 @@ class GuidelineToolAssociationDocumentStore(GuidelineToolAssociationStore):
         id_generator: IdGenerator,
         database: DocumentDatabase,
         allow_migration: bool = False,
-        collections_prefix: str = "",
+        collections_prefix: str | None = None,
     ) -> None:
         self._id_generator = id_generator
 
@@ -111,7 +111,9 @@ class GuidelineToolAssociationDocumentStore(GuidelineToolAssociationStore):
             allow_migration=self._allow_migration,
         ):
             self._collection = await self._database.get_or_create_collection(
-                name=f"{self._collections_prefix}_associations",
+                name=f"{self._collections_prefix}_associations"
+                if self._collections_prefix
+                else "associations",
                 schema=_GuidelineToolAssociationDocument,
                 document_loader=self._document_loader,
             )

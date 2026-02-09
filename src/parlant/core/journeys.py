@@ -658,6 +658,7 @@ class JourneyVectorStore(JourneyStore):
             store=self,
             database=self._document_db,
             allow_migration=self._allow_migration,
+            collections_prefix=self._collections_prefix,
         ):
             self._collection = await self._document_db.get_or_create_collection(
                 name=f"{self._collections_prefix}_journeys"

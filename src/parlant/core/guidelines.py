@@ -472,6 +472,7 @@ class GuidelineDocumentStore(GuidelineStore):
             store=self,
             database=self._database,
             allow_migration=self._allow_migration,
+            collections_prefix=self._collections_prefix,
         ):
             self._collection = await self._database.get_or_create_collection(
                 name=f"{self._collections_prefix}_guidelines"

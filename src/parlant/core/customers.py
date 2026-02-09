@@ -196,6 +196,7 @@ class CustomerDocumentStore(CustomerStore):
             store=self,
             database=self._database,
             allow_migration=self._allow_migration,
+            collections_prefix=self._collections_prefix,
         ):
             self._customers_collection = await self._database.get_or_create_collection(
                 name=f"{self._collections_prefix}_customers"

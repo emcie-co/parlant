@@ -279,6 +279,7 @@ class AgentDocumentStore(AgentStore):
             store=self,
             database=self._database,
             allow_migration=self._allow_migration,
+            collections_prefix=self._collections_prefix,
         ):
             self._agents_collection = await self._database.get_or_create_collection(
                 name=f"{self._collections_prefix}_agents" if self._collections_prefix else "agents",

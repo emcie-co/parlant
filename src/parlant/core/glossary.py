@@ -174,6 +174,7 @@ class GlossaryVectorStore(GlossaryStore):
         embedder_type_provider: Callable[[], Awaitable[type[Embedder]]],
         embedder_factory: EmbedderFactory,
         allow_migration: bool = True,
+        collections_prefix: str = "",
     ):
         self._id_generator = id_generator
 
@@ -184,6 +185,7 @@ class GlossaryVectorStore(GlossaryStore):
         self._association_collection: DocumentCollection[TermTagAssociationDocument]
 
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
 
         self._embedder_factory = embedder_factory
         self._embedder_type_provider = embedder_type_provider
@@ -220,7 +222,7 @@ class GlossaryVectorStore(GlossaryStore):
             allow_migration=self._allow_migration,
         ):
             self._collection = await self._vector_db.get_or_create_collection(
-                name="glossary",
+                name=f"{self._collections_prefix}_glossary",
                 schema=_TermDocument,
                 embedder_type=embedder_type,
                 document_loader=self._document_loader,
@@ -232,7 +234,7 @@ class GlossaryVectorStore(GlossaryStore):
             allow_migration=self._allow_migration,
         ):
             self._association_collection = await self._document_db.get_or_create_collection(
-                name="glossary_tags",
+                name=f"{self._collections_prefix}_glossary_tags",
                 schema=TermTagAssociationDocument,
                 document_loader=self._association_document_loader,
             )

@@ -6,7 +6,7 @@ All notable changes to Parlant will be documented here.
 
 TBD
 
-## [3.2.0] - 2026-02-08
+## [3.2.0] - 2026-02-09
 
 ### Added
 

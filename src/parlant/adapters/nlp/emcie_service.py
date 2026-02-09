@@ -211,6 +211,7 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
             t_end = time.time()
         except (InsufficientCreditsError, RateLimitError):
             self.logger.error(ERROR_MESSAGE)
+            raise
         except EmcieAPIError as e:
             self.logger.error(f"Emcie API error occurred: {e}")
             raise

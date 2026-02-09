@@ -933,13 +933,8 @@ class JourneyVectorStore(JourneyStore):
                     }
                 )
 
-<<<<<<< HEAD
             for trigger in triggers:
                 trigger_checksum = xxh3_checksum(f"{journey.id}{trigger}")
-=======
-            for condition in conditions:
-                condition_checksum = md5_checksum(f"{journey.id}{condition}")
->>>>>>> dd42a6efe (Add collections prefix)
 
                 await self._condition_association_collection.insert_one(
                     document={
@@ -1126,11 +1121,7 @@ class JourneyVectorStore(JourneyStore):
             if condition in journey.conditions:
                 return False
 
-<<<<<<< HEAD
             trigger_checksum = xxh3_checksum(f"{journey_id}{trigger}")
-=======
-            condition_checksum = md5_checksum(f"{journey_id}{condition}")
->>>>>>> dd42a6efe (Add collections prefix)
 
             await self._condition_association_collection.insert_one(
                 document={

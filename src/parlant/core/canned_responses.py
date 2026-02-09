@@ -277,6 +277,7 @@ class CannedResponseVectorStore(CannedResponseStore):
         embedder_type_provider: Callable[[], Awaitable[type[Embedder]]],
         embedder_factory: EmbedderFactory,
         allow_migration: bool = True,
+        collections_prefix: str = "",
     ) -> None:
         self._id_generator = id_generator
 
@@ -289,6 +290,7 @@ class CannedResponseVectorStore(CannedResponseStore):
             CannedResponseTagAssociationDocument
         ]
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
         self._lock = ReaderWriterLock()
         self._embedder_factory = embedder_factory
         self._embedder_type_provider = embedder_type_provider
@@ -453,7 +455,7 @@ class CannedResponseVectorStore(CannedResponseStore):
             allow_migration=self._allow_migration,
         ):
             self._canreps_vector_collection = await self._vector_db.get_or_create_collection(
-                name="canned_responses",
+                name=f"{self._collections_prefix}_canned_responses",
                 schema=CannedResponseVectorDocument,
                 embedder_type=embedder_type,
                 document_loader=self._vector_document_loader,
@@ -465,13 +467,13 @@ class CannedResponseVectorStore(CannedResponseStore):
             allow_migration=self._allow_migration,
         ):
             self._canreps_collection = await self._database.get_or_create_collection(
-                name="canned_responses",
+                name=f"{self._collections_prefix}_canned_responses",
                 schema=CannedResponseDocument,
                 document_loader=self._document_loader,
             )
 
             self._canrep_tag_association_collection = await self._database.get_or_create_collection(
-                name="canned_response_tag_associations",
+                name=f"{self._collections_prefix}_canned_response_tag_associations",
                 schema=CannedResponseTagAssociationDocument,
                 document_loader=self._association_document_loader,
             )

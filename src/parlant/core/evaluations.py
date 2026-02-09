@@ -421,7 +421,7 @@ class EvaluationDocumentStore(EvaluationStore):
         self,
         database: DocumentDatabase,
         allow_migration: bool = False,
-        collections_prefix: str = "",
+        collections_prefix: str | None = None,
     ) -> None:
         self._database = database
         self._collection: DocumentCollection[EvaluationDocument]
@@ -617,13 +617,17 @@ class EvaluationDocumentStore(EvaluationStore):
             allow_migration=self._allow_migration,
         ):
             self._collection = await self._database.get_or_create_collection(
-                name=f"{self._collections_prefix}_evaluations",
+                name=f"{self._collections_prefix}_evaluations"
+                if self._collections_prefix
+                else "evaluations",
                 schema=EvaluationDocument,
                 document_loader=self.document_loader,
             )
 
             self._tag_association_collection = await self._database.get_or_create_collection(
-                name=f"{self._collections_prefix}_evaluation_tag_associations",
+                name=f"{self._collections_prefix}_evaluation_tag_associations"
+                if self._collections_prefix
+                else "evaluation_tag_associations",
                 schema=EvaluationTagAssociationDocument,
                 document_loader=self.tag_association_document_loader,
             )

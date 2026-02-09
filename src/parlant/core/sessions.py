@@ -644,7 +644,7 @@ class SessionDocumentStore(SessionStore):
         self,
         database: DocumentDatabase,
         allow_migration: bool = False,
-        collections_prefix: str = "",
+        collections_prefix: str | None = None,
     ):
         self._database = database
         self._session_collection: DocumentCollection[_SessionDocument]
@@ -902,12 +902,14 @@ class SessionDocumentStore(SessionStore):
             allow_migration=self._allow_migration,
         ):
             self._session_collection = await self._database.get_or_create_collection(
-                name=f"{self._collections_prefix}_sessions",
+                name=f"{self._collections_prefix}_sessions"
+                if self._collections_prefix
+                else "sessions",
                 schema=_SessionDocument,
                 document_loader=self._session_document_loader,
             )
             self._event_collection = await self._database.get_or_create_collection(
-                name=f"{self._collections_prefix}_events",
+                name=f"{self._collections_prefix}_events" if self._collections_prefix else "events",
                 schema=_EventDocument,
                 document_loader=self._event_document_loader,
             )

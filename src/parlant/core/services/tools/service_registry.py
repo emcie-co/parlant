@@ -129,7 +129,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
         tracer: Tracer,
         nlp_services_provider: Callable[[], Mapping[str, NLPService]],
         allow_migration: bool = False,
-        collections_prefix: str = "",
+        collections_prefix: str | None = None,
     ):
         self._database = database
         self._tool_services_collection: DocumentCollection[_ToolServiceDocument]
@@ -177,7 +177,9 @@ class ServiceDocumentRegistry(ServiceRegistry):
             allow_migration=self._allow_migration,
         ):
             self._tool_services_collection = await self._database.get_or_create_collection(
-                name=f"{self._collections_prefix}_tool_services",
+                name=f"{self._collections_prefix}_tool_services"
+                if self._collections_prefix
+                else "tool_services",
                 schema=_ToolServiceDocument,
                 document_loader=self._document_loader,
             )

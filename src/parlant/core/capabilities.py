@@ -174,7 +174,7 @@ class CapabilityVectorStore(CapabilityStore):
         embedder_type_provider: Callable[[], Awaitable[type[Embedder]]],
         embedder_factory: EmbedderFactory,
         allow_migration: bool = True,
-        collections_prefix: str = "",
+        collections_prefix: str | None = None,
     ):
         self._id_generator = id_generator
 
@@ -221,7 +221,9 @@ class CapabilityVectorStore(CapabilityStore):
             allow_migration=self._allow_migration,
         ):
             self._vector_collection = await self._vector_db.get_or_create_collection(
-                name=f"{self._collections_prefix}_capabilities",
+                name=f"{self._collections_prefix}_capabilities"
+                if self._collections_prefix
+                else "capabilities",
                 schema=CapabilityVectorDocument,
                 embedder_type=embedder_type,
                 document_loader=self._vector_document_loader,
@@ -233,13 +235,17 @@ class CapabilityVectorStore(CapabilityStore):
             allow_migration=self._allow_migration,
         ):
             self._collection = await self._document_db.get_or_create_collection(
-                name=f"{self._collections_prefix}_capabilities",
+                name=f"{self._collections_prefix}_capabilities"
+                if self._collections_prefix
+                else "capabilities",
                 schema=CapabilityDocument,
                 document_loader=self._document_loader,
             )
 
             self._tag_association_collection = await self._document_db.get_or_create_collection(
-                name=f"{self._collections_prefix}_capability_tags",
+                name=f"{self._collections_prefix}_capability_tags"
+                if self._collections_prefix
+                else "capability_tags",
                 schema=CapabilityTagAssociationDocument,
                 document_loader=self._association_document_loader,
             )

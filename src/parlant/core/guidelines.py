@@ -320,7 +320,7 @@ class GuidelineDocumentStore(GuidelineStore):
         id_generator: IdGenerator,
         database: DocumentDatabase,
         allow_migration: bool = False,
-        collections_prefix: str = "",
+        collections_prefix: str | None = None,
     ) -> None:
         self._id_generator = id_generator
 
@@ -474,13 +474,17 @@ class GuidelineDocumentStore(GuidelineStore):
             allow_migration=self._allow_migration,
         ):
             self._collection = await self._database.get_or_create_collection(
-                name=f"{self._collections_prefix}_guidelines",
+                name=f"{self._collections_prefix}_guidelines"
+                if self._collections_prefix
+                else "guidelines",
                 schema=GuidelineDocument,
                 document_loader=self._document_loader,
             )
 
             self._tag_association_collection = await self._database.get_or_create_collection(
-                name=f"{self._collections_prefix}_guideline_tag_associations",
+                name=f"{self._collections_prefix}_guideline_tag_associations"
+                if self._collections_prefix
+                else "guideline_tag_associations",
                 schema=GuidelineTagAssociationDocument,
                 document_loader=self._association_document_loader,
             )

@@ -89,7 +89,7 @@ class Journey:
     id: JourneyId
     creation_utc: datetime
     description: str
-    triggers: Sequence[GuidelineId]
+    conditions: Sequence[GuidelineId]
     title: str
     root_id: JourneyNodeId
     tags: Sequence[TagId]
@@ -130,7 +130,7 @@ class JourneyStore(ABC):
         self,
         title: str,
         description: str,
-        triggers: Sequence[GuidelineId],
+        conditions: Sequence[GuidelineId],
         creation_utc: Optional[datetime] = None,
         tags: Optional[Sequence[TagId]] = None,
         id: Optional[JourneyId] = None,
@@ -143,7 +143,7 @@ class JourneyStore(ABC):
     async def list_journeys(
         self,
         tags: Optional[Sequence[TagId]] = None,
-        trigger: Optional[GuidelineId] = None,
+        condition: Optional[GuidelineId] = None,
     ) -> Sequence[Journey]: ...
 
     @abstractmethod
@@ -166,17 +166,17 @@ class JourneyStore(ABC):
     ) -> None: ...
 
     @abstractmethod
-    async def add_trigger(
+    async def add_condition(
         self,
         journey_id: JourneyId,
-        trigger: GuidelineId,
+        condition: GuidelineId,
     ) -> bool: ...
 
     @abstractmethod
-    async def remove_trigger(
+    async def remove_condition(
         self,
         journey_id: JourneyId,
-        trigger: GuidelineId,
+        condition: GuidelineId,
     ) -> bool: ...
 
     @abstractmethod
@@ -401,26 +401,12 @@ class JourneyDocument(TypedDict, total=False):
     priority: int
 
 
-class JourneyConditionAssociationDocument_v0_6_0(TypedDict, total=False):
-    """Pre-rename (≤ v0.6.0) shape for the legacy ``journey_conditions`` collection.
-
-    Kept only so the prepare-migration script can read records from the old
-    collection before copying them into ``journey_triggers``.
-    """
-
+class JourneyConditionAssociationDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
     journey_id: JourneyId
     condition: GuidelineId
-
-
-class JourneyTriggerAssociationDocument(TypedDict, total=False):
-    id: ObjectId
-    version: Version.String
-    creation_utc: str
-    journey_id: JourneyId
-    trigger: GuidelineId
 
 
 class JourneyNodeAssociationDocument_v0_3_0(TypedDict, total=False):
@@ -482,7 +468,7 @@ class JourneyTagAssociationDocument(TypedDict, total=False):
 
 
 class JourneyVectorStore(JourneyStore):
-    VERSION = Version.from_string("0.7.0")
+    VERSION = Version.from_string("0.6.0")
 
     def __init__(
         self,
@@ -492,6 +478,7 @@ class JourneyVectorStore(JourneyStore):
         embedder_type_provider: Callable[[], Awaitable[type[Embedder]]],
         embedder_factory: EmbedderFactory,
         allow_migration: bool = True,
+        collections_prefix: str = "",
     ):
         self._id_generator = id_generator
 
@@ -503,11 +490,12 @@ class JourneyVectorStore(JourneyStore):
         self._edge_association_collection: DocumentCollection[JourneyEdgeAssociationDocument]
 
         self._tag_association_collection: DocumentCollection[JourneyTagAssociationDocument]
-        self._trigger_association_collection: DocumentCollection[
-            JourneyTriggerAssociationDocument
+        self._condition_association_collection: DocumentCollection[
+            JourneyConditionAssociationDocument
         ]
 
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
 
         self._embedder_factory = embedder_factory
         self._embedder_type_provider = embedder_type_provider
@@ -569,13 +557,6 @@ class JourneyVectorStore(JourneyStore):
                 priority=0,  # Default to 0 for existing journeys
             )
 
-        async def v0_6_0_to_v0_7_0(doc: BaseDocument) -> Optional[BaseDocument]:
-            # Journey shape itself is unchanged; only the side collection
-            # `journey_conditions` was renamed to `journey_triggers`. That
-            # data move is handled by the prepare-migration script.
-            d = cast(JourneyDocument, doc)
-            return JourneyDocument(**{**d, "version": Version.String("0.7.0")})
-
         async def v0_1_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
@@ -589,7 +570,6 @@ class JourneyVectorStore(JourneyStore):
                 "0.3.0": v0_3_0_to_v0_4_0,
                 "0.4.0": v0_4_0_to_v0_5_0,
                 "0.5.0": v0_5_0_to_v0_6_0,
-                "0.6.0": v0_6_0_to_v0_7_0,
             },
         ).migrate(doc)
 
@@ -608,15 +588,15 @@ class JourneyVectorStore(JourneyStore):
             },
         ).migrate(doc)
 
-    async def _trigger_association_loader(
+    async def _condition_association_loader(
         self, doc: BaseDocument
-    ) -> Optional[JourneyTriggerAssociationDocument]:
+    ) -> Optional[JourneyConditionAssociationDocument]:
         async def v0_1_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
 
-        return await DocumentMigrationHelper[JourneyTriggerAssociationDocument](
+        return await DocumentMigrationHelper[JourneyConditionAssociationDocument](
             self,
             {
                 "0.1.0": v0_1_0_to_v0_3_0,
@@ -696,7 +676,7 @@ class JourneyVectorStore(JourneyStore):
             allow_migration=self._allow_migration,
         ):
             self._vector_collection = await self._vector_db.get_or_create_collection(
-                name="journeys",
+                name=f"{self._collections_prefix}_journeys",
                 schema=JourneyVectorDocument,
                 embedder_type=embedder_type,
                 document_loader=self._vector_document_loader,
@@ -708,34 +688,34 @@ class JourneyVectorStore(JourneyStore):
             allow_migration=self._allow_migration,
         ):
             self._collection = await self._document_db.get_or_create_collection(
-                name="journeys",
+                name=f"{self._collections_prefix}_journeys",
                 schema=JourneyDocument,
                 document_loader=self._document_loader,
             )
 
             self._node_association_collection = await self._document_db.get_or_create_collection(
-                name="journey_nodes",
+                name=f"{self._collections_prefix}_journey_nodes",
                 schema=JourneyNodeAssociationDocument,
                 document_loader=self._node_association_loader,
             )
 
             self._edge_association_collection = await self._document_db.get_or_create_collection(
-                name="journey_edges",
+                name=f"{self._collections_prefix}_journey_edges",
                 schema=JourneyEdgeAssociationDocument,
                 document_loader=self._edge_association_loader,
             )
 
             self._tag_association_collection = await self._document_db.get_or_create_collection(
-                name="journey_tags",
+                name=f"{self._collections_prefix}_journey_tags",
                 schema=JourneyTagAssociationDocument,
                 document_loader=self._tag_association_loader,
             )
 
-            self._trigger_association_collection = (
+            self._condition_association_collection = (
                 await self._document_db.get_or_create_collection(
-                    name="journey_triggers",
-                    schema=JourneyTriggerAssociationDocument,
-                    document_loader=self._trigger_association_loader,
+                    name=f"{self._collections_prefix}_journey_conditions",
+                    schema=JourneyConditionAssociationDocument,
+                    document_loader=self._condition_association_loader,
                 )
             )
 
@@ -771,9 +751,9 @@ class JourneyVectorStore(JourneyStore):
             for d in await self._tag_association_collection.find({"journey_id": {"$eq": doc["id"]}})
         ]
 
-        triggers = [
-            d["trigger"]
-            for d in await self._trigger_association_collection.find(
+        conditions = [
+            d["condition"]
+            for d in await self._condition_association_collection.find(
                 {"journey_id": {"$eq": doc["id"]}}
             )
         ]
@@ -784,7 +764,7 @@ class JourneyVectorStore(JourneyStore):
         return Journey(
             id=JourneyId(doc["id"]),
             creation_utc=datetime.fromisoformat(doc["creation_utc"]),
-            triggers=triggers,
+            conditions=conditions,
             title=doc["title"],
             description=doc["description"],
             root_id=JourneyNodeId(doc["root_id"]),
@@ -872,7 +852,7 @@ class JourneyVectorStore(JourneyStore):
         self,
         title: str,
         description: str,
-        triggers: Sequence[GuidelineId],
+        conditions: Sequence[GuidelineId],
         creation_utc: Optional[datetime] = None,
         tags: Optional[Sequence[TagId]] = None,
         id: Optional[JourneyId] = None,
@@ -912,7 +892,7 @@ class JourneyVectorStore(JourneyStore):
             journey = Journey(
                 id=journey_id,
                 creation_utc=creation_utc,
-                triggers=triggers,
+                conditions=conditions,
                 title=title,
                 description=description,
                 root_id=journey_root_id,
@@ -953,16 +933,21 @@ class JourneyVectorStore(JourneyStore):
                     }
                 )
 
+<<<<<<< HEAD
             for trigger in triggers:
                 trigger_checksum = xxh3_checksum(f"{journey.id}{trigger}")
+=======
+            for condition in conditions:
+                condition_checksum = md5_checksum(f"{journey.id}{condition}")
+>>>>>>> dd42a6efe (Add collections prefix)
 
-                await self._trigger_association_collection.insert_one(
+                await self._condition_association_collection.insert_one(
                     document={
-                        "id": ObjectId(self._id_generator.generate(trigger_checksum)),
+                        "id": ObjectId(self._id_generator.generate(condition_checksum)),
                         "version": self.VERSION.to_string(),
                         "creation_utc": creation_utc.isoformat(),
                         "journey_id": journey.id,
-                        "trigger": trigger,
+                        "condition": condition,
                     }
                 )
 
@@ -1023,11 +1008,11 @@ class JourneyVectorStore(JourneyStore):
     async def list_journeys(
         self,
         tags: Optional[Sequence[TagId]] = None,
-        trigger: Optional[GuidelineId] = None,
+        condition: Optional[GuidelineId] = None,
     ) -> Sequence[Journey]:
         filters: Where = {}
         journey_ids: set[JourneyId] = set()
-        trigger_journey_ids: set[JourneyId] = set()
+        condition_journey_ids: set[JourneyId] = set()
 
         async with self._lock.reader_lock:
             if tags is not None:
@@ -1062,18 +1047,18 @@ class JourneyVectorStore(JourneyStore):
                     else:
                         filters = {"$or": [{"id": {"$eq": id}} for id in journey_ids]}
 
-            if trigger is not None:
-                trigger_journey_ids = {
+            if condition is not None:
+                condition_journey_ids = {
                     c_doc["journey_id"]
-                    for c_doc in await self._trigger_association_collection.find(
-                        filters={"trigger": {"$eq": trigger}}
+                    for c_doc in await self._condition_association_collection.find(
+                        filters={"condition": {"$eq": condition}}
                     )
                 }
 
                 if not journey_ids:
-                    journey_ids = trigger_journey_ids
+                    journey_ids = condition_journey_ids
                 else:
-                    journey_ids.intersection_update(trigger_journey_ids)
+                    journey_ids.intersection_update(condition_journey_ids)
 
                 if journey_ids:
                     filters = {"$or": [{"id": {"$eq": id}} for id in journey_ids]}
@@ -1106,12 +1091,12 @@ class JourneyVectorStore(JourneyStore):
                     filters={"id": {"$eq": e_doc["id"]}}
                 )
 
-            for c_doc in await self._trigger_association_collection.find(
+            for c_doc in await self._condition_association_collection.find(
                 filters={
                     "journey_id": {"$eq": journey_id},
                 }
             ):
-                await self._trigger_association_collection.delete_one(
+                await self._condition_association_collection.delete_one(
                     filters={"id": {"$eq": c_doc["id"]}}
                 )
 
@@ -1130,42 +1115,46 @@ class JourneyVectorStore(JourneyStore):
             raise ItemNotFoundError(item_id=UniqueId(journey_id))
 
     @override
-    async def add_trigger(
+    async def add_condition(
         self,
         journey_id: JourneyId,
-        trigger: GuidelineId,
+        condition: GuidelineId,
     ) -> bool:
         async with self._lock.writer_lock:
             journey = await self.read_journey(journey_id)
 
-            if trigger in journey.triggers:
+            if condition in journey.conditions:
                 return False
 
+<<<<<<< HEAD
             trigger_checksum = xxh3_checksum(f"{journey_id}{trigger}")
+=======
+            condition_checksum = md5_checksum(f"{journey_id}{condition}")
+>>>>>>> dd42a6efe (Add collections prefix)
 
-            await self._trigger_association_collection.insert_one(
+            await self._condition_association_collection.insert_one(
                 document={
-                    "id": ObjectId(self._id_generator.generate(trigger_checksum)),
+                    "id": ObjectId(self._id_generator.generate(condition_checksum)),
                     "version": self.VERSION.to_string(),
                     "creation_utc": datetime.now(timezone.utc).isoformat(),
                     "journey_id": journey_id,
-                    "trigger": trigger,
+                    "condition": condition,
                 }
             )
 
             return True
 
     @override
-    async def remove_trigger(
+    async def remove_condition(
         self,
         journey_id: JourneyId,
-        trigger: GuidelineId,
+        condition: GuidelineId,
     ) -> bool:
         async with self._lock.writer_lock:
-            await self._trigger_association_collection.delete_one(
+            await self._condition_association_collection.delete_one(
                 filters={
                     "journey_id": {"$eq": journey_id},
-                    "trigger": {"$eq": trigger},
+                    "condition": {"$eq": condition},
                 }
             )
 

@@ -421,12 +421,14 @@ class EvaluationDocumentStore(EvaluationStore):
         self,
         database: DocumentDatabase,
         allow_migration: bool = False,
+        collections_prefix: str = "",
     ) -> None:
         self._database = database
         self._collection: DocumentCollection[EvaluationDocument]
         self._tag_association_collection: DocumentCollection[EvaluationTagAssociationDocument]
 
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
         self._lock = ReaderWriterLock()
 
     async def tag_association_document_loader(
@@ -615,13 +617,13 @@ class EvaluationDocumentStore(EvaluationStore):
             allow_migration=self._allow_migration,
         ):
             self._collection = await self._database.get_or_create_collection(
-                name="evaluations",
+                name=f"{self._collections_prefix}_evaluations",
                 schema=EvaluationDocument,
                 document_loader=self.document_loader,
             )
 
             self._tag_association_collection = await self._database.get_or_create_collection(
-                name="evaluation_tag_associations",
+                name=f"{self._collections_prefix}_evaluation_tag_associations",
                 schema=EvaluationTagAssociationDocument,
                 document_loader=self.tag_association_document_loader,
             )

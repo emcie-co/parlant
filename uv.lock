@@ -4302,7 +4302,7 @@ requires-dist = [
     { name = "opentelemetry-exporter-otlp", specifier = ">=1.37.0" },
     { name = "opentelemetry-instrumentation", specifier = ">=0.58b0" },
     { name = "opentelemetry-sdk", specifier = ">=1.37.0" },
-    { name = "parlant-client", git = "https://github.com/emcie-co/parlant-client-python.git?rev=v3.1.0" },
+    { name = "parlant-client", git = "https://github.com/emcie-co/parlant-client-python.git?rev=v3.2.0" },
     { name = "pymongo", marker = "extra == 'mongo'", specifier = ">=4.11.1" },
     { name = "python-dateutil", specifier = ">=2.8.2" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
@@ -4364,8 +4364,8 @@ dev = [
 
 [[package]]
 name = "parlant-client"
-version = "3.1.0"
-source = { git = "https://github.com/emcie-co/parlant-client-python.git?rev=v3.1.0#f6a1b8cc5834cb6e8d28bfcc8b5495ea218098c7" }
+version = "3.2.0"
+source = { git = "https://github.com/emcie-co/parlant-client-python.git?rev=v3.2.0#24ad0fa3662ccaf41ebf87b8b7ae0b0b74935e5e" }
 dependencies = [
     { name = "httpx" },
     { name = "mypy" },

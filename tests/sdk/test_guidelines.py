@@ -257,6 +257,70 @@ class Test_that_guideline_can_depend_on_journey(SDKTest):
         assert relationship.target.id == Tag.for_journey_id(self.journey.id)
 
 
+class Test_that_guideline_can_be_created_with_inline_dependencies(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Inline Deps Agent",
+            description="Agent for inline dependency creation",
+        )
+
+        self.g1 = await self.agent.create_guideline(
+            condition="Customer greets",
+            action="Greet them back",
+        )
+
+        self.g2 = await self.agent.create_guideline(
+            condition="Customer asks about pricing",
+            action="Provide pricing info",
+        )
+
+        self.g3 = await self.agent.create_guideline(
+            condition="Customer wants a quote",
+            action="Generate a quote based on pricing",
+            dependencies=[self.g1, self.g2],
+        )
+
+    async def run(self, ctx: Context) -> None:
+        relationship_store = ctx.container[RelationshipStore]
+        relationships = await relationship_store.list_relationships(
+            source_id=self.g3.id,
+            kind=RelationshipKind.DEPENDENCY,
+        )
+
+        assert len(relationships) == 2
+        target_ids = {r.target.id for r in relationships}
+        assert self.g1.id in target_ids
+        assert self.g2.id in target_ids
+
+
+class Test_that_observation_can_be_created_with_inline_dependencies(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Obs Deps Agent",
+            description="Agent for observation inline dependencies",
+        )
+
+        self.g1 = await self.agent.create_guideline(
+            condition="Customer mentions a product",
+            action="Note the product",
+        )
+
+        self.observation = await self.agent.create_observation(
+            condition="Customer seems interested in buying",
+            dependencies=[self.g1],
+        )
+
+    async def run(self, ctx: Context) -> None:
+        relationship_store = ctx.container[RelationshipStore]
+        relationships = await relationship_store.list_relationships(
+            source_id=self.observation.id,
+            kind=RelationshipKind.DEPENDENCY,
+        )
+
+        assert len(relationships) == 1
+        assert relationships[0].target.id == self.g1.id
+
+
 class Test_that_agent_guideline_can_be_created_with_canned_responses(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(

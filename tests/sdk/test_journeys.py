@@ -597,6 +597,71 @@ class Test_that_journey_can_depend_on_a_guideline(SDKTest):
         assert relationship.target.id == self.guideline.id
 
 
+class Test_that_journey_can_be_created_with_inline_dependencies(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Journey Inline Deps Agent",
+            description="Agent for journey inline dependency creation",
+        )
+
+        self.guideline = await self.agent.create_guideline(
+            condition="Customer must confirm identity",
+            action="Ask for verification",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Account Recovery",
+            conditions=["customer requests password reset"],
+            description="Assist customer with account recovery",
+            dependencies=[self.guideline],
+        )
+
+    async def run(self, ctx: Context) -> None:
+        relationship_store = ctx.container[RelationshipStore]
+        relationships = await relationship_store.list_relationships(
+            source_id=Tag.for_journey_id(self.journey.id),
+            kind=RelationshipKind.DEPENDENCY,
+        )
+
+        assert len(relationships) == 1
+        assert relationships[0].target.id == self.guideline.id
+
+
+class Test_that_journey_guideline_can_be_created_with_inline_dependencies(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Journey GL Deps Agent",
+            description="Agent for journey guideline inline dependencies",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Support Journey",
+            conditions=["Customer needs help"],
+            description="Handle support requests",
+        )
+
+        self.g1 = await self.journey.create_guideline(
+            condition="Customer describes a problem",
+            action="Acknowledge the problem",
+        )
+
+        self.g2 = await self.journey.create_guideline(
+            condition="Customer provides details",
+            action="Summarize the issue",
+            dependencies=[self.g1],
+        )
+
+    async def run(self, ctx: Context) -> None:
+        relationship_store = ctx.container[RelationshipStore]
+        relationships = await relationship_store.list_relationships(
+            source_id=self.g2.id,
+            kind=RelationshipKind.DEPENDENCY,
+        )
+
+        target_ids = {r.target.id for r in relationships}
+        assert self.g1.id in target_ids
+
+
 class Test_that_journey_guideline_can_be_created_with_canned_responses(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(

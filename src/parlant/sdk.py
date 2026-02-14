@@ -2360,9 +2360,10 @@ class Journey:
         id: GuidelineId | None = None,
         track: bool = True,
         labels: Iterable[str] = (),
+        dependencies: Sequence[Guideline | Journey] = [],
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
-        return await self._server._create_guideline(
+        guideline = await self._server._create_guideline(
             condition=condition,
             action=action,
             description=description,
@@ -2382,6 +2383,11 @@ class Journey:
             labels=labels,
         )
 
+        if dependencies:
+            await guideline.depend_on(*dependencies)
+
+        return guideline
+
     async def create_observation(
         self,
         condition: str | None = None,
@@ -2394,6 +2400,7 @@ class Journey:
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         labels: Iterable[str] = (),
+        dependencies: Sequence[Guideline | Journey] = [],
     ) -> Guideline:
         """A shorthand for creating an observational guideline with the specified condition."""
 
@@ -2406,6 +2413,7 @@ class Journey:
             on_match=on_match,
             canned_response_field_provider=canned_response_field_provider,
             labels=labels,
+            dependencies=dependencies,
         )
 
     async def attach_tool(
@@ -2844,6 +2852,7 @@ class Agent:
         on_match: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
         labels: Iterable[str] = (),
+        dependencies: Sequence[Guideline | Journey] = [],
     ) -> Journey:
         """Creates a new journey with the specified title, description, and conditions."""
 
@@ -2862,7 +2871,7 @@ class Agent:
 
         await self.attach_journey(journey)
 
-        return Journey(
+        result = Journey(
             id=journey.id,
             title=journey.title,
             description=description,
@@ -2876,6 +2885,11 @@ class Agent:
             _server=self._server,
             _container=self._container,
         )
+
+        if dependencies:
+            await result.depend_on(*dependencies)
+
+        return result
 
     async def attach_journey(self, journey: Journey) -> None:
         """Attaches an existing journey to the agent, allowing it to be used in interactions."""
@@ -2904,9 +2918,10 @@ class Agent:
         | None = None,
         track: bool = True,
         labels: Iterable[str] = (),
+        dependencies: Sequence[Guideline | Journey] = [],
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
-        return await self._server._create_guideline(
+        guideline = await self._server._create_guideline(
             condition=condition,
             action=action,
             description=description,
@@ -2926,6 +2941,11 @@ class Agent:
             labels=labels,
         )
 
+        if dependencies:
+            await guideline.depend_on(*dependencies)
+
+        return guideline
+
     async def create_observation(
         self,
         condition: str | None = None,
@@ -2939,6 +2959,7 @@ class Agent:
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         labels: Iterable[str] = (),
+        dependencies: Sequence[Guideline | Journey] = [],
     ) -> Guideline:
         """A shorthand for creating an observational guideline with the specified condition."""
 
@@ -2952,6 +2973,7 @@ class Agent:
             criticality=criticality,
             canned_response_field_provider=canned_response_field_provider,
             labels=labels,
+            dependencies=dependencies,
         )
 
     async def attach_tool(

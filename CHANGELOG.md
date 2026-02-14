@@ -4,6 +4,7 @@ All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
 
+- Add optional `dependencies` parameter to guideline, observation, and journey creation methods
 - Fix canned response field extraction to handle falsy values
 
 ## [3.2.0] - 2026-02-08

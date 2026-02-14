@@ -389,6 +389,16 @@ class NLPServices:
         return ModelScopeService(container[Logger], container[Tracer], container[Meter])
 
     @staticmethod
+    def oci(container: Container) -> NLPService:
+        """Creates an OCI NLPService instance using the provided container."""
+        from parlant.adapters.nlp.oci_service import OCIService
+
+        if error := OCIService.verify_environment():
+            raise NLPServiceConfigurationError(error)
+
+        return OCIService(container[Logger], container[Tracer], container[Meter])
+
+    @staticmethod
     def vertex(container: Container) -> NLPService:
         """Creates a Vertex NLPService instance using the provided container."""
         from parlant.adapters.nlp.vertex_service import VertexAIService

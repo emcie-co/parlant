@@ -99,6 +99,8 @@ litellm = ["litellm>=1.61.16", "torch>=2.8.0", "transformers>=4.53.0"]
 
 azure = ["azure-identity>=1.20.0"]
 
+oci = ["oci>=2.0.0"]
+
 # fireworks = ["fireworks-ai>=0.19.19"]  # Disabled: pins protobuf=5.29.3 which has CVE-2025-4565
 
 mistral = ["mistralai>=1.0.0"]

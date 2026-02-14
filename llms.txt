@@ -199,6 +199,7 @@ Set your LLM provider credentials before running. Examples:
 - `OPENAI_API_KEY` - For OpenAI
 - `ANTHROPIC_API_KEY` - For Anthropic
 - `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_ENDPOINT` - For Azure OpenAI
+- `OCI_COMPARTMENT_ID` + `OCI_CONFIG_FILE` (or `OCI_CONFIG_PROFILE`) - For OCI Generative AI
 
 Learn more: [Installation & Setup](https://parlant.io/docs/quickstart/installation)
 

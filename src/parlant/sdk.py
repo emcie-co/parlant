@@ -3481,6 +3481,11 @@ class Server:
         self._creation_progress.__exit__(None, None, None)
         self._creation_progress = None
 
+        if exc_value is not None:
+            await self._startup_context_manager.__aexit__(exc_type, exc_value, tb)
+            await self._exit_stack.aclose()
+            return False
+
         with self._container[Tracer].span(
             "startup.evaluations",
             attributes={"scope": "Evaluations"},
@@ -3492,13 +3497,17 @@ class Server:
         # Start health check polling to set ready event when the server is ready to receive requests
         health_check_task = asyncio.create_task(self._poll_health_endpoint())
 
-        # This actually starts the server
-        await self._startup_context_manager.__aexit__(exc_type, exc_value, tb)
+        try:
+            # This actually starts the server
+            await self._startup_context_manager.__aexit__(None, None, None)
+        except BaseException:
+            health_check_task.cancel()
+            raise
+        finally:
+            # Wait for health check to complete before cleanup
+            await health_check_task
+            await self._exit_stack.aclose()
 
-        # Wait for health check to complete before cleanup
-        await health_check_task
-
-        await self._exit_stack.aclose()
         return False
 
     # Start background task to poll health endpoint and set ready event

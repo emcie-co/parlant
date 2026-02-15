@@ -163,12 +163,16 @@ class AgentDocumentStore(AgentStore):
         id_generator: IdGenerator,
         database: DocumentDatabase,
         allow_migration: bool = False,
+        collections_prefix: str | None = None,
     ):
         self._id_generator = id_generator
 
         self._database = database
+
         self._agents_collection: DocumentCollection[_AgentDocument]
         self._tag_association_collection: DocumentCollection[_AgentTagAssociationDocument]
+        self._collections_prefix = collections_prefix
+
         self._allow_migration = allow_migration
 
         self._lock = ReaderWriterLock()
@@ -275,15 +279,18 @@ class AgentDocumentStore(AgentStore):
             store=self,
             database=self._database,
             allow_migration=self._allow_migration,
+            collections_prefix=self._collections_prefix,
         ):
             self._agents_collection = await self._database.get_or_create_collection(
-                name="agents",
+                name=f"{self._collections_prefix}_agents" if self._collections_prefix else "agents",
                 schema=_AgentDocument,
                 document_loader=self._document_loader,
             )
 
             self._tag_association_collection = await self._database.get_or_create_collection(
-                name="agent_tags",
+                name=f"{self._collections_prefix}_agent_tags"
+                if self._collections_prefix
+                else "agent_tags",
                 schema=_AgentTagAssociationDocument,
                 document_loader=self._association_document_loader,
             )

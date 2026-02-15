@@ -33,12 +33,15 @@ from parlant.core.loggers import Logger
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 
 
+DEFAULT_SKIPPED_RATIONALE = "Skipped by custom matcher"
+
+
 class CustomGuidelineMatchingBatch(GuidelineMatchingBatch):
     def __init__(
         self,
         guideline: Guideline,
         context: GuidelineMatchingContext,
-        matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]],
+        matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch | None]],
         logger: Logger,
     ) -> None:
         self._guideline = guideline
@@ -68,18 +71,25 @@ class CustomGuidelineMatchingBatch(GuidelineMatchingBatch):
             indent=2,
         )
 
-        is_matched = match is not None and match.score == 10
+        is_matched = match is not None
 
         if is_matched:
             self._logger.debug(f"Activated:\n{data}")
             assert match is not None
-            matches = [match]
+            matched_guidelines = [match]
+            skipped_guidelines = []
         else:
             self._logger.debug(f"Skipped:\n{data}")
-            matches = []
+            matched_guidelines = []
+            skipped_guidelines = [
+                GuidelineMatch(
+                    guideline=self._guideline, rationale=DEFAULT_SKIPPED_RATIONALE, metadata={}
+                )
+            ]
 
         return GuidelineMatchingBatchResult(
-            matches=matches,
+            matched_guidelines=matched_guidelines,
+            skipped_guidelines=skipped_guidelines,
             generation_info=GenerationInfo(
                 schema_name="custom_matcher",
                 model="python",
@@ -104,7 +114,7 @@ class CustomGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     def __init__(
         self,
         guideline: Guideline,
-        matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]],
+        matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch | None]],
         logger: Logger,
     ) -> None:
         self._guideline = guideline

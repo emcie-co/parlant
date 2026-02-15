@@ -193,17 +193,28 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
                             f"Disambiguation activated: {inference.content.model_dump_json(indent=2)}"
                         )
 
-                    matches = [
-                        GuidelineMatch(
-                            guideline=self._disambiguation_guideline,
-                            score=10 if inference.content.is_ambiguous else 1,
-                            rationale=f'''Disambiguation rationale: "{inference.content.tldr}"''',
-                            metadata=metadata,
-                        )
-                    ]
+                    if inference.content.is_ambiguous:
+                        matched_guidelines = [
+                            GuidelineMatch(
+                                guideline=self._disambiguation_guideline,
+                                rationale=f'''Disambiguation rationale: "{inference.content.tldr}"''',
+                                metadata=metadata,
+                            )
+                        ]
+                        skipped_guidelines = []
+                    else:
+                        matched_guidelines = []
+                        skipped_guidelines = [
+                            GuidelineMatch(
+                                guideline=self._disambiguation_guideline,
+                                rationale=inference.content.tldr,
+                                metadata=metadata,
+                            )
+                        ]
 
                     return GuidelineMatchingBatchResult(
-                        matches=matches,
+                        matched_guidelines=matched_guidelines,
+                        skipped_guidelines=skipped_guidelines,
                         generation_info=inference.info,
                     )
 

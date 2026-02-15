@@ -22,6 +22,7 @@ import importlib
 import inspect
 import os
 import traceback
+import warnings
 from fastapi import FastAPI
 from lagom import Container, Singleton
 from typing import (
@@ -34,6 +35,7 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
+    TextIO,
     cast,
 )
 import rich
@@ -243,6 +245,33 @@ from parlant.core.application import Application
 from parlant.core.version import VERSION
 
 
+# Suppress known deprecation warnings from websockets library used by dependencies
+# This must be done early to catch warnings from FastAPI/uvicorn websocket handling
+def _suppress_websocket_deprecation_warnings(
+    message: Warning | str,
+    category: type[Warning],
+    filename: str,
+    lineno: int,
+    file: Optional[TextIO] = None,
+    line: Optional[str] = None,
+) -> None:
+    if category is DeprecationWarning:
+        msg_str = str(message)
+        if any(
+            keyword in msg_str
+            for keyword in ["ws_handler", "websockets", "WebSocketServerProtocol"]
+        ):
+            return  # Suppress websocket-related deprecation warnings
+    # Let all other warnings through
+    original_showwarning = getattr(warnings, "_default_showwarning", warnings.showwarning)
+    original_showwarning(message, category, filename, lineno, file, line)
+
+
+if not hasattr(warnings, "_default_showwarning"):
+    warnings._default_showwarning = warnings.showwarning  # type: ignore[attr-defined]
+warnings.showwarning = _suppress_websocket_deprecation_warnings
+
+
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8800
 SERVER_ADDRESS = "https://localhost"
@@ -421,9 +450,9 @@ async def create_agent_if_absent(agent_store: AgentStore) -> None:
         await agent_store.create_agent(name=DEFAULT_AGENT_NAME)
 
 
-async def get_module_list_from_config() -> list[str]:
-    if CONFIG_FILE_PATH.exists():
-        config = toml.load(CONFIG_FILE_PATH)
+async def get_module_list_from_config(file_path: Path) -> list[str]:
+    if file_path.exists():
+        config = toml.load(file_path)
         # Expecting the following toml structure:
         #
         # [parlant]
@@ -932,7 +961,13 @@ async def load_app(params: StartupParameters) -> AsyncIterator[tuple[ASGIApplica
         setup_container() as base_container,
         EXIT_STACK,
     ):
-        modules = set(await get_module_list_from_config() + params.modules)
+        modules = list(
+            dict.fromkeys(
+                (await get_module_list_from_config(CONFIG_FILE_PATH))
+                + params.modules
+                + (await get_module_list_from_config(Path("emcie.toml")))
+            )
+        )
 
         if modules:
             # Allow modules to return a different container

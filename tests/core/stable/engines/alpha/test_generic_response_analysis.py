@@ -220,7 +220,6 @@ async def base_test_that_correct_guidelines_are_detected_as_previously_applied(
     guideline_matches = [
         GuidelineMatch(
             guideline=guideline,
-            score=10,
             rationale="",
         )
         for guideline in context.guidelines

@@ -17,7 +17,7 @@ from enum import Enum
 from typing import Awaitable, Callable
 
 from typing_extensions import override
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 from limits.storage import MemoryStorage
@@ -126,11 +126,13 @@ class Operation(Enum):
     UPDATE_TAG = "update_tag"
     DELETE_TAG = "delete_tag"
 
+    STREAM_LOGS = "stream_logs"
+
 
 class AuthorizationException(Exception):
     def __init__(
         self,
-        request: Request,
+        request: Request | WebSocket,
         operation: Operation | None,
         message_prefix: str = "Authorization failed",
     ) -> None:
@@ -168,6 +170,15 @@ class AuthorizationPolicy(ABC):
         if not await self.check_rate_limit(request, operation):
             raise RateLimitExceededException(request, operation)
 
+    @abstractmethod
+    async def check_websocket_permission(
+        self, websocket: WebSocket, operation: Operation
+    ) -> bool: ...
+
+    async def authorize_websocket(self, websocket: WebSocket, operation: Operation) -> None:
+        if not await self.check_websocket_permission(websocket, operation):
+            raise AuthorizationException(websocket, operation)
+
     @property
     @abstractmethod
     def name(self) -> str: ...
@@ -194,6 +205,11 @@ class DevelopmentAuthorizationPolicy(AuthorizationPolicy):
     @override
     async def check_permission(self, request: Request, operation: Operation) -> bool:
         # In development, we allow all actions
+        return True
+
+    @override
+    async def check_websocket_permission(self, websocket: WebSocket, operation: Operation) -> bool:
+        # In development, we allow all websocket actions
         return True
 
     @property
@@ -274,6 +290,13 @@ class ProductionAuthorizationPolicy(AuthorizationPolicy):
         if specific_limiter := self.specific_limiters.get(operation):
             return await specific_limiter(request, operation)
         return await self.default_limiter.check(request, operation)
+
+    @override
+    async def check_websocket_permission(self, websocket: WebSocket, operation: Operation) -> bool:
+        if operation == Operation.STREAM_LOGS:
+            return False
+        else:
+            return False
 
 
 class BasicRateLimiter(RateLimiter):

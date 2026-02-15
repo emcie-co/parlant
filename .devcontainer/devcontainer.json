@@ -35,7 +35,7 @@
     "ghcr.io/devcontainers-extra/features/mypy:2": {
       "version": "latest"
     },
-    "node": {
+    "ghcr.io/devcontainers/features/node:1": {
       "version": "lts",
       "nodeGypDependencies": true
     }

@@ -140,12 +140,14 @@ class TagDocumentStore(TagStore):
         id_generator: IdGenerator,
         database: DocumentDatabase,
         allow_migration: bool = False,
+        collections_prefix: str | None = None,
     ) -> None:
         self._id_generator = id_generator
 
         self._database = database
         self._collection: DocumentCollection[_TagDocument]
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
         self._lock = ReaderWriterLock()
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[_TagDocument]:
@@ -158,9 +160,10 @@ class TagDocumentStore(TagStore):
             store=self,
             database=self._database,
             allow_migration=self._allow_migration,
+            collections_prefix=self._collections_prefix,
         ):
             self._collection = await self._database.get_or_create_collection(
-                name="tags",
+                name=f"{self._collections_prefix}_tags" if self._collections_prefix else "tags",
                 schema=_TagDocument,
                 document_loader=self._document_loader,
             )

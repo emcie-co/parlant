@@ -362,7 +362,7 @@ class GenerativeFieldExtraction(CannedResponseFieldExtractionMethod):
                             f"Guideline #{i}) {guideline_representations[p.guideline.id].action}"
                         )
 
-                    guideline += f"\n    [Priority (1-10): {p.score}; Rationale: {p.rationale}]"
+                    guideline += f"\n    [Rationale: {p.rationale}]"
                     guidelines_texts.append(guideline)
             return "\n".join(guidelines_texts)
 
@@ -1327,7 +1327,7 @@ However, in this case, no special behavioral guidelines were provided.
                         f"Guideline #{i}) {guideline_representations[p.guideline.id].action}"
                     )
 
-                guideline += f"\n    [Priority (1-10): {p.score}; Rationale: {p.rationale}]"
+                guideline += f"\n    [Rationale: {p.rationale}]"
                 if p.guideline.metadata.get("agent_intention_condition"):
                     agent_intention_guidelines.append(guideline)
                 else:
@@ -2193,6 +2193,13 @@ Output a JSON object with three properties:
             draft_response = await self._canrep_draft_generator.generate(
                 prompt=draft_prompt,
                 hints={"temperature": temperature},
+            )
+
+            self._tracer.add_event(
+                "canrep.draft",
+                attributes={
+                    "insights": draft_response.content.insights or "N/A",
+                },
             )
 
         self._logger.trace(

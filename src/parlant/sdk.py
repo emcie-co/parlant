@@ -3359,7 +3359,7 @@ class Server:
         customer_store: Literal["transient", "local"] | str | CustomerStore = "transient",
         variable_store: Literal["transient", "local"] | str | ContextVariableStore = "transient",
         log_level: LogLevel = LogLevel.INFO,
-        modules: list[str] = [],
+        modules: list[str] = ["parlant.adapters.modules.emcie"],
         migrate: bool = False,
         configure_hooks: Callable[[EngineHooks], Awaitable[EngineHooks]] | None = None,
         configure_container: Callable[[Container], Awaitable[Container]] | None = None,
@@ -3672,7 +3672,7 @@ class Server:
             # Create a shim that translates between SDK and core types
             async def shim_matcher(
                 core_ctx: _GuidelineMatchingContext, core_guideline: _Guideline
-            ) -> _GuidelineMatch:
+            ) -> _GuidelineMatch | None:
                 sdk_ctx = await GuidelineMatchingContext._from_core(
                     core_ctx=core_ctx,
                     server=self,
@@ -3680,10 +3680,13 @@ class Server:
                 )
                 result = await matcher(sdk_ctx, result_guideline)
 
-                return _GuidelineMatch(
-                    guideline=core_guideline,
-                    score=10 if result.matched else 1,
-                    rationale=result.rationale,
+                return (
+                    _GuidelineMatch(
+                        guideline=core_guideline,
+                        rationale=result.rationale,
+                    )
+                    if result.matched
+                    else None
                 )
 
             strategy = CustomGuidelineMatchingStrategy(
@@ -3813,6 +3816,7 @@ class Server:
                                     tool_name=retriever_id,
                                 ).to_string(),
                                 arguments={},
+                                rationale="Retriever result",
                                 result=_SessionToolResult(
                                     data=result.data,
                                     metadata=result.metadata,
@@ -4129,6 +4133,7 @@ class Server:
                                             service_name=INTEGRATED_TOOL_SERVICE_NAME,
                                             tool_name=retriever_id,
                                         ).to_string(),
+                                        rationale="Retriever",
                                         arguments={},
                                         result=_SessionToolResult(
                                             data=retriever_result.data,
@@ -4560,9 +4565,11 @@ class Server:
                 )
 
             mongo_client: object | None = None
+            mongo_db: DocumentDatabase | None = None
 
-            async def make_mongo_db(url: str, name: str) -> DocumentDatabase:
+            async def make_mongo_db(url: str) -> DocumentDatabase:
                 nonlocal mongo_client
+                nonlocal mongo_db
 
                 if importlib.util.find_spec("pymongo") is None:
                     raise SDKError(
@@ -4578,15 +4585,18 @@ class Server:
                         AsyncMongoClient[Any](url)
                     )
 
-                db = await self._exit_stack.enter_async_context(
-                    MongoDocumentDatabase(
-                        mongo_client=cast(AsyncMongoClient[Any], mongo_client),
-                        database_name=f"parlant_{name}",
-                        logger=c()[Logger],
+                if mongo_db is None:
+                    mongo_db = await self._exit_stack.enter_async_context(
+                        MongoDocumentDatabase(
+                            mongo_client=cast(AsyncMongoClient[Any], mongo_client),
+                            database_name="parlant",
+                            logger=c()[Logger],
+                        )
                     )
-                )
 
-                return db
+                assert mongo_db
+
+                return mongo_db
 
             async def make_persistable_store(t: type[T], spec: str, name: str, **kwargs: Any) -> T:
                 store: T
@@ -4612,8 +4622,9 @@ class Server:
                 elif spec.startswith("mongodb://") or spec.startswith("mongodb+srv://"):
                     store = await self._exit_stack.enter_async_context(
                         t(
-                            database=await make_mongo_db(spec, name),
+                            database=await make_mongo_db(spec),
                             allow_migration=self._migrate,
+                            collections_prefix=name,
                             **kwargs,
                         )  # type: ignore
                     )
@@ -4665,6 +4676,7 @@ class Server:
                     tracer=c()[Tracer],
                     nlp_services_provider=lambda: {"__nlp__": c()[NLPService]},
                     allow_migration=False,
+                    collections_prefix="services",
                 )
             )
 

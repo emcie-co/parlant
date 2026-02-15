@@ -762,3 +762,108 @@ async def test_that_labels_can_be_removed_from_a_journey(
     updated_journey = response.json()
 
     assert set(updated_journey["labels"]) == {"label1", "label3"}
+
+
+async def test_that_reading_a_journey_returns_nodes_and_edges(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    """Test that reading a journey returns its nodes and edges."""
+    journey_store = container[JourneyStore]
+
+    # Create a journey via API
+    response = await async_client.post(
+        "/journeys",
+        json={
+            "title": "Customer Support Flow",
+            "description": "Handle customer support requests",
+            "conditions": ["Customer needs support"],
+        },
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+    journey = response.json()
+    journey_id = journey["id"]
+
+    # Create some nodes for this journey
+    node1 = await journey_store.create_node(
+        journey_id=journey_id,
+        action="Greet the customer",
+        tools=[],
+        description="Initial greeting",
+    )
+    node2 = await journey_store.create_node(
+        journey_id=journey_id,
+        action="Identify the issue",
+        tools=[],
+        description="Ask about the problem",
+    )
+    node3 = await journey_store.create_node(
+        journey_id=journey_id,
+        action="Provide solution",
+        tools=[],
+        description="Offer a resolution",
+    )
+
+    # Create edges between nodes
+    edge1 = await journey_store.create_edge(
+        journey_id=journey_id,
+        source=node1.id,
+        target=node2.id,
+        condition="Customer responds",
+    )
+    edge2 = await journey_store.create_edge(
+        journey_id=journey_id,
+        source=node2.id,
+        target=node3.id,
+        condition="Issue identified",
+    )
+    edge3 = await journey_store.create_edge(
+        journey_id=journey_id,
+        source=node3.id,
+        target=journey_store.END_NODE_ID,
+        condition=None,
+    )
+
+    # Read the journey via API
+    response = await async_client.get(f"/journeys/{journey_id}")
+    assert response.status_code == status.HTTP_200_OK
+    journey_data = response.json()
+
+    # Verify basic journey data
+    assert journey_data["id"] == journey_id
+    assert journey_data["title"] == "Customer Support Flow"
+    assert journey_data["description"] == "Handle customer support requests"
+
+    # Verify nodes are returned
+    assert "nodes" in journey_data
+    nodes = journey_data["nodes"]
+    assert len(nodes) >= 3  # At least our 3 nodes (plus possibly root and end nodes)
+
+    # Find our created nodes in the response
+    node_ids = {n["id"] for n in nodes}
+    assert node1.id in node_ids
+    assert node2.id in node_ids
+    assert node3.id in node_ids
+
+    # Verify node details for one of them
+    node1_data = next(n for n in nodes if n["id"] == node1.id)
+    assert node1_data["action"] == "Greet the customer"
+    assert node1_data["description"] == "Initial greeting"
+    assert node1_data["tools"] == []
+
+    # Verify edges are returned
+    assert "edges" in journey_data
+    edges = journey_data["edges"]
+    assert len(edges) == 3
+
+    # Verify edge details
+    edge_ids = {e["id"] for e in edges}
+    assert edge1.id in edge_ids
+    assert edge2.id in edge_ids
+    assert edge3.id in edge_ids
+
+    # Verify edge details for one of them
+    edge1_data = next(e for e in edges if e["id"] == edge1.id)
+    assert edge1_data["source"] == node1.id
+    assert edge1_data["target"] == node2.id
+    assert edge1_data["condition"] == "Customer responds"

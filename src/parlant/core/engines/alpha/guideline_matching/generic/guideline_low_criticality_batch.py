@@ -95,7 +95,8 @@ class GenericLowCriticalityGuidelineMatchingBatch(GuidelineMatchingBatch):
                             f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                         )
 
-                    matches = []
+                    matched_guidelines = []
+                    skipped_guidelines = []
 
                     for id, match in inference.content.applies.items():
                         if match:
@@ -103,10 +104,9 @@ class GenericLowCriticalityGuidelineMatchingBatch(GuidelineMatchingBatch):
                                 f"Activated:\n{inference.content.model_dump_json(indent=2)}"
                             )
 
-                            matches.append(
+                            matched_guidelines.append(
                                 GuidelineMatch(
                                     guideline=self._guidelines[id],
-                                    score=10,
                                     rationale="Applies as per model evaluation.",
                                 )
                             )
@@ -114,9 +114,16 @@ class GenericLowCriticalityGuidelineMatchingBatch(GuidelineMatchingBatch):
                             self._logger.debug(
                                 f"Skipped:\n{inference.content.model_dump_json(indent=2)}"
                             )
+                            skipped_guidelines.append(
+                                GuidelineMatch(
+                                    guideline=self._guidelines[id],
+                                    rationale="Does not apply as per model evaluation.",
+                                )
+                            )
 
                     return GuidelineMatchingBatchResult(
-                        matches=matches,
+                        matched_guidelines=matched_guidelines,
+                        skipped_guidelines=skipped_guidelines,
                         generation_info=inference.info,
                     )
 

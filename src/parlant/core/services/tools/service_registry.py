@@ -129,6 +129,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
         tracer: Tracer,
         nlp_services_provider: Callable[[], Mapping[str, NLPService]],
         allow_migration: bool = False,
+        collections_prefix: str | None = None,
     ):
         self._database = database
         self._tool_services_collection: DocumentCollection[_ToolServiceDocument]
@@ -146,6 +147,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
         self._service_sources: dict[str, str] = {}
 
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
         self._lock = ReaderWriterLock()
 
     def _cast_to_specific_tool_service_class(
@@ -173,9 +175,12 @@ class ServiceDocumentRegistry(ServiceRegistry):
             store=self,
             database=self._database,
             allow_migration=self._allow_migration,
+            collections_prefix=self._collections_prefix,
         ):
             self._tool_services_collection = await self._database.get_or_create_collection(
-                name="tool_services",
+                name=f"{self._collections_prefix}_tool_services"
+                if self._collections_prefix
+                else "tool_services",
                 schema=_ToolServiceDocument,
                 document_loader=self._document_loader,
             )

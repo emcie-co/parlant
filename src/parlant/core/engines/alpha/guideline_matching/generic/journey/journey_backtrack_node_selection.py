@@ -423,6 +423,18 @@ class JourneyBacktrackNodeSelection:
         self._previous_path: Sequence[str | None] = journey_path
         self._journey_conditions = journey_conditions
 
+        # Create node_index to guideline_id mapping
+        def _get_guideline_node_index(guideline: Guideline) -> str:
+            return str(
+                cast(dict[str, JSONSerializable], guideline.metadata["journey_node"]).get(
+                    "index", "-1"
+                ),
+            )
+
+        self._node_index_to_guideline_id: dict[str, GuidelineId] = {
+            _get_guideline_node_index(g): g.id for g in node_guidelines
+        }
+
     def _get_root(self, node_guidelines: Sequence[Guideline]) -> Guideline:
         def _get_guideline_node_index(guideline: Guideline) -> str:
             return str(
@@ -475,30 +487,44 @@ class JourneyBacktrackNodeSelection:
                             .incoming_edges[0]
                             .target_guideline
                         )
-                return GuidelineMatchingBatchResult(
-                    matches=[
+                if matched_guideline:
+                    journey_path_full = list(self._previous_path) + journey_path
+                    matched_guidelines = [
                         GuidelineMatch(
                             guideline=matched_guideline,
-                            score=10,
                             rationale=f"This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. Use this rationale to better understand how the conversation got to its current point. The rationale for choosing this specific step in the journey was: {inference.content.rationale}",
                             metadata={
-                                "journey_path": list(self._previous_path) + journey_path,
+                                "journey_path": journey_path_full,
+                                "journey_path_guideline_ids": [
+                                    self._node_index_to_guideline_id.get(node_id or "", None)
+                                    for node_id in journey_path_full
+                                ],
                                 "step_selection_journey_id": self._examined_journey.id,
                             },
                         )
                     ]
-                    if matched_guideline  # If either 'None' or an illegal step was returned, return root guideline, a place holder for "exit journey"
-                    else [
+                    skipped_guidelines = []
+                else:
+                    matched_guidelines = []
+                    journey_path_full = list(self._previous_path) + journey_path + [None]
+                    skipped_guidelines = [
                         GuidelineMatch(
                             guideline=self._root_guideline,
-                            score=10,
                             rationale=f"Root guideline was selected indicating should exit the journey, the rational for this choice: {inference.content.rationale}",
                             metadata={
-                                "journey_path": list(self._previous_path) + journey_path + [None],
+                                "journey_path": journey_path_full,
+                                "journey_path_guideline_ids": [
+                                    self._node_index_to_guideline_id.get(node_id or "", None)
+                                    for node_id in journey_path_full
+                                ],
                                 "step_selection_journey_id": self._examined_journey.id,
                             },
                         )
-                    ],
+                    ]
+
+                return GuidelineMatchingBatchResult(
+                    matched_guidelines=matched_guidelines,
+                    skipped_guidelines=skipped_guidelines,
                     generation_info=inference.info,
                 )
             except Exception as exc:

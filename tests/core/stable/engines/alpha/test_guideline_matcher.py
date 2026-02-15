@@ -19,7 +19,6 @@ from typing import Sequence, cast
 from typing_extensions import override
 
 from lagom import Container
-from more_itertools import unique
 from pytest import fixture, raises
 
 from parlant.core.agents import Agent, AgentId
@@ -607,7 +606,6 @@ async def analyze_response_and_update_session(
         GuidelineMatch(
             guideline=g,
             rationale="",
-            score=10,
         )
         for g in previously_matched_guidelines
         if (not session.agent_states or g.id not in session.agent_states[-1].applied_guideline_ids)
@@ -858,62 +856,6 @@ async def test_that_irrelevant_guidelines_are_not_matched_parametrized_1(
         conversation_guideline_names,
         relevant_guideline_names=[],
         previously_applied_guidelines_names=previously_applied_actionable_guidelines_names,
-    )
-
-
-async def test_that_guidelines_with_the_same_conditions_are_scored_similarly(
-    context: ContextOfTest,
-    agent: Agent,
-    new_session: Session,
-    customer: Customer,
-) -> None:
-    relevant_guidelines = [
-        await create_guideline(
-            context=context,
-            condition="the customer greets you",
-            action="talk about apples",
-        ),
-        await create_guideline(
-            context=context,
-            condition="the customer greets you",
-            action="talk about oranges",
-        ),
-    ]
-
-    _ = [  # irrelevant guidelines
-        await create_guideline(
-            context=context,
-            condition="talking about the weather",
-            action="talk about apples",
-        ),
-        await create_guideline(
-            context=context,
-            condition="talking about the weather",
-            action="talk about oranges",
-        ),
-    ]
-
-    interaction_history = [
-        create_event_message(
-            offset=0,
-            source=EventSource.CUSTOMER,
-            message="Hello there",
-        )
-    ]
-
-    guideline_matches = await match_guidelines(
-        context,
-        agent,
-        customer,
-        new_session.id,
-        interaction_history,
-    )
-
-    assert len(guideline_matches) == len(relevant_guidelines)
-    assert all(gp.guideline in relevant_guidelines for gp in guideline_matches)
-    matches_scores = list(unique(gp.score for gp in guideline_matches))
-    assert len(matches_scores) == 1 or (
-        len(matches_scores) == 2 and abs(matches_scores[0] - matches_scores[1]) <= 1
     )
 
 
@@ -1519,14 +1461,14 @@ class ActivateEveryGuidelineBatch(GuidelineMatchingBatch):
     @override
     async def process(self) -> GuidelineMatchingBatchResult:
         return GuidelineMatchingBatchResult(
-            matches=[
+            matched_guidelines=[
                 GuidelineMatch(
                     guideline=g,
-                    score=10,
                     rationale="",
                 )
                 for g in self.guidelines
             ],
+            skipped_guidelines=[],
             generation_info=GenerationInfo(
                 schema_name="",
                 model="",
@@ -1558,7 +1500,8 @@ async def test_that_guideline_matching_strategies_can_be_overridden(
         @override
         async def process(self) -> GuidelineMatchingBatchResult:
             return GuidelineMatchingBatchResult(
-                matches=[],
+                matched_guidelines=[],
+                skipped_guidelines=[],
                 generation_info=GenerationInfo(
                     schema_name="",
                     model="",
@@ -2520,7 +2463,6 @@ async def analyze_response(
         GuidelineMatch(
             guideline=g,
             rationale="",
-            score=10,
         )
         for g in context.guidelines
         if (not session.agent_states or g.id not in session.agent_states[-1].applied_guideline_ids)
@@ -2740,14 +2682,14 @@ async def test_that_batch_processing_retries_on_key_error(
                 raise KeyError(f"Simulated failure on attempt {self.attempt_count}")
 
             return GuidelineMatchingBatchResult(
-                matches=[
+                matched_guidelines=[
                     GuidelineMatch(
                         guideline=g,
-                        score=10,
                         rationale="Success after retry",
                     )
                     for g in self.guidelines
                 ],
+                skipped_guidelines=[],
                 generation_info=GenerationInfo(
                     schema_name="test",
                     model="test-model",

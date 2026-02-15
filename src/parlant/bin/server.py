@@ -450,9 +450,9 @@ async def create_agent_if_absent(agent_store: AgentStore) -> None:
         await agent_store.create_agent(name=DEFAULT_AGENT_NAME)
 
 
-async def get_module_list_from_config() -> list[str]:
-    if CONFIG_FILE_PATH.exists():
-        config = toml.load(CONFIG_FILE_PATH)
+async def get_module_list_from_config(file_path: Path) -> list[str]:
+    if file_path.exists():
+        config = toml.load(file_path)
         # Expecting the following toml structure:
         #
         # [parlant]
@@ -961,7 +961,13 @@ async def load_app(params: StartupParameters) -> AsyncIterator[tuple[ASGIApplica
         setup_container() as base_container,
         EXIT_STACK,
     ):
-        modules = set(await get_module_list_from_config() + params.modules)
+        modules = list(
+            dict.fromkeys(
+                (await get_module_list_from_config(CONFIG_FILE_PATH))
+                + params.modules
+                + (await get_module_list_from_config(Path("emcie.toml")))
+            )
+        )
 
         if modules:
             # Allow modules to return a different container

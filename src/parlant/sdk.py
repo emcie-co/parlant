@@ -949,6 +949,10 @@ class Guideline:
             for t in targets
         ]
 
+    async def exclude(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
+        """Alias for prioritize_over. Creates priority relationships with other guidelines or journeys."""
+        return await self.prioritize_over(*targets)
+
     async def depend_on(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
         """Creates dependency relationships with other guidelines or journeys."""
         if not targets:
@@ -2507,6 +2511,10 @@ class Journey:
             )
             for t in targets
         ]
+
+    async def exclude(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
+        """Alias for prioritize_over. Creates priority relationships with other guidelines or journeys."""
+        return await self.prioritize_over(*targets)
 
     async def depend_on(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
         """Creates dependency relationships with other guidelines or journeys."""

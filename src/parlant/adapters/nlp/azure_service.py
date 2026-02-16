@@ -75,6 +75,7 @@ class AzureSchematicGenerator(BaseSchematicGenerator[T]):
     def __init__(
         self,
         model_name: str,
+        deployment_name: str,
         logger: Logger,
         tracer: Tracer,
         meter: Meter,
@@ -83,6 +84,7 @@ class AzureSchematicGenerator(BaseSchematicGenerator[T]):
         super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
 
         self._client = client
+        self._deployment_name = deployment_name
         self._tokenizer = AzureEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -143,7 +145,7 @@ class AzureSchematicGenerator(BaseSchematicGenerator[T]):
             try:
                 response = await self._client.beta.chat.completions.parse(
                     messages=[{"role": "user", "content": prompt}],
-                    model=self.model_name,
+                    model=self._deployment_name,
                     response_format=self.schema,
                     **azure_api_arguments,
                 )
@@ -209,7 +211,7 @@ class AzureSchematicGenerator(BaseSchematicGenerator[T]):
             try:
                 response = await self._client.chat.completions.create(
                     messages=[{"role": "user", "content": prompt}],
-                    model=self.model_name,
+                    model=self._deployment_name,
                     response_format={"type": "json_object"},
                     **azure_api_arguments,
                 )
@@ -334,6 +336,7 @@ class CustomAzureSchematicGenerator(AzureSchematicGenerator[T]):
 
         super().__init__(
             model_name=os.environ["AZURE_GENERATIVE_MODEL_NAME"],
+            deployment_name=os.environ["AZURE_GENERATIVE_MODEL_DEPLOYMENT_NAME"],
             logger=logger,
             tracer=tracer,
             meter=meter,
@@ -354,7 +357,7 @@ class GPT_4o(AzureSchematicGenerator[T]):
     ) -> None:
         _client = create_azure_client()
         super().__init__(
-            model_name="gpt-4o", logger=logger, tracer=tracer, meter=meter, client=_client
+            model_name="gpt-4o", deployment_name="gpt-4o", logger=logger, tracer=tracer, meter=meter, client=_client
         )
 
     @property
@@ -371,7 +374,7 @@ class GPT_4o_Mini(AzureSchematicGenerator[T]):
     ) -> None:
         _client = create_azure_client()
         super().__init__(
-            model_name="gpt-4o-mini", logger=logger, tracer=tracer, meter=meter, client=_client
+            model_name="gpt-4o-mini", deployment_name="gpt-4o-mini", logger=logger, tracer=tracer, meter=meter, client=_client
         )
         self._token_estimator = AzureEstimatingTokenizer(model_name=self.model_name)
 
@@ -386,6 +389,7 @@ class AzureEmbedder(BaseEmbedder):
     def __init__(
         self,
         model_name: str,
+        deployment_name: str,
         logger: Logger,
         tracer: Tracer,
         meter: Meter,
@@ -394,6 +398,7 @@ class AzureEmbedder(BaseEmbedder):
         super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
 
         self._client = client
+        self._deployment_name = deployment_name
         self._tokenizer = AzureEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -416,7 +421,7 @@ class AzureEmbedder(BaseEmbedder):
 
         try:
             response = await self._client.embeddings.create(
-                model=self.model_name,
+                model=self._deployment_name,
                 input=texts,
                 **filtered_hints,
             )
@@ -448,6 +453,7 @@ class CustomAzureEmbedder(AzureEmbedder):
         _client = create_azure_client()
         super().__init__(
             model_name=os.environ["AZURE_EMBEDDING_MODEL_NAME"],
+            deployment_name=os.environ["AZURE_EMBEDDING_MODEL_DEPLOYMENT_NAME"],
             logger=logger,
             tracer=tracer,
             meter=meter,
@@ -474,6 +480,7 @@ class AzureTextEmbedding3Large(AzureEmbedder):
         _client = create_azure_client()
         super().__init__(
             model_name="text-embedding-3-large",
+            deployment_name="text-embedding-3-large",
             logger=logger,
             tracer=tracer,
             meter=meter,
@@ -500,6 +507,7 @@ class AzureTextEmbedding3Small(AzureEmbedder):
         _client = create_azure_client()
         super().__init__(
             model_name="text-embedding-3-small",
+            deployment_name="text-embedding-3-small",
             logger=logger,
             tracer=tracer,
             meter=meter,
@@ -539,11 +547,15 @@ Authentication options (choose one):
 You can also set any specific models you'd like to use, using a few more variables:
 
 - AZURE_GENERATIVE_MODEL_NAME (e.g., gpt-4o)
+- AZURE_GENERATIVE_MODEL_DEPLOYMENT_NAME (The deplyment name for the model set in azure portal/foundry)
 - AZURE_GENERATIVE_MODEL_WINDOW (size of the generative model's context window)
 
 - AZURE_EMBEDDING_MODEL_NAME (e.g., text-embedding-3-large)
+- AZURE_EMBEDDING_MODEL_DEPLOYMENT_NAME (The deplyment name for the model set in azure portal/foundry)
 - AZURE_EMBEDDING_MODEL_DIMS (dimensions of the embedding model)
 - AZURE_EMBEDDING_MODEL_WINDOW (size of of the embedding model's context window)
+
+Important: To use a custom Azure deployment, you must set BOTH *_MODEL_NAME and *_MODEL_DEPLOYMENT_NAME. If either is missing, Parlant will fall back to the default built-in model configuration.
 
 For Azure AD authentication, ensure your identity has the "Cognitive Services OpenAI User" role
 on the Azure OpenAI resource.
@@ -659,14 +671,14 @@ https://docs.microsoft.com/en-us/python/api/overview/azure/identity-readme
     async def get_schematic_generator(
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> AzureSchematicGenerator[T]:
-        if os.environ.get("AZURE_GENERATIVE_MODEL_NAME"):
+        if os.environ.get("AZURE_GENERATIVE_MODEL_NAME") and os.environ.get("AZURE_GENERATIVE_MODEL_DEPLOYMENT_NAME"):
             return CustomAzureSchematicGenerator[t](  # type: ignore
                 logger=self.logger, tracer=self._tracer, meter=self._meter
             )
         return GPT_4o[t](self.logger, self._tracer, self._meter)  # type: ignore
 
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        if os.environ.get("AZURE_EMBEDDING_MODEL_NAME"):
+        if os.environ.get("AZURE_EMBEDDING_MODEL_NAME") and os.environ.get("AZURE_EMBEDDING_MODEL_DEPLOYMENT_NAME"):
             return CustomAzureEmbedder(self.logger, self._tracer, self._meter)
         return AzureTextEmbedding3Large(self.logger, self._tracer, self._meter)
 

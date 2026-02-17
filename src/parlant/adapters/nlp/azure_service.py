@@ -23,7 +23,7 @@ from openai import (
     RateLimitError,
 )  # type: ignore
 from azure.identity.aio import DefaultAzureCredential  # type: ignore
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 from typing_extensions import override
 import json
 import jsonfinder  # type: ignore
@@ -547,11 +547,11 @@ Authentication options (choose one):
 You can also set any specific models you'd like to use, using a few more variables:
 
 - AZURE_GENERATIVE_MODEL_NAME (e.g., gpt-4o)
-- AZURE_GENERATIVE_MODEL_DEPLOYMENT_NAME (The deplyment name for the model set in azure portal/foundry)
+- AZURE_GENERATIVE_MODEL_DEPLOYMENT_NAME (The deployment name for the model set in Azure portal/foundry)
 - AZURE_GENERATIVE_MODEL_WINDOW (size of the generative model's context window)
 
 - AZURE_EMBEDDING_MODEL_NAME (e.g., text-embedding-3-large)
-- AZURE_EMBEDDING_MODEL_DEPLOYMENT_NAME (The deplyment name for the model set in azure portal/foundry)
+- AZURE_EMBEDDING_MODEL_DEPLOYMENT_NAME (The deployment name for the model set in Azure portal/foundry)
 - AZURE_EMBEDDING_MODEL_DIMS (dimensions of the embedding model)
 - AZURE_EMBEDDING_MODEL_WINDOW (size of of the embedding model's context window)
 
@@ -668,17 +668,29 @@ https://docs.microsoft.com/en-us/python/api/overview/azure/identity-readme
     ) -> StreamingTextGenerator:
         raise NotImplementedError("Streaming is not supported. Check supports_streaming first.")
 
+    def _get_custom_params(self, kind: Literal["EMBEDDING", "GENERATIVE"]) -> tuple[bool, str, str]:
+        model_name, deployment_name = os.environ.get(f"AZURE_{kind}_MODEL_NAME"), os.environ.get(f"AZURE_{kind}_MODEL_DEPLOYMENT_NAME")
+
+        if (model_name is None and deployment_name is not None) or (model_name is not None and deployment_name is None):
+            raise Exception(f"Both model name and deployment name must be provided: {kind}")
+
+        if model_name is None:
+            return False, "", ""
+        return True, model_name, deployment_name
+
     async def get_schematic_generator(
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> AzureSchematicGenerator[T]:
-        if os.environ.get("AZURE_GENERATIVE_MODEL_NAME") and os.environ.get("AZURE_GENERATIVE_MODEL_DEPLOYMENT_NAME"):
+        use_custom, model_name, deployment_name = self._get_custom_params("GENERATIVE")
+        if use_custom:
             return CustomAzureSchematicGenerator[t](  # type: ignore
                 logger=self.logger, tracer=self._tracer, meter=self._meter
             )
         return GPT_4o[t](self.logger, self._tracer, self._meter)  # type: ignore
 
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        if os.environ.get("AZURE_EMBEDDING_MODEL_NAME") and os.environ.get("AZURE_EMBEDDING_MODEL_DEPLOYMENT_NAME"):
+        use_custom, model_name, deployment_name = self._get_custom_params("EMBEDDING")
+        if use_custom:
             return CustomAzureEmbedder(self.logger, self._tracer, self._meter)
         return AzureTextEmbedding3Large(self.logger, self._tracer, self._meter)
 

@@ -6,6 +6,7 @@ All notable changes to Parlant will be documented here.
 
 - Add optional `dependencies` parameter to guideline, observation, and journey creation methods
 - Add `exclude()` as an alias for `prioritize_over()` on guidelines and journeys
+- Preserve draft message language during canned response recomposition
 - Fix server hang when an exception occurs during setup
 - Fix canned response field extraction to handle falsy values
 

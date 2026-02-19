@@ -125,6 +125,8 @@ dev = [
     "pytest-xdist>=3.6.1",
 ]
 
+s3 = ["moto"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

@@ -22,7 +22,7 @@ Feature: Strict Canned Response
     Scenario: Adherence to guidelines without fabricating responses (strict canned response)
         Given a guideline "account_related_questions" to respond to the best of your knowledge when customers inquire about their account
         And a customer message, "What's my account balance?"
-        And that the "account_related_questions" guideline is matched with a priority of 10 because "Customer inquired about their account balance."
+        And that the "account_related_questions" guideline is matched because "Customer inquired about their account balance."
         And a canned response, "Your account balance is {{balance}}"
         When messages are emitted
         Then a no-match message is emitted

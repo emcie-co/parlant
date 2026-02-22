@@ -1300,8 +1300,8 @@ async def test_that_relational_resolver_filters_guidelines_by_priority_keeping_o
     result = await resolver.resolve(
         [guideline_a, guideline_b],
         [
-            GuidelineMatch(guideline=guideline_a, score=8, rationale=""),
-            GuidelineMatch(guideline=guideline_b, score=9, rationale=""),
+            GuidelineMatch(guideline=guideline_a, rationale=""),
+            GuidelineMatch(guideline=guideline_b, rationale=""),
         ],
         journeys=[],
     )
@@ -1360,8 +1360,8 @@ async def test_that_relational_resolver_filters_journeys_by_priority_keeping_onl
     result = await resolver.resolve(
         list(j1_guidelines) + list(j2_guidelines),
         [
-            GuidelineMatch(guideline=j1_guidelines[0], score=8, rationale=""),
-            GuidelineMatch(guideline=j2_guidelines[0], score=9, rationale=""),
+            GuidelineMatch(guideline=j1_guidelines[0], rationale=""),
+            GuidelineMatch(guideline=j2_guidelines[0], rationale=""),
         ],
         journeys=[j1, j2],
     )
@@ -1412,14 +1412,11 @@ async def test_that_relational_resolver_filters_mixed_entities_by_priority_with_
     journey_guidelines = await projection.project_journey_to_guidelines(journey.id)
     assert len(journey_guidelines) > 0
 
-    journey_matches = [
-        GuidelineMatch(guideline=g, score=7 + i, rationale="")
-        for i, g in enumerate(journey_guidelines)
-    ]
+    journey_matches = [GuidelineMatch(guideline=g, rationale="") for g in journey_guidelines]
 
     result = await resolver.resolve(
         [standalone_guideline] + list(journey_guidelines),
-        [GuidelineMatch(guideline=standalone_guideline, score=8, rationale="")] + journey_matches,
+        [GuidelineMatch(guideline=standalone_guideline, rationale="")] + journey_matches,
         journeys=[journey],
     )
 
@@ -1469,14 +1466,11 @@ async def test_that_relational_resolver_filters_mixed_entities_by_priority_with_
     journey_guidelines = await projection.project_journey_to_guidelines(journey.id)
     assert len(journey_guidelines) > 0
 
-    journey_matches = [
-        GuidelineMatch(guideline=g, score=7 + i, rationale="")
-        for i, g in enumerate(journey_guidelines)
-    ]
+    journey_matches = [GuidelineMatch(guideline=g, rationale="") for g in journey_guidelines]
 
     result = await resolver.resolve(
         [standalone_guideline] + list(journey_guidelines),
-        [GuidelineMatch(guideline=standalone_guideline, score=10, rationale="")] + journey_matches,
+        [GuidelineMatch(guideline=standalone_guideline, rationale="")] + journey_matches,
         journeys=[journey],
     )
 

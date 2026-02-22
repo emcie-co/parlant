@@ -584,7 +584,7 @@ def given_was_matched_in_previous_iteration(
 @step(
     given,
     parsers.parse(
-        'that the "{guideline_name}" guideline is matched with a priority of {score} because {rationale}'  # noqb
+        'that the "{guideline_name}" guideline is matched because {rationale}'  # noqb
     ),
 )
 def given_a_guideline_match(

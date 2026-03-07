@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -39,6 +39,7 @@ from parlant.core.sessions import Event, SessionId, ToolResult
 from parlant.core.tools import (
     Tool,
     ToolContext,
+    TransientGuideline,
     ToolId,
     ToolService,
     DEFAULT_PARAMETER_PRECEDENCE,
@@ -248,6 +249,20 @@ class ToolCaller:
             ),
         )
 
+    @staticmethod
+    def _serialize_tool_guideline(g: TransientGuideline) -> TransientGuideline:
+        data = TransientGuideline(
+            action=g["action"],
+            condition=g.get("condition", ""),
+        )
+        if "priority" in g:
+            data["priority"] = g["priority"]
+        if "criticality" in g:
+            data["criticality"] = g["criticality"]
+        if "description" in g:
+            data["description"] = g["description"]
+        return data
+
     async def _run_tool(
         self,
         context: ToolContext,
@@ -287,6 +302,7 @@ class ToolCaller:
                     "control": result.control,
                     "canned_responses": result.canned_responses,
                     "canned_response_fields": result.canned_response_fields,
+                    "guidelines": [self._serialize_tool_guideline(g) for g in result.guidelines],
                 },
             )
         except Exception as e:
@@ -306,6 +322,7 @@ class ToolCaller:
                     "control": {},
                     "canned_responses": [],
                     "canned_response_fields": {},
+                    "guidelines": [],
                 },
             )
 

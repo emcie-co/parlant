@@ -9,7 +9,7 @@ export interface CustomerInterface {
 }
 
 export interface Log {
-	level: 'INFO' | 'DEBUG' | 'WARNING';
+	level: 'CRITICAL' | 'ERROR' | 'WARNING' | 'INFO' | 'DEBUG' | 'TRACE';
 	trace_id: string;
 	message: string;
 	timestamp: number;
@@ -36,6 +36,7 @@ export interface EventInterface {
 		message: string;
 		data?: { exception?: string, stage?: string };
 		tags?: string;
+		chunks?: (string | null)[];
 	};
 	index?: number;
 }

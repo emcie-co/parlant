@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -37,7 +37,7 @@ from typing import (
     get_origin,
 )
 from pydantic import BaseModel, Field, TypeAdapter
-from typing_extensions import override, TypedDict
+from typing_extensions import override, NotRequired, TypedDict
 
 from parlant.core.common import DefaultBaseModel, ItemNotFoundError, JSONSerializable, UniqueId
 
@@ -140,6 +140,25 @@ class ControlOptions(TypedDict, total=False):
     """The lifespan of the tool result, indicating whether it is valid for the duration of a single response or for the entire session."""
 
 
+class TransientGuideline(TypedDict):
+    """A transient guideline returned by a tool, instructing the agent on how to behave for the current response."""
+
+    action: str
+    """The action the agent should take. This becomes the 'action' part of a condition-action guideline pair."""
+
+    condition: NotRequired[str]
+    """An optional condition for when this guideline applies."""
+
+    priority: NotRequired[int]
+    """An optional priority for this guideline. When set, participates in the relational resolver's priority filtering."""
+
+    criticality: NotRequired[str]
+    """An optional criticality level ('low', 'medium', or 'high'). Defaults to 'medium' when absent."""
+
+    description: NotRequired[str]
+    """An optional description providing additional context for the guideline."""
+
+
 @dataclass(frozen=True)
 class ToolResult:
     """The result of a tool execution, containing the data, metadata, control options, and canned response information."""
@@ -161,6 +180,9 @@ class ToolResult:
     canned_response_fields: Mapping[str, Any]
     """Fields for canned responses, which can be used to provide additional context or information for canned responses."""
 
+    guidelines: Sequence[TransientGuideline]
+    """Transient guidelines returned by the tool, which instruct the agent on how to behave for the current response only."""
+
     def __init__(
         self,
         data: Any,
@@ -168,12 +190,14 @@ class ToolResult:
         control: Optional[ControlOptions] = None,
         canned_responses: Optional[Sequence[str]] = None,
         canned_response_fields: Optional[Mapping[str, Any]] = None,
+        guidelines: Optional[Sequence[TransientGuideline]] = None,
     ) -> None:
         object.__setattr__(self, "data", data)
         object.__setattr__(self, "metadata", metadata or {})
         object.__setattr__(self, "control", control or ControlOptions())
         object.__setattr__(self, "canned_responses", canned_responses or [])
         object.__setattr__(self, "canned_response_fields", canned_response_fields or {})
+        object.__setattr__(self, "guidelines", guidelines or [])
 
 
 class ToolParameterOptions(DefaultBaseModel):

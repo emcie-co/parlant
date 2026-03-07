@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -38,12 +38,18 @@ from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
-from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
+from parlant.core.nlp.service import (
+    EmbedderHints,
+    NLPService,
+    SchematicGeneratorHints,
+    StreamingTextGeneratorHints,
+)
 from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
     BaseSchematicGenerator,
     SchematicGenerationResult,
+    StreamingTextGenerator,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.moderation import (
@@ -81,14 +87,11 @@ class GLMEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
     def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        self.model_name = model_name
-
-        self._logger = logger
-        self._tracer = tracer
-        self._meter = meter
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
 
         self._client = AsyncClient(
-            base_url="https://open.bigmodel.cn/api/paas/v4", api_key=os.environ["GLM_API_KEY"]
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            api_key=os.environ["GLM_API_KEY"],
         )
         self._tokenizer = GLMEstimatingTokenizer(model_name=self.model_name)
 
@@ -130,7 +133,7 @@ class GLMEmbedder(BaseEmbedder):
                 **filtered_hints,
             )
         except RateLimitError:
-            self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+            self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
 
         vectors = [data_point.embedding for data_point in response.data]
@@ -163,10 +166,6 @@ class GLMSchematicGenerator(BaseSchematicGenerator[T]):
         meter: Meter,
     ) -> None:
         super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
-
-        self.model_name = model_name
-        self._logger = logger
-        self._meter = meter
 
         self._client = AsyncClient(
             base_url="https://open.bigmodel.cn/api/paas/v4",
@@ -205,7 +204,7 @@ class GLMSchematicGenerator(BaseSchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.scope(f"GLM LLM Request ({self.schema.__name__})"):
+        with self.logger.scope(f"GLM LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     async def _do_generate(
@@ -229,16 +228,16 @@ class GLMSchematicGenerator(BaseSchematicGenerator[T]):
         t_end = time.time()
 
         if response.usage:
-            self._logger.trace(response.usage.model_dump_json(indent=2))
+            self.logger.trace(response.usage.model_dump_json(indent=2))
 
         raw_content = response.choices[0].message.content or "{}"
 
         try:
             json_content = json.loads(normalize_json_output(raw_content))
         except json.JSONDecodeError:
-            self._logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
+            self.logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
             json_content = jsonfinder.only_json(raw_content)[2]
-            self._logger.warning("Found JSON content within model response; continuing...")
+            self.logger.warning("Found JSON content within model response; continuing...")
 
         try:
             content = self.schema.model_validate(json_content)
@@ -246,7 +245,7 @@ class GLMSchematicGenerator(BaseSchematicGenerator[T]):
             assert response.usage
 
             await record_llm_metrics(
-                self._meter,
+                self.meter,
                 self.model_name,
                 schema_name=self.schema.__name__,
                 input_tokens=response.usage.prompt_tokens,
@@ -278,7 +277,7 @@ class GLMSchematicGenerator(BaseSchematicGenerator[T]):
                 ),
             )
         except ValidationError:
-            self._logger.error(
+            self.logger.error(
                 f"JSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
             )
             raise
@@ -313,20 +312,31 @@ Please set GLM_API_KEY in your environment before running Parlant.
         tracer: Tracer,
         meter: Meter,
     ) -> None:
-        self._logger = logger
+        self.logger = logger
         self._tracer = tracer
         self._meter = meter
-        self._logger.info("Initialized GLMService")
+        self.logger.info("Initialized GLMService")
+
+    @property
+    @override
+    def supports_streaming(self) -> bool:
+        return False
+
+    @override
+    async def get_streaming_text_generator(
+        self, hints: StreamingTextGeneratorHints = {}
+    ) -> StreamingTextGenerator:
+        raise NotImplementedError("Streaming is not supported. Check supports_streaming first.")
 
     @override
     async def get_schematic_generator(
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> GLMSchematicGenerator[T]:
-        return GLM_4_5[t](self._logger, self._tracer, self._meter)  # type: ignore
+        return GLM_4_5[t](self.logger, self._tracer, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return GMLTextEmbedding_3(logger=self._logger, tracer=self._tracer, meter=self._meter)
+        return GMLTextEmbedding_3(logger=self.logger, tracer=self._tracer, meter=self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

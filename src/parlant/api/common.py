@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@ from enum import Enum
 from pydantic import Field
 from typing import Annotated, Any, Mapping, Sequence, TypeAlias
 
-from parlant.core.agents import CompositionMode
+from parlant.core.agents import CompositionMode, MessageOutputMode
 from parlant.core.common import DefaultBaseModel
 from parlant.core.evaluations import PayloadOperation
 from parlant.core.persistence.common import SortDirection
@@ -70,6 +70,41 @@ def composition_mode_to_composition_mode_dto(
             return CompositionModeDTO.CANNED_COMPOSITED
         case CompositionMode.CANNED_FLUID:
             return CompositionModeDTO.CANNED_FLUID
+
+
+class MessageOutputModeDTO(Enum):
+    """
+    Defines how the agent outputs messages.
+
+    Available options:
+    - block: Full message is sent at once (default behavior)
+    - stream: Message is streamed token by token
+    """
+
+    BLOCK = "block"
+    STREAM = "stream"
+
+
+def message_output_mode_dto_to_message_output_mode(
+    dto: MessageOutputModeDTO,
+) -> MessageOutputMode:
+    """Convert MessageOutputModeDTO to core MessageOutputMode."""
+    match dto:
+        case MessageOutputModeDTO.BLOCK:
+            return MessageOutputMode.BLOCK
+        case MessageOutputModeDTO.STREAM:
+            return MessageOutputMode.STREAM
+
+
+def message_output_mode_to_message_output_mode_dto(
+    mode: MessageOutputMode,
+) -> MessageOutputModeDTO:
+    """Convert core MessageOutputMode to MessageOutputModeDTO."""
+    match mode:
+        case MessageOutputMode.BLOCK:
+            return MessageOutputModeDTO.BLOCK
+        case MessageOutputMode.STREAM:
+            return MessageOutputModeDTO.STREAM
 
 
 def apigen_config(group_name: str, method_name: str) -> Mapping[str, Any]:
@@ -271,6 +306,7 @@ guideline_dto_example = {
     "tags": ["tag1", "tag2"],
     "metadata": {"key1": "value1", "key2": "value2"},
     "composition_mode": None,
+    "labels": ["vip", "priority"],
 }
 
 GuidelineTagsField: TypeAlias = Annotated[
@@ -278,6 +314,15 @@ GuidelineTagsField: TypeAlias = Annotated[
     Field(
         description="The tags associated with the guideline",
         examples=[["tag1", "tag2"], []],
+    ),
+]
+
+
+GuidelineLabelsField: TypeAlias = Annotated[
+    set[str],
+    Field(
+        description="The labels associated with the guideline",
+        examples=[{"vip", "priority"}, set()],
     ),
 ]
 
@@ -297,6 +342,9 @@ class GuidelineDTO(
     tags: GuidelineTagsField
     metadata: GuidelineMetadataField
     composition_mode: CompositionModeDTO | None = None
+    track: bool = True
+    labels: GuidelineLabelsField = set()
+    priority: int = 0
 
 
 EnumValueTypeDTO: TypeAlias = str | int

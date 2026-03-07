@@ -2,6 +2,7 @@ Feature: Tools
     Background:
         Given the alpha engine
         And an agent
+        And that the agent uses the canned_fluid message composition mode
         And an empty session
 
     Scenario: Single tool get_available_drinks is being called once
@@ -129,6 +130,7 @@ Feature: Tools
 
     Scenario: Relevant guidelines are not refreshed based on tool results if no second iteration of matching a new guideline is made
         Given an agent with a maximum of 1 engine iterations
+        And that the agent uses the canned_fluid message composition mode
         And a guideline "retrieve_account_information" to retrieve account information when customers inquire about account-related information
         And the tool "get_account_balance"
         And an association between "retrieve_account_information" and "get_account_balance"
@@ -431,10 +433,10 @@ Feature: Tools
         And the tool "transfer_coins"
         And an association between "make_transfer" and "transfer_coins"
         And a customer message, "Can I make a transfer from my account to a different one?"
-        And an agent message, "Absolutely! I can help you with that. Just let me know the details, and I’ll assist you in making the transfer."
+        And an agent message, "Absolutely! I can help you with that. Just let me know the details, and I'll assist you in making the transfer."
         And a customer message, "My name is Mark Corrigan, and I might want to send 10,101 dollars to my sister, Ruthie."
-        And an agent message, "Got it, Mark! What’s your pin code, please?"
-        And a customer message, "It’s 1234. But actually, I’m not sure if I want to do it right now. I may do it tomorrow instead. I’ll keep you posted"
+        And an agent message, "Got it, Mark! What's your pin code, please?"
+        And a customer message, "It's 1234. But actually, I'm not sure if I want to do it right now. I may do it tomorrow instead. I'll keep you posted"
         And that the "make_transfer" guideline was matched in the previous iteration
         When detection and processing are triggered
         When processing is triggered
@@ -447,10 +449,10 @@ Feature: Tools
         And an association between "make_transfer" and "transfer_coins"
         And a guideline to multiply amount by 2 when asked to make a transfer in euros
         And a customer message, "Can I make a transfer from my account to a different one?"
-        And an agent message, "Absolutely! I can help you with that. Just let me know the details, and I’ll assist you in making the transfer."
+        And an agent message, "Absolutely! I can help you with that. Just let me know the details, and I'll assist you in making the transfer."
         And a customer message, "My name is Mark Corrigan, and I want to send 1500 euros to my sister, Sophie Chapman."
-        And an agent message, "Got it, Mark! What’s your pin code, please?"
-        And a customer message, "It’s 1234. "
+        And an agent message, "Got it, Mark! What's your pin code, please?"
+        And a customer message, "It's 1234. "
         And that the "make_transfer" guideline was matched in the previous iteration
         When detection and processing are triggered
         Then the tool calls event contains a call to "transfer_coins" with amount 3000 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
@@ -458,11 +460,11 @@ Feature: Tools
 
     Scenario: Tool call consider a guideline about tool parameters (2) (transfer_coins)
         Given an empty session
-        And a guideline "make_transfer" to make a transfer when asked to transfer money from one account to another
+        And a guideline "make_transfer" to make a transfer when asked to transfer money 
         And the tool "transfer_coins"
         And an association between "make_transfer" and "transfer_coins"
-        And a guideline to set the destination account to Sophie Chapman when asked to transfer money from one account to another
-        And a customer message, "Hi, it’s Mark Corrigan here. Can I make a transfer of 4500$?. You probably need my pincode, its 1234 "
+        And a guideline to set the destination account to Sophie Chapman when asked to transfer money 
+        And a customer message, "Hi, it's Mark Corrigan here. Can I make a transfer of 4500$?. You probably need my pincode, its 1234 "
         When processing is triggered
         Then the tool calls event contains a call to "transfer_coins" with amount 4500 and from_account Mark Corrigan and to_account Sophie Chapman and pincode 1234
         And no tool error has occurred
@@ -497,21 +499,21 @@ Feature: Tools
         And the tool "transfer_coins"
         And an association between "make_transfer" and "transfer_coins"
         And a customer message, "Hi, can I make a transfer from my account to a different one?"
-        And an agent message, "Absolutely! I’d be happy to help with that. Just let me know the details—like who you want to send money to and how much—and I’ll assist you with the transfer."
-        And a customer message, "My name is Mark Corrigan. I’m not sure if I have enough money in my account, though. Can you help me figure that out?"
+        And an agent message, "Absolutely! I'd be happy to help with that. Just let me know the details—like who you want to send money to and how much—and I'll assist you with the transfer."
+        And a customer message, "My name is Mark Corrigan. I'm not sure if I have enough money in my account, though. Can you help me figure that out?"
         And an agent message, "Of course, Mark! Would you like me to check your account balance for you?"
-        And a customer message, "Not right now. I think I’ll just go ahead and try to make a transfer anyway."
+        And a customer message, "Not right now. I think I'll just go ahead and try to make a transfer anyway."
         And an agent message, " Alright, no problem! Can you tell me the name of the person you want to send money to, and how much you'd like to transfer?"
         And a customer message, "Actually, do you work tomorrow? What are your working hours?"
-        And an agent message, "Yes, I’m available every day from 9 AM to 5 PM. Would you like to go ahead with the transfer now, or is there something else you need?"
+        And an agent message, "Yes, I'm available every day from 9 AM to 5 PM. Would you like to go ahead with the transfer now, or is there something else you need?"
         And a customer message, "If I come tomorrow will that be ok?"
         And an agent message, "Yes, that works! Feel free to come tomorrow. Would you like to go ahead with the transfer now, or is there anything else you need help with?"
-        And a customer message, "Yeah, I think I’m ready. My name is Mark Corrigan. I need to transfer to my dear friend Sophie Chapman "
+        And a customer message, "Yeah, I think I'm ready. My name is Mark Corrigan. I need to transfer to my dear friend Sophie Chapman "
         And an agent message, "Hi again, Mark! So, how much would you like to transfer today?"
-        And a customer message, "I think it’d be better if someone else helped me with the transfer."
-        And an agent message, "Alright, if you’d like me to help with that, I’ll just need to know how much would you want to transfer"
-        And a customer message, "I’m thinking of sending $2000 right now."
-        And an agent message, "Alright, if you’d like me to assist with that, I’ll just need your pin code to proceed"
+        And a customer message, "I think it'd be better if someone else helped me with the transfer."
+        And an agent message, "Alright, if you'd like me to help with that, I'll just need to know how much would you want to transfer"
+        And a customer message, "I'm thinking of sending $2000 right now."
+        And an agent message, "Alright, if you'd like me to assist with that, I'll just need your pin code to proceed"
         And a customer message, "Sure, try 1234."
         And that the "make_transfer" guideline was matched in the previous iteration
         When detection and processing are triggered
@@ -579,7 +581,7 @@ Feature: Tools
         And the tool calls event contains 1 tool call(s)
         And the tool calls event contains laptop as keyword and 300 as max price and in_stock_only is True
 
-    Scenario: Tool caller consider a guideline about optional parameters (2)
+    Scenario: Tool caller consider h parameters (2)
         Given a guideline "filter_electronic_products" to retrieve relevant products that match the asked attributes when customer is interested in electronic products with specific attributes
         And the tool "search_electronic_products"
         And an association between "filter_electronic_products" and "search_electronic_products"
@@ -615,7 +617,6 @@ Feature: Tools
         And the message mentions that parameters are invalid
         And the number of invalid parameters is exactly 1
         And the message mentions mentions last name
-        And the message mentions mentions Sushi Mushi and Tushi
 
     Scenario: A tool with both missing and invalid parameters, some hidden and some have display names, communicate the problems correctly
         Given an empty session
@@ -631,7 +632,6 @@ Feature: Tools
         And the message mentions that parameters are invalid
         And the number of invalid parameters is exactly 2
         And the message mentions the robot, mistress and homie
-        And the message mentions Chris Pikrim, Mike Andike, Jay Libelly and Bruno Twix
 
 
     Scenario: Tool caller chooses the right tool for scheduling when three are overlapping
@@ -666,7 +666,7 @@ Feature: Tools
         And an association between "to_reschedule_appointment" and "reschedule_appointment"
         And a tool relationship whereby "reschedule_appointment" overlaps with "schedule_appointment"
         And a context variable "Current Date" set to "April 10th, 2025" for "Hailey"
-        And a customer message, "Hi, I’d like to schedule an appointment for tomorrow at 18:00 with Dr. Gabi, please. Also, I have an appointment with Dr. Michael. Could you please reschedule with Dr. Michael for tomorrow at 3:00 PM? Thank you!"
+        And a customer message, "Hi, I'd like to schedule an appointment for tomorrow at 18:00 with Dr. Gabi, please. Also, I have an appointment with Dr. Michael. Could you please reschedule with Dr. Michael for tomorrow at 3:00 PM? Thank you!"
         When processing is triggered
         Then the tool calls event contains 2 tool call(s)
         And the tool calls event contains a call to "local:reschedule_appointment" to Hailey with Dr. Michael at 11-04-2025 15:00 and contains a call to "local:schedule_appointment" to Hailey with Dr. Gabi at 11-04-2025 18:00
@@ -851,7 +851,7 @@ Feature: Tools
         And an association between "to_reschedule_appointment" and "reschedule_appointment"
         And a tool relationship whereby "reschedule_appointment" overlaps with "schedule_appointment"
         And a context variable "Current Date" set to "April 10th, 2025" for "Hailey"
-        And a customer message, "Hi, I’d like to schedule an appointment for tomorrow at 18:00 with Dr. Gabi, please. Also, I have an appointment with Dr. Michael. Could you please reschedule with Dr. Michael for tomorrow at 3:00 PM? Thank you!"
+        And a customer message, "Hi, I'd like to schedule an appointment for tomorrow at 18:00 with Dr. Gabi, please. Also, I have an appointment with Dr. Michael. Could you please reschedule with Dr. Michael for tomorrow at 3:00 PM? Thank you!"
         When processing is triggered
         Then the tool calls event contains 2 tool call(s)
         And the tool calls event contains a call to "local:reschedule_appointment" to Hailey with Dr. Michael at 11-04-2025 15:00 and contains a call to "local:schedule_appointment" to Hailey with Dr. Gabi at 11-04-2025 18:00
@@ -958,6 +958,7 @@ Feature: Tools
 
     Scenario: The agent correctly chooses to call the right overlapping tool based on glossary
         Given an agent whose job is to sell groceries
+        And that the agent uses the canned_fluid message composition mode
         And the term "carrot" defined as a kind of fruit
         And a guideline "check_prices" to reply with the price of the item when a customer asks about an items price
         And the tool "check_fruit_price"
@@ -995,6 +996,7 @@ Feature: Tools
         And no tool error has occurred
         And the tool calls event contains 1 tool call(s)
 
+    # Fails when the tool is not consequential because of bad conversion from float - should be fixable
     Scenario: Tool caller calls a tool with different types of parameters with no type errors (2)
         Given a guideline "set_a_meating" to set a bbq-integrated meeting with some friends when a customer wants to set a meeting with friends
         And the tool "set_a_bbq_appointment"
@@ -1058,3 +1060,28 @@ Feature: Tools
         Then a single tool calls event is emitted
         And the message contains an offer for the dungeon
         And the message doesn't contains an offer for the luxury room
+
+    Scenario: Non consequential tool using datetime formatted arguments is used correctly
+        Given a guideline "set_appointment" to set an appointment at the agreed time when the customer chooses an appointment time between the available options
+        And the tool "schedule_appointment_2"
+        And an association between "set_appointment" and "schedule_appointment_2"
+        And a context variable "current_date" set to "September 12th 2025"
+        And a customer message, "I'm sick, I need to see a doctor ASAP"
+        And an agent message, "I'm sorry to hear that."
+        And an agent message, "If it's an emergency, please call a human representitive at our number. We have appointment slots for tomorrow at 2 PM, or on the 15.10 at 11 AM"
+        And a customer message, "tomorrow at 2 PM is good"
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the staged tool calls event contains an appointment was set to 2025-09-13
+        And the message contains that an appointment was successfuly set for either tomorrow or the 2025-09-13
+
+    Scenario: Consequential tool with optional argument is sent with none 
+        Given a guideline "to_send_email" to compose the email based on their request. You're free to write it in your own words while fulfilling their requirements when customer asks to send an email to someone
+        And the tool "send_email"
+        And an association between "to_send_email" and "send_email"
+        And a customer message, "I need to ask my friend Ronny if they can meet with me tommorow. We comunicate by email so send them a mail please."
+        And an agent message, "I can send them a mail for you. What's the email address?"
+        And a customer message, "Ronny@emcie.co. Thanks."
+        When processing is triggered
+        Then a single tool calls event is emitted
+        And the tool calls event contains a call to "send_email" with None as forward

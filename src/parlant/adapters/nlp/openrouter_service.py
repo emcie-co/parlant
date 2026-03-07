@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -39,12 +39,18 @@ from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
-from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
+from parlant.core.nlp.service import (
+    EmbedderHints,
+    NLPService,
+    SchematicGeneratorHints,
+    StreamingTextGeneratorHints,
+)
 from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
     BaseSchematicGenerator,
     SchematicGenerationResult,
+    StreamingTextGenerator,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.moderation import (
@@ -361,7 +367,6 @@ class OpenRouterEmbedder(BaseEmbedder):
 
     def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(logger, tracer, meter, model_name)
-        self.model_name = model_name
 
         # Build extra headers from environment variables
         extra_headers = {}
@@ -531,6 +536,17 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
 
         self._dynamic_embedder_class = DynamicOpenRouterEmbedder
 
+    @property
+    @override
+    def supports_streaming(self) -> bool:
+        return False
+
+    @override
+    async def get_streaming_text_generator(
+        self, hints: StreamingTextGeneratorHints = {}
+    ) -> StreamingTextGenerator:
+        raise NotImplementedError("Streaming is not supported. Check supports_streaming first.")
+
     def _get_specialized_generator_class(
         self,
         model_name: str,
@@ -552,10 +568,10 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
             "anthropic/claude-3.5-sonnet": lambda logger, tracer, meter: OpenRouterClaude35Sonnet[
                 t  # type: ignore
             ](logger, tracer, meter),
-            "meta-llama/llama-3.3-70b-instruct": lambda logger,
-            tracer,
-            meter: OpenRouterLlama33_70B[t](  # type: ignore
-                logger, tracer, meter
+            "meta-llama/llama-3.3-70b-instruct": lambda logger, tracer, meter: (
+                OpenRouterLlama33_70B[t](  # type: ignore
+                    logger, tracer, meter
+                )
             ),
         }
 

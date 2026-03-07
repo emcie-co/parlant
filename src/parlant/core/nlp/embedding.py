@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -162,8 +162,10 @@ class BaseEmbedder(Embedder):
         # Evict oldest entry if at capacity
         if len(self._cache) >= _EMBEDDING_CACHE_MAX_SIZE:
             oldest_checksum, oldest_entry = self._cache.popitem(last=False)
-            self._cache_length_index[oldest_entry.text_length].discard(oldest_checksum)
-            self._cache_length_index.pop(oldest_entry.text_length, None)
+            checksums = self._cache_length_index[oldest_entry.text_length]
+            checksums.discard(oldest_checksum)
+            if not checksums:
+                del self._cache_length_index[oldest_entry.text_length]
 
         # Add new entry
         self._cache[checksum] = _EmbeddingCacheEntry(
@@ -246,6 +248,15 @@ class BaseEmbedder(Embedder):
 
 class EmbedderFactory:
     """Factory for creating embedder instances."""
+
+    # FIXME: The vector DB layer uses embedder_type.__name__ to name collections
+    # (e.g. "glossary_OpenAITextEmbedding3Large"). This works when each embedder
+    # class maps to a single model, but breaks for generic embedders like
+    # LiteLLMEmbedder where the model is configured via an env var. Changing
+    # LITELLM_EMBEDDING_MODEL_NAME between server restarts won't trigger
+    # re-indexing because the type name stays "LiteLLMEmbedder". The collection
+    # naming scheme needs to incorporate the model identity (e.g. embedder.id)
+    # rather than just the class name.
 
     def __init__(self, container: Container):
         self._container = container

@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -116,6 +116,7 @@ class Operation(Enum):
     CREATE_STATUS_EVENT = "create_status_event"
     CREATE_CUSTOM_EVENT = "create_custom_event"
     LIST_EVENTS = "list_events"
+    READ_EVENT = "read_event"
     DELETE_EVENTS = "delete_events"
     UPDATE_EVENT = "update_event"
 

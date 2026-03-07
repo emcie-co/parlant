@@ -1,4 +1,20 @@
-export const BASE_URL = import.meta.env.VITE_BASE_URL || '';
+/**
+ * Detect base path from current URL for path-based routing.
+ * Extracts the first path segment if it's not a known route.
+ * e.g., "/QfnuAKfKSf/chat" -> "/QfnuAKfKSf"
+ */
+const getBasePath = (): string => {
+	const path = window.location.pathname;
+	const segments = path.split('/').filter(Boolean);
+	
+	// If first segment isn't a known route, use it as base path
+	if (segments.length > 0 && !['chat', 'docs', 'api', 'healthz'].includes(segments[0])) {
+		return '/' + segments[0];
+	}
+	return '';
+};
+
+export const BASE_URL = import.meta.env.VITE_BASE_URL || getBasePath();
 
 const request = async (url: string, options: RequestInit = {}) => {
 	try {

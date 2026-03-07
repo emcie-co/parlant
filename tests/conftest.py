@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,6 +33,10 @@ from parlant.api.authorization import AuthorizationPolicy, DevelopmentAuthorizat
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.common import IdGenerator
+from parlant.core.engines.alpha.guideline_matching.generic.guideline_low_criticality_batch import (
+    GenericLowCriticalityGuidelineMatchesSchema,
+    GenericLowCriticalityGuidelineMatching,
+)
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
     JourneyBacktrackCheckSchema,
 )
@@ -103,7 +107,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.response_analysis_bat
 )
 from parlant.core.engines.alpha import message_generator
 from parlant.core.engines.alpha.hooks import EngineHooks
-from parlant.core.engines.alpha.relational_guideline_resolver import RelationalGuidelineResolver
+from parlant.core.engines.alpha.relational_resolver import RelationalResolver
 from parlant.core.engines.alpha.tool_calling.default_tool_call_batcher import DefaultToolCallBatcher
 from parlant.core.engines.alpha.canned_response_generator import (
     CannedResponseDraftSchema,
@@ -476,6 +480,7 @@ async def container(
         for generation_schema in (
             GenericObservationalGuidelineMatchesSchema,
             GenericActionableGuidelineMatchesSchema,
+            GenericLowCriticalityGuidelineMatchesSchema,
             GenericPreviouslyAppliedActionableGuidelineMatchesSchema,
             GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchesSchema,
             MessageSchema,
@@ -552,6 +557,9 @@ async def container(
         container[GenericActionableGuidelineMatching] = Singleton(
             GenericActionableGuidelineMatching
         )
+        container[GenericLowCriticalityGuidelineMatching] = Singleton(
+            GenericLowCriticalityGuidelineMatching
+        )
         container[GenericPreviouslyAppliedActionableGuidelineMatching] = Singleton(
             GenericPreviouslyAppliedActionableGuidelineMatching
         )
@@ -566,7 +574,7 @@ async def container(
         container[DefaultToolCallBatcher] = Singleton(DefaultToolCallBatcher)
         container[ToolCallBatcher] = lambda container: container[DefaultToolCallBatcher]
         container[ToolCaller] = Singleton(ToolCaller)
-        container[RelationalGuidelineResolver] = Singleton(RelationalGuidelineResolver)
+        container[RelationalResolver] = Singleton(RelationalResolver)
         container[CannedResponseGenerator] = Singleton(CannedResponseGenerator)
         container[NoMatchResponseProvider] = Singleton(BasicNoMatchResponseProvider)
         container[CannedResponseFieldExtractor] = Singleton(CannedResponseFieldExtractor)
@@ -625,6 +633,14 @@ def no_cache(container: Container) -> None:
         cast(
             CachedSchematicGenerator[GenericActionableGuidelineMatchesSchema],
             container[SchematicGenerator[GenericActionableGuidelineMatchesSchema]],
+        ).use_cache = False
+    if isinstance(
+        container[SchematicGenerator[GenericLowCriticalityGuidelineMatchesSchema]],
+        CachedSchematicGenerator,
+    ):
+        cast(
+            CachedSchematicGenerator[GenericLowCriticalityGuidelineMatchesSchema],
+            container[SchematicGenerator[GenericLowCriticalityGuidelineMatchesSchema]],
         ).use_cache = False
     if isinstance(
         container[

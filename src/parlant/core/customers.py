@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -116,7 +116,7 @@ class CustomerStore(ABC):
     ) -> None: ...
 
     @abstractmethod
-    async def add_extra(
+    async def upsert_extra(
         self,
         customer_id: CustomerId,
         extra: Mapping[str, str],
@@ -493,7 +493,7 @@ class CustomerDocumentStore(CustomerStore):
         return None
 
     @override
-    async def add_extra(
+    async def upsert_extra(
         self,
         customer_id: CustomerId,
         extra: Mapping[str, str],

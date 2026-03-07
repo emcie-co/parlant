@@ -1,4 +1,12 @@
 Feature: Relationship
+
+    Background:
+        Given the alpha engine
+        And an agent
+        And that the agent uses the canned_fluid message composition mode
+        And an empty session
+
+
     Scenario: The agent follows a guideline that is entailed by another guideline
         Given the alpha engine
         And an agent whose job is to sell pizza

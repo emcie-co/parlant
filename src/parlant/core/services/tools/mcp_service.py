@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -71,17 +71,23 @@ class MCPToolServer:
     ) -> None:
         self._server: FastMCP[Any] = FastMCP(name=name)
 
-        self._server.settings.port = port
+        self._port = port
 
         if "://" in host:
             host = host.split("://")[1]
-        self._server.settings.host = host
+        self._host = host
         self.transport = transport
         for tool in tools:
             self._server.add_tool(FastMCPTool.from_function(tool))
 
     async def __aenter__(self) -> MCPToolServer:
-        self._task = asyncio.create_task(self._server.run_async(transport=self.transport))
+        self._task = asyncio.create_task(
+            self._server.run_async(
+                transport=self.transport,
+                host=self._host,
+                port=self._port,
+            )
+        )
 
         start_timeout = 10
         sample_frequency = 0.1
@@ -108,7 +114,11 @@ class MCPToolServer:
         return False
 
     async def serve(self) -> None:
-        await self._server.run_async(transport=self.transport)
+        await self._server.run_async(
+            transport=self.transport,
+            host=self._host,
+            port=self._port,
+        )
 
     async def shutdown(self) -> None:
         """At the time of creating this server, there is no graceful shutdown for the FactMCP http server"""
@@ -121,7 +131,7 @@ class MCPToolServer:
         return False
 
     def get_port(self) -> int:
-        return self._server.settings.port
+        return self._port
 
 
 class MCPToolClient(ToolService):

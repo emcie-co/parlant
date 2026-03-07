@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from itertools import chain
-from typing import Mapping, Sequence, cast
+from typing import Mapping, Sequence, Set, cast
 
 from parlant.core.agents import AgentId, AgentStore, CompositionMode
 from parlant.core.common import Criticality, ItemNotFoundError, JSONSerializable, UniqueId
@@ -38,6 +38,12 @@ class GuidelineTagsUpdateParams:
 class GuidelineToolAssociationUpdateParams:
     add: Sequence[ToolId] | None = None
     remove: Sequence[ToolId] | None = None
+
+
+@dataclass(frozen=True)
+class GuidelineLabelsUpdateParams:
+    upsert: Set[str] | None = None
+    remove: Set[str] | None = None
 
 
 @dataclass
@@ -90,6 +96,9 @@ class GuidelineModule:
         tags: Sequence[TagId] | None,
         id: GuidelineId | None = None,
         composition_mode: CompositionMode | None = None,
+        track: bool = True,
+        labels: Set[str] | None = None,
+        priority: int = 0,
     ) -> Guideline:
         if tags:
             for tag_id in tags:
@@ -107,6 +116,9 @@ class GuidelineModule:
             tags=tags,
             id=id,
             composition_mode=composition_mode,
+            track=track,
+            labels=labels,
+            priority=priority,
         )
 
         return guideline
@@ -140,6 +152,8 @@ class GuidelineModule:
         tags: GuidelineTagsUpdateParams | None,
         metadata: GuidelineMetadataUpdateParams | None,
         composition_mode: CompositionMode | None = None,
+        labels: GuidelineLabelsUpdateParams | None = None,
+        priority: int | None = None,
     ) -> Guideline:
         _ = await self._guideline_store.read_guideline(guideline_id=guideline_id)
 
@@ -150,6 +164,7 @@ class GuidelineModule:
             or criticality is not None
             or enabled is not None
             or composition_mode is not None
+            or priority is not None
         ):
             update_params: GuidelineUpdateParams = {}
             if condition:
@@ -164,6 +179,8 @@ class GuidelineModule:
                 update_params["enabled"] = enabled
             if composition_mode is not None:
                 update_params["composition_mode"] = composition_mode
+            if priority is not None:
+                update_params["priority"] = priority
 
             await self._guideline_store.update_guideline(
                 guideline_id=guideline_id,
@@ -242,6 +259,19 @@ class GuidelineModule:
                         guideline_id=guideline_id,
                         tag_id=tag_id,
                     )
+
+        if labels:
+            if labels.upsert:
+                await self._guideline_store.upsert_labels(
+                    guideline_id=guideline_id,
+                    labels=labels.upsert,
+                )
+
+            if labels.remove:
+                await self._guideline_store.remove_labels(
+                    guideline_id=guideline_id,
+                    labels=labels.remove,
+                )
 
         guideline = await self._guideline_store.read_guideline(guideline_id=guideline_id)
 

@@ -157,6 +157,25 @@ term = await agent.create_term(
 # The term should still be available after restart
 ```
 
+### How to Confirm Vector Search is Active
+
+When the agent processes a message, it runs a similarity search against the Weaviate-backed collections (glossary terms, capabilities, canned responses, etc.). To see this in action:
+
+1. **Enable trace-level logging** — Parlant logs each similarity search result at the `TRACE` level. Start the server with `--log-level trace` (or set `LOG_LEVEL=trace`) and look for lines like:
+   ```
+   Similar documents found
+   [{"id": "...", "content": "...", ...}]
+   ```
+   These appear in `WeaviateCollection.find_similar_documents` every time the engine queries for relevant context.
+
+2. **Weaviate dashboard / console** — for cloud instances, open the Weaviate console and switch to the **Query** tab. You will see live read traffic against your collections whenever the agent responds to a message.
+
+3. **Verify collection contents** — use the Weaviate REST API to confirm your terms are stored:
+   ```bash
+   curl http://localhost:8080/v1/objects?class=glossary_unembedded
+   ```
+   The `_unembedded` collection always contains the raw document; the named embedder collection (e.g. `glossary_OpenAITextEmbedding3Large`) holds the vector representations used for search.
+
 ---
 
 ## Common Issues

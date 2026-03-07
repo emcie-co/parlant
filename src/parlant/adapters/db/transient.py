@@ -26,6 +26,8 @@ from parlant.core.persistence.common import (
     ensure_is_total,
 )
 from parlant.core.persistence.document_database import (
+    CollectionIndex,
+    CollectionSort,
     BaseDocument,
     DeleteResult,
     DocumentCollection,
@@ -174,6 +176,21 @@ class TransientDocumentCollection(DocumentCollection[TDocument]):
 
         return docs
 
+    def _apply_field_sort(
+        self,
+        documents: Sequence[TDocument],
+        sort: CollectionSort,
+    ) -> list[TDocument]:
+        docs = list(documents)
+
+        for field_name, direction in reversed(sort):
+            docs.sort(
+                key=lambda d: d.get(field_name),
+                reverse=direction == SortDirection.DESC,
+            )
+
+        return docs
+
     def _apply_cursor_filter(
         self,
         documents: list[TDocument],
@@ -216,11 +233,23 @@ class TransientDocumentCollection(DocumentCollection[TDocument]):
     async def find_one(
         self,
         filters: Where,
+        sort: Optional[CollectionSort] = None,
     ) -> Optional[TDocument]:
-        for doc in self._documents:
-            if matches_filters(filters, doc):
-                return doc
+        matching_documents = [doc for doc in self._documents if matches_filters(filters, doc)]
 
+        if sort:
+            matching_documents = self._apply_field_sort(matching_documents, sort)
+
+        for doc in matching_documents:
+            return doc
+
+        return None
+
+    @override
+    async def ensure_indexes(
+        self,
+        indexes: Sequence[CollectionIndex],
+    ) -> None:
         return None
 
     @override

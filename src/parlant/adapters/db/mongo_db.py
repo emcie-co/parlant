@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional, Sequence
 from bson import CodecOptions
 from typing_extensions import Self
 from parlant.core.loggers import Logger
 from parlant.core.persistence.common import Cursor, SortDirection, Where, ObjectId
 from parlant.core.persistence.document_database import (
+    CollectionIndex,
+    CollectionSort,
     BaseDocument,
     DeleteResult,
     DocumentCollection,
@@ -60,10 +62,10 @@ class MongoDocumentDatabase(DocumentDatabase):
             codec_options=CodecOptions(document_class=schema),
         )
 
-        # Create index on creation_utc field
-        await collection.create_index([("creation_utc", 1)])
-
         self._collections[name] = MongoDocumentCollection(self, collection)
+        await self._collections[name].ensure_indexes(
+            [CollectionIndex(fields=(("creation_utc", SortDirection.ASC),))]
+        )
         return self._collections[name]
 
     async def get_collection(
@@ -118,10 +120,10 @@ class MongoDocumentDatabase(DocumentDatabase):
                 )
                 await failed_migration_collection.insert_one(doc)
 
-        # Create index on creation_utc field
-        await result_collection.create_index([("creation_utc", 1)])
-
         self._collections[name] = MongoDocumentCollection(self, result_collection)
+        await self._collections[name].ensure_indexes(
+            [CollectionIndex(fields=(("creation_utc", SortDirection.ASC),))]
+        )
         return self._collections[name]
 
     async def get_or_create_collection(
@@ -230,9 +232,33 @@ class MongoDocumentCollection(DocumentCollection[TDocument]):
             items=items, total_count=total_count, has_more=has_more, next_cursor=next_cursor
         )
 
-    async def find_one(self, filters: Where) -> TDocument | None:
-        result = await self._collection.find_one(filters)
+    def _translate_sort(
+        self,
+        sort: CollectionSort,
+    ) -> list[tuple[str, int]]:
+        return [
+            (field_name, -1 if direction == SortDirection.DESC else 1)
+            for field_name, direction in sort
+        ]
+
+    async def find_one(
+        self,
+        filters: Where,
+        sort: Optional[CollectionSort] = None,
+    ) -> TDocument | None:
+        mongo_sort = self._translate_sort(sort) if sort else None
+        result = await self._collection.find_one(filters, sort=mongo_sort)
         return result
+
+    async def ensure_indexes(
+        self,
+        indexes: Sequence[CollectionIndex],
+    ) -> None:
+        for index in indexes:
+            await self._collection.create_index(
+                self._translate_sort(index.fields),
+                unique=index.unique,
+            )
 
     async def insert_one(self, document: TDocument) -> InsertResult:
         insert_result = await self._collection.insert_one(document)

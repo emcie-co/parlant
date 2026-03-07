@@ -56,6 +56,7 @@ from parlant.core.persistence.common import (
 )
 from parlant.core.persistence.document_database import (
     BaseDocument,
+    CollectionIndex,
     DocumentDatabase,
     DocumentCollection,
 )
@@ -912,6 +913,43 @@ class SessionDocumentStore(SessionStore):
                 schema=_EventDocument,
                 document_loader=self._event_document_loader,
             )
+            await self._session_collection.ensure_indexes(
+                [
+                    CollectionIndex(fields=(("id", SortDirection.ASC),)),
+                    CollectionIndex(
+                        fields=(
+                            ("agent_id", SortDirection.ASC),
+                            ("creation_utc", SortDirection.ASC),
+                            ("_id", SortDirection.ASC),
+                        )
+                    ),
+                    CollectionIndex(
+                        fields=(
+                            ("customer_id", SortDirection.ASC),
+                            ("creation_utc", SortDirection.ASC),
+                            ("_id", SortDirection.ASC),
+                        )
+                    ),
+                ]
+            )
+            await self._event_collection.ensure_indexes(
+                [
+                    CollectionIndex(fields=(("id", SortDirection.ASC),)),
+                    CollectionIndex(
+                        fields=(
+                            ("session_id", SortDirection.ASC),
+                            ("offset", SortDirection.ASC),
+                        )
+                    ),
+                    CollectionIndex(
+                        fields=(
+                            ("session_id", SortDirection.ASC),
+                            ("deleted", SortDirection.ASC),
+                            ("offset", SortDirection.ASC),
+                        )
+                    ),
+                ]
+            )
 
         return self
 
@@ -1275,11 +1313,15 @@ class SessionDocumentStore(SessionStore):
             if not await self._session_collection.find_one(filters={"id": {"$eq": session_id}}):
                 raise ItemNotFoundError(item_id=UniqueId(session_id), message="Session not found")
 
-            session_events = await self.list_events(
-                session_id
-            )  # FIXME: we need a more efficient way to do this
             creation_utc = creation_utc or datetime.now(timezone.utc)
-            offset = len(list(session_events))
+            latest_event = await self._event_collection.find_one(
+                filters={"session_id": {"$eq": session_id}},
+                sort=(
+                    ("offset", SortDirection.DESC),
+                    ("id", SortDirection.DESC),
+                ),
+            )
+            offset = latest_event["offset"] + 1 if latest_event else 0
 
             event = Event(
                 id=EventId(generate_id()),

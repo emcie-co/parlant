@@ -38,6 +38,8 @@ from typing_extensions import Self
 from parlant.core.loggers import Logger
 from parlant.core.persistence.common import Cursor, ObjectId, SortDirection, Where, ensure_is_total
 from parlant.core.persistence.document_database import (
+    CollectionIndex,
+    CollectionSort,
     BaseDocument,
     DeleteResult,
     DocumentCollection,
@@ -458,7 +460,31 @@ class SnowflakeDocumentCollection(DocumentCollection[TDocument]):
             next_cursor=next_cursor,
         )
 
-    async def find_one(self, filters: Where) -> Optional[TDocument]:
+    def _apply_field_sort(
+        self,
+        documents: Sequence[TDocument],
+        sort: CollectionSort,
+    ) -> list[TDocument]:
+        docs = list(documents)
+
+        for field_name, direction in reversed(sort):
+            docs.sort(
+                key=lambda d: d.get(field_name),
+                reverse=direction == SortDirection.DESC,
+            )
+
+        return docs
+
+    async def find_one(
+        self,
+        filters: Where,
+        sort: Optional[CollectionSort] = None,
+    ) -> Optional[TDocument]:
+        if sort:
+            matching_documents = list((await self.find(filters=filters)).items)
+            sorted_documents = self._apply_field_sort(matching_documents, sort)
+            return sorted_documents[0] if sorted_documents else None
+
         clause, params = _build_where_clause(filters, self.INDEXED_FIELDS)
         sql = f"SELECT DATA FROM {self._table} {clause} LIMIT 1"
         row = await self._database._execute(sql, params, fetch="one")
@@ -466,6 +492,12 @@ class SnowflakeDocumentCollection(DocumentCollection[TDocument]):
             return None
 
         return cast(TDocument, self._row_to_document(row))
+
+    async def ensure_indexes(
+        self,
+        indexes: Sequence[CollectionIndex],
+    ) -> None:
+        return None
 
     async def insert_one(self, document: TDocument) -> InsertResult:
         ensure_is_total(document, self._schema)

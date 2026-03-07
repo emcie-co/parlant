@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,13 +32,19 @@ from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
-from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
+from parlant.core.nlp.service import (
+    EmbedderHints,
+    NLPService,
+    SchematicGeneratorHints,
+    StreamingTextGeneratorHints,
+)
 from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
     BaseSchematicGenerator,
     SchematicGenerator,
     SchematicGenerationResult,
+    StreamingTextGenerator,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.moderation import ModerationService, NoModeration
@@ -71,12 +77,11 @@ class CortexSchematicGenerator(BaseSchematicGenerator[T]):
 
     def __init__(self, *, schema: type[T], logger: Logger, tracer: Tracer, meter: Meter) -> None:
         self.schema = schema
-        self._logger = logger
-        self._tracer = tracer
-        self._meter = meter
         self._base_url = os.environ["SNOWFLAKE_CORTEX_BASE_URL"].rstrip("/")
         self._token = os.environ["SNOWFLAKE_AUTH_TOKEN"]
-        self.model_name = os.environ["SNOWFLAKE_CORTEX_CHAT_MODEL"]
+        model_name = os.environ["SNOWFLAKE_CORTEX_CHAT_MODEL"]
+
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
 
         self._tokenizer = CortexEstimatingTokenizer(self.model_name)
         self._client = httpx.AsyncClient(timeout=HTTPX_TIMEOUT)
@@ -124,7 +129,7 @@ class CortexSchematicGenerator(BaseSchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.scope(f"Cortex LLM Request ({self.schema.__name__})"):
+        with self.logger.scope(f"Cortex LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     async def _do_generate(
@@ -157,7 +162,7 @@ class CortexSchematicGenerator(BaseSchematicGenerator[T]):
                 }
             except Exception as e:
                 # If schema export fails, fall back to local validation
-                self._logger.debug(f"Strict schema export failed, falling back: {e}")
+                self.logger.debug(f"Strict schema export failed, falling back: {e}")
 
         url = f"{self._base_url}/api/v2/cortex/inference:complete"
 
@@ -166,7 +171,7 @@ class CortexSchematicGenerator(BaseSchematicGenerator[T]):
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError as e:
-            self._logger.error(f"Cortex COMPLETE error {e.response.status_code}: {e.response.text}")
+            self.logger.error(f"Cortex COMPLETE error {e.response.status_code}: {e.response.text}")
             raise
         t1 = time.time()
 
@@ -194,14 +199,14 @@ class CortexSchematicGenerator(BaseSchematicGenerator[T]):
                 normalized = normalize_json_output(str(raw))
                 parsed = cast(dict[str, Any], json.loads(normalized))
             except Exception as ex:
-                self._logger.error(f"Failed to parse structured output: {ex}\nRaw: {raw}")
+                self.logger.error(f"Failed to parse structured output: {ex}\nRaw: {raw}")
                 raise
 
         # Validate against the schema model
         try:
             content = schema.model_validate(parsed)
         except ValidationError as ve:
-            self._logger.error(
+            self.logger.error(
                 f"Structured output validation failed:\n{ve.json(indent=2)}\nRaw: {raw}"
             )
             raise
@@ -209,7 +214,7 @@ class CortexSchematicGenerator(BaseSchematicGenerator[T]):
         usage_block = data.get("usage") or {}
 
         await record_llm_metrics(
-            self._meter,
+            self.meter,
             self.model_name,
             schema_name=schema.__name__,
             input_tokens=usage_block.get("prompt_tokens", 0),
@@ -362,7 +367,7 @@ class SnowflakeCortexService(NLPService):
         return None
 
     def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        self._logger = logger
+        self.logger = logger
         self._tracer = tracer
         self._meter = meter
 
@@ -371,21 +376,32 @@ class SnowflakeCortexService(NLPService):
         self._chat_model = os.environ["SNOWFLAKE_CORTEX_CHAT_MODEL"]
         self._embed_model = os.environ["SNOWFLAKE_CORTEX_EMBED_MODEL"]
 
-        self._logger.info(
+        self.logger.info(
             f"SnowflakeCortexService: chat={self._chat_model} | embed={self._embed_model} @ {self._base_url}"
         )
+
+    @property
+    @override
+    def supports_streaming(self) -> bool:
+        return False
+
+    @override
+    async def get_streaming_text_generator(
+        self, hints: StreamingTextGeneratorHints = {}
+    ) -> StreamingTextGenerator:
+        raise NotImplementedError("Streaming is not supported. Check supports_streaming first.")
 
     @override
     async def get_schematic_generator(
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> SchematicGenerator[T]:
         return CortexSchematicGenerator[t](  # type: ignore[valid-type,misc]
-            schema=t, logger=self._logger, tracer=self._tracer, meter=self._meter
+            schema=t, logger=self.logger, tracer=self._tracer, meter=self._meter
         )
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return CortexEmbedder(logger=self._logger, tracer=self._tracer, meter=self._meter)
+        return CortexEmbedder(logger=self.logger, tracer=self._tracer, meter=self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

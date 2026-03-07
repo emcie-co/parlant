@@ -78,6 +78,14 @@ class BasicOptimizationPolicy(OptimizationPolicy):
         guideline_count: int,
         hints: Mapping[str, Any] = {},
     ) -> int:
+        if (
+            getattr(hints.get("type"), "__name__", None)
+            == "GenericLowCriticalityGuidelineMatchingBatch"
+        ):
+            if guideline_count <= 10:
+                return guideline_count
+            else:
+                return 10
         if guideline_count <= 10:
             return 1
         elif guideline_count <= 20:
@@ -99,7 +107,7 @@ class BasicOptimizationPolicy(OptimizationPolicy):
                 0.2,
             ]
 
-        elif hints.get("type") == "follow-up_canned_response-selection":
+        elif hints.get("type") == "follow-up-canned-response-selection":
             return [
                 0.1,
                 0.05,

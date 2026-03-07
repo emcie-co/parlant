@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -429,6 +429,10 @@ class SingleToolBatch(ToolCallBatch):
                             # Note that if LLM provided 'None' for a required parameter with a default - it will get 'None' as value
                             arguments[evaluation.parameter_name] = evaluation.value_as_string
 
+                        for param_name in tool.parameters:
+                            if param_name not in tool.required and param_name not in arguments:
+                                arguments[param_name] = None
+
                     if all_values_valid:
                         self._logger.debug(
                             f"Inference::Completion::Activated: {tool_id.to_string()}:\n{tc.model_dump_json(indent=2)}"
@@ -720,8 +724,7 @@ Given the tool, your output should adhere to the following format:
     "most_recent_customer_inquiry_or_need_was_already_resolved": <BOOL>,
     "name": "{service_name}:{tool_name}",
     "subtleties_to_be_aware_of": "<NOTE ANY SIGNIFICANT SUBTLETIES TO BE AWARE OF WHEN RUNNING THIS TOOL IN OUR AGENT'S CONTEXT>",
-    "tool_calls_for_candidate_tool": [
-        {tool_calls_for_candidate_tool_json_description}
+    "tool_calls_for_candidate_tool": [{tool_calls_for_candidate_tool_json_description}
     ]
 }}
 ```
@@ -738,6 +741,7 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
                 ),
             },
         )
+
         return builder
 
     def _format_tool_calls_for_candidate_tool_json_description(
@@ -746,7 +750,8 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
         optional_arguments = [
             name for name in candidate_tool.parameters if name not in candidate_tool.required
         ]
-        result = """{{
+        result = """
+        {
             "applicability_rationale": "<A FEW WORDS THAT EXPLAIN WHETHER, HOW, AND TO WHAT EXTENT THE TOOL NEEDS TO BE CALLED AT THIS POINT>",
             "is_applicable": <BOOL>,"""
         result += """
@@ -783,9 +788,10 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
             result += """
             "are_optional_arguments_missing": <BOOL>,
             "are_non_optional_arguments_missing": <BOOL>,
-            "allowed_to_run_without_optional_arguments_even_if_they_are_missing": <BOOL-ALWAYS TRUE>,
+            "allowed_to_run_without_optional_arguments_even_if_they_are_missing": <BOOL-ALWAYS TRUE>,"""
 
-        }}"""
+        result += """
+        }"""
         return result
 
     def _add_tool_definitions_section(
@@ -1061,21 +1067,30 @@ This evaluation and execution process occurs iteratively, preceding each respons
 {'''Consequently, some tool calls may have already been initiated and executed following the customer's most recent message. Any such completed tool call will be detailed later in this prompt along with its result, under "staged calls". These specific calls do not require to be re-run at this time, unless you identify a valid reason for their reevaluation.''' if staged_calls else ""}
 
 **Task Instructions:**
-- CASE 1: Call the tool if it's clearly relevant to the customer's current request - in this case, mark "should_run": true and provide the call parameters in "calls" - for one or more of the calls you've determined we must now run, as the case may be). And if an **optional** parameter value cannot be determined or inferred contextually, you may still create the tool call, inserting **null** as value for that parameter
+- CASE 1: The tool is clearly relevant to the customer's current request and all **required** parameter values can be determined or inferred contextually. In this case, mark "should_run": true and provide the call parameters in "calls" - for one or more of the calls you've determined we must now run, as the case may be. 
+    If an **optional** parameter value cannot be determined or inferred contextually, you may still create the tool call, inserting **null** as value for that parameter
 {"- CASE 2: If the same call is already staged, do not call the tool again - and do not create a tool call - and mark it as should_run: false, explaining this decision in your reasoning" if staged_calls else ""}
-- CASE 3: If the tool *should* run in principle, except that a **required** parameter value cannot be determined or inferred contextually, do not create a tool call - but still mark it as should_run: true. For the missing parameters, insert "<<__missing__>>" as value.
+- CASE 3: If the tool *should* run in principle, except that a **required** parameter value cannot be determined or inferred contextually, do not create a tool call - but still mark it as should_run: true. For the missing parameters, insert "<<__missing__>>" as value (as a string, regardless of the parameter type).
 - CASE 4: The tool should not be called at this time because it's not particularly relevant to the situation - in this case, mark "should_run": false and do not create any tool calls
 
 Make sure to note the case number you're following in your "reasoning_tldr" field.
 
-Note that you should extract parameter values directly from the conversation or prompt context. You're free to infer some parameters from context, where applicable (e.g., dates, names) - e.g., if someone says "next Friday", you can convert that to an actual date string if you know the date - and so forth
+Parameter values extraction:
+Extract parameter values from the conversation or prompt context. 
+You're free to infer the parameters from context, in the best way you think - e.g., if someone says "next Friday", you can convert that to an actual date string if you know the date - and so forth
+Use inference and contextual understanding to derive accurate values. It's better to make reasonable inferences about parameter values from the user's request than to not run the tool at all because a parameter wasn't explicitly specified.
+You do have to adhere to the format of each parameter - never pass a parameter value that doesn't match the expected format.
 """,
             props={},
         )
 
         builder.add_section(
-            name=_SECTION_NAMES["examples"] + _CONSEQUENTIAL_SUFFIX,
+            name=_SECTION_NAMES["examples"] + _NON_CONSEQUENTIAL_SUFFIX,
             template="""
+The following examples show correct outputs for various hypothetical situations.
+Only the responses are provided, without the interaction history or tool descriptions, though these can be inferred from the responses.
+
+
 EXAMPLES
 -----------------
 {formatted_shots}
@@ -1097,6 +1112,15 @@ EXAMPLES
                 param_info["enum"] = enum
             parameters_info[name] = param_info
 
+        tool_notes = ""
+        parameter_types = {p.get("type", "") for _, p in parameters_info.items()}
+        if "datetime" in parameter_types:
+            tool_notes += "\nNote: If a parameter's type is datetime, return the parameter value in the format 'year-month-day hour:minute:second'."
+        if "date" in parameter_types:
+            tool_notes += "\nNote: If a parameter's type is date, return the parameter value in the format 'year-month-day'."
+        if "timedelta" in parameter_types:
+            tool_notes += "\nNote: If a parameter's type is timedelta, return the parameter value in the format 'hours:minutes:seconds'."
+
         builder.add_section(
             name=_SECTION_NAMES["tool-definition"] + _NON_CONSEQUENTIAL_SUFFIX,
             template="""
@@ -1106,12 +1130,16 @@ Name: {tool_name}
 Description: {tool_description}
 Parameters: {parameters_json}
 Required parameters: {required_params}
+Optional parameters: {optional_params}
+{notes}
 """,
             props={
                 "tool_name": f"{tool_id.service_name}:{tool_id.tool_name}",
                 "tool_description": tool.description,
                 "parameters_json": json.dumps(parameters_info, indent=2),
                 "required_params": list(tool.required),
+                "optional_params": list(set(tool.parameters) - set(tool.required)),
+                "notes": tool_notes.strip(),
             },
         )
 
@@ -1131,18 +1159,51 @@ Do not call the tool again with the same arguments.
         for param_name, spec in tool.parameters.items():
             descriptor, _ = spec
 
-            missing_str = "null" if param_name not in tool.required else '"<<__missing__>>"'
+            missing_str = "None" if param_name not in tool.required else '"<<__missing__>>"'
             prefix, suffix = ('["', '", ...]') if descriptor.get("type") == "array" else ('"', '"')
 
             if choices := descriptor.get("enum"):
                 choices_str = ", ".join(f'"{choice}"' for choice in choices)
                 arg_formats.append(
-                    f'"{param_name}": {prefix}<choose from ({choices_str}) — or insert {missing_str} if not available>{suffix}'
+                    f'"{param_name}": {prefix}<Select the most appropriate value for this parameter from ({choices_str}) — if it can not be inferred from the interaction set it to {missing_str}>{suffix}'
                 )
             else:
                 arg_formats.append(
-                    f'"{param_name}": {prefix}<extract value ALWAYS IN STRINGIFIED FORM — or insert {missing_str} if not available>{suffix}'
+                    f'"{param_name}": {prefix}<Extract the value from the interaction ALWAYS IN STRINGIFIED FORM. If it can not be inferred set it to {missing_str}>{suffix}'
                 )
+
+        builder.add_section(
+            name="Note-about-context" + _NON_CONSEQUENTIAL_SUFFIX,
+            template="""
+CONTEXT OF INTERACTION:
+-----------------------
+Consider ALL following information when deciding how and with what parameters to run the tool:
+""",
+        )
+
+        builder.add_context_variables(context_variables)
+
+        if terms:
+            builder.add_section(
+                name=BuiltInSection.GLOSSARY,
+                template=self._get_glossary_text(terms),
+                props={"terms": terms},
+                status=SectionStatus.ACTIVE,
+            )
+
+        builder.add_interaction_history(interaction_history)
+
+        builder.add_section(
+            name=BuiltInSection.GUIDELINE_DESCRIPTIONS,
+            template=self._add_guideline_matches_section(
+                ordinary_guideline_matches,
+                (candidate_descriptor[0], candidate_descriptor[2]),
+            ),
+            props={
+                "ordinary_guideline_matches": ordinary_guideline_matches,
+                "tool_id_propositions": (candidate_descriptor[0], candidate_descriptor[2]),
+            },
+        )
 
         arg_formats_str = ",\n                ".join(arg_formats)
 
@@ -1169,30 +1230,6 @@ OUTPUT FORMAT:
             props={
                 "tool_name": f"{tool_id.service_name}:{tool_id.tool_name}",
                 "tool_parameters": tool.parameters,
-            },
-        )
-
-        builder.add_context_variables(context_variables)
-
-        if terms:
-            builder.add_section(
-                name=BuiltInSection.GLOSSARY,
-                template=self._get_glossary_text(terms),
-                props={"terms": terms},
-                status=SectionStatus.ACTIVE,
-            )
-
-        builder.add_interaction_history(interaction_history)
-
-        builder.add_section(
-            name=BuiltInSection.GUIDELINE_DESCRIPTIONS,
-            template=self._add_guideline_matches_section(
-                ordinary_guideline_matches,
-                (candidate_descriptor[0], candidate_descriptor[2]),
-            ),
-            props={
-                "ordinary_guideline_matches": ordinary_guideline_matches,
-                "tool_id_propositions": (candidate_descriptor[0], candidate_descriptor[2]),
             },
         )
 
@@ -1224,6 +1261,12 @@ OUTPUT FORMAT:
         list[MissingToolData],
         list[InvalidToolData],
     ]:
+        MISSING_VALUE = "<<__missing__>>"
+        MISSING_ARRAY_VALUE = "['<<__missing__>>']"
+
+        def is_missing_value(value: str | None) -> bool:
+            return value == MISSING_VALUE or value == MISSING_ARRAY_VALUE
+
         tool_id, tool, _ = candidate_descriptor
         tool_calls: list[ToolCall] = []
         evaluations: list[tuple[ToolId, ToolCallEvaluation]] = []
@@ -1240,10 +1283,20 @@ OUTPUT FORMAT:
 
                 # Check if all required parameters are present
                 missing_required = [r for r in tool.required if r not in arguments] + [
-                    name for name, value in arguments.items() if value == "<<__missing__>>"
+                    name
+                    for name, value in arguments.items()
+                    if name in tool.required and is_missing_value(value)
                 ]
 
                 if not missing_required:
+                    # Set optional params that are absent or missing to None
+                    for param_name in tool.parameters:
+                        if param_name not in tool.required:
+                            if param_name not in arguments or is_missing_value(
+                                arguments[param_name]
+                            ):
+                                arguments[param_name] = None
+
                     tool_calls.append(
                         ToolCall(
                             id=ToolCallId(generate_id()),
@@ -1896,7 +1949,7 @@ _baseline_non_consequential_shots: Sequence[NonConsequentialSingleToolBatchShot]
         expected_result=NonConsequentialToolBatchSchema(
             name="get_weather",
             should_run=True,
-            reasoning_tldr="CASE 1. The user asked about the weather in Paris",
+            reasoning_tldr="CASE 1. The user asked about the weather in Paris. There is a required argument which is Paris",
             calls=[NonConsequentialToolCallEvaluation(args={"city": "Paris"})],
         ),
     ),
@@ -1926,7 +1979,7 @@ _baseline_non_consequential_shots: Sequence[NonConsequentialSingleToolBatchShot]
         expected_result=NonConsequentialToolBatchSchema(
             name="get_weather",
             should_run=True,
-            reasoning_tldr="CASE 3: The user asked about the weather but did not specify a city and I don't know their location",
+            reasoning_tldr="CASE 3: The user asked about the weather but did not specify a city and I don't know their location. Should mark the required argument 'city' as missing",
             calls=[
                 NonConsequentialToolCallEvaluation(args={"city": "<<__missing__>>"}),
             ],
@@ -1939,6 +1992,22 @@ _baseline_non_consequential_shots: Sequence[NonConsequentialSingleToolBatchShot]
             should_run=False,
             reasoning_tldr="CASE 2. The user asked to compare the weather in Paris and London - all required params are available but ALL of those calls are already staged",
             calls=[],
+        ),
+    ),
+    NonConsequentialSingleToolBatchShot(
+        description="The tool - get_weather(city : str, temp_unit: Optional[str]). temp_unit is missing",
+        expected_result=NonConsequentialToolBatchSchema(
+            name="get_weather",
+            should_run=True,
+            reasoning_tldr="The user asked about the weather in Tel Aviv. The parameter 'city' is required and available. 'temp_unit' is missing but it is an optional argument, so CASE 1 holds for this call",
+            calls=[
+                NonConsequentialToolCallEvaluation(
+                    args={
+                        "city": "Tel Aviv",
+                        "temp_unit": None,
+                    }
+                ),
+            ],
         ),
     ),
 ]

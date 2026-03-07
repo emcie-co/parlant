@@ -131,6 +131,18 @@ const MessageDetails = ({
 		setLogsFn();
 	}, [event?.trace_id]);
 
+	useEffect(() => {
+		if (!event?.trace_id) return;
+		const handler = (e: Event) => {
+			const detail = (e as CustomEvent).detail;
+			if (detail.trace_id === event.trace_id) {
+				getMessageLogs(event.trace_id).then(setLogs);
+			}
+		};
+		window.addEventListener('new-log', handler);
+		return () => window.removeEventListener('new-log', handler);
+	}, [event?.trace_id]);
+
 	const deleteFilterTab = (id: number | undefined) => {
 		const filterIndex = (filterTabs as Filter[]).findIndex((t) => t.id === id);
 		if (filterIndex === -1) return;

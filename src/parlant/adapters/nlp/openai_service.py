@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 from itertools import chain
+import re
 import time
 from openai import (
     APIConnectionError,
@@ -24,7 +25,7 @@ from openai import (
     InternalServerError,
     RateLimitError,
 )
-from typing import Any, Mapping
+from typing import Any, AsyncIterator, Callable, Mapping
 from typing_extensions import override
 import json
 import jsonfinder  # type: ignore
@@ -57,12 +58,20 @@ from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
-from parlant.core.nlp.service import EmbedderHints, ModelSize, NLPService, SchematicGeneratorHints
+from parlant.core.nlp.service import (
+    EmbedderHints,
+    ModelSize,
+    NLPService,
+    SchematicGeneratorHints,
+    StreamingTextGeneratorHints,
+)
 from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
     BaseSchematicGenerator,
+    BaseStreamingTextGenerator,
     SchematicGenerationResult,
+    StreamingTextGenerator,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.moderation import (
@@ -402,12 +411,164 @@ class GPT_5_Nano(OpenAISchematicGenerator[T]):
         return 400_000
 
 
+# ============================================================================
+# Streaming Text Generators
+# ============================================================================
+
+# Pattern to detect word boundaries for chunking
+# Matches after any whitespace character
+_WORD_BOUNDARY_PATTERN = re.compile(r"(?<=\s)")
+
+# Number of words to buffer before yielding a chunk
+_WORDS_PER_CHUNK = 3
+
+
+class OpenAIStreamingTextGenerator(BaseStreamingTextGenerator):
+    """Streaming text generator using OpenAI's streaming API.
+
+    Buffers tokens into word-sized chunks for smoother frontend rendering.
+    """
+
+    supported_openai_params = ["temperature", "max_tokens"]
+
+    def __init__(
+        self,
+        model_name: str,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        tokenizer_model_name: str | None = None,
+    ) -> None:
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+
+        self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
+        self._tokenizer = OpenAIEstimatingTokenizer(
+            model_name=tokenizer_model_name or self.model_name
+        )
+
+    @property
+    @override
+    def id(self) -> str:
+        return f"openai-streaming/{self.model_name}"
+
+    @property
+    @override
+    def tokenizer(self) -> OpenAIEstimatingTokenizer:
+        return self._tokenizer
+
+    def _list_arguments(self, hints: Mapping[str, Any]) -> Mapping[str, Any]:
+        return {k: v for k, v in hints.items() if k in self.supported_openai_params}
+
+    @override
+    async def do_generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> tuple[AsyncIterator[str | None], Callable[[], UsageInfo]]:
+        if isinstance(prompt, PromptBuilder):
+            prompt = prompt.build()
+
+        openai_api_arguments = self._list_arguments(hints)
+
+        try:
+            stream = await self._client.chat.completions.create(
+                messages=[{"role": "developer", "content": prompt}],
+                model=self.model_name,
+                stream=True,
+                stream_options={"include_usage": True},
+                **openai_api_arguments,
+            )
+        except RateLimitError:
+            self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
+            raise
+
+        # Track usage from final chunk
+        usage_info: UsageInfo | None = None
+
+        async def chunk_generator() -> AsyncIterator[str | None]:
+            nonlocal usage_info
+
+            # Buffer for accumulating tokens into word-sized chunks
+            buffer = ""
+
+            async for chunk in stream:
+                # Check for usage in final chunk (when stream_options include_usage is set)
+                if chunk.usage is not None:
+                    self.logger.trace(chunk.usage.model_dump_json(indent=2))
+
+                    cached_tokens = 0
+                    if chunk.usage.prompt_tokens_details:
+                        cached_tokens = chunk.usage.prompt_tokens_details.cached_tokens or 0
+
+                    usage_info = UsageInfo(
+                        input_tokens=chunk.usage.prompt_tokens,
+                        output_tokens=chunk.usage.completion_tokens,
+                        extra={"cached_input_tokens": cached_tokens},
+                    )
+
+                if chunk.choices and chunk.choices[0].delta.content:
+                    token = chunk.choices[0].delta.content
+                    buffer += token
+
+                    # Count word boundaries in buffer
+                    boundaries = list(_WORD_BOUNDARY_PATTERN.finditer(buffer))
+                    if len(boundaries) >= _WORDS_PER_CHUNK:
+                        # Yield up to the last complete word boundary
+                        last_boundary = boundaries[_WORDS_PER_CHUNK - 1]
+                        chunk_text = buffer[: last_boundary.end()]
+                        buffer = buffer[last_boundary.end() :]
+                        yield chunk_text
+
+            # Yield any remaining content in the buffer
+            if buffer:
+                yield buffer
+
+            # Record metrics if we have usage info
+            if usage_info is not None:
+                await record_llm_metrics(
+                    self.meter,
+                    self.model_name,
+                    schema_name="streaming",
+                    input_tokens=usage_info.input_tokens,
+                    output_tokens=usage_info.output_tokens,
+                    cached_input_tokens=usage_info.extra.get("cached_input_tokens", 0)
+                    if usage_info.extra
+                    else 0,
+                )
+
+            # Signal completion
+            yield None
+
+        def get_usage() -> UsageInfo:
+            if usage_info is None:
+                # Fallback if usage wasn't available
+                return UsageInfo(input_tokens=0, output_tokens=0)
+            return usage_info
+
+        return chunk_generator(), get_usage
+
+
+class GPT_4_1_Streaming(OpenAIStreamingTextGenerator):
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(
+            model_name="gpt-4.1",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            tokenizer_model_name="gpt-4o-2024-11-20",
+        )
+
+
+# ============================================================================
+# Embedders
+# ============================================================================
+
+
 class OpenAIEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
     def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(logger, tracer, meter, model_name)
-        self.model_name = model_name
 
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
         self._tokenizer = OpenAIEstimatingTokenizer(model_name=self.model_name)
@@ -573,6 +734,17 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
         self._meter = meter
 
         self._logger.info("Initialized OpenAIService")
+
+    @property
+    @override
+    def supports_streaming(self) -> bool:
+        return True
+
+    @override
+    async def get_streaming_text_generator(
+        self, hints: StreamingTextGeneratorHints = {}
+    ) -> StreamingTextGenerator:
+        return GPT_4_1_Streaming(self._logger, self._tracer, self._meter)
 
     @override
     async def get_schematic_generator(

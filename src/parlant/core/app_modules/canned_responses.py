@@ -57,6 +57,7 @@ class CannedResponseModule:
         signals: Sequence[str] | None,
         tags: Sequence[TagId] | None,
         metadata: Mapping[str, JSONSerializable] | None = None,
+        field_dependencies: Sequence[str] | None = None,
     ) -> CannedResponse:
         if tags:
             for tag_id in tags:
@@ -68,6 +69,7 @@ class CannedResponseModule:
             signals=signals,
             tags=tags if tags else None,
             metadata=metadata or {},
+            field_dependencies=field_dependencies,
         )
 
         return canrep

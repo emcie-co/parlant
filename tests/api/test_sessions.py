@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -678,6 +678,39 @@ async def test_that_events_can_be_filtered_by_offset(
         assert event_is_according_to_params(event=listed_event, params=event_params)
 
 
+async def test_that_events_can_be_streamed_via_sse(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    session_id: SessionId,
+) -> None:
+    """Test that list_events endpoint streams events via SSE when sse=true."""
+    import json
+
+    session_events = [
+        make_event_params(EventSource.CUSTOMER),
+        make_event_params(EventSource.AI_AGENT),
+    ]
+    await populate_session_id(container, session_id, session_events)
+
+    collected_events: list[dict[str, Any]] = []
+    async with async_client.stream(
+        "GET",
+        f"/sessions/{session_id}/events",
+        params={"sse": "true", "wait_for_data": 1},
+    ) as response:
+        assert response.status_code == status.HTTP_200_OK
+        assert response.headers["content-type"] == "text/event-stream; charset=utf-8"
+
+        async for line in response.aiter_lines():
+            if line.startswith("data: "):
+                event_data = json.loads(line[6:])
+                collected_events.append(event_data)
+
+    assert len(collected_events) == len(session_events)
+    for i, event in enumerate(collected_events):
+        assert event["offset"] == i
+
+
 @mark.skipif(not os.environ.get("LAKERA_API_KEY", False), reason="Lakera API key is missing")
 async def test_that_a_jailbreak_message_is_flagged_and_tagged_as_such(
     async_client: httpx.AsyncClient,
@@ -1036,7 +1069,7 @@ async def test_that_an_agent_message_can_be_regenerated(
         .json()
     )
 
-    await container[SessionListener].wait_for_events(
+    await container[SessionListener].wait_for_more_events(
         session_id=session_id,
         kinds=[EventKind.MESSAGE],
         trace_id=event["trace_id"],
@@ -1828,3 +1861,186 @@ async def test_that_customer_message_fetches_participant_from_db_when_not_provid
     assert event["data"]["participant"]["id"] == session.customer_id
     # The display_name should be fetched from customer store (or fallback to customer_id)
     assert event["data"]["participant"]["display_name"] is not None
+
+
+###############################################################################
+## Labels Tests
+###############################################################################
+
+
+async def test_that_a_session_can_be_created_with_labels(
+    async_client: httpx.AsyncClient,
+    agent_id: AgentId,
+) -> None:
+    response = await async_client.post(
+        "/sessions",
+        json={
+            "customer_id": "test_customer",
+            "agent_id": agent_id,
+            "labels": ["premium", "vip"],
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    session = response.json()
+    assert set(session["labels"]) == {"premium", "vip"}
+
+
+async def test_that_a_session_is_created_with_empty_labels_by_default(
+    async_client: httpx.AsyncClient,
+    agent_id: AgentId,
+) -> None:
+    response = await async_client.post(
+        "/sessions",
+        json={
+            "customer_id": "test_customer",
+            "agent_id": agent_id,
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    session = response.json()
+    assert session["labels"] == []
+
+
+async def test_that_labels_can_be_added_to_a_session(
+    async_client: httpx.AsyncClient,
+    session_id: SessionId,
+) -> None:
+    response = await async_client.patch(
+        f"/sessions/{session_id}",
+        json={"labels": {"upsert": ["new_label", "another_label"]}},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_session = response.json()
+
+    assert set(updated_session["labels"]) == {"new_label", "another_label"}
+
+
+async def test_that_labels_can_be_removed_from_a_session(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    agent_id: AgentId,
+) -> None:
+    session_store = container[SessionStore]
+
+    session = await session_store.create_session(
+        customer_id=CustomerId("test_customer"),
+        agent_id=agent_id,
+        labels={"label1", "label2", "label3"},
+    )
+
+    response = await async_client.patch(
+        f"/sessions/{session.id}",
+        json={"labels": {"remove": ["label2"]}},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_session = response.json()
+
+    assert set(updated_session["labels"]) == {"label1", "label3"}
+
+
+async def test_that_labels_can_be_upserted_and_removed_in_same_operation(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    agent_id: AgentId,
+) -> None:
+    session_store = container[SessionStore]
+
+    session = await session_store.create_session(
+        customer_id=CustomerId("test_customer"),
+        agent_id=agent_id,
+        labels={"keep", "remove_me"},
+    )
+
+    response = await async_client.patch(
+        f"/sessions/{session.id}",
+        json={
+            "labels": {
+                "upsert": ["new_label"],
+                "remove": ["remove_me"],
+            }
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_session = response.json()
+
+    assert set(updated_session["labels"]) == {"keep", "new_label"}
+
+
+async def test_that_sessions_can_be_listed_by_labels(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    agent_id: AgentId,
+) -> None:
+    session_store = container[SessionStore]
+
+    session1 = await session_store.create_session(
+        customer_id=CustomerId("customer1"),
+        agent_id=agent_id,
+        labels={"premium", "support"},
+    )
+
+    session2 = await session_store.create_session(
+        customer_id=CustomerId("customer2"),
+        agent_id=agent_id,
+        labels={"premium", "sales"},
+    )
+
+    session3 = await session_store.create_session(
+        customer_id=CustomerId("customer3"),
+        agent_id=agent_id,
+        labels={"basic"},
+    )
+
+    # List sessions with "premium" label - should return session1 and session2
+    response = await async_client.get(
+        "/sessions",
+        params={"labels": ["premium"], "limit": 10},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    sessions = response.json()["items"]
+    session_ids = {s["id"] for s in sessions}
+
+    assert session1.id in session_ids
+    assert session2.id in session_ids
+    assert session3.id not in session_ids
+
+
+async def test_that_sessions_can_be_listed_by_multiple_labels(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    agent_id: AgentId,
+) -> None:
+    session_store = container[SessionStore]
+
+    session1 = await session_store.create_session(
+        customer_id=CustomerId("customer1"),
+        agent_id=agent_id,
+        labels={"premium", "support"},
+    )
+
+    session2 = await session_store.create_session(
+        customer_id=CustomerId("customer2"),
+        agent_id=agent_id,
+        labels={"premium", "sales"},
+    )
+
+    # List sessions with both "premium" AND "support" labels - should only return session1
+    response = await async_client.get(
+        "/sessions",
+        params={"labels": ["premium", "support"], "limit": 10},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    sessions = response.json()["items"]
+    session_ids = {s["id"] for s in sessions}
+
+    assert session1.id in session_ids
+    assert session2.id not in session_ids

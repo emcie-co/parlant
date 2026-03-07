@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -34,6 +34,15 @@ class EntityContext:
     _var: contextvars.ContextVar[EngineContext | None] = contextvars.ContextVar(
         "parlant_current_engine_context", default=None
     )
+
+    @classmethod
+    def get(self) -> EngineContext | None:
+        """Get the current engine context from the asyncio task context.
+
+        Returns:
+            The current engine context, or None if no context is set
+        """
+        return self._var.get()
 
     @classmethod
     def set(

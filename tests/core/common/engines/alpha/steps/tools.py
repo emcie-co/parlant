@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -607,7 +607,12 @@ TOOLS: dict[str, dict[str, Any]] = {
                 "type": "string",
                 "description": "The body of the mail",
             },
+            "forward": {
+                "type": "string",
+                "description": "the name of the person to forward the email to",
+            },
         },
+        "consequential": True,
         "required": ["to", "subject"],
     },
     "schedule_meeting": {
@@ -911,6 +916,30 @@ TOOLS: dict[str, dict[str, Any]] = {
             },
         },
         "required": ["card_number", "reason"],
+    },
+    "schedule_appointment_2": {
+        "name": "schedule_appointment_2",
+        "description": "Schedule an appointment",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "date": {
+                "type": "datetime",
+                "description": "The date of the appointment",
+            },
+        },
+        "required": ["date"],
+    },
+    "check_lab_results": {
+        "name": "check_lab_results",
+        "description": "Check the lab results for a patient",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "name": {
+                "type": "string",
+                "description": "The name of the patient",
+            }
+        },
+        "required": ["name"],
     },
 }
 

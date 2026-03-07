@@ -139,6 +139,7 @@ export const handleChatLogs = async (log: Log) => {
 			data.values.push(log);
 			store.put({timestamp, values: data.values}, log.trace_id);
 		}
+		window.dispatchEvent(new CustomEvent('new-log', {detail: {trace_id: log.trace_id}}));
 	};
 	logEntry.onerror = () => console.error(logEntry.error);
 };

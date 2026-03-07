@@ -40,11 +40,89 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 	const [dialog] = useAtom(dialogAtom);
 	const [session] = useAtom(sessionAtom);
 
+	// Buffered reveal system: gradually reveal text at a controlled rate
+	const messageText = event?.data?.message || '';
+	const chunks = event?.data?.chunks;
+	const isAlreadyComplete = chunks !== undefined && chunks.length > 0 && chunks[chunks.length - 1] === null;
+
+	const [revealedLength, setRevealedLength] = useState(isAlreadyComplete ? messageText.length : 0);
+	const [animatedLength, setAnimatedLength] = useState(isAlreadyComplete ? messageText.length : 0); // tracks what's been animated (for fade effect)
+	const revealedLengthRef = useRef(isAlreadyComplete ? messageText.length : 0);
+	const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
 	useEffect(() => {
 		if (!markdownRef?.current) return;
 		const rowCount = Math.floor(markdownRef.current.offsetHeight / 24);
 		setRowCount(rowCount + 1);
 	}, [markdownRef, showDraft]);
+
+	// Gradually reveal text at a smooth rate
+	useEffect(() => {
+		// Reset if message is shorter (new message)
+		if (messageText.length < revealedLengthRef.current) {
+			revealedLengthRef.current = 0;
+			setRevealedLength(0);
+			return;
+		}
+
+		// If we're already caught up, nothing to do
+		if (revealedLengthRef.current >= messageText.length) return;
+
+		// Reveal characters gradually
+		const revealInterval = 30; // ms between reveals
+		const charsPerReveal = 4; // characters to reveal each tick
+
+		const timer = setInterval(() => {
+			const currentRevealed = revealedLengthRef.current;
+			const targetLength = messageText.length;
+
+			if (currentRevealed >= targetLength) {
+				clearInterval(timer);
+				return;
+			}
+
+			// Reveal next chunk of characters
+			const newLength = Math.min(currentRevealed + charsPerReveal, targetLength);
+			revealedLengthRef.current = newLength;
+			setRevealedLength(newLength);
+		}, revealInterval);
+
+		return () => clearInterval(timer);
+	}, [messageText]);
+
+	// Update animated length to catch up with revealed length (for fade effect)
+	const revealedLengthForAnimation = useRef(0);
+	revealedLengthForAnimation.current = revealedLength;
+
+	useEffect(() => {
+		// Reset if revealed length is less (new message)
+		if (revealedLength < animatedLength) {
+			if (animationTimerRef.current) {
+				clearTimeout(animationTimerRef.current);
+				animationTimerRef.current = null;
+			}
+			setAnimatedLength(revealedLength);
+			return;
+		}
+
+		// Only start a new timer if there's no active timer and we have text to animate
+		if (revealedLength > animatedLength && !animationTimerRef.current) {
+			animationTimerRef.current = setTimeout(() => {
+				animationTimerRef.current = null;
+				// Use current revealedLength so all visible text becomes stable
+				setAnimatedLength(revealedLengthForAnimation.current);
+			}, 400); // Match animation duration
+		}
+	}, [revealedLength, animatedLength]);
+
+	// Cleanup timer on unmount
+	useEffect(() => {
+		return () => {
+			if (animationTimerRef.current) {
+				clearTimeout(animationTimerRef.current);
+			}
+		};
+	}, []);
 
 	// FIXME:
 	// rowCount SHOULD in fact be automatically calculated to
@@ -67,6 +145,39 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 	const name = isCustomer ? customer?.name : agent?.name;
 	const formattedName = isCustomer && isGuest ? 'Guest' : name;
 	const isEditDisabled = sameTraceMessages?.some((msg) => msg.serverStatus && msg.serverStatus !== 'ready' && msg.serverStatus !== 'error');
+
+	// Check if streaming is in progress (chunks property exists and not yet terminated with null)
+	// chunks === undefined means block mode, chunks === [] means streaming started but no chunks yet,
+	// chunks with null as last element means streaming is complete
+	const isStreaming = chunks !== undefined && (chunks.length === 0 || chunks[chunks.length - 1] !== null);
+
+	// Check if we're still revealing text (either streaming, reveal hasn't caught up, or animation hasn't caught up)
+	const isRevealing = isStreaming || (chunks !== undefined && (revealedLength < messageText.length || animatedLength < revealedLength));
+
+	// Track previous isRevealing state to detect when streaming completes
+	const wasRevealingRef = useRef(false);
+
+	// Auto-scroll during streaming to keep new text visible
+	useEffect(() => {
+		const scrollContainer = ref.current?.closest('.messages');
+		if (!scrollContainer) return;
+
+		const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+		const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
+
+		if (isRevealing && ref.current && isNearBottom) {
+			// During streaming: scroll to keep message visible
+			ref.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+		} else if (wasRevealingRef.current && !isRevealing && isNearBottom) {
+			// Streaming just completed: scroll to very bottom of container
+			scrollContainer.scrollTo({
+				top: scrollContainer.scrollHeight,
+				behavior: 'smooth'
+			});
+		}
+
+		wasRevealingRef.current = isRevealing;
+	}, [revealedLength, isRevealing]);
 
 	return (
 		<>
@@ -140,7 +251,21 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 									)}>
 									<div className={twMerge('markdown overflow-hidden relative min-w-[200px] max-w-[608px] [word-break:break-word] font-light text-[16px] pe-[38px]')}>
 										<span ref={markdownRef}>
-											<Markdown className={twJoin(!isOneLiner && 'leading-[26px]')}>{event?.data?.message || ''}</Markdown>
+											{isRevealing ? (
+											<>
+												{/* During reveal: split into stable text and newly revealed text with fade */}
+												<span className={twJoin(!isOneLiner && 'leading-[26px]')}>{messageText.slice(0, animatedLength)}</span>
+												{revealedLength > animatedLength && (
+													<span key={animatedLength} className={twJoin(!isOneLiner && 'leading-[26px]', 'animate-fade-in-fast')}>{messageText.slice(animatedLength, revealedLength)}</span>
+												)}
+											</>
+										) : (
+											<Markdown className={twJoin(!isOneLiner && 'leading-[26px]')}>{messageText}</Markdown>
+										)}
+										{/* Blinking cursor for streaming messages */}
+											{isStreaming && (
+												<span className="inline-block w-[2px] h-[1em] bg-current align-text-bottom ml-[1px] animate-pulse" />
+											)}
 										</span>
 									</div>
 									<div className={twMerge('flex h-full font-normal text-[11px] text-[#AEB4BB] pe-[20px] font-inter self-end items-end whitespace-nowrap leading-[14px]', isOneLiner ? 'ps-[12px]' : '')}></div>

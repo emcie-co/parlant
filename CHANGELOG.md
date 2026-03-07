@@ -4,40 +4,154 @@ All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
 
-- Allow specifying custom IDs when creating agents via SDK and API
-- Allow specifying custom IDs when creating customers via SDK and API
-- Allow bailing out of canned response selection and utilize the draft directly, using a hook
-- Add Snowflake Cortex service
+### Added
+
+- Add staged_events to GuidelineMatchingContext in SDK
+- Add `priority` property to guidelines and journeys for priority-based filtering in the relational resolver
+- Add transient guidelines (renamed from tool-provided guidelines), allowing tools to dynamically inject behavioral guidelines into the agent's context
+- Add `Agent.utter()` to the SDK, enabling programmatic agent message generation with transient guidelines
+- Add `Customer.update()` and `CustomerMetadata` to the SDK, allowing tools to update customer name and metadata
+- Add `Session.update()`, `SessionMetadata`, and `SessionLabels` to the SDK, allowing tools to update session properties, metadata, and labels
+- Add `customer`, `agent`, `mode`, and `title` properties to SDK `Session` class
+
+### Changed
+
+- Rename `ToolProvidedGuideline` to `TransientGuideline` across the codebase
+- Upgrade MCP service and bump dependency versions to resolve security vulnerabilities
+
+### Deprecated
+
+- OpenAPI tool services are now deprecated; please migrate to SDK tool services
+
+### Fixed
+
+- Fix SSE `read_event` endpoint stalling after first streaming chunk until full completion
+- Fix response analysis logs not always reaching the integrated UI
+- Fix guideline formatting in canned response and streaming modes when condition is absent
+- Fix AzureService small text embedding dimension size
+- Fix onnxruntime compatibility with Python 3.10 and transformers 5.x type changes
+- Fix agent intention proposer prompt clarification
+- Fix embedding LRU cache eviction corrupting the length index when entries share the same text length
+- Fix LiteLLMEmbedder failing to resolve via lagom container when LITELLM_EMBEDDING_MODEL_NAME is set
+- Fix non-consequential tool calls being rejected when optional parameters are missing
+
+### Removed
+
+- Remove stale `parlant-test` entry point and testing framework documentation from README
+
+## [3.2.2] - 2025-02-18
+
+### Added
+
+- Added p.MATCH_ALWAYS, now the preferred alias to p.Guideline.MATCH_ALWAYS
+- Added `logger` property to p.Server
+
+### Changed
+
+- Adjusted log levels of relational resolver to trace instead of debug
+- Allow tool context parameter names to be all of 'context', 'ctx', and 'c'
+
+### Fixed
+
+- Fix completed streamed messages re-animating on page refresh
+- Propagate `Server.current` context to tool functions in hosted plugin server
+
+## [3.2.1] - 2026-02-17
+
+### Added
+
+- Add optional `dependencies` parameter to guideline, observation, and journey creation methods
+- Add `exclude()` as an alias for `prioritize_over()` on guidelines and journeys
+- Add `tools` parameter to `create_observation` methods
+
+### Changed
+
+- Deprecate `attach_tool()` in favor of `create_guideline()`/`create_observation()` with `tools` parameter
+
+### Fixed
+
+- Preserve draft message language during canned response recomposition
+- Fix server hang when an exception occurs during setup
+- Fix canned response field extraction to handle falsy values
+
+## [3.2.0] - 2026-02-08
+
+### Added
+
+- Add labels to Guidelines, Journeys, JourneyNodes, and Sessions for categorization and filtering
+- Add automatic session label propagation from matched entities (guidelines, observations, journeys)
+- Add `track` parameter to guidelines to control "previously applied" tracking
+- Support multiple targets in `prioritize_over()` and `depend_on()` methods
+- Add `field_dependencies` to canned responses for explicit field availability requirements
+- Add `attach_retriever()` to Guideline, Journey, and JourneyState for conditional data retrieval
+- Add `on_match` and `on_message` hooks to journeys for lifecycle callbacks
+- Add per-agent preamble configuration (custom examples and instructions)
+- Add separate default greeting responses for first agent message in fluid mode
+- Add streaming message output mode
+- Allow specifying custom journey node ID
+- Add matched guidelines/journey states to completion ready event
+
+### Changed
+
+- Make condition optional for SDK guidelines
+- Tweak default preamble examples
+- Soften log levels for relational guideline resolver
+- Add activated/skipped logs to custom guideline matcher batches
+
+### Fixed
+
+- Fix websocket warning upon startup
+- Fix agent intention proposer (guidelines were getting rewritten incorrectly)
+- Fix multiple customer guideline matchers not working
+- Fix bug with context variable access in SDK
+
+## [3.1.0] - 2026-01-05
+
+### Added
+
+- Add .current property for Server, Agent, and Customer in SDK
+- Add /healthz endpoint
+- Add API for CRUD operations on session metadata
+- Add EmcieService
 - Add GLM service
 - Add Mistral service
 - Add OpenRouter service
-- Add /healthz endpoint
-- Add .current propoerty for Server, Agent, and Customer in SDK
-- Support proxy URL for LiteLLM
-- Allow controlling max tool result payload via environment variable
-- Follow-up canned responses
-- Improved Gemini Flash 2.5 output consistency by using function call trick instead of structured outputs
-- Added persistence option for context variable values (variable store)
-- Add Fireworks service
-- Rename ContextualCorrelator to Tracer
 - Add OpenTelemetry integration for Meter, Logger and Tracer
-- Add API for CRUD operations on session metadata
-- Add deferred retrievers
-- Allow controlling perceived performance policy per agent
-- Expose IoC container in server object
-- Support code-based, custom guideline matchers
-- Added guideline descriptions
-- Add guideline on_match() hooks
-- Allow specifying custom IDs when creating journeys via SDK and API
-- Allow specifying custom IDs when creating guidelines via SDK and API
-- Allow specifying custom IDs when creating glossary via SDK and API
 - Add Qdrant VectorDatabase adapter
+- Add Snowflake Cortex service
+- Add ability to configure and extend the FastAPI app object
+- Add deferred retrievers
+- Add dynamic composition mode
+- Add follow-up canned responses
+- Add guideline criticality level
+- Add guideline on_match() hooks
+- Add persistence option for context variable values (variable store)
+- Added guideline descriptions
+- Allow bailing out of canned response selection and utilize the draft directly, using a hook
+- Allow controlling max tool result payload via environment variable
+- Allow controlling perceived performance policy per agent
+- Allow journey transitions from one tool state to another
+- Allow specifying custom IDs when creating agents via SDK and API
+- Allow specifying custom IDs when creating customers via SDK and API
+- Allow specifying custom IDs when creating guidelines, journeys, and glossary terms via SDK and API
+- Expose IoC container in server object
+- Support adding custom canrep fields to matched guidelines and journey states
+- Support code-based, custom guideline matchers
+
+### Changed
+
+- Changed default NLPService to EmcieService
+- Improved efficiency of journey state matching when first state is a tool state
+- Rename ContextualCorrelator to Tracer
+- Rename LoadedContext to EngineContext
+- Support proxy URL for LiteLLM
+
+### Fixed
+
 - Fix critical bug with cancellation during response analysis
 - Fix critical similarity calculation error in TransientVectorDatabase
-- Add guideline criticality level
-- Add ability to configure and extend the FastAPI app object
-- Add dynamic composition mode
-- Support adding custom canrep fields to matched guidelines and journey states
+- Fix unnecessary extra evaluation of journeys and tools in some edge cases
+- Improved Gemini Flash 2.5 output consistency by using function call trick instead of structured outputs
 
 ## [3.0.4] - 2025-11-18
 

@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -93,7 +93,7 @@ class EntityQueries:
         self._canned_response_store = canned_response_store
         self._journey_guideline_projection = journey_guideline_projection
 
-        self.find_journeys_on_which_this_guideline_depends = TTLCache[GuidelineId, list[Journey]](
+        self.guideline_and_journeys_it_depends_on = TTLCache[GuidelineId, list[Journey]](
             maxsize=1024, ttl=120
         )
 
@@ -192,10 +192,10 @@ class EntityQueries:
             iterated_relationships.add(r)
 
         for id in guideline_ids:
-            journeys = self.find_journeys_on_which_this_guideline_depends.get(id, [])
+            journeys = self.guideline_and_journeys_it_depends_on.get(id, [])
             journeys.append(journey)
 
-            self.find_journeys_on_which_this_guideline_depends[id] = journeys
+            self.guideline_and_journeys_it_depends_on[id] = journeys
 
         guideline_ids.update(
             g.id
@@ -510,3 +510,11 @@ class EntityCommands:
         data: JSONSerializable,
     ) -> ContextVariableValue:
         return await self._context_variable_store.update_value(variable_id, key, data)
+
+    async def upsert_session_labels(
+        self,
+        session_id: SessionId,
+        labels: set[str],
+    ) -> Session:
+        """Upserts labels to a session."""
+        return await self._session_store.upsert_labels(session_id, labels)

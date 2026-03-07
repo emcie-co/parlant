@@ -25,6 +25,7 @@ from openai.types.completion_usage import CompletionUsage
 from parlant.adapters.nlp.openrouter_service import (  # type: ignore[reportMissingImports]
     OpenRouterService,
     OpenRouterSchematicGenerator,
+    OpenRouterEmbedder,
     OpenRouterGPT4O,
     OpenRouterGPT4OMini,
     OpenRouterClaude35Sonnet,
@@ -463,3 +464,43 @@ def test_that_openrouter_generator_supports_correct_parameters(container: Contai
 
     expected_params = ["temperature", "max_tokens"]
     assert generator.supported_openrouter_params == expected_params
+
+
+@patch("parlant.adapters.nlp.openrouter_service.AsyncClient")
+async def test_that_openrouter_embedder_retries_on_valueerror(mock_client_class: Mock) -> None:
+    """Test that OpenRouterEmbedder retries when ValueError is raised.
+
+    The OpenAI SDK raises ValueError("No embedding data received") when
+    the API returns HTTP 200 with an empty data array. This should be
+    retried by the policy decorator.
+    """
+    mock_client = AsyncMock()
+    mock_client_class.return_value = mock_client
+
+    mock_embedding = Mock()
+    mock_embedding.embedding = [0.1, 0.2, 0.3]
+
+    mock_success_response = Mock()
+    mock_success_response.data = [mock_embedding]
+
+    # First call raises ValueError (transient empty response), second call succeeds
+    mock_client.embeddings.create = AsyncMock(
+        side_effect=[ValueError("No embedding data received"), mock_success_response]
+    )
+
+    mock_logger = Mock()
+    mock_tracer = Mock()
+    mock_meter = Mock()
+
+    with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}, clear=False):
+        embedder = OpenRouterEmbedder(
+            model_name="openai/text-embedding-3-large",
+            logger=mock_logger,
+            tracer=mock_tracer,
+            meter=mock_meter,
+        )
+
+    result = await embedder.do_embed(["test text"])
+
+    assert result.vectors == [[0.1, 0.2, 0.3]]
+    assert mock_client.embeddings.create.call_count == 2

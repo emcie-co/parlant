@@ -432,6 +432,7 @@ class OpenRouterEmbedder(BaseEmbedder):
                 ),
             ),
             retry(InternalServerError, max_exceptions=2, wait_times=(1.0, 5.0)),
+            retry(ValueError, max_exceptions=2, wait_times=(1.0, 5.0)),
         ]
     )
     @override

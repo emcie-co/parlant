@@ -51,9 +51,9 @@ Parlant's SDK exposes a `configure_container` hook that lets you replace the
 default persistence layer. The pattern below shows how to register
 PocketBase-backed implementations of the three configurable stores:
 
-- `SessionStore` → `SessionDocumentStore`
-- `CustomerStore` → `CustomerDocumentStore`
-- `ContextVariableStore` → `ContextVariableDocumentStore`
+- `SessionStore`
+- `CustomerStore`
+- `ContextVariableStore`
 
 Each store receives its own collection prefix (`parlant_sessions`,
 `parlant_customers`, `parlant_context_variables`) so their metadata never
@@ -118,11 +118,9 @@ async def configure_container(container: p.Container) -> p.Container:
     container[p.SessionStore] = session_store
 
     customer_store = await _make_customer_store(container)
-    container[p.CustomerDocumentStore] = customer_store
     container[p.CustomerStore] = customer_store
 
     variable_store = await _make_variable_store(container)
-    container[p.ContextVariableDocumentStore] = variable_store
     container[p.ContextVariableStore] = variable_store
 
     container[p.EventEmitterFactory] = EventPublisherFactory(

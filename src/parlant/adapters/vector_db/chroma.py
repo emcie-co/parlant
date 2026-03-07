@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,8 +17,8 @@ import json
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Generic, Mapping, Optional, Sequence, cast
 from typing_extensions import override, Self
-import chromadb
-from chromadb.api.collection_configuration import (
+import chromadb  # type: ignore[import-not-found]
+from chromadb.api.collection_configuration import (  # type: ignore[import-not-found]
     CreateCollectionConfiguration,
     CreateHNSWConfiguration,
 )

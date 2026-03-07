@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,12 +32,18 @@ from parlant.core.nlp.generation import (
     T,
     BaseSchematicGenerator,
     SchematicGenerationResult,
+    StreamingTextGenerator,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.loggers import Logger
 from parlant.core.nlp.moderation import ModerationService, NoModeration
 from parlant.core.nlp.policies import policy, retry
-from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
+from parlant.core.nlp.service import (
+    EmbedderHints,
+    NLPService,
+    SchematicGeneratorHints,
+    StreamingTextGeneratorHints,
+)
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 
 
@@ -77,10 +83,6 @@ class FireworksSchematicGenerator(BaseSchematicGenerator[T]):
     ) -> None:
         super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
 
-        self.model_name = model_name
-        self._logger = logger
-        self._tracer = tracer
-        self._meter = meter
         self._client = AsyncFireworks(api_key=os.environ.get("FIREWORKS_API_KEY"))
         self._tokenizer = FireworksEstimatingTokenizer(model_name=self.model_name)
 
@@ -111,7 +113,7 @@ class FireworksSchematicGenerator(BaseSchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.scope(f"Fireworks LLM Request ({self.schema.__name__})"):
+        with self.logger.scope(f"Fireworks LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     async def _do_generate(
@@ -140,13 +142,13 @@ class FireworksSchematicGenerator(BaseSchematicGenerator[T]):
                 **fireworks_api_arguments,
             )
         except RateLimitError:
-            self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+            self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
 
         t_end = time.time()
 
         if response.usage:  # type: ignore
-            self._logger.trace(f"Usage: {response.usage.model_dump_json(indent=2)}")  # type: ignore
+            self.logger.trace(f"Usage: {response.usage.model_dump_json(indent=2)}")  # type: ignore
 
         raw_content = response.choices[0].message.content or "{}"  # type: ignore
 
@@ -154,7 +156,7 @@ class FireworksSchematicGenerator(BaseSchematicGenerator[T]):
             json_content = normalize_json_output(raw_content)
             json_object = jsonfinder.only_json(json_content)[2]
         except Exception:
-            self._logger.error(
+            self.logger.error(
                 f"Failed to extract JSON returned by {self.model_name}:\n{raw_content}"
             )
             raise
@@ -163,7 +165,7 @@ class FireworksSchematicGenerator(BaseSchematicGenerator[T]):
             model_content = self.schema.model_validate(json_object)
 
             await record_llm_metrics(
-                self._meter,
+                self.meter,
                 self.model_name,
                 input_tokens=response.usage.prompt_tokens,  # type: ignore
                 output_tokens=response.usage.completion_tokens,  # type: ignore
@@ -183,7 +185,7 @@ class FireworksSchematicGenerator(BaseSchematicGenerator[T]):
                 ),
             )
         except ValidationError:
-            self._logger.error(
+            self.logger.error(
                 f"JSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
             )
             raise
@@ -365,6 +367,17 @@ You can get your API key from: https://app.fireworks.ai/settings/users/api-keys
         self._tracer = tracer
         self._meter = meter
         self._logger.info(f"Initialized FireworksService with {self._model_name}")
+
+    @property
+    @override
+    def supports_streaming(self) -> bool:
+        return False
+
+    @override
+    async def get_streaming_text_generator(
+        self, hints: StreamingTextGeneratorHints = {}
+    ) -> StreamingTextGenerator:
+        raise NotImplementedError("Streaming is not supported. Check supports_streaming first.")
 
     def _get_specialized_generator_class(
         self,

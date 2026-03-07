@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -395,7 +395,7 @@ def class_access_validator(age: int) -> ToolResult:
         return ToolResult(data={"class": "economy class"})
 
 
-def send_email(to: str, subject: str, body: Optional[str] = None) -> ToolResult:
+def send_email(to: str, subject: str, body: Optional[str], forward: Optional[str]) -> ToolResult:
     return ToolResult(data=f"Email sent to {to} with subject '{subject}'.")
 
 
@@ -513,10 +513,19 @@ def check_customer_location() -> ToolResult:
     return ToolResult(data="Spain!!")
 
 
+def schedule_appointment_2(date: datetime) -> ToolResult:
+    # Simulate scheduling the appointment
+    return ToolResult(data=f"Appointment scheduled for {date}")
+
+
 def check_eligibility(account_id: int, amount: int) -> ToolResult:
     return ToolResult(
         data=f"Account {account_id} is eligible for a loan of {amount} over 24 months at a rate of 6.5% interest per month."
     )
+
+
+def check_lab_results(name: str) -> ToolResult:
+    return ToolResult(data=f"Lab results for {name}: {name} is as healthy as a horse.")
 
 
 async def change_credit_limit(

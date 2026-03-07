@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Awaitable, Callable, Optional
-from bson import CodecOptions
+from typing import Any, Awaitable, Callable, Optional, cast
+from bson import CodecOptions  # type: ignore[import-not-found]
 from typing_extensions import Self
 from parlant.core.loggers import Logger
 from parlant.core.persistence.common import Cursor, SortDirection, Where, ObjectId
@@ -27,9 +27,9 @@ from parlant.core.persistence.document_database import (
     TDocument,
     UpdateResult,
 )
-from pymongo import AsyncMongoClient
-from pymongo.asynchronous.database import AsyncDatabase
-from pymongo.asynchronous.collection import AsyncCollection
+from pymongo import AsyncMongoClient  # type: ignore[import-not-found]
+from pymongo.asynchronous.database import AsyncDatabase  # type: ignore[import-not-found]
+from pymongo.asynchronous.collection import AsyncCollection  # type: ignore[import-not-found]
 
 
 class MongoDocumentDatabase(DocumentDatabase):
@@ -232,7 +232,7 @@ class MongoDocumentCollection(DocumentCollection[TDocument]):
 
     async def find_one(self, filters: Where) -> TDocument | None:
         result = await self._collection.find_one(filters)
-        return result
+        return cast(TDocument, result) if result is not None else None
 
     async def insert_one(self, document: TDocument) -> InsertResult:
         insert_result = await self._collection.insert_one(document)

@@ -19,14 +19,14 @@ import hashlib
 import json
 import sys
 from datetime import datetime
-from typing import Any, Awaitable, Callable, Generic, Optional, Sequence, TypeVar, cast
+from typing import Any, Awaitable, Callable, Generic, Mapping, Optional, Sequence, TypeVar, cast
 from typing_extensions import override, Self
 from urllib.parse import urlparse
-import weaviate  # type: ignore[import-untyped]
-from weaviate.classes.init import Auth  # type: ignore[import-untyped]
-from weaviate.classes.query import Filter, MetadataQuery  # type: ignore[import-untyped]
-from weaviate.classes.config import Property, DataType, VectorDistances, Configure  # type: ignore[import-untyped]
-from weaviate.exceptions import WeaviateBaseError, UnexpectedStatusCodeError  # type: ignore[import-untyped]
+import weaviate  # type: ignore[import-untyped,import-not-found]
+from weaviate.classes.init import Auth  # type: ignore[import-untyped,import-not-found]
+from weaviate.classes.query import Filter, MetadataQuery  # type: ignore[import-untyped,import-not-found]
+from weaviate.classes.config import Property, DataType, VectorDistances, Configure  # type: ignore[import-untyped,import-not-found]
+from weaviate.exceptions import WeaviateBaseError, UnexpectedStatusCodeError  # type: ignore[import-untyped,import-not-found]
 
 from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.common import JSONSerializable
@@ -262,7 +262,7 @@ def _handle_collection_exists_error(e: WeaviateBaseError) -> None:
         or ("class name" in error_str and "already exists" in error_str)
     ):
         return
-    raise
+    raise e
 
 
 def _find_metadata_collection_name(
@@ -1307,21 +1307,27 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
         self.embedded_collection_name = embedded_collection_name
         self.weaviate_client = weaviate_client
         self._database: Optional[WeaviateDatabase] = None
+        # Cache collection objects once — collections.get() is a lightweight local operation
+        # that does not make a network request, so it is safe to call in __init__.
+        self._embedded_collection: Any = weaviate_client.collections.get(embedded_collection_name)
+        self._unembedded_collection: Any = weaviate_client.collections.get(
+            unembedded_collection_name
+        )
 
     @override
     async def find(self, filters: Where) -> Sequence[TDocument]:
         async with self._lock.reader_lock:
             weaviate_filter = _convert_where_to_weaviate_filter(filters)
-            collection = await asyncio.to_thread(
-                self.weaviate_client.collections.get, self.embedded_collection_name
-            )
+            collection = self._embedded_collection
 
             try:
                 if weaviate_filter:
                     objects = await asyncio.to_thread(
-                        lambda: collection.query.fetch_objects(
-                            limit=10000, filters=weaviate_filter
-                        ).objects
+                        lambda: (
+                            collection.query.fetch_objects(
+                                limit=10000, filters=weaviate_filter
+                            ).objects
+                        )
                     )
                 else:
                     objects = await asyncio.to_thread(
@@ -1356,16 +1362,14 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
     async def find_one(self, filters: Where) -> Optional[TDocument]:
         async with self._lock.reader_lock:
             weaviate_filter = _convert_where_to_weaviate_filter(filters)
-            collection = await asyncio.to_thread(
-                self.weaviate_client.collections.get, self.embedded_collection_name
-            )
+            collection = self._embedded_collection
 
             try:
                 if weaviate_filter:
                     objects = await asyncio.to_thread(
-                        lambda: collection.query.fetch_objects(
-                            limit=1, filters=weaviate_filter
-                        ).objects
+                        lambda: (
+                            collection.query.fetch_objects(limit=1, filters=weaviate_filter).objects
+                        )
                     )
                 else:
                     objects = await asyncio.to_thread(
@@ -1420,9 +1424,7 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
             self._version += 1
             object_uuid = _string_id_to_uuid(str(document["id"]))
 
-            unembedded_collection = await asyncio.to_thread(
-                self.weaviate_client.collections.get, self._unembedded_collection_name
-            )
+            unembedded_collection = self._unembedded_collection
             # Insert into unembedded collection - handle "already exists" as success (idempotent)
             try:
                 await _retry_on_timeout_async(
@@ -1447,9 +1449,7 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
                     # Other 422 errors should still be raised
                     raise
 
-            embedded_collection = await asyncio.to_thread(
-                self.weaviate_client.collections.get, self.embedded_collection_name
-            )
+            embedded_collection = self._embedded_collection
             # Insert into embedded collection - handle "already exists" as success (idempotent)
             try:
                 await _retry_on_timeout_async(
@@ -1493,9 +1493,7 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
     ) -> UpdateResult[TDocument]:
         async with self._lock.writer_lock:
             weaviate_filter = _convert_where_to_weaviate_filter(filters)
-            collection = await asyncio.to_thread(
-                self.weaviate_client.collections.get, self.embedded_collection_name
-            )
+            collection = self._embedded_collection
 
             try:
                 objects = await asyncio.to_thread(
@@ -1550,9 +1548,7 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
                 updated_document = {**doc, **params}
                 self._version += 1
 
-                unembedded_collection = await asyncio.to_thread(
-                    self.weaviate_client.collections.get, self._unembedded_collection_name
-                )
+                unembedded_collection = self._unembedded_collection
                 await _retry_on_timeout_async(
                     lambda: asyncio.to_thread(
                         unembedded_collection.data.update,
@@ -1563,9 +1559,7 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
                     logger=self._logger,
                 )
 
-                embedded_collection = await asyncio.to_thread(
-                    self.weaviate_client.collections.get, self.embedded_collection_name
-                )
+                embedded_collection = self._embedded_collection
                 await _retry_on_timeout_async(
                     lambda: asyncio.to_thread(
                         embedded_collection.data.update,
@@ -1616,9 +1610,7 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
                 self._version += 1
                 object_uuid = _string_id_to_uuid(str(params["id"]))
 
-                unembedded_collection = await asyncio.to_thread(
-                    self.weaviate_client.collections.get, self._unembedded_collection_name
-                )
+                unembedded_collection = self._unembedded_collection
                 await _retry_on_timeout_async(
                     lambda: asyncio.to_thread(
                         unembedded_collection.data.insert,
@@ -1630,9 +1622,7 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
                     logger=self._logger,
                 )
 
-                embedded_collection = await asyncio.to_thread(
-                    self.weaviate_client.collections.get, self.embedded_collection_name
-                )
+                embedded_collection = self._embedded_collection
                 await _retry_on_timeout_async(
                     lambda: asyncio.to_thread(
                         embedded_collection.data.insert,
@@ -1670,9 +1660,7 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
     async def delete_one(self, filters: Where) -> DeleteResult[TDocument]:
         async with self._lock.writer_lock:
             weaviate_filter = _convert_where_to_weaviate_filter(filters)
-            collection = await asyncio.to_thread(
-                self.weaviate_client.collections.get, self.embedded_collection_name
-            )
+            collection = self._embedded_collection
 
             try:
                 objects = await asyncio.to_thread(
@@ -1707,14 +1695,10 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
                 deleted_document = cast(TDocument, _from_weaviate_properties(obj.properties))
                 self._version += 1
 
-                unembedded_collection = await asyncio.to_thread(
-                    self.weaviate_client.collections.get, self._unembedded_collection_name
-                )
+                unembedded_collection = self._unembedded_collection
                 await asyncio.to_thread(unembedded_collection.data.delete_by_id, obj.uuid)
 
-                embedded_collection = await asyncio.to_thread(
-                    self.weaviate_client.collections.get, self.embedded_collection_name
-                )
+                embedded_collection = self._embedded_collection
                 await asyncio.to_thread(embedded_collection.data.delete_by_id, obj.uuid)
 
                 if self._database:
@@ -1743,6 +1727,7 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
         filters: Where,
         query: str,
         k: int,
+        hints: Mapping[str, Any] = {},
     ) -> Sequence[SimilarDocumentResult[TDocument]]:
         async with self._lock.reader_lock:
             query_embeddings = list((await self._embedder.embed([query])).vectors)
@@ -1752,16 +1737,16 @@ class WeaviateCollection(Generic[TDocument], VectorCollection[TDocument]):
                 self._logger.warning(f"Empty embedding generated for query: {query}")
                 return []
 
-            collection = await asyncio.to_thread(
-                self.weaviate_client.collections.get, self.embedded_collection_name
-            )
+            collection = self._embedded_collection
             search_results = await asyncio.to_thread(
-                lambda: collection.query.near_vector(
-                    near_vector=query_embeddings[0],
-                    limit=k,
-                    filters=weaviate_filter,
-                    return_metadata=MetadataQuery(distance=True),
-                ).objects
+                lambda: (
+                    collection.query.near_vector(
+                        near_vector=query_embeddings[0],
+                        limit=k,
+                        filters=weaviate_filter,
+                        return_metadata=MetadataQuery(distance=True),
+                    ).objects
+                )
             )
 
             if not search_results:

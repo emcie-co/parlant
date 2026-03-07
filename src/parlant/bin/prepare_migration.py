@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -62,7 +62,7 @@ import json
 import os
 import shutil
 from typing import Any, cast, Callable, Awaitable, Optional
-import chromadb
+import chromadb  # type: ignore[import-not-found]
 from lagom import Container
 from typing_extensions import NoReturn
 from pathlib import Path

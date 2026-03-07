@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
 from enum import Enum
 from typing import Annotated, Sequence, TypeAlias, cast
-from fastapi import APIRouter, HTTPException, Path, Request, status
+from fastapi import APIRouter, HTTPException, Path, Request, Response, status
 from pydantic import Field
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
@@ -43,8 +44,8 @@ class ToolServiceKindDTO(Enum):
     Attributes:
         "sdk": Native integration using the Parlant SDK protocol. Enables advanced features
             like bidirectional communication and streaming results.
-        "openapi": Integration via OpenAPI specification. Simpler to set up but limited
-            to basic request/response patterns.
+        "openapi": (Deprecated) Integration via OpenAPI specification. Simpler to set up but limited
+            to basic request/response patterns. Please migrate to SDK services.
         "mcp": Integration with tool servers using the popular MCP (Model Context Protocol)
             implemented by wide variety of 3rd parties.
     """
@@ -313,6 +314,7 @@ def create_router(
     )
     async def update_service(
         request: Request,
+        response: Response,
         name: ServiceNamePath,
         params: ServiceUpdateParamsDTO,
     ) -> ServiceDTO:
@@ -347,6 +349,17 @@ def create_router(
                     detail="Service URL is missing schema (http:// or https://)",
                 )
         elif params.kind == ToolServiceKindDTO.OPENAPI:
+            warnings.warn(
+                "OpenAPI tool services are deprecated and will be removed in a future version. "
+                "Please migrate to SDK tool services.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            response.headers["Deprecation"] = "true"
+            response.headers["X-Deprecation-Notice"] = (
+                "OpenAPI tool services are deprecated. Please migrate to SDK tool services."
+            )
+
             if not params.openapi:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

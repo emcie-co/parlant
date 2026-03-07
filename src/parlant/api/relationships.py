@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -177,6 +177,7 @@ def create_router(
                 enabled=model.source_guideline.enabled,
                 tags=model.source_guideline.tags,
                 metadata=model.source_guideline.metadata,
+                priority=model.source_guideline.priority,
             )
             if model.source_guideline
             else None,
@@ -193,6 +194,7 @@ def create_router(
                 enabled=model.target_guideline.enabled,
                 tags=model.target_guideline.tags,
                 metadata=model.target_guideline.metadata,
+                priority=model.target_guideline.priority,
             )
             if model.target_guideline
             else None,

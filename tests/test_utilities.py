@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -384,7 +384,7 @@ async def post_message(
     )
 
     if response_timeout:
-        await container[Application].sessions.wait_for_update(
+        await container[Application].sessions.wait_for_more_events(
             session_id=session_id,
             min_offset=event.offset + 1,
             kinds=[EventKind.MESSAGE],

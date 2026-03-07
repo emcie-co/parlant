@@ -15,7 +15,7 @@
 from __future__ import annotations
 import asyncio
 import json
-from typing import Any, Awaitable, Callable, Generic, Optional, Sequence, TypeVar, cast
+from typing import Any, Awaitable, Callable, Generic, Mapping, Optional, Sequence, TypeVar, cast
 from typing_extensions import override, Self
 from pinecone import Pinecone, ServerlessSpec  # type: ignore[import-untyped]
 from pinecone.exceptions import PineconeException  # type: ignore[import-untyped]
@@ -1437,6 +1437,7 @@ class PineconeCollection(Generic[TDocument], VectorCollection[TDocument]):
         filters: Where,
         query: str,
         k: int,
+        hints: Mapping[str, Any] = {},
     ) -> Sequence[SimilarDocumentResult[TDocument]]:
         async with self._lock.reader_lock:
             query_embeddings = list((await self._embedder.embed([query])).vectors)

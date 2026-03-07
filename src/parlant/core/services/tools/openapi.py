@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 from __future__ import annotations
 from datetime import datetime, timezone
 from functools import partial
+import warnings
 import aiopenapi3  # type: ignore
 import httpx
 from openapi_parser import parse as parse_openapi_json
@@ -56,6 +57,13 @@ class OpenAPIClient(ToolService):
         self._tools = self._parse_tools(openapi_json)
 
     async def __aenter__(self) -> OpenAPIClient:
+        warnings.warn(
+            "OpenAPI tool services are deprecated and will be removed in a future version. "
+            "Please migrate to SDK tool services.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         class CustomClient(httpx.AsyncClient):
             def __init__(self, *args: Any, **kwargs: Any) -> None:
                 super().__init__(

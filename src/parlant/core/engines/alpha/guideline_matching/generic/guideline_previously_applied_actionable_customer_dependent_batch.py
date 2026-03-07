@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -385,9 +385,7 @@ class GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatching(
         context: GuidelineMatchingContext,
     ) -> Sequence[GuidelineMatchingBatch]:
         journeys = (
-            self._entity_queries.find_journeys_on_which_this_guideline_depends.get(
-                guidelines[0].id, []
-            )
+            self._entity_queries.guideline_and_journeys_it_depends_on.get(guidelines[0].id, [])
             if guidelines
             else []
         )
@@ -424,17 +422,16 @@ class GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatching(
 
         return batches
 
-    def _get_optimal_batch_size(self, guidelines: dict[GuidelineId, Guideline]) -> int:
-        guideline_n = len(guidelines)
-
-        if guideline_n <= 10:
-            return 1
-        elif guideline_n <= 20:
-            return 2
-        elif guideline_n <= 30:
-            return 3
-        else:
-            return 5
+    def _get_optimal_batch_size(
+        self,
+        guidelines: dict[GuidelineId, Guideline],
+    ) -> int:
+        return self._optimization_policy.get_guideline_matching_batch_size(
+            len(guidelines),
+            hints={
+                "type": GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingBatch
+            },
+        )
 
     def _create_batch(
         self,

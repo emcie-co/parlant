@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -39,12 +39,18 @@ from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
-from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
+from parlant.core.nlp.service import (
+    EmbedderHints,
+    NLPService,
+    SchematicGeneratorHints,
+    StreamingTextGeneratorHints,
+)
 from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
     BaseSchematicGenerator,
     SchematicGenerationResult,
+    StreamingTextGenerator,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.moderation import (
@@ -63,8 +69,30 @@ Recommended actions:
 - Check your Qwen account balance and billing status.
 - Review your API usage limits in Qwen's dashboard.
 - For more details on rate limits and usage tiers, visit:
-    https://docs.bigmodel.cn/cn/faq/api-code
+    https://help.aliyun.com/zh/model-studio/
 """
+
+QWEN_REGION_BASE_URLS = {
+    "international": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    "domestic": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+}
+
+
+def get_qwen_base_url() -> str:
+    """Get the base URL for Qwen API based on region configuration.
+
+    Priority:
+    1. QWEN_BASE_URL environment variable (explicit override)
+    2. QWEN_REGION environment variable (international/domestic)
+    3. Default to international region
+    """
+    if base_url := os.environ.get("QWEN_BASE_URL"):
+        return base_url
+
+    region = os.environ.get("QWEN_REGION", "international").lower()
+    if region not in QWEN_REGION_BASE_URLS:
+        raise ValueError(f"Invalid QWEN_REGION '{region}'. Must be 'international' or 'domestic'.")
+    return QWEN_REGION_BASE_URLS[region]
 
 
 class QwenEstimatingTokenizer(EstimatingTokenizer):
@@ -85,9 +113,7 @@ class QwenEmbedder(BaseEmbedder):
         super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
 
         self._client = AsyncClient(
-            base_url=os.environ.get(
-                "BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-            ),
+            base_url=get_qwen_base_url(),
             api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
         )
         self._tokenizer = QwenEstimatingTokenizer(model_name=self.model_name)
@@ -163,14 +189,8 @@ class QwenSchematicGenerator(BaseSchematicGenerator[T]):
     ) -> None:
         super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
 
-        self.model_name = model_name
-        self._logger = logger
-        self._meter = meter
-
         self._client = AsyncClient(
-            base_url=os.environ.get(
-                "BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-            ),
+            base_url=get_qwen_base_url(),
             api_key=os.environ["DASHSCOPE_API_KEY"],
         )
 
@@ -206,7 +226,7 @@ class QwenSchematicGenerator(BaseSchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.scope(f"Qwen LLM Request ({self.schema.__name__})"):
+        with self.logger.scope(f"Qwen LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     async def _do_generate(
@@ -230,22 +250,22 @@ class QwenSchematicGenerator(BaseSchematicGenerator[T]):
         t_end = time.time()
 
         if response.usage:
-            self._logger.trace(response.usage.model_dump_json(indent=2))
+            self.logger.trace(response.usage.model_dump_json(indent=2))
 
         raw_content = response.choices[0].message.content or "{}"
 
         try:
             json_content = json.loads(normalize_json_output(raw_content))
         except json.JSONDecodeError:
-            self._logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
+            self.logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
             json_content = jsonfinder.only_json(raw_content)[2]
-            self._logger.warning("Found JSON content within model response; continuing...")
+            self.logger.warning("Found JSON content within model response; continuing...")
 
         try:
             content = self.schema.model_validate(json_content)
 
             await record_llm_metrics(
-                self._meter,
+                self.meter,
                 self.model_name,
                 schema_name=self.schema.__name__,
                 input_tokens=response.usage.prompt_tokens,
@@ -277,7 +297,7 @@ class QwenSchematicGenerator(BaseSchematicGenerator[T]):
                 ),
             )
         except ValidationError:
-            self._logger.error(
+            self.logger.error(
                 f"JSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
             )
             raise
@@ -326,6 +346,13 @@ You're using the Qwen NLP service, but DASHSCOPE_API_KEY is not set.
 Please set DASHSCOPE_API_KEY in your environment before running Parlant.
 """
 
+        if region := os.environ.get("QWEN_REGION"):
+            if region.lower() not in QWEN_REGION_BASE_URLS:
+                return f"""\
+Invalid QWEN_REGION '{region}'.
+Must be one of: {", ".join(QWEN_REGION_BASE_URLS.keys())}
+"""
+
         return None
 
     def __init__(
@@ -334,12 +361,23 @@ Please set DASHSCOPE_API_KEY in your environment before running Parlant.
         tracer: Tracer,
         meter: Meter,
     ) -> None:
-        self._logger = logger
+        self.logger = logger
         self._tracer = tracer
         self._meter = meter
         self.model_name = os.environ.get("QWEN_MODEL", "qwen-plus")
 
-        self._logger.info(f"Initialized QwenService with model: {self.model_name}")
+        self.logger.info(f"Initialized QwenService with model: {self.model_name}")
+
+    @property
+    @override
+    def supports_streaming(self) -> bool:
+        return False
+
+    @override
+    async def get_streaming_text_generator(
+        self, hints: StreamingTextGeneratorHints = {}
+    ) -> StreamingTextGenerator:
+        raise NotImplementedError("Streaming is not supported. Check supports_streaming first.")
 
     def _get_specialized_generator_class(
         self,
@@ -366,11 +404,11 @@ Please set DASHSCOPE_API_KEY in your environment before running Parlant.
     ) -> QwenSchematicGenerator[T]:
         qwen_generator = self._get_specialized_generator_class(self.model_name, t)
         assert qwen_generator is not None, f"Unsupported Qwen model: {self.model_name}"
-        return qwen_generator(self._logger, self._tracer, self._meter)
+        return qwen_generator(self.logger, self._tracer, self._meter)
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return QwenTextEmbedding_V4(logger=self._logger, tracer=self._tracer, meter=self._meter)
+        return QwenTextEmbedding_V4(logger=self.logger, tracer=self._tracer, meter=self._meter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

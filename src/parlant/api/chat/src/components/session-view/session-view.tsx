@@ -1,9 +1,8 @@
 /* eslint-disable react-hooks/exhaustive-deps */
-import React, {ReactElement, useEffect, useRef, useState} from 'react';
-import useFetch from '@/hooks/useFetch';
+import React, {ReactElement, useCallback, useEffect, useRef, useState} from 'react';
 import {Textarea} from '../ui/textarea';
 import {Button} from '../ui/button';
-import {deleteData, postData} from '@/utils/api';
+import {BASE_URL, deleteData, postData} from '@/utils/api';
 import {groupBy} from '@/utils/obj';
 import Message from '../message/message';
 import {EventInterface, ServerStatus, SessionInterface} from '@/utils/interfaces';
@@ -50,7 +49,79 @@ const SessionView = (): ReactElement => {
 	const [newSession, setNewSession] = useAtom(newSessionAtom);
 	const [, setViewingMessage] = useAtom(viewingMessageDetailsAtom);
 	const [, setSessions] = useAtom(sessionsAtom);
-	const {data: lastEvents, refetch, ErrorTemplate, abortFetch} = useFetch<EventInterface[]>(`sessions/${session?.id}/events`, {min_offset: lastOffset}, [], session?.id !== NEW_SESSION_ID, !!(session?.id && session?.id !== NEW_SESSION_ID), false);
+
+	// SSE connection for list_events
+	const [lastEvents, setLastEvents] = useState<EventInterface[]>([]);
+	const listEventsConnectionRef = useRef<EventSource | null>(null);
+	const [sseReconnectTrigger, setSseReconnectTrigger] = useState(0);
+
+	// Refetch function for manual reconnection
+	const refetch = useCallback(() => {
+		setSseReconnectTrigger((prev) => prev + 1);
+	}, []);
+
+	// Abort function for SSE connection
+	const abortFetch = useCallback(() => {
+		if (listEventsConnectionRef.current) {
+			listEventsConnectionRef.current.close();
+			listEventsConnectionRef.current = null;
+		}
+	}, []);
+
+	// Ref to track the current offset for SSE reconnection
+	const sseOffsetRef = useRef(0);
+	// Ref to track the previous session ID
+	const prevSessionIdRef = useRef<string | null>(null);
+
+	// SSE connection effect for list_events
+	useEffect(() => {
+		if (!session?.id || session?.id === NEW_SESSION_ID) return;
+
+		// Close existing connection
+		if (listEventsConnectionRef.current) {
+			listEventsConnectionRef.current.close();
+		}
+
+		// Detect session change (not just reconnection)
+		const isSessionChange = prevSessionIdRef.current !== session.id;
+		if (isSessionChange) {
+			setLastEvents([]);
+			sseOffsetRef.current = 0;
+			prevSessionIdRef.current = session.id;
+		}
+
+		// Open SSE connection for list_events
+		const url = `${BASE_URL}/sessions/${session.id}/events?sse=true&min_offset=${sseOffsetRef.current}&wait_for_data=60`;
+		const eventSource = new EventSource(url);
+		listEventsConnectionRef.current = eventSource;
+
+		eventSource.onmessage = (event) => {
+			try {
+				const newEvent = JSON.parse(event.data);
+				// Update the offset ref for reconnection
+				if (newEvent.offset !== undefined) {
+					sseOffsetRef.current = Math.max(sseOffsetRef.current, newEvent.offset + 1);
+				}
+				setLastEvents((prev) => [...prev, newEvent]);
+			} catch (error) {
+				console.error('Error parsing SSE event:', error);
+			}
+		};
+
+		eventSource.onerror = () => {
+			eventSource.close();
+			listEventsConnectionRef.current = null;
+			// Reconnect after a short delay
+			setTimeout(() => {
+				setSseReconnectTrigger((prev) => prev + 1);
+			}, 1000);
+		};
+
+		return () => {
+			eventSource.close();
+			listEventsConnectionRef.current = null;
+		};
+	}, [session?.id, sseReconnectTrigger]);
 
 	const resetChat = () => {
 		setMessage('');
@@ -160,6 +231,9 @@ const SessionView = (): ReactElement => {
 
 		const lastStatusEventStatus = lastStatusEvent?.data?.status;
 
+		// Check if any new message is streaming (has chunks) - if so, don't show typing indicator
+		const hasNewStreamingMessage = newMessages.some((msg) => msg?.data?.chunks !== undefined);
+
 		if (newMessages?.length && (showThinking || showTyping)) soundDoubleBlip(true);
 		if (lastStatusEventStatus) {
 			setShowThinking(lastStatusEventStatus === 'processing');
@@ -168,9 +242,14 @@ const SessionView = (): ReactElement => {
 				setThinkingDisplay(lastStatusEvent?.data?.data?.stage ?? 'Thinking');
 			}
 
-			setShowTyping(lastStatusEventStatus === 'typing');
+			// Don't show typing if we already have a streaming message arriving
+			setShowTyping(lastStatusEventStatus === 'typing' && !hasNewStreamingMessage);
+		} else if (hasNewStreamingMessage) {
+			// Clear typing indicator when streaming message chunks arrive (even without status event)
+			setShowTyping(false);
 		}
-		refetch();
+		// Clear processed events to avoid reprocessing them
+		setLastEvents([]);
 	};
 
 	const scrollToLastMessage = () => {
@@ -199,7 +278,12 @@ const SessionView = (): ReactElement => {
 	}, [session?.id, refreshFlag]);
 
 	useEffect(() => {
-		if (lastOffset === 0) refetch();
+		// Reconnect SSE when offset decreases (e.g., after deleting/regenerating messages)
+		if (lastOffset < sseOffsetRef.current) {
+			sseOffsetRef.current = lastOffset;
+			setLastEvents([]);
+			refetch();
+		}
 	}, [lastOffset]);
 	useEffect(() => setViewingMessage(showLogsForMessage), [showLogsForMessage]);
 	useEffect(formatMessagesFromEvents, [lastEvents]);
@@ -211,6 +295,80 @@ const SessionView = (): ReactElement => {
 	useEffect(() => {
 		if (agents && agent?.id) setIsMissingAgent(!agents?.find((a) => a.id === agent?.id));
 	}, [agents, agent?.id]);
+
+	// Helper to check if a message is still streaming (has chunks but not completed with null terminator)
+	const isMessageStreaming = (event: EventInterface): boolean => {
+		const chunks = event?.data?.chunks;
+		if (chunks === undefined) return false; // No chunks = block mode, not streaming
+		if (chunks.length === 0) return true; // Empty chunks = streaming started but no data yet
+		return chunks[chunks.length - 1] !== null; // Not null-terminated = still streaming
+	};
+
+	// Track active SSE connections for streaming messages
+	const streamingConnectionsRef = useRef<Map<string, EventSource>>(new Map());
+
+	// Use SSE to subscribe to streaming message updates
+	useEffect(() => {
+		if (!session?.id || session?.id === NEW_SESSION_ID) return;
+
+		const streamingMessages = messages.filter(isMessageStreaming);
+		const activeConnections = streamingConnectionsRef.current;
+
+		// Close connections for messages that are no longer streaming
+		for (const [eventId, eventSource] of activeConnections) {
+			const stillStreaming = streamingMessages.some((m) => m.id === eventId);
+			if (!stillStreaming) {
+				eventSource.close();
+				activeConnections.delete(eventId);
+			}
+		}
+
+		// Open SSE connections for new streaming messages
+		for (const streamingMsg of streamingMessages) {
+			if (!streamingMsg.id || activeConnections.has(streamingMsg.id)) continue;
+
+			const eventSource = new EventSource(`${BASE_URL}/sessions/${session.id}/events/${streamingMsg.id}?sse=true`);
+
+			eventSource.onmessage = (event) => {
+				try {
+					const updatedEvent = JSON.parse(event.data);
+					setMessages((prevMessages) => {
+						return prevMessages.map((msg) => {
+							if (msg.id === streamingMsg.id) {
+								return {...msg, data: {...msg.data, ...updatedEvent.data}};
+							}
+							return msg;
+						});
+					});
+
+					// Check if streaming is complete and close connection
+					const chunks = updatedEvent?.data?.chunks;
+					if (chunks && chunks.length > 0 && chunks[chunks.length - 1] === null) {
+						eventSource.close();
+						activeConnections.delete(streamingMsg.id!);
+					}
+				} catch (error) {
+					console.error('Error parsing SSE event:', error);
+				}
+			};
+
+			eventSource.onerror = (error) => {
+				console.error('SSE connection error:', error);
+				eventSource.close();
+				activeConnections.delete(streamingMsg.id!);
+			};
+
+			activeConnections.set(streamingMsg.id, eventSource);
+		}
+
+		// Cleanup on unmount or session change
+		return () => {
+			for (const eventSource of activeConnections.values()) {
+				eventSource.close();
+			}
+			activeConnections.clear();
+		};
+	}, [messages, session?.id]);
 
 	const createSession = async (): Promise<SessionInterface | undefined> => {
 		if (!newSession) return;
@@ -253,6 +411,12 @@ const SessionView = (): ReactElement => {
 	const isCurrSession = (session?.id === NEW_SESSION_ID && !pendingMessage?.id) || (session?.id !== NEW_SESSION_ID && pendingMessage?.sessionId === session?.id);
 	const visibleMessages = (!messages?.length || isCurrSession) && pendingMessage?.data?.message ? [...messages, pendingMessage] : messages;
 
+	// Check if any message is currently streaming (has chunks but not null-terminated)
+	const hasStreamingMessage = visibleMessages.some((msg) => {
+		const chunks = msg?.data?.chunks;
+		return chunks !== undefined && (chunks.length === 0 || chunks[chunks.length - 1] !== null);
+	});
+
 	const showLogs = (i: number) => (event: EventInterface) => {
 		event.index = i;
 		setShowLogsForMessage(event.id === showLogsForMessage?.id ? null : event);
@@ -275,7 +439,7 @@ const SessionView = (): ReactElement => {
 								aria-live='polite'
 								role='log'
 								aria-label='Chat messages'>
-								{ErrorTemplate && <ErrorTemplate />}
+								{/* SSE connection handles errors through reconnection */}
 								{visibleMessages.map((event, i) => (
 									<React.Fragment key={(event.trace_id || 0) + `${i}`}>
 										{!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc) && <DateHeader date={event.creation_utc} isFirst={!i} bgColor='bg-white' />}
@@ -298,12 +462,12 @@ const SessionView = (): ReactElement => {
 										</div>
 									</React.Fragment>
 								))}
-								{(showTyping || showThinking) && (
+								{((showTyping && !hasStreamingMessage) || showThinking) && (
 									<div ref={lastMessageRef} className='flex snap-end max-w-[min(1020px,100%)] w-[1020px] self-center'>
 										<div className='bubblesWrapper snap-end' aria-hidden='true'>
 											<div className='bubbles' />
 										</div>
-										{showTyping && <p className={twMerge('flex items-center font-normal text-[#A9AFB7] text-[14px] font-inter')}>Typing...</p>}
+										{showTyping && !hasStreamingMessage && <p className={twMerge('flex items-center font-normal text-[#A9AFB7] text-[14px] font-inter')}>Typing...</p>}
 										{showThinking && <p className={twMerge('flex items-center font-normal text-[#A9AFB7] text-[14px] font-inter')}>{thinkingDisplay}...</p>}
 									</div>
 								)}

@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -38,7 +38,6 @@ scenarios(
         f"core/stable/engines/alpha/features/baseline/{feature}.feature"
         for feature in (
             "strict_canned_responses",
-            "fluid_canned_responses",
             "conversation",
             "errors",
             "relationships",

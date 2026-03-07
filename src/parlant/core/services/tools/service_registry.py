@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ from contextlib import AsyncExitStack
 from datetime import datetime, timezone
 from types import TracebackType
 from typing import Callable, Mapping, Optional, Sequence, cast
+import warnings
 from typing_extensions import override, TypedDict, Self
 
 import aiofiles
@@ -293,6 +294,12 @@ class ServiceDocumentRegistry(ServiceRegistry):
                 self._running_services[name] = LocalToolService()
                 return self._running_services[name]
             elif kind == "openapi":
+                warnings.warn(
+                    "OpenAPI tool services are deprecated and will be removed in a future version. "
+                    "Please migrate to SDK tool services.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
                 assert source
                 openapi_json = await self._get_openapi_json_from_source(source)
                 service = OpenAPIClient(server_url=url, openapi_json=openapi_json)

@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,9 +14,10 @@
 
 from datetime import datetime
 from enum import Enum
-from fastapi import APIRouter, HTTPException, Path, Query, Request, status
+from fastapi import APIRouter, HTTPException, Path, Query, Request, Response, status
+from fastapi.responses import StreamingResponse
 from pydantic import Field
-from typing import Annotated, Mapping, Sequence, TypeAlias, cast
+from typing import Annotated, AsyncIterator, Mapping, Sequence, TypeAlias, Union, cast
 
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
@@ -34,12 +35,13 @@ from parlant.core.app_modules.sessions import (
     EventMetadataUpdateParamsModel,
     EventUpdateParamsModel,
     Moderation,
+    SessionLabelsUpdateParams,
     SessionUpdateParamsModel,
 )
 from parlant.core.agents import AgentId
 from parlant.core.application import Application
 from parlant.core.async_utils import Timeout
-from parlant.core.common import DefaultBaseModel
+from parlant.core.common import DefaultBaseModel, ItemNotFoundError
 from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.engines.types import UtteranceRationale, UtteranceRequest
 from parlant.core.nlp.generation_info import GenerationInfo
@@ -48,9 +50,7 @@ from parlant.core.sessions import (
     EventId,
     EventKind,
     EventSource,
-    MessageGenerationInspection,
     Participant,
-    PreparationIteration,
     SessionId,
     SessionStatus,
 )
@@ -194,6 +194,14 @@ SessionMetadataField: TypeAlias = Annotated[
     ),
 ]
 
+SessionLabelsField: TypeAlias = Annotated[
+    set[str],
+    Field(
+        description="Labels associated with the session",
+        examples=[{"vip", "priority"}],
+    ),
+]
+
 
 session_example: ExampleJson = {
     "id": "sess_123yz",
@@ -204,6 +212,7 @@ session_example: ExampleJson = {
     "mode": "auto",
     "consumption_offsets": consumption_offsets_example,
     "metadata": {"simulation": True, "priority": "high"},
+    "labels": ["vip", "priority"],
 }
 
 
@@ -221,6 +230,7 @@ class SessionDTO(
     mode: SessionModeField
     consumption_offsets: ConsumptionOffsetsDTO
     metadata: SessionMetadataField
+    labels: SessionLabelsField = set()
 
 
 class SessionListingDTO(DefaultBaseModel):
@@ -246,6 +256,7 @@ session_creation_params_example: ExampleJson = {
     "customer_id": "cust_123xy",
     "title": "Product inquiry session",
     "metadata": {"project": "demo", "priority": "high"},
+    "labels": ["vip", "priority"],
 }
 
 
@@ -259,6 +270,7 @@ class SessionCreationParamsDTO(
     customer_id: SessionCreationParamsCustomerIdField = None
     title: SessionTitleField | None = None
     metadata: SessionMetadataField | None = None
+    labels: SessionLabelsField | None = None
 
 
 message_example = "Hello, I need help with my order"
@@ -491,7 +503,27 @@ session_update_params_example: ExampleJson = {
         "set": {"simulation": True, "priority": "low"},
         "unset": ["old_project"],
     },
+    "labels": {
+        "upsert": ["vip", "priority"],
+        "remove": ["old_label"],
+    },
 }
+
+
+session_labels_update_params_example: ExampleJson = {
+    "upsert": ["vip", "priority"],
+    "remove": ["old_label"],
+}
+
+
+class SessionLabelsUpdateParamsDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": session_labels_update_params_example},
+):
+    """Parameters for updating a session's labels."""
+
+    upsert: SessionLabelsField | None = None
+    remove: SessionLabelsField | None = None
 
 
 class SessionUpdateParamsDTO(
@@ -506,6 +538,7 @@ class SessionUpdateParamsDTO(
     customer_id: CustomerId | None = None
     agent_id: AgentId | None = None
     metadata: SessionMetadataUpdateParamsDTO | None = None
+    labels: SessionLabelsUpdateParamsDTO | None = None
 
 
 ToolResultDataField: TypeAlias = Annotated[
@@ -1128,77 +1161,6 @@ def participant_to_dto(participant: Participant) -> ParticipantDTO:
     )
 
 
-def message_generation_inspection_to_dto(
-    m: MessageGenerationInspection,
-) -> MessageGenerationInspectionDTO:
-    return MessageGenerationInspectionDTO(
-        generations={
-            name: generation_info_to_dto(generation) for name, generation in m.generations.items()
-        },
-        messages=[message for message in m.messages if message is not None],
-    )
-
-
-def preparation_iteration_to_dto(iteration: PreparationIteration) -> PreparationIterationDTO:
-    return PreparationIterationDTO(
-        generations=PreparationIterationGenerationsDTO(
-            guideline_matching=GuidelineMatchingInspectionDTO(
-                total_duration=iteration.generations.guideline_matching.total_duration,
-                batches=[
-                    generation_info_to_dto(generation)
-                    for generation in iteration.generations.guideline_matching.batches
-                ],
-            ),
-            tool_calls=[
-                generation_info_to_dto(generation)
-                for generation in iteration.generations.tool_calls
-            ],
-        ),
-        guideline_matches=[
-            GuidelineMatchDTO(
-                guideline_id=match["guideline_id"],
-                condition=match["condition"],
-                action=match["action"],
-                score=match["score"],
-                rationale=match["rationale"],
-            )
-            for match in iteration.guideline_matches
-        ],
-        tool_calls=[
-            ToolCallDTO(
-                tool_id=tool_call["tool_id"],
-                arguments=cast(Mapping[str, JSONSerializableDTO], tool_call["arguments"]),
-                result=ToolResultDTO(
-                    data=cast(JSONSerializableDTO, tool_call["result"]["data"]),
-                    metadata=cast(
-                        Mapping[str, JSONSerializableDTO], tool_call["result"]["metadata"]
-                    ),
-                ),
-            )
-            for tool_call in iteration.tool_calls
-        ],
-        terms=[
-            PreparationIterationTermDTO(
-                id=term["id"],
-                name=term["name"],
-                description=term["description"],
-                synonyms=term["synonyms"],
-            )
-            for term in iteration.terms
-        ],
-        context_variables=[
-            ContextVariableAndValueDTO(
-                id=cv["id"],
-                name=cv["name"],
-                description=cv["description"] or "",
-                key=cv["key"],
-                value=cast(JSONSerializableDTO, cv["value"]),
-            )
-            for cv in iteration.context_variables
-        ],
-    )
-
-
 AllowGreetingQuery: TypeAlias = Annotated[
     bool,
     Query(
@@ -1423,6 +1385,7 @@ def create_router(
             title=params.title,
             allow_greeting=allow_greeting,
             metadata=params.metadata or {},
+            labels=params.labels,
         )
 
         return SessionDTO(
@@ -1434,6 +1397,7 @@ def create_router(
             title=session.title,
             mode=SessionModeDTO(session.mode),
             metadata=session.metadata,
+            labels=session.labels,
         )
 
     @router.get(
@@ -1469,6 +1433,7 @@ def create_router(
             ),
             mode=SessionModeDTO(session.mode),
             metadata=session.metadata,
+            labels=session.labels,
         )
 
     @router.get(
@@ -1502,6 +1467,7 @@ def create_router(
         request: Request,
         agent_id: AgentIdQuery | None = None,
         customer_id: CustomerIdQuery | None = None,
+        labels: list[str] = Query(default=[]),
         limit: LimitQuery | None = None,
         cursor: CursorQuery | None = None,
         sort: SortQuery | None = None,
@@ -1518,6 +1484,7 @@ def create_router(
             limit=limit,
             cursor=decode_cursor(cursor) if cursor else None,
             sort_direction=sort_direction_dto_to_sort_direction(sort) if sort else None,
+            labels=set(labels) if labels else None,
         )
 
         if limit is None:
@@ -1533,6 +1500,7 @@ def create_router(
                     ),
                     mode=SessionModeDTO(s.mode),
                     metadata=s.metadata,
+                    labels=s.labels,
                 )
                 for s in sessions_result.items
             ]
@@ -1550,6 +1518,7 @@ def create_router(
                     ),
                     mode=SessionModeDTO(s.mode),
                     metadata=s.metadata,
+                    labels=s.labels,
                 )
                 for s in sessions_result.items
             ],
@@ -1675,7 +1644,16 @@ def create_router(
 
             return params
 
-        session = await app.sessions.update(session_id=session_id, params=await from_dto(params))
+        session = await app.sessions.update(
+            session_id=session_id,
+            params=await from_dto(params),
+            labels=SessionLabelsUpdateParams(
+                upsert=params.labels.upsert,
+                remove=params.labels.remove,
+            )
+            if params.labels
+            else None,
+        )
 
         return SessionDTO(
             id=session.id,
@@ -1688,6 +1666,7 @@ def create_router(
             ),
             mode=SessionModeDTO(session.mode),
             metadata=session.metadata,
+            labels=session.labels,
         )
 
     @router.post(
@@ -1970,22 +1949,29 @@ def create_router(
         trace_id: TraceIdQuery | None = None,
         kinds: KindsQuery | None = None,
         wait_for_data: int = 60,
-    ) -> Sequence[EventDTO]:
+        sse: bool = False,
+    ) -> Union[Sequence[EventDTO], Response]:
         """Lists events from a session with optional filtering and waiting capabilities.
 
         This endpoint retrieves events from a specified session and can:
         1. Filter events by their offset, source, type, and trace ID
         2. Wait for new events to arrive if requested
         3. Return events in chronological order based on their offset
+        4. Stream events via Server-Sent Events (SSE) when sse=true
 
         Notes:
-            Long Polling Behavior:
+            Long Polling Behavior (when sse=false):
             - When wait_for_data = 0:
                 Returns immediately with any existing events that match the criteria
             - When wait_for_data > 0:
                 - If new matching events arrive within the timeout period, returns with those events
                 - If no new events arrive before timeout, raises 504 Gateway Timeout
                 - If matching events already exist, returns immediately with those events
+
+            SSE Mode (when sse=true):
+            - Returns a text/event-stream response
+            - Continuously sends events as they arrive
+            - wait_for_data is used as the timeout between events before closing the stream
         """
         await authorization_policy.authorize(request=request, operation=Operation.LIST_EVENTS)
 
@@ -1996,8 +1982,55 @@ def create_router(
 
         event_source = _event_source_dto_to_event_source(source) if source else None
 
+        if sse:
+            # Return SSE stream
+            async def event_stream() -> AsyncIterator[str]:
+                current_offset = min_offset or 0
+                try:
+                    while True:
+                        # Wait for new events
+                        has_events = await app.sessions.wait_for_more_events(
+                            session_id=session_id,
+                            min_offset=current_offset,
+                            source=event_source,
+                            kinds=kind_list,
+                            trace_id=trace_id,
+                            timeout=Timeout(wait_for_data),
+                        )
+
+                        if not has_events:
+                            # Timeout - close the stream
+                            break
+
+                        # Get new events
+                        events = await app.sessions.find_events(
+                            session_id=session_id,
+                            min_offset=current_offset,
+                            source=event_source,
+                            kinds=kind_list,
+                            trace_id=trace_id,
+                        )
+
+                        for e in events:
+                            event_dto = event_to_dto(e)
+                            yield f"data: {event_dto.model_dump_json()}\n\n"
+                            current_offset = max(current_offset, e.offset + 1)
+                except ItemNotFoundError:
+                    # Session was deleted or doesn't exist - gracefully close the stream
+                    return
+
+            return StreamingResponse(
+                event_stream(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                },
+            )
+
+        # Standard long-polling behavior
         if wait_for_data > 0:
-            if not await app.sessions.wait_for_update(
+            if not await app.sessions.wait_for_more_events(
                 session_id=session_id,
                 min_offset=min_offset or 0,
                 source=event_source,
@@ -2033,6 +2066,114 @@ def create_router(
             )
             for e in events
         ]
+
+    @router.get(
+        "/{session_id}/events/{event_id}",
+        operation_id="read_event",
+        response_model=EventDTO,
+        responses={
+            status.HTTP_200_OK: {
+                "description": "Event details successfully retrieved",
+                "content": {"application/json": {"example": event_example}},
+            },
+            status.HTTP_404_NOT_FOUND: {
+                "description": "Session or event not found",
+            },
+        },
+        **apigen_config(group_name=API_GROUP, method_name="read_event"),
+    )
+    async def read_event(
+        request: Request,
+        session_id: SessionIdPath,
+        event_id: EventIdPath,
+        wait_for_completion: bool = False,
+        wait_for_data: int = 60,
+        sse: bool = False,
+    ) -> Union[EventDTO, Response]:
+        """Reads a single event from a session.
+
+        This endpoint retrieves a specific event by its ID and optionally waits
+        for the event to complete (useful for streaming messages).
+
+        Args:
+            wait_for_completion: If true, wait for the event to complete (for streaming events,
+                this means waiting until chunks contains None terminator)
+            wait_for_data: Timeout in seconds for wait_for_completion
+            sse: If true, stream event updates via Server-Sent Events until completion
+
+        Notes:
+            For streaming message events (events with 'chunks' property):
+            - The event is considered complete when chunks contains a None terminator
+            - Use wait_for_completion=true to wait for the full message
+            - Use sse=true to stream updates as chunks are added
+
+            SSE Mode (when sse=true):
+            - Returns a text/event-stream response
+            - Sends the event each time it's updated
+            - Closes when the event is complete (chunks ends with None)
+        """
+        await authorization_policy.authorize(request=request, operation=Operation.READ_EVENT)
+
+        if sse:
+            # Return SSE stream that sends event updates until completion
+            async def event_stream() -> AsyncIterator[str]:
+                chunk_count = 0
+                while True:
+                    event = await app.sessions.read_event(
+                        session_id=session_id,
+                        event_id=event_id,
+                    )
+                    event_dto = event_to_dto(event)
+                    yield f"data: {event_dto.model_dump_json()}\n\n"
+
+                    # Check if event is complete (for streaming events)
+                    data = cast(dict[str, object], event.data)
+                    if "chunks" in data:
+                        chunks = cast(list[str | None], data["chunks"])
+                        chunk_count = len(chunks)
+                        if chunks and chunks[-1] is None:
+                            break
+                    else:
+                        # Non-streaming event, just return it once
+                        break
+
+                    # Wait for new chunks (not full completion)
+                    if not await app.sessions.wait_for_new_streaming_chunks(
+                        session_id=session_id,
+                        event_id=event_id,
+                        last_known_chunk_count=chunk_count,
+                        timeout=Timeout(wait_for_data),
+                    ):
+                        break
+
+            return StreamingResponse(
+                event_stream(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                },
+            )
+
+        # Standard read
+        event = await app.sessions.read_event(
+            session_id=session_id,
+            event_id=event_id,
+        )
+
+        if wait_for_completion:
+            await app.sessions.wait_for_event_completion(
+                session_id=session_id,
+                event_id=event_id,
+                timeout=Timeout(wait_for_data),
+            )
+            # Re-read the event after waiting
+            event = await app.sessions.read_event(
+                session_id=session_id,
+                event_id=event_id,
+            )
+
+        return event_to_dto(event)
 
     @router.delete(
         "/{session_id}/events",

@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ from typing import Any, Awaitable, Callable, Optional, Sequence, TypeAlias, Unio
 from parlant.core.engines.alpha.engine_context import EngineContext
 from parlant.core.engines.alpha.engine_context import LoadedContext  # type: ignore
 from parlant.core.guidelines import GuidelineId
+from parlant.core.journeys import JourneyId
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 
 
@@ -87,9 +88,6 @@ class EngineHooks:
     on_message_generated: list[EngineHook] = field(default_factory=list)
     """Called right after a message was generated (but not yet emitted)"""
 
-    on_message_emitted: list[EngineHook] = field(default_factory=list)
-    """Called right after a single message was emitted into the session"""
-
     on_messages_emitted: list[EngineHook] = field(default_factory=list)
     """Called right after all messages were emitted into the session"""
 
@@ -102,6 +100,16 @@ class EngineHooks:
         GuidelineId, list[Callable[[EngineContext, GuidelineMatch], Awaitable[None]]]
     ] = field(default_factory=lambda: defaultdict(list))
     """Map from GuidelineId to list of handlers called when messages are generated for that guideline"""
+
+    on_journey_match_handlers: dict[JourneyId, list[Callable[[EngineContext], Awaitable[None]]]] = (
+        field(default_factory=lambda: defaultdict(list))
+    )
+    """Map from JourneyId to list of handlers called when that journey is activated"""
+
+    on_journey_message_handlers: dict[
+        JourneyId, list[Callable[[EngineContext], Awaitable[None]]]
+    ] = field(default_factory=lambda: defaultdict(list))
+    """Map from JourneyId to list of handlers called when messages are generated for that journey"""
 
     async def call_on_error(self, context: EngineContext, exception: Exception) -> bool:
         return await self.call_hooks(self.on_error, context, None, exception)

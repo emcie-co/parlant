@@ -252,6 +252,16 @@ class JourneyBacktrackCheck:
             journey_conditions_str = f"\nJourney activation condition: {journey_conditions_str}"
         else:
             journey_conditions_str = ""
+        if previous_path[-1]:
+            journey_status = (
+                "This journey is active now. We may need to backtrack to previous executed steps"
+            )
+        else:
+            journey_status = """
+This journey is not currently active. We may need to:
+1. Resume to the journey process by backtracking to the last point where we left off or to a previously completed step
+2. Start a new instance of the same journey for a different purpose (backtrack to the beginning of the journey)
+"""
 
         last_executed_node_id = next(
             (node_id for node_id in reversed(previous_path) if node_id is not None), None
@@ -273,12 +283,6 @@ class JourneyBacktrackCheck:
                     displayed_node_action = FORK_NODE_ACTION_STR
                 else:  # Root has no action and a single follow up, so that follow up is first to be executed
                     print_node = False
-            # Customer / Agent dependent flags
-            if node.customer_dependent_action:
-                if print_customer_action_description:
-                    flags_str += '- CUSTOMER DEPENDENT: This action requires an action from the customer to be considered complete." \n'
-            if node.kind == JourneyNodeKind.CHAT and node.agent_dependent_action:
-                flags_str += "- REQUIRES AGENT ACTION: This step may require the agent to say something for it to be completed.\n"
 
             # Node kind flags
             if node.kind in {JourneyNodeKind.CHAT, JourneyNodeKind.NA} and node.action is None:
@@ -287,12 +291,13 @@ class JourneyBacktrackCheck:
                 displayed_node_action = FORK_NODE_ACTION_STR
             else:
                 displayed_node_action = cast(str, node.action)
-            if node.kind == JourneyNodeKind.TOOL and node.id != last_executed_node_id:
-                flags_str += "- REQUIRES TOOL CALLS: This step requires tool to be executed\n"
 
             # Previously executed-related flags
             if node.id == last_executed_node_id:
-                flags_str += "- This is the current step that should be executed."
+                if previous_path[-1]:
+                    flags_str += "- This is the current step that should be executed."
+                else:
+                    flags_str += "- This is the next step that should be executed. May need to backtrack to this step."
             elif node.id in previous_path:
                 flags_str += "- PREVIOUSLY EXECUTED: This step was previously executed. May need to backtrack to this step.\n"
             elif node.id != ROOT_INDEX:
@@ -310,6 +315,9 @@ class JourneyBacktrackCheck:
 
     Steps:
     {nodes_str}
+
+    Journey current status:
+    {journey_status}
     """
 
     async def process(self) -> BacktrackCheckResult:
@@ -329,7 +337,9 @@ class JourneyBacktrackCheck:
                     hints={"temperature": generation_attempt_temperatures[generation_attempt]},
                 )
 
-                self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
+                self._logger.trace(
+                    f"Completion: {self._examined_journey.title}\n{inference.content.model_dump_json(indent=2)}"
+                )
 
                 if not inference.content.requires_backtracking:
                     return BacktrackCheckResult(
@@ -346,7 +356,7 @@ class JourneyBacktrackCheck:
 
             except Exception as exc:
                 self._logger.warning(
-                    f"Attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                    f"Attempt {generation_attempt} failed: {self._examined_journey.title}\n{traceback.format_exception(exc)}"
                 )
 
                 last_generation_exception = exc
@@ -357,60 +367,71 @@ class JourneyBacktrackCheck:
         self,
         shots: Sequence[JourneyBacktrackCheckShot],
     ) -> PromptBuilder:
-        builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
+        builder = PromptBuilder(
+            on_build=lambda prompt: self._logger.trace(
+                f"Prompt: {self._examined_journey.title}\n{prompt}"
+            )
+        )
+
+        builder.add_agent_identity(self._context.agent)
 
         builder.add_section(
             name="journey-backtrack-check-general-instructions",
             template="""
-    GENERAL INSTRUCTIONS
-    -------------------
-    In our system, the behavior of a conversational AI agent is structured around predefined "journeys" - structured workflows that guide customer interactions toward specific outcomes.
+GENERAL INSTRUCTIONS
+-------------------
+In our system, the behavior of a conversational AI agent is structured around predefined "journeys" - structured workflows that guide customer interactions toward specific outcomes.
 
-    ## Journey Structure
-    Each journey consists of:
-    - **Steps**: Individual actions that the agent must execute (e.g., ask a question, provide information, perform a task)
-    - **Transitions**: Rules that determine which step comes next based on customer responses or completion status
+## Journey Structure
+Each journey consists of:
+- **Steps**: Individual actions that the agent must execute (e.g., ask a question, provide information, perform a task)
+- **Transitions**: Rules that determine which step comes next based on customer responses or completion status
     """,
             props={"agent_name": self._context.agent.name},
         )
         builder.add_section(
             name="journey-backtrack-check-task-description",
             template="""
-    TASK DESCRIPTION
-    -------------------
-    Analyze the current conversation state and determine if need to backtrack to journey step that was already executed.
+TASK DESCRIPTION
+-------------------
+Analyze the current conversation state and determine if need to backtrack to a journey step that was already executed.
 
-    Backtracking scenarios:
-        The customer has changed a previous decision that requires returning to an earlier step. Will need to retake a step we already visited before, and change the things we've done there. 
-        The customer wants to perform the journey process again, for a different purpose. That means that we will backtrack to the beginning and re-perform the journey. 
-        The customer wants to resume to a journey process that was stopped in the middle. That means that we will continue the journey from the last executed step.
+Backtracking scenarios:
+    - The customer has changed a previous decision, which requires returning to an earlier step. This means retaking a step that was already visited and modifying the actions taken there.
+    - The customer wants to perform the same journey process again but for a different purpose. In this case, backtrack to the beginning and re-perform the journey.
+    - The customer wants to resume to the journey process that was stopped midway. In this case, continue the journey from the last executed step.
 
-    - If return to previous step (or take the journey from the beginning) is needed, set `requires_backtracking` to `true`.
-        - Only steps marked with PREVIOUSLY EXECUTED flags are eligible for backtracking
-    - If backtracking is needed, specify the reason:
-            Set 'backtrack_to_same_journey_process' to 'true' if need to revisit the journey for the same reason, need to change previous decisions, or return to journey after we exited it, for the same purpose as before.
-            Set 'backtrack_to_same_journey_process' to 'false' if need to revisit the journey for a new purpose.
+- If returning to a previous step (or restarting the journey from the beginning) is needed, set `requires_backtracking` to `true`.
+    - Only steps marked with PREVIOUSLY EXECUTED flags are eligible for backtracking
+- If backtracking is needed, specify the reason:
+        Set 'backtrack_to_same_journey_process' to 'true' if need to revisit the journey for the same reason - changing previous decisions or resuming the journey after exiting it, for the same purpose as before.
+        Set 'backtrack_to_same_journey_process' to 'false' if the journey is being revisited for a new purpose.
 
-    Example: if the journey is a process of making a purchase of an item, and the customer wants to change the amount of items they requested before, this is the same journey execution, same reason. If however they want 
-    to purchase another item, we may want to start from the beginning, which we will call a new purpose. 
+Example: If the journey represents a process for purchasing an item and the customer wants to change the quantity they previously requested, this is the same journey execution and the same purpose.
+If, however, the customer wants to purchase a different item, the journey should restart from the beginning, which is considered a new purpose.
 
-    """,
+Exit the journey:
+If the journey needs to be exited because it was completed or the customer requests to leave the process, then backtracking is not required ('requires_backtracking' = False).
+Exiting a journey does not involve backtracking to the beginning.
+""",
         )
         builder.add_section(
             name="journey-backtrack-check-examples",
             template="""
-    Examples of Journey Step Selections:
-    -------------------
-    {formatted_shots}
+Examples of Journey Step Selections:
+-------------------
+{formatted_shots}
 
-    ###
-    Example section is over. The following is the real data you need to use for your decision.
-    """,
+###
+Example section is over. The following is the real data you need to use for your decision.
+""",
             props={
                 "formatted_shots": self._format_shots(shots),
                 "shots": shots,
             },
         )
+
+        builder.add_customer_identity(self._context.customer, self._context.session)
         builder.add_context_variables(self._context.context_variables)
         builder.add_glossary(self._context.terms)
         builder.add_capabilities_for_guideline_matching(self._context.capabilities)
@@ -446,11 +467,11 @@ OUTPUT FORMAT
 - Fill in the following fields as instructed. Each field is required unless otherwise specified.
 
 ```json
-{{
+{
     "rationale": "<str, explanation for whether need to perform backtrack and why>",
     "requires_backtracking": <bool, does the agent need to backtrack to a previous step?>,
-    "backtrack_to_same_journey_process" "<bool, include only if requires_backtracking is true, whether need to return to the same journey process>",
-}}
+    "backtrack_to_same_journey_process": "<bool, include only if requires_backtracking is true, whether need to return to the same journey process>",
+}
 ```
 """
 
@@ -725,11 +746,6 @@ book_taxi_shot_journey_nodes = {
 
 example_1_events = [
     _make_event(
-        "11",
-        EventSource.AI_AGENT,
-        "I need help with booking a taxi",
-    ),
-    _make_event(
         "12",
         EventSource.CUSTOMER,
         "I would like to book a taxi from Newark Airport to Manhattan",
@@ -765,11 +781,6 @@ expected_output_1 = JourneyBacktrackCheckSchema(
 
 
 example_2_events = [
-    _make_event(
-        "11",
-        EventSource.AI_AGENT,
-        "I need help with booking a taxi",
-    ),
     _make_event(
         "12",
         EventSource.CUSTOMER,
@@ -810,11 +821,6 @@ expected_output_2 = JourneyBacktrackCheckSchema(
 
 
 example_3_events = [
-    _make_event(
-        "1",
-        EventSource.AI_AGENT,
-        "Welcome! I'm here to help you book a taxi. How can I assist you today?",
-    ),
     _make_event(
         "2",
         EventSource.CUSTOMER,
@@ -869,6 +875,29 @@ expected_output_3 = JourneyBacktrackCheckSchema(
 )
 
 
+example_4_events = [
+    _make_event(
+        "2",
+        EventSource.CUSTOMER,
+        "Hi, I need a taxi from Manhattan to JFK Airport",
+    ),
+    _make_event(
+        "3",
+        EventSource.AI_AGENT,
+        "Great! You'd like to go from Manhattan to JFK Airport. What time would you like to be picked up?",
+    ),
+    _make_event(
+        "4",
+        EventSource.CUSTOMER,
+        "Actually, I don't need this taxi anymore, sorry. But can you help me check if I had any rides with you last month? I want to know how much they cost me",
+    ),
+]
+
+expected_output_4 = JourneyBacktrackCheckSchema(
+    rationale="The customer changed their mind and no longer wants to book a taxi, so the journey needs to be exited. No backtracking is needed.",
+    requires_backtracking=False,
+)
+
 _baseline_shots: Sequence[JourneyBacktrackCheckShot] = [
     JourneyBacktrackCheckShot(
         description="Example 1 - Backtrack to current journey",
@@ -895,6 +924,15 @@ _baseline_shots: Sequence[JourneyBacktrackCheckShot] = [
         journey_nodes=book_taxi_shot_journey_nodes,
         previous_path=["1", "2", "3", "5", "7", "8", "None"],
         expected_result=expected_output_3,
+        conditions=[],
+    ),
+    JourneyBacktrackCheckShot(
+        description="Example 4 - Exiting the journey",
+        interaction_events=example_4_events,
+        journey_title="Book Taxi Journey",
+        journey_nodes=book_taxi_shot_journey_nodes,
+        previous_path=["1", "2"],
+        expected_result=expected_output_4,
         conditions=[],
     ),
 ]

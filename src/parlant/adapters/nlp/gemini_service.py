@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,13 +33,20 @@ from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.moderation import ModerationService, NoModeration
-from parlant.core.nlp.service import EmbedderHints, ModelSize, NLPService, SchematicGeneratorHints
+from parlant.core.nlp.service import (
+    EmbedderHints,
+    ModelSize,
+    NLPService,
+    SchematicGeneratorHints,
+    StreamingTextGeneratorHints,
+)
 from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
     BaseSchematicGenerator,
     FallbackSchematicGenerator,
     SchematicGenerationResult,
+    StreamingTextGenerator,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.loggers import Logger
@@ -248,21 +255,6 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
         return fd
 
 
-class Gemini_1_5_Flash(GeminiSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(
-            model_name="gemini-1.5-flash",
-            logger=logger,
-            tracer=tracer,
-            meter=meter,
-        )
-
-    @property
-    @override
-    def max_tokens(self) -> int:
-        return 1024 * 1024
-
-
 class Gemini_2_0_Flash(GeminiSchematicGenerator[T]):
     def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(
@@ -291,21 +283,6 @@ class Gemini_2_0_Flash_Lite(GeminiSchematicGenerator[T]):
     @override
     def max_tokens(self) -> int:
         return 1024 * 1024
-
-
-class Gemini_1_5_Pro(GeminiSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(
-            model_name="gemini-1.5-pro",
-            logger=logger,
-            tracer=tracer,
-            meter=meter,
-        )
-
-    @property
-    @override
-    def max_tokens(self) -> int:
-        return 2 * 1024 * 1024
 
 
 class Gemini_2_5_Flash(GeminiSchematicGenerator[T]):
@@ -485,6 +462,17 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
         self._meter = meter
 
         self.logger.info("Initialized GeminiService")
+
+    @property
+    @override
+    def supports_streaming(self) -> bool:
+        return False
+
+    @override
+    async def get_streaming_text_generator(
+        self, hints: StreamingTextGeneratorHints = {}
+    ) -> StreamingTextGenerator:
+        raise NotImplementedError("Streaming is not supported. Check supports_streaming first.")
 
     @override
     async def get_schematic_generator(

@@ -14,8 +14,8 @@
 
 import time
 from pydantic import ValidationError
-from cerebras.cloud.sdk import AsyncCerebras
-from cerebras.cloud.sdk import (
+from cerebras.cloud.sdk import AsyncCerebras  # type: ignore[import-not-found]
+from cerebras.cloud.sdk import (  # type: ignore[import-not-found]
     RateLimitError,
     APIConnectionError,
     APITimeoutError,

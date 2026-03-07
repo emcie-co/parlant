@@ -14,14 +14,14 @@
 
 import time
 from pydantic import ValidationError
-from anthropic import (
+from anthropic import (  # type: ignore[import-not-found]
     APIConnectionError,
     APIResponseValidationError,
     APITimeoutError,
     AsyncAnthropic,
     InternalServerError,
     RateLimitError,
-)  # type: ignore
+)
 from typing import Any, Mapping
 from typing_extensions import override
 import jsonfinder  # type: ignore

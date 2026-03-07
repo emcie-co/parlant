@@ -13,14 +13,14 @@
 # limitations under the License.
 
 import time
-from anthropic import (
+from anthropic import (  # type: ignore[import-not-found]
     AsyncAnthropicBedrock,
     APIConnectionError,
     APIResponseValidationError,
     APITimeoutError,
     InternalServerError,
     RateLimitError,
-)  # type: ignore
+)
 from pydantic import ValidationError
 from typing import Any, Mapping
 from typing_extensions import override

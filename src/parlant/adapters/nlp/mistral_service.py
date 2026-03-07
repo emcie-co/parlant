@@ -60,8 +60,8 @@ from parlant.core.nlp.moderation import (
 )
 
 try:
-    from mistralai import Mistral
-    from mistralai.models import SDKError, HTTPValidationError
+    from mistralai import Mistral  # type: ignore[import-not-found]
+    from mistralai.models import SDKError, HTTPValidationError  # type: ignore[import-not-found]
 except ImportError:
     Mistral = None  # type: ignore
     SDKError = Exception  # type: ignore

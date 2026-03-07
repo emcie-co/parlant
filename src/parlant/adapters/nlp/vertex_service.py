@@ -24,20 +24,20 @@ from typing import Any, Mapping, cast
 from typing_extensions import override
 from enum import Enum
 
-import google.auth
-import google.api_core.exceptions
-import google.genai  # type: ignore
-import google.genai.types  # type: ignore
-from google.api_core.exceptions import NotFound, TooManyRequests, ResourceExhausted, ServerError
+import google.auth  # type: ignore[import-untyped]
+import google.api_core.exceptions  # type: ignore[import-untyped]
+import google.genai  # type: ignore[import-untyped]
+import google.genai.types  # type: ignore[import-untyped]
+from google.api_core.exceptions import NotFound, TooManyRequests, ResourceExhausted, ServerError  # type: ignore[import-untyped]
 
-from anthropic import (
+from anthropic import (  # type: ignore[import-not-found]
     AsyncAnthropicVertex,
     APIConnectionError,
     APIResponseValidationError,
     APITimeoutError,
     InternalServerError,
     RateLimitError,
-)  # type: ignore
+)
 
 import jsonfinder  # type: ignore
 from pydantic import ValidationError

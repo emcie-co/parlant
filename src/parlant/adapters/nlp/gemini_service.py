@@ -17,9 +17,9 @@ import inspect
 import os
 import time
 import types
-from google.api_core.exceptions import NotFound, TooManyRequests, ResourceExhausted, ServerError
-import google.genai  # type: ignore
-import google.genai.types  # type: ignore
+from google.api_core.exceptions import NotFound, TooManyRequests, ResourceExhausted, ServerError  # type: ignore[import-untyped]
+import google.genai  # type: ignore[import-untyped]
+import google.genai.types  # type: ignore[import-untyped]
 from collections.abc import Mapping as MappingABC, Sequence as SequenceABC
 from typing import Any, Literal, Mapping, Sequence, Union, cast
 from typing_extensions import get_args, get_origin, override

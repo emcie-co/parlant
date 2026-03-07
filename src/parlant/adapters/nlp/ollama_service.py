@@ -20,7 +20,7 @@ from typing import Any, Callable, Mapping
 from typing_extensions import override
 import asyncio
 import tiktoken
-import ollama
+import ollama  # type: ignore[import-not-found]
 import jsonfinder  # type: ignore
 from pydantic import ValidationError
 

@@ -21,10 +21,10 @@ import sys
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Generic, Mapping, Optional, Sequence, TypeVar, cast
 from typing_extensions import override, Self
-from qdrant_client import QdrantClient  # type: ignore[import-untyped]
-from qdrant_client.http import models  # type: ignore[import-untyped]
-from qdrant_client.http.models import Filter, FieldCondition, Range, MatchValue, MatchAny  # type: ignore[import-untyped]
-from qdrant_client.http.exceptions import ResponseHandlingException  # type: ignore[import-untyped]
+from qdrant_client import QdrantClient  # type: ignore[import-untyped,import-not-found]
+from qdrant_client.http import models  # type: ignore[import-untyped,import-not-found]
+from qdrant_client.http.models import Filter, FieldCondition, Range, MatchValue, MatchAny  # type: ignore[import-untyped,import-not-found]
+from qdrant_client.http.exceptions import ResponseHandlingException  # type: ignore[import-untyped,import-not-found]
 
 
 from parlant.core.async_utils import ReaderWriterLock

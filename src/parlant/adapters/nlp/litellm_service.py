@@ -23,7 +23,7 @@ import os
 from pydantic import ValidationError
 import tiktoken
 
-import litellm
+import litellm  # type: ignore[import-not-found]
 
 from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
 from parlant.adapters.nlp.hugging_face import JinaAIEmbedder

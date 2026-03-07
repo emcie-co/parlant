@@ -15,7 +15,7 @@
 import asyncio
 import os
 from typing import Any, AsyncIterator, Optional, TypedDict, cast
-from pymongo import AsyncMongoClient
+from pymongo import AsyncMongoClient  # type: ignore[import-not-found]
 import pytest
 from typing_extensions import Self
 from lagom import Container

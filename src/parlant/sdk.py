@@ -4999,7 +4999,7 @@ class Server:
                         "Please install parlant[mongo] to use MongoDB."
                     )
 
-                from pymongo import AsyncMongoClient
+                from pymongo import AsyncMongoClient  # type: ignore[import-not-found]
                 from parlant.adapters.db.mongo_db import MongoDocumentDatabase
 
                 if mongo_client is None:

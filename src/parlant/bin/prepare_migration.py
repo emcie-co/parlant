@@ -62,7 +62,7 @@ import json
 import os
 import shutil
 from typing import Any, cast, Callable, Awaitable, Optional
-import chromadb
+import chromadb  # type: ignore[import-not-found]
 from lagom import Container
 from typing_extensions import NoReturn
 from pathlib import Path

@@ -102,7 +102,7 @@ class CustomerModule:
 
         if metadata:
             if metadata.set:
-                await self._customer_store.add_extra(customer_id, metadata.set)
+                await self._customer_store.upsert_extra(customer_id, metadata.set)
             if metadata.unset:
                 await self._customer_store.remove_extra(customer_id, metadata.unset)
 

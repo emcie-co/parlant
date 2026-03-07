@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -38,12 +38,18 @@ from parlant.core.nlp.generation import (
     T,
     BaseSchematicGenerator,
     SchematicGenerationResult,
+    StreamingTextGenerator,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.loggers import Logger
 from parlant.core.nlp.moderation import ModerationService, NoModeration
 from parlant.core.nlp.policies import policy, retry
-from parlant.core.nlp.service import EmbedderHints, NLPService, SchematicGeneratorHints
+from parlant.core.nlp.service import (
+    EmbedderHints,
+    NLPService,
+    SchematicGeneratorHints,
+    StreamingTextGeneratorHints,
+)
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 
 
@@ -68,10 +74,6 @@ class AnthropicBedrockAISchematicGenerator(BaseSchematicGenerator[T]):
         meter: Meter,
     ) -> None:
         super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
-
-        self.model_name = model_name
-        self._logger = logger
-        self._meter = meter
 
         self._client = AsyncAnthropicBedrock(
             aws_access_key=os.environ["AWS_ACCESS_KEY_ID"],
@@ -111,7 +113,7 @@ class AnthropicBedrockAISchematicGenerator(BaseSchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        with self._logger.scope(f"AWS LLM Request ({self.schema.__name__})"):
+        with self.logger.scope(f"AWS LLM Request ({self.schema.__name__})"):
             return await self._do_generate(prompt, hints)
 
     async def _do_generate(
@@ -133,7 +135,7 @@ class AnthropicBedrockAISchematicGenerator(BaseSchematicGenerator[T]):
                 **anthropic_api_arguments,
             )
         except RateLimitError:
-            self._logger.error(
+            self.logger.error(
                 "AWS Bedrock API rate limit exceeded. Possible reasons:\n"
                 "1. Your account may have insufficient API credits.\n"
                 "2. You may be using a free-tier account with limited request capacity.\n"
@@ -154,7 +156,7 @@ class AnthropicBedrockAISchematicGenerator(BaseSchematicGenerator[T]):
             json_content = normalize_json_output(raw_content)
             json_object = jsonfinder.only_json(json_content)[2]
         except Exception:
-            self._logger.error(
+            self.logger.error(
                 f"Failed to extract JSON returned by {self.model_name}:\n{raw_content}"
             )
             raise
@@ -163,7 +165,7 @@ class AnthropicBedrockAISchematicGenerator(BaseSchematicGenerator[T]):
             model_content = self.schema.model_validate(json_object)
 
             await record_llm_metrics(
-                self._meter,
+                self.meter,
                 self.model_name,
                 schema_name=self.schema.__name__,
                 input_tokens=response.usage.input_tokens,
@@ -183,7 +185,7 @@ class AnthropicBedrockAISchematicGenerator(BaseSchematicGenerator[T]):
                 ),
             )
         except ValidationError:
-            self._logger.error(
+            self.logger.error(
                 f"JSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
             )
             raise
@@ -225,6 +227,17 @@ Please consider setting the following your environment before running Parlant.
         self._logger = logger
         self._tracer = tracer
         self._meter = meter
+
+    @property
+    @override
+    def supports_streaming(self) -> bool:
+        return False
+
+    @override
+    async def get_streaming_text_generator(
+        self, hints: StreamingTextGeneratorHints = {}
+    ) -> StreamingTextGenerator:
+        raise NotImplementedError("Streaming is not supported. Check supports_streaming first.")
 
     @override
     async def get_schematic_generator(

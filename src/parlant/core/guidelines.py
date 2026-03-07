@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Mapping, NewType, Optional, Sequence, cast
+from typing import Mapping, NewType, Optional, Sequence, Set, cast
 from typing_extensions import override, TypedDict, Self
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -60,7 +60,10 @@ class Guideline:
     tags: Sequence[TagId]
     metadata: Mapping[str, JSONSerializable]
     criticality: Criticality
+    labels: Set[str] = field(default_factory=set)
     composition_mode: Optional[CompositionMode] = None
+    track: bool = True
+    priority: int = 0
 
     def __str__(self) -> str:
         if self.content.condition and self.content.action:
@@ -87,6 +90,8 @@ class GuidelineUpdateParams(TypedDict, total=False):
     enabled: bool
     metadata: Mapping[str, JSONSerializable]
     composition_mode: Optional[CompositionMode]
+    track: bool
+    priority: int
 
 
 class GuidelineStore(ABC):
@@ -103,12 +108,16 @@ class GuidelineStore(ABC):
         tags: Optional[Sequence[TagId]] = None,
         id: Optional[GuidelineId] = None,
         composition_mode: Optional[CompositionMode] = None,
+        track: bool = True,
+        labels: Optional[Set[str]] = None,
+        priority: int = 0,
     ) -> Guideline: ...
 
     @abstractmethod
     async def list_guidelines(
         self,
         tags: Optional[Sequence[TagId]] = None,
+        labels: Optional[Set[str]] = None,
     ) -> Sequence[Guideline]: ...
 
     @abstractmethod
@@ -164,6 +173,20 @@ class GuidelineStore(ABC):
         self,
         guideline_id: GuidelineId,
         key: str,
+    ) -> Guideline: ...
+
+    @abstractmethod
+    async def upsert_labels(
+        self,
+        guideline_id: GuidelineId,
+        labels: Set[str],
+    ) -> Guideline: ...
+
+    @abstractmethod
+    async def remove_labels(
+        self,
+        guideline_id: GuidelineId,
+        labels: Set[str],
     ) -> Guideline: ...
 
 
@@ -229,6 +252,48 @@ class GuidelineDocument_v0_6_0(TypedDict, total=False):
     metadata: Mapping[str, JSONSerializable]
 
 
+class GuidelineDocument_v0_7_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    condition: str
+    action: Optional[str]
+    description: Optional[str]
+    criticality: str
+    enabled: bool
+    metadata: Mapping[str, JSONSerializable]
+    composition_mode: Optional[str]
+
+
+class GuidelineDocument_v0_8_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    condition: str
+    action: Optional[str]
+    description: Optional[str]
+    criticality: str
+    enabled: bool
+    metadata: Mapping[str, JSONSerializable]
+    composition_mode: Optional[str]
+    track: bool
+
+
+class GuidelineDocument_v0_9_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    condition: str
+    action: Optional[str]
+    description: Optional[str]
+    criticality: str
+    enabled: bool
+    metadata: Mapping[str, JSONSerializable]
+    composition_mode: Optional[str]
+    track: bool
+    labels: Sequence[str]
+
+
 class GuidelineDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
@@ -240,6 +305,9 @@ class GuidelineDocument(TypedDict, total=False):
     enabled: bool
     metadata: Mapping[str, JSONSerializable]
     composition_mode: Optional[str]
+    track: bool
+    labels: Sequence[str]
+    priority: int
 
 
 class GuidelineTagAssociationDocument(TypedDict, total=False):
@@ -264,7 +332,7 @@ async def guideline_document_converter_0_1_0_to_0_2_0(doc: BaseDocument) -> Opti
 
 
 class GuidelineDocumentStore(GuidelineStore):
-    VERSION = Version.from_string("0.7.0")
+    VERSION = Version.from_string("0.10.0")
 
     def __init__(
         self,
@@ -282,9 +350,60 @@ class GuidelineDocumentStore(GuidelineStore):
         self._lock = ReaderWriterLock()
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[GuidelineDocument]:
+        async def v0_9_0_to_v0_10_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(GuidelineDocument_v0_9_0, doc)
+            return GuidelineDocument(
+                id=d["id"],
+                version=Version.String("0.10.0"),
+                creation_utc=d["creation_utc"],
+                condition=d["condition"],
+                action=d["action"],
+                description=d.get("description", None),
+                criticality=d["criticality"],
+                enabled=d["enabled"],
+                metadata=d["metadata"],
+                composition_mode=d.get("composition_mode"),
+                track=d.get("track", True),
+                labels=d.get("labels", []),
+                priority=0,  # Default to 0 for existing guidelines
+            )
+
+        async def v0_8_0_to_v0_9_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(GuidelineDocument_v0_8_0, doc)
+            return GuidelineDocument_v0_9_0(
+                id=d["id"],
+                version=Version.String("0.9.0"),
+                creation_utc=d["creation_utc"],
+                condition=d["condition"],
+                action=d["action"],
+                description=d.get("description", None),
+                criticality=d["criticality"],
+                enabled=d["enabled"],
+                metadata=d["metadata"],
+                composition_mode=d.get("composition_mode"),
+                track=d.get("track", True),
+                labels=[],  # Default to empty labels for existing guidelines
+            )
+
+        async def v0_7_0_to_v0_8_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(GuidelineDocument_v0_7_0, doc)
+            return GuidelineDocument_v0_8_0(
+                id=d["id"],
+                version=Version.String("0.8.0"),
+                creation_utc=d["creation_utc"],
+                condition=d["condition"],
+                action=d["action"],
+                description=d.get("description", None),
+                criticality=d["criticality"],
+                enabled=d["enabled"],
+                metadata=d["metadata"],
+                composition_mode=d.get("composition_mode"),
+                track=True,  # Default to True for existing guidelines
+            )
+
         async def v0_6_0_to_v0_7_0(doc: BaseDocument) -> Optional[BaseDocument]:
             d = cast(GuidelineDocument_v0_6_0, doc)
-            return GuidelineDocument(
+            return GuidelineDocument_v0_7_0(
                 id=d["id"],
                 version=Version.String("0.7.0"),
                 creation_utc=d["creation_utc"],
@@ -350,6 +469,9 @@ class GuidelineDocumentStore(GuidelineStore):
                 "0.4.0": v0_4_0_to_v0_5_0,
                 "0.5.0": v0_5_0_to_v0_6_0,
                 "0.6.0": v0_6_0_to_v0_7_0,
+                "0.7.0": v0_7_0_to_v0_8_0,
+                "0.8.0": v0_8_0_to_v0_9_0,
+                "0.9.0": v0_9_0_to_v0_10_0,
             },
         ).migrate(doc)
 
@@ -426,6 +548,9 @@ class GuidelineDocumentStore(GuidelineStore):
             composition_mode=(
                 guideline.composition_mode.value if guideline.composition_mode else None
             ),
+            track=guideline.track,
+            labels=list(guideline.labels),
+            priority=guideline.priority,
         )
 
     async def _deserialize(
@@ -454,7 +579,10 @@ class GuidelineDocumentStore(GuidelineStore):
             enabled=guideline_document["enabled"],
             tags=[TagId(tag_id) for tag_id in tag_ids],
             metadata=guideline_document["metadata"],
+            labels=set(guideline_document.get("labels", [])),
             composition_mode=composition_mode,
+            track=guideline_document.get("track", True),
+            priority=guideline_document.get("priority", 0),
         )
 
     @override
@@ -470,6 +598,9 @@ class GuidelineDocumentStore(GuidelineStore):
         tags: Optional[Sequence[TagId]] = None,
         id: Optional[GuidelineId] = None,
         composition_mode: Optional[CompositionMode] = None,
+        track: bool = True,
+        labels: Optional[Set[str]] = None,
+        priority: int = 0,
     ) -> Guideline:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
@@ -499,7 +630,10 @@ class GuidelineDocumentStore(GuidelineStore):
                 enabled=enabled,
                 tags=tags or [],
                 metadata=metadata,
+                labels=labels or set(),
                 composition_mode=composition_mode,
+                track=track,
+                priority=priority,
             )
 
             await self._collection.insert_one(
@@ -527,6 +661,7 @@ class GuidelineDocumentStore(GuidelineStore):
     async def list_guidelines(
         self,
         tags: Optional[Sequence[TagId]] = None,
+        labels: Optional[Set[str]] = None,
     ) -> Sequence[Guideline]:
         filters: Where = {}
 
@@ -537,6 +672,7 @@ class GuidelineDocumentStore(GuidelineStore):
                         doc["guideline_id"]
                         for doc in await self._tag_association_collection.find(filters={})
                     }
+
                     filters = (
                         {"$and": [{"id": {"$ne": id}} for id in guideline_ids]}
                         if guideline_ids
@@ -554,9 +690,15 @@ class GuidelineDocumentStore(GuidelineStore):
 
                     filters = {"$or": [{"id": {"$eq": id}} for id in guideline_ids]}
 
-            return [
+            guidelines = [
                 await self._deserialize(d) for d in await self._collection.find(filters=filters)
             ]
+
+            # Filter by labels if specified
+            if labels is not None:
+                guidelines = [g for g in guidelines if labels.issubset(g.labels)]
+
+            return guidelines
 
     @override
     async def read_guideline(
@@ -629,6 +771,7 @@ class GuidelineDocumentStore(GuidelineStore):
                         if "composition_mode" in params
                         else {}
                     ),
+                    **({"priority": params["priority"]} if "priority" in params else {}),
                 }
             )
 
@@ -765,6 +908,58 @@ class GuidelineDocumentStore(GuidelineStore):
                 filters={"id": {"$eq": guideline_id}},
                 params={
                     "metadata": updated_metadata,
+                },
+            )
+
+        assert result.updated_document
+
+        return await self._deserialize(guideline_document=result.updated_document)
+
+    @override
+    async def upsert_labels(
+        self,
+        guideline_id: GuidelineId,
+        labels: Set[str],
+    ) -> Guideline:
+        async with self._lock.writer_lock:
+            guideline_document = await self._collection.find_one({"id": {"$eq": guideline_id}})
+
+            if not guideline_document:
+                raise ItemNotFoundError(item_id=UniqueId(guideline_id))
+
+            current_labels = set(guideline_document.get("labels", []))
+            updated_labels = list(current_labels | labels)
+
+            result = await self._collection.update_one(
+                filters={"id": {"$eq": guideline_id}},
+                params={
+                    "labels": updated_labels,
+                },
+            )
+
+        assert result.updated_document
+
+        return await self._deserialize(guideline_document=result.updated_document)
+
+    @override
+    async def remove_labels(
+        self,
+        guideline_id: GuidelineId,
+        labels: Set[str],
+    ) -> Guideline:
+        async with self._lock.writer_lock:
+            guideline_document = await self._collection.find_one({"id": {"$eq": guideline_id}})
+
+            if not guideline_document:
+                raise ItemNotFoundError(item_id=UniqueId(guideline_id))
+
+            current_labels = set(guideline_document.get("labels", []))
+            updated_labels = list(current_labels - labels)
+
+            result = await self._collection.update_one(
+                filters={"id": {"$eq": guideline_id}},
+                params={
+                    "labels": updated_labels,
                 },
             )
 

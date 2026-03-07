@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -31,31 +31,38 @@ from tests.sdk.utils import Context, SDKTest
 from tests.test_utilities import nlp_test
 
 
-class Test_that_guideline_priority_relationship_can_be_created(SDKTest):
+class Test_that_guideline_can_take_priority_over_another_guideline(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
-            name="Rel Agent",
-            description="Agent for guideline relationships",
+            name="Priority Agent",
+            description="Agent for testing guideline priority",
         )
 
-        self.g1 = await self.agent.create_guideline(
-            condition="Customer requests a refund",
-            action="process the refund if the transaction is not frozen",
-        )
-        self.g2 = await self.agent.create_guideline(
-            condition="An error is detected on an account",
-            action="freeze all account transactions",
+        # Both guidelines match when customer asks about drinks
+        self.high_priority = await self.agent.create_guideline(
+            condition="Customer asks about drinks",
+            action="Recommend Pepsi",
         )
 
-        self.relationship = await self.g1.prioritize_over(self.g2)
+        self.low_priority = await self.agent.create_guideline(
+            condition="Customer asks about drinks",
+            action="Recommend Coca-Cola",
+        )
+
+        await self.high_priority.prioritize_over(self.low_priority)
 
     async def run(self, ctx: Context) -> None:
-        relationship_store = ctx.container[RelationshipStore]
-
-        relationship = await relationship_store.read_relationship(
-            relationship_id=self.relationship.id
+        response = await ctx.send_and_receive_message(
+            customer_message="What drinks do you have?",
+            recipient=self.agent,
         )
-        assert relationship.kind == RelationshipKind.PRIORITY
+
+        # High priority guideline's action should apply
+        assert "pepsi" in response.lower(), f"Expected Pepsi in response: {response}"
+        # Low priority guideline's action should NOT apply
+        assert "cola" not in response.lower() and "coke" not in response.lower(), (
+            f"Did not expect Coca-Cola in response: {response}"
+        )
 
 
 class Test_that_guideline_entailment_relationship_can_be_created(SDKTest):
@@ -100,13 +107,13 @@ class Test_that_guideline_dependency_relationship_can_be_created(SDKTest):
             action="end your response with the word sorry",
         )
 
-        self.relationship = await self.g2.depend_on(self.g2)
+        self.relationships = await self.g2.depend_on(self.g2)
 
     async def run(self, ctx: Context) -> None:
         relationship_store = ctx.container[RelationshipStore]
 
         relationship = await relationship_store.read_relationship(
-            relationship_id=self.relationship.id
+            relationship_id=self.relationships[0].id
         )
         assert relationship.kind == RelationshipKind.DEPENDENCY
 
@@ -177,36 +184,45 @@ class Test_that_a_reevaluation_relationship_can_be_created(SDKTest):
         assert relationship.kind == RelationshipKind.REEVALUATION
 
 
-class Test_that_guideline_can_prioritize_over_journey(SDKTest):
+class Test_that_guideline_can_take_priority_over_journey(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
-            name="Guideline to Journey Agent",
-            description="Agent for guideline to journey priority",
+            name="Test Agent",
+            description="",
         )
 
+        # Guideline that matches when customer asks about drinks
         self.guideline = await self.agent.create_guideline(
-            condition="Customer asks about shipping",
-            action="Explain standard shipping policy",
+            condition="Customer asks about drinks",
+            action="Recommend Pepsi",
         )
 
+        # Journey that also matches when customer asks about drinks
         self.journey = await self.agent.create_journey(
-            title="Handle Complaints",
-            conditions=["Customer is upset"],
-            description="Resolve the complaint flow",
+            title="Drink Recommendation Journey",
+            conditions=["Customer asks about drinks"],
+            description="Recommend Coca-Cola to the customer",
         )
 
-        self.relationship = await self.guideline.prioritize_over(self.journey)
+        await self.journey.create_guideline(
+            matcher=p.Guideline.MATCH_ALWAYS,
+            action="Recommend Coca-Cola",
+        )
+
+        await self.guideline.prioritize_over(self.journey)
 
     async def run(self, ctx: Context) -> None:
-        relationship_store = ctx.container[RelationshipStore]
-
-        relationship = await relationship_store.read_relationship(
-            relationship_id=self.relationship.id
+        response = await ctx.send_and_receive_message(
+            customer_message="What drinks do you have?",
+            recipient=self.agent,
         )
 
-        assert relationship.kind == RelationshipKind.PRIORITY
-        assert relationship.source.id == self.guideline.id
-        assert relationship.target.id == Tag.for_journey_id(self.journey.id)
+        # Guideline's action should apply
+        assert "pepsi" in response.lower(), f"Expected Pepsi in response: {response}"
+        # Journey's recommendation should NOT apply
+        assert "cola" not in response.lower() and "coke" not in response.lower(), (
+            f"Did not expect Coca-Cola in response: {response}"
+        )
 
 
 class Test_that_guideline_can_depend_on_journey(SDKTest):
@@ -227,18 +243,82 @@ class Test_that_guideline_can_depend_on_journey(SDKTest):
             description="Assist the customer in a premium flow",
         )
 
-        self.relationship = await self.guideline.depend_on(self.journey)
+        self.relationships = await self.guideline.depend_on(self.journey)
 
     async def run(self, ctx: Context) -> None:
         relationship_store = ctx.container[RelationshipStore]
 
         relationship = await relationship_store.read_relationship(
-            relationship_id=self.relationship.id
+            relationship_id=self.relationships[0].id
         )
 
         assert relationship.kind == RelationshipKind.DEPENDENCY
         assert relationship.source.id == self.guideline.id
         assert relationship.target.id == Tag.for_journey_id(self.journey.id)
+
+
+class Test_that_guideline_can_be_created_with_inline_dependencies(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Inline Deps Agent",
+            description="Agent for inline dependency creation",
+        )
+
+        self.g1 = await self.agent.create_guideline(
+            condition="Customer greets",
+            action="Greet them back",
+        )
+
+        self.g2 = await self.agent.create_guideline(
+            condition="Customer asks about pricing",
+            action="Provide pricing info",
+        )
+
+        self.g3 = await self.agent.create_guideline(
+            condition="Customer wants a quote",
+            action="Generate a quote based on pricing",
+            dependencies=[self.g1, self.g2],
+        )
+
+    async def run(self, ctx: Context) -> None:
+        relationship_store = ctx.container[RelationshipStore]
+        relationships = await relationship_store.list_relationships(
+            source_id=self.g3.id,
+            kind=RelationshipKind.DEPENDENCY,
+        )
+
+        assert len(relationships) == 2
+        target_ids = {r.target.id for r in relationships}
+        assert self.g1.id in target_ids
+        assert self.g2.id in target_ids
+
+
+class Test_that_observation_can_be_created_with_inline_dependencies(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Obs Deps Agent",
+            description="Agent for observation inline dependencies",
+        )
+
+        self.g1 = await self.agent.create_guideline(
+            condition="Customer mentions a product",
+            action="Note the product",
+        )
+
+        self.observation = await self.agent.create_observation(
+            condition="Customer seems interested in buying",
+            dependencies=[self.g1],
+        )
+
+    async def run(self, ctx: Context) -> None:
+        relationship_store = ctx.container[RelationshipStore]
+        relationships = await relationship_store.list_relationships(
+            source_id=self.observation.id,
+            kind=RelationshipKind.DEPENDENCY,
+        )
+
+        assert len(relationships) == 1
+        assert relationships[0].target.id == self.g1.id
 
 
 class Test_that_agent_guideline_can_be_created_with_canned_responses(SDKTest):
@@ -339,6 +419,39 @@ class Test_that_guideline_can_use_custom_matcher(SDKTest):
         )
 
         assert await nlp_test(answer, "It offers a banana")
+
+
+class Test_that_multiple_guidelines_can_use_custom_matcher(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Dummy Agent",
+            description="Dummy agent",
+        )
+
+        self.g1 = await self.agent.create_guideline(
+            action="Offer a cookie",
+            matcher=p.Guideline.MATCH_ALWAYS,
+        )
+
+        self.g2 = await self.agent.create_guideline(
+            action="Greet with 'Howdy'",
+            matcher=p.Guideline.MATCH_ALWAYS,
+        )
+
+        self.g3 = await self.agent.create_guideline(
+            action="Offer milk",
+            matcher=p.Guideline.MATCH_ALWAYS,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        answer = await ctx.send_and_receive_message(
+            customer_message="Hello, sir.",
+            recipient=self.agent,
+        )
+
+        assert await nlp_test(answer, "It offers milk")
+        assert await nlp_test(answer, "It greets with 'Howdy'")
+        assert await nlp_test(answer, "It offers a cookie")
 
 
 class Test_that_custom_matcher_can_return_no_match(SDKTest):
@@ -508,7 +621,35 @@ class Test_that_match_handlers_for_different_guidelines_are_independent(SDKTest)
         assert not self.guideline2_handler_called, "Guideline 2 handler should NOT be called"
 
 
-class Test_that_match_handler_on_journey_guideline_works(SDKTest):
+class Test_that_journey_scoped_guideline_can_use_custom_matcher(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Dummy Agent",
+            description="Dummy agent",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Order Something",
+            description="Journey to handle orders",
+            conditions=["Customer wants to order something"],
+        )
+
+        self.guideline = await self.journey.create_guideline(
+            condition="",
+            action="Offer a banana",
+            matcher=p.Guideline.MATCH_ALWAYS,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        answer = await ctx.send_and_receive_message(
+            customer_message="Hello, I'd like to order something.",
+            recipient=self.agent,
+        )
+
+        assert await nlp_test(answer, "It offers a banana")
+
+
+class Test_that_match_handler_on_journey_scoped_guideline_works(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Journey Match Handler Agent",
@@ -843,25 +984,25 @@ class Test_that_multiple_guidelines_can_provide_fields(SDKTest):
 
         # Create a canned response that uses fields from multiple providers
         canrep_id = await self.agent.create_canned_response(
-            template="First: {{field_a}}, Second: {{field_b}}.",
+            template="Fruit: {{fruit}}, Vegetable: {{vegetable}}.",
         )
 
         async def provide_field_a(ctx: p.EngineContext) -> dict[str, str]:
-            return {"field_a": "ALPHA"}
+            return {"fruit": "banana"}
 
         async def provide_field_b(ctx: p.EngineContext) -> dict[str, str]:
-            return {"field_b": "BETA"}
+            return {"vegetable": "carrot"}
 
         # Create two guidelines that both match
         self.guideline_a = await self.agent.create_guideline(
-            condition="Customer asks a question",
-            action="Respond with info",
+            condition="Customer asks for a fruit recommendation",
+            action="Recommend a banana",
             canned_response_field_provider=provide_field_a,
         )
 
         self.guideline_b = await self.agent.create_guideline(
-            condition="Customer wants data",
-            action="Provide the requested data",
+            condition="Customer wants a vegetable recommendation",
+            action="Suggest a carrot",
             composition_mode=p.CompositionMode.STRICT,
             canned_responses=[canrep_id],
             canned_response_field_provider=provide_field_b,
@@ -869,8 +1010,102 @@ class Test_that_multiple_guidelines_can_provide_fields(SDKTest):
 
     async def run(self, ctx: Context) -> None:
         response = await ctx.send_and_receive_message(
-            customer_message="I have a question and I want some data please",
+            customer_message="I'd like both a fruit and a vegetable recommendation.",
             recipient=self.agent,
         )
 
-        assert response == "First: ALPHA, Second: BETA."
+        assert response == "Fruit: banana, Vegetable: carrot."
+
+
+class Test_that_guideline_retriever_runs_when_guideline_matches(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Retriever Agent",
+            description="Agent for testing guideline retrievers",
+        )
+
+        guideline = await self.agent.create_guideline(
+            condition="the user asks about the secret code",
+            action="tell them the secret code from the retrieved data",
+        )
+
+        async def my_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            return p.RetrieverResult(data="The secret code is 42")
+
+        await guideline.attach_retriever(my_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="What is the secret code?",
+            recipient=self.agent,
+        )
+        assert "42" in response
+
+
+class Test_that_guideline_retriever_does_not_run_when_guideline_does_not_match(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Retriever Agent",
+            description="Agent for testing guideline retrievers",
+        )
+
+        self.retriever_called = False
+
+        guideline = await self.agent.create_guideline(
+            condition="the user asks about the secret code",
+            action="tell them the secret code from the retrieved data",
+        )
+
+        async def my_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            self.retriever_called = True
+            return p.RetrieverResult(data="The secret code is 42")
+
+        await guideline.attach_retriever(my_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        # Ask about something unrelated, guideline should not match
+        await ctx.send_and_receive_message(
+            customer_message="What is the weather like today?",
+            recipient=self.agent,
+        )
+        assert not self.retriever_called, (
+            "Retriever should not be called when guideline doesn't match"
+        )
+
+
+class Test_that_untracked_guideline_is_reapplied_in_same_session(SDKTest):
+    """Test that a guideline with track=False is always treated as actionable,
+    even after being applied once in the same session."""
+
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Test Agent",
+            description="",
+        )
+
+        await self.agent.create_guideline(
+            condition="The customer wants something to drink",
+            action="Insist that your favorite drink is Pepsi",
+            track=False,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        # First message - customer is thirsty
+        first_response = await ctx.send_and_receive_message(
+            customer_message="Hi, I want a drink please...",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert "pepsi" in first_response.lower(), (
+            f"First response should offer Pepsi, got: {first_response}"
+        )
+
+        # Second message - customer is still thirsty (ignores the offer)
+        second_response = await ctx.send_and_receive_message(
+            customer_message="Hmmm... What do you have?",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert "pepsi" in second_response.lower(), (
+            f"Second response should still offer Pepsi, got: {second_response}"
+        )

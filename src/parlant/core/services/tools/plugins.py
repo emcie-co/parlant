@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 import asyncio
+import contextvars
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 import enum
@@ -21,6 +22,7 @@ import inspect
 import json
 import os
 import traceback
+import uuid
 import dateutil.parser
 from types import TracebackType, UnionType
 from typing import (
@@ -71,6 +73,10 @@ from parlant.core.sessions import SessionId, SessionStatus
 from parlant.core.tools import ToolExecutionError, ToolService
 
 TOOL_RESULT_MAX_PAYLOAD_KB = int(os.environ.get("PARLANT_TOOL_RESULT_MAX_PAYLOAD_KB", 16))
+
+# Registry for passing EngineContext across HTTP boundary to PluginServer (same-process only)
+# Uses Any type to avoid circular import with EngineContext
+_engine_context_registry: dict[str, Any] = {}
 
 ToolFunction = Union[
     Callable[
@@ -310,8 +316,8 @@ def _tool_decorator_impl(
             "A tool function must accept a parameter 'context: ToolContext'"
         )
 
-        assert parameters[0].name == "context", (
-            "A tool function's first parameter must be 'context: ToolContext'"
+        assert parameters[0].name in ["context", "ctx", "c"], (
+            "A tool function's first parameter must be named 'context', 'ctx', or 'c'"
         )
         assert parameters[0].annotation == ToolContext, (
             "A tool function's first parameter must be 'context: ToolContext'"
@@ -477,6 +483,7 @@ class CallToolRequest(DefaultBaseModel):
     session_id: str
     customer_id: str
     arguments: dict[str, _ToolParameterType]
+    engine_context_id: str | None = None
 
 
 class _ToolResultShim(DefaultBaseModel):
@@ -511,6 +518,7 @@ class PluginServer:
         on_app_created: Callable[[FastAPI], Awaitable[FastAPI]] | None = None,
         plugin_data: Mapping[str, Any] = {},
         hosted: bool = False,
+        context_vars: Mapping[contextvars.ContextVar[Any], Any] = {},
     ) -> None:
         self.tools = {entry.tool.name: entry for entry in tools}
         self.plugin_data = plugin_data
@@ -518,6 +526,7 @@ class PluginServer:
         self.port = port
         self.hosted = hosted
         self.url = f"http://{self.host}:{self.port}"
+        self.context_vars = context_vars
 
         self._on_app_created = on_app_created
 
@@ -564,6 +573,7 @@ class PluginServer:
             host=self.host,
             port=self.port,
             log_level="critical",
+            ws="wsproto",
         )
 
         self._server = uvicorn.Server(config)
@@ -635,6 +645,17 @@ class PluginServer:
                     detail=f"Tool: '{name}' does not exists",
                 )
 
+            # Restore context vars for same-process hosted mode
+            for var, value in self.context_vars.items():
+                var.set(value)
+
+            # Restore EngineContext if context_id was provided (same-process hosted mode)
+            if request.engine_context_id and request.engine_context_id in _engine_context_registry:
+                # Late import to avoid circular dependency
+                from parlant.core.engines.alpha.entity_context import EntityContext
+
+                EntityContext.set(_engine_context_registry[request.engine_context_id])
+
             end = asyncio.Event()
             chunks_received = asyncio.Semaphore(value=0)
             lock = asyncio.Lock()
@@ -676,6 +697,7 @@ class PluginServer:
                                     control=result.control,
                                     canned_responses=result.canned_responses,
                                     canned_response_fields=result.canned_response_fields,
+                                    guidelines=result.guidelines,
                                 )
                             ).model_dump_json()
 
@@ -869,6 +891,17 @@ class PluginClient(ToolService):
         context: ToolContext,
         arguments: Mapping[str, JSONSerializable],
     ) -> ToolResult:
+        # Register the current EngineContext for same-process PluginServer access
+        # Late import to avoid circular dependency
+        from parlant.core.engines.alpha.entity_context import EntityContext
+
+        engine_context_id: str | None = None
+        engine_context = EntityContext.get()
+
+        if engine_context is not None:
+            engine_context_id = str(uuid.uuid4())
+            _engine_context_registry[engine_context_id] = engine_context
+
         try:
             tool = await self.read_tool(name)
             validate_tool_arguments(tool, arguments)
@@ -881,6 +914,7 @@ class PluginClient(ToolService):
                     "session_id": context.session_id,
                     "customer_id": context.customer_id,
                     "arguments": arguments,
+                    "engine_context_id": engine_context_id,
                 },
             ) as response:
                 if response.status_code == status.HTTP_404_NOT_FOUND:
@@ -960,6 +994,10 @@ class PluginClient(ToolService):
             raise exc
         except Exception as exc:
             raise ToolExecutionError(tool_name=name) from exc
+        finally:
+            # Clean up context registry entry
+            if engine_context_id is not None and engine_context_id in _engine_context_registry:
+                del _engine_context_registry[engine_context_id]
 
         raise ToolExecutionError(
             tool_name=name,

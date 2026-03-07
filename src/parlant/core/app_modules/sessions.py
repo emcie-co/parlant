@@ -64,6 +64,14 @@ class EventUpdateParamsModel(TypedDict, total=False):
 
 
 @dataclass(frozen=True)
+class SessionLabelsUpdateParams:
+    """Parameters for updating session labels."""
+
+    upsert: Set[str] | None = None
+    remove: Set[str] | None = None
+
+
+@dataclass(frozen=True)
 class SessionListingModel:
     """Paginated result model for sessions at the application layer"""
 
@@ -118,7 +126,7 @@ class SessionModule:
 
         self._lock = asyncio.Lock()
 
-    async def wait_for_update(
+    async def wait_for_more_events(
         self,
         session_id: SessionId,
         min_offset: int,
@@ -127,12 +135,38 @@ class SessionModule:
         trace_id: str | None = None,
         timeout: Timeout = Timeout.infinite(),
     ) -> bool:
-        return await self._session_listener.wait_for_events(
+        return await self._session_listener.wait_for_more_events(
             session_id=session_id,
             min_offset=min_offset,
             kinds=kinds,
             source=source,
             trace_id=trace_id,
+            timeout=timeout,
+        )
+
+    async def wait_for_event_completion(
+        self,
+        session_id: SessionId,
+        event_id: EventId,
+        timeout: Timeout = Timeout.infinite(),
+    ) -> bool:
+        return await self._session_listener.wait_for_event_completion(
+            session_id=session_id,
+            event_id=event_id,
+            timeout=timeout,
+        )
+
+    async def wait_for_new_streaming_chunks(
+        self,
+        session_id: SessionId,
+        event_id: EventId,
+        last_known_chunk_count: int,
+        timeout: Timeout = Timeout.infinite(),
+    ) -> bool:
+        return await self._session_listener.wait_for_new_streaming_chunks(
+            session_id=session_id,
+            event_id=event_id,
+            last_known_chunk_count=last_known_chunk_count,
             timeout=timeout,
         )
 
@@ -143,6 +177,7 @@ class SessionModule:
         title: str | None = None,
         allow_greeting: bool = False,
         metadata: Mapping[str, JSONSerializable] | None = None,
+        labels: Set[str] | None = None,
     ) -> Session:
         _ = await self._agent_store.read_agent(agent_id=agent_id)
 
@@ -152,6 +187,7 @@ class SessionModule:
             agent_id=agent_id,
             title=title,
             metadata=metadata or {},
+            labels=labels,
         )
 
         if allow_greeting:
@@ -170,6 +206,7 @@ class SessionModule:
         limit: int | None = None,
         cursor: Cursor | None = None,
         sort_direction: SortDirection | None = None,
+        labels: Set[str] | None = None,
     ) -> SessionListingModel:
         result = await self._session_store.list_sessions(
             agent_id=agent_id,
@@ -177,6 +214,7 @@ class SessionModule:
             limit=limit,
             cursor=cursor,
             sort_direction=sort_direction,
+            labels=labels,
         )
 
         return SessionListingModel(
@@ -190,11 +228,25 @@ class SessionModule:
         self,
         session_id: SessionId,
         params: SessionUpdateParamsModel,
+        labels: SessionLabelsUpdateParams | None = None,
     ) -> Session:
         session = await self._session_store.update_session(
             session_id=session_id,
             params=params,
         )
+
+        if labels:
+            if labels.upsert:
+                session = await self._session_store.upsert_labels(
+                    session_id=session_id,
+                    labels=labels.upsert,
+                )
+
+            if labels.remove:
+                session = await self._session_store.remove_labels(
+                    session_id=session_id,
+                    labels=labels.remove,
+                )
 
         return session
 
@@ -395,7 +447,7 @@ class SessionModule:
 
         trace_id = await self.dispatch_processing_task(session)
 
-        await self._session_listener.wait_for_events(
+        await self._session_listener.wait_for_more_events(
             session_id=session_id,
             trace_id=trace_id,
             timeout=Timeout(60),

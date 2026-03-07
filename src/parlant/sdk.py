@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,8 +27,11 @@ import importlib.util
 from itertools import chain
 from pathlib import Path
 import sys
+import warnings
 import rich
-from rich.console import Group
+from rich.console import Console, Group
+from rich.panel import Panel
+import rich.box
 from rich.progress import (
     BarColumn,
     Progress,
@@ -47,11 +50,13 @@ from typing import (
     Coroutine,
     Generic,
     Iterable,
+    Iterator,
     Literal,
     Mapping,
     NoReturn,
     Optional,
     Sequence,
+    Set,
     TypeVar,
     TypeAlias,
     TypedDict,
@@ -79,11 +84,13 @@ from parlant.api.authorization import (
 
 
 from parlant.core import async_utils
+from parlant.core.application import Application as _Application
 from parlant.core.agents import (
     AgentDocumentStore,
     AgentId,
     AgentStore,
     CompositionMode as _CompositionMode,
+    MessageOutputMode as _MessageOutputMode,
 )
 from parlant.core.async_utils import Timeout, default_done_callback
 from parlant.core.capabilities import CapabilityId, CapabilityStore, CapabilityVectorStore
@@ -102,6 +109,7 @@ from parlant.core.context_variables import (
     ContextVariableId,
     ContextVariableStore,
 )
+from parlant.core.emission.event_publisher import EventPublisherFactory
 from parlant.core.engines.alpha.guideline_matching.generic.common import (
     format_journey_node_guideline_id,
 )
@@ -114,6 +122,10 @@ from parlant.core.customers import (
     CustomerStore,
 )
 from parlant.core.emissions import EmittedEvent, EventEmitterFactory
+from parlant.core.engines.types import (
+    UtteranceRationale as _UtteranceRationale,
+    UtteranceRequest as _UtteranceRequest,
+)
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder, PromptSection
 from parlant.core.engines.alpha.hooks import EngineHook, EngineHookResult, EngineHooks
 from parlant.core.engines.alpha.engine_context import (
@@ -166,12 +178,14 @@ from parlant.core.relationships import (
 from parlant.core.services.indexing.behavioral_change_evaluation import BehavioralChangeEvaluator
 from parlant.core.services.tools.service_registry import ServiceDocumentRegistry, ServiceRegistry
 from parlant.core.sessions import (
+    Event,
     EventKind,
     EventSource,
     MessageEventData,
     SessionId,
     SessionDocumentStore,
     SessionStore,
+    SessionUpdateParams as _SessionUpdateParams,
     StatusEventData,
     ToolCall as _SessionToolCall,
     ToolEventData,
@@ -227,8 +241,10 @@ from parlant.core.nlp.moderation import (
     NoModeration,
 )
 from parlant.core.engines.alpha.canned_response_generator import (
+    CannedResponseGenerator,
     NoMatchResponseProvider,
     BasicNoMatchResponseProvider,
+    PreambleConfiguration,
 )
 from parlant.core.engines.alpha.optimization_policy import (
     OptimizationPolicy,
@@ -251,6 +267,7 @@ from parlant.core.tools import (
     SessionStatus,
     Tool,
     ToolContext,
+    TransientGuideline,
     ToolId,
     ToolParameterDescriptor,
     ToolParameterOptions,
@@ -258,6 +275,8 @@ from parlant.core.tools import (
     ToolResult,
 )
 from parlant.core.version import VERSION
+
+OutputMode = _MessageOutputMode
 
 INTEGRATED_TOOL_SERVICE_NAME = "built-in"
 
@@ -275,6 +294,13 @@ class SDKError(Exception):
         super().__init__(message)
 
 
+class NLPServiceConfigurationError(SDKError):
+    """Raised when there is a configuration error with an NLP service."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
 class NLPServices:
     """A collection of static methods to create built-in NLPService instances for the SDK."""
 
@@ -284,7 +310,7 @@ class NLPServices:
         from parlant.adapters.nlp.emcie_service import EmcieService
 
         if error := EmcieService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return EmcieService(
             container[Logger],
@@ -298,7 +324,7 @@ class NLPServices:
         from parlant.adapters.nlp.azure_service import AzureService
 
         if error := AzureService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return AzureService(container[Logger], container[Tracer], container[Meter])
 
@@ -308,7 +334,7 @@ class NLPServices:
         from parlant.adapters.nlp.openai_service import OpenAIService
 
         if error := OpenAIService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return OpenAIService(container[Logger], container[Tracer], container[Meter])
 
@@ -318,7 +344,7 @@ class NLPServices:
         from parlant.adapters.nlp.anthropic_service import AnthropicService
 
         if error := AnthropicService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return AnthropicService(container[Logger], container[Tracer], container[Meter])
 
@@ -328,7 +354,7 @@ class NLPServices:
         from parlant.adapters.nlp.cerebras_service import CerebrasService
 
         if error := CerebrasService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return CerebrasService(container[Logger], container[Tracer], container[Meter])
 
@@ -338,7 +364,7 @@ class NLPServices:
         from parlant.adapters.nlp.together_service import TogetherService
 
         if error := TogetherService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return TogetherService(container[Logger], container[Tracer], container[Meter])
 
@@ -348,7 +374,7 @@ class NLPServices:
         from parlant.adapters.nlp.gemini_service import GeminiService
 
         if error := GeminiService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return GeminiService(container[Logger], container[Tracer], container[Meter])
 
@@ -358,9 +384,17 @@ class NLPServices:
         from parlant.adapters.nlp.litellm_service import LiteLLMService
 
         if error := LiteLLMService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
-        return LiteLLMService(container[Logger], container[Tracer], container[Meter])
+        service = LiteLLMService(container[Logger], container[Tracer], container[Meter])
+
+        # LiteLLMEmbedder takes a model_name: str parameter that lagom cannot
+        # auto-resolve. We pre-register the embedder instance in the container
+        # so that EmbedderFactory.create_embedder() can resolve it.
+        embedder = service.create_embedder()
+        container[type(embedder)] = embedder
+
+        return service
 
     @staticmethod
     def modelscope(container: Container) -> NLPService:
@@ -368,7 +402,7 @@ class NLPServices:
         from parlant.adapters.nlp.modelscope_service import ModelScopeService
 
         if error := ModelScopeService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return ModelScopeService(container[Logger], container[Tracer], container[Meter])
 
@@ -378,10 +412,10 @@ class NLPServices:
         from parlant.adapters.nlp.vertex_service import VertexAIService
 
         if error := VertexAIService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         if err := VertexAIService.validate_adc():
-            raise SDKError(err)
+            raise NLPServiceConfigurationError(err)
 
         return VertexAIService(container[Logger], container[Tracer], container[Meter])
 
@@ -391,7 +425,7 @@ class NLPServices:
         from parlant.adapters.nlp.mistral_service import MistralService
 
         if error := MistralService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return MistralService(container[Logger], container[Tracer], container[Meter])
 
@@ -401,10 +435,10 @@ class NLPServices:
         from parlant.adapters.nlp.ollama_service import OllamaService
 
         if error := OllamaService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         if err := OllamaService.verify_models():
-            raise SDKError(err)
+            raise NLPServiceConfigurationError(err)
 
         return OllamaService(container[Logger], container[Tracer], container[Meter])
 
@@ -414,7 +448,7 @@ class NLPServices:
         from parlant.adapters.nlp.glm_service import GLMService
 
         if error := GLMService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return GLMService(container[Logger], container[Tracer], container[Meter])
 
@@ -424,7 +458,7 @@ class NLPServices:
         from parlant.adapters.nlp.qwen_service import QwenService
 
         if error := QwenService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return QwenService(container[Logger], container[Tracer], container[Meter])
 
@@ -434,7 +468,7 @@ class NLPServices:
         from parlant.adapters.nlp.deepseek_service import DeepSeekService
 
         if error := DeepSeekService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return DeepSeekService(container[Logger], container[Tracer], container[Meter])
 
@@ -444,7 +478,7 @@ class NLPServices:
         from parlant.adapters.nlp.snowflake_cortex_service import SnowflakeCortexService
 
         if error := SnowflakeCortexService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return SnowflakeCortexService(container[Logger], container[Tracer], container[Meter])
 
@@ -473,7 +507,7 @@ class NLPServices:
 
         def factory(c: Container) -> NLPService:
             if error := OpenRouterService.verify_environment():
-                raise SDKError(error)
+                raise NLPServiceConfigurationError(error)
             return OpenRouterService(
                 c[Logger],
                 c[Tracer],
@@ -491,7 +525,7 @@ class NLPServices:
         from parlant.adapters.nlp.zhipu_service import ZhipuService
 
         if error := ZhipuService.verify_environment():
-            raise SDKError(error)
+            raise NLPServiceConfigurationError(error)
 
         return ZhipuService(container[Logger], container[Tracer], container[Meter])
 
@@ -828,6 +862,7 @@ class GuidelineMatchingContext:
     agent: Agent
     customer: Customer
     variables: Mapping[Variable, JSONSerializable]
+    staged_events: Sequence[EmittedEvent]
 
     @classmethod
     async def _from_core(
@@ -849,6 +884,12 @@ class GuidelineMatchingContext:
             session=Session(
                 id=core_ctx.session.id,
                 interaction=interaction,
+                metadata=core_ctx.session.metadata,
+                labels=core_ctx.session.labels,
+                customer=customer,
+                agent=agent,
+                mode=core_ctx.session.mode,
+                title=core_ctx.session.title,
             ),
             agent=agent,
             customer=customer,
@@ -856,6 +897,7 @@ class GuidelineMatchingContext:
                 await agent.get_variable(id=var.id): val.data
                 for var, val in core_ctx.context_variables
             },
+            staged_events=core_ctx.staged_events,
         )
 
 
@@ -865,6 +907,9 @@ async def _match_always(ctx: GuidelineMatchingContext, g: Guideline) -> Guidelin
         matched=True,
         rationale="Always relevant",
     )
+
+
+MATCH_ALWAYS = _match_always
 
 
 @dataclass
@@ -884,6 +929,14 @@ class JourneyStateMatch:
     """Explanation of why the state transition matched or didn't match."""
 
 
+@dataclass
+class JourneyMatch:
+    """Result of a journey match."""
+
+    journey_id: JourneyId
+    """The ID of the journey that was matched."""
+
+
 @dataclass(frozen=True)
 class Guideline:
     """A guideline that defines a condition and an action to be taken."""
@@ -899,6 +952,9 @@ class Guideline:
     _server: Server
     _container: Container
 
+    labels: set[str] = field(default_factory=set)
+    priority: int = 0
+
     async def entail(self, guideline: Guideline) -> Relationship:
         """Creates an entailment relationship with another guideline."""
         return await self._create_relationship(
@@ -907,41 +963,37 @@ class Guideline:
             direction="source",
         )
 
-    async def prioritize_over(self, target: Guideline | Journey) -> Relationship:
-        """Creates a priority relationship with another guideline or journey."""
-        if isinstance(target, Guideline):
-            return await self._create_relationship(
-                target=target,
-                kind=RelationshipKind.PRIORITY,
-                direction="source",
-            )
-        elif isinstance(target, Journey):
-            return await self._create_relationship(
-                target=target,
-                kind=RelationshipKind.PRIORITY,
-                direction="source",
-            )
-        else:
-            raise SDKError("Either guideline or journey must be provided for prioritization.")
+    async def prioritize_over(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
+        """Creates priority relationships with other guidelines or journeys."""
+        if not targets:
+            raise SDKError("At least one target must be provided for prioritization.")
 
-    async def depend_on(
-        self,
-        target: Guideline | Journey,
-    ) -> Relationship:
-        if isinstance(target, Guideline):
-            return await self._create_relationship(
-                target=target,
+        return [
+            await self._create_relationship(
+                target=t,
+                kind=RelationshipKind.PRIORITY,
+                direction="source",
+            )
+            for t in targets
+        ]
+
+    async def exclude(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
+        """Alias for prioritize_over. Creates priority relationships with other guidelines or journeys."""
+        return await self.prioritize_over(*targets)
+
+    async def depend_on(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
+        """Creates dependency relationships with other guidelines or journeys."""
+        if not targets:
+            raise SDKError("At least one target must be provided for dependency.")
+
+        return [
+            await self._create_relationship(
+                target=t,
                 kind=RelationshipKind.DEPENDENCY,
                 direction="source",
             )
-        elif isinstance(target, Journey):
-            return await self._create_relationship(
-                target=target,
-                kind=RelationshipKind.DEPENDENCY,
-                direction="source",
-            )
-        else:
-            raise SDKError("Either guideline or journey must be provided for dependency.")
+            for t in targets
+        ]
 
     async def disambiguate(
         self,
@@ -985,6 +1037,24 @@ class Guideline:
             kind=relationship.kind,
             source=relationship.source.id,
             target=relationship.target.id,
+        )
+
+    async def attach_retriever(
+        self,
+        retriever: Callable[[RetrieverContext], Awaitable[RetrieverResult | None]],
+        id: str | None = None,
+    ) -> None:
+        """Attaches a retriever that runs only when this guideline is matched."""
+
+        def is_guideline_matched(ctx: EngineContext) -> bool:
+            return any(
+                m.guideline.id == self.id for m in ctx.state.ordinary_guideline_matches
+            ) or any(m.guideline.id == self.id for m in ctx.state.tool_enabled_guideline_matches)
+
+        self._server._attach_conditional_retriever(
+            retriever_id=id or f"guideline-retriever-{self.id}",
+            retriever=retriever,
+            should_run=is_guideline_matched,
         )
 
     async def _create_relationship(
@@ -1085,6 +1155,8 @@ class JourneyState:
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[JourneyState]:
         if not self._journey:
             raise SDKError("EndState cannot be connected to any other states.")
@@ -1108,6 +1180,8 @@ class JourneyState:
                 tools=tools,
                 metadata=metadata,
                 composition_mode=composition_mode,
+                id=id,
+                labels=labels,
             )
 
             [
@@ -1133,6 +1207,8 @@ class JourneyState:
                 tools=[],
                 metadata=metadata,
                 composition_mode=composition_mode,
+                id=id,
+                labels=labels,
             )
         elif fork:
             actual_state = await self._journey._create_state(
@@ -1140,6 +1216,8 @@ class JourneyState:
                 description=description,
                 metadata=metadata,
                 composition_mode=composition_mode,
+                id=id,
+                labels=labels,
             )
         elif journey:
             if canned_responses:
@@ -1164,9 +1242,9 @@ class JourneyState:
         if actual_state:
             cast(list[JourneyState], self._journey.states).append(actual_state)
 
-            for id in canned_responses:
+            for canrep_id in canned_responses:
                 await self._journey._container[CannedResponseStore].upsert_tag(
-                    canned_response_id=id, tag_id=_Tag.for_journey_node_id(actual_state.id)
+                    canned_response_id=canrep_id, tag_id=_Tag.for_journey_node_id(actual_state.id)
                 )
 
         cast(list[JourneyTransition[JourneyState]], self._journey.transitions).append(transition)
@@ -1442,6 +1520,43 @@ class JourneyState:
 
         return result_transition
 
+    async def attach_retriever(
+        self,
+        retriever: Callable[[RetrieverContext], Awaitable[RetrieverResult | None]],
+        id: str | None = None,
+    ) -> None:
+        """Attaches a retriever that runs only when this journey state is active."""
+        from itertools import chain
+
+        from parlant.core.journey_guideline_projection import (
+            extract_node_id_from_journey_node_guideline_id,
+        )
+
+        if self._journey is None:
+            raise SDKError("Cannot attach retriever to a journey state without a parent journey.")
+
+        def is_journey_state_active(ctx: EngineContext) -> bool:
+            for m in chain(
+                ctx.state.ordinary_guideline_matches,
+                ctx.state.tool_enabled_guideline_matches,
+            ):
+                # Check if this is a journey node guideline
+                if "journey_node" not in m.guideline.metadata:
+                    continue
+
+                node_id = extract_node_id_from_journey_node_guideline_id(m.guideline.id)
+
+                if node_id == self.id:
+                    return True
+
+            return False
+
+        self._journey._server._attach_conditional_retriever(
+            retriever_id=id or f"journey-state-retriever-{self.id}",
+            retriever=retriever,
+            should_run=is_journey_state_active,
+        )
+
 
 END_JOURNEY = JourneyState(
     id=JourneyStore.END_NODE_ID,
@@ -1575,6 +1690,7 @@ class InitialJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[TState]: ...
 
     @overload
@@ -1590,6 +1706,8 @@ class InitialJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
@@ -1605,6 +1723,8 @@ class InitialJourneyState(JourneyState):
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1620,6 +1740,8 @@ class InitialJourneyState(JourneyState):
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1647,6 +1769,8 @@ class InitialJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[Any]:
         # Validate parameters against overload signatures
         _validate_transition_parameters(
@@ -1675,6 +1799,8 @@ class InitialJourneyState(JourneyState):
             on_message=on_message,
             composition_mode=composition_mode,
             canned_response_field_provider=canned_response_field_provider,
+            id=id,
+            labels=labels,
         )
 
 
@@ -1695,6 +1821,7 @@ class ToolJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[TState]: ...
 
     @overload
@@ -1710,6 +1837,8 @@ class ToolJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
@@ -1725,6 +1854,8 @@ class ToolJourneyState(JourneyState):
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1740,6 +1871,8 @@ class ToolJourneyState(JourneyState):
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1767,6 +1900,8 @@ class ToolJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[Any]:
         # Validate parameters against overload signatures
         _validate_transition_parameters(
@@ -1795,6 +1930,8 @@ class ToolJourneyState(JourneyState):
             on_message=on_message,
             composition_mode=composition_mode,
             canned_response_field_provider=canned_response_field_provider,
+            id=id,
+            labels=labels,
         )
 
     async def fork(self) -> JourneyTransition[ForkJourneyState]:
@@ -1818,6 +1955,7 @@ class ChatJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[TState]: ...
 
     @overload
@@ -1833,6 +1971,8 @@ class ChatJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
@@ -1848,6 +1988,8 @@ class ChatJourneyState(JourneyState):
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1863,6 +2005,8 @@ class ChatJourneyState(JourneyState):
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1890,6 +2034,8 @@ class ChatJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[Any]:
         # Validate parameters against overload signatures
         _validate_transition_parameters(
@@ -1918,6 +2064,8 @@ class ChatJourneyState(JourneyState):
             on_message=on_message,
             composition_mode=composition_mode,
             canned_response_field_provider=canned_response_field_provider,
+            id=id,
+            labels=labels,
         )
 
     async def fork(self) -> JourneyTransition[ForkJourneyState]:
@@ -1940,6 +2088,7 @@ class ForkJourneyState(JourneyState):
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[TState]: ...
 
     @overload
@@ -1955,6 +2104,8 @@ class ForkJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ChatJourneyState]: ...
 
     @overload
@@ -1970,6 +2121,8 @@ class ForkJourneyState(JourneyState):
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -1985,6 +2138,8 @@ class ForkJourneyState(JourneyState):
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[ToolJourneyState]: ...
 
     @overload
@@ -2012,6 +2167,8 @@ class ForkJourneyState(JourneyState):
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> JourneyTransition[Any]:
         # Validate parameters against overload signatures
         _validate_transition_parameters(
@@ -2040,6 +2197,8 @@ class ForkJourneyState(JourneyState):
             on_message=on_message,
             composition_mode=composition_mode,
             canned_response_field_provider=canned_response_field_provider,
+            id=id,
+            labels=labels,
         )
 
 
@@ -2060,6 +2219,9 @@ class Journey:
     _server: Server
     _container: Container
 
+    labels: set[str] = field(default_factory=set)
+    priority: int = 0
+
     @property
     def initial_state(self) -> InitialJourneyState:
         """Returns the initial state of the journey."""
@@ -2075,6 +2237,8 @@ class Journey:
         tools: Sequence[ToolEntry] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         composition_mode: CompositionMode | None = None,
+        id: JourneyStateId | None = None,
+        labels: Iterable[str] = (),
     ) -> TState:
         metadata_type = {
             ForkJourneyState: "fork",
@@ -2103,6 +2267,8 @@ class Journey:
             ],
             description=description,
             composition_mode=CompositionMode._to_core_composition_mode(effective_composition_mode),
+            id=id,
+            labels=set(labels) if labels else None,
         )
 
         node = await self._container[JourneyStore].set_node_metadata(
@@ -2210,7 +2376,7 @@ class Journey:
 
     async def create_guideline(
         self,
-        condition: str,
+        condition: str | None = None,
         action: str | None = None,
         description: str | None = None,
         tools: Iterable[ToolEntry] = [],
@@ -2225,9 +2391,13 @@ class Journey:
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         id: GuidelineId | None = None,
+        track: bool = True,
+        labels: Iterable[str] = (),
+        dependencies: Sequence[Guideline | Journey] = [],
+        priority: int = 0,
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
-        return await self._server._create_guideline(
+        guideline = await self._server._create_guideline(
             condition=condition,
             action=action,
             description=description,
@@ -2243,27 +2413,46 @@ class Journey:
             tags=None,
             relationship_target_tag_id=_Tag.for_journey_id(self.id),
             id=id,
+            track=track,
+            labels=labels,
+            priority=priority,
         )
+
+        if dependencies:
+            await guideline.depend_on(*dependencies)
+
+        return guideline
 
     async def create_observation(
         self,
-        condition: str,
+        condition: str | None = None,
         description: str | None = None,
+        tools: Iterable[ToolEntry] = [],
         canned_responses: Sequence[CannedResponseId] = [],
         composition_mode: CompositionMode | None = None,
+        matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
+        | None = None,
         on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        labels: Iterable[str] = (),
+        dependencies: Sequence[Guideline | Journey] = [],
+        priority: int = 0,
     ) -> Guideline:
         """A shorthand for creating an observational guideline with the specified condition."""
 
         return await self.create_guideline(
             condition=condition,
             description=description,
+            tools=tools,
             canned_responses=canned_responses,
             composition_mode=composition_mode,
+            matcher=matcher,
             on_match=on_match,
             canned_response_field_provider=canned_response_field_provider,
+            labels=labels,
+            dependencies=dependencies,
+            priority=priority,
         )
 
     async def attach_tool(
@@ -2271,7 +2460,16 @@ class Journey:
         tool: ToolEntry,
         condition: str,
     ) -> GuidelineId:
-        """Attaches a tool to the journey, to be usable by the agent under the specified condition."""
+        """Attaches a tool to the journey, to be usable by the agent under the specified condition.
+
+        .. deprecated::
+            Use ``create_guideline`` or ``create_observation`` with the ``tools`` parameter instead.
+        """
+        warnings.warn(
+            "attach_tool() is deprecated. Use create_guideline() or create_observation() with the tools parameter instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         await self._server._plugin_server.enable_tool(tool)
 
@@ -2305,12 +2503,29 @@ class Journey:
 
         return guideline.id
 
+    async def attach_retriever(
+        self,
+        retriever: Callable[[RetrieverContext], Awaitable[RetrieverResult | None]],
+        id: str | None = None,
+    ) -> None:
+        """Attaches a retriever that runs only when this journey is active."""
+
+        def is_journey_active(ctx: EngineContext) -> bool:
+            return self.id in [j.id for j in ctx.state.journeys]
+
+        self._server._attach_conditional_retriever(
+            retriever_id=id or f"journey-retriever-{self.id}",
+            retriever=retriever,
+            should_run=is_journey_active,
+        )
+
     async def create_canned_response(
         self,
         template: str,
         tags: list[TagId] = [],
         signals: list[str] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        field_dependencies: Sequence[str] = (),
     ) -> CannedResponseId:
         """Creates a journey-scoped canned response with the specified template, tags, and signals."""
 
@@ -2322,38 +2537,42 @@ class Journey:
             fields=[],
             signals=signals,
             metadata=metadata,
+            field_dependencies=field_dependencies,
         )
 
         return canrep.id
 
-    async def prioritize_over(
-        self,
-        target: Guideline | Journey,
-    ) -> Relationship:
-        """Creates a priority relationship with another guideline or journey."""
-        if isinstance(target, Guideline):
-            return await self._create_relationship(
-                target=target,
-                kind=RelationshipKind.PRIORITY,
-                direction="source",
-            )
-        else:
-            return await self._create_relationship(
-                target=target,
-                kind=RelationshipKind.PRIORITY,
-                direction="source",
-            )
+    async def prioritize_over(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
+        """Creates priority relationships with other guidelines or journeys."""
+        if not targets:
+            raise SDKError("At least one target must be provided for prioritization.")
 
-    async def depend_on(
-        self,
-        target: Guideline,
-    ) -> Relationship:
-        """Creates a dependency relationship with a guideline."""
-        return await self._create_relationship(
-            target=target,
-            kind=RelationshipKind.DEPENDENCY,
-            direction="source",
-        )
+        return [
+            await self._create_relationship(
+                target=t,
+                kind=RelationshipKind.PRIORITY,
+                direction="source",
+            )
+            for t in targets
+        ]
+
+    async def exclude(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
+        """Alias for prioritize_over. Creates priority relationships with other guidelines or journeys."""
+        return await self.prioritize_over(*targets)
+
+    async def depend_on(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
+        """Creates dependency relationships with other guidelines or journeys."""
+        if not targets:
+            raise SDKError("At least one target must be provided for dependency.")
+
+        return [
+            await self._create_relationship(
+                target=t,
+                kind=RelationshipKind.DEPENDENCY,
+                direction="source",
+            )
+            for t in targets
+        ]
 
     async def _create_relationship(
         self,
@@ -2433,6 +2652,9 @@ class Variable:
     _server: Server
     _container: Container
 
+    def __hash__(self) -> int:
+        return hash(self.id)
+
     async def set_value_for_customer(self, customer: Customer, value: JSONSerializable) -> None:
         """Sets the value of the variable for a specific customer."""
 
@@ -2495,9 +2717,102 @@ class Variable:
         return value.data if value else None
 
 
-@dataclass(frozen=True)
+class CustomerMetadata:
+    """Async-aware metadata accessor for a customer.
+
+    Supports sync reads via ``[]`` and async writes via :meth:`set` / :meth:`delete`.
+    Use :meth:`get` for an async read that refreshes from the store.
+    """
+
+    def __init__(
+        self,
+        customer_id: CustomerId,
+        data: Mapping[str, str],
+        server: Optional[Server] = None,
+    ) -> None:
+        self._customer_id = customer_id
+        self._data = dict(data)
+        self._server = server
+
+    def _get_store(self) -> CustomerStore:
+        server = self._server if self._server is not None else Server.current
+        return server._container[CustomerStore]
+
+    # -- sync reads ----------------------------------------------------------
+
+    def __getitem__(self, key: str) -> str:
+        return self._data[key]
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._data
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    # -- async operations -----------------------------------------------------
+
+    async def get(self, key: str, default: str | None = None) -> str | None:
+        """Read a metadata value, refreshing from the store first."""
+        customer = await self._get_store().read_customer(self._customer_id)
+        self._data = dict(customer.extra)
+        return self._data.get(key, default)
+
+    def _check_not_guest(self) -> None:
+        if self._customer_id == CustomerStore.GUEST_ID:
+            raise RuntimeError("Cannot update the guest customer")
+
+    async def set(self, key: str, value: str) -> None:
+        """Set a metadata value and persist it to the store."""
+        self._check_not_guest()
+        await self._get_store().upsert_extra(self._customer_id, {key: value})
+        self._data[key] = value
+
+    async def delete(self, key: str) -> None:
+        """Delete a metadata value and persist the removal to the store."""
+        self._check_not_guest()
+        await self._get_store().remove_extra(self._customer_id, [key])
+        del self._data[key]
+
+
 class Customer:
     """A customer represents an individual or entity interacting with the agent."""
+
+    def __init__(
+        self,
+        id: CustomerId,
+        name: str,
+        metadata: Mapping[str, str],
+        tags: Sequence[TagId],
+        _server: Optional[Server] = None,
+    ) -> None:
+        self._id = id
+        self._name = name
+        self._metadata = CustomerMetadata(
+            customer_id=id,
+            data=metadata,
+            server=_server,
+        )
+        self._tags = tags
+        self._server = _server
+
+    @property
+    def id(self) -> CustomerId:
+        return self._id
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def metadata(self) -> CustomerMetadata:
+        return self._metadata
+
+    @property
+    def tags(self) -> Sequence[TagId]:
+        return self._tags
 
     @classproperty
     def guest(cls: Customer) -> Customer:
@@ -2507,11 +2822,6 @@ class Customer:
             metadata={},
             tags=[],
         )
-
-    id: CustomerId
-    name: str
-    metadata: Mapping[str, str]
-    tags: Sequence[TagId]
 
     @classproperty
     def current(cls) -> Customer:
@@ -2533,6 +2843,35 @@ class Customer:
             metadata=core_customer.extra,
             tags=core_customer.tags,
         )
+
+    async def update(
+        self,
+        *,
+        name: str | None = None,
+    ) -> None:
+        """Updates the customer's information.
+
+        Args:
+            name: New name for the customer.
+
+        Raises:
+            RuntimeError: If this is the guest customer.
+        """
+        if self._id == CustomerStore.GUEST_ID:
+            raise RuntimeError("Cannot update the guest customer")
+
+        server = self._server if self._server is not None else Server.current
+        customer_store = server._container[CustomerStore]
+
+        if name is not None:
+            await customer_store.update_customer(
+                customer_id=self._id,
+                params={"name": name},
+            )
+
+        updated = await customer_store.read_customer(self._id)
+        self._name = updated.name
+        self._tags = updated.tags
 
 
 @dataclass(frozen=True)
@@ -2662,6 +3001,7 @@ class Agent:
     description: str | None
     max_engine_iterations: int
     composition_mode: CompositionMode
+    output_mode: OutputMode
     tags: Sequence[TagId]
 
     retrievers: Mapping[str, RetrieverFunction] = field(default_factory=dict)
@@ -2678,18 +3018,31 @@ class Agent:
         conditions: list[str | Guideline],
         id: JourneyId | None = None,
         composition_mode: CompositionMode | None = None,
+        on_match: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
+        on_message: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
+        labels: Iterable[str] = (),
+        dependencies: Sequence[Guideline | Journey] = [],
+        priority: int = 0,
     ) -> Journey:
         """Creates a new journey with the specified title, description, and conditions."""
 
         self._server._advance_creation_progress()
 
         journey = await self._server.create_journey(
-            title, description, conditions, id=id, composition_mode=composition_mode
+            title,
+            description,
+            conditions,
+            id=id,
+            composition_mode=composition_mode,
+            on_match=on_match,
+            on_message=on_message,
+            labels=labels,
+            priority=priority,
         )
 
         await self.attach_journey(journey)
 
-        return Journey(
+        result = Journey(
             id=journey.id,
             title=journey.title,
             description=description,
@@ -2698,10 +3051,17 @@ class Agent:
             states=journey.states,
             transitions=journey.transitions,
             composition_mode=journey.composition_mode,
+            labels=journey.labels,
+            priority=journey.priority,
             _start_state_id=journey._start_state_id,
             _server=self._server,
             _container=self._container,
         )
+
+        if dependencies:
+            await result.depend_on(*dependencies)
+
+        return result
 
     async def attach_journey(self, journey: Journey) -> None:
         """Attaches an existing journey to the agent, allowing it to be used in interactions."""
@@ -2713,8 +3073,9 @@ class Agent:
 
     async def create_guideline(
         self,
-        condition: str,
+        condition: str | None = None,
         action: str | None = None,
+        id: GuidelineId | None = None,
         description: str | None = None,
         tools: Iterable[ToolEntry] = [],
         metadata: dict[str, JSONSerializable] = {},
@@ -2727,10 +3088,13 @@ class Agent:
         on_message: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
-        id: GuidelineId | None = None,
+        track: bool = True,
+        labels: Iterable[str] = (),
+        dependencies: Sequence[Guideline | Journey] = [],
+        priority: int = 0,
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
-        return await self._server._create_guideline(
+        guideline = await self._server._create_guideline(
             condition=condition,
             action=action,
             description=description,
@@ -2746,29 +3110,48 @@ class Agent:
             tags=[_Tag.for_agent_id(self.id)],
             relationship_target_tag_id=None,
             id=id,
+            track=track,
+            labels=labels,
+            priority=priority,
         )
+
+        if dependencies:
+            await guideline.depend_on(*dependencies)
+
+        return guideline
 
     async def create_observation(
         self,
-        condition: str,
+        condition: str | None = None,
         description: str | None = None,
+        tools: Iterable[ToolEntry] = [],
         canned_responses: Sequence[CannedResponseId] = [],
         criticality: Criticality = Criticality.MEDIUM,
         composition_mode: CompositionMode | None = None,
+        matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
+        | None = None,
         on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        labels: Iterable[str] = (),
+        dependencies: Sequence[Guideline | Journey] = [],
+        priority: int = 0,
     ) -> Guideline:
         """A shorthand for creating an observational guideline with the specified condition."""
 
         return await self.create_guideline(
             condition=condition,
             description=description,
+            tools=tools,
             canned_responses=canned_responses,
             composition_mode=composition_mode,
+            matcher=matcher,
             on_match=on_match,
             criticality=criticality,
             canned_response_field_provider=canned_response_field_provider,
+            labels=labels,
+            dependencies=dependencies,
+            priority=priority,
         )
 
     async def attach_tool(
@@ -2776,7 +3159,16 @@ class Agent:
         tool: ToolEntry,
         condition: str,
     ) -> GuidelineId:
-        """Attaches a tool to the agent, to be usable under the specified condition."""
+        """Attaches a tool to the agent, to be usable under the specified condition.
+
+        .. deprecated::
+            Use ``create_guideline`` or ``create_observation`` with the ``tools`` parameter instead.
+        """
+        warnings.warn(
+            "attach_tool() is deprecated. Use create_guideline() or create_observation() with the tools parameter instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         await self._server._plugin_server.enable_tool(tool)
 
@@ -2804,6 +3196,7 @@ class Agent:
         tags: list[TagId] = [],
         signals: list[str] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        field_dependencies: Sequence[str] = (),
     ) -> CannedResponseId:
         """Creates a canned response with the specified template, tags, and signals."""
 
@@ -2815,6 +3208,7 @@ class Agent:
             fields=[],
             signals=signals,
             metadata=metadata,
+            field_dependencies=field_dependencies,
         )
 
         return canrep.id
@@ -2823,8 +3217,8 @@ class Agent:
         self,
         name: str,
         description: str,
-        synonyms: Sequence[str] = [],
         id: Optional[TermId] = None,
+        synonyms: Sequence[str] = [],
     ) -> Term:
         """Creates a glossary term with the specified name, description, and synonyms."""
 
@@ -2974,6 +3368,32 @@ class Agent:
 
         self._server._retrievers[self.id][id] = retriever
 
+    async def utter(
+        self,
+        session: Session,
+        *,
+        guidelines: Sequence[TransientGuideline],
+    ) -> str:
+        """Generate an agent message in the given session following the provided transient guidelines.
+
+        Args:
+            session: The session in which to generate the message.
+            guidelines: Transient guidelines (action + optional fields) the agent should follow.
+
+        Returns:
+            The generated message text.
+        """
+        app = self._container[_Application]
+        requests = [
+            _UtteranceRequest(
+                action=g["action"],
+                rationale=_UtteranceRationale.UNSPECIFIED,
+            )
+            for g in guidelines
+        ]
+        event = await app.sessions.utter(session.id, requests)
+        return cast(str, cast(dict[str, Any], event.data)["message"])
+
     @classproperty
     def current(cls) -> Agent:
         """Get the current agent from the asyncio task context.
@@ -3007,19 +3427,175 @@ class Agent:
             description=core_agent.description,
             max_engine_iterations=core_agent.max_engine_iterations,
             composition_mode=composition_mode_map[core_agent.composition_mode],
+            output_mode=core_agent.message_output_mode or OutputMode.BLOCK,
             tags=core_agent.tags,
         )
 
 
-@dataclass(frozen=True)
+class SessionMetadata:
+    """Async-aware metadata accessor for a session.
+
+    Supports sync reads via ``[]`` and async writes via :meth:`set` / :meth:`delete`.
+    Use :meth:`get` for an async read that refreshes from the store.
+    """
+
+    def __init__(
+        self,
+        session_id: SessionId,
+        data: Mapping[str, JSONSerializable],
+        server: Optional[Server] = None,
+    ) -> None:
+        self._session_id = session_id
+        self._data = dict(data)
+        self._server = server
+
+    def _get_store(self) -> SessionStore:
+        server = self._server if self._server is not None else Server.current
+        return server._container[SessionStore]
+
+    # -- sync reads ----------------------------------------------------------
+
+    def __getitem__(self, key: str) -> JSONSerializable:
+        return self._data[key]
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._data
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    # -- async operations -----------------------------------------------------
+
+    async def get(self, key: str, default: JSONSerializable = None) -> JSONSerializable:
+        """Read a metadata value, refreshing from the store first."""
+        session = await self._get_store().read_session(self._session_id)
+        self._data = dict(session.metadata)
+        return self._data.get(key, default)
+
+    async def set(self, key: str, value: JSONSerializable) -> None:
+        """Set a metadata value and persist it to the store."""
+        await self._get_store().set_metadata(self._session_id, key, value)
+        self._data[key] = value
+
+    async def delete(self, key: str) -> None:
+        """Delete a metadata value and persist the removal to the store."""
+        await self._get_store().unset_metadata(self._session_id, key)
+        del self._data[key]
+
+
+class SessionLabels:
+    """Async-aware labels accessor for a session.
+
+    Supports sync reads via ``in`` and ``len`` and async writes via :meth:`add` / :meth:`remove`.
+    """
+
+    def __init__(
+        self,
+        session_id: SessionId,
+        data: Set[str],
+        server: Optional[Server] = None,
+    ) -> None:
+        self._session_id = session_id
+        self._data = set(data)
+        self._server = server
+
+    def _get_store(self) -> SessionStore:
+        server = self._server if self._server is not None else Server.current
+        return server._container[SessionStore]
+
+    # -- sync reads ----------------------------------------------------------
+
+    def __contains__(self, label: object) -> bool:
+        return label in self._data
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    # -- async operations -----------------------------------------------------
+
+    async def add(self, label: str) -> None:
+        """Add a label and persist it to the store."""
+        await self._get_store().upsert_labels(self._session_id, {label})
+        self._data.add(label)
+
+    async def remove(self, label: str) -> None:
+        """Remove a label and persist the removal to the store."""
+        await self._get_store().remove_labels(self._session_id, {label})
+        self._data.discard(label)
+
+
 class Session:
     """A session represents an ongoing conversation between a customer and an agent."""
 
-    id: SessionId
-    """The unique identifier of the session."""
+    def __init__(
+        self,
+        id: SessionId,
+        interaction: Interaction,
+        metadata: Mapping[str, JSONSerializable],
+        labels: Set[str],
+        customer: Customer,
+        agent: Agent,
+        mode: SessionMode,
+        title: str | None = None,
+        _server: Optional[Server] = None,
+    ) -> None:
+        self._id = id
+        self._interaction = interaction
+        self._metadata = SessionMetadata(
+            session_id=id,
+            data=metadata,
+            server=_server,
+        )
+        self._labels = SessionLabels(
+            session_id=id,
+            data=labels,
+            server=_server,
+        )
+        self._customer = customer
+        self._agent = agent
+        self._mode = mode
+        self._title = title
+        self._server = _server
 
-    interaction: Interaction
-    """The interaction history of this session."""
+    @property
+    def id(self) -> SessionId:
+        return self._id
+
+    @property
+    def interaction(self) -> Interaction:
+        return self._interaction
+
+    @property
+    def metadata(self) -> SessionMetadata:
+        return self._metadata
+
+    @property
+    def labels(self) -> SessionLabels:
+        return self._labels
+
+    @property
+    def customer(self) -> Customer:
+        """The customer associated with this session."""
+        return self._customer
+
+    @property
+    def agent(self) -> Agent:
+        """The agent associated with this session."""
+        return self._agent
+
+    @property
+    def mode(self) -> SessionMode:
+        return self._mode
+
+    @property
+    def title(self) -> str | None:
+        return self._title
 
     @classproperty
     def current(cls) -> Session:
@@ -3044,7 +3620,56 @@ class Session:
         return Session(
             id=core_session.id,
             interaction=interaction,
+            metadata=core_session.metadata,
+            labels=core_session.labels,
+            customer=Customer.current,
+            agent=Agent.current,
+            mode=core_session.mode,
+            title=core_session.title,
         )
+
+    async def update(
+        self,
+        *,
+        customer: Customer | None = None,
+        agent: Agent | None = None,
+        mode: SessionMode | None = None,
+        title: str | None = None,
+    ) -> None:
+        """Updates the session's information.
+
+        Args:
+            customer: New customer for the session.
+            agent: New agent for the session.
+            mode: New session mode ("auto" or "manual").
+            title: New title for the session.
+        """
+        server = self._server if self._server is not None else Server.current
+        session_store = server._container[SessionStore]
+
+        params: _SessionUpdateParams = {}
+        if customer is not None:
+            params["customer_id"] = customer.id
+        if agent is not None:
+            params["agent_id"] = agent.id
+        if mode is not None:
+            params["mode"] = mode
+        if title is not None:
+            params["title"] = title
+
+        if params:
+            await session_store.update_session(
+                session_id=self._id,
+                params=params,
+            )
+
+        updated = await session_store.read_session(self._id)
+        self._mode = updated.mode
+        self._title = updated.title
+        if customer is not None:
+            self._customer = customer
+        if agent is not None:
+            self._agent = agent
 
 
 class ToolContextAccessor:
@@ -3083,6 +3708,31 @@ def _die(message: str, exc: Exception | None) -> NoReturn:
     sys.exit(1)
 
 
+def _die_nlp_config_error(error: NLPServiceConfigurationError) -> NoReturn:
+    console = Console(stderr=True)
+
+    header = Text()
+    header.append("🔧 ", style="bold")
+    header.append("NLP SERVICE CONFIGURATION ERROR", style="bold white")
+
+    content = Text(str(error), style="white")
+
+    panel = Panel(
+        content,
+        title=header,
+        title_align="left",
+        border_style="white",
+        box=rich.box.DOUBLE_EDGE,
+        padding=(1, 3),
+        width=100,
+    )
+
+    console.print()
+    console.print(panel)
+    console.print()
+    sys.exit(1)
+
+
 class Server:
     """The main server class that manages the agent, journeys, tools, and other components.
 
@@ -3113,7 +3763,7 @@ class Server:
         host: str = "0.0.0.0",
         port: int = 8800,
         tool_service_port: int = 8818,
-        nlp_service: Callable[[Container], NLPService] = NLPServices.openai,
+        nlp_service: Callable[[Container], NLPService] = NLPServices.emcie,
         session_store: Literal["transient", "local"] | str | SessionStore = "transient",
         customer_store: Literal["transient", "local"] | str | CustomerStore = "transient",
         variable_store: Literal["transient", "local"] | str | ContextVariableStore = "transient",
@@ -3179,6 +3829,11 @@ class Server:
         return self._container
 
     @property
+    def logger(self) -> Logger:
+        """Returns the logger instance from the container."""
+        return self._container[Logger]
+
+    @property
     def ready(self) -> asyncio.Event:
         """An asyncio event that is set when the server is ready to accept requests."""
         return self._ready_event
@@ -3207,6 +3862,9 @@ class Server:
         )
 
     async def __aenter__(self) -> Server:
+        # Set this server instance as the current server in the context
+        self._current_server_var.set(self)
+
         try:
             self._startup_context_manager = start_parlant(self._get_startup_params())
             self._container = await self._startup_context_manager.__aenter__()
@@ -3217,11 +3875,10 @@ class Server:
                 "Caching entity embeddings", total=None
             )
 
-            # Set this server instance as the current server in the context
-            self._current_server_var.set(self)
-
             return self
 
+        except NLPServiceConfigurationError as e:
+            _die_nlp_config_error(e)
         except SDKError as e:
             _die(str(e), e)
             raise
@@ -3238,6 +3895,11 @@ class Server:
         self._creation_progress.__exit__(None, None, None)
         self._creation_progress = None
 
+        if exc_value is not None:
+            await self._startup_context_manager.__aexit__(exc_type, exc_value, tb)
+            await self._exit_stack.aclose()
+            return False
+
         with self._container[Tracer].span(
             "startup.evaluations",
             attributes={"scope": "Evaluations"},
@@ -3249,13 +3911,17 @@ class Server:
         # Start health check polling to set ready event when the server is ready to receive requests
         health_check_task = asyncio.create_task(self._poll_health_endpoint())
 
-        # This actually starts the server
-        await self._startup_context_manager.__aexit__(exc_type, exc_value, tb)
+        try:
+            # This actually starts the server
+            await self._startup_context_manager.__aexit__(None, None, None)
+        except BaseException:
+            health_check_task.cancel()
+            raise
+        finally:
+            # Wait for health check to complete before cleanup
+            await health_check_task
+            await self._exit_stack.aclose()
 
-        # Wait for health check to complete before cleanup
-        await health_check_task
-
-        await self._exit_stack.aclose()
         return False
 
     # Start background task to poll health endpoint and set ready event
@@ -3321,7 +3987,7 @@ class Server:
 
     async def _create_guideline(
         self,
-        condition: str,
+        condition: str | None,
         action: str | None,
         description: str | None,
         tools: Iterable[ToolEntry],
@@ -3337,8 +4003,16 @@ class Server:
         tags: Sequence[TagId] | None,
         relationship_target_tag_id: TagId | None,
         id: GuidelineId | None = None,
+        track: bool = True,
+        labels: Iterable[str] = (),
+        priority: int = 0,
     ) -> Guideline:
         """Internal method to create a guideline with common logic."""
+        if condition is None and matcher is None and action is None:
+            raise SDKError(
+                "Either condition, matcher, or action must be specified to create a guideline."
+            )
+
         self._advance_creation_progress()
 
         tool_ids = [
@@ -3349,7 +4023,7 @@ class Server:
             await self._plugin_server.enable_tool(t)
 
         guideline = await self.container[GuidelineStore].create_guideline(
-            condition=condition,
+            condition=condition or "",
             action=action,
             description=description,
             criticality=criticality,
@@ -3357,6 +4031,9 @@ class Server:
             composition_mode=CompositionMode._to_core_composition_mode(composition_mode),
             id=id,
             tags=tags,
+            track=track,
+            labels=set(labels) if labels else None,
+            priority=priority,
         )
 
         if canned_responses:
@@ -3372,7 +4049,7 @@ class Server:
         if matcher is None:
             self._add_guideline_evaluation(
                 guideline.id,
-                GuidelineContent(condition=condition, action=action),
+                GuidelineContent(condition=condition or "", action=action),
                 tool_ids,
             )
 
@@ -3398,10 +4075,12 @@ class Server:
 
         result_guideline = Guideline(
             id=guideline.id,
-            condition=condition,
+            condition=condition or "",
             action=action,
             tags=guideline.tags,
             metadata=guideline.metadata,
+            labels=guideline.labels,
+            priority=guideline.priority,
             _server=self,
             _container=self.container,
         )
@@ -3477,6 +4156,100 @@ class Server:
         journey = await self._container[JourneyStore].read_journey(journey_id)
 
         return f"Journey: {journey.title}"
+
+    def _attach_conditional_retriever(
+        self,
+        retriever_id: str,
+        retriever: Callable[[RetrieverContext], Awaitable[RetrieverResult | None]],
+        should_run: Callable[[EngineContext], bool],
+    ) -> None:
+        """Register a retriever that fires only when the condition is met.
+
+        Args:
+            retriever_id: Unique identifier for this retriever.
+            retriever: The retriever function to call.
+            should_run: A function that takes EngineContext and returns True if the retriever should run.
+        """
+
+        async def on_generating_messages(
+            ctx: EngineContext,
+            payload: Any,
+            exc: Optional[Exception],
+        ) -> EngineHookResult:
+            if not should_run(ctx):
+                return EngineHookResult.CALL_NEXT
+
+            # Build RetrieverContext
+            agent = await self.get_agent(id=ctx.agent.id)
+            customer = await self.get_customer(id=ctx.customer.id)
+
+            retriever_context = RetrieverContext(
+                server=self,
+                container=self._container,
+                logger=self._container[Logger],
+                tracer=ctx.tracer,
+                session=Session(
+                    id=ctx.session.id,
+                    interaction=ctx.interaction,
+                    metadata=ctx.session.metadata,
+                    labels=ctx.session.labels,
+                    customer=customer,
+                    agent=agent,
+                    mode=ctx.session.mode,
+                    title=ctx.session.title,
+                ),
+                agent=agent,
+                customer=customer,
+                variables={
+                    await agent.get_variable(id=var.id): val.data
+                    for var, val in ctx.state.context_variables
+                },
+                interaction=ctx.interaction,
+            )
+
+            # Call retriever
+            result = await retriever(retriever_context)
+
+            if result is None:
+                return EngineHookResult.CALL_NEXT
+
+            if not (
+                result.data
+                or result.metadata
+                or result.canned_responses
+                or result.canned_response_fields
+            ):
+                # No need to emit tool event if nothing was retrieved.
+                return EngineHookResult.CALL_NEXT
+
+            # Emit tool event with retriever data
+            ctx.state.tool_events.append(
+                await ctx.response_event_emitter.emit_tool_event(
+                    ctx.tracer.trace_id,
+                    ToolEventData(
+                        tool_calls=[
+                            _SessionToolCall(
+                                tool_id=ToolId(
+                                    service_name=INTEGRATED_TOOL_SERVICE_NAME,
+                                    tool_name=retriever_id,
+                                ).to_string(),
+                                arguments={},
+                                result=_SessionToolResult(
+                                    data=result.data,
+                                    metadata=result.metadata,
+                                    control={"lifespan": "response"},
+                                    canned_responses=[u for u in result.canned_responses],
+                                    canned_response_fields=result.canned_response_fields,
+                                ),
+                            )
+                        ]
+                    ),
+                )
+            )
+
+            return EngineHookResult.CALL_NEXT
+
+        self._container[EngineHooks].on_generating_messages.append(on_generating_messages)
 
     async def _process_evaluations(self) -> None:
         _render_functions: dict[
@@ -3703,6 +4476,12 @@ class Server:
                         session=Session(
                             id=ctx.session.id,
                             interaction=ctx.interaction,
+                            metadata=ctx.session.metadata,
+                            labels=ctx.session.labels,
+                            customer=customer,
+                            agent=agent,
+                            mode=ctx.session.mode,
+                            title=ctx.session.title,
                         ),
                         agent=agent,
                         customer=customer,
@@ -3815,10 +4594,12 @@ class Server:
         name: str,
         description: str,
         composition_mode: CompositionMode = CompositionMode.FLUID,
+        output_mode: OutputMode = OutputMode.BLOCK,
         max_engine_iterations: int | None = None,
         tags: Sequence[TagId] = [],
         id: str | None = None,
         perceived_performance_policy: PerceivedPerformancePolicy | None = None,
+        preamble_config: PreambleConfiguration | None = None,
     ) -> Agent:
         """Creates a new agent with the specified name, description, and composition mode.
 
@@ -3827,9 +4608,11 @@ class Server:
             description: A description of the agent's purpose and capabilities (required).
             composition_mode: How the agent composes responses. Defaults to FLUID.
                 - FLUID: Dynamic response composition
-                - CANNED_FLUID: Mix of canned and dynamic responses
-                - CANNED_COMPOSITED: Composed from canned responses
-                - CANNED_STRICT: Strictly uses canned responses
+                - COMPOSITED: Composed from canned responses
+                - STRICT: Strictly uses canned responses
+            output_mode: How the agent delivers responses. Defaults to BLOCK.
+                - BLOCK: Complete response delivered after generation finishes
+                - STREAM: Response streamed progressively as generated
             max_engine_iterations: Maximum number of engine iterations per turn.
                 Defaults to 3 if not specified.
             tags: List of tag IDs to associate with the agent. Defaults to empty list.
@@ -3839,10 +4622,17 @@ class Server:
                 agent identifiers across deployments or integrations.
             perceived_performance_policy: Optional perceived performance policy for this agent.
                 If not specified, the agent will use the default policy (BasicPerceivedPerformancePolicy).
+            preamble_config: Optional preamble configuration for this agent.
+                Allows customizing the preamble examples and adding additional instructions.
 
         Returns:
             The created Agent instance.
         """
+
+        if output_mode == OutputMode.STREAM and composition_mode != CompositionMode.FLUID:
+            raise SDKError(
+                "Streaming output mode is only supported with a fluid base composition mode."
+            )
 
         self._advance_creation_progress()
 
@@ -3851,6 +4641,7 @@ class Server:
             description=description,
             max_engine_iterations=max_engine_iterations or 3,
             composition_mode=composition_mode.value,
+            message_output_mode=output_mode,
             id=AgentId(id) if id is not None else None,
         )
 
@@ -3859,12 +4650,16 @@ class Server:
                 agent.id, perceived_performance_policy
             )
 
+        if preamble_config is not None:
+            self._container[CannedResponseGenerator].set_preamble_config(agent.id, preamble_config)
+
         return Agent(
             id=agent.id,
             name=agent.name,
             description=agent.description,
             max_engine_iterations=agent.max_engine_iterations,
             composition_mode=CompositionMode(agent.composition_mode),
+            output_mode=agent.message_output_mode or OutputMode.BLOCK,
             tags=tags,
             _server=self,
             _container=self._container,
@@ -3882,6 +4677,7 @@ class Server:
                 description=a.description,
                 max_engine_iterations=a.max_engine_iterations,
                 composition_mode=CompositionMode(a.composition_mode),
+                output_mode=a.message_output_mode or OutputMode.BLOCK,
                 tags=a.tags,
                 _server=self,
                 _container=self._container,
@@ -3901,6 +4697,7 @@ class Server:
                 description=agent.description,
                 max_engine_iterations=agent.max_engine_iterations,
                 composition_mode=CompositionMode(agent.composition_mode),
+                output_mode=agent.message_output_mode or OutputMode.BLOCK,
                 tags=agent.tags,
                 _server=self,
                 _container=self._container,
@@ -3958,6 +4755,7 @@ class Server:
             name=customer.name,
             metadata=customer.extra,
             tags=customer.tags,
+            _server=self,
         )
 
     async def list_customers(self) -> Sequence[Customer]:
@@ -4029,6 +4827,10 @@ class Server:
         tags: Sequence[TagId] = [],
         id: JourneyId | None = None,
         composition_mode: CompositionMode | None = None,
+        on_match: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
+        on_message: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
+        labels: Iterable[str] = (),
+        priority: int = 0,
     ) -> Journey:
         """Creates a new journey with the specified title, description, and conditions."""
 
@@ -4068,6 +4870,8 @@ class Server:
             tags=[],
             id=id,
             composition_mode=CompositionMode._to_core_composition_mode(composition_mode),
+            labels=set(labels) if labels else None,
+            priority=priority,
         )
 
         journey = Journey(
@@ -4081,6 +4885,8 @@ class Server:
             composition_mode=CompositionMode._from_core_composition_mode(
                 stored_journey.composition_mode
             ),
+            labels=stored_journey.labels,
+            priority=stored_journey.priority,
             _start_state_id=stored_journey.root_id,
             _server=self,
             _container=self._container,
@@ -4107,6 +4913,23 @@ class Server:
 
         self._add_journey_evaluation(journey)
 
+        # Register journey-level on_match and on_message handlers
+        if on_match:
+            engine_hooks = self._container[EngineHooks]
+
+            async def on_match_shim(ctx: EngineContext) -> None:
+                await on_match(ctx, JourneyMatch(journey_id=journey.id))
+
+            engine_hooks.on_journey_match_handlers[journey.id].append(on_match_shim)
+
+        if on_message:
+            engine_hooks = self._container[EngineHooks]
+
+            async def on_message_shim(ctx: EngineContext) -> None:
+                await on_message(ctx, JourneyMatch(journey_id=journey.id))
+
+            engine_hooks.on_journey_message_handlers[journey.id].append(on_message_shim)
+
         return journey
 
     async def create_canned_response(
@@ -4115,6 +4938,7 @@ class Server:
         tags: list[TagId] = [],
         signals: list[str] = [],
         metadata: Mapping[str, JSONSerializable] = {},
+        field_dependencies: Sequence[str] = (),
     ) -> CannedResponseId:
         """Creates a canned response with the specified template, tags, and signals."""
 
@@ -4126,6 +4950,7 @@ class Server:
             fields=[],
             signals=signals,
             metadata=metadata,
+            field_dependencies=field_dependencies,
         )
 
         return canrep.id
@@ -4256,6 +5081,11 @@ class Server:
                     id_generator=c()[IdGenerator],
                 )
 
+            c()[EventEmitterFactory] = EventPublisherFactory(
+                agent_store=c()[AgentStore],
+                session_store=c()[SessionStore],
+            )
+
             c()[ServiceRegistry] = await self._exit_stack.enter_async_context(
                 ServiceDocumentRegistry(
                     database=TransientDocumentDatabase(),
@@ -4326,6 +5156,9 @@ class Server:
                     "server": self,
                     "container": c,
                 },
+                context_vars={
+                    self._current_server_var: self,
+                },
             )
 
             await c[ServiceRegistry].update_tool_service(
@@ -4357,6 +5190,9 @@ class Server:
             configure=configure,
             initialize=initialize,
             configure_api=self._configure_api,
+            contextvar_propagation={
+                self._current_server_var: self,
+            },
         )
 
     @classproperty
@@ -4394,6 +5230,7 @@ __all__ = [
     "ControlOptions",
     "Criticality",
     "Customer",
+    "CustomerMetadata",
     "CustomerId",
     "CustomerModerationContext",
     "CustomerStore",
@@ -4411,6 +5248,7 @@ __all__ = [
     "EngineHookResult",
     "EngineHooks",
     "EstimatingTokenizer",
+    "Event",
     "EventKind",
     "EventSource",
     "FallbackSchematicGenerator",
@@ -4431,6 +5269,7 @@ __all__ = [
     "LoadedContext",
     "LogLevel",
     "Logger",
+    "MATCH_ALWAYS",
     "MessageEventData",
     "ModelGeneration",
     "ModelSize",
@@ -4444,10 +5283,12 @@ __all__ = [
     "NoModeration",
     "NullPerceivedPerformancePolicy",
     "Operation",
+    "OutputMode",
     "OptimizationPolicy",
     "PerceivedPerformancePolicy",
     "PerceivedPerformancePolicyProvider",
     "PluginServer",
+    "PreambleConfiguration",
     "ProductionAuthorizationPolicy",
     "PromptBuilder",
     "PromptSection",
@@ -4468,6 +5309,8 @@ __all__ = [
     "ServiceRegistry",
     "Session",
     "SessionId",
+    "SessionLabels",
+    "SessionMetadata",
     "SessionMode",
     "SessionStatus",
     "SessionStore",
@@ -4482,6 +5325,7 @@ __all__ = [
     "ToolContextAccessor",
     "ToolEntry",
     "ToolEventData",
+    "TransientGuideline",
     "ToolId",
     "ToolParameterDescriptor",
     "ToolParameterOptions",

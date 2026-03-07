@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Sequence, Set
 
 from parlant.core.agents import CompositionMode
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
@@ -34,6 +34,18 @@ class JourneyTagUpdateParams:
     remove: Sequence[TagId] | None = None
 
 
+@dataclass(frozen=True)
+class JourneyLabelsUpdateParams:
+    upsert: Set[str] | None = None
+    remove: Set[str] | None = None
+
+
+@dataclass(frozen=True)
+class JourneyNodeLabelsUpdateParams:
+    upsert: Set[str] | None = None
+    remove: Set[str] | None = None
+
+
 class JourneyModule:
     def __init__(
         self,
@@ -53,6 +65,8 @@ class JourneyModule:
         tags: Sequence[TagId] | None,
         id: JourneyId | None = None,
         composition_mode: CompositionMode | None = None,
+        labels: Set[str] | None = None,
+        priority: int = 0,
     ) -> tuple[Journey, Sequence[Guideline]]:
         guidelines = [
             await self._guideline_store.create_guideline(
@@ -70,6 +84,8 @@ class JourneyModule:
             tags=tags,
             id=id,
             composition_mode=composition_mode,
+            labels=labels,
+            priority=priority,
         )
 
         for guideline in guidelines:
@@ -105,6 +121,8 @@ class JourneyModule:
         conditions: JourneyConditionUpdateParams | None,
         tags: JourneyTagUpdateParams | None,
         composition_mode: CompositionMode | None = None,
+        labels: JourneyLabelsUpdateParams | None = None,
+        priority: int | None = None,
     ) -> Journey:
         journey = await self._journey_store.read_journey(journey_id=journey_id)
 
@@ -115,6 +133,8 @@ class JourneyModule:
             update_params["description"] = description
         if composition_mode is not None:
             update_params["composition_mode"] = composition_mode
+        if priority is not None:
+            update_params["priority"] = priority
 
         if update_params:
             journey = await self._journey_store.update_journey(
@@ -162,6 +182,19 @@ class JourneyModule:
             if tags.remove:
                 for tag in tags.remove:
                     await self._journey_store.remove_tag(journey_id=journey_id, tag_id=tag)
+
+        if labels:
+            if labels.upsert:
+                await self._journey_store.upsert_journey_labels(
+                    journey_id=journey_id,
+                    labels=labels.upsert,
+                )
+
+            if labels.remove:
+                await self._journey_store.remove_journey_labels(
+                    journey_id=journey_id,
+                    labels=labels.remove,
+                )
 
         journey = await self._journey_store.read_journey(journey_id=journey_id)
 

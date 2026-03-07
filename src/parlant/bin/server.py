@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,7 +16,8 @@
 
 import asyncio
 from contextlib import asynccontextmanager, AsyncExitStack
-from dataclasses import dataclass
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 import importlib
 import inspect
 import os
@@ -30,6 +31,7 @@ from typing import (
     Callable,
     Iterable,
     Literal,
+    Mapping,
     Optional,
     Sequence,
     cast,
@@ -62,6 +64,10 @@ from parlant.core.engines.alpha.guideline_matching.generic import (
 )
 from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch import (
     DisambiguationGuidelineMatchesSchema,
+)
+from parlant.core.engines.alpha.guideline_matching.generic.guideline_low_criticality_batch import (
+    GenericLowCriticalityGuidelineMatchesSchema,
+    GenericLowCriticalityGuidelineMatching,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
     JourneyBacktrackCheckSchema,
@@ -116,7 +122,7 @@ from parlant.core.engines.alpha.perceived_performance_policy import (
     PerceivedPerformancePolicy,
     PerceivedPerformancePolicyProvider,
 )
-from parlant.core.engines.alpha.relational_guideline_resolver import RelationalGuidelineResolver
+from parlant.core.engines.alpha.relational_resolver import RelationalResolver
 from parlant.core.engines.alpha.tool_calling.overlapping_tools_batch import (
     OverlappingToolsBatchSchema,
 )
@@ -196,7 +202,7 @@ from parlant.core.nlp.embedding import (
     EmbeddingCache,
     NullEmbeddingCache,
 )
-from parlant.core.nlp.generation import SchematicGenerator
+from parlant.core.nlp.generation import SchematicGenerator, StreamingTextGenerator
 from parlant.core.persistence.data_collection import DataCollectingSchematicGenerator
 from parlant.core.services.tools.service_registry import (
     ServiceRegistry,
@@ -289,6 +295,7 @@ class StartupParameters:
     configure: Callable[[Container], Awaitable[Container]] | None = None
     initialize: Callable[[Container], Awaitable[None]] | None = None
     configure_api: Callable[[FastAPI], Awaitable[None]] | None = None
+    contextvar_propagation: Mapping[ContextVar[Any], Any] = field(default_factory=dict)
 
 
 def load_nlp_service(
@@ -385,13 +392,24 @@ def load_together(container: Container) -> NLPService:
 
 
 def load_litellm(container: Container) -> NLPService:
-    return load_nlp_service(
+    from parlant.adapters.nlp.litellm_service import LiteLLMService
+
+    service = load_nlp_service(
         container,
         "LiteLLM",
         "litellm",
         "LiteLLMService",
         "parlant.adapters.nlp.litellm_service",
     )
+
+    # LiteLLMEmbedder takes a model_name: str parameter that lagom cannot
+    # auto-resolve. We pre-register the embedder instance in the container
+    # so that EmbedderFactory.create_embedder() can resolve it.
+    assert isinstance(service, LiteLLMService)
+    embedder = service.create_embedder()
+    container[type(embedder)] = embedder
+
+    return service
 
 
 NLP_SERVICE_INITIALIZERS: dict[NLPServiceName, Callable[[Container], NLPService]] = {
@@ -606,6 +624,10 @@ async def setup_container() -> AsyncIterator[Container]:
     )
     _define_singleton(c, GenericActionableGuidelineMatching, GenericActionableGuidelineMatching)
     _define_singleton(
+        c, GenericLowCriticalityGuidelineMatching, GenericLowCriticalityGuidelineMatching
+    )
+
+    _define_singleton(
         c,
         GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatching,
         GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatching,
@@ -620,7 +642,7 @@ async def setup_container() -> AsyncIterator[Container]:
     _define_singleton(c, ToolCallBatcher, DefaultToolCallBatcher)
     _define_singleton(c, ToolCaller, ToolCaller)
 
-    _define_singleton(c, RelationalGuidelineResolver, RelationalGuidelineResolver)
+    _define_singleton(c, RelationalResolver, RelationalResolver)
 
     _define_singleton(
         c,
@@ -841,6 +863,7 @@ async def initialize_container(
         GenericResponseAnalysisSchema,
         GenericPreviouslyAppliedActionableGuidelineMatchesSchema,
         GenericActionableGuidelineMatchesSchema,
+        GenericLowCriticalityGuidelineMatchesSchema,
         GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchesSchema,
         GenericObservationalGuidelineMatchesSchema,
         MessageSchema,
@@ -877,6 +900,11 @@ async def initialize_container(
             SchematicGenerator[schema],  # type: ignore
             generator,
         )
+
+    # Bind the streaming text generator if available
+    if nlp_service_instance.supports_streaming:
+        streaming_generator = await nlp_service_instance.get_streaming_text_generator()
+        try_define(StreamingTextGenerator, streaming_generator)
 
 
 async def recover_server_tasks(
@@ -954,7 +982,14 @@ async def load_app(params: StartupParameters) -> AsyncIterator[tuple[ASGIApplica
 
         _print_startup_banner()
 
-        yield await create_api_app(actual_container, params.configure_api), actual_container
+        yield (
+            await create_api_app(
+                actual_container,
+                params.configure_api,
+                params.contextvar_propagation,
+            ),
+            actual_container,
+        )
 
 
 def _print_startup_banner() -> None:
@@ -998,6 +1033,7 @@ async def serve_app(
         port=port,
         log_level="critical",
         timeout_graceful_shutdown=1,
+        ws="wsproto",
     )
     server = uvicorn.Server(config)
     host_txt = "localhost" if host in ["127.0.0.1", "0.0.0.0"] else host
@@ -1175,8 +1211,10 @@ def main() -> None:
         help="""Run with LiteLLM. The following environment variables must be set:
                 LITELLM_PROVIDER_MODEL_NAME, LITELLM_PROVIDER_API_KEY.
 
-                Optionally, you may also set a proxy URL using the environment
-                variable LITELLM_PROVIDER_BASE_URL.
+                Optional environment variables:
+                - LITELLM_PROVIDER_BASE_URL: Proxy URL for self-hosted LLMs
+                - LITELLM_EMBEDDING_MODEL_NAME: Embedding model (e.g., text-embedding-3-small).
+                  If not set, falls back to local JinaAI embeddings.
 
                 Check this link https://docs.litellm.ai/docs/providers for additional
                 environment variables required for your provider. Be sure to set them
@@ -1290,7 +1328,7 @@ def main() -> None:
             require_env_keys(["TOGETHER_API_KEY"])
         elif litellm:
             nlp_service = "litellm"
-            require_env_keys(["LITELLM_PROVIDER_MODEL_NAME", "LITELLM_PROVIDER_API_KEY"])
+            require_env_keys(["LITELLM_PROVIDER_MODEL_NAME"])
         else:
             assert False, "Should never get here"
 

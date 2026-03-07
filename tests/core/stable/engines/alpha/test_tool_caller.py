@@ -1,4 +1,4 @@
-# Copyright 2025 Emcie Co Ltd.
+# Copyright 2026 Emcie Co Ltd.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -323,7 +323,7 @@ async def test_that_a_plugin_tool_is_called_with_required_parameters_with_defaul
         return ToolResult(f"Scheduled {type_display} appointment in {room.value} at {when}")
 
     conversation_context = [
-        (EventSource.CUSTOMER, "I want to set up an appointment tomorrow at 10am"),
+        (EventSource.CUSTOMER, "I want to set up an appointment tomorrow (10.26.23) at 10am"),
     ]
 
     interaction_history = create_interaction_history(conversation_context)
@@ -1502,9 +1502,9 @@ async def test_that_non_consequential_tool_with_parameters_uses_simplified_mode(
     city_value = str(tool_call.arguments["city"])
     assert city_value.lower() == "paris"
 
-    # Verify simplified mode was used (schema name should be SimpleToolBatchSchema)
+    # Verify simplified mode was used (schema name should be NonConsequentialToolBatchSchema)
     assert len(inference_tool_calls_result.batch_generations) == 1
-    assert "Simple" in inference_tool_calls_result.batch_generations[0].schema_name
+    assert "NonConsequential" in inference_tool_calls_result.batch_generations[0].schema_name
 
 
 async def test_that_consequential_tool_with_parameters_uses_full_mode(

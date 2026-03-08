@@ -308,6 +308,18 @@ class CapabilityVectorStore(CapabilityStore):
 
         return doc
 
+    async def _delete_capability_vectors(self, capability_id: CapabilityId) -> None:
+        vector_docs = await self._vector_collection.find(
+            filters={"capability_id": {"$eq": capability_id}}
+        )
+
+        await async_utils.safe_gather(
+            *[
+                self._vector_collection.delete_one(filters={"id": {"$eq": doc["id"]}})
+                for doc in vector_docs
+            ]
+        )
+
     @override
     async def create_capability(
         self,
@@ -366,6 +378,7 @@ class CapabilityVectorStore(CapabilityStore):
 
             for doc in all_docs:
                 await self._collection.delete_one(filters={"id": {"$eq": doc["id"]}})
+            await self._delete_capability_vectors(capability_id)
 
             title = params.get("title", doc["title"])
             description = params.get("description", doc["description"])
@@ -461,6 +474,7 @@ class CapabilityVectorStore(CapabilityStore):
 
             for doc in docs:
                 await self._collection.delete_one(filters={"id": {"$eq": doc["id"]}})
+            await self._delete_capability_vectors(capability_id)
 
             for tag_assoc in tag_associations:
                 await self._tag_association_collection.delete_one(

@@ -182,7 +182,7 @@ class MongoDocumentCollection(DocumentCollection[TDocument]):
                     {
                         "$and": [
                             {"creation_utc": cursor.creation_utc},
-                            {"_id": {"$lt": cursor.id}},
+                            {"id": {"$lt": cursor.id}},
                         ]
                     },
                 ]
@@ -192,15 +192,15 @@ class MongoDocumentCollection(DocumentCollection[TDocument]):
                     {
                         "$and": [
                             {"creation_utc": cursor.creation_utc},
-                            {"_id": {"$gt": cursor.id}},
+                            {"id": {"$gt": cursor.id}},
                         ]
                     },
                 ]
             query["$or"] = cursor_conditions
 
-        # Sort by creation_utc with _id as tiebreaker according to sort_direction
+        # Sort by creation_utc with id as tiebreaker according to sort_direction
         sort_order = -1 if sort_direction == SortDirection.DESC else 1
-        sort_spec = [("creation_utc", sort_order), ("_id", sort_order)]
+        sort_spec = [("creation_utc", sort_order), ("id", sort_order)]
 
         # Get one extra document to check if there are more
         query_limit = (limit + 1) if limit else None
@@ -225,7 +225,7 @@ class MongoDocumentCollection(DocumentCollection[TDocument]):
                 last_item = items[-1]
                 next_cursor = Cursor(
                     creation_utc=str(last_item.get("creation_utc", "")),
-                    id=ObjectId(str(last_item.get("_id", last_item.get("id", "")))),
+                    id=ObjectId(str(last_item.get("id", ""))),
                 )
 
         return FindResult(

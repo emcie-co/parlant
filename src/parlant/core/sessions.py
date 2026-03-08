@@ -920,14 +920,14 @@ class SessionDocumentStore(SessionStore):
                         fields=(
                             ("agent_id", SortDirection.ASC),
                             ("creation_utc", SortDirection.ASC),
-                            ("_id", SortDirection.ASC),
+                            ("id", SortDirection.ASC),
                         )
                     ),
                     CollectionIndex(
                         fields=(
                             ("customer_id", SortDirection.ASC),
                             ("creation_utc", SortDirection.ASC),
-                            ("_id", SortDirection.ASC),
+                            ("id", SortDirection.ASC),
                         )
                     ),
                 ]
@@ -1316,10 +1316,7 @@ class SessionDocumentStore(SessionStore):
             creation_utc = creation_utc or datetime.now(timezone.utc)
             latest_event = await self._event_collection.find_one(
                 filters={"session_id": {"$eq": session_id}},
-                sort=(
-                    ("offset", SortDirection.DESC),
-                    ("id", SortDirection.DESC),
-                ),
+                sort=(("offset", SortDirection.DESC),),
             )
             offset = latest_event["offset"] + 1 if latest_event else 0
 

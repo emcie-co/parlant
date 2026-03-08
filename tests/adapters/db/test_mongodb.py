@@ -975,6 +975,64 @@ async def test_that_cursor_pagination_works_with_descending_sort(
         assert third_page.next_cursor is None
 
 
+async def test_that_cursor_pagination_uses_document_id_as_tiebreaker(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        collection = await dummy_db.get_or_create_collection(
+            name="test_collection",
+            schema=MongoTestDocument,
+            document_loader=identity_loader_for(MongoTestDocument),
+        )
+
+        creation_utc = "2023-01-01T10:00:00Z"
+        docs = [
+            MongoTestDocument(
+                id=ObjectId("doc3"),
+                creation_utc=creation_utc,
+                version=Version.String("1.0.0"),
+                name="third",
+            ),
+            MongoTestDocument(
+                id=ObjectId("doc1"),
+                creation_utc=creation_utc,
+                version=Version.String("1.0.0"),
+                name="first",
+            ),
+            MongoTestDocument(
+                id=ObjectId("doc2"),
+                creation_utc=creation_utc,
+                version=Version.String("1.0.0"),
+                name="second",
+            ),
+        ]
+
+        for doc in docs:
+            await collection.insert_one(doc)
+
+        first_page = await collection.find({}, limit=1, sort_direction=SortDirection.ASC)
+
+        assert len(first_page.items) == 1
+        assert first_page.items[0]["id"] == ObjectId("doc1")
+        assert first_page.next_cursor == Cursor(creation_utc=creation_utc, id=ObjectId("doc1"))
+
+        second_page = await collection.find(
+            {},
+            limit=1,
+            cursor=first_page.next_cursor,
+            sort_direction=SortDirection.ASC,
+        )
+
+        assert len(second_page.items) == 1
+        assert second_page.items[0]["id"] == ObjectId("doc2")
+
+
 async def test_that_default_sort_direction_is_ascending(
     container: Container,
     test_mongo_client: AsyncMongoClient[Any],
@@ -1186,12 +1244,12 @@ async def test_that_session_store_creates_indexes_for_session_hot_paths(
             assert (
                 ("agent_id", 1),
                 ("creation_utc", 1),
-                ("_id", 1),
+                ("id", 1),
             ) in session_index_keys
             assert (
                 ("customer_id", 1),
                 ("creation_utc", 1),
-                ("_id", 1),
+                ("id", 1),
             ) in session_index_keys
 
             assert (("creation_utc", 1),) in event_index_keys

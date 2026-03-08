@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from __future__ import annotations
-from typing import Awaitable, Callable, Optional, Sequence, cast
+from typing import Any, Awaitable, Callable, Optional, Sequence, cast
 from typing_extensions import override
 from typing_extensions import get_type_hints
 
@@ -185,7 +185,7 @@ class TransientDocumentCollection(DocumentCollection[TDocument]):
 
         for field_name, direction in reversed(sort):
             docs.sort(
-                key=lambda d: d.get(field_name),
+                key=lambda d: cast(Any, d.get(field_name)),
                 reverse=direction == SortDirection.DESC,
             )
 

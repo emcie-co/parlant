@@ -469,7 +469,7 @@ class SnowflakeDocumentCollection(DocumentCollection[TDocument]):
 
         for field_name, direction in reversed(sort):
             docs.sort(
-                key=lambda d: d.get(field_name),
+                key=lambda d: cast(Any, d.get(field_name)),
                 reverse=direction == SortDirection.DESC,
             )
 

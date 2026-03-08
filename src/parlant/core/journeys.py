@@ -845,6 +845,30 @@ class JourneyVectorStore(JourneyStore):
         # including how many vectors to generate and what content each vector should contain.
         return f"{title}\n{description}\nNodes: {', '.join(n.action for n in nodes if n.action)}\nEdges: {', '.join(e.condition for e in edges if e.condition)}"
 
+    async def _refresh_journey_vector(self, journey_id: JourneyId) -> None:
+        journey_doc = await self._collection.find_one({"id": {"$eq": journey_id}})
+
+        if not journey_doc:
+            raise ItemNotFoundError(item_id=UniqueId(journey_id))
+
+        node_docs = await self._node_association_collection.find({"journey_id": {"$eq": journey_id}})
+        edge_docs = await self._edge_association_collection.find({"journey_id": {"$eq": journey_id}})
+
+        content = self.assemble_content(
+            title=journey_doc["title"],
+            description=journey_doc["description"],
+            nodes=[self._deserialize_node(doc) for doc in node_docs],
+            edges=[self._deserialize_edge(doc) for doc in edge_docs],
+        )
+
+        await self._vector_collection.update_one(
+            filters={"journey_id": {"$eq": journey_id}},
+            params={
+                "content": content,
+                "checksum": md5_checksum(content),
+            },
+        )
+
     @override
     async def create_journey(
         self,
@@ -1274,6 +1298,7 @@ class JourneyVectorStore(JourneyStore):
             await self._node_association_collection.insert_one(
                 document=self._serialize_node(node, journey_id)
             )
+            await self._refresh_journey_vector(journey_id)
 
         return node
 
@@ -1321,6 +1346,7 @@ class JourneyVectorStore(JourneyStore):
                 filters={"node_id": {"$eq": node_id}},
                 params=cast(JourneyNodeAssociationDocument, to_json_dict(updated)),
             )
+            await self._refresh_journey_vector(doc["journey_id"])
 
         assert result.updated_document
 
@@ -1347,6 +1373,7 @@ class JourneyVectorStore(JourneyStore):
             result = await self._node_association_collection.delete_one(
                 filters={"node_id": {"$eq": node_id}}
             )
+            await self._refresh_journey_vector(node_doc["journey_id"])
 
         if result.deleted_count == 0:
             raise ItemNotFoundError(item_id=UniqueId(node_id))
@@ -1451,6 +1478,7 @@ class JourneyVectorStore(JourneyStore):
             await self._edge_association_collection.insert_one(
                 document=self._serialize_edge(edge, journey_id)
             )
+            await self._refresh_journey_vector(journey_id)
 
         return edge
 
@@ -1485,6 +1513,7 @@ class JourneyVectorStore(JourneyStore):
                 filters={"id": {"$eq": edge_id}},
                 params=cast(JourneyEdgeAssociationDocument, to_json_dict(updated)),
             )
+            await self._refresh_journey_vector(doc["journey_id"])
 
         assert result.updated_document
 
@@ -1523,9 +1552,15 @@ class JourneyVectorStore(JourneyStore):
         edge_id: JourneyEdgeId,
     ) -> None:
         async with self._lock.writer_lock:
+            edge_doc = await self._edge_association_collection.find_one({"id": {"$eq": edge_id}})
+
+            if not edge_doc:
+                raise ItemNotFoundError(item_id=UniqueId(edge_id))
+
             result = await self._edge_association_collection.delete_one(
                 filters={"id": {"$eq": edge_id}}
             )
+            await self._refresh_journey_vector(edge_doc["journey_id"])
 
         if result.deleted_count == 0:
             raise ItemNotFoundError(item_id=UniqueId(edge_id))

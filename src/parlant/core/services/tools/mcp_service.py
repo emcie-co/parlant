@@ -154,6 +154,7 @@ class MCPToolClient(ToolService):
         else:
             self.url = url
             self.port = port
+        self.endpoint_url = f"{self.url}:{self.port}"
 
     async def __aenter__(self) -> MCPToolClient:
         try:
@@ -264,11 +265,11 @@ def mcp_parameter_to_parlant_parameter(
         """ Union of types - currently only optional is supported"""
         mcp_param = resolve_optional(mcp_param["anyOf"])
 
-    param_type = mcp_param.get("type", None)
-    param_format = mcp_param.get("format", None)
+    param_type: str | None = mcp_param.get("type", None)
+    param_format: str | None = mcp_param.get("format", None)
     description = mcp_param.get("title") or mcp_param.get("description")
 
-    if (param_type, param_format) in mcp_parameter_type_map:
+    if param_type is not None and (param_type, param_format) in mcp_parameter_type_map:
         """ basic types + easily serializable types """
         return ToolParameterDescriptor(
             type=mcp_parameter_type_map[(param_type, param_format)], description=description

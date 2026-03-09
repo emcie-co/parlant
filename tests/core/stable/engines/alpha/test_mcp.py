@@ -18,6 +18,7 @@ import uuid
 from pathlib import Path
 from typing import Any, cast
 
+from parlant.adapters.db.json_file import JSONFileDocumentDatabase
 from mcp.types import CallToolResult, TextContent, Tool as McpTool
 from parlant.core.services.tools.mcp_service import (
     MCPToolServer,
@@ -31,9 +32,10 @@ from parlant.core.emissions import EventEmitterFactory
 from parlant.core.tracer import LocalTracer
 from parlant.core.loggers import StdoutLogger
 from parlant.core.tools import Tool, ToolOverlap
+from parlant.core.loggers import Logger
 from parlant.sdk import ToolContext
 from tests.test_utilities import SERVER_BASE_URL, get_random_port
-from parlant.core.services.tools.service_registry import ServiceRegistry
+from parlant.core.services.tools.service_registry import ServiceRegistry, ServiceDocumentRegistry
 
 
 def create_client(
@@ -377,7 +379,8 @@ async def test_that_updating_an_mcp_service_closes_the_previous_client_connectio
             url=f"{SERVER_BASE_URL}:{first_server.get_port()}",
         )
 
-        assert cast(MCPToolClient, first_service)._client.is_connected()
+        first_client = cast(MCPToolClient, first_service)._client
+        assert first_client is not None and first_client.is_connected()
 
         async with MCPToolServer(
             [tool_with_date_and_float], port=get_random_port()
@@ -388,5 +391,47 @@ async def test_that_updating_an_mcp_service_closes_the_previous_client_connectio
                 url=f"{SERVER_BASE_URL}:{second_server.get_port()}",
             )
 
-            assert not cast(MCPToolClient, first_service)._client.is_connected()
-            assert cast(MCPToolClient, second_service)._client.is_connected()
+            assert first_client is not None and not first_client.is_connected()
+            second_client = cast(MCPToolClient, second_service)._client
+            assert second_client is not None and second_client.is_connected()
+
+
+async def test_that_mcp_service_endpoint_roundtrips_through_persistence(
+    container: Container,
+    logger: Logger,
+    tmp_path: Path,
+) -> None:
+    service_url = ""
+
+    async with MCPToolServer([greet_me_like_pirate], port=get_random_port()) as server:
+        service_url = f"{SERVER_BASE_URL}:{server.get_port()}"
+
+        async with JSONFileDocumentDatabase(logger, tmp_path / "services.json") as database:
+            async with ServiceDocumentRegistry(
+                database=database,
+                event_emitter_factory=container[EventEmitterFactory],
+                logger=logger,
+                tracer=LocalTracer(),
+                nlp_services_provider=lambda: {},
+            ) as registry:
+                service = await registry.update_tool_service(
+                    name="my_mcp_service",
+                    kind="mcp",
+                    url=service_url,
+                )
+
+                assert isinstance(service, MCPToolClient)
+                assert service.endpoint_url == service_url
+
+        async with JSONFileDocumentDatabase(logger, tmp_path / "services.json") as database:
+            async with ServiceDocumentRegistry(
+                database=database,
+                event_emitter_factory=container[EventEmitterFactory],
+                logger=logger,
+                tracer=LocalTracer(),
+                nlp_services_provider=lambda: {},
+            ) as restored_registry:
+                restored_service = await restored_registry.read_tool_service("my_mcp_service")
+
+                assert isinstance(restored_service, MCPToolClient)
+                assert restored_service.endpoint_url == service_url

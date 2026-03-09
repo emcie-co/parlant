@@ -251,7 +251,7 @@ def _get_service_url(service: ToolService) -> str:
     if isinstance(service, PluginClient):
         return service.url
     if isinstance(service, MCPToolClient):
-        return f"{service.url}:{service.port}"
+        return service.endpoint_url
     raise ValueError(f"Unknown service kind: {type(service)}")
 
 

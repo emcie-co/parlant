@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 from datetime import datetime, date, timedelta, timezone
 from enum import Enum
 import uuid
@@ -56,14 +57,19 @@ def create_client(
 class StubMCPClient:
     def __init__(self, result: CallToolResult) -> None:
         self._result = result
+        self.connected = True
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> CallToolResult:
         return self._result
+
+    def is_connected(self) -> bool:
+        return self.connected
 
 
 def create_stubbed_tool_client(result: CallToolResult) -> MCPToolClient:
     client = object.__new__(MCPToolClient)
     client._client = StubMCPClient(result)  # type: ignore[assignment,attr-defined]
+    client._client_lock = asyncio.Lock()  # type: ignore[attr-defined]
 
     async def read_tool(name: str) -> Tool:
         return Tool(

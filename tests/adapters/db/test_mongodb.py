@@ -1241,6 +1241,7 @@ async def test_that_session_store_creates_indexes_for_session_hot_paths(
 
             assert (("creation_utc", 1),) in session_index_keys
             assert (("id", 1),) in session_index_keys
+            assert (("creation_utc", 1), ("id", 1)) in session_index_keys
             assert (
                 ("agent_id", 1),
                 ("creation_utc", 1),

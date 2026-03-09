@@ -918,6 +918,12 @@ class SessionDocumentStore(SessionStore):
                     CollectionIndex(fields=(("id", SortDirection.ASC),)),
                     CollectionIndex(
                         fields=(
+                            ("creation_utc", SortDirection.ASC),
+                            ("id", SortDirection.ASC),
+                        )
+                    ),
+                    CollectionIndex(
+                        fields=(
                             ("agent_id", SortDirection.ASC),
                             ("creation_utc", SortDirection.ASC),
                             ("id", SortDirection.ASC),

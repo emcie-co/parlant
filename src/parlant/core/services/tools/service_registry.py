@@ -332,12 +332,6 @@ class ServiceDocumentRegistry(ServiceRegistry):
 
             self._running_services[name] = service
 
-        await self._exit_stack.enter_async_context(
-            self._cast_to_specific_tool_service_class(service)
-        )
-
-        self._running_services[name] = service
-
         if not transient:
             await self._tool_services_collection.update_one(
                 filters={"name": {"$eq": name}},

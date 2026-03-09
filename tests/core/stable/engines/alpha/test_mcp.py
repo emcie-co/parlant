@@ -214,3 +214,28 @@ async def test_that_reading_an_existing_mcp_service_returns_its_tools_and_can_ca
             "my_async_tool", ToolContext("", "", ""), {"message": "Hello"}
         )
         assert str(result.data) == "Echo: Hello"
+
+
+async def test_that_updating_an_mcp_service_closes_the_previous_client_connection(
+    container: Container,
+) -> None:
+    service_registry = container[ServiceRegistry]
+
+    async with MCPToolServer([greet_me_like_pirate], port=get_random_port()) as first_server:
+        first_service = await service_registry.update_tool_service(
+            name="my_mcp_service",
+            kind="mcp",
+            url=f"{SERVER_BASE_URL}:{first_server.get_port()}",
+        )
+
+        assert first_service._client.is_connected()
+
+        async with MCPToolServer([tool_with_date_and_float], port=get_random_port()) as second_server:
+            second_service = await service_registry.update_tool_service(
+                name="my_mcp_service",
+                kind="mcp",
+                url=f"{SERVER_BASE_URL}:{second_server.get_port()}",
+            )
+
+            assert not first_service._client.is_connected()
+            assert second_service._client.is_connected()

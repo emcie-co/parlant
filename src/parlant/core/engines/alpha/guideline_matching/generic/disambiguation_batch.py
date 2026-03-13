@@ -13,12 +13,11 @@
 # limitations under the License.
 
 from collections import defaultdict
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import traceback
 import json
-from typing import Optional
+from typing import Optional, Sequence
 from typing_extensions import override
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.common import measure_guideline_matching_batch

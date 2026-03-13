@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from lagom import Container
 from pytest import fixture
+from typing import Sequence
 from parlant.core.agents import Agent
 from parlant.core.capabilities import Capability, CapabilityId
 from parlant.core.common import Criticality, generate_id

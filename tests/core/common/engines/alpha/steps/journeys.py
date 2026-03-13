@@ -12,8 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Sequence
-from typing import Mapping, cast
+from typing import Mapping, cast, Sequence
 from pytest_bdd import given, parsers
 
 from parlant.core.common import JSONSerializable

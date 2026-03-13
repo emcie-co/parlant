@@ -13,8 +13,7 @@
 # limitations under the License.
 
 import asyncio
-from collections.abc import Sequence
-from typing import cast
+from typing import cast, Sequence
 from pytest_bdd import given, when, parsers
 from unittest.mock import AsyncMock
 

@@ -1,7 +1,6 @@
 import asyncio
-from collections.abc import Sequence
 from enum import Enum
-from typing import Any, cast
+from typing import Any, cast, Sequence
 from typing_extensions import override
 from parlant.core import async_utils
 

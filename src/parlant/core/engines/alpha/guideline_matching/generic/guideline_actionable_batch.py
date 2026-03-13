@@ -11,13 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import math
 import traceback
+from typing import Sequence
 from typing_extensions import override
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.common import measure_guideline_matching_batch

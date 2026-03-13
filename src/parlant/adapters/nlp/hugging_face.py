@@ -12,10 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Mapping
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from typing_extensions import override
 import torch  # type: ignore
 from typing import cast

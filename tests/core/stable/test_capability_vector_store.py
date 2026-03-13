@@ -1,5 +1,4 @@
-from collections.abc import Mapping
-from typing import Any
+from typing import Any, Mapping
 
 from lagom import Container
 import pytest

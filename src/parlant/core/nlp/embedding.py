@@ -14,14 +14,13 @@
 
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
 import zlib
 from lagom import Container
-from typing import Any, Callable, Optional, Sequence, TypedDict, cast
+from typing import Any, Callable, Optional, Mapping, Sequence, TypedDict, cast
 from typing_extensions import override
 
 from parlant.core.async_utils import Stopwatch

@@ -1,11 +1,10 @@
 from collections import deque
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 import json
 import traceback
-from typing import Any, Optional, cast
+from typing import Any, Optional, cast, Sequence
 from parlant.core.common import Criticality, DefaultBaseModel, JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch

@@ -288,6 +288,8 @@ class TransientVectorCollection(Generic[TDocument], BaseVectorCollection[TDocume
         async with self._lock:
             for i, doc in enumerate(self._documents):
                 if matches_filters(filters, doc):
+                    updated_document = cast(TDocument, {**doc, **params})
+
                     if "content" in params:
                         content = params["content"]
                     else:
@@ -307,16 +309,16 @@ class TransientVectorCollection(Generic[TDocument], BaseVectorCollection[TDocume
                         )
 
                     vector = np.array(embeddings[0], dtype=np.float32)
-                    data = {**params, "__id__": doc["id"], "__vector__": vector}
+                    data = {**updated_document, "__id__": doc["id"], "__vector__": vector}
 
                     self._nano_db.upsert([data])
-                    self._documents[i] = cast(TDocument, {**self._documents[i], **params})
+                    self._documents[i] = updated_document
 
                     return UpdateResult(
                         acknowledged=True,
                         matched_count=1,
                         modified_count=1,
-                        updated_document=self._documents[i],
+                        updated_document=updated_document,
                     )
 
             if upsert:

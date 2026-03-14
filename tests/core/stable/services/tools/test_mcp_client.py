@@ -28,7 +28,7 @@ async def test_that_mcp_client_reconnects_after_its_session_is_closed(
             assert "Ahoy Short Jon Nickel! I doubled your lucky number to 14 !" in result.data
 
             assert client._client is not None
-            await client._client.close()
+            await client._client.close()  # type: ignore[no-untyped-call]
 
             reconnected_result = await client.call_tool(
                 "greet_me_like_pirate",
@@ -36,7 +36,10 @@ async def test_that_mcp_client_reconnects_after_its_session_is_closed(
                 {"name": "Another Pirate", "lucky_number": 9},
             )
 
-            assert "Ahoy Another Pirate! I doubled your lucky number to 18 !" in reconnected_result.data
+            assert (
+                "Ahoy Another Pirate! I doubled your lucky number to 18 !"
+                in reconnected_result.data
+            )
 
 
 async def test_that_mcp_client_retries_initial_connection(
@@ -75,7 +78,7 @@ async def test_that_mcp_client_retries_initial_connection(
         attempted_clients.append(fake_client)
         return fake_client
 
-    client._create_client = fake_create_client  # type: ignore[method-assign]
+    client._create_client = fake_create_client  # type: ignore[method-assign, assignment]
 
     async with client:
         assert len(attempted_clients) == 2

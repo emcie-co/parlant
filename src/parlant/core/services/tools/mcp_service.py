@@ -212,7 +212,7 @@ class MCPToolClient(ToolService):
         traceback: Optional[TracebackType] = None,
     ) -> None:
         try:
-            await client.__aexit__(exc_type, exc_value, traceback)  # type: ignore[arg-type]
+            await client.__aexit__(exc_type, exc_value, traceback)  # type: ignore[no-untyped-call]
         except RuntimeError:
             pass
         except Exception as exc:
@@ -247,7 +247,7 @@ class MCPToolClient(ToolService):
                 client = self._create_client()
 
                 try:
-                    await asyncio.wait_for(client.__aenter__(), timeout=10.0)  # type: ignore[arg-type]
+                    await asyncio.wait_for(client.__aenter__(), timeout=10.0)  # type: ignore[no-untyped-call]
                     self._client = client
                     return client
                 except asyncio.TimeoutError:

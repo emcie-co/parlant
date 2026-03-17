@@ -535,7 +535,7 @@ def create_router(
                 if params.criticality
                 else None,
                 metadata=params.metadata or {},
-                enabled=params.enabled or True,
+                enabled=params.enabled,
                 tags=params.tags,
                 id=params.id,
                 composition_mode=composition_mode_dto_to_composition_mode(params.composition_mode)

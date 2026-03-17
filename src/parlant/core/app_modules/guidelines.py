@@ -112,7 +112,7 @@ class GuidelineModule:
             description=description,
             criticality=criticality,
             metadata=metadata or {},
-            enabled=enabled or True,
+            enabled=enabled if enabled is not None else True,
             tags=tags,
             id=id,
             composition_mode=composition_mode,

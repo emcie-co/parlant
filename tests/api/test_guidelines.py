@@ -806,7 +806,7 @@ async def test_that_a_guideline_can_be_created_with_description(
             "condition": "the customer asks about premium features",
             "action": "explain the premium features available",
             "description": "Premium features are only available to customers with active subscriptions",
-            "enabled": True,
+            "enabled": False,
         },
     )
 
@@ -819,7 +819,7 @@ async def test_that_a_guideline_can_be_created_with_description(
         guideline["description"]
         == "Premium features are only available to customers with active subscriptions"
     )
-    assert guideline["enabled"] is True
+    assert guideline["enabled"] is False
 
     guideline_id = guideline["id"]
     item = (await async_client.get(f"/guidelines/{guideline_id}")).raise_for_status().json()

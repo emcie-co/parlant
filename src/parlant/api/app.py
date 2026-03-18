@@ -157,10 +157,12 @@ async def create_api_app(
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
+        path = request.scope.get("path", request.url.path)
+
         if (
-            request.url.path.startswith("/docs")
-            or request.url.path.startswith("/redoc")
-            or request.url.path.startswith("/openapi.json")
+            path.startswith("/docs")
+            or path.startswith("/redoc")
+            or path.startswith("/openapi.json")
         ):
             await authorization_policy.authorize(
                 request=request,
@@ -168,7 +170,7 @@ async def create_api_app(
             )
             return await call_next(request)
 
-        if request.url.path.startswith("/chat/"):
+        if path.startswith("/chat/"):
             await authorization_policy.authorize(
                 request=request,
                 operation=Operation.ACCESS_INTEGRATED_UI,

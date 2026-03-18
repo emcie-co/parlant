@@ -14,9 +14,9 @@ Configure the MiniMax service using these environment variables:
 # Required: Your MiniMax API key
 export MINIMAX_API_KEY="your-api-key-here"
 
-# Optional: Model selection (default: MiniMax-M2.5)
-# Options: MiniMax-M2.5, MiniMax-M2.5-highspeed
-export MINIMAX_MODEL="MiniMax-M2.5"
+# Optional: Model selection (default: MiniMax-M2.7)
+# Options: MiniMax-M2.7, MiniMax-M2.7-highspeed, MiniMax-M2.5, MiniMax-M2.5-highspeed
+export MINIMAX_MODEL="MiniMax-M2.7"
 
 # Optional: Custom base URL (default: https://api.minimax.io/v1)
 export MINIMAX_BASE_URL="https://api.minimax.io/v1"
@@ -26,8 +26,10 @@ export MINIMAX_BASE_URL="https://api.minimax.io/v1"
 
 | Model | Context Window | Best For |
 |-------|---------------|----------|
-| `MiniMax-M2.5` | 204K tokens | General purpose, highest quality |
-| `MiniMax-M2.5-highspeed` | 204K tokens | Lower latency, faster responses |
+| `MiniMax-M2.7` | 204K tokens | Latest model, highest quality (default) |
+| `MiniMax-M2.7-highspeed` | 204K tokens | Latest model, lower latency |
+| `MiniMax-M2.5` | 204K tokens | Previous generation, general purpose |
+| `MiniMax-M2.5-highspeed` | 204K tokens | Previous generation, faster responses |
 
 ## Quick Start
 

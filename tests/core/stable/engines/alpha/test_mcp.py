@@ -435,3 +435,44 @@ async def test_that_mcp_service_endpoint_roundtrips_through_persistence(
 
                 assert isinstance(restored_service, MCPToolClient)
                 assert restored_service.endpoint_url == service_url
+
+
+async def test_that_mcp_service_port_is_preserved_through_persistence_roundtrip(
+    container: Container,
+    logger: Logger,
+    tmp_path: Path,
+) -> None:
+    service_url = ""
+
+    async with MCPToolServer([greet_me_like_pirate], port=get_random_port()) as server:
+        service_url = f"{SERVER_BASE_URL}:{server.get_port()}"
+
+        async with JSONFileDocumentDatabase(logger, tmp_path / "services.json") as database:
+            async with ServiceDocumentRegistry(
+                database=database,
+                event_emitter_factory=container[EventEmitterFactory],
+                logger=logger,
+                tracer=LocalTracer(),
+                nlp_services_provider=lambda: {},
+            ) as registry:
+                service = await registry.update_tool_service(
+                    name="my_mcp_service",
+                    kind="mcp",
+                    url=service_url,
+                )
+
+                assert isinstance(service, MCPToolClient)
+                assert f"{service.url}:{service.port}" == service_url
+
+        async with JSONFileDocumentDatabase(logger, tmp_path / "services.json") as database:
+            async with ServiceDocumentRegistry(
+                database=database,
+                event_emitter_factory=container[EventEmitterFactory],
+                logger=logger,
+                tracer=LocalTracer(),
+                nlp_services_provider=lambda: {},
+            ) as restored_registry:
+                restored_service = await restored_registry.read_tool_service("my_mcp_service")
+
+                assert isinstance(restored_service, MCPToolClient)
+                assert f"{restored_service.url}:{restored_service.port}" == service_url

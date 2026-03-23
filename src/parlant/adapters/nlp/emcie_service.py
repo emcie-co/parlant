@@ -119,7 +119,9 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
         tracer: Tracer,
         meter: Meter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+        super().__init__(
+            logger=logger, tracer=tracer, meter=meter, model_name=model_name
+        )
 
         self._model_role = model_role
         self._tokenizer = EmcieEstimatingTokenizer()
@@ -183,27 +185,61 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
                         "prompt": prompt,
                         "schema_name": self.schema.__name__,
                         "hints": {
-                            k: v for k, v in hints.items() if k in self.supported_emcie_params
+                            k: v
+                            for k, v in hints.items()
+                            if k in self.supported_emcie_params
                         },
                         "payload": props,
                     },
                 )
 
+                def _extract_error_text() -> str:
+                    try:
+                        payload = response.json()
+                    except json.JSONDecodeError:
+                        if response.text:
+                            return response.text
+                        return "<empty response body>"
+                    except Exception as exc:  # noqa: BLE001
+                        return f"<unable to parse error response: {exc}>"
+
+                    if not isinstance(payload, dict):
+                        return str(payload)
+
+                    detail = payload.get("detail")
+                    if not isinstance(detail, dict):
+                        return str(payload)
+
+                    error = detail.get("error")
+                    message = None
+                    if isinstance(error, dict):
+                        message = error.get("message")
+
+                    request_id = detail.get("request_id")
+
+                    pieces = []
+                    if message:
+                        pieces.append(message)
+                    if request_id:
+                        pieces.append(f"(RID={request_id})")
+
+                    return " ".join(pieces) if pieces else str(payload)
+
+                error_text = _extract_error_text()
+
                 if response.status_code == 429:
-                    raise RateLimitError(
-                        f"Emcie API rate limit exceeded: {response.json()['detail']['error']['message']} (RID={response.json()['detail']['request_id']})"
-                    )
+                    raise RateLimitError(f"Emcie API rate limit exceeded: {error_text}")
                 elif response.status_code == 402:
                     raise InsufficientCreditsError(
-                        f"Insufficient API credits for Emcie API: {response.json()['detail']['error']['message']} (RID={response.json()['detail']['request_id']})"
+                        f"Insufficient API credits for Emcie API: {error_text}"
                     )
                 elif response.status_code == 403:
                     raise UnauthorizedError(
-                        f"Unauthorized access to Emcie API: {response.json()['detail']['error']['message']} (RID={response.json()['detail']['request_id']})"
+                        f"Unauthorized access to Emcie API: {error_text}"
                     )
                 elif response.status_code >= 500:
                     raise EmcieAPIError(
-                        f"Emcie API error: {response.status_code} {response.json()['detail']['error']['message']} (RID={response.json()['detail']['request_id']})"
+                        f"Emcie API error: {response.status_code} {error_text}"
                     )
 
                 response.raise_for_status()
@@ -231,9 +267,13 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
         try:
             json_content = json.loads(normalize_json_output(raw_content))
         except json.JSONDecodeError:
-            self.logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
+            self.logger.warning(
+                f"Invalid JSON returned by {self.model_name}:\n{raw_content})"
+            )
             json_content = jsonfinder.only_json(raw_content)[2]
-            self.logger.warning("Found JSON content within model response; continuing...")
+            self.logger.warning(
+                "Found JSON content within model response; continuing..."
+            )
 
         try:
             content = self.schema.model_validate(json_content)
@@ -333,7 +373,9 @@ class EmcieStreamingTextGenerator(BaseStreamingTextGenerator):
         tracer: Tracer,
         meter: Meter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+        super().__init__(
+            logger=logger, tracer=tracer, meter=meter, model_name=model_name
+        )
         self._model_role = model_role
         self._tokenizer = EmcieEstimatingTokenizer()
 
@@ -386,7 +428,9 @@ class EmcieStreamingTextGenerator(BaseStreamingTextGenerator):
                         "prompt": prompt,
                         "stream": True,
                         "hints": {
-                            k: v for k, v in hints.items() if k in self.supported_emcie_params
+                            k: v
+                            for k, v in hints.items()
+                            if k in self.supported_emcie_params
                         },
                     },
                 ) as response:
@@ -435,7 +479,9 @@ class EmcieStreamingTextGenerator(BaseStreamingTextGenerator):
                                     buffer += text
 
                                     # Count word boundaries in buffer
-                                    boundaries = list(_WORD_BOUNDARY_PATTERN.finditer(buffer))
+                                    boundaries = list(
+                                        _WORD_BOUNDARY_PATTERN.finditer(buffer)
+                                    )
                                     if len(boundaries) >= _WORDS_PER_CHUNK:
                                         # Yield up to the last complete word boundary
                                         last_boundary = boundaries[_WORDS_PER_CHUNK - 1]
@@ -451,7 +497,9 @@ class EmcieStreamingTextGenerator(BaseStreamingTextGenerator):
                                     extra={},
                                 )
 
-                                self.logger.trace(f"Emcie streaming usage data:\n{pformat(data)}")
+                                self.logger.trace(
+                                    f"Emcie streaming usage data:\n{pformat(data)}"
+                                )
 
                                 # Yield any remaining content in the buffer
                                 if buffer:
@@ -459,8 +507,12 @@ class EmcieStreamingTextGenerator(BaseStreamingTextGenerator):
                                     buffer = ""
 
                             elif event_type == "error":
-                                error_msg = data.get("error", {}).get("message", "Unknown error")
-                                raise EmcieAPIError(f"Emcie streaming error: {error_msg}")
+                                error_msg = data.get("error", {}).get(
+                                    "message", "Unknown error"
+                                )
+                                raise EmcieAPIError(
+                                    f"Emcie streaming error: {error_msg}"
+                                )
 
             # Record metrics if we have usage info
             if usage_info is not None:
@@ -576,7 +628,11 @@ class EmcieEmbedder(BaseEmbedder):
                     json={
                         "model_tier": self.model_name,
                         "inputs": texts,
-                        "hints": {k: v for k, v in hints.items() if k in self.supported_arguments},
+                        "hints": {
+                            k: v
+                            for k, v in hints.items()
+                            if k in self.supported_arguments
+                        },
                     },
                 )
 
@@ -680,7 +736,11 @@ Get an API key for Emcie by signing up at https://www.emcie.co."""
         self._model_role = model_role or os.environ.get("EMCIE_MODEL_ROLE", "auto")
 
         assert self._model_tier in ("jackal", "bison"), "Invalid EMCIE_MODEL_TIER"
-        assert self._model_role in ("teacher", "student", "auto"), "Invalid EMCIE_MODEL_ROLE"
+        assert self._model_role in (
+            "teacher",
+            "student",
+            "auto",
+        ), "Invalid EMCIE_MODEL_ROLE"
 
         self._logger.info("Initialized EmcieService")
 

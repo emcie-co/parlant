@@ -1,5 +1,6 @@
 from typing import Sequence
 
+from parlant.core.app_modules.application_context import ApplicationContext
 from parlant.core.async_utils import Timeout
 from parlant.core.loggers import Logger
 from parlant.core.evaluations import (
@@ -13,17 +14,19 @@ from parlant.core.evaluations import (
     PayloadKind,
 )
 from parlant.core.services.indexing.behavioral_change_evaluation import BehavioralChangeEvaluator
-from parlant.core.store_provider import APP_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProviderHints, StoreProvider
 
 
 class EvaluationModule:
     def __init__(
         self,
+        application_context: ApplicationContext,
         logger: Logger,
         evaluation_service: BehavioralChangeEvaluator,
         evaluation_listener: EvaluationListener,
         store_provider: StoreProvider,
     ):
+        self._application_context = application_context
         self._logger = logger
         self._store_provider = store_provider
         self._evaluation_service = evaluation_service
@@ -31,7 +34,13 @@ class EvaluationModule:
 
     @property
     def _evaluation_store(self) -> EvaluationStore:
-        return self._store_provider.get_store(EvaluationStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            EvaluationStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     async def create(self, payloads: Sequence[Payload]) -> Evaluation:
         evaluation_id = await self._evaluation_service.create_evaluation_task(

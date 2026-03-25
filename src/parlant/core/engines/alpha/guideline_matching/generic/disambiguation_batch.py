@@ -45,7 +45,7 @@ from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tags import Tag
-from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 class GuidelineCheck(DefaultBaseModel):
@@ -102,7 +102,7 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
 
     @property
     def _journey_store(self) -> JourneyStore:
-        return self._store_provider.get_store(JourneyStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(JourneyStore, StoreProviderHints(call_site="engine"))
 
     @property
     @override

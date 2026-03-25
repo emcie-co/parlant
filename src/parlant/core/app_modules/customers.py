@@ -2,11 +2,12 @@ from dataclasses import dataclass
 from typing import Mapping, Sequence
 
 from parlant.core.agents import AgentId, AgentStore
+from parlant.core.app_modules.application_context import ApplicationContext
 from parlant.core.loggers import Logger
 from parlant.core.customers import CustomerId, CustomerStore, Customer, CustomerListing
 from parlant.core.persistence.common import Cursor, SortDirection
 from parlant.core.tags import Tag, TagId, TagStore
-from parlant.core.store_provider import APP_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProviderHints, StoreProvider
 
 
 @dataclass(frozen=True)
@@ -34,23 +35,43 @@ class CustomerTagUpdateParams:
 class CustomerModule:
     def __init__(
         self,
+        application_context: ApplicationContext,
         logger: Logger,
         store_provider: StoreProvider,
     ):
+        self._application_context = application_context
         self._logger = logger
         self._store_provider = store_provider
 
     @property
     def _customer_store(self) -> CustomerStore:
-        return self._store_provider.get_store(CustomerStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            CustomerStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     @property
     def _agent_store(self) -> AgentStore:
-        return self._store_provider.get_store(AgentStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            AgentStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     @property
     def _tag_store(self) -> TagStore:
-        return self._store_provider.get_store(TagStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            TagStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     async def _ensure_tag(self, tag_id: TagId) -> None:
         if agent_id := Tag.extract_agent_id(tag_id):

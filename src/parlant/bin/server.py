@@ -55,6 +55,7 @@ from parlant.api.authorization import (
     ProductionAuthorizationPolicy,
 )
 
+from parlant.core.app_modules.application_context import ApplicationContext
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.common import IdGenerator
 from parlant.core.engines.alpha import message_generator
@@ -704,6 +705,7 @@ async def setup_container() -> AsyncIterator[Container]:
     c[EventLoopMonitor] = EventLoopMonitor()
 
     _define_singleton(c, Application, Application)
+    _define_singleton(c, ApplicationContext, ApplicationContext)
 
     c[StoreProvider] = BasicStoreProvider(lambda: c)
 
@@ -1012,8 +1014,6 @@ async def load_app(params: StartupParameters) -> AsyncIterator[tuple[ASGIApplica
 
         if params.configure:
             actual_container = await params.configure(actual_container.clone())
-
-        actual_container[StoreProvider] = BasicStoreProvider(lambda: actual_container)
 
         await initialize_container(
             actual_container,

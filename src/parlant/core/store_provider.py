@@ -13,15 +13,16 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Mapping, TypeVar
+from typing import Callable, Literal, TypeVar, TypedDict
 
 from lagom import Container
 
 StoreT = TypeVar("StoreT")
 
-APP_CALL_SITE: Mapping[str, Any] = {"call-site": "app"}
-SDK_CALL_SITE: Mapping[str, Any] = {"call-site": "sdk"}
-ENGINE_CALL_SITE: Mapping[str, Any] = {"call-site": "engine"}
+
+class StoreProviderHints(TypedDict, total=False):
+    call_site: Literal["app", "sdk", "engine"]
+    origin: str | None
 
 
 class StoreProvider(ABC):
@@ -29,7 +30,7 @@ class StoreProvider(ABC):
     def get_store(
         self,
         store_type: type[StoreT],
-        hints: Mapping[str, Any] = {},
+        hints: StoreProviderHints = {},
     ) -> StoreT: ...
 
 
@@ -43,6 +44,6 @@ class BasicStoreProvider(StoreProvider):
     def get_store(
         self,
         store_type: type[StoreT],
-        hints: Mapping[str, Any] = {},
+        hints: StoreProviderHints = {},
     ) -> StoreT:
         return self._container_provider()[store_type]

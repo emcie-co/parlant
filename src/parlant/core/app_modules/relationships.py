@@ -3,6 +3,7 @@ from itertools import chain
 from typing import Sequence, cast
 
 from parlant.core.agents import AgentId, AgentStore
+from parlant.core.app_modules.application_context import ApplicationContext
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
 from parlant.core.journeys import JourneyId, JourneyNodeId, JourneyStore
 from parlant.core.loggers import Logger
@@ -18,7 +19,7 @@ from parlant.core.relationships import (
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tags import Tag, TagId, TagStore
 from parlant.core.tools import Tool, ToolId
-from parlant.core.store_provider import APP_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProviderHints, StoreProvider
 
 
 @dataclass(frozen=True)
@@ -36,35 +37,73 @@ class RelationshipModel:
 class RelationshipModule:
     def __init__(
         self,
+        application_context: ApplicationContext,
         logger: Logger,
         store_provider: StoreProvider,
     ):
+        self._application_context = application_context
         self._logger = logger
         self._store_provider = store_provider
 
     @property
     def _relationship_store(self) -> RelationshipStore:
-        return self._store_provider.get_store(RelationshipStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            RelationshipStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     @property
     def _tag_store(self) -> TagStore:
-        return self._store_provider.get_store(TagStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            TagStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     @property
     def _guideline_store(self) -> GuidelineStore:
-        return self._store_provider.get_store(GuidelineStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            GuidelineStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     @property
     def _service_registry(self) -> ServiceRegistry:
-        return self._store_provider.get_store(ServiceRegistry, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            ServiceRegistry,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     @property
     def _agent_store(self) -> AgentStore:
-        return self._store_provider.get_store(AgentStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            AgentStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     @property
     def _journey_store(self) -> JourneyStore:
-        return self._store_provider.get_store(JourneyStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            JourneyStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     async def _entity_id_to_tag(
         self,

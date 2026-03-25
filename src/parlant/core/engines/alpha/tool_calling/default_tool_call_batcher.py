@@ -38,7 +38,7 @@ from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.relationships import RelationshipStore, RelationshipKind
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tools import Tool, ToolId, ToolOverlap
-from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 class DefaultToolCallBatcher(ToolCallBatcher):
@@ -62,11 +62,15 @@ class DefaultToolCallBatcher(ToolCallBatcher):
 
     @property
     def _service_registry(self) -> ServiceRegistry:
-        return self._store_provider.get_store(ServiceRegistry, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            ServiceRegistry, StoreProviderHints(call_site="engine")
+        )
 
     @property
     def _relationship_store(self) -> RelationshipStore:
-        return self._store_provider.get_store(RelationshipStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            RelationshipStore, StoreProviderHints(call_site="engine")
+        )
 
     async def create_batches(
         self,

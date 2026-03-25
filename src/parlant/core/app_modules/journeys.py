@@ -13,6 +13,7 @@ from parlant.core.journeys import (
     JourneyUpdateParams,
 )
 from parlant.core.tags import Tag, TagId
+from parlant.core.store_provider import APP_CALL_SITE, StoreProvider
 
 
 @dataclass(frozen=True)
@@ -50,12 +51,18 @@ class JourneyModule:
     def __init__(
         self,
         logger: Logger,
-        journey_store: JourneyStore,
-        guideline_store: GuidelineStore,
+        store_provider: StoreProvider,
     ):
         self._logger = logger
-        self._journey_store = journey_store
-        self._guideline_store = guideline_store
+        self._store_provider = store_provider
+
+    @property
+    def _journey_store(self) -> JourneyStore:
+        return self._store_provider.get_store(JourneyStore, APP_CALL_SITE)
+
+    @property
+    def _guideline_store(self) -> GuidelineStore:
+        return self._store_provider.get_store(GuidelineStore, APP_CALL_SITE)
 
     async def create(
         self,

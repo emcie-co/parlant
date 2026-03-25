@@ -11,6 +11,7 @@ from parlant.core.capabilities import (
     CapabilityUpdateParams,
 )
 from parlant.core.tags import Tag, TagId, TagStore
+from parlant.core.store_provider import APP_CALL_SITE, StoreProvider
 
 
 @dataclass(frozen=True)
@@ -23,16 +24,26 @@ class CapabilityModule:
     def __init__(
         self,
         logger: Logger,
-        capability_store: CapabilityStore,
-        agent_store: AgentStore,
-        journey_store: JourneyStore,
-        tag_store: TagStore,
+        store_provider: StoreProvider,
     ):
         self._logger = logger
-        self._capability_store = capability_store
-        self._agent_store = agent_store
-        self._journey_store = journey_store
-        self._tag_store = tag_store
+        self._store_provider = store_provider
+
+    @property
+    def _capability_store(self) -> CapabilityStore:
+        return self._store_provider.get_store(CapabilityStore, APP_CALL_SITE)
+
+    @property
+    def _agent_store(self) -> AgentStore:
+        return self._store_provider.get_store(AgentStore, APP_CALL_SITE)
+
+    @property
+    def _journey_store(self) -> JourneyStore:
+        return self._store_provider.get_store(JourneyStore, APP_CALL_SITE)
+
+    @property
+    def _tag_store(self) -> TagStore:
+        return self._store_provider.get_store(TagStore, APP_CALL_SITE)
 
     async def _ensure_tag(self, tag_id: TagId) -> None:
         if agent_id := Tag.extract_agent_id(tag_id):

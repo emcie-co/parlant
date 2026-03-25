@@ -26,6 +26,7 @@ from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.services.indexing.common import EvaluationError, ProgressReport
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.shots import Shot, ShotCollection
+from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
 
 
 class CustomerDependentActionProposition(DefaultBaseModel):
@@ -53,13 +54,17 @@ class CustomerDependentActionDetector:
         logger: Logger,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[CustomerDependentActionSchema],
-        service_registry: ServiceRegistry,
+        store_provider: StoreProvider,
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._optimization_policy = optimization_policy
 
         self._schematic_generator = schematic_generator
-        self._service_registry = service_registry
+
+    @property
+    def _service_registry(self) -> ServiceRegistry:
+        return self._store_provider.get_store(ServiceRegistry, ENGINE_CALL_SITE)
 
     async def detect_if_customer_dependent(
         self,

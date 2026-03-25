@@ -69,6 +69,7 @@ from parlant.core.services.indexing.relative_action_proposer import (
     RelativeActionProposer,
     RelativeActionProposition,
 )
+from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
 from parlant.core.services.indexing.tool_running_action_detector import (
     ToolRunningActionDetector,
     ToolRunningActionProposition,
@@ -354,22 +355,27 @@ class JourneyEvaluator:
     def __init__(
         self,
         logger: Logger,
-        guideline_store: GuidelineStore,
-        journey_store: JourneyStore,
         journey_guideline_projection: JourneyGuidelineProjection,
         guideline_evaluator: GuidelineEvaluator,
         relative_action_proposer: RelativeActionProposer,
         journey_reachable_node_evaluator: JourneyReachableNodesEvaluator,
+        store_provider: StoreProvider,
     ) -> None:
         self._logger = logger
-
-        self._guideline_store = guideline_store
-        self._journey_store = journey_store
+        self._store_provider = store_provider
         self._journey_guideline_projection = journey_guideline_projection
         self._guideline_evaluator = guideline_evaluator
         self._journey_reachable_node_evaluator = journey_reachable_node_evaluator
 
         self._relative_action_proposer = relative_action_proposer
+
+    @property
+    def _guideline_store(self) -> GuidelineStore:
+        return self._store_provider.get_store(GuidelineStore, ENGINE_CALL_SITE)
+
+    @property
+    def _journey_store(self) -> JourneyStore:
+        return self._store_provider.get_store(JourneyStore, ENGINE_CALL_SITE)
 
     async def _build_invoice_data(
         self,
@@ -667,10 +673,8 @@ class BehavioralChangeEvaluator:
         self,
         logger: Logger,
         background_task_service: BackgroundTaskService,
-        agent_store: AgentStore,
         guideline_store: GuidelineStore,
         journey_store: JourneyStore,
-        evaluation_store: EvaluationStore,
         entity_queries: EntityQueries,
         journey_guideline_projection: JourneyGuidelineProjection,
         guideline_action_proposer: GuidelineActionProposer,
@@ -680,15 +684,12 @@ class BehavioralChangeEvaluator:
         tool_running_action_detector: ToolRunningActionDetector,
         relative_action_proposer: RelativeActionProposer,
         journey_reachable_node_evaluator: JourneyReachableNodesEvaluator,
+        store_provider: StoreProvider,
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._background_task_service = background_task_service
-
-        self._agent_store = agent_store
-
-        self._evaluation_store = evaluation_store
         self._entity_queries = entity_queries
-
         self._guideline_evaluator = GuidelineEvaluator(
             logger=logger,
             entity_queries=entity_queries,
@@ -701,13 +702,20 @@ class BehavioralChangeEvaluator:
 
         self._journey_evaluator = JourneyEvaluator(
             logger=logger,
-            guideline_store=guideline_store,
-            journey_store=journey_store,
             journey_guideline_projection=journey_guideline_projection,
             guideline_evaluator=self._guideline_evaluator,
             relative_action_proposer=relative_action_proposer,
             journey_reachable_node_evaluator=journey_reachable_node_evaluator,
+            store_provider=store_provider,
         )
+
+    @property
+    def _agent_store(self) -> AgentStore:
+        return self._store_provider.get_store(AgentStore, ENGINE_CALL_SITE)
+
+    @property
+    def _evaluation_store(self) -> EvaluationStore:
+        return self._store_provider.get_store(EvaluationStore, ENGINE_CALL_SITE)
 
     async def validate_payloads(
         self,

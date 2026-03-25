@@ -77,6 +77,7 @@ from parlant.core.common import Criticality, DefaultBaseModel, JSONSerializable
 from parlant.core.loggers import Logger
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import ToolId
+from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
 
 DEFAULT_NO_MATCH_CANREP = "Not sure I understand. Could you please say that another way?"
 
@@ -516,14 +517,15 @@ class CannedResponseGenerator(MessageEventComposer):
             FollowUpCannedResponseSelectionSchema
         ],
         perceived_performance_policy_provider: PerceivedPerformancePolicyProvider,
-        canned_response_store: CannedResponseStore,
         field_extractor: CannedResponseFieldExtractor,
         message_generator: MessageGenerator,
         entity_queries: EntityQueries,
         no_match_provider: NoMatchResponseProvider,
+        store_provider: StoreProvider,
         streaming_text_generator: StreamingTextGenerator | None = None,
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._tracer = tracer
         self._meter = meter
 
@@ -534,7 +536,6 @@ class CannedResponseGenerator(MessageEventComposer):
         self._canrep_composition_generator = canned_response_composition_generator
         self._canrep_preamble_generator = canned_response_preamble_generator
         self._follow_up_canrep_generator = follow_up_canned_response_generator
-        self._canned_response_store = canned_response_store
         self._perceived_performance_policy_provider = perceived_performance_policy_provider
         self._field_extractor = field_extractor
         self._message_generator = message_generator
@@ -550,6 +551,10 @@ class CannedResponseGenerator(MessageEventComposer):
         self.candidate_similarity_threshold = 0.4
 
         self._define_histograms()
+
+    @property
+    def _canned_response_store(self) -> CannedResponseStore:
+        return self._store_provider.get_store(CannedResponseStore, ENGINE_CALL_SITE)
 
     def set_preamble_config(self, agent_id: AgentId, config: PreambleConfiguration) -> None:
         """Set preamble configuration for a specific agent."""

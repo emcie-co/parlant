@@ -3,16 +3,21 @@ from typing import Sequence
 from parlant.core.loggers import Logger
 from parlant.core.services.tools.service_registry import ServiceRegistry, ToolServiceKind
 from parlant.core.tools import ToolService
+from parlant.core.store_provider import APP_CALL_SITE, StoreProvider
 
 
 class ServiceModule:
     def __init__(
         self,
         logger: Logger,
-        service_registry: ServiceRegistry,
+        store_provider: StoreProvider,
     ):
         self._logger = logger
-        self._service_registry = service_registry
+        self._store_provider = store_provider
+
+    @property
+    def _service_registry(self) -> ServiceRegistry:
+        return self._store_provider.get_store(ServiceRegistry, APP_CALL_SITE)
 
     async def read(self, name: str) -> ToolService:
         service = await self._service_registry.read_tool_service(name)

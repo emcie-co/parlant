@@ -22,7 +22,14 @@ from typing_extensions import override, TypedDict, Self, Required
 from parlant.core.agents import CompositionMode
 from parlant.core.async_utils import ReaderWriterLock, safe_gather
 from parlant.core.common import JSONSerializable, md5_checksum
-from parlant.core.common import ItemNotFoundError, UniqueId, Version, IdGenerator, to_json_dict
+from parlant.core.common import (
+    ItemNotFoundError,
+    try_or_none,
+    UniqueId,
+    Version,
+    IdGenerator,
+    to_json_dict,
+)
 from parlant.core.guidelines import GuidelineId
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.common import (
@@ -1691,3 +1698,294 @@ class JourneyVectorStore(JourneyStore):
         assert result.updated_document
 
         return self._deserialize_node(result.updated_document)
+
+
+class CompositeJourneyStore(JourneyStore):
+    def __init__(
+        self,
+        writable_store: JourneyStore,
+        readable_stores: Sequence[JourneyStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[JourneyStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_journey(
+        self,
+        title: str,
+        description: str,
+        conditions: Sequence[GuidelineId],
+        creation_utc: Optional[datetime] = None,
+        tags: Optional[Sequence[TagId]] = None,
+        id: Optional[JourneyId] = None,
+        composition_mode: Optional[CompositionMode] = None,
+        labels: Optional[Set[str]] = None,
+        priority: int = 0,
+    ) -> Journey:
+        return await self._writable_store.create_journey(
+            title=title,
+            description=description,
+            conditions=conditions,
+            creation_utc=creation_utc,
+            tags=tags,
+            id=id,
+            composition_mode=composition_mode,
+            labels=labels,
+            priority=priority,
+        )
+
+    @override
+    async def list_journeys(
+        self,
+        tags: Optional[Sequence[TagId]] = None,
+        condition: Optional[GuidelineId] = None,
+    ) -> Sequence[Journey]:
+        results = await safe_gather(
+            *[store.list_journeys(tags=tags, condition=condition) for store in self._all_stores]
+        )
+        return list(chain.from_iterable(results))
+
+    @override
+    async def read_journey(
+        self,
+        journey_id: JourneyId,
+    ) -> Journey:
+        results = await safe_gather(
+            *[try_or_none(store.read_journey(journey_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(journey_id))
+        return result
+
+    @override
+    async def update_journey(
+        self,
+        journey_id: JourneyId,
+        params: JourneyUpdateParams,
+    ) -> Journey:
+        return await self._writable_store.update_journey(journey_id, params)
+
+    @override
+    async def delete_journey(
+        self,
+        journey_id: JourneyId,
+    ) -> None:
+        return await self._writable_store.delete_journey(journey_id)
+
+    @override
+    async def add_condition(
+        self,
+        journey_id: JourneyId,
+        condition: GuidelineId,
+    ) -> bool:
+        return await self._writable_store.add_condition(journey_id, condition)
+
+    @override
+    async def remove_condition(
+        self,
+        journey_id: JourneyId,
+        condition: GuidelineId,
+    ) -> bool:
+        return await self._writable_store.remove_condition(journey_id, condition)
+
+    @override
+    async def upsert_tag(
+        self,
+        journey_id: JourneyId,
+        tag_id: TagId,
+        creation_utc: Optional[datetime] = None,
+    ) -> bool:
+        return await self._writable_store.upsert_tag(journey_id, tag_id, creation_utc)
+
+    @override
+    async def remove_tag(
+        self,
+        journey_id: JourneyId,
+        tag_id: TagId,
+    ) -> None:
+        return await self._writable_store.remove_tag(journey_id, tag_id)
+
+    @override
+    async def find_relevant_journeys(
+        self,
+        query: str,
+        available_journeys: Sequence[Journey],
+        max_journeys: int = 5,
+    ) -> Sequence[Journey]:
+        return await self._writable_store.find_relevant_journeys(
+            query, available_journeys, max_journeys
+        )
+
+    @override
+    async def create_node(
+        self,
+        journey_id: JourneyId,
+        action: Optional[str],
+        tools: Sequence[ToolId],
+        description: Optional[str] = None,
+        composition_mode: Optional[CompositionMode] = None,
+        id: Optional[JourneyNodeId] = None,
+        labels: Optional[Set[str]] = None,
+    ) -> JourneyNode:
+        return await self._writable_store.create_node(
+            journey_id=journey_id,
+            action=action,
+            tools=tools,
+            description=description,
+            composition_mode=composition_mode,
+            id=id,
+            labels=labels,
+        )
+
+    @override
+    async def read_node(
+        self,
+        node_id: JourneyNodeId,
+    ) -> JourneyNode:
+        results = await safe_gather(
+            *[try_or_none(store.read_node(node_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(node_id))
+        return result
+
+    @override
+    async def update_node(
+        self,
+        node_id: JourneyNodeId,
+        params: JourneyNodeUpdateParams,
+    ) -> JourneyNode:
+        return await self._writable_store.update_node(node_id, params)
+
+    @override
+    async def delete_node(
+        self,
+        node_id: JourneyNodeId,
+    ) -> None:
+        return await self._writable_store.delete_node(node_id)
+
+    @override
+    async def list_nodes(
+        self,
+        journey_id: JourneyId,
+    ) -> Sequence[JourneyNode]:
+        results = await safe_gather(*[store.list_nodes(journey_id) for store in self._all_stores])
+        return list(chain.from_iterable(results))
+
+    @override
+    async def set_node_metadata(
+        self,
+        node_id: JourneyNodeId,
+        key: str,
+        value: JSONSerializable,
+    ) -> JourneyNode:
+        return await self._writable_store.set_node_metadata(node_id, key, value)
+
+    @override
+    async def unset_node_metadata(
+        self,
+        node_id: JourneyNodeId,
+        key: str,
+    ) -> JourneyNode:
+        return await self._writable_store.unset_node_metadata(node_id, key)
+
+    @override
+    async def create_edge(
+        self,
+        journey_id: JourneyId,
+        source: JourneyNodeId,
+        target: JourneyNodeId,
+        condition: Optional[str],
+    ) -> JourneyEdge:
+        return await self._writable_store.create_edge(journey_id, source, target, condition)
+
+    @override
+    async def read_edge(
+        self,
+        edge_id: JourneyNodeId,
+    ) -> JourneyEdge:
+        results = await safe_gather(
+            *[try_or_none(store.read_edge(edge_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(edge_id))
+        return result
+
+    @override
+    async def update_edge(
+        self,
+        edge_id: JourneyNodeId,
+        params: JourneyEdgeUpdateParams,
+    ) -> JourneyEdge:
+        return await self._writable_store.update_edge(edge_id, params)
+
+    @override
+    async def list_edges(
+        self,
+        journey_id: JourneyId,
+        node_id: Optional[JourneyNodeId] = None,
+    ) -> Sequence[JourneyEdge]:
+        results = await safe_gather(
+            *[store.list_edges(journey_id, node_id) for store in self._all_stores]
+        )
+        return list(chain.from_iterable(results))
+
+    @override
+    async def delete_edge(
+        self,
+        edge_id: JourneyEdgeId,
+    ) -> None:
+        return await self._writable_store.delete_edge(edge_id)
+
+    @override
+    async def set_edge_metadata(
+        self,
+        edge_id: JourneyEdgeId,
+        key: str,
+        value: JSONSerializable,
+    ) -> JourneyEdge:
+        return await self._writable_store.set_edge_metadata(edge_id, key, value)
+
+    @override
+    async def unset_edge_metadata(
+        self,
+        edge_id: JourneyEdgeId,
+        key: str,
+    ) -> JourneyEdge:
+        return await self._writable_store.unset_edge_metadata(edge_id, key)
+
+    @override
+    async def upsert_journey_labels(
+        self,
+        journey_id: JourneyId,
+        labels: Set[str],
+    ) -> Journey:
+        return await self._writable_store.upsert_journey_labels(journey_id, labels)
+
+    @override
+    async def remove_journey_labels(
+        self,
+        journey_id: JourneyId,
+        labels: Set[str],
+    ) -> Journey:
+        return await self._writable_store.remove_journey_labels(journey_id, labels)
+
+    @override
+    async def upsert_node_labels(
+        self,
+        node_id: JourneyNodeId,
+        labels: Set[str],
+    ) -> JourneyNode:
+        return await self._writable_store.upsert_node_labels(node_id, labels)
+
+    @override
+    async def remove_node_labels(
+        self,
+        node_id: JourneyNodeId,
+        labels: Set[str],
+    ) -> JourneyNode:
+        return await self._writable_store.remove_node_labels(node_id, labels)

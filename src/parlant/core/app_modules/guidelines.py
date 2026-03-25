@@ -20,6 +20,7 @@ from parlant.core.relationships import (
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tags import Tag, TagId, TagStore
 from parlant.core.tools import Tool, ToolId
+from parlant.core.store_provider import APP_CALL_SITE, StoreProvider
 
 
 @dataclass(frozen=True)
@@ -60,22 +61,38 @@ class GuidelineModule:
     def __init__(
         self,
         logger: Logger,
-        guideline_store: GuidelineStore,
-        tag_store: TagStore,
-        agent_store: AgentStore,
-        journey_store: JourneyStore,
-        relationship_store: RelationshipStore,
-        guideline_tool_association_store: GuidelineToolAssociationStore,
-        service_registry: ServiceRegistry,
+        store_provider: StoreProvider,
     ):
         self._logger = logger
-        self._guideline_store = guideline_store
-        self._tag_store = tag_store
-        self._agent_store = agent_store
-        self._journey_store = journey_store
-        self._relationship_store = relationship_store
-        self._guideline_tool_association_store = guideline_tool_association_store
-        self._service_registry = service_registry
+        self._store_provider = store_provider
+
+    @property
+    def _guideline_store(self) -> GuidelineStore:
+        return self._store_provider.get_store(GuidelineStore, APP_CALL_SITE)
+
+    @property
+    def _tag_store(self) -> TagStore:
+        return self._store_provider.get_store(TagStore, APP_CALL_SITE)
+
+    @property
+    def _agent_store(self) -> AgentStore:
+        return self._store_provider.get_store(AgentStore, APP_CALL_SITE)
+
+    @property
+    def _journey_store(self) -> JourneyStore:
+        return self._store_provider.get_store(JourneyStore, APP_CALL_SITE)
+
+    @property
+    def _relationship_store(self) -> RelationshipStore:
+        return self._store_provider.get_store(RelationshipStore, APP_CALL_SITE)
+
+    @property
+    def _guideline_tool_association_store(self) -> GuidelineToolAssociationStore:
+        return self._store_provider.get_store(GuidelineToolAssociationStore, APP_CALL_SITE)
+
+    @property
+    def _service_registry(self) -> ServiceRegistry:
+        return self._store_provider.get_store(ServiceRegistry, APP_CALL_SITE)
 
     async def _ensure_tag(self, tag_id: TagId) -> None:
         if agent_id := Tag.extract_agent_id(tag_id):

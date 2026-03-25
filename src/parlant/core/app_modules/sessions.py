@@ -34,6 +34,7 @@ from parlant.core.sessions import (
     SessionStore,
     StatusEventData,
 )
+from parlant.core.store_provider import APP_CALL_SITE, StoreProvider
 from dataclasses import dataclass
 from typing_extensions import TypedDict
 
@@ -100,31 +101,37 @@ class SessionModule:
         self,
         logger: Logger,
         meter: Meter,
-        agent_store: AgentStore,
         tracer: Tracer,
-        session_store: SessionStore,
-        customer_store: CustomerStore,
         session_listener: SessionListener,
         nlp_service: NLPService,
         engine: Engine,
         event_emitter_factory: EventEmitterFactory,
         background_task_service: BackgroundTaskService,
+        store_provider: StoreProvider,
     ):
         self._logger = logger
+        self._store_provider = store_provider
         self._meter = meter
-        self._agent_store = agent_store
         self._tracer = tracer
-
-        self._session_store = session_store
-        self._customer_store = customer_store
         self._session_listener = session_listener
         self._nlp_service = nlp_service
-
         self._engine = engine
         self._event_emitter_factory = event_emitter_factory
         self._background_task_service = background_task_service
 
         self._lock = asyncio.Lock()
+
+    @property
+    def _agent_store(self) -> AgentStore:
+        return self._store_provider.get_store(AgentStore, APP_CALL_SITE)
+
+    @property
+    def _session_store(self) -> SessionStore:
+        return self._store_provider.get_store(SessionStore, APP_CALL_SITE)
+
+    @property
+    def _customer_store(self) -> CustomerStore:
+        return self._store_provider.get_store(CustomerStore, APP_CALL_SITE)
 
     async def wait_for_more_events(
         self,

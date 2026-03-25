@@ -14,6 +14,7 @@ from parlant.core.context_variables import (
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tags import Tag, TagId, TagStore
 from parlant.core.tools import ToolId
+from parlant.core.store_provider import APP_CALL_SITE, StoreProvider
 
 
 @dataclass(frozen=True)
@@ -26,16 +27,26 @@ class ContextVariableModule:
     def __init__(
         self,
         logger: Logger,
-        context_variable_store: ContextVariableStore,
-        service_registry: ServiceRegistry,
-        agent_store: AgentStore,
-        tag_store: TagStore,
+        store_provider: StoreProvider,
     ) -> None:
         self._logger = logger
-        self._variable_store = context_variable_store
-        self._service_registry = service_registry
-        self._agent_store = agent_store
-        self._tag_store = tag_store
+        self._store_provider = store_provider
+
+    @property
+    def _variable_store(self) -> ContextVariableStore:
+        return self._store_provider.get_store(ContextVariableStore, APP_CALL_SITE)
+
+    @property
+    def _service_registry(self) -> ServiceRegistry:
+        return self._store_provider.get_store(ServiceRegistry, APP_CALL_SITE)
+
+    @property
+    def _agent_store(self) -> AgentStore:
+        return self._store_provider.get_store(AgentStore, APP_CALL_SITE)
+
+    @property
+    def _tag_store(self) -> TagStore:
+        return self._store_provider.get_store(TagStore, APP_CALL_SITE)
 
     async def create(
         self,

@@ -20,6 +20,7 @@ import hashlib
 
 from typing import (
     Any,
+    Awaitable,
     Generic,
     Mapping,
     NewType,
@@ -145,6 +146,16 @@ class ItemNotFoundError(Exception):
             super().__init__(f"{message} (id='{item_id}')")
         else:
             super().__init__(f"Item '{item_id}' not found")
+
+
+_T = TypeVar("_T")
+
+
+async def try_or_none(coro: Awaitable[_T]) -> Optional[_T]:
+    try:
+        return await coro
+    except ItemNotFoundError:
+        return None
 
 
 id_generation_alphabet: str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"

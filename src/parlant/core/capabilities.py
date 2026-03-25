@@ -20,8 +20,15 @@ from typing import Awaitable, Callable, NewType, Optional, Sequence, TypedDict, 
 from typing_extensions import override, Self, Required
 
 from parlant.core import async_utils
-from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, Version, IdGenerator, UniqueId, md5_checksum
+from parlant.core.async_utils import ReaderWriterLock, safe_gather
+from parlant.core.common import (
+    ItemNotFoundError,
+    try_or_none,
+    Version,
+    IdGenerator,
+    UniqueId,
+    md5_checksum,
+)
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.vector_database import (
@@ -605,3 +612,97 @@ class CapabilityVectorStore(CapabilityStore):
 
         if not doc:
             raise ItemNotFoundError(item_id=UniqueId(capability_id))
+
+
+class CompositeCapabilityStore(CapabilityStore):
+    def __init__(
+        self,
+        writable_store: CapabilityStore,
+        readable_stores: Sequence[CapabilityStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[CapabilityStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_capability(
+        self,
+        title: str,
+        description: str,
+        creation_utc: Optional[datetime] = None,
+        signals: Optional[Sequence[str]] = None,
+        tags: Optional[Sequence[TagId]] = None,
+    ) -> Capability:
+        return await self._writable_store.create_capability(
+            title=title,
+            description=description,
+            creation_utc=creation_utc,
+            signals=signals,
+            tags=tags,
+        )
+
+    @override
+    async def update_capability(
+        self,
+        capability_id: CapabilityId,
+        params: CapabilityUpdateParams,
+    ) -> Capability:
+        return await self._writable_store.update_capability(capability_id, params)
+
+    @override
+    async def read_capability(
+        self,
+        capability_id: CapabilityId,
+    ) -> Capability:
+        results = await safe_gather(
+            *[try_or_none(store.read_capability(capability_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(capability_id))
+        return result
+
+    @override
+    async def list_capabilities(
+        self,
+        tags: Optional[Sequence[TagId]] = None,
+    ) -> Sequence[Capability]:
+        results = await safe_gather(
+            *[store.list_capabilities(tags=tags) for store in self._all_stores]
+        )
+        return list(chain.from_iterable(results))
+
+    @override
+    async def delete_capability(
+        self,
+        capability_id: CapabilityId,
+    ) -> None:
+        return await self._writable_store.delete_capability(capability_id)
+
+    @override
+    async def find_relevant_capabilities(
+        self,
+        query: str,
+        available_capabilities: Sequence[Capability],
+        max_count: int,
+    ) -> Sequence[Capability]:
+        return await self._writable_store.find_relevant_capabilities(
+            query, available_capabilities, max_count
+        )
+
+    @override
+    async def upsert_tag(
+        self,
+        capability_id: CapabilityId,
+        tag_id: TagId,
+        creation_utc: Optional[datetime] = None,
+    ) -> bool:
+        return await self._writable_store.upsert_tag(capability_id, tag_id, creation_utc)
+
+    @override
+    async def remove_tag(
+        self,
+        capability_id: CapabilityId,
+        tag_id: TagId,
+    ) -> None:
+        return await self._writable_store.remove_tag(capability_id, tag_id)

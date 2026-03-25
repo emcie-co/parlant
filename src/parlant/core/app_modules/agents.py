@@ -11,6 +11,7 @@ from parlant.core.agents import (
     MessageOutputMode,
 )
 from parlant.core.tags import TagId, TagStore
+from parlant.core.store_provider import APP_CALL_SITE, StoreProvider
 
 
 @dataclass(frozen=True)
@@ -23,12 +24,18 @@ class AgentModule:
     def __init__(
         self,
         logger: Logger,
-        agent_store: AgentStore,
-        tag_store: TagStore,
+        store_provider: StoreProvider,
     ):
         self._logger = logger
-        self._agent_store = agent_store
-        self._tag_store = tag_store
+        self._store_provider = store_provider
+
+    @property
+    def _agent_store(self) -> AgentStore:
+        return self._store_provider.get_store(AgentStore, APP_CALL_SITE)
+
+    @property
+    def _tag_store(self) -> TagStore:
+        return self._store_provider.get_store(TagStore, APP_CALL_SITE)
 
     async def _ensure_tag(self, tag_id: TagId) -> None:
         await self._tag_store.read_tag(tag_id)

@@ -5,6 +5,7 @@ from parlant.core.agents import AgentId, AgentStore
 from parlant.core.loggers import Logger
 from parlant.core.glossary import TermId, GlossaryStore, Term, TermUpdateParams
 from parlant.core.tags import Tag, TagId, TagStore
+from parlant.core.store_provider import APP_CALL_SITE, StoreProvider
 
 
 @dataclass(frozen=True)
@@ -17,14 +18,22 @@ class GlossaryModule:
     def __init__(
         self,
         logger: Logger,
-        glossary_store: GlossaryStore,
-        agent_store: AgentStore,
-        tag_store: TagStore,
+        store_provider: StoreProvider,
     ):
         self._logger = logger
-        self._glossary_store = glossary_store
-        self._agent_store = agent_store
-        self._tag_store = tag_store
+        self._store_provider = store_provider
+
+    @property
+    def _glossary_store(self) -> GlossaryStore:
+        return self._store_provider.get_store(GlossaryStore, APP_CALL_SITE)
+
+    @property
+    def _agent_store(self) -> AgentStore:
+        return self._store_provider.get_store(AgentStore, APP_CALL_SITE)
+
+    @property
+    def _tag_store(self) -> TagStore:
+        return self._store_provider.get_store(TagStore, APP_CALL_SITE)
 
     async def _ensure_tag(self, tag: TagId) -> None:
         if agent_id := Tag.extract_agent_id(tag):

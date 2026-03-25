@@ -16,12 +16,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from itertools import chain
 from typing import NewType, Optional, Sequence, cast
 from typing_extensions import override, TypedDict, Self
 
 
-from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, IdGenerator, UniqueId
+from parlant.core.async_utils import ReaderWriterLock, safe_gather
+from parlant.core.common import ItemNotFoundError, try_or_none, IdGenerator, UniqueId
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -301,3 +302,58 @@ class TagDocumentStore(TagStore):
 
         if result.deleted_count == 0:
             raise ItemNotFoundError(item_id=UniqueId(tag_id))
+
+
+class CompositeTagStore(TagStore):
+    def __init__(
+        self,
+        writable_store: TagStore,
+        readable_stores: Sequence[TagStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[TagStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_tag(
+        self,
+        name: str,
+        creation_utc: Optional[datetime] = None,
+    ) -> Tag:
+        return await self._writable_store.create_tag(name, creation_utc)
+
+    @override
+    async def read_tag(
+        self,
+        tag_id: TagId,
+    ) -> Tag:
+        results = await safe_gather(
+            *[try_or_none(store.read_tag(tag_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(tag_id))
+        return result
+
+    @override
+    async def update_tag(
+        self,
+        tag_id: TagId,
+        params: TagUpdateParams,
+    ) -> Tag:
+        return await self._writable_store.update_tag(tag_id, params)
+
+    @override
+    async def list_tags(
+        self,
+        name: Optional[str] = None,
+    ) -> Sequence[Tag]:
+        results = await safe_gather(*[store.list_tags(name=name) for store in self._all_stores])
+        return list(chain.from_iterable(results))
+
+    @override
+    async def delete_tag(
+        self,
+        tag_id: TagId,
+    ) -> None:
+        return await self._writable_store.delete_tag(tag_id)

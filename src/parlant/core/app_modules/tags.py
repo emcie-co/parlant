@@ -1,22 +1,31 @@
 from typing import Optional, Sequence
 
+from parlant.core.app_modules.application_context import ApplicationContext
 from parlant.core.loggers import Logger
 from parlant.core.tags import TagId, TagStore, Tag, TagUpdateParams
-from parlant.core.store_provider import APP_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProviderHints, StoreProvider
 
 
 class TagModule:
     def __init__(
         self,
+        application_context: ApplicationContext,
         logger: Logger,
         store_provider: StoreProvider,
     ):
+        self._application_context = application_context
         self._logger = logger
         self._store_provider = store_provider
 
     @property
     def _tag_store(self) -> TagStore:
-        return self._store_provider.get_store(TagStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            TagStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     async def create(self, name: str) -> Tag:
         tag = await self._tag_store.create_tag(name=name)

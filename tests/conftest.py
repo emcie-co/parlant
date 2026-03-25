@@ -30,6 +30,7 @@ from parlant.adapters.vector_db.transient import TransientVectorDatabase
 from parlant.api.app import create_api_app, ASGIApplication
 from parlant.api.authorization import AuthorizationPolicy, DevelopmentAuthorizationPolicy
 
+from parlant.core.app_modules.application_context import ApplicationContext
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.store_provider import BasicStoreProvider, StoreProvider
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
@@ -600,6 +601,7 @@ async def container(
         container[Engine] = Singleton(AlphaEngine)
 
         container[Application] = Singleton(Application)
+        container[ApplicationContext] = Singleton(ApplicationContext)
 
         yield container
 

@@ -20,7 +20,7 @@ from typing import Optional, Sequence, cast
 from parlant.core import async_utils
 from parlant.core.agents import AgentStore
 from parlant.core.background_tasks import BackgroundTaskService
-from parlant.core.common import JSONSerializable, md5_checksum
+from parlant.core.common import ItemNotFoundError, JSONSerializable, md5_checksum
 from parlant.core.evaluations import (
     Evaluation,
     EvaluationStatus,
@@ -69,7 +69,7 @@ from parlant.core.services.indexing.relative_action_proposer import (
     RelativeActionProposer,
     RelativeActionProposition,
 )
-from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 from parlant.core.services.indexing.tool_running_action_detector import (
     ToolRunningActionDetector,
     ToolRunningActionProposition,
@@ -371,11 +371,13 @@ class JourneyEvaluator:
 
     @property
     def _guideline_store(self) -> GuidelineStore:
-        return self._store_provider.get_store(GuidelineStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            GuidelineStore, StoreProviderHints(call_site="engine")
+        )
 
     @property
     def _journey_store(self) -> JourneyStore:
-        return self._store_provider.get_store(JourneyStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(JourneyStore, StoreProviderHints(call_site="engine"))
 
     async def _build_invoice_data(
         self,
@@ -529,7 +531,18 @@ class JourneyEvaluator:
                 node_id = extract_node_id_from_journey_node_guideline_id(guideline.id)
                 if node_id == JourneyStore.END_NODE_ID:
                     continue
-                node = await self._journey_store.read_node(node_id=node_id)
+
+                # Virtual nodes from sub-journey link resolution have
+                # namespaced IDs ({link_id}/{original_node_id}). Read the
+                # original node from the sub-journey store instead.
+                actual_node_id = node_id
+                if "/" in node_id:
+                    actual_node_id = JourneyNodeId(node_id.split("/")[-1])
+
+                try:
+                    node = await self._journey_store.read_node(node_id=actual_node_id)
+                except ItemNotFoundError:
+                    continue
 
                 # Store the guideline by node_id for later mapping
                 journey_to_node_guidelines[journey_id][node_id] = guideline
@@ -711,11 +724,13 @@ class BehavioralChangeEvaluator:
 
     @property
     def _agent_store(self) -> AgentStore:
-        return self._store_provider.get_store(AgentStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(AgentStore, StoreProviderHints(call_site="engine"))
 
     @property
     def _evaluation_store(self) -> EvaluationStore:
-        return self._store_provider.get_store(EvaluationStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            EvaluationStore, StoreProviderHints(call_site="engine")
+        )
 
     async def validate_payloads(
         self,

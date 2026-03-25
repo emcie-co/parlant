@@ -79,7 +79,7 @@ from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.relationships import RelationshipKind, RelationshipStore
-from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
@@ -155,15 +155,19 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
 
     @property
     def _guideline_store(self) -> GuidelineStore:
-        return self._store_provider.get_store(GuidelineStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            GuidelineStore, StoreProviderHints(call_site="engine")
+        )
 
     @property
     def _journey_store(self) -> JourneyStore:
-        return self._store_provider.get_store(JourneyStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(JourneyStore, StoreProviderHints(call_site="engine"))
 
     @property
     def _relationship_store(self) -> RelationshipStore:
-        return self._store_provider.get_store(RelationshipStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            RelationshipStore, StoreProviderHints(call_site="engine")
+        )
 
     @override
     async def create_matching_batches(

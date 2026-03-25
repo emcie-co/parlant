@@ -23,7 +23,7 @@ from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.services.indexing.common import EvaluationError, ProgressReport
 from parlant.core.services.tools.service_registry import ServiceRegistry
-from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 class GuidelineContinuousProposition(DefaultBaseModel):
@@ -51,7 +51,9 @@ class GuidelineContinuousProposer:
 
     @property
     def _service_registry(self) -> ServiceRegistry:
-        return self._store_provider.get_store(ServiceRegistry, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            ServiceRegistry, StoreProviderHints(call_site="engine")
+        )
 
     async def propose_continuous(
         self,

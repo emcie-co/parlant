@@ -49,7 +49,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
     measure_tool_call_batch,
 )
 from parlant.core.tools import Tool, ToolId, ToolParameterDescriptor, ToolParameterOptions
-from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 class ValidationStatus(Enum):
@@ -120,7 +120,9 @@ class OverlappingToolsBatch(ToolCallBatch):
 
     @property
     def _service_registry(self) -> ServiceRegistry:
-        return self._store_provider.get_store(ServiceRegistry, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            ServiceRegistry, StoreProviderHints(call_site="engine")
+        )
 
     async def process(self) -> ToolCallBatchResult:
         async with measure_tool_call_batch(self._meter, self):

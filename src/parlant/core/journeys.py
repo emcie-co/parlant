@@ -61,6 +61,7 @@ from parlant.core.tools import ToolId
 JourneyId = NewType("JourneyId", str)
 JourneyNodeId = NewType("JourneyNodeId", str)
 JourneyEdgeId = NewType("JourneyEdgeId", str)
+JourneyLinkId = NewType("JourneyLinkId", str)
 
 
 @dataclass(frozen=True)
@@ -86,6 +87,20 @@ class JourneyEdge:
     target: JourneyNodeId
     condition: Optional[str]
     metadata: Mapping[str, JSONSerializable]
+
+    def __hash__(self) -> int:
+        return hash(self.id)
+
+
+@dataclass(frozen=True)
+class JourneyLink:
+    id: JourneyLinkId
+    creation_utc: datetime
+    journey_id: JourneyId
+    source_node_id: JourneyNodeId
+    sub_journey_id: JourneyId
+    condition: Optional[str]
+    merge_node_id: JourneyNodeId
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -339,6 +354,34 @@ class JourneyStore(ABC):
         labels: Set[str],
     ) -> JourneyNode: ...
 
+    @abstractmethod
+    async def create_link(
+        self,
+        journey_id: JourneyId,
+        source_node_id: JourneyNodeId,
+        sub_journey_id: JourneyId,
+        condition: Optional[str] = None,
+        id: Optional[JourneyLinkId] = None,
+    ) -> JourneyLink: ...
+
+    @abstractmethod
+    async def read_link(
+        self,
+        link_id: JourneyLinkId,
+    ) -> JourneyLink: ...
+
+    @abstractmethod
+    async def list_links(
+        self,
+        journey_id: JourneyId,
+    ) -> Sequence[JourneyLink]: ...
+
+    @abstractmethod
+    async def delete_link(
+        self,
+        link_id: JourneyLinkId,
+    ) -> None: ...
+
 
 class JourneyDocument_v0_1_0(TypedDict, total=False):
     id: ObjectId
@@ -474,6 +517,17 @@ class JourneyTagAssociationDocument(TypedDict, total=False):
     tag_id: TagId
 
 
+class JourneyLinkAssociationDocument(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    journey_id: str
+    source_node_id: str
+    sub_journey_id: str
+    condition: Optional[str]
+    merge_node_id: str
+
+
 class JourneyVectorStore(JourneyStore):
     VERSION = Version.from_string("0.6.0")
 
@@ -500,6 +554,7 @@ class JourneyVectorStore(JourneyStore):
         self._condition_association_collection: DocumentCollection[
             JourneyConditionAssociationDocument
         ]
+        self._link_association_collection: DocumentCollection[JourneyLinkAssociationDocument]
 
         self._allow_migration = allow_migration
         self._collections_prefix = collections_prefix
@@ -673,6 +728,11 @@ class JourneyVectorStore(JourneyStore):
             },
         ).migrate(doc)
 
+    async def _link_association_loader(
+        self, doc: BaseDocument
+    ) -> Optional[JourneyLinkAssociationDocument]:
+        return cast(JourneyLinkAssociationDocument, doc)
+
     async def __aenter__(self) -> Self:
         embedder_type = await self._embedder_type_provider()
         self._embedder = self._embedder_factory.create_embedder(embedder_type)
@@ -737,6 +797,14 @@ class JourneyVectorStore(JourneyStore):
                     schema=JourneyConditionAssociationDocument,
                     document_loader=self._condition_association_loader,
                 )
+            )
+
+            self._link_association_collection = await self._document_db.get_or_create_collection(
+                name=f"{self._collections_prefix}_journey_links"
+                if self._collections_prefix
+                else "journey_links",
+                schema=JourneyLinkAssociationDocument,
+                document_loader=self._link_association_loader,
             )
 
         return self
@@ -854,6 +922,34 @@ class JourneyVectorStore(JourneyStore):
             target=JourneyNodeId(doc["target"]),
             condition=doc["condition"],
             metadata=doc["metadata"],
+        )
+
+    def _serialize_link(
+        self,
+        link: JourneyLink,
+    ) -> JourneyLinkAssociationDocument:
+        id_checksum = md5_checksum(f"{link.journey_id}{link.source_node_id}{link.sub_journey_id}")
+
+        return JourneyLinkAssociationDocument(
+            id=ObjectId(self._id_generator.generate(id_checksum)),
+            version=self.VERSION.to_string(),
+            creation_utc=link.creation_utc.isoformat(),
+            journey_id=link.journey_id,
+            source_node_id=link.source_node_id,
+            sub_journey_id=link.sub_journey_id,
+            condition=link.condition,
+            merge_node_id=link.merge_node_id,
+        )
+
+    def _deserialize_link(self, doc: JourneyLinkAssociationDocument) -> JourneyLink:
+        return JourneyLink(
+            id=JourneyLinkId(doc["id"]),
+            creation_utc=datetime.fromisoformat(doc["creation_utc"]),
+            journey_id=JourneyId(doc["journey_id"]),
+            source_node_id=JourneyNodeId(doc["source_node_id"]),
+            sub_journey_id=JourneyId(doc["sub_journey_id"]),
+            condition=doc.get("condition"),
+            merge_node_id=JourneyNodeId(doc["merge_node_id"]),
         )
 
     @staticmethod
@@ -1699,6 +1795,100 @@ class JourneyVectorStore(JourneyStore):
 
         return self._deserialize_node(result.updated_document)
 
+    @override
+    async def create_link(
+        self,
+        journey_id: JourneyId,
+        source_node_id: JourneyNodeId,
+        sub_journey_id: JourneyId,
+        condition: Optional[str] = None,
+        id: Optional[JourneyLinkId] = None,
+    ) -> JourneyLink:
+        creation_utc = datetime.now(timezone.utc)
+
+        # Create the merge fork node in the parent journey
+        merge_node = await self.create_node(
+            journey_id=journey_id,
+            action=None,
+            tools=[],
+            description=None,
+        )
+        await self.set_node_metadata(
+            node_id=merge_node.id,
+            key="journey_node",
+            value={"kind": "fork", "sub_journey_id": sub_journey_id},
+        )
+
+        link_id = id or JourneyLinkId(
+            self._id_generator.generate(
+                md5_checksum(f"{journey_id}{source_node_id}{sub_journey_id}")
+            )
+        )
+
+        link = JourneyLink(
+            id=link_id,
+            creation_utc=creation_utc,
+            journey_id=journey_id,
+            source_node_id=source_node_id,
+            sub_journey_id=sub_journey_id,
+            condition=condition,
+            merge_node_id=merge_node.id,
+        )
+
+        async with self._lock.writer_lock:
+            await self._link_association_collection.insert_one(document=self._serialize_link(link))
+
+        return link
+
+    @override
+    async def read_link(
+        self,
+        link_id: JourneyLinkId,
+    ) -> JourneyLink:
+        async with self._lock.reader_lock:
+            doc = await self._link_association_collection.find_one({"id": {"$eq": link_id}})
+
+            if not doc:
+                raise ItemNotFoundError(item_id=UniqueId(link_id))
+
+        return self._deserialize_link(doc)
+
+    @override
+    async def list_links(
+        self,
+        journey_id: JourneyId,
+    ) -> Sequence[JourneyLink]:
+        async with self._lock.reader_lock:
+            docs = await self._link_association_collection.find(
+                filters={"journey_id": {"$eq": journey_id}}
+            )
+
+        return [self._deserialize_link(doc) for doc in docs]
+
+    @override
+    async def delete_link(
+        self,
+        link_id: JourneyLinkId,
+    ) -> None:
+        async with self._lock.reader_lock:
+            link_doc = await self._link_association_collection.find_one({"id": {"$eq": link_id}})
+
+        if not link_doc:
+            raise ItemNotFoundError(item_id=UniqueId(link_id))
+
+        link = self._deserialize_link(link_doc)
+
+        # Delete the merge fork node
+        await self.delete_node(link.merge_node_id)
+
+        async with self._lock.writer_lock:
+            result = await self._link_association_collection.delete_one(
+                filters={"id": {"$eq": link_id}}
+            )
+
+        if result.deleted_count == 0:
+            raise ItemNotFoundError(item_id=UniqueId(link_id))
+
 
 class CompositeJourneyStore(JourneyStore):
     def __init__(
@@ -1989,3 +2179,48 @@ class CompositeJourneyStore(JourneyStore):
         labels: Set[str],
     ) -> JourneyNode:
         return await self._writable_store.remove_node_labels(node_id, labels)
+
+    @override
+    async def create_link(
+        self,
+        journey_id: JourneyId,
+        source_node_id: JourneyNodeId,
+        sub_journey_id: JourneyId,
+        condition: Optional[str] = None,
+        id: Optional[JourneyLinkId] = None,
+    ) -> JourneyLink:
+        return await self._writable_store.create_link(
+            journey_id=journey_id,
+            source_node_id=source_node_id,
+            sub_journey_id=sub_journey_id,
+            condition=condition,
+            id=id,
+        )
+
+    @override
+    async def read_link(
+        self,
+        link_id: JourneyLinkId,
+    ) -> JourneyLink:
+        results = await safe_gather(
+            *[try_or_none(store.read_link(link_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(link_id))
+        return result
+
+    @override
+    async def list_links(
+        self,
+        journey_id: JourneyId,
+    ) -> Sequence[JourneyLink]:
+        results = await safe_gather(*[store.list_links(journey_id) for store in self._all_stores])
+        return list(chain.from_iterable(results))
+
+    @override
+    async def delete_link(
+        self,
+        link_id: JourneyLinkId,
+    ) -> None:
+        return await self._writable_store.delete_link(link_id)

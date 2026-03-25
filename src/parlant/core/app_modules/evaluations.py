@@ -13,20 +13,25 @@ from parlant.core.evaluations import (
     PayloadKind,
 )
 from parlant.core.services.indexing.behavioral_change_evaluation import BehavioralChangeEvaluator
+from parlant.core.store_provider import APP_CALL_SITE, StoreProvider
 
 
 class EvaluationModule:
     def __init__(
         self,
         logger: Logger,
-        evaluation_store: EvaluationStore,
         evaluation_service: BehavioralChangeEvaluator,
         evaluation_listener: EvaluationListener,
+        store_provider: StoreProvider,
     ):
         self._logger = logger
-        self._evaluation_store = evaluation_store
+        self._store_provider = store_provider
         self._evaluation_service = evaluation_service
         self._evaluation_listener = evaluation_listener
+
+    @property
+    def _evaluation_store(self) -> EvaluationStore:
+        return self._store_provider.get_store(EvaluationStore, APP_CALL_SITE)
 
     async def create(self, payloads: Sequence[Payload]) -> Evaluation:
         evaluation_id = await self._evaluation_service.create_evaluation_task(

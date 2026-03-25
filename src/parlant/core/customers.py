@@ -15,13 +15,21 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from itertools import chain
 from typing import Iterator, Mapping, NewType, Optional, Sequence, cast
 from typing_extensions import override, TypedDict, Self
 
-from parlant.core.async_utils import ReaderWriterLock
+from parlant.core.async_utils import ReaderWriterLock, safe_gather
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
 from parlant.core.tags import TagId
-from parlant.core.common import ItemNotFoundError, UniqueId, Version, IdGenerator, md5_checksum
+from parlant.core.common import (
+    ItemNotFoundError,
+    try_or_none,
+    UniqueId,
+    Version,
+    IdGenerator,
+    md5_checksum,
+)
 from parlant.core.persistence.common import Cursor, ObjectId, SortDirection, Where
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -564,3 +572,118 @@ class CustomerDocumentStore(CustomerStore):
         assert result.updated_document
 
         return await self._deserialize_customer(customer_document=result.updated_document)
+
+
+class CompositeCustomerStore(CustomerStore):
+    def __init__(
+        self,
+        writable_store: CustomerStore,
+        readable_stores: Sequence[CustomerStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[CustomerStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_customer(
+        self,
+        name: str,
+        extra: Mapping[str, str] = {},
+        creation_utc: Optional[datetime] = None,
+        tags: Optional[Sequence[TagId]] = None,
+        id: Optional[CustomerId] = None,
+    ) -> Customer:
+        return await self._writable_store.create_customer(
+            name=name,
+            extra=extra,
+            creation_utc=creation_utc,
+            tags=tags,
+            id=id,
+        )
+
+    @override
+    async def read_customer(
+        self,
+        customer_id: CustomerId,
+    ) -> Customer:
+        results = await safe_gather(
+            *[try_or_none(store.read_customer(customer_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(customer_id))
+        return result
+
+    @override
+    async def update_customer(
+        self,
+        customer_id: CustomerId,
+        params: CustomerUpdateParams,
+    ) -> Customer:
+        return await self._writable_store.update_customer(customer_id, params)
+
+    @override
+    async def delete_customer(
+        self,
+        customer_id: CustomerId,
+    ) -> None:
+        return await self._writable_store.delete_customer(customer_id)
+
+    @override
+    async def list_customers(
+        self,
+        tags: Optional[Sequence[TagId]] = None,
+        limit: Optional[int] = None,
+        cursor: Optional[Cursor] = None,
+        sort_direction: Optional[SortDirection] = None,
+    ) -> CustomerListing:
+        results = await safe_gather(
+            *[
+                store.list_customers(
+                    tags=tags,
+                    limit=limit,
+                    cursor=cursor,
+                    sort_direction=sort_direction,
+                )
+                for store in self._all_stores
+            ]
+        )
+        all_items = list(chain.from_iterable(r.items for r in results))
+        return CustomerListing(
+            items=all_items,
+            total_count=sum(r.total_count for r in results),
+            has_more=any(r.has_more for r in results),
+        )
+
+    @override
+    async def upsert_tag(
+        self,
+        customer_id: CustomerId,
+        tag_id: TagId,
+        creation_utc: Optional[datetime] = None,
+    ) -> bool:
+        return await self._writable_store.upsert_tag(customer_id, tag_id, creation_utc)
+
+    @override
+    async def remove_tag(
+        self,
+        customer_id: CustomerId,
+        tag_id: TagId,
+    ) -> None:
+        return await self._writable_store.remove_tag(customer_id, tag_id)
+
+    @override
+    async def upsert_extra(
+        self,
+        customer_id: CustomerId,
+        extra: Mapping[str, str],
+    ) -> Customer:
+        return await self._writable_store.upsert_extra(customer_id, extra)
+
+    @override
+    async def remove_extra(
+        self,
+        customer_id: CustomerId,
+        keys: Sequence[str],
+    ) -> Customer:
+        return await self._writable_store.remove_extra(customer_id, keys)

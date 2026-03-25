@@ -15,11 +15,12 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from itertools import chain
 from typing import NewType, Optional, Sequence, cast
 from typing_extensions import override, TypedDict, Self
 
-from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, Version, IdGenerator, UniqueId
+from parlant.core.async_utils import ReaderWriterLock, safe_gather
+from parlant.core.common import ItemNotFoundError, try_or_none, Version, IdGenerator, UniqueId
 from parlant.core.guidelines import GuidelineId
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.document_database import (
@@ -202,3 +203,51 @@ class GuidelineToolAssociationDocumentStore(GuidelineToolAssociationStore):
     async def list_associations(self) -> Sequence[GuidelineToolAssociation]:
         async with self._lock.reader_lock:
             return [self._deserialize(d) for d in await self._collection.find(filters={})]
+
+
+class CompositeGuidelineToolAssociationStore(GuidelineToolAssociationStore):
+    def __init__(
+        self,
+        writable_store: GuidelineToolAssociationStore,
+        readable_stores: Sequence[GuidelineToolAssociationStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[GuidelineToolAssociationStore] = [
+            writable_store,
+            *readable_stores,
+        ]
+
+    @override
+    async def create_association(
+        self,
+        guideline_id: GuidelineId,
+        tool_id: ToolId,
+        creation_utc: Optional[datetime] = None,
+    ) -> GuidelineToolAssociation:
+        return await self._writable_store.create_association(guideline_id, tool_id, creation_utc)
+
+    @override
+    async def read_association(
+        self,
+        association_id: GuidelineToolAssociationId,
+    ) -> GuidelineToolAssociation:
+        results = await safe_gather(
+            *[try_or_none(store.read_association(association_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(association_id))
+        return result
+
+    @override
+    async def delete_association(
+        self,
+        association_id: GuidelineToolAssociationId,
+    ) -> None:
+        return await self._writable_store.delete_association(association_id)
+
+    @override
+    async def list_associations(self) -> Sequence[GuidelineToolAssociation]:
+        results = await safe_gather(*[store.list_associations() for store in self._all_stores])
+        return list(chain.from_iterable(results))

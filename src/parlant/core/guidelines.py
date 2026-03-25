@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from itertools import chain
 from typing import Mapping, NewType, Optional, Sequence, Set, cast
 from typing_extensions import override, TypedDict, Self
 from abc import ABC, abstractmethod
@@ -19,10 +20,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from parlant.core.agents import CompositionMode
-from parlant.core.async_utils import ReaderWriterLock
+from parlant.core.async_utils import ReaderWriterLock, safe_gather
 from parlant.core.common import (
     Criticality,
     ItemNotFoundError,
+    try_or_none,
     JSONSerializable,
     UniqueId,
     Version,
@@ -973,3 +975,151 @@ class GuidelineDocumentStore(GuidelineStore):
         assert result.updated_document
 
         return await self._deserialize(guideline_document=result.updated_document)
+
+
+class CompositeGuidelineStore(GuidelineStore):
+    def __init__(
+        self,
+        writable_store: GuidelineStore,
+        readable_stores: Sequence[GuidelineStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[GuidelineStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_guideline(
+        self,
+        condition: str,
+        action: Optional[str] = None,
+        description: Optional[str] = None,
+        criticality: Optional[Criticality] = None,
+        metadata: Mapping[str, JSONSerializable] = {},
+        creation_utc: Optional[datetime] = None,
+        enabled: bool = True,
+        tags: Optional[Sequence[TagId]] = None,
+        id: Optional[GuidelineId] = None,
+        composition_mode: Optional[CompositionMode] = None,
+        track: bool = True,
+        labels: Optional[Set[str]] = None,
+        priority: int = 0,
+    ) -> Guideline:
+        return await self._writable_store.create_guideline(
+            condition=condition,
+            action=action,
+            description=description,
+            criticality=criticality,
+            metadata=metadata,
+            creation_utc=creation_utc,
+            enabled=enabled,
+            tags=tags,
+            id=id,
+            composition_mode=composition_mode,
+            track=track,
+            labels=labels,
+            priority=priority,
+        )
+
+    @override
+    async def list_guidelines(
+        self,
+        tags: Optional[Sequence[TagId]] = None,
+        labels: Optional[Set[str]] = None,
+    ) -> Sequence[Guideline]:
+        results = await safe_gather(
+            *[store.list_guidelines(tags=tags, labels=labels) for store in self._all_stores]
+        )
+        return list(chain.from_iterable(results))
+
+    @override
+    async def read_guideline(
+        self,
+        guideline_id: GuidelineId,
+    ) -> Guideline:
+        results = await safe_gather(
+            *[try_or_none(store.read_guideline(guideline_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(guideline_id))
+        return result
+
+    @override
+    async def delete_guideline(
+        self,
+        guideline_id: GuidelineId,
+    ) -> None:
+        return await self._writable_store.delete_guideline(guideline_id)
+
+    @override
+    async def update_guideline(
+        self,
+        guideline_id: GuidelineId,
+        params: GuidelineUpdateParams,
+    ) -> Guideline:
+        return await self._writable_store.update_guideline(guideline_id, params)
+
+    @override
+    async def find_guideline(
+        self,
+        guideline_content: GuidelineContent,
+    ) -> Guideline:
+        results = await safe_gather(
+            *[try_or_none(store.find_guideline(guideline_content)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(
+                item_id=UniqueId(f"{guideline_content.condition}{guideline_content.action}")
+            )
+        return result
+
+    @override
+    async def upsert_tag(
+        self,
+        guideline_id: GuidelineId,
+        tag_id: TagId,
+        creation_utc: Optional[datetime] = None,
+    ) -> bool:
+        return await self._writable_store.upsert_tag(guideline_id, tag_id, creation_utc)
+
+    @override
+    async def remove_tag(
+        self,
+        guideline_id: GuidelineId,
+        tag_id: TagId,
+    ) -> None:
+        return await self._writable_store.remove_tag(guideline_id, tag_id)
+
+    @override
+    async def set_metadata(
+        self,
+        guideline_id: GuidelineId,
+        key: str,
+        value: JSONSerializable,
+    ) -> Guideline:
+        return await self._writable_store.set_metadata(guideline_id, key, value)
+
+    @override
+    async def unset_metadata(
+        self,
+        guideline_id: GuidelineId,
+        key: str,
+    ) -> Guideline:
+        return await self._writable_store.unset_metadata(guideline_id, key)
+
+    @override
+    async def upsert_labels(
+        self,
+        guideline_id: GuidelineId,
+        labels: Set[str],
+    ) -> Guideline:
+        return await self._writable_store.upsert_labels(guideline_id, labels)
+
+    @override
+    async def remove_labels(
+        self,
+        guideline_id: GuidelineId,
+        labels: Set[str],
+    ) -> Guideline:
+        return await self._writable_store.remove_labels(guideline_id, labels)

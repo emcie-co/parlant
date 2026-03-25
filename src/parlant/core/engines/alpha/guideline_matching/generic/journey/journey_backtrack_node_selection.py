@@ -23,6 +23,7 @@ from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
+from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
 
 
 PRE_ROOT_INDEX = "0"
@@ -400,18 +401,17 @@ class JourneyBacktrackNodeSelection:
     def __init__(
         self,
         logger: Logger,
-        guideline_store: GuidelineStore,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[JourneyBacktrackNodeSelectionSchema],
         examined_journey: Journey,
         context: GuidelineMatchingContext,
+        store_provider: StoreProvider,
         node_guidelines: Sequence[Guideline] = [],
         journey_path: Sequence[str | None] = [],
         journey_conditions: Sequence[Guideline] = [],
     ) -> None:
         self._logger = logger
-
-        self._guideline_store = guideline_store
+        self._store_provider = store_provider
 
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
@@ -433,6 +433,10 @@ class JourneyBacktrackNodeSelection:
         self._node_index_to_guideline_id: dict[str, GuidelineId] = {
             _get_guideline_node_index(g): g.id for g in node_guidelines
         }
+
+    @property
+    def _guideline_store(self) -> GuidelineStore:
+        return self._store_provider.get_store(GuidelineStore, ENGINE_CALL_SITE)
 
     def _get_root(self, node_guidelines: Sequence[Guideline]) -> Guideline:
         def _get_guideline_node_index(guideline: Guideline) -> str:

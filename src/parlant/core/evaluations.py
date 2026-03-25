@@ -17,6 +17,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum, auto
+from itertools import chain
 from typing import (
     Mapping,
     NamedTuple,
@@ -30,9 +31,10 @@ from typing import (
 from typing_extensions import Literal, override, TypedDict, Self
 
 from parlant.core.agents import AgentId
-from parlant.core.async_utils import ReaderWriterLock, Timeout
+from parlant.core.async_utils import ReaderWriterLock, Timeout, safe_gather
 from parlant.core.common import (
     ItemNotFoundError,
+    try_or_none,
     JSONSerializable,
     UniqueId,
     Version,
@@ -1031,3 +1033,74 @@ class PollingEvaluationListener(EvaluationListener):
                 return False
             else:
                 await timeout.wait_up_to(1)
+
+
+class CompositeEvaluationStore(EvaluationStore):
+    def __init__(
+        self,
+        writable_store: EvaluationStore,
+        readable_stores: Sequence[EvaluationStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[EvaluationStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_evaluation(
+        self,
+        payload_descriptors: Sequence[PayloadDescriptor],
+        creation_utc: Optional[datetime] = None,
+        extra: Optional[Mapping[str, JSONSerializable]] = None,
+        tags: Optional[Sequence[TagId]] = None,
+    ) -> Evaluation:
+        return await self._writable_store.create_evaluation(
+            payload_descriptors=payload_descriptors,
+            creation_utc=creation_utc,
+            extra=extra,
+            tags=tags,
+        )
+
+    @override
+    async def update_evaluation(
+        self,
+        evaluation_id: EvaluationId,
+        params: EvaluationUpdateParams,
+    ) -> Evaluation:
+        return await self._writable_store.update_evaluation(evaluation_id, params)
+
+    @override
+    async def read_evaluation(
+        self,
+        evaluation_id: EvaluationId,
+    ) -> Evaluation:
+        results = await safe_gather(
+            *[try_or_none(store.read_evaluation(evaluation_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(evaluation_id))
+        return result
+
+    @override
+    async def list_evaluations(
+        self,
+    ) -> Sequence[Evaluation]:
+        results = await safe_gather(*[store.list_evaluations() for store in self._all_stores])
+        return list(chain.from_iterable(results))
+
+    @override
+    async def upsert_tag(
+        self,
+        evaluation_id: EvaluationId,
+        tag_id: TagId,
+        creation_utc: Optional[datetime] = None,
+    ) -> bool:
+        return await self._writable_store.upsert_tag(evaluation_id, tag_id, creation_utc)
+
+    @override
+    async def remove_tag(
+        self,
+        evaluation_id: EvaluationId,
+        tag_id: TagId,
+    ) -> None:
+        return await self._writable_store.remove_tag(evaluation_id, tag_id)

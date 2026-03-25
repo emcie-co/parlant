@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Sequence
 
+from parlant.core.app_modules.application_context import ApplicationContext
 from parlant.core.loggers import Logger
 from parlant.core.agents import (
     AgentId,
@@ -11,7 +12,7 @@ from parlant.core.agents import (
     MessageOutputMode,
 )
 from parlant.core.tags import TagId, TagStore
-from parlant.core.store_provider import APP_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProviderHints, StoreProvider
 
 
 @dataclass(frozen=True)
@@ -23,19 +24,33 @@ class AgentTagUpdateParamsModel:
 class AgentModule:
     def __init__(
         self,
+        application_context: ApplicationContext,
         logger: Logger,
         store_provider: StoreProvider,
     ):
+        self._application_context = application_context
         self._logger = logger
         self._store_provider = store_provider
 
     @property
     def _agent_store(self) -> AgentStore:
-        return self._store_provider.get_store(AgentStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            AgentStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     @property
     def _tag_store(self) -> TagStore:
-        return self._store_provider.get_store(TagStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            TagStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     async def _ensure_tag(self, tag_id: TagId) -> None:
         await self._tag_store.read_tag(tag_id)

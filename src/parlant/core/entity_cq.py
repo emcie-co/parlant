@@ -60,7 +60,7 @@ from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tags import Tag
 from parlant.core.tools import ToolId, ToolService
 from parlant.core.canned_responses import CannedResponse, CannedResponseStore
-from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 class EntityQueries:
@@ -77,51 +77,65 @@ class EntityQueries:
 
     @property
     def _agent_store(self) -> AgentStore:
-        return self._store_provider.get_store(AgentStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(AgentStore, StoreProviderHints(call_site="engine"))
 
     @property
     def _session_store(self) -> SessionStore:
-        return self._store_provider.get_store(SessionStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(SessionStore, StoreProviderHints(call_site="engine"))
 
     @property
     def _guideline_store(self) -> GuidelineStore:
-        return self._store_provider.get_store(GuidelineStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            GuidelineStore, StoreProviderHints(call_site="engine")
+        )
 
     @property
     def _customer_store(self) -> CustomerStore:
-        return self._store_provider.get_store(CustomerStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(CustomerStore, StoreProviderHints(call_site="engine"))
 
     @property
     def _context_variable_store(self) -> ContextVariableStore:
-        return self._store_provider.get_store(ContextVariableStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            ContextVariableStore, StoreProviderHints(call_site="engine")
+        )
 
     @property
     def _relationship_store(self) -> RelationshipStore:
-        return self._store_provider.get_store(RelationshipStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            RelationshipStore, StoreProviderHints(call_site="engine")
+        )
 
     @property
     def _guideline_tool_association_store(self) -> GuidelineToolAssociationStore:
-        return self._store_provider.get_store(GuidelineToolAssociationStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            GuidelineToolAssociationStore, StoreProviderHints(call_site="engine")
+        )
 
     @property
     def _glossary_store(self) -> GlossaryStore:
-        return self._store_provider.get_store(GlossaryStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(GlossaryStore, StoreProviderHints(call_site="engine"))
 
     @property
     def _journey_store(self) -> JourneyStore:
-        return self._store_provider.get_store(JourneyStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(JourneyStore, StoreProviderHints(call_site="engine"))
 
     @property
     def _service_registry(self) -> ServiceRegistry:
-        return self._store_provider.get_store(ServiceRegistry, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            ServiceRegistry, StoreProviderHints(call_site="engine")
+        )
 
     @property
     def _canned_response_store(self) -> CannedResponseStore:
-        return self._store_provider.get_store(CannedResponseStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            CannedResponseStore, StoreProviderHints(call_site="engine")
+        )
 
     @property
     def _capability_store(self) -> CapabilityStore:
-        return self._store_provider.get_store(CapabilityStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            CapabilityStore, StoreProviderHints(call_site="engine")
+        )
 
     async def read_agent(
         self,
@@ -531,11 +545,13 @@ class EntityCommands:
 
     @property
     def _session_store(self) -> SessionStore:
-        return self._store_provider.get_store(SessionStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(SessionStore, StoreProviderHints(call_site="engine"))
 
     @property
     def _context_variable_store(self) -> ContextVariableStore:
-        return self._store_provider.get_store(ContextVariableStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            ContextVariableStore, StoreProviderHints(call_site="engine")
+        )
 
     async def update_session(
         self,

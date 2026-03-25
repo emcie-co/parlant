@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Sequence, Mapping
 
 from parlant.core.agents import AgentId, AgentStore
+from parlant.core.app_modules.application_context import ApplicationContext
 from parlant.core.common import JSONSerializable
 from parlant.core.canned_responses import (
     CannedResponse,
@@ -13,7 +14,7 @@ from parlant.core.canned_responses import (
 from parlant.core.journeys import JourneyId, JourneyStore
 from parlant.core.loggers import Logger
 from parlant.core.tags import Tag, TagId, TagStore
-from parlant.core.store_provider import APP_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProviderHints, StoreProvider
 
 
 @dataclass(frozen=True)
@@ -31,27 +32,53 @@ class CannedResponseMetadataUpdateParamsModel:
 class CannedResponseModule:
     def __init__(
         self,
+        application_context: ApplicationContext,
         logger: Logger,
         store_provider: StoreProvider,
     ):
+        self._application_context = application_context
         self._logger = logger
         self._store_provider = store_provider
 
     @property
     def _canrep_store(self) -> CannedResponseStore:
-        return self._store_provider.get_store(CannedResponseStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            CannedResponseStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     @property
     def _agent_store(self) -> AgentStore:
-        return self._store_provider.get_store(AgentStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            AgentStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     @property
     def _journey_store(self) -> JourneyStore:
-        return self._store_provider.get_store(JourneyStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            JourneyStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     @property
     def _tag_store(self) -> TagStore:
-        return self._store_provider.get_store(TagStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            TagStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     async def _ensure_tag(self, tag_id: TagId) -> None:
         if agent_id := Tag.extract_agent_id(tag_id):

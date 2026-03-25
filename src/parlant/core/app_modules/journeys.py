@@ -2,18 +2,22 @@ from dataclasses import dataclass
 from typing import Sequence, Set
 
 from parlant.core.agents import CompositionMode
+from parlant.core.app_modules.application_context import ApplicationContext
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
 from parlant.core.loggers import Logger
 from parlant.core.journeys import (
     JourneyEdge,
     JourneyId,
+    JourneyLink,
+    JourneyLinkId,
     JourneyNode,
+    JourneyNodeId,
     JourneyStore,
     Journey,
     JourneyUpdateParams,
 )
 from parlant.core.tags import Tag, TagId
-from parlant.core.store_provider import APP_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProviderHints, StoreProvider
 
 
 @dataclass(frozen=True)
@@ -50,19 +54,33 @@ class JourneyNodeLabelsUpdateParams:
 class JourneyModule:
     def __init__(
         self,
+        application_context: ApplicationContext,
         logger: Logger,
         store_provider: StoreProvider,
     ):
+        self._application_context = application_context
         self._logger = logger
         self._store_provider = store_provider
 
     @property
     def _journey_store(self) -> JourneyStore:
-        return self._store_provider.get_store(JourneyStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            JourneyStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     @property
     def _guideline_store(self) -> GuidelineStore:
-        return self._store_provider.get_store(GuidelineStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            GuidelineStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     async def create(
         self,
@@ -225,3 +243,37 @@ class JourneyModule:
                         guideline_id=trigger,
                         tag_id=Tag.for_journey_id(journey_id).id,
                     )
+
+    async def create_link(
+        self,
+        journey_id: JourneyId,
+        source_node_id: JourneyNodeId,
+        sub_journey_id: JourneyId,
+        condition: str | None = None,
+        id: JourneyLinkId | None = None,
+    ) -> JourneyLink:
+        return await self._journey_store.create_link(
+            journey_id=journey_id,
+            source_node_id=source_node_id,
+            sub_journey_id=sub_journey_id,
+            condition=condition,
+            id=id,
+        )
+
+    async def read_link(
+        self,
+        link_id: JourneyLinkId,
+    ) -> JourneyLink:
+        return await self._journey_store.read_link(link_id=link_id)
+
+    async def list_links(
+        self,
+        journey_id: JourneyId,
+    ) -> Sequence[JourneyLink]:
+        return await self._journey_store.list_links(journey_id=journey_id)
+
+    async def delete_link(
+        self,
+        link_id: JourneyLinkId,
+    ) -> None:
+        await self._journey_store.delete_link(link_id=link_id)

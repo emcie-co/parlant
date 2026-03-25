@@ -77,7 +77,7 @@ from parlant.core.common import Criticality, DefaultBaseModel, JSONSerializable
 from parlant.core.loggers import Logger
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import ToolId
-from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 DEFAULT_NO_MATCH_CANREP = "Not sure I understand. Could you please say that another way?"
 
@@ -554,7 +554,9 @@ class CannedResponseGenerator(MessageEventComposer):
 
     @property
     def _canned_response_store(self) -> CannedResponseStore:
-        return self._store_provider.get_store(CannedResponseStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            CannedResponseStore, StoreProviderHints(call_site="engine")
+        )
 
     def set_preamble_config(self, agent_id: AgentId, config: PreambleConfiguration) -> None:
         """Set preamble configuration for a specific agent."""

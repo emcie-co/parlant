@@ -1518,8 +1518,8 @@ async def test_that_relational_resolver_deprioritizes_target_guideline_when_sour
     result = await resolver.resolve(
         [g1, g2],
         [
-            GuidelineMatch(guideline=g1, score=8, rationale=""),
-            GuidelineMatch(guideline=g2, score=5, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
         ],
         journeys=[],
     )
@@ -1564,7 +1564,7 @@ async def test_that_relational_resolver_filters_tagged_guideline_when_custom_tag
     result = await resolver.resolve(
         [g1, g2],
         [
-            GuidelineMatch(guideline=g1, score=8, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # g2 is NOT matched — dependency unmet
         ],
         journeys=[],
@@ -1617,9 +1617,9 @@ async def test_that_relational_resolver_transitively_filters_guideline_depending
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=9, rationale=""),
-            GuidelineMatch(guideline=g2, score=7, rationale=""),
-            GuidelineMatch(guideline=g3, score=6, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -1627,7 +1627,7 @@ async def test_that_relational_resolver_transitively_filters_guideline_depending
     # Only g1 should remain:
     # - g2 is deprioritized by g1
     # - g3 depends on tag t1, whose member g2 was deprioritized, so g3 is filtered
-    assert result.matches == [GuidelineMatch(guideline=g1, score=9, rationale="")]
+    assert result.matches == [GuidelineMatch(guideline=g1, rationale="")]
 
     assert_resolutions(result, g1.id, [ResolutionKind.NONE])
     assert_resolutions(result, g2.id, [ResolutionKind.DEPRIORITIZED])
@@ -1685,10 +1685,10 @@ async def test_that_tag_priority_excludes_all_target_members_regardless_of_indiv
     result = await resolver.resolve(
         [g1_1, g1_2, g2_1, g2_2],
         [
-            GuidelineMatch(guideline=g1_1, score=10, rationale=""),
-            GuidelineMatch(guideline=g1_2, score=10, rationale=""),
-            GuidelineMatch(guideline=g2_1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2_2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1_1, rationale=""),
+            GuidelineMatch(guideline=g1_2, rationale=""),
+            GuidelineMatch(guideline=g2_1, rationale=""),
+            GuidelineMatch(guideline=g2_2, rationale=""),
         ],
         journeys=[],
     )
@@ -1746,10 +1746,10 @@ async def test_that_tag_priority_deprioritizes_all_guidelines_of_target_tag(
     result = await resolver.resolve(
         [g1_1, g1_2, g2_1, g2_2],
         [
-            GuidelineMatch(guideline=g1_1, score=10, rationale=""),
-            GuidelineMatch(guideline=g1_2, score=10, rationale=""),
-            GuidelineMatch(guideline=g2_1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2_2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1_1, rationale=""),
+            GuidelineMatch(guideline=g1_2, rationale=""),
+            GuidelineMatch(guideline=g2_1, rationale=""),
+            GuidelineMatch(guideline=g2_2, rationale=""),
         ],
         journeys=[],
     )
@@ -1812,9 +1812,9 @@ async def test_that_journey_tag_priority_deprioritizes_all_guidelines_of_target_
     result = await resolver.resolve(
         [g1, g2, j_cond],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=j_cond, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=j_cond, rationale=""),
         ],
         journeys=[journey],
     )
@@ -1870,8 +1870,8 @@ async def test_that_journey_tag_priority_deprioritizes_target_journey_tag(
     result = await resolver.resolve(
         [j1_g, j2_g],
         [
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
-            GuidelineMatch(guideline=j2_g, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
+            GuidelineMatch(guideline=j2_g, rationale=""),
         ],
         journeys=[j1, j2],
     )
@@ -1932,9 +1932,9 @@ async def test_that_tag_priority_deprioritizes_target_journey(
     result = await resolver.resolve(
         [g1, g2, j_g],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=j_g, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=j_g, rationale=""),
         ],
         journeys=[journey],
     )
@@ -1979,9 +1979,9 @@ async def test_that_tag_dependency_deactivates_tagged_guidelines_when_target_gui
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # g2 NOT matched
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -2023,9 +2023,9 @@ async def test_that_tag_dependency_deactivates_tagged_guidelines_when_target_tag
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # g2 NOT matched
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -2077,8 +2077,8 @@ async def test_that_journey_tag_dependency_deactivates_node_guidelines_when_targ
         [g1, j1_g, g_extra],
         [
             # g1 NOT matched
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
-            GuidelineMatch(guideline=g_extra, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
+            GuidelineMatch(guideline=g_extra, rationale=""),
         ],
         journeys=[j1],
     )
@@ -2123,8 +2123,8 @@ async def test_that_tag_dependency_deactivates_tagged_guidelines_when_target_jou
     result = await resolver.resolve(
         [g1, g_extra],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g_extra, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g_extra, rationale=""),
         ],
         journeys=[],  # j1 NOT active
     )
@@ -2174,8 +2174,8 @@ async def test_that_journey_tag_dependency_deactivates_node_guidelines_when_targ
     result = await resolver.resolve(
         [j1_g, g_extra],
         [
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
-            GuidelineMatch(guideline=g_extra, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
+            GuidelineMatch(guideline=g_extra, rationale=""),
         ],
         journeys=[j1],  # j2 NOT active
     )
@@ -2220,10 +2220,10 @@ async def test_that_guideline_depending_on_tag_is_filtered_when_no_tagged_guidel
     result = await resolver.resolve(
         [g1, g2, g3, g_extra],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # g2 NOT matched
             # g3 NOT matched
-            GuidelineMatch(guideline=g_extra, score=10, rationale=""),
+            GuidelineMatch(guideline=g_extra, rationale=""),
         ],
         journeys=[],
     )
@@ -2264,8 +2264,8 @@ async def test_that_guideline_depending_on_tag_survives_when_at_least_one_tagged
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # g3 NOT matched
         ],
         journeys=[],
@@ -2322,8 +2322,8 @@ async def test_that_guideline_depending_on_tag_survives_when_at_least_one_tagged
     result = await resolver.resolve(
         [g1, j1_g, j2_g],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
             # j2_g NOT matched
         ],
         journeys=[j1],  # only j1 active, j2 NOT active
@@ -2381,10 +2381,10 @@ async def test_that_guideline_depending_on_tag_is_filtered_when_no_tagged_journe
     result = await resolver.resolve(
         [g1, j1_g, j2_g, g_extra],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # j1_g NOT matched
             # j2_g NOT matched
-            GuidelineMatch(guideline=g_extra, score=10, rationale=""),
+            GuidelineMatch(guideline=g_extra, rationale=""),
         ],
         journeys=[],  # neither j1 nor j2 active
     )
@@ -2426,8 +2426,8 @@ async def test_that_tag_to_tag_dependency_survives_when_at_least_one_target_tag_
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # g3 NOT matched
         ],
         journeys=[],
@@ -2478,9 +2478,9 @@ async def test_that_journey_tag_dependency_survives_when_at_least_one_target_tag
     result = await resolver.resolve(
         [g1, g2, j1_g],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # g2 NOT matched
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
         ],
         journeys=[j1],
     )
@@ -2529,9 +2529,9 @@ async def test_that_tag_dependency_survives_when_tagged_journey_is_active_but_ta
     result = await resolver.resolve(
         [g1, g2, j1_g],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # g2 NOT matched
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
         ],
         journeys=[j1],  # j1 active
     )
@@ -2584,8 +2584,8 @@ async def test_that_hierarchical_guideline_dependency_cascades_when_root_is_not_
         [g1, g2, g3],
         [
             # G1 NOT matched
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -2634,9 +2634,9 @@ async def test_that_hierarchical_guideline_dependency_cascades_when_middle_is_no
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 NOT matched
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -2697,8 +2697,8 @@ async def test_that_hierarchical_journey_dependency_cascades_when_root_guideline
         [g1, j1_g, g2],
         [
             # G1 NOT matched
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
         ],
         journeys=[j1],
     )
@@ -2755,9 +2755,9 @@ async def test_that_hierarchical_journey_dependency_cascades_when_journey_is_not
     result = await resolver.resolve(
         [g1, j1_g, g2],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # j1_g NOT matched (journey not active)
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
         ],
         journeys=[],  # J1 NOT active
     )
@@ -2808,8 +2808,8 @@ async def test_that_hierarchical_tag_dependency_cascades_when_root_tag_member_is
         [g1, g2, g3],
         [
             # g1 NOT matched (T1 unmet)
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -2863,9 +2863,9 @@ async def test_that_hierarchical_tag_dependency_cascades_when_middle_tag_member_
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # g2 NOT matched (T2 unmet)
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -2930,8 +2930,8 @@ async def test_that_hierarchical_tag_journey_tag_dependency_cascades_when_root_t
         [g1, j1_g, g2],
         [
             # g1 NOT matched (T1 unmet)
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
         ],
         journeys=[j1],
     )
@@ -2992,9 +2992,9 @@ async def test_that_hierarchical_tag_journey_tag_dependency_cascades_when_journe
     result = await resolver.resolve(
         [g1, j1_g, g2],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # j1_g NOT matched (journey not active)
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
         ],
         journeys=[],  # J1 NOT active
     )
@@ -3056,8 +3056,8 @@ async def test_that_hierarchical_guideline_tag_journey_dependency_cascades_when_
         [g1, g_t1, j1_g],
         [
             # G1 NOT matched
-            GuidelineMatch(guideline=g_t1, score=10, rationale=""),
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
+            GuidelineMatch(guideline=g_t1, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
         ],
         journeys=[j1],
     )
@@ -3119,9 +3119,9 @@ async def test_that_hierarchical_guideline_tag_journey_dependency_cascades_when_
     result = await resolver.resolve(
         [g1, g_t1, j1_g],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # g_t1 NOT matched (T1 member unmet)
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
         ],
         journeys=[j1],
     )
@@ -3186,9 +3186,9 @@ async def test_that_condition_guideline_survives_when_its_journey_is_deprioritiz
     result = await resolver.resolve(
         [j1_cond, j1_node, g1],
         [
-            GuidelineMatch(guideline=j1_cond, score=10, rationale=""),
-            GuidelineMatch(guideline=j1_node, score=10, rationale=""),
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_cond, rationale=""),
+            GuidelineMatch(guideline=j1_node, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
         ],
         journeys=[j1],
     )
@@ -3238,7 +3238,7 @@ async def test_that_tag_priority_does_not_deprioritize_when_no_source_tag_member
         [g1_1, g2_1],
         [
             # g1_1 NOT matched
-            GuidelineMatch(guideline=g2_1, score=10, rationale=""),
+            GuidelineMatch(guideline=g2_1, rationale=""),
         ],
         journeys=[],
     )
@@ -3282,8 +3282,8 @@ async def test_that_tag_dependency_allows_tagged_guidelines_when_dependency_is_m
     result = await resolver.resolve(
         [g1, g2],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
         ],
         journeys=[],
     )
@@ -3338,9 +3338,9 @@ async def test_that_tag_priority_transitively_filters_guideline_depending_on_dep
     result = await resolver.resolve(
         [g1_1, g2_1, g3],
         [
-            GuidelineMatch(guideline=g1_1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2_1, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1_1, rationale=""),
+            GuidelineMatch(guideline=g2_1, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -3399,8 +3399,8 @@ async def test_that_custom_tagged_journey_deprioritizes_guidelines_with_lower_pr
     result = await resolver.resolve(
         [j1_node, g1],
         [
-            GuidelineMatch(guideline=j1_node, score=10, rationale=""),
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_node, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
         ],
         journeys=[j1],
     )
@@ -3455,8 +3455,8 @@ async def test_that_higher_priority_tag_deprioritizes_journey_with_matching_cust
     result = await resolver.resolve(
         [j1_node, g1],
         [
-            GuidelineMatch(guideline=j1_node, score=10, rationale=""),
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_node, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
         ],
         journeys=[j1],
     )
@@ -3512,9 +3512,9 @@ async def test_that_custom_tagged_journey_dependency_deactivates_node_guidelines
     result = await resolver.resolve(
         [j1_node, g1, g_extra],
         [
-            GuidelineMatch(guideline=j1_node, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_node, rationale=""),
             # g1 NOT matched
-            GuidelineMatch(guideline=g_extra, score=10, rationale=""),
+            GuidelineMatch(guideline=g_extra, rationale=""),
         ],
         journeys=[j1],
     )
@@ -3570,8 +3570,8 @@ async def test_that_tag_dependency_on_custom_tagged_journey_deactivates_when_jou
         [j1_node, g1, g_extra],
         [
             # j1_node NOT matched (journey not active)
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g_extra, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g_extra, rationale=""),
         ],
         journeys=[],  # j1 NOT active
     )
@@ -3666,14 +3666,14 @@ async def test_that_relational_resolver_deprioritizes_journey_scoped_guideline_w
     result = await resolver.resolve(
         [g1, g2],
         [
-            GuidelineMatch(guideline=g1, score=8, rationale=""),
-            GuidelineMatch(guideline=g2, score=5, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
         ],
         journeys=[j1, j2],
     )
 
     # Only g1 (from the prioritized journey) should survive
-    assert result.matches == [GuidelineMatch(guideline=g1, score=8, rationale="")]
+    assert result.matches == [GuidelineMatch(guideline=g1, rationale="")]
 
     # Resolution assertions
     assert_resolutions(result, g1.id, [ResolutionKind.NONE])
@@ -3739,14 +3739,14 @@ async def test_that_relational_resolver_deprioritizes_journey_scoped_guideline_w
     result = await resolver.resolve(
         [g_standalone, g_scoped],
         [
-            GuidelineMatch(guideline=g_standalone, score=8, rationale=""),
-            GuidelineMatch(guideline=g_scoped, score=5, rationale=""),
+            GuidelineMatch(guideline=g_standalone, rationale=""),
+            GuidelineMatch(guideline=g_scoped, rationale=""),
         ],
         journeys=[j1],
     )
 
     # Only the standalone guideline should survive
-    assert result.matches == [GuidelineMatch(guideline=g_standalone, score=8, rationale="")]
+    assert result.matches == [GuidelineMatch(guideline=g_standalone, rationale="")]
 
     # Resolution assertions
     assert_resolutions(result, g_standalone.id, [ResolutionKind.NONE])
@@ -3804,9 +3804,9 @@ async def test_that_diamond_dependency_filters_all_dependents_when_root_is_not_m
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
             # G4 NOT matched
         ],
         journeys=[],
@@ -3873,10 +3873,10 @@ async def test_that_diamond_dependency_keeps_all_when_root_is_matched(
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
-            GuidelineMatch(guideline=g4, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
+            GuidelineMatch(guideline=g4, rationale=""),
         ],
         journeys=[],
     )
@@ -3929,9 +3929,9 @@ async def test_that_any_semantics_survives_cascading_failure_within_tag_member(
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
             # G4 NOT matched → G2 will be filtered
         ],
         journeys=[],
@@ -3992,9 +3992,9 @@ async def test_that_any_semantics_filters_when_all_tag_members_cascade_fail(
     result = await resolver.resolve(
         [g1, g2, g3, g4, g5],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
             # G4 NOT matched
             # G5 NOT matched
         ],
@@ -4038,8 +4038,8 @@ async def test_that_empty_tag_dependency_filters_dependent_guideline(
     result = await resolver.resolve(
         [g1, g_extra],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g_extra, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g_extra, rationale=""),
         ],
         journeys=[],
     )
@@ -4088,8 +4088,8 @@ async def test_that_multiple_independent_dependencies_must_all_be_met(
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # g3 NOT matched (T1 unmet)
         ],
         journeys=[],
@@ -4144,9 +4144,9 @@ async def test_that_multiple_independent_dependencies_survive_when_all_met(
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -4207,9 +4207,9 @@ async def test_that_multi_iteration_convergence_filters_dependent_when_transitiv
         [g1, g2, g3, g4],
         [
             # G1 NOT matched
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
-            GuidelineMatch(guideline=g4, score=10, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
+            GuidelineMatch(guideline=g4, rationale=""),
         ],
         journeys=[],
     )
@@ -4258,9 +4258,9 @@ async def test_that_numerical_priority_filtering_removes_dependent_when_dependen
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -4299,8 +4299,8 @@ async def test_that_numerical_priority_filtering_keeps_dependent_when_dependency
     result = await resolver.resolve(
         [g1, g2],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
         ],
         journeys=[],
     )
@@ -4345,9 +4345,9 @@ async def test_that_numerical_priority_filtering_cascades_through_tag_dependency
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -4394,9 +4394,9 @@ async def test_that_numerical_priority_filtering_with_tag_any_keeps_dependent_wh
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -4441,8 +4441,8 @@ async def test_that_tag_all_dependency_filters_when_not_all_members_matched(
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # G3 NOT matched
         ],
         journeys=[],
@@ -4483,9 +4483,9 @@ async def test_that_tag_all_dependency_survives_when_all_members_matched(
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -4526,8 +4526,8 @@ async def test_that_tag_any_dependency_survives_when_one_of_two_members_matched(
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # G3 NOT matched
         ],
         journeys=[],
@@ -4568,7 +4568,7 @@ async def test_that_tag_any_dependency_filters_when_no_members_matched(
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 NOT matched
             # G3 NOT matched
         ],
@@ -4619,10 +4619,10 @@ async def test_that_mixed_tag_all_and_tag_any_dependencies_both_evaluated(
     result = await resolver.resolve(
         [g1, g2, g3, g4, g5],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
-            GuidelineMatch(guideline=g4, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
+            GuidelineMatch(guideline=g4, rationale=""),
             # G5 NOT matched
         ],
         journeys=[],
@@ -4675,10 +4675,10 @@ async def test_that_mixed_tag_all_and_tag_any_filters_when_tag_all_not_fully_met
     result = await resolver.resolve(
         [g1, g2, g3, g4, g5],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # G3 NOT matched
-            GuidelineMatch(guideline=g4, score=10, rationale=""),
+            GuidelineMatch(guideline=g4, rationale=""),
             # G5 NOT matched
         ],
         journeys=[],
@@ -4723,8 +4723,8 @@ async def test_that_dependency_any_group_survives_when_one_target_is_matched(
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # G3 NOT matched
         ],
         journeys=[],
@@ -4765,7 +4765,7 @@ async def test_that_dependency_any_group_filters_when_no_target_is_matched(
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 NOT matched
             # G3 NOT matched
         ],
@@ -4816,10 +4816,10 @@ async def test_that_mixed_dependency_all_and_dependency_any_requires_both(
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # G3 NOT matched
-            GuidelineMatch(guideline=g4, score=10, rationale=""),
+            GuidelineMatch(guideline=g4, rationale=""),
         ],
         journeys=[],
     )
@@ -4868,10 +4868,10 @@ async def test_that_mixed_dependency_all_and_dependency_any_filters_when_and_dep
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 NOT matched
             # G3 NOT matched
-            GuidelineMatch(guideline=g4, score=10, rationale=""),
+            GuidelineMatch(guideline=g4, rationale=""),
         ],
         journeys=[],
     )
@@ -4923,8 +4923,8 @@ async def test_that_two_dependency_any_groups_are_anded_together(
     result = await resolver.resolve(
         [g1, g2, g3, g4, g5],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # G3, G4, G5 NOT matched
         ],
         journeys=[],
@@ -4982,10 +4982,10 @@ async def test_that_dependency_any_group_with_tag_all_target_falls_back_to_guide
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # G3 NOT matched → AllOf(T1) fails
-            GuidelineMatch(guideline=g4, score=10, rationale=""),
+            GuidelineMatch(guideline=g4, rationale=""),
         ],
         journeys=[],
     )
@@ -5050,8 +5050,8 @@ async def test_that_dependency_any_group_with_journey_targets_survives_when_one_
     result = await resolver.resolve(
         [g1, j1_g, j2_g],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
         ],
         journeys=[j1],  # Only J1 active
     )
@@ -5100,9 +5100,9 @@ async def test_that_dependency_any_group_survives_when_one_target_cascading_fail
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
             # G4 NOT matched → G2 will be filtered
         ],
         journeys=[],
@@ -5145,10 +5145,10 @@ async def test_that_dependency_any_group_survives_when_priority_removes_one_targ
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
-            GuidelineMatch(guideline=g4, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
+            GuidelineMatch(guideline=g4, rationale=""),
         ],
         journeys=[],
     )
@@ -5200,9 +5200,9 @@ async def test_that_tag_all_dependency_cascades_when_one_member_own_dependency_f
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
             # G4 NOT matched → G2 will be filtered
         ],
         journeys=[],
@@ -5241,7 +5241,7 @@ async def test_that_single_target_dependency_any_group_filters_when_target_not_m
     result = await resolver.resolve(
         [g1, g2],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 NOT matched
         ],
         journeys=[],
@@ -5290,8 +5290,8 @@ async def test_that_shared_target_in_dependency_all_and_dependency_any_survives_
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # G3 NOT matched
         ],
         journeys=[],
@@ -5341,9 +5341,9 @@ async def test_that_shared_target_in_dependency_all_and_dependency_any_filters_w
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 NOT matched
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -5381,7 +5381,7 @@ async def test_that_numerical_priority_does_not_filter_entailer_when_entailed_ha
     result = await resolver.resolve(
         [g1, g2],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 NOT initially matched — should be added via entailment
         ],
         journeys=[],
@@ -5427,7 +5427,7 @@ async def test_that_chained_entailment_activates_all_linked_guidelines(
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 and G3 NOT initially matched
         ],
         journeys=[],
@@ -5472,7 +5472,7 @@ async def test_that_entailed_guideline_is_filtered_when_its_dependency_is_unmet(
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 not initially matched (entailed by G1)
             # G3 NOT matched
         ],
@@ -5523,9 +5523,9 @@ async def test_that_entailed_guideline_survives_when_its_dependency_any_group_is
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 not initially matched (entailed)
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
             # G4 NOT matched
         ],
         journeys=[],
@@ -5575,10 +5575,10 @@ async def test_that_relational_priority_on_dependency_any_target_does_not_break_
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
-            GuidelineMatch(guideline=g4, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
+            GuidelineMatch(guideline=g4, rationale=""),
         ],
         journeys=[],
     )
@@ -5632,9 +5632,9 @@ async def test_that_dependency_any_group_with_tag_all_target_succeeds_when_all_m
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
             # G4 NOT matched — but AllOf(T1) succeeds so OR group is met
         ],
         journeys=[],

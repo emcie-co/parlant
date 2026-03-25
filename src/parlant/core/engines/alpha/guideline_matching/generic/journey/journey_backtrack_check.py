@@ -31,7 +31,7 @@ from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
-from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 FORK_NODE_ACTION_STR = "No action to perform in this node"
 EXIT_JOURNEY_INSTRUCTION = "There are no further transitions."
@@ -85,7 +85,9 @@ class JourneyBacktrackCheck:
 
     @property
     def _guideline_store(self) -> GuidelineStore:
-        return self._store_provider.get_store(GuidelineStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            GuidelineStore, StoreProviderHints(call_site="engine")
+        )
 
     def _build_node_wrappers(self, guidelines: Sequence[Guideline]) -> dict[str, _JourneyNode]:
         def _get_guideline_node_index(guideline: Guideline) -> str:

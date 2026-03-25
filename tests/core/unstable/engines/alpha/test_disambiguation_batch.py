@@ -39,7 +39,6 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matching_context im
 )
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.evaluations import GuidelinePayload, PayloadOperation
-from parlant.core.journeys import JourneyStore
 from parlant.core.glossary import Term, TermId
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import Logger
@@ -47,6 +46,7 @@ from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.services.indexing.behavioral_change_evaluation import GuidelineEvaluator
 from parlant.core.sessions import EventSource, Session
+from parlant.core.store_provider import BasicStoreProvider
 from parlant.core.tags import TagId
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter, nlp_test
@@ -322,12 +322,12 @@ async def base_test_that_ambiguity_detected_with_relevant_guidelines(
     disambiguation_resolver = GenericDisambiguationGuidelineMatchingBatch(
         logger=context.logger,
         meter=context.container[Meter],
-        journey_store=context.container[JourneyStore],
         optimization_policy=context.container[OptimizationPolicy],
         schematic_generator=context.schematic_generator,
         disambiguation_guideline=guideline_head,
         disambiguation_targets=guideline_targets,
         context=guideline_matching_context,
+        store_provider=BasicStoreProvider(lambda: context.container),
     )
     result = await disambiguation_resolver.process()
 

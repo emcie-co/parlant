@@ -270,7 +270,7 @@ from parlant.core.engines.alpha.planners import (
     PlannerProvider,
 )
 from parlant.bin.server import PARLANT_HOME_DIR, start_parlant, StartupParameters
-from parlant.core.store_provider import SDK_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 from parlant.core.services.tools.plugins import PluginServer, ToolEntry, tool
 from parlant.core.tags import Tag as _Tag, TagDocumentStore, TagId, TagStore
 from parlant.core.tools import (
@@ -778,7 +778,7 @@ class _CachedEvaluator:
 
         while True:
             evaluation = await self._store_provider.get_store(
-                EvaluationStore, SDK_CALL_SITE
+                EvaluationStore, StoreProviderHints(call_site="sdk")
             ).read_evaluation(
                 evaluation_id=evaluation_id,
             )
@@ -856,7 +856,7 @@ class _CachedEvaluator:
 
         while True:
             evaluation = await self._store_provider.get_store(
-                EvaluationStore, SDK_CALL_SITE
+                EvaluationStore, StoreProviderHints(call_site="sdk")
             ).read_evaluation(
                 evaluation_id=evaluation_id,
             )
@@ -1421,7 +1421,7 @@ class Guideline:
             entity_target = self_entity
 
         relationship = await self._store_provider.get_store(
-            RelationshipStore, SDK_CALL_SITE
+            RelationshipStore, StoreProviderHints(call_site="sdk")
         ).create_relationship(
             source=entity_source,
             target=entity_target,
@@ -1527,7 +1527,7 @@ class JourneyState:
 
             [
                 await self._journey._store_provider.get_store(
-                    RelationshipStore, SDK_CALL_SITE
+                    RelationshipStore, StoreProviderHints(call_site="sdk")
                 ).create_relationship(
                     source=RelationshipEntity(
                         id=_Tag.for_journey_node_id(actual_state.id).id,
@@ -1587,7 +1587,7 @@ class JourneyState:
 
             for canrep_id in canned_responses:
                 await self._journey._store_provider.get_store(
-                    CannedResponseStore, SDK_CALL_SITE
+                    CannedResponseStore, StoreProviderHints(call_site="sdk")
                 ).upsert_tag(
                     canned_response_id=canrep_id,
                     tag_id=_Tag.for_journey_node_id(actual_state.id).id,
@@ -1607,45 +1607,34 @@ class JourneyState:
                 "Cannot transition to sub-journey from a state without a parent journey."
             )
 
-        # Create mappings for states and transitions for easy lookup
-        state_mapping: dict[JourneyStateId, JourneyState] = {}
-        transitions_by_source: dict[JourneyStateId, list[JourneyTransition[JourneyState]]] = (
-            defaultdict(list)
-        )
-        for transition in journey.transitions:
-            transitions_by_source[transition.source.id].append(transition)
+        app = self._journey._container[_Application]
 
-        # Create merge fork state for leaf nodes
-        fork_state = await self._journey._create_state(
-            ForkJourneyState,
-            metadata={"sub_journey_id": journey.id},
+        link = await app.journeys.create_link(
+            journey_id=JourneyId(self._journey.id),
+            source_node_id=JourneyNodeId(self.id),
+            sub_journey_id=JourneyId(journey.id),
+            condition=condition,
         )
 
-        async def create_mapped_state(state: JourneyState) -> JourneyState:
-            assert self._journey  # We already checked this above
+        # Create a ForkJourneyState wrapping the merge node so callers can chain from it
+        merge_node = await self._journey._store_provider.get_store(
+            JourneyStore, StoreProviderHints(call_site="sdk")
+        ).read_node(link.merge_node_id)
 
-            metadata = dict(state.metadata)
-            metadata["journey_node"] = {
-                **cast(dict[str, JSONSerializable], metadata.get("journey_node", {})),
-                "journey_id": self._journey.id,
-                "sub_journey_id": journey.id,
-            }
+        fork_state = ForkJourneyState(
+            id=JourneyStateId(merge_node.id),
+            action=merge_node.action,
+            tools=[],
+            metadata=dict(merge_node.metadata),
+            description=merge_node.description,
+            _journey=self._journey,
+        )
 
-            # Create the new state
-            if state.tools:
-                new_state = cast(
-                    JourneyState,
-                    await self._journey._create_state(
-                        ToolJourneyState,
-                        action=state.action,
-                        tools=state.tools,
-                        metadata=metadata,
-                    ),
-                )
+        cast(list[JourneyState], self._journey.states).append(fork_state)
 
                 [
                     await self._journey._store_provider.get_store(
-                        RelationshipStore, SDK_CALL_SITE
+                        RelationshipStore, StoreProviderHints(call_site="sdk")
                     ).create_relationship(
                         source=RelationshipEntity(
                             id=_Tag.for_journey_node_id(new_state.id).id,
@@ -1691,7 +1680,7 @@ class JourneyState:
 
             # Get all canned responses associated with the original state
             canned_response_store = self._journey._store_provider.get_store(
-                CannedResponseStore, SDK_CALL_SITE
+                CannedResponseStore, StoreProviderHints(call_site="sdk")
             )
             canreps = await canned_response_store.list_canned_responses(tags=[original_state_tag])
 
@@ -2608,7 +2597,9 @@ class Journey:
             composition_mode if composition_mode is not None else self.composition_mode
         )
 
-        node = await self._store_provider.get_store(JourneyStore, SDK_CALL_SITE).create_node(
+        node = await self._store_provider.get_store(
+            JourneyStore, StoreProviderHints(call_site="sdk")
+        ).create_node(
             journey_id=self.id,
             action=action,
             tools=[_tool_ref_to_id(t) for t in tools],
@@ -2618,7 +2609,9 @@ class Journey:
             labels=set(labels) if labels else None,
         )
 
-        node = await self._store_provider.get_store(JourneyStore, SDK_CALL_SITE).set_node_metadata(
+        node = await self._store_provider.get_store(
+            JourneyStore, StoreProviderHints(call_site="sdk")
+        ).set_node_metadata(
             node_id=node.id,
             key="journey_node",
             value={"kind": metadata_type},
@@ -2626,7 +2619,7 @@ class Journey:
 
         for k, v in metadata.items():
             node = await self._store_provider.get_store(
-                JourneyStore, SDK_CALL_SITE
+                JourneyStore, StoreProviderHints(call_site="sdk")
             ).set_node_metadata(
                 node_id=node.id,
                 key=k,
@@ -2673,7 +2666,9 @@ class Journey:
 
         self._server._advance_creation_progress()
 
-        transition = await self._store_provider.get_store(JourneyStore, SDK_CALL_SITE).create_edge(
+        transition = await self._store_provider.get_store(
+            JourneyStore, StoreProviderHints(call_site="sdk")
+        ).create_edge(
             journey_id=self.id,
             source=source.id,
             target=target.id if target else END_JOURNEY.id,
@@ -2834,7 +2829,7 @@ class Journey:
         tool_id = _tool_ref_to_id(tool)
 
         guideline = await self._store_provider.get_store(
-            GuidelineStore, SDK_CALL_SITE
+            GuidelineStore, StoreProviderHints(call_site="sdk")
         ).create_guideline(
             condition=condition,
             action=None,
@@ -2846,7 +2841,9 @@ class Journey:
             [tool_id],
         )
 
-        await self._store_provider.get_store(RelationshipStore, SDK_CALL_SITE).create_relationship(
+        await self._store_provider.get_store(
+            RelationshipStore, StoreProviderHints(call_site="sdk")
+        ).create_relationship(
             source=RelationshipEntity(
                 id=guideline.id,
                 kind=RelationshipEntityKind.GUIDELINE,
@@ -2859,7 +2856,7 @@ class Journey:
         )
 
         await self._store_provider.get_store(
-            GuidelineToolAssociationStore, SDK_CALL_SITE
+            GuidelineToolAssociationStore, StoreProviderHints(call_site="sdk")
         ).create_association(
             guideline_id=guideline.id,
             tool_id=tool_id,
@@ -2896,7 +2893,7 @@ class Journey:
         self._server._advance_creation_progress()
 
         canrep = await self._store_provider.get_store(
-            CannedResponseStore, SDK_CALL_SITE
+            CannedResponseStore, StoreProviderHints(call_site="sdk")
         ).create_canned_response(
             value=template,
             tags=[_Tag.for_journey_id(self.id).id, *[t.id for t in tags]],
@@ -2995,7 +2992,7 @@ class Journey:
             entity_target = self_entity
 
         relationship = await self._store_provider.get_store(
-            RelationshipStore, SDK_CALL_SITE
+            RelationshipStore, StoreProviderHints(call_site="sdk")
         ).create_relationship(
             source=entity_source,
             target=entity_target,
@@ -3053,7 +3050,9 @@ class Variable:
     async def set_value_for_customer(self, customer: Customer, value: JSONSerializable) -> None:
         """Sets the value of the variable for a specific customer."""
 
-        await self._store_provider.get_store(ContextVariableStore, SDK_CALL_SITE).update_value(
+        await self._store_provider.get_store(
+            ContextVariableStore, StoreProviderHints(call_site="sdk")
+        ).update_value(
             variable_id=self.id,
             key=customer.id,
             data=value,
@@ -3062,7 +3061,9 @@ class Variable:
     async def set_value_for_tag(self, tag: TagId, value: JSONSerializable) -> None:
         """Sets the value of the variable for a specific tag (e.g., a customer group tag)."""
 
-        await self._store_provider.get_store(ContextVariableStore, SDK_CALL_SITE).update_value(
+        await self._store_provider.get_store(
+            ContextVariableStore, StoreProviderHints(call_site="sdk")
+        ).update_value(
             variable_id=self.id,
             key=f"tag:{tag}",
             data=value,
@@ -3071,7 +3072,9 @@ class Variable:
     async def set_global_value(self, value: JSONSerializable) -> None:
         """Sets the global value of the variable, which is accessible to all customers by default."""
 
-        await self._store_provider.get_store(ContextVariableStore, SDK_CALL_SITE).update_value(
+        await self._store_provider.get_store(
+            ContextVariableStore, StoreProviderHints(call_site="sdk")
+        ).update_value(
             variable_id=self.id,
             key=ContextVariableStore.GLOBAL_KEY,
             data=value,
@@ -3081,7 +3084,7 @@ class Variable:
         """Retrieves the value of the variable for a specific customer."""
 
         value = await self._store_provider.get_store(
-            ContextVariableStore, SDK_CALL_SITE
+            ContextVariableStore, StoreProviderHints(call_site="sdk")
         ).read_value(
             variable_id=self.id,
             key=customer.id,
@@ -3092,7 +3095,7 @@ class Variable:
     async def get_value_for_tag(self, tag: TagId) -> JSONSerializable | None:
         """Retrieves the value of the variable for a specific tag (e.g., a customer group tag)."""
         value = await self._store_provider.get_store(
-            ContextVariableStore, SDK_CALL_SITE
+            ContextVariableStore, StoreProviderHints(call_site="sdk")
         ).read_value(
             variable_id=self.id,
             key=f"tag:{tag}",
@@ -3104,7 +3107,7 @@ class Variable:
         """Retrieves the global value of the variable, which is accessible to all customers by default."""
 
         value = await self._store_provider.get_store(
-            ContextVariableStore, SDK_CALL_SITE
+            ContextVariableStore, StoreProviderHints(call_site="sdk")
         ).read_value(
             variable_id=self.id,
             key=ContextVariableStore.GLOBAL_KEY,
@@ -3137,7 +3140,7 @@ class CustomerMetadata:
 
     def _get_store(self) -> CustomerStore:
         server = self._server if self._server is not None else Server.current
-        return server._store_provider.get_store(CustomerStore, SDK_CALL_SITE)
+        return server._store_provider.get_store(CustomerStore, StoreProviderHints(call_site="sdk"))
 
     # -- sync reads ----------------------------------------------------------
 
@@ -3262,7 +3265,9 @@ class Customer:
             raise RuntimeError("Cannot update the guest customer")
 
         server = self._server if self._server is not None else Server.current
-        customer_store = server._store_provider.get_store(CustomerStore, SDK_CALL_SITE)
+        customer_store = server._store_provider.get_store(
+            CustomerStore, StoreProviderHints(call_site="sdk")
+        )
 
         if name is not None:
             await customer_store.update_customer(
@@ -3376,7 +3381,7 @@ class ExperimentalAgentFeatures:
         self._agent._server._advance_creation_progress()
 
         capability = await self._agent._store_provider.get_store(
-            CapabilityStore, SDK_CALL_SITE
+            CapabilityStore, StoreProviderHints(call_site="sdk")
         ).create_capability(
             title=title,
             description=description,
@@ -3480,7 +3485,9 @@ class Agent:
     async def attach_journey(self, journey: Journey) -> None:
         """Attaches an existing journey to the agent, allowing it to be used in interactions."""
 
-        await self._store_provider.get_store(JourneyStore, SDK_CALL_SITE).upsert_tag(
+        await self._store_provider.get_store(
+            JourneyStore, StoreProviderHints(call_site="sdk")
+        ).upsert_tag(
             journey.id,
             _Tag.for_agent_id(self.id).id,
         )
@@ -3598,7 +3605,7 @@ class Agent:
         tool_id = _tool_ref_to_id(tool)
 
         guideline = await self._store_provider.get_store(
-            GuidelineStore, SDK_CALL_SITE
+            GuidelineStore, StoreProviderHints(call_site="sdk")
         ).create_guideline(
             condition=condition,
             action=None,
@@ -3611,7 +3618,7 @@ class Agent:
         )
 
         await self._store_provider.get_store(
-            GuidelineToolAssociationStore, SDK_CALL_SITE
+            GuidelineToolAssociationStore, StoreProviderHints(call_site="sdk")
         ).create_association(
             guideline_id=guideline.id,
             tool_id=tool_id,
@@ -3632,7 +3639,7 @@ class Agent:
         self._server._advance_creation_progress()
 
         canrep = await self._store_provider.get_store(
-            CannedResponseStore, SDK_CALL_SITE
+            CannedResponseStore, StoreProviderHints(call_site="sdk")
         ).create_canned_response(
             value=template,
             tags=[_Tag.for_agent_id(self.id).id, *[t.id for t in tags]],
@@ -3655,7 +3662,9 @@ class Agent:
 
         self._server._advance_creation_progress()
 
-        term = await self._store_provider.get_store(GlossaryStore, SDK_CALL_SITE).create_term(
+        term = await self._store_provider.get_store(
+            GlossaryStore, StoreProviderHints(call_site="sdk")
+        ).create_term(
             name=name,
             description=description,
             synonyms=synonyms,
@@ -3686,7 +3695,7 @@ class Agent:
             await _enable_tool_refs(self._server._plugin_server, [tool])
 
         variable = await self._store_provider.get_store(
-            ContextVariableStore, SDK_CALL_SITE
+            ContextVariableStore, StoreProviderHints(call_site="sdk")
         ).create_variable(
             name=name,
             description=description,
@@ -3711,7 +3720,7 @@ class Agent:
         """Lists all variables associated with the agent."""
 
         variables = await self._store_provider.get_store(
-            ContextVariableStore, SDK_CALL_SITE
+            ContextVariableStore, StoreProviderHints(call_site="sdk")
         ).list_variables(tags=[_Tag.for_agent_id(self.id).id])
 
         return [
@@ -3747,7 +3756,7 @@ class Agent:
         if id:
             try:
                 variable = await self._store_provider.get_store(
-                    ContextVariableStore, SDK_CALL_SITE
+                    ContextVariableStore, StoreProviderHints(call_site="sdk")
                 ).read_variable(ContextVariableId(id))
             except ItemNotFoundError:
                 return None
@@ -3756,7 +3765,7 @@ class Agent:
                 (
                     v
                     for v in await self._store_provider.get_store(
-                        ContextVariableStore, SDK_CALL_SITE
+                        ContextVariableStore, StoreProviderHints(call_site="sdk")
                     ).list_variables(tags=[_Tag.for_agent_id(self.id).id])
                     if v.name == name
                 ),
@@ -3893,7 +3902,7 @@ class SessionMetadata:
 
     def _get_store(self) -> SessionStore:
         server = self._server if self._server is not None else Server.current
-        return server._store_provider.get_store(SessionStore, SDK_CALL_SITE)
+        return server._store_provider.get_store(SessionStore, StoreProviderHints(call_site="sdk"))
 
     # -- sync reads ----------------------------------------------------------
 
@@ -3946,7 +3955,7 @@ class SessionLabels:
 
     def _get_store(self) -> SessionStore:
         server = self._server if self._server is not None else Server.current
-        return server._store_provider.get_store(SessionStore, SDK_CALL_SITE)
+        return server._store_provider.get_store(SessionStore, StoreProviderHints(call_site="sdk"))
 
     # -- sync reads ----------------------------------------------------------
 
@@ -4087,7 +4096,9 @@ class Session:
             title: New title for the session.
         """
         server = self._server if self._server is not None else Server.current
-        session_store = server._store_provider.get_store(SessionStore, SDK_CALL_SITE)
+        session_store = server._store_provider.get_store(
+            SessionStore, StoreProviderHints(call_site="sdk")
+        )
 
         params: _SessionUpdateParams = {}
         if customer is not None:
@@ -4471,7 +4482,7 @@ class Server:
         await _enable_tool_refs(self._plugin_server, tools_list)
 
         guideline = await self._store_provider.get_store(
-            GuidelineStore, SDK_CALL_SITE
+            GuidelineStore, StoreProviderHints(call_site="sdk")
         ).create_guideline(
             condition=condition or "",
             action=action,
@@ -4491,7 +4502,9 @@ class Server:
             tag_id = _Tag.for_guideline_id(guideline.id).id
 
             for canrep_id in canned_responses:
-                await self._store_provider.get_store(CannedResponseStore, SDK_CALL_SITE).upsert_tag(
+                await self._store_provider.get_store(
+                    CannedResponseStore, StoreProviderHints(call_site="sdk")
+                ).upsert_tag(
                     canned_response_id=canrep_id,
                     tag_id=tag_id,
                 )
@@ -4507,7 +4520,7 @@ class Server:
         # Create relationship if target tag specified
         if relationship_target_tag_id is not None:
             await self._store_provider.get_store(
-                RelationshipStore, SDK_CALL_SITE
+                RelationshipStore, StoreProviderHints(call_site="sdk")
             ).create_relationship(
                 source=RelationshipEntity(
                     id=guideline.id,
@@ -4522,7 +4535,7 @@ class Server:
 
         for t in list(tools):
             await self._store_provider.get_store(
-                GuidelineToolAssociationStore, SDK_CALL_SITE
+                GuidelineToolAssociationStore, StoreProviderHints(call_site="sdk")
             ).create_association(
                 guideline_id=guideline.id,
                 tool_id=_tool_ref_to_id(t),
@@ -4606,7 +4619,7 @@ class Server:
 
     async def _render_guideline(self, guideline_id: GuidelineId) -> str:
         guideline = await self._store_provider.get_store(
-            GuidelineStore, SDK_CALL_SITE
+            GuidelineStore, StoreProviderHints(call_site="sdk")
         ).read_guideline(guideline_id)
 
         return f"When {guideline.content.condition}" + (
@@ -4614,9 +4627,9 @@ class Server:
         )
 
     async def _render_journey(self, journey_id: JourneyId) -> str:
-        journey = await self._store_provider.get_store(JourneyStore, SDK_CALL_SITE).read_journey(
-            journey_id
-        )
+        journey = await self._store_provider.get_store(
+            JourneyStore, StoreProviderHints(call_site="sdk")
+        ).read_journey(journey_id)
 
         return f"Journey: {journey.title}"
 
@@ -4924,7 +4937,7 @@ class Server:
         if entity_type == "guideline":
             if entity_type == "guideline":
                 guideline = await self._store_provider.get_store(
-                    GuidelineStore, SDK_CALL_SITE
+                    GuidelineStore, StoreProviderHints(call_site="sdk")
                 ).read_guideline(guideline_id=cast(GuidelineId, entity_id))
 
             properties = cast(_CachedEvaluator.GuidelineEvaluation, result).properties
@@ -4932,7 +4945,9 @@ class Server:
             properties_to_add = {k: v for k, v in properties.items() if k not in guideline.metadata}
 
             for key, value in properties_to_add.items():
-                await self._container[GuidelineStore].set_metadata(
+                await self._store_provider.get_store(
+                    GuidelineStore, StoreProviderHints(call_site="sdk")
+                ).set_metadata(
                     guideline_id=cast(GuidelineId, entity_id),
                     key=key,
                     value=value,
@@ -5137,7 +5152,9 @@ class Server:
     async def create_tag(self, name: str) -> Tag:
         self._advance_creation_progress()
 
-        tag = await self._store_provider.get_store(TagStore, SDK_CALL_SITE).create_tag(name=name)
+        tag = await self._store_provider.get_store(
+            TagStore, StoreProviderHints(call_site="sdk")
+        ).create_tag(name=name)
 
         return Tag(
             id=tag.id,
@@ -5196,7 +5213,9 @@ class Server:
 
         self._advance_creation_progress()
 
-        agent = await self._store_provider.get_store(AgentStore, SDK_CALL_SITE).create_agent(
+        agent = await self._store_provider.get_store(
+            AgentStore, StoreProviderHints(call_site="sdk")
+        ).create_agent(
             name=name,
             description=description,
             max_engine_iterations=max_engine_iterations or 3,
@@ -5232,7 +5251,9 @@ class Server:
     async def list_agents(self) -> Sequence[Agent]:
         """Lists all agents."""
 
-        agents = await self._store_provider.get_store(AgentStore, SDK_CALL_SITE).list_agents()
+        agents = await self._store_provider.get_store(
+            AgentStore, StoreProviderHints(call_site="sdk")
+        ).list_agents()
 
         return [
             Agent(
@@ -5254,9 +5275,9 @@ class Server:
         """Finds an agent by its ID."""
 
         try:
-            agent = await self._store_provider.get_store(AgentStore, SDK_CALL_SITE).read_agent(
-                AgentId(id)
-            )
+            agent = await self._store_provider.get_store(
+                AgentStore, StoreProviderHints(call_site="sdk")
+            ).read_agent(AgentId(id))
 
             return Agent(
                 id=agent.id,
@@ -5312,7 +5333,7 @@ class Server:
         self._advance_creation_progress()
 
         customer = await self._store_provider.get_store(
-            CustomerStore, SDK_CALL_SITE
+            CustomerStore, StoreProviderHints(call_site="sdk")
         ).create_customer(
             name=name,
             extra=metadata,
@@ -5332,7 +5353,7 @@ class Server:
         """Lists all customers."""
 
         customers = await self._store_provider.get_store(
-            CustomerStore, SDK_CALL_SITE
+            CustomerStore, StoreProviderHints(call_site="sdk")
         ).list_customers()
 
         return [
@@ -5361,7 +5382,7 @@ class Server:
         if id:
             try:
                 customer = await self._store_provider.get_store(
-                    CustomerStore, SDK_CALL_SITE
+                    CustomerStore, StoreProviderHints(call_site="sdk")
                 ).read_customer(CustomerId(id))
             except ItemNotFoundError:
                 return None
@@ -5375,7 +5396,7 @@ class Server:
 
         if name:
             customers = await self._store_provider.get_store(
-                CustomerStore, SDK_CALL_SITE
+                CustomerStore, StoreProviderHints(call_site="sdk")
             ).list_customers()
 
             if customer := next((c for c in customers if c.name == name), None):
@@ -5418,7 +5439,7 @@ class Server:
 
         for str_condition in str_conditions:
             guideline = await self._store_provider.get_store(
-                GuidelineStore, SDK_CALL_SITE
+                GuidelineStore, StoreProviderHints(call_site="sdk")
             ).create_guideline(
                 condition=str_condition,
             )
@@ -5443,7 +5464,7 @@ class Server:
             )
 
         stored_journey = await self._store_provider.get_store(
-            JourneyStore, SDK_CALL_SITE
+            JourneyStore, StoreProviderHints(call_site="sdk")
         ).create_journey(
             title=title,
             description=description,
@@ -5474,9 +5495,9 @@ class Server:
             _store_provider=self._store_provider,
         )
 
-        start_state = await self._store_provider.get_store(JourneyStore, SDK_CALL_SITE).read_node(
-            node_id=stored_journey.root_id
-        )
+        start_state = await self._store_provider.get_store(
+            JourneyStore, StoreProviderHints(call_site="sdk")
+        ).read_node(node_id=stored_journey.root_id)
 
         cast(list[JourneyState], journey.states).append(
             InitialJourneyState(
@@ -5490,7 +5511,9 @@ class Server:
         )
 
         for c in condition_guidelines:
-            await self._store_provider.get_store(GuidelineStore, SDK_CALL_SITE).upsert_tag(
+            await self._store_provider.get_store(
+                GuidelineStore, StoreProviderHints(call_site="sdk")
+            ).upsert_tag(
                 guideline_id=c.id,
                 tag_id=_Tag.for_journey_id(journey_id=journey.id).id,
             )
@@ -5529,7 +5552,7 @@ class Server:
         self._advance_creation_progress()
 
         canrep = await self._store_provider.get_store(
-            CannedResponseStore, SDK_CALL_SITE
+            CannedResponseStore, StoreProviderHints(call_site="sdk")
         ).create_canned_response(
             value=template,
             tags=[t.id for t in tags],

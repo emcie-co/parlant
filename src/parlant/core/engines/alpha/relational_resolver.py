@@ -55,7 +55,7 @@ from parlant.core.guidelines import Guideline, GuidelineId
 from parlant.core.tags import Tag, TagId, TagStore
 from parlant.core.tools import ToolId
 from parlant.core.tracer import Tracer
-from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 # ---------------------------------------------------------------------------

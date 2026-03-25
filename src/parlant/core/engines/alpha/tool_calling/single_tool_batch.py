@@ -53,7 +53,7 @@ from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import Event, EventKind, ToolEventData
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import Tool, ToolId, ToolParameterDescriptor, ToolParameterOptions
-from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 class ValidationStatus(Enum):
@@ -172,7 +172,9 @@ class SingleToolBatch(ToolCallBatch):
 
     @property
     def _service_registry(self) -> ServiceRegistry:
-        return self._store_provider.get_store(ServiceRegistry, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            ServiceRegistry, StoreProviderHints(call_site="engine")
+        )
 
     def _is_tool_already_staged(self, tool_id: ToolId) -> bool:
         for event in self._context.staged_events:

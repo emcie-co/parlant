@@ -40,6 +40,7 @@ from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.sessions import EventKind, ToolEventData
 from parlant.core.tools import ToolId
 from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 PRE_ROOT_INDEX = "0"
@@ -113,7 +114,9 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
 
     @property
     def _guideline_store(self) -> GuidelineStore:
-        return self._store_provider.get_store(GuidelineStore, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            GuidelineStore, StoreProviderHints(call_site="engine")
+        )
 
     @property
     @override

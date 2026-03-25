@@ -12,7 +12,7 @@ from parlant.core.services.indexing.common import EvaluationError, ProgressRepor
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import Tool, ToolId, ToolParameterDescriptor, ToolParameterOptions
-from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 class ToolRunningActionProposition(DefaultBaseModel):
@@ -47,7 +47,9 @@ class ToolRunningActionDetector:
 
     @property
     def _service_registry(self) -> ServiceRegistry:
-        return self._store_provider.get_store(ServiceRegistry, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            ServiceRegistry, StoreProviderHints(call_site="engine")
+        )
 
     async def detect_if_tool_running(
         self,

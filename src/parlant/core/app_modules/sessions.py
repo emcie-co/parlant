@@ -4,6 +4,7 @@ from enum import Enum
 from typing import Any, Mapping, Sequence, Set
 
 from parlant.core.agents import AgentId, AgentStore
+from parlant.core.app_modules.application_context import ApplicationContext
 from parlant.core.async_utils import Timeout
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.common import JSONSerializable
@@ -35,7 +36,7 @@ from parlant.core.sessions import (
     SessionStore,
     StatusEventData,
 )
-from parlant.core.store_provider import APP_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 from dataclasses import dataclass
 from typing_extensions import TypedDict
 
@@ -104,6 +105,7 @@ def _get_jailbreak_moderation_service(
 class SessionModule:
     def __init__(
         self,
+        application_context: ApplicationContext,
         logger: Logger,
         meter: Meter,
         tracer: Tracer,
@@ -115,6 +117,7 @@ class SessionModule:
         health_reporter: HealthReporter,
         store_provider: StoreProvider,
     ):
+        self._application_context = application_context
         self._logger = logger
         self._store_provider = store_provider
         self._meter = meter
@@ -131,15 +134,33 @@ class SessionModule:
 
     @property
     def _agent_store(self) -> AgentStore:
-        return self._store_provider.get_store(AgentStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            AgentStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     @property
     def _session_store(self) -> SessionStore:
-        return self._store_provider.get_store(SessionStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            SessionStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     @property
     def _customer_store(self) -> CustomerStore:
-        return self._store_provider.get_store(CustomerStore, APP_CALL_SITE)
+        return self._store_provider.get_store(
+            CustomerStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._application_context.get_origin(),
+            ),
+        )
 
     async def wait_for_more_events(
         self,

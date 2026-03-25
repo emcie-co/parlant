@@ -38,7 +38,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
 )
 from parlant.core.emissions import EmittedEvent, EventEmitter
 from parlant.core.tools import ToolId
-from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 @dataclass(frozen=True)
@@ -91,7 +91,9 @@ class ToolEventGenerator:
 
     @property
     def _service_registry(self) -> ServiceRegistry:
-        return self._store_provider.get_store(ServiceRegistry, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            ServiceRegistry, StoreProviderHints(call_site="engine")
+        )
 
     async def create_preexecution_state(
         self,

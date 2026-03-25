@@ -44,8 +44,8 @@ from parlant.core.services.indexing.journey_reachable_nodes_evaluation import (
     ReachableNodesEvaluationSchema,
     JourneyReachableNodesEvaluator,
 )
-from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import EventKind, EventSource, Session, SessionId, SessionStore
+from parlant.core.store_provider import BasicStoreProvider
 from parlant.core.tags import Tag, TagId
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter
@@ -1083,7 +1083,7 @@ async def create_journey(
         logger=context.logger,
         optimization_policy=context.container[OptimizationPolicy],
         schematic_generator=context.journey_reachable_nodes_evaluation_schematic_generator,
-        service_registry=context.container[ServiceRegistry],
+        store_provider=BasicStoreProvider(lambda: context.container),
     ).evaluate_reachable_follow_ups(node_guidelines=node_guidelines)
 
     for id, r in result.node_to_reachable_follow_ups.items():
@@ -1131,7 +1131,6 @@ async def base_test_that_correct_node_is_selected(
     journey_node_selector = GenericJourneyNodeSelectionBatch(
         logger=context.logger,
         meter=context.container[Meter],
-        guideline_store=context.container[GuidelineStore],
         schematic_generator_journey_node_selection=context.journey_node_selection_schematic_generator,
         schematic_generator_next_step_selection=context.journey_next_step_selection_schematic_generator,
         schematic_generator_journey_backtrack_check=context.journey_backtrack_check_schematic_generator,
@@ -1139,6 +1138,7 @@ async def base_test_that_correct_node_is_selected(
         node_guidelines=journey_node_guidelines,
         journey_path=journey_previous_path,
         optimization_policy=context.container[OptimizationPolicy],
+        store_provider=BasicStoreProvider(lambda: context.container),
         context=GuidelineMatchingContext(
             agent=agent,
             session=session,

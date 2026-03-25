@@ -52,6 +52,7 @@ from parlant.api.authorization import (
     Operation,
     RateLimitExceededException,
 )
+from parlant.core.app_modules.application_context import ApplicationContext
 from parlant.core.version import VERSION
 from parlant.core.meter import Meter
 from parlant.core.tracer import Tracer
@@ -115,6 +116,7 @@ async def create_api_app(
     tracer = container[Tracer]
     authorization_policy = container[AuthorizationPolicy]
     application = container[Application]
+    application_context = container[ApplicationContext]
 
     meter = container[Meter]
     _hist_http_request_duration = meter.create_duration_histogram(
@@ -140,6 +142,16 @@ async def create_api_app(
     ) -> Response:
         for var, value in contextvar_propagation.items():
             var.set(value)
+        return await call_next(request)
+
+    @api_app.middleware("http")
+    async def add_origin(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        origin = request.headers.get("X-Parlant-Origin")
+        if origin:
+            application_context.set_origin(origin)
         return await call_next(request)
 
     @api_app.middleware("http")

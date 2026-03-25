@@ -36,7 +36,7 @@ from parlant.core.meter import DurationHistogram, Meter
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import Event, SessionId, ToolResult
-from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 from parlant.core.tools import (
     Tool,
     ToolContext,
@@ -174,7 +174,12 @@ class ToolCaller:
 
     @property
     def _service_registry(self) -> ServiceRegistry:
-        return self._store_provider.get_store(ServiceRegistry, ENGINE_CALL_SITE)
+        return self._store_provider.get_store(
+            ServiceRegistry,
+            StoreProviderHints(
+                call_site="engine",
+            ),
+        )
 
     async def infer_tool_calls(
         self,

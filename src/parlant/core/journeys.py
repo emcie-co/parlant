@@ -2096,7 +2096,7 @@ class CompositeJourneyStore(JourneyStore):
     @override
     async def read_edge(
         self,
-        edge_id: JourneyNodeId,
+        edge_id: JourneyEdgeId,
     ) -> JourneyEdge:
         results = await safe_gather(
             *[try_or_none(store.read_edge(edge_id)) for store in self._all_stores]
@@ -2109,7 +2109,7 @@ class CompositeJourneyStore(JourneyStore):
     @override
     async def update_edge(
         self,
-        edge_id: JourneyNodeId,
+        edge_id: JourneyEdgeId,
         params: JourneyEdgeUpdateParams,
     ) -> JourneyEdge:
         return await self._writable_store.update_edge(edge_id, params)

@@ -22,6 +22,7 @@ from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
+from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
 
 PRE_ROOT_INDEX = "0"
 ROOT_INDEX = "1"
@@ -81,25 +82,24 @@ class JourneyNextStepSelection:
     def __init__(
         self,
         logger: Logger,
-        guideline_store: GuidelineStore,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[JourneyNextStepSelectionSchema],
         examined_journey: Journey,
         context: GuidelineMatchingContext,
+        store_provider: StoreProvider,
         node_guidelines: Sequence[Guideline] = [],
         journey_path: Sequence[str | None] = [],
         journey_triggers: Sequence[Guideline] = [],
     ) -> None:
         self._logger = logger
-
-        self._guideline_store = guideline_store
+        self._store_provider = store_provider
 
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
 
         self._context = context
         self._examined_journey = examined_journey
-        self._journey_triggers = journey_triggers
+        self._journey_conditions = journey_conditions
 
         self._guideline_id_to_guideline: dict[GuidelineId, Guideline] = {
             g.id: g for g in node_guidelines
@@ -118,6 +118,10 @@ class JourneyNextStepSelection:
             self._previous_path,
             self._reset_journey,
         ) = self.build_node_wrappers(journey_path)
+
+    @property
+    def _guideline_store(self) -> GuidelineStore:
+        return self._store_provider.get_store(GuidelineStore, ENGINE_CALL_SITE)
 
     def _get_guideline_node_index(self, guideline: Guideline) -> str:
         return str(

@@ -247,6 +247,7 @@ from parlant.core.services.indexing.behavioral_change_evaluation import Behavior
 from parlant.core.services.indexing.indexer import Indexer, NullIndexer
 from parlant.core.loggers import CompositeLogger, FileLogger, LogLevel, Logger
 from parlant.core.application import Application
+from parlant.core.store_provider import BasicStoreProvider, StoreProvider
 from parlant.core.version import VERSION
 
 
@@ -715,6 +716,8 @@ async def setup_container() -> AsyncIterator[Container]:
 
     _define_singleton(c, Application, Application)
 
+    c[StoreProvider] = BasicStoreProvider(lambda: c)
+
     yield c
 
 
@@ -1020,6 +1023,8 @@ async def load_app(params: StartupParameters) -> AsyncIterator[tuple[ASGIApplica
 
         if params.configure:
             actual_container = await params.configure(actual_container.clone())
+
+        actual_container[StoreProvider] = BasicStoreProvider(lambda: actual_container)
 
         await initialize_container(
             actual_container,

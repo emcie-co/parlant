@@ -16,12 +16,14 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+from itertools import chain
 from typing import NewType, Optional, Sequence, cast
 from typing_extensions import override, TypedDict, Self
 
-from parlant.core.async_utils import ReaderWriterLock
+from parlant.core.async_utils import ReaderWriterLock, safe_gather
 from parlant.core.common import (
     ItemNotFoundError,
+    try_or_none,
     UniqueId,
     Version,
     IdGenerator,
@@ -518,3 +520,89 @@ class AgentDocumentStore(AgentStore):
 
         if not agent_document:
             raise ItemNotFoundError(item_id=UniqueId(agent_id))
+
+
+class CompositeAgentStore(AgentStore):
+    def __init__(
+        self,
+        writable_store: AgentStore,
+        readable_stores: Sequence[AgentStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[AgentStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_agent(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        creation_utc: Optional[datetime] = None,
+        max_engine_iterations: Optional[int] = None,
+        composition_mode: Optional[CompositionMode] = None,
+        message_output_mode: Optional[MessageOutputMode] = None,
+        tags: Optional[Sequence[TagId]] = None,
+        id: Optional[AgentId] = None,
+    ) -> Agent:
+        return await self._writable_store.create_agent(
+            name=name,
+            description=description,
+            creation_utc=creation_utc,
+            max_engine_iterations=max_engine_iterations,
+            composition_mode=composition_mode,
+            message_output_mode=message_output_mode,
+            tags=tags,
+            id=id,
+        )
+
+    @override
+    async def list_agents(
+        self,
+    ) -> Sequence[Agent]:
+        results = await safe_gather(*[store.list_agents() for store in self._all_stores])
+        return list(chain.from_iterable(results))
+
+    @override
+    async def read_agent(
+        self,
+        agent_id: AgentId,
+    ) -> Agent:
+        results = await safe_gather(
+            *[try_or_none(store.read_agent(agent_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(agent_id))
+        return result
+
+    @override
+    async def update_agent(
+        self,
+        agent_id: AgentId,
+        params: AgentUpdateParams,
+    ) -> Agent:
+        return await self._writable_store.update_agent(agent_id, params)
+
+    @override
+    async def delete_agent(
+        self,
+        agent_id: AgentId,
+    ) -> None:
+        return await self._writable_store.delete_agent(agent_id)
+
+    @override
+    async def upsert_tag(
+        self,
+        agent_id: AgentId,
+        tag_id: TagId,
+        creation_utc: Optional[datetime] = None,
+    ) -> bool:
+        return await self._writable_store.upsert_tag(agent_id, tag_id, creation_utc)
+
+    @override
+    async def remove_tag(
+        self,
+        agent_id: AgentId,
+        tag_id: TagId,
+    ) -> None:
+        return await self._writable_store.remove_tag(agent_id, tag_id)

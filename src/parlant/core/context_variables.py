@@ -14,14 +14,16 @@
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from itertools import chain
 from typing import NewType, Optional, Sequence, cast
 from typing_extensions import TypedDict, override, Self
 from datetime import datetime, timezone
 from dataclasses import dataclass
 
-from parlant.core.async_utils import ReaderWriterLock
+from parlant.core.async_utils import ReaderWriterLock, safe_gather
 from parlant.core.common import (
     ItemNotFoundError,
+    try_or_none,
     JSONSerializable,
     UniqueId,
     Version,
@@ -773,3 +775,124 @@ class ContextVariableDocumentStore(ContextVariableStore):
             raise ItemNotFoundError(item_id=UniqueId(variable_id))
 
         return await self._deserialize_context_variable(context_variable_document=variable_document)
+
+
+class CompositeContextVariableStore(ContextVariableStore):
+    def __init__(
+        self,
+        writable_store: ContextVariableStore,
+        readable_stores: Sequence[ContextVariableStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[ContextVariableStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_variable(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        creation_utc: Optional[datetime] = None,
+        tool_id: Optional[ToolId] = None,
+        freshness_rules: Optional[str] = None,
+        tags: Optional[Sequence[TagId]] = None,
+    ) -> ContextVariable:
+        return await self._writable_store.create_variable(
+            name=name,
+            description=description,
+            creation_utc=creation_utc,
+            tool_id=tool_id,
+            freshness_rules=freshness_rules,
+            tags=tags,
+        )
+
+    @override
+    async def update_variable(
+        self,
+        variable_id: ContextVariableId,
+        params: ContextVariableUpdateParams,
+    ) -> ContextVariable:
+        return await self._writable_store.update_variable(variable_id, params)
+
+    @override
+    async def delete_variable(
+        self,
+        variable_id: ContextVariableId,
+    ) -> None:
+        return await self._writable_store.delete_variable(variable_id)
+
+    @override
+    async def list_variables(
+        self,
+        tags: Optional[Sequence[TagId]] = None,
+    ) -> Sequence[ContextVariable]:
+        results = await safe_gather(
+            *[store.list_variables(tags=tags) for store in self._all_stores]
+        )
+        return list(chain.from_iterable(results))
+
+    @override
+    async def read_variable(
+        self,
+        variable_id: ContextVariableId,
+    ) -> ContextVariable:
+        results = await safe_gather(
+            *[try_or_none(store.read_variable(variable_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(variable_id))
+        return result
+
+    @override
+    async def update_value(
+        self,
+        variable_id: ContextVariableId,
+        key: str,
+        data: JSONSerializable,
+    ) -> ContextVariableValue:
+        return await self._writable_store.update_value(variable_id, key, data)
+
+    @override
+    async def read_value(
+        self,
+        variable_id: ContextVariableId,
+        key: str,
+    ) -> Optional[ContextVariableValue]:
+        results = await safe_gather(
+            *[store.read_value(variable_id, key) for store in self._all_stores]
+        )
+        return next((r for r in results if r is not None), None)
+
+    @override
+    async def delete_value(
+        self,
+        variable_id: ContextVariableId,
+        key: str,
+    ) -> None:
+        return await self._writable_store.delete_value(variable_id, key)
+
+    @override
+    async def list_values(
+        self,
+        variable_id: ContextVariableId,
+    ) -> Sequence[tuple[str, ContextVariableValue]]:
+        results = await safe_gather(*[store.list_values(variable_id) for store in self._all_stores])
+        return list(chain.from_iterable(results))
+
+    @override
+    async def add_variable_tag(
+        self,
+        variable_id: ContextVariableId,
+        tag_id: TagId,
+        creation_utc: Optional[datetime] = None,
+    ) -> ContextVariable:
+        return await self._writable_store.add_variable_tag(variable_id, tag_id, creation_utc)
+
+    @override
+    async def remove_variable_tag(
+        self,
+        variable_id: ContextVariableId,
+        tag_id: TagId,
+    ) -> ContextVariable:
+        return await self._writable_store.remove_variable_tag(variable_id, tag_id)

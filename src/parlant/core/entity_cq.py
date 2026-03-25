@@ -60,42 +60,68 @@ from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tags import Tag
 from parlant.core.tools import ToolId, ToolService
 from parlant.core.canned_responses import CannedResponse, CannedResponseStore
+from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
 
 
 class EntityQueries:
     def __init__(
         self,
-        agent_store: AgentStore,
-        session_store: SessionStore,
-        guideline_store: GuidelineStore,
-        customer_store: CustomerStore,
-        context_variable_store: ContextVariableStore,
-        relationship_store: RelationshipStore,
-        guideline_tool_association_store: GuidelineToolAssociationStore,
-        glossary_store: GlossaryStore,
-        journey_store: JourneyStore,
-        service_registry: ServiceRegistry,
-        canned_response_store: CannedResponseStore,
-        capability_store: CapabilityStore,
         journey_guideline_projection: JourneyGuidelineProjection,
+        store_provider: StoreProvider,
     ) -> None:
-        self._agent_store = agent_store
-        self._session_store = session_store
-        self._guideline_store = guideline_store
-        self._customer_store = customer_store
-        self._context_variable_store = context_variable_store
-        self._relationship_store = relationship_store
-        self._guideline_tool_association_store = guideline_tool_association_store
-        self._glossary_store = glossary_store
-        self._journey_store = journey_store
-        self._capability_store = capability_store
-        self._service_registry = service_registry
-        self._canned_response_store = canned_response_store
         self._journey_guideline_projection = journey_guideline_projection
-
+        self._store_provider = store_provider
         self.guideline_and_journeys_it_depends_on = TTLCache[GuidelineId, list[Journey]](
             maxsize=1024, ttl=120
         )
+
+    @property
+    def _agent_store(self) -> AgentStore:
+        return self._store_provider.get_store(AgentStore, ENGINE_CALL_SITE)
+
+    @property
+    def _session_store(self) -> SessionStore:
+        return self._store_provider.get_store(SessionStore, ENGINE_CALL_SITE)
+
+    @property
+    def _guideline_store(self) -> GuidelineStore:
+        return self._store_provider.get_store(GuidelineStore, ENGINE_CALL_SITE)
+
+    @property
+    def _customer_store(self) -> CustomerStore:
+        return self._store_provider.get_store(CustomerStore, ENGINE_CALL_SITE)
+
+    @property
+    def _context_variable_store(self) -> ContextVariableStore:
+        return self._store_provider.get_store(ContextVariableStore, ENGINE_CALL_SITE)
+
+    @property
+    def _relationship_store(self) -> RelationshipStore:
+        return self._store_provider.get_store(RelationshipStore, ENGINE_CALL_SITE)
+
+    @property
+    def _guideline_tool_association_store(self) -> GuidelineToolAssociationStore:
+        return self._store_provider.get_store(GuidelineToolAssociationStore, ENGINE_CALL_SITE)
+
+    @property
+    def _glossary_store(self) -> GlossaryStore:
+        return self._store_provider.get_store(GlossaryStore, ENGINE_CALL_SITE)
+
+    @property
+    def _journey_store(self) -> JourneyStore:
+        return self._store_provider.get_store(JourneyStore, ENGINE_CALL_SITE)
+
+    @property
+    def _service_registry(self) -> ServiceRegistry:
+        return self._store_provider.get_store(ServiceRegistry, ENGINE_CALL_SITE)
+
+    @property
+    def _canned_response_store(self) -> CannedResponseStore:
+        return self._store_provider.get_store(CannedResponseStore, ENGINE_CALL_SITE)
+
+    @property
+    def _capability_store(self) -> CapabilityStore:
+        return self._store_provider.get_store(CapabilityStore, ENGINE_CALL_SITE)
 
     async def read_agent(
         self,
@@ -499,11 +525,17 @@ class EntityQueries:
 class EntityCommands:
     def __init__(
         self,
-        session_store: SessionStore,
-        context_variable_store: ContextVariableStore,
+        store_provider: StoreProvider,
     ) -> None:
-        self._session_store = session_store
-        self._context_variable_store = context_variable_store
+        self._store_provider = store_provider
+
+    @property
+    def _session_store(self) -> SessionStore:
+        return self._store_provider.get_store(SessionStore, ENGINE_CALL_SITE)
+
+    @property
+    def _context_variable_store(self) -> ContextVariableStore:
+        return self._store_provider.get_store(ContextVariableStore, ENGINE_CALL_SITE)
 
     async def update_session(
         self,

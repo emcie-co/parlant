@@ -16,13 +16,14 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+from itertools import chain
 from typing import NewType, Optional, Sequence, Union, cast
 from typing_extensions import override, TypedDict, Self
 
 import networkx  # type: ignore
 
-from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, UniqueId, Version, IdGenerator
+from parlant.core.async_utils import ReaderWriterLock, safe_gather
+from parlant.core.common import ItemNotFoundError, try_or_none, UniqueId, Version, IdGenerator
 from parlant.core.guidelines import GuidelineId
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
@@ -560,3 +561,64 @@ class RelationshipDocumentStore(RelationshipStore):
                     )
 
         return relationships
+
+
+class CompositeRelationshipStore(RelationshipStore):
+    def __init__(
+        self,
+        writable_store: RelationshipStore,
+        readable_stores: Sequence[RelationshipStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[RelationshipStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_relationship(
+        self,
+        source: RelationshipEntity,
+        target: RelationshipEntity,
+        kind: RelationshipKind,
+    ) -> Relationship:
+        return await self._writable_store.create_relationship(source, target, kind)
+
+    @override
+    async def read_relationship(
+        self,
+        relationship_id: RelationshipId,
+    ) -> Relationship:
+        results = await safe_gather(
+            *[try_or_none(store.read_relationship(relationship_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(relationship_id))
+        return result
+
+    @override
+    async def delete_relationship(
+        self,
+        relationship_id: RelationshipId,
+    ) -> None:
+        return await self._writable_store.delete_relationship(relationship_id)
+
+    @override
+    async def list_relationships(
+        self,
+        kind: Optional[RelationshipKind] = None,
+        indirect: bool = False,
+        source_id: Optional[RelationshipEntityId] = None,
+        target_id: Optional[RelationshipEntityId] = None,
+    ) -> Sequence[Relationship]:
+        results = await safe_gather(
+            *[
+                store.list_relationships(
+                    kind=kind,
+                    indirect=indirect,
+                    source_id=source_id,
+                    target_id=target_id,
+                )
+                for store in self._all_stores
+            ]
+        )
+        return list(chain.from_iterable(results))

@@ -53,6 +53,7 @@ from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import Event, EventKind, ToolEventData
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import Tool, ToolId, ToolParameterDescriptor, ToolParameterOptions
+from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
 
 
 class ValidationStatus(Enum):
@@ -153,21 +154,25 @@ class SingleToolBatch(ToolCallBatch):
         logger: Logger,
         meter: Meter,
         optimization_policy: OptimizationPolicy,
-        service_registry: ServiceRegistry,
         consequential_schema_generator: SchematicGenerator[SingleToolBatchSchema],
         non_consequential_schema_generator: SchematicGenerator[NonConsequentialToolBatchSchema],
         candidate_tool: tuple[ToolId, Tool, Sequence[GuidelineMatch]],
         context: ToolCallContext,
+        store_provider: StoreProvider,
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._meter = meter
 
         self._optimization_policy = optimization_policy
-        self._service_registry = service_registry
         self._consequential_schema_generator = consequential_schema_generator
         self._non_consequential_schema_generator = non_consequential_schema_generator
         self._context = context
         self._candidate_tool = candidate_tool
+
+    @property
+    def _service_registry(self) -> ServiceRegistry:
+        return self._store_provider.get_store(ServiceRegistry, ENGINE_CALL_SITE)
 
     def _is_tool_already_staged(self, tool_id: ToolId) -> bool:
         for event in self._context.staged_events:

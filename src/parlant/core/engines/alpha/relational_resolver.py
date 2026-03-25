@@ -55,6 +55,7 @@ from parlant.core.guidelines import Guideline, GuidelineId
 from parlant.core.tags import Tag, TagId, TagStore
 from parlant.core.tools import ToolId
 from parlant.core.tracer import Tracer
+from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
 
 
 # ---------------------------------------------------------------------------
@@ -249,17 +250,40 @@ class RelationalResolver:
 
     def __init__(
         self,
-        store_provider: StoreProvider,
         logger: Logger,
         tracer: Tracer,
+        store_provider: StoreProvider,
     ) -> None:
-        self._relationship_store = store_provider.get_store(
-            RelationshipStore, StoreProviderHints(call_site="engine")
-        )
         self._logger = logger
+        self._store_provider = store_provider
         self._tracer = tracer
 
+    @property
+    def _relationship_store(self) -> RelationshipStore:
+        return self._store_provider.get_store(
+            RelationshipStore, StoreProviderHints(call_site="engine")
+        )
+
     # -- Public API ---------------------------------------------------------
+
+    def _extract_journey_id_from_guideline(self, guideline: Guideline) -> Optional[str]:
+        if "journey_node" in guideline.metadata:
+            return cast(
+                JourneyId,
+                cast(dict[str, JSONSerializable], guideline.metadata["journey_node"])["journey_id"],
+            )
+
+        if any(Tag.extract_journey_id(tag_id) for tag_id in guideline.tags):
+            return next(
+                (
+                    Tag.extract_journey_id(tag_id)
+                    for tag_id in guideline.tags
+                    if Tag.extract_journey_id(tag_id)
+                ),
+                None,
+            )
+
+        return None
 
     async def resolve(
         self,

@@ -31,6 +31,7 @@ from parlant.api.app import create_api_app, ASGIApplication
 from parlant.api.authorization import AuthorizationPolicy, DevelopmentAuthorizationPolicy
 
 from parlant.core.background_tasks import BackgroundTaskService
+from parlant.core.store_provider import BasicStoreProvider, StoreProvider
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.application_context import ApplicationContext
 from parlant.core.health import HealthReporter, NullHealthReporter
@@ -481,6 +482,8 @@ async def container(
                 embedder_type_provider=get_embedder_type,
             )
         )
+
+        container[StoreProvider] = BasicStoreProvider(lambda: container)
 
         container[EntityQueries] = Singleton(EntityQueries)
         container[EntityCommands] = Singleton(EntityCommands)

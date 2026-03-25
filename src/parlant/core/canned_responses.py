@@ -23,7 +23,7 @@ import jinja2
 from typing_extensions import override, TypedDict, Self, Required
 
 from parlant.core import async_utils
-from parlant.core.async_utils import ReaderWriterLock
+from parlant.core.async_utils import ReaderWriterLock, safe_gather
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.document_database_helper import (
     DocumentMigrationHelper,
@@ -44,6 +44,7 @@ from parlant.core.persistence.vector_database_helper import (
 from parlant.core.tags import TagId
 from parlant.core.common import (
     ItemNotFoundError,
+    try_or_none,
     JSONSerializable,
     UniqueId,
     Version,
@@ -866,3 +867,104 @@ class CannedResponseVectorStore(CannedResponseStore):
                 top_results,
             )
         ]
+
+
+class CompositeCannedResponseStore(CannedResponseStore):
+    def __init__(
+        self,
+        writable_store: CannedResponseStore,
+        readable_stores: Sequence[CannedResponseStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[CannedResponseStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_canned_response(
+        self,
+        value: str,
+        fields: Optional[Sequence[CannedResponseField]] = None,
+        signals: Optional[Sequence[str]] = None,
+        creation_utc: Optional[datetime] = None,
+        metadata: Mapping[str, JSONSerializable] = {},
+        tags: Optional[Sequence[TagId]] = None,
+        field_dependencies: Optional[Sequence[str]] = None,
+    ) -> CannedResponse:
+        return await self._writable_store.create_canned_response(
+            value=value,
+            fields=fields,
+            signals=signals,
+            creation_utc=creation_utc,
+            metadata=metadata,
+            tags=tags,
+            field_dependencies=field_dependencies,
+        )
+
+    @override
+    async def read_canned_response(
+        self,
+        canned_response_id: CannedResponseId,
+    ) -> CannedResponse:
+        results = await safe_gather(
+            *[
+                try_or_none(store.read_canned_response(canned_response_id))
+                for store in self._all_stores
+            ]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(canned_response_id))
+        return result
+
+    @override
+    async def update_canned_response(
+        self,
+        canned_response_id: CannedResponseId,
+        params: CannedResponseUpdateParams,
+    ) -> CannedResponse:
+        return await self._writable_store.update_canned_response(canned_response_id, params)
+
+    @override
+    async def delete_canned_response(
+        self,
+        canned_response_id: CannedResponseId,
+    ) -> None:
+        return await self._writable_store.delete_canned_response(canned_response_id)
+
+    @override
+    async def list_canned_responses(
+        self,
+        tags: Optional[Sequence[TagId]] = None,
+    ) -> Sequence[CannedResponse]:
+        results = await safe_gather(
+            *[store.list_canned_responses(tags=tags) for store in self._all_stores]
+        )
+        return list(chain.from_iterable(results))
+
+    @override
+    async def filter_relevant_canned_responses(
+        self,
+        query: str,
+        available_canned_responses: Sequence[CannedResponse],
+        max_count: int,
+    ) -> Sequence[CannedResponseRelevantResult]:
+        return await self._writable_store.filter_relevant_canned_responses(
+            query, available_canned_responses, max_count
+        )
+
+    @override
+    async def upsert_tag(
+        self,
+        canned_response_id: CannedResponseId,
+        tag_id: TagId,
+        creation_utc: Optional[datetime] = None,
+    ) -> bool:
+        return await self._writable_store.upsert_tag(canned_response_id, tag_id, creation_utc)
+
+    @override
+    async def remove_tag(
+        self,
+        canned_response_id: CannedResponseId,
+        tag_id: TagId,
+    ) -> None:
+        return await self._writable_store.remove_tag(canned_response_id, tag_id)

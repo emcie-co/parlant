@@ -18,6 +18,7 @@ from parlant.core.relationships import (
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tags import Tag, TagId, TagStore
 from parlant.core.tools import Tool, ToolId
+from parlant.core.store_provider import APP_CALL_SITE, StoreProvider
 
 
 @dataclass(frozen=True)
@@ -36,20 +37,34 @@ class RelationshipModule:
     def __init__(
         self,
         logger: Logger,
-        relationship_store: RelationshipStore,
-        tag_store: TagStore,
-        guideline_store: GuidelineStore,
-        service_registry: ServiceRegistry,
-        agent_store: AgentStore,
-        journey_store: JourneyStore,
+        store_provider: StoreProvider,
     ):
         self._logger = logger
-        self._relationship_store = relationship_store
-        self._tag_store = tag_store
-        self._guideline_store = guideline_store
-        self._service_registry = service_registry
-        self._agent_store = agent_store
-        self._journey_store = journey_store
+        self._store_provider = store_provider
+
+    @property
+    def _relationship_store(self) -> RelationshipStore:
+        return self._store_provider.get_store(RelationshipStore, APP_CALL_SITE)
+
+    @property
+    def _tag_store(self) -> TagStore:
+        return self._store_provider.get_store(TagStore, APP_CALL_SITE)
+
+    @property
+    def _guideline_store(self) -> GuidelineStore:
+        return self._store_provider.get_store(GuidelineStore, APP_CALL_SITE)
+
+    @property
+    def _service_registry(self) -> ServiceRegistry:
+        return self._store_provider.get_store(ServiceRegistry, APP_CALL_SITE)
+
+    @property
+    def _agent_store(self) -> AgentStore:
+        return self._store_provider.get_store(AgentStore, APP_CALL_SITE)
+
+    @property
+    def _journey_store(self) -> JourneyStore:
+        return self._store_provider.get_store(JourneyStore, APP_CALL_SITE)
 
     async def _entity_id_to_tag(
         self,

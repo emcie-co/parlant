@@ -32,10 +32,12 @@ from typing import (
 )
 from typing_extensions import override, TypedDict, NotRequired, Required, Self
 
+from itertools import chain
 from parlant.core import async_utils
-from parlant.core.async_utils import ReaderWriterLock, Timeout
+from parlant.core.async_utils import ReaderWriterLock, Timeout, safe_gather
 from parlant.core.common import (
     ItemNotFoundError,
+    try_or_none,
     JSONSerializable,
     UniqueId,
     Version,
@@ -1603,3 +1605,202 @@ class PollingSessionListener(SessionListener):
                 return False
             else:
                 await timeout.wait_up_to(0.1)
+
+
+class CompositeSessionStore(SessionStore):
+    def __init__(
+        self,
+        writable_store: SessionStore,
+        readable_stores: Sequence[SessionStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[SessionStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_session(
+        self,
+        customer_id: CustomerId,
+        agent_id: AgentId,
+        creation_utc: datetime | None = None,
+        title: str | None = None,
+        mode: SessionMode | None = None,
+        metadata: Mapping[str, JSONSerializable] = {},
+        labels: Optional[Set[str]] = None,
+    ) -> Session:
+        return await self._writable_store.create_session(
+            customer_id=customer_id,
+            agent_id=agent_id,
+            creation_utc=creation_utc,
+            title=title,
+            mode=mode,
+            metadata=metadata,
+            labels=labels,
+        )
+
+    @override
+    async def read_session(
+        self,
+        session_id: SessionId,
+    ) -> Session:
+        results = await safe_gather(
+            *[try_or_none(store.read_session(session_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(session_id))
+        return result
+
+    @override
+    async def delete_session(
+        self,
+        session_id: SessionId,
+    ) -> None:
+        return await self._writable_store.delete_session(session_id)
+
+    @override
+    async def update_session(
+        self,
+        session_id: SessionId,
+        params: SessionUpdateParams,
+    ) -> Session:
+        return await self._writable_store.update_session(session_id, params)
+
+    @override
+    async def list_sessions(
+        self,
+        agent_id: AgentId | None = None,
+        customer_id: CustomerId | None = None,
+        limit: int | None = None,
+        cursor: Cursor | None = None,
+        sort_direction: SortDirection | None = None,
+        labels: Optional[Set[str]] = None,
+    ) -> SessionListing:
+        results = await safe_gather(
+            *[
+                store.list_sessions(
+                    agent_id=agent_id,
+                    customer_id=customer_id,
+                    limit=limit,
+                    cursor=cursor,
+                    sort_direction=sort_direction,
+                    labels=labels,
+                )
+                for store in self._all_stores
+            ]
+        )
+        all_items = list(chain.from_iterable(r.items for r in results))
+        return SessionListing(
+            items=all_items,
+            total_count=sum(r.total_count for r in results),
+            has_more=any(r.has_more for r in results),
+        )
+
+    @override
+    async def set_metadata(
+        self,
+        session_id: SessionId,
+        key: str,
+        value: JSONSerializable,
+    ) -> Session:
+        return await self._writable_store.set_metadata(session_id, key, value)
+
+    @override
+    async def unset_metadata(
+        self,
+        session_id: SessionId,
+        key: str,
+    ) -> Session:
+        return await self._writable_store.unset_metadata(session_id, key)
+
+    @override
+    async def upsert_labels(
+        self,
+        session_id: SessionId,
+        labels: Set[str],
+    ) -> Session:
+        return await self._writable_store.upsert_labels(session_id, labels)
+
+    @override
+    async def remove_labels(
+        self,
+        session_id: SessionId,
+        labels: Set[str],
+    ) -> Session:
+        return await self._writable_store.remove_labels(session_id, labels)
+
+    @override
+    async def create_event(
+        self,
+        session_id: SessionId,
+        source: EventSource,
+        kind: EventKind,
+        trace_id: str,
+        data: JSONSerializable,
+        metadata: Mapping[str, JSONSerializable] = {},
+        creation_utc: datetime | None = None,
+    ) -> Event:
+        return await self._writable_store.create_event(
+            session_id=session_id,
+            source=source,
+            kind=kind,
+            trace_id=trace_id,
+            data=data,
+            metadata=metadata,
+            creation_utc=creation_utc,
+        )
+
+    @override
+    async def read_event(
+        self,
+        session_id: SessionId,
+        event_id: EventId,
+    ) -> Event:
+        results = await safe_gather(
+            *[try_or_none(store.read_event(session_id, event_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(event_id))
+        return result
+
+    @override
+    async def delete_event(
+        self,
+        event_id: EventId,
+    ) -> None:
+        return await self._writable_store.delete_event(event_id)
+
+    @override
+    async def list_events(
+        self,
+        session_id: SessionId,
+        source: EventSource | None = None,
+        trace_id: str | None = None,
+        kinds: Sequence[EventKind] = [],
+        min_offset: int | None = None,
+        exclude_deleted: bool = True,
+    ) -> Sequence[Event]:
+        results = await safe_gather(
+            *[
+                store.list_events(
+                    session_id=session_id,
+                    source=source,
+                    trace_id=trace_id,
+                    kinds=kinds,
+                    min_offset=min_offset,
+                    exclude_deleted=exclude_deleted,
+                )
+                for store in self._all_stores
+            ]
+        )
+        return list(chain.from_iterable(results))
+
+    @override
+    async def update_event(
+        self,
+        session_id: SessionId,
+        event_id: EventId,
+        params: EventUpdateParams,
+    ) -> Event:
+        return await self._writable_store.update_event(session_id, event_id, params)

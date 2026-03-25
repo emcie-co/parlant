@@ -49,6 +49,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
     measure_tool_call_batch,
 )
 from parlant.core.tools import Tool, ToolId, ToolParameterDescriptor, ToolParameterOptions
+from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
 
 
 class ValidationStatus(Enum):
@@ -103,19 +104,23 @@ class OverlappingToolsBatch(ToolCallBatch):
         logger: Logger,
         meter: Meter,
         optimization_policy: OptimizationPolicy,
-        service_registry: ServiceRegistry,
         schematic_generator: SchematicGenerator[OverlappingToolsBatchSchema],
         overlapping_tools_batch: Sequence[tuple[ToolId, Tool, Sequence[GuidelineMatch]]],
         context: ToolCallContext,
+        store_provider: StoreProvider,
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._meter = meter
 
         self._optimization_policy = optimization_policy
-        self._service_registry = service_registry
         self._schematic_generator = schematic_generator
         self._context = context
         self._overlapping_tools_batch = overlapping_tools_batch
+
+    @property
+    def _service_registry(self) -> ServiceRegistry:
+        return self._store_provider.get_store(ServiceRegistry, ENGINE_CALL_SITE)
 
     async def process(self) -> ToolCallBatchResult:
         async with measure_tool_call_batch(self._meter, self):

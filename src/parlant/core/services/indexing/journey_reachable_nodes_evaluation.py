@@ -16,6 +16,7 @@ from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.services.indexing.common import EvaluationError, ProgressReport
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.shots import Shot, ShotCollection
+from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
 
 
 PRE_ROOT_INDEX = "0"
@@ -107,13 +108,17 @@ class JourneyReachableNodesEvaluator:
         logger: Logger,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[ReachableNodesEvaluationSchema],
-        service_registry: ServiceRegistry,
+        store_provider: StoreProvider,
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._optimization_policy = optimization_policy
 
         self._schematic_generator = schematic_generator
-        self._service_registry = service_registry
+
+    @property
+    def _service_registry(self) -> ServiceRegistry:
+        return self._store_provider.get_store(ServiceRegistry, ENGINE_CALL_SITE)
 
     def _build_node_wrappers(self, guidelines: Sequence[Guideline]) -> dict[str, _JourneyNode]:
         def _get_guideline_node_index(guideline: Guideline) -> str:

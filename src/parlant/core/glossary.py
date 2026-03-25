@@ -20,8 +20,15 @@ from typing import Awaitable, Callable, NewType, Optional, Sequence, TypedDict, 
 from typing_extensions import override, Self, Required
 
 from parlant.core import async_utils
-from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, Version, IdGenerator, UniqueId, md5_checksum
+from parlant.core.async_utils import ReaderWriterLock, safe_gather
+from parlant.core.common import (
+    ItemNotFoundError,
+    try_or_none,
+    Version,
+    IdGenerator,
+    UniqueId,
+    md5_checksum,
+)
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.vector_database import (
@@ -557,3 +564,95 @@ class GlossaryVectorStore(GlossaryStore):
 
         if not term_document:
             raise ItemNotFoundError(item_id=UniqueId(term_id))
+
+
+class CompositeGlossaryStore(GlossaryStore):
+    def __init__(
+        self,
+        writable_store: GlossaryStore,
+        readable_stores: Sequence[GlossaryStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[GlossaryStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_term(
+        self,
+        name: str,
+        description: str,
+        creation_utc: Optional[datetime] = None,
+        synonyms: Optional[Sequence[str]] = None,
+        tags: Optional[Sequence[TagId]] = None,
+        id: Optional[TermId] = None,
+    ) -> Term:
+        return await self._writable_store.create_term(
+            name=name,
+            description=description,
+            creation_utc=creation_utc,
+            synonyms=synonyms,
+            tags=tags,
+            id=id,
+        )
+
+    @override
+    async def update_term(
+        self,
+        term_id: TermId,
+        params: TermUpdateParams,
+    ) -> Term:
+        return await self._writable_store.update_term(term_id, params)
+
+    @override
+    async def read_term(
+        self,
+        term_id: TermId,
+    ) -> Term:
+        results = await safe_gather(
+            *[try_or_none(store.read_term(term_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(term_id))
+        return result
+
+    @override
+    async def list_terms(
+        self,
+        tags: Optional[Sequence[TagId]] = None,
+    ) -> Sequence[Term]:
+        results = await safe_gather(*[store.list_terms(tags=tags) for store in self._all_stores])
+        return list(chain.from_iterable(results))
+
+    @override
+    async def delete_term(
+        self,
+        term_id: TermId,
+    ) -> None:
+        return await self._writable_store.delete_term(term_id)
+
+    @override
+    async def find_relevant_terms(
+        self,
+        query: str,
+        available_terms: Sequence[Term],
+        max_terms: int = 20,
+    ) -> Sequence[Term]:
+        return await self._writable_store.find_relevant_terms(query, available_terms, max_terms)
+
+    @override
+    async def upsert_tag(
+        self,
+        term_id: TermId,
+        tag_id: TagId,
+        creation_utc: Optional[datetime] = None,
+    ) -> bool:
+        return await self._writable_store.upsert_tag(term_id, tag_id, creation_utc)
+
+    @override
+    async def remove_tag(
+        self,
+        term_id: TermId,
+        tag_id: TagId,
+    ) -> None:
+        return await self._writable_store.remove_tag(term_id, tag_id)

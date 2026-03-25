@@ -45,6 +45,7 @@ from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tags import Tag
+from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
 
 
 class GuidelineCheck(DefaultBaseModel):
@@ -83,22 +84,25 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
         self,
         logger: Logger,
         meter: Meter,
-        journey_store: JourneyStore,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[DisambiguationGuidelineMatchesSchema],
         disambiguation_guideline: Guideline,
         disambiguation_targets: Sequence[Guideline],
         context: GuidelineMatchingContext,
+        store_provider: StoreProvider,
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._meter = meter
-
-        self._journey_store = journey_store
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
         self._disambiguation_guideline = disambiguation_guideline
         self._disambiguation_targets = disambiguation_targets
         self._context = context
+
+    @property
+    def _journey_store(self) -> JourneyStore:
+        return self._store_provider.get_store(JourneyStore, ENGINE_CALL_SITE)
 
     @property
     @override

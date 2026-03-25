@@ -79,6 +79,7 @@ from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.relationships import RelationshipKind, RelationshipStore
+from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
 
 
 class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
@@ -87,9 +88,6 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         logger: Logger,
         meter: Meter,
         optimization_policy: OptimizationPolicy,
-        guideline_store: GuidelineStore,
-        journey_store: JourneyStore,
-        relationship_store: RelationshipStore,
         entity_queries: EntityQueries,
         observational_guideline_schematic_generator: SchematicGenerator[
             GenericObservationalGuidelineMatchesSchema
@@ -119,13 +117,11 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
             JourneyBacktrackCheckSchema
         ],
         response_analysis_schematic_generator: SchematicGenerator[GenericResponseAnalysisSchema],
+        store_provider: StoreProvider,
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._meter = meter
-
-        self._guideline_store = guideline_store
-        self._journey_store = journey_store
-        self._relationship_store = relationship_store
 
         self._optimization_policy = optimization_policy
         self._entity_queries = entity_queries
@@ -156,6 +152,18 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
             journey_backtrack_check_schematic_generator
         )
         self._response_analysis_schematic_generator = response_analysis_schematic_generator
+
+    @property
+    def _guideline_store(self) -> GuidelineStore:
+        return self._store_provider.get_store(GuidelineStore, ENGINE_CALL_SITE)
+
+    @property
+    def _journey_store(self) -> JourneyStore:
+        return self._store_provider.get_store(JourneyStore, ENGINE_CALL_SITE)
+
+    @property
+    def _relationship_store(self) -> RelationshipStore:
+        return self._store_provider.get_store(RelationshipStore, ENGINE_CALL_SITE)
 
     @override
     async def create_matching_batches(
@@ -673,7 +681,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         return GenericDisambiguationGuidelineMatchingBatch(
             logger=self._logger,
             meter=self._meter,
-            journey_store=self._journey_store,
+            store_provider=self._store_provider,
             optimization_policy=self._optimization_policy,
             schematic_generator=self._disambiguation_guidelines_schematic_generator,
             disambiguation_guideline=disambiguation_guideline,
@@ -701,7 +709,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         return GenericJourneyNodeSelectionBatch(
             logger=self._logger,
             meter=self._meter,
-            guideline_store=self._guideline_store,
+            store_provider=self._store_provider,
             optimization_policy=self._optimization_policy,
             schematic_generator_journey_node_selection=self._journey_node_selection_schematic_generator,
             schematic_generator_next_step_selection=self._journey_next_step_selection_schematic_generator,

@@ -36,6 +36,7 @@ from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
+from parlant.core.store_provider import ENGINE_CALL_SITE, StoreProvider
 
 
 PRE_ROOT_INDEX = "0"
@@ -65,7 +66,6 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
         self,
         logger: Logger,
         meter: Meter,
-        guideline_store: GuidelineStore,
         optimization_policy: OptimizationPolicy,
         schematic_generator_journey_node_selection: SchematicGenerator[
             JourneyBacktrackNodeSelectionSchema
@@ -76,13 +76,13 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
         ],
         examined_journey: Journey,
         context: GuidelineMatchingContext,
+        store_provider: StoreProvider,
         node_guidelines: Sequence[Guideline] = [],
         journey_path: Sequence[str | None] = [],
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._meter = meter
-
-        self._guideline_store = guideline_store
 
         self._optimization_policy = optimization_policy
         self._schematic_generator_journey_node_selection = (
@@ -107,6 +107,10 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                 g for g in self._node_guidelines if g.id == GuidelineId(root_follow_ups[0])
             )
             self._first_executable_node = root_follow_up
+
+    @property
+    def _guideline_store(self) -> GuidelineStore:
+        return self._store_provider.get_store(GuidelineStore, ENGINE_CALL_SITE)
 
     @property
     @override
@@ -251,7 +255,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
             if not self._previous_path or all(p is None for p in self._previous_path):
                 next_step_selector = JourneyNextStepSelection(
                     logger=self._logger,
-                    guideline_store=self._guideline_store,
+                    store_provider=self._store_provider,
                     optimization_policy=self._optimization_policy,
                     schematic_generator=self._schematic_generator_next_step_selection,
                     examined_journey=self._examined_journey,
@@ -268,7 +272,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
             ):
                 next_step_selector = JourneyNextStepSelection(
                     logger=self._logger,
-                    guideline_store=self._guideline_store,
+                    store_provider=self._store_provider,
                     optimization_policy=self._optimization_policy,
                     schematic_generator=self._schematic_generator_next_step_selection,
                     examined_journey=self._examined_journey,
@@ -285,7 +289,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                 ):  # If last executed step is a tool call, backtracking is not necessary
                     backtrack_checker = JourneyBacktrackCheck(
                         logger=self._logger,
-                        guideline_store=self._guideline_store,
+                        store_provider=self._store_provider,
                         optimization_policy=self._optimization_policy,
                         schematic_generator=self._schematic_generator_journey_backtrack_check,
                         examined_journey=self._examined_journey,
@@ -309,7 +313,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
 
                     node_selector = JourneyBacktrackNodeSelection(
                         logger=self._logger,
-                        guideline_store=self._guideline_store,
+                        store_provider=self._store_provider,
                         optimization_policy=self._optimization_policy,
                         schematic_generator=self._schematic_generator_journey_node_selection,
                         examined_journey=self._examined_journey,
@@ -325,7 +329,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                 # run backtrack check unless need to backtrack
                 backtrack_checker = JourneyBacktrackCheck(
                     logger=self._logger,
-                    guideline_store=self._guideline_store,
+                    store_provider=self._store_provider,
                     optimization_policy=self._optimization_policy,
                     schematic_generator=self._schematic_generator_journey_backtrack_check,
                     examined_journey=self._examined_journey,
@@ -347,7 +351,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                     if backtrack_result.backtrack_to_same_journey_process:
                         node_selector = JourneyBacktrackNodeSelection(
                             logger=self._logger,
-                            guideline_store=self._guideline_store,
+                            store_provider=self._store_provider,
                             optimization_policy=self._optimization_policy,
                             schematic_generator=self._schematic_generator_journey_node_selection,
                             examined_journey=self._examined_journey,
@@ -382,7 +386,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                             )
                         next_step_selector = JourneyNextStepSelection(
                             logger=self._logger,
-                            guideline_store=self._guideline_store,
+                            store_provider=self._store_provider,
                             optimization_policy=self._optimization_policy,
                             schematic_generator=self._schematic_generator_next_step_selection,
                             examined_journey=self._examined_journey,

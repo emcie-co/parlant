@@ -579,8 +579,11 @@ class CompositeRelationshipStore(RelationshipStore):
         source: RelationshipEntity,
         target: RelationshipEntity,
         kind: RelationshipKind,
+        group_id: Optional[str] = None,
     ) -> Relationship:
-        return await self._writable_store.create_relationship(source, target, kind)
+        return await self._writable_store.create_relationship(
+            source, target, kind, group_id=group_id
+        )
 
     @override
     async def read_relationship(

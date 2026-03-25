@@ -229,25 +229,6 @@ class RelationalResolver:
 
     # -- Public API ---------------------------------------------------------
 
-    def _extract_journey_id_from_guideline(self, guideline: Guideline) -> Optional[str]:
-        if "journey_node" in guideline.metadata:
-            return cast(
-                JourneyId,
-                cast(dict[str, JSONSerializable], guideline.metadata["journey_node"])["journey_id"],
-            )
-
-        if any(Tag.extract_journey_id(tag_id) for tag_id in guideline.tags):
-            return next(
-                (
-                    Tag.extract_journey_id(tag_id)
-                    for tag_id in guideline.tags
-                    if Tag.extract_journey_id(tag_id)
-                ),
-                None,
-            )
-
-        return None
-
     async def resolve(
         self,
         usable_guidelines: Sequence[Guideline],

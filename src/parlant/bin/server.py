@@ -1007,11 +1007,7 @@ async def load_app(params: StartupParameters) -> AsyncIterator[tuple[ASGIApplica
         EXIT_STACK,
     ):
         modules = list(
-            dict.fromkeys(
-                (await get_module_list_from_config(CONFIG_FILE_PATH))
-                + params.modules
-                + (await get_module_list_from_config(Path("emcie.toml")))
-            )
+            dict.fromkeys((await get_module_list_from_config(CONFIG_FILE_PATH)) + params.modules)
         )
 
         if modules:

@@ -270,7 +270,7 @@ from parlant.core.engines.alpha.planners import (
     PlannerProvider,
 )
 from parlant.bin.server import PARLANT_HOME_DIR, start_parlant, StartupParameters
-from parlant.core.store_provider import StoreProvider, StoreProviderHints
+from parlant.core.store_provider import BasicStoreProvider, StoreProvider, StoreProviderHints
 from parlant.core.services.tools.plugins import PluginServer, ToolEntry, tool
 from parlant.core.tags import Tag as _Tag, TagDocumentStore, TagId, TagStore
 from parlant.core.tools import (
@@ -5537,6 +5537,7 @@ class Server:
 
         async def configure(c: Container) -> Container:
             latest_container = c
+            latest_container[StoreProvider] = BasicStoreProvider(lambda: latest_container)
 
             def get_latest_container() -> Container:
                 return latest_container

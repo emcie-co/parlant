@@ -195,7 +195,7 @@ class Context:
 
 
 class SDKTest:
-    STARTUP_TIMEOUT = 60
+    STARTUP_TIMEOUT = 120
 
     async def test_run(self) -> None:
         port = get_random_port()

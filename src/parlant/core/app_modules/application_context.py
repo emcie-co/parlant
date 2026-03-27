@@ -13,6 +13,7 @@ class ApplicationContext:
     ) -> None:
         self._context_var = contextvars.ContextVar[_ContextData](
             "_parlant_application_context",
+            default=_ContextData(),
         )
 
     def reset(self) -> None:

@@ -55,16 +55,7 @@ class JourneyGuidelineProjection:
         node_edges: dict[JourneyNodeId, list[JourneyEdge]],
     ) -> None:
         """Resolve sub-journey links by injecting mapped nodes and edges into the parent graph."""
-        import sys
-
-        print(f"[DEBUG] _resolve_links called for {parent_journey_id}", file=sys.stderr)
         links = await self._journey_store.list_links(parent_journey_id)
-        print(f"[DEBUG] found {len(links)} links", file=sys.stderr)
-        for link in links:
-            print(
-                f"[DEBUG] link: {link.id} src={link.source_node_id} sub={link.sub_journey_id} merge={link.merge_node_id} cond={link.condition}",
-                file=sys.stderr,
-            )
 
         for link in links:
             await self._resolve_single_link(
@@ -83,30 +74,17 @@ class JourneyGuidelineProjection:
         edges: dict[JourneyEdgeId, JourneyEdge],
         node_edges: dict[JourneyNodeId, list[JourneyEdge]],
     ) -> None:
-        import sys
-
-        print(f"[DEBUG] resolving link {link.id}", file=sys.stderr)
         sub_journey = await self._journey_store.read_journey(link.sub_journey_id)
         sub_nodes_list = await self._journey_store.list_nodes(link.sub_journey_id)
         sub_edges_list = await self._journey_store.list_edges(link.sub_journey_id)
-        print(
-            f"[DEBUG] sub-journey {sub_journey.id}: {len(sub_nodes_list)} nodes, {len(sub_edges_list)} edges",
-            file=sys.stderr,
-        )
-
         sub_nodes = {n.id: n for n in sub_nodes_list}
 
         sub_node_edges: dict[JourneyNodeId, list[JourneyEdge]] = defaultdict(list)
         for edge in sub_edges_list:
             sub_node_edges[edge.source].append(edge)
 
-        # Map sub-journey node IDs to namespaced IDs in the parent
-        # Use '/' as separator since ':' is used in guideline ID format
-        def mapped_node_id(original_id: JourneyNodeId) -> JourneyNodeId:
-            return JourneyNodeId(f"{link.id}/{original_id}")
-
-        def mapped_edge_id(original_id: JourneyEdgeId) -> JourneyEdgeId:
-            return JourneyEdgeId(f"{link.id}/{original_id}")
+        # Use real node and edge IDs — they're globally unique.
+        # link_id and sub_journey_id go in metadata.
 
         # BFS through sub-journey, skipping the root node
         queue: deque[JourneyNodeId] = deque()
@@ -115,16 +93,21 @@ class JourneyGuidelineProjection:
         # Start from root's children
         root_edges = sub_node_edges.get(sub_journey.root_id, [])
 
+        link_metadata: dict[str, JSONSerializable] = {
+            "link_id": link.id,
+            "sub_journey_id": link.sub_journey_id,
+        }
+
         for root_edge in root_edges:
             if root_edge.target == JourneyStore.END_NODE_ID:
                 # Root directly transitions to END — wire source to merge node
                 virtual_edge = JourneyEdge(
-                    id=mapped_edge_id(root_edge.id),
+                    id=root_edge.id,
                     creation_utc=root_edge.creation_utc,
                     source=link.source_node_id,
                     target=link.merge_node_id,
                     condition=link.condition or root_edge.condition,
-                    metadata=root_edge.metadata,
+                    metadata={**root_edge.metadata, "journey_node": link_metadata},
                 )
                 edges[virtual_edge.id] = virtual_edge
                 node_edges[virtual_edge.source].append(virtual_edge)
@@ -134,23 +117,17 @@ class JourneyGuidelineProjection:
             if not target_node:
                 continue
 
-            # Create the mapped node if not already created
-            m_id = mapped_node_id(root_edge.target)
-            if m_id not in nodes:
-                self._add_mapped_node(
-                    nodes, target_node, m_id, parent_journey_id, link.sub_journey_id
-                )
+            if root_edge.target not in nodes:
+                self._inject_sub_node(nodes, target_node, parent_journey_id, link.sub_journey_id)
 
-            # Edge from source_node_id to this mapped first-level node
-            # Combine link condition with root edge condition
             condition = link.condition or root_edge.condition
             virtual_edge = JourneyEdge(
-                id=mapped_edge_id(root_edge.id),
+                id=root_edge.id,
                 creation_utc=root_edge.creation_utc,
                 source=link.source_node_id,
-                target=m_id,
+                target=root_edge.target,
                 condition=condition,
-                metadata=root_edge.metadata,
+                metadata={**root_edge.metadata, "journey_node": link_metadata},
             )
             edges[virtual_edge.id] = virtual_edge
             node_edges[virtual_edge.source].append(virtual_edge)
@@ -164,67 +141,64 @@ class JourneyGuidelineProjection:
                 continue
             visited.add(current_id)
 
-            current_mapped_id = mapped_node_id(current_id)
             current_edges = sub_node_edges.get(current_id, [])
 
             # If leaf node (no outgoing edges), connect to merge
             if not current_edges:
-                leaf_edge_id = JourneyEdgeId(f"{link.id}/leaf/{current_id}")
+                leaf_edge_id = JourneyEdgeId(f"leaf:{link.id}:{current_id}")
                 leaf_edge = JourneyEdge(
                     id=leaf_edge_id,
                     creation_utc=datetime.now(timezone.utc),
-                    source=current_mapped_id,
+                    source=current_id,
                     target=link.merge_node_id,
                     condition=None,
-                    metadata={},
+                    metadata={"journey_node": link_metadata},
                 )
                 edges[leaf_edge.id] = leaf_edge
-                node_edges[current_mapped_id].append(leaf_edge)
+                node_edges[current_id].append(leaf_edge)
                 continue
 
             for sub_edge in current_edges:
                 if sub_edge.target == JourneyStore.END_NODE_ID:
                     # END transition — wire to merge node
                     virtual_edge = JourneyEdge(
-                        id=mapped_edge_id(sub_edge.id),
+                        id=sub_edge.id,
                         creation_utc=sub_edge.creation_utc,
-                        source=current_mapped_id,
+                        source=current_id,
                         target=link.merge_node_id,
                         condition=sub_edge.condition,
-                        metadata=sub_edge.metadata,
+                        metadata={**sub_edge.metadata, "journey_node": link_metadata},
                     )
                     edges[virtual_edge.id] = virtual_edge
-                    node_edges[current_mapped_id].append(virtual_edge)
+                    node_edges[current_id].append(virtual_edge)
                     continue
 
                 target_node = sub_nodes.get(sub_edge.target)
                 if not target_node:
                     continue
 
-                m_target_id = mapped_node_id(sub_edge.target)
-                if m_target_id not in nodes:
-                    self._add_mapped_node(
-                        nodes, target_node, m_target_id, parent_journey_id, link.sub_journey_id
+                if sub_edge.target not in nodes:
+                    self._inject_sub_node(
+                        nodes, target_node, parent_journey_id, link.sub_journey_id
                     )
 
                 virtual_edge = JourneyEdge(
-                    id=mapped_edge_id(sub_edge.id),
+                    id=sub_edge.id,
                     creation_utc=sub_edge.creation_utc,
-                    source=current_mapped_id,
-                    target=m_target_id,
+                    source=current_id,
+                    target=sub_edge.target,
                     condition=sub_edge.condition,
-                    metadata=sub_edge.metadata,
+                    metadata={**sub_edge.metadata, "journey_node": link_metadata},
                 )
                 edges[virtual_edge.id] = virtual_edge
-                node_edges[current_mapped_id].append(virtual_edge)
+                node_edges[current_id].append(virtual_edge)
 
                 queue.append(sub_edge.target)
 
     @staticmethod
-    def _add_mapped_node(
+    def _inject_sub_node(
         nodes: dict[JourneyNodeId, JourneyNode],
         original: JourneyNode,
-        mapped_id: JourneyNodeId,
         parent_journey_id: JourneyId,
         sub_journey_id: JourneyId,
     ) -> None:
@@ -239,9 +213,8 @@ class JourneyGuidelineProjection:
             "sub_journey_id": sub_journey_id,
         }
 
-        nodes[mapped_id] = replace(
+        nodes[original.id] = replace(
             original,
-            id=mapped_id,
             metadata=metadata,
         )
 
@@ -268,16 +241,6 @@ class JourneyGuidelineProjection:
 
         # Resolve sub-journey links into the graph
         await self._resolve_links(journey_id, nodes, edges, node_edges)
-
-        import sys
-
-        print(f"[DEBUG] After resolve: {len(nodes)} nodes, {len(edges)} edges", file=sys.stderr)
-        for nid, n in nodes.items():
-            ne = node_edges.get(nid, [])
-            print(
-                f"[DEBUG]   node {nid}: action={n.action!r} edges_out={[e.target for e in ne]}",
-                file=sys.stderr,
-            )
 
         def make_guideline(
             edge: JourneyEdge | None,

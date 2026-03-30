@@ -5684,14 +5684,14 @@ async def test_that_priority_chain_attributes_to_direct_deprioritizer(
     result = await resolver.resolve(
         [g_a, g_b, g_c],
         [
-            GuidelineMatch(guideline=g_a, score=10, rationale=""),
-            GuidelineMatch(guideline=g_b, score=8, rationale=""),
-            GuidelineMatch(guideline=g_c, score=6, rationale=""),
+            GuidelineMatch(guideline=g_a, rationale=""),
+            GuidelineMatch(guideline=g_b, rationale=""),
+            GuidelineMatch(guideline=g_c, rationale=""),
         ],
         journeys=[],
     )
 
-    assert result.matches == [GuidelineMatch(guideline=g_a, score=10, rationale="")]
+    assert result.matches == [GuidelineMatch(guideline=g_a, rationale="")]
 
     assert_resolutions(result, g_a.id, [ResolutionKind.NONE])
     assert_resolutions(result, g_b.id, [ResolutionKind.DEPRIORITIZED])
@@ -5750,10 +5750,10 @@ async def test_that_transitive_deprioritized_dependency_records_only_direct_reso
     result = await resolver.resolve(
         [g_a, g_b, g_c, g_x],
         [
-            GuidelineMatch(guideline=g_a, score=10, rationale=""),
-            GuidelineMatch(guideline=g_b, score=8, rationale=""),
-            GuidelineMatch(guideline=g_c, score=6, rationale=""),
-            GuidelineMatch(guideline=g_x, score=9, rationale=""),
+            GuidelineMatch(guideline=g_a, rationale=""),
+            GuidelineMatch(guideline=g_b, rationale=""),
+            GuidelineMatch(guideline=g_c, rationale=""),
+            GuidelineMatch(guideline=g_x, rationale=""),
         ],
         journeys=[],
     )
@@ -5819,8 +5819,8 @@ async def test_that_journey_tag_guideline_journey_tag_dependency_cascades(
     result = await resolver.resolve(
         [j1_g, g],
         [
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
-            GuidelineMatch(guideline=g, score=8, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
+            GuidelineMatch(guideline=g, rationale=""),
         ],
         journeys=[j1],  # J2 NOT active
     )
@@ -5877,8 +5877,8 @@ async def test_that_priority_chain_with_gaps_does_not_transitively_deprioritize(
         [g1, g2, g3, g4],
         [
             # Only G2 and G4 matched
-            GuidelineMatch(guideline=g2, score=8, rationale=""),
-            GuidelineMatch(guideline=g4, score=6, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g4, rationale=""),
         ],
         journeys=[],
     )

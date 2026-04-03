@@ -385,12 +385,16 @@ async def container(
                 container[IdGenerator], TransientDocumentDatabase()
             )
         )
-        container[SessionListener] = PollingSessionListener
+        container[SessionListener] = PollingSessionListener(
+            store_provider_factory=lambda: container[StoreProvider]
+        )
         container[EvaluationStore] = await stack.enter_async_context(
             EvaluationDocumentStore(TransientDocumentDatabase())
         )
         container[EvaluationListener] = PollingEvaluationListener
-        container[EventEmitterFactory] = Singleton(EventPublisherFactory)
+        container[EventEmitterFactory] = EventPublisherFactory(
+            store_provider_factory=lambda: container[StoreProvider]
+        )
 
         container[ServiceRegistry] = await stack.enter_async_context(
             ServiceDocumentRegistry(

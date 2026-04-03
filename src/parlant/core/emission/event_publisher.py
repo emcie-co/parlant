@@ -13,16 +13,18 @@
 # limitations under the License.
 
 from dataclasses import replace
-from typing import Mapping, cast
+from typing import Any, Callable, Mapping, cast
 from typing_extensions import override
 
 from parlant.core.common import JSONSerializable
 from parlant.core.agents import Agent, AgentId, AgentStore
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 from parlant.core.emissions import (
     EmittedEvent,
     EventEmitter,
     EventEmitterFactory,
     MessageEventHandle,
+    ensure_new_usage_params_and_get_trace_id,
 )
 from parlant.core.sessions import (
     Event,
@@ -79,10 +81,13 @@ class EventPublisher(EventEmitter):
     @override
     async def emit_status_event(
         self,
-        trace_id: str,
-        data: StatusEventData,
+        trace_id: str | None = None,
+        data: StatusEventData | None = None,
         metadata: Mapping[str, JSONSerializable] | None = None,
+        **kwargs: Any,
     ) -> EmittedEvent:
+        trace_id = ensure_new_usage_params_and_get_trace_id(trace_id, data, **kwargs)
+
         event = EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.STATUS,
@@ -98,10 +103,13 @@ class EventPublisher(EventEmitter):
     @override
     async def emit_message_event(
         self,
-        trace_id: str,
-        data: str | MessageEventData,
+        trace_id: str | None = None,
+        data: str | MessageEventData | None = None,
         metadata: Mapping[str, JSONSerializable] | None = None,
+        **kwargs: Any,
     ) -> MessageEventHandle:
+        trace_id = ensure_new_usage_params_and_get_trace_id(trace_id, data, **kwargs)
+
         if isinstance(data, str):
             message_data = cast(
                 JSONSerializable,
@@ -138,10 +146,13 @@ class EventPublisher(EventEmitter):
     @override
     async def emit_tool_event(
         self,
-        trace_id: str,
-        data: ToolEventData,
+        trace_id: str | None = None,
+        data: ToolEventData | None = None,
         metadata: Mapping[str, JSONSerializable] | None = None,
+        **kwargs: Any,
     ) -> EmittedEvent:
+        trace_id = ensure_new_usage_params_and_get_trace_id(trace_id, data, **kwargs)
+
         event = EmittedEvent(
             source=EventSource.SYSTEM,
             kind=EventKind.TOOL,
@@ -157,10 +168,13 @@ class EventPublisher(EventEmitter):
     @override
     async def emit_custom_event(
         self,
-        trace_id: str,
-        data: JSONSerializable,
+        trace_id: str | None = None,
+        data: JSONSerializable | None = None,
         metadata: Mapping[str, JSONSerializable] | None = None,
+        **kwargs: Any,
     ) -> EmittedEvent:
+        trace_id = ensure_new_usage_params_and_get_trace_id(trace_id, data, **kwargs)
+
         event = EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.CUSTOM,
@@ -190,11 +204,9 @@ class EventPublisher(EventEmitter):
 class EventPublisherFactory(EventEmitterFactory):
     def __init__(
         self,
-        agent_store: AgentStore,
-        session_store: SessionStore,
+        store_provider_factory: Callable[[], StoreProvider],
     ) -> None:
-        self._agent_store = agent_store
-        self._session_store = session_store
+        self._store_provider_factory = store_provider_factory
 
     @override
     async def create_event_emitter(
@@ -202,5 +214,11 @@ class EventPublisherFactory(EventEmitterFactory):
         emitting_agent_id: AgentId,
         session_id: SessionId,
     ) -> EventEmitter:
-        agent = await self._agent_store.read_agent(emitting_agent_id)
-        return EventPublisher(agent, self._session_store, session_id)
+        agent_store = self._store_provider_factory().get_store(
+            AgentStore, StoreProviderHints(call_site="engine")
+        )
+        session_store = self._store_provider_factory().get_store(
+            SessionStore, StoreProviderHints(call_site="engine")
+        )
+        agent = await agent_store.read_agent(emitting_agent_id)
+        return EventPublisher(agent, session_store, session_id)

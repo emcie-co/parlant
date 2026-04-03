@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from dataclasses import field
 from typing import (
+    Callable,
     Iterator,
     Literal,
     Mapping,
@@ -46,6 +47,7 @@ from parlant.core.common import (
 from parlant.core.agents import AgentId
 from parlant.core.context_variables import ContextVariableId
 from parlant.core.customers import CustomerId
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 from parlant.core.guidelines import GuidelineId
 from parlant.core.journeys import JourneyId
 from parlant.core.persistence.common import (
@@ -1516,8 +1518,14 @@ class SessionListener(ABC):
 
 
 class PollingSessionListener(SessionListener):
-    def __init__(self, session_store: SessionStore) -> None:
-        self._session_store = session_store
+    def __init__(self, store_provider_factory: Callable[[], StoreProvider]) -> None:
+        self._store_provider_factory = store_provider_factory
+
+    @property
+    def _session_store(self) -> SessionStore:
+        return self._store_provider_factory().get_store(
+            SessionStore, StoreProviderHints(call_site="engine")
+        )
 
     @override
     async def wait_for_more_events(
@@ -1740,15 +1748,18 @@ class CompositeSessionStore(SessionStore):
         metadata: Mapping[str, JSONSerializable] = {},
         creation_utc: datetime | None = None,
     ) -> Event:
-        return await self._writable_store.create_event(
-            session_id=session_id,
-            source=source,
-            kind=kind,
-            trace_id=trace_id,
-            data=data,
-            metadata=metadata,
-            creation_utc=creation_utc,
-        )
+        try:
+            return await self._writable_store.create_event(
+                session_id=session_id,
+                source=source,
+                kind=kind,
+                trace_id=trace_id,
+                data=data,
+                metadata=metadata,
+                creation_utc=creation_utc,
+            )
+        except Exception as e:
+            raise e
 
     @override
     async def read_event(
@@ -1781,8 +1792,8 @@ class CompositeSessionStore(SessionStore):
         min_offset: int | None = None,
         exclude_deleted: bool = True,
     ) -> Sequence[Event]:
-        results = await safe_gather(
-            *[
+        for store in self._all_stores:
+            result = await try_or_none(
                 store.list_events(
                     session_id=session_id,
                     source=source,
@@ -1791,10 +1802,12 @@ class CompositeSessionStore(SessionStore):
                     min_offset=min_offset,
                     exclude_deleted=exclude_deleted,
                 )
-                for store in self._all_stores
-            ]
-        )
-        return list(chain.from_iterable(results))
+            )
+
+            if result is not None:
+                return result
+
+        raise ItemNotFoundError(item_id=UniqueId(session_id))
 
     @override
     async def update_event(

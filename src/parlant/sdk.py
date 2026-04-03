@@ -5567,8 +5567,7 @@ class Server:
                 )
 
             c()[EventEmitterFactory] = EventPublisherFactory(
-                agent_store=c()[AgentStore],
-                session_store=c()[SessionStore],
+                store_provider_factory=lambda: c()[StoreProvider],
             )
 
             c()[ServiceRegistry] = await self._exit_stack.enter_async_context(

@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Mapping, cast
+from typing import Any, Callable, Mapping, cast
 from typing_extensions import override
 
 from parlant.core.common import JSONSerializable
 from parlant.core.agents import Agent, AgentId, AgentStore
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 from parlant.core.emissions import (
     EmittedEvent,
     EventEmitter,
@@ -167,8 +168,8 @@ class EventBuffer(EventEmitter):
 
 
 class EventBufferFactory(EventEmitterFactory):
-    def __init__(self, agent_store: AgentStore) -> None:
-        self._agent_store = agent_store
+    def __init__(self, store_provider_factory: Callable[[], StoreProvider]) -> None:
+        self._store_provider_factory = store_provider_factory
 
     @override
     async def create_event_emitter(
@@ -177,5 +178,8 @@ class EventBufferFactory(EventEmitterFactory):
         session_id: SessionId,
     ) -> EventEmitter:
         _ = session_id
-        agent = await self._agent_store.read_agent(emitting_agent_id)
+        agent_store = self._store_provider_factory().get_store(
+            AgentStore, StoreProviderHints(call_site="engine")
+        )
+        agent = await agent_store.read_agent(emitting_agent_id)
         return EventBuffer(emitting_agent=agent)

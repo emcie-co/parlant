@@ -5708,8 +5708,7 @@ class Server:
                 )
 
             c()[EventEmitterFactory] = EventPublisherFactory(
-                agent_store=c()[AgentStore],
-                session_store=c()[SessionStore],
+                store_provider_factory=lambda: c()[StoreProvider],
             )
 
             if ServiceRegistry not in c().defined_types:

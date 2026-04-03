@@ -809,7 +809,9 @@ async def initialize_container(
 
     await c[BackgroundTaskService].start(c[WebSocketLogger].start(), tag="websocket-logger")
 
-    try_define(SessionListener, PollingSessionListener)
+    try_define(
+        SessionListener, PollingSessionListener(store_provider_factory=lambda: c[StoreProvider])
+    )
 
     nlp_service_name: str
     nlp_service_instance: NLPService

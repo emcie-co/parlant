@@ -13,11 +13,12 @@
 # limitations under the License.
 
 from dataclasses import replace
-from typing import Any, Mapping, cast
+from typing import Any, Callable, Mapping, cast
 from typing_extensions import override
 
 from parlant.core.common import JSONSerializable
 from parlant.core.agents import Agent, AgentId, AgentStore
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 from parlant.core.emissions import (
     EmittedEvent,
     EventEmitter,
@@ -203,11 +204,9 @@ class EventPublisher(EventEmitter):
 class EventPublisherFactory(EventEmitterFactory):
     def __init__(
         self,
-        agent_store: AgentStore,
-        session_store: SessionStore,
+        store_provider_factory: Callable[[], StoreProvider],
     ) -> None:
-        self._agent_store = agent_store
-        self._session_store = session_store
+        self._store_provider_factory = store_provider_factory
 
     @override
     async def create_event_emitter(
@@ -215,5 +214,11 @@ class EventPublisherFactory(EventEmitterFactory):
         emitting_agent_id: AgentId,
         session_id: SessionId,
     ) -> EventEmitter:
-        agent = await self._agent_store.read_agent(emitting_agent_id)
-        return EventPublisher(agent, self._session_store, session_id)
+        agent_store = self._store_provider_factory().get_store(
+            AgentStore, StoreProviderHints(call_site="engine")
+        )
+        session_store = self._store_provider_factory().get_store(
+            SessionStore, StoreProviderHints(call_site="engine")
+        )
+        agent = await agent_store.read_agent(emitting_agent_id)
+        return EventPublisher(agent, session_store, session_id)

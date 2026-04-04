@@ -665,7 +665,7 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
 
             await store.upsert_tag(
                 term_id=term.id,
-                tag_id=Tag.for_agent_id(agent_id),
+                tag_id=Tag.for_agent_id(agent_id).id,
             )
 
     async with create_database(context) as chroma_db:

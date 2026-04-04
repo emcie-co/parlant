@@ -1011,7 +1011,7 @@ async def create_journey(
         g = await guideline_store.create_guideline(condition=c, action=None)
         await guideline_store.upsert_tag(
             guideline_id=g.id,
-            tag_id=Tag.for_journey_id(journey_id=journey_id),
+            tag_id=Tag.for_journey_id(journey_id=journey_id).id,
         )
         condition_ids.append(g.id)
 

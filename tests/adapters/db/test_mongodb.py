@@ -22,7 +22,9 @@ from lagom import Container
 from pytest import fixture, raises
 
 from parlant.core.common import Version
-from parlant.adapters.db.mongo_db import MongoDocumentDatabase
+from parlant.adapters.db.mongo_db import MongoDocumentCollection, MongoDocumentDatabase
+from parlant.core.common import IdGenerator
+from parlant.core.customers import CustomerDocumentStore
 from parlant.core.persistence.common import Cursor, MigrationRequired, ObjectId, SortDirection
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -32,6 +34,7 @@ from parlant.core.persistence.document_database import (
     identity_loader_for,
 )
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
+from parlant.core.sessions import SessionDocumentStore
 from parlant.core.loggers import Logger
 
 
@@ -176,6 +179,17 @@ class DummyStore:
     async def delete_dummy(self, doc_id: str) -> bool:
         result = await self._collection.delete_one({"id": {"$eq": doc_id}})
         return result.acknowledged and result.deleted_count > 0
+
+
+async def index_keys(
+    collection: MongoDocumentCollection[Any],
+) -> set[tuple[tuple[str, int], ...]]:
+    indexes = await collection._collection.index_information()
+    return {
+        tuple(cast(list[tuple[str, int]], index_info.get("key", [])))
+        for index_name, index_info in indexes.items()
+        if index_name != "_id_"
+    }
 
 
 async def test_that_dummy_documents_can_be_created_and_persisted(
@@ -961,6 +975,64 @@ async def test_that_cursor_pagination_works_with_descending_sort(
         assert third_page.next_cursor is None
 
 
+async def test_that_cursor_pagination_uses_document_id_as_tiebreaker(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    await test_mongo_client.drop_database(test_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, test_database_name, container[Logger]
+    ) as dummy_db:
+        collection = await dummy_db.get_or_create_collection(
+            name="test_collection",
+            schema=MongoTestDocument,
+            document_loader=identity_loader_for(MongoTestDocument),
+        )
+
+        creation_utc = "2023-01-01T10:00:00Z"
+        docs = [
+            MongoTestDocument(
+                id=ObjectId("doc3"),
+                creation_utc=creation_utc,
+                version=Version.String("1.0.0"),
+                name="third",
+            ),
+            MongoTestDocument(
+                id=ObjectId("doc1"),
+                creation_utc=creation_utc,
+                version=Version.String("1.0.0"),
+                name="first",
+            ),
+            MongoTestDocument(
+                id=ObjectId("doc2"),
+                creation_utc=creation_utc,
+                version=Version.String("1.0.0"),
+                name="second",
+            ),
+        ]
+
+        for doc in docs:
+            await collection.insert_one(doc)
+
+        first_page = await collection.find({}, limit=1, sort_direction=SortDirection.ASC)
+
+        assert len(first_page.items) == 1
+        assert first_page.items[0]["id"] == ObjectId("doc1")
+        assert first_page.next_cursor == Cursor(creation_utc=creation_utc, id=ObjectId("doc1"))
+
+        second_page = await collection.find(
+            {},
+            limit=1,
+            cursor=first_page.next_cursor,
+            sort_direction=SortDirection.ASC,
+        )
+
+        assert len(second_page.items) == 1
+        assert second_page.items[0]["id"] == ObjectId("doc2")
+
+
 async def test_that_default_sort_direction_is_ascending(
     container: Container,
     test_mongo_client: AsyncMongoClient[Any],
@@ -1145,3 +1217,79 @@ async def test_that_creation_utc_index_is_created_for_get_or_create_collections(
         assert creation_utc_index_found, (
             "creation_utc index should be created for get_or_create collections"
         )
+
+
+async def test_that_session_store_creates_indexes_for_session_hot_paths(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    session_database_name = f"{test_database_name}_sessions"
+    await test_mongo_client.drop_database(session_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, session_database_name, container[Logger]
+    ) as document_database:
+        async with SessionDocumentStore(document_database) as session_store:
+            session_collection = cast(
+                MongoDocumentCollection[Any], session_store._session_collection
+            )
+            event_collection = cast(MongoDocumentCollection[Any], session_store._event_collection)
+
+            session_index_keys = await index_keys(session_collection)
+            event_index_keys = await index_keys(event_collection)
+
+            assert (("creation_utc", 1),) in session_index_keys
+            assert (("id", 1),) in session_index_keys
+            assert (("creation_utc", 1), ("id", 1)) in session_index_keys
+            assert (
+                ("agent_id", 1),
+                ("creation_utc", 1),
+                ("id", 1),
+            ) in session_index_keys
+            assert (
+                ("customer_id", 1),
+                ("creation_utc", 1),
+                ("id", 1),
+            ) in session_index_keys
+
+            assert (("creation_utc", 1),) in event_index_keys
+            assert (("id", 1),) in event_index_keys
+            assert (("session_id", 1), ("offset", 1)) in event_index_keys
+            assert (("session_id", 1), ("deleted", 1), ("offset", 1)) in event_index_keys
+
+
+async def test_that_customer_store_creates_indexes_for_customer_and_tag_lookups(
+    container: Container,
+    test_mongo_client: AsyncMongoClient[Any],
+    test_database_name: str,
+) -> None:
+    customer_database_name = f"{test_database_name}_customers"
+    await test_mongo_client.drop_database(customer_database_name)
+
+    async with MongoDocumentDatabase(
+        test_mongo_client, customer_database_name, container[Logger]
+    ) as document_database:
+        async with CustomerDocumentStore(
+            container[IdGenerator], document_database
+        ) as customer_store:
+            customer_collection = cast(
+                MongoDocumentCollection[Any], customer_store._customers_collection
+            )
+            tag_association_collection = cast(
+                MongoDocumentCollection[Any], customer_store._tag_association_collection
+            )
+
+            customer_index_keys = await index_keys(customer_collection)
+            tag_association_index_keys = await index_keys(tag_association_collection)
+
+            assert (("creation_utc", 1),) in customer_index_keys
+            assert (("id", 1),) in customer_index_keys
+
+            assert (("creation_utc", 1),) in tag_association_index_keys
+            assert (("customer_id", 1),) in tag_association_index_keys
+            assert (("tag_id", 1),) in tag_association_index_keys
+            assert (
+                ("customer_id", 1),
+                ("tag_id", 1),
+            ) in tag_association_index_keys

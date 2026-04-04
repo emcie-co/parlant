@@ -121,7 +121,7 @@ class EntityQueries:
         journeys: Sequence[Journey],
     ) -> Sequence[Guideline]:
         agent_guidelines = await self._guideline_store.list_guidelines(
-            tags=[Tag.for_agent_id(agent_id)],
+            tags=[Tag.for_agent_id(agent_id).id],
         )
         global_guidelines = await self._guideline_store.list_guidelines(tags=[])
 
@@ -131,7 +131,7 @@ class EntityQueries:
         )
 
         guidelines_for_journeys = await self._guideline_store.list_guidelines(
-            tags=[Tag.for_journey_id(journey.id) for journey in journeys]
+            tags=[Tag.for_journey_id(journey.id).id for journey in journeys]
         )
 
         tasks = [
@@ -166,7 +166,7 @@ class EntityQueries:
             await self._relationship_store.list_relationships(
                 kind=RelationshipKind.DEPENDENCY,
                 indirect=False,
-                target_id=Tag.for_journey_id(journey.id),
+                target_id=Tag.for_journey_id(journey.id).id,
             )
         )
 
@@ -211,7 +211,7 @@ class EntityQueries:
         agent_id: AgentId,
     ) -> Sequence[ContextVariable]:
         agent_context_variables = await self._context_variable_store.list_variables(
-            tags=[Tag.for_agent_id(agent_id)],
+            tags=[Tag.for_agent_id(agent_id).id],
         )
         global_context_variables = await self._context_variable_store.list_variables(tags=[])
         agent = await self._agent_store.read_agent(agent_id)
@@ -259,7 +259,7 @@ class EntityQueries:
         max_count: int,
     ) -> Sequence[Capability]:
         agent_capabilities = await self._capability_store.list_capabilities(
-            tags=[Tag.for_agent_id(agent_id)],
+            tags=[Tag.for_agent_id(agent_id).id],
         )
         global_capabilities = await self._capability_store.list_capabilities(tags=[])
         agent = await self._agent_store.read_agent(agent_id)
@@ -289,7 +289,7 @@ class EntityQueries:
         query: str,
     ) -> Sequence[Term]:
         agent_terms = await self._glossary_store.list_terms(
-            tags=[Tag.for_agent_id(agent_id)],
+            tags=[Tag.for_agent_id(agent_id).id],
         )
         global_terms = await self._glossary_store.list_terms(tags=[])
         agent = await self._agent_store.read_agent(agent_id)
@@ -312,7 +312,7 @@ class EntityQueries:
         agent_id: AgentId,
     ) -> Sequence[Journey]:
         agent_journeys = await self._journey_store.list_journeys(
-            tags=[Tag.for_agent_id(agent_id)],
+            tags=[Tag.for_agent_id(agent_id).id],
         )
         global_journeys = await self._journey_store.list_journeys(tags=[])
 
@@ -343,7 +343,7 @@ class EntityQueries:
         guidelines: Sequence[Guideline],
     ) -> Sequence[CannedResponse]:
         agent_canreps = await self._canned_response_store.list_canned_responses(
-            tags=[Tag.for_agent_id(agent.id)],
+            tags=[Tag.for_agent_id(agent.id).id],
         )
         global_canreps = await self._canned_response_store.list_canned_responses(tags=[])
 
@@ -352,7 +352,7 @@ class EntityQueries:
         )
 
         journey_canreps = await self._canned_response_store.list_canned_responses(
-            tags=[Tag.for_journey_id(journey.id) for journey in journeys]
+            tags=[Tag.for_journey_id(journey.id).id for journey in journeys]
         )
 
         guideline_canreps = await self.find_canned_responses_for_guidelines(guidelines)
@@ -378,11 +378,11 @@ class EntityQueries:
         for g in guidelines:
             if g.id.startswith("journey_node:"):
                 tags.append(
-                    Tag.for_journey_node_id(extract_node_id_from_journey_node_guideline_id(g.id))
+                    Tag.for_journey_node_id(extract_node_id_from_journey_node_guideline_id(g.id)).id
                 )
 
             else:
-                tags.append(Tag.for_guideline_id(g.id))
+                tags.append(Tag.for_guideline_id(g.id).id)
 
         return await self._canned_response_store.list_canned_responses(tags=tags)
 
@@ -418,71 +418,80 @@ class EntityQueries:
         )
 
         for relationship in reevaluation_relationships:
-            # See if the relationship's guideline is within
-            # the set of guidelines we were given to check.
-            guideline_to_reevaluate = next(
-                (
-                    g
-                    for gid, g in available_guidelines.items()
-                    if gid.startswith(relationship.source.id)
-                ),
-                None,
-            )
+            matched_guidelines: list[Guideline] = []
 
-            if not guideline_to_reevaluate:
-                # Couldn't find this relationship's guideline
-                # in the set of available guidelines to check.
-                continue
+            # Check by guideline ID prefix (existing behavior for GUIDELINE and
+            # journey-node TAG sources).
+            by_id = [
+                g
+                for gid, g in available_guidelines.items()
+                if gid.startswith(relationship.source.id)
+            ]
+            matched_guidelines.extend(by_id)
 
-            the_id_of_the_tool_related_to_the_guideline_to_reevaluate = relationship.target.id
+            # For TAG sources that didn't match by ID prefix, check by tag
+            # membership so that custom tags can trigger reevaluation for all
+            # guidelines that carry that tag.
+            if not by_id and relationship.source.kind.is_tag:
+                by_tag = [
+                    g for g in available_guidelines.values() if relationship.source.id in g.tags
+                ]
+                matched_guidelines.extend(by_tag)
 
-            # At this point we know that one of the guidelines given to us
-            # has a reevaluation relationship with one of the relevant tools.
+            for guideline_to_reevaluate in matched_guidelines:
+                the_id_of_the_tool_related_to_the_guideline_to_reevaluate = relationship.target.id
 
-            if guideline_to_reevaluate.metadata.get("journey_node"):
-                # We found a journey node that has a reevaluation relationship with one of the tools.
-                #
-                # This journey node is by definition a tool node.
-                #
-                # Now, this actually means we need to reevaluate the entire journey,
-                # so we'll need to add all of its projected guidelines to the list.
+                # At this point we know that one of the guidelines given to us
+                # has a reevaluation relationship with one of the relevant tools.
 
-                # The only exception to this rule here is if the tool was deliberately skipped
-                # because the context already existed in the session.
+                if guideline_to_reevaluate.metadata.get("journey_node"):
+                    # We found a journey node that has a reevaluation relationship with one of the tools.
+                    #
+                    # This journey node is by definition a tool node.
+                    #
+                    # Now, this actually means we need to reevaluate the entire journey,
+                    # so we'll need to add all of its projected guidelines to the list.
 
-                # FIXME: Strictly speaking, we should only reevaluate the journey if the tool
-                # was called ON BEHALF OF THE JOURNEY NODE — since it could have been called
-                # for some other reason, e.g. due to an unrelated guideline.
+                    # The only exception to this rule here is if the tool was deliberately skipped
+                    # because the context already existed in the session.
 
-                tool_should_be_considered_as_having_been_called = all(
-                    e
-                    in [ToolCallEvaluation.DATA_ALREADY_IN_CONTEXT, ToolCallEvaluation.NEEDS_TO_RUN]
-                    for tool_id, e in tool_insights.evaluations
-                    if tool_id == the_id_of_the_tool_related_to_the_guideline_to_reevaluate
-                )
+                    # FIXME: Strictly speaking, we should only reevaluate the journey if the tool
+                    # was called ON BEHALF OF THE JOURNEY NODE — since it could have been called
+                    # for some other reason, e.g. due to an unrelated guideline.
 
-                if tool_should_be_considered_as_having_been_called:
-                    journey_id = cast(
-                        JourneyId,
-                        cast(
-                            Mapping[str, JSONSerializable],
-                            guideline_to_reevaluate.metadata["journey_node"],
-                        ).get("journey_id"),
+                    tool_should_be_considered_as_having_been_called = all(
+                        e
+                        in [
+                            ToolCallEvaluation.DATA_ALREADY_IN_CONTEXT,
+                            ToolCallEvaluation.NEEDS_TO_RUN,
+                        ]
+                        for tool_id, e in tool_insights.evaluations
+                        if tool_id == the_id_of_the_tool_related_to_the_guideline_to_reevaluate
                     )
 
-                    if journey_id in active_journeys_mapping:
-                        projected_journey_guidelines = (
-                            await self._journey_guideline_projection.project_journey_to_guidelines(
-                                journey_id
-                            )
+                    if tool_should_be_considered_as_having_been_called:
+                        journey_id = cast(
+                            JourneyId,
+                            cast(
+                                Mapping[str, JSONSerializable],
+                                guideline_to_reevaluate.metadata["journey_node"],
+                            ).get("journey_id"),
                         )
 
-                        guidelines.extend(projected_journey_guidelines)
-            else:
-                # For normal guidelines, we only reevaluate them if their related
-                # tool WAS JUST executed -- not if it was skipped.
-                if the_id_of_the_tool_related_to_the_guideline_to_reevaluate in executed_tool_ids:
-                    guidelines.append(guideline_to_reevaluate)
+                        if journey_id in active_journeys_mapping:
+                            projected_journey_guidelines = await self._journey_guideline_projection.project_journey_to_guidelines(
+                                journey_id
+                            )
+
+                            guidelines.extend(projected_journey_guidelines)
+                else:
+                    # For normal guidelines, we only reevaluate them if their related
+                    # tool WAS JUST executed -- not if it was skipped.
+                    if (
+                        the_id_of_the_tool_related_to_the_guideline_to_reevaluate
+                        in executed_tool_ids
+                    ):
+                        guidelines.append(guideline_to_reevaluate)
 
         return list(set(guidelines))
 

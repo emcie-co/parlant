@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
 from typing import Awaitable, Callable
 from fastapi import FastAPI, Request, Response
 import httpx
+import pytest
 
 import parlant.sdk as p
 
@@ -140,6 +142,53 @@ class Test_that_configure_api_can_add_middleware(SDKTest):
             assert self.middleware_was_called
 
 
+class Test_that_get_tag_returns_tag_by_id(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.tag = await server.create_tag("test-tag")
+
+    async def run(self, ctx: Context) -> None:
+        retrieved = await ctx.server.get_tag(id=self.tag.id)
+        assert retrieved.id == self.tag.id
+        assert retrieved.name == self.tag.name
+
+
+class Test_that_get_tag_returns_tag_by_name(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.tag = await server.create_tag("test-tag")
+
+    async def run(self, ctx: Context) -> None:
+        retrieved = await ctx.server.get_tag(name="test-tag")
+        assert retrieved.id == self.tag.id
+        assert retrieved.name == self.tag.name
+
+
+class Test_that_get_tag_raises_when_both_id_and_name_are_provided(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.tag = await server.create_tag("test-tag")
+
+    async def run(self, ctx: Context) -> None:
+        with pytest.raises(p.SDKError):
+            await ctx.server.get_tag(id=self.tag.id, name="test-tag")
+
+
+class Test_that_get_tag_raises_when_name_does_not_exist(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        pass
+
+    async def run(self, ctx: Context) -> None:
+        with pytest.raises(p.SDKError, match="not found"):
+            await ctx.server.get_tag(name="nonexistent")
+
+
+class Test_that_get_tag_raises_when_neither_id_nor_name_is_provided(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        pass
+
+    async def run(self, ctx: Context) -> None:
+        with pytest.raises(p.SDKError):
+            await ctx.server.get_tag()
+
+
 class Test_that_server_works_without_configure_api(SDKTest):
     async def create_server(self, port: int) -> tuple[p.Server, Callable[[], p.Container]]:
         test_container: p.Container = p.Container()
@@ -168,4 +217,81 @@ class Test_that_server_works_without_configure_api(SDKTest):
         async with httpx.AsyncClient() as client:
             response = await client.get(f"http://localhost:{ctx.server.port}/healthz")
             assert response.status_code == 200
-            assert response.json() == {"status": "ok"}
+            data = response.json()
+            assert data["status"] in ("healthy", "degraded", "unhealthy")
+
+
+class Test_that_healthz_detects_event_loop_blocking_from_synchronous_tool(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+
+        self.agent = await server.create_agent(
+            name="Blocking Tool Agent",
+            description="Agent for testing event loop health detection",
+        )
+
+        @p.tool
+        async def slow_lookup(context: p.ToolContext, account_id: str) -> p.ToolResult:
+            # Simulate a badly-written tool that blocks the event loop
+            time.sleep(3)
+            return p.ToolResult(data={"account_id": account_id, "status": "found"})
+
+        await self.agent.create_observation(
+            condition="the customer asks to look up their account",
+            tools=[slow_lookup],
+        )
+
+    async def run(self, ctx: Context) -> None:
+        # Send a message that triggers the blocking tool
+        response = await ctx.send_and_receive_message(
+            customer_message="Please look up my account, ID is 12345",
+            recipient=self.agent,
+        )
+
+        # The agent should still respond despite the blocking tool
+        assert len(response) > 0
+
+        # The event loop monitor should have detected the blocking
+        async with httpx.AsyncClient() as client:
+            health_response = await client.get(f"http://localhost:{ctx.server.port}/healthz")
+            assert health_response.status_code == 200
+
+            data = health_response.json()
+            assert data["status"] == "unhealthy", (
+                f"Expected unhealthy after 3s blocking tool, got {data}"
+            )
+            assert data["checks"]["event_loop"]["latency_ms"] >= 500
+
+
+class Test_that_healthz_reports_healthy_after_well_behaved_tool(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Good Tool Agent",
+            description="Agent for testing event loop stays healthy with async tools",
+        )
+
+        @p.tool
+        async def fast_lookup(context: p.ToolContext, account_id: str) -> p.ToolResult:
+            return p.ToolResult(data={"account_id": account_id, "status": "found"})
+
+        await self.agent.create_observation(
+            condition="the customer asks to look up their account",
+            tools=[fast_lookup],
+        )
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="Please look up my account, ID is 12345",
+            recipient=self.agent,
+        )
+
+        assert len(response) > 0
+
+        async with httpx.AsyncClient() as client:
+            health_response = await client.get(f"http://localhost:{ctx.server.port}/healthz")
+            assert health_response.status_code == 200
+
+            data = health_response.json()
+            assert data["status"] == "healthy", (
+                f"Expected healthy after well-behaved tool, got {data}"
+            )
+            assert data["checks"]["event_loop"]["latency_ms"] < 200

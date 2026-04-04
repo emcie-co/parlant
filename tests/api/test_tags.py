@@ -77,6 +77,48 @@ async def test_that_tags_can_be_listed(
     assert any(second_name == tag["name"] for tag in tags)
 
 
+async def test_that_tags_can_be_listed_filtered_by_name(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    tag_store = container[TagStore]
+
+    _ = await tag_store.create_tag("VIP")
+    _ = await tag_store.create_tag("Female")
+
+    tags = (await async_client.get("/tags", params={"name": "VIP"})).raise_for_status().json()
+
+    assert len(tags) == 1
+    assert tags[0]["name"] == "VIP"
+
+
+async def test_that_tags_filtered_by_nonexistent_name_returns_empty_list(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    tag_store = container[TagStore]
+
+    _ = await tag_store.create_tag("VIP")
+
+    tags = (
+        (await async_client.get("/tags", params={"name": "nonexistent"})).raise_for_status().json()
+    )
+
+    assert tags == []
+
+
+async def test_that_creating_a_tag_with_duplicate_name_raises_error(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    tag_store = container[TagStore]
+
+    _ = await tag_store.create_tag("VIP")
+
+    with raises(ValueError, match="already exists"):
+        await tag_store.create_tag("VIP")
+
+
 async def test_that_a_tag_can_be_updated(
     async_client: httpx.AsyncClient,
     container: Container,

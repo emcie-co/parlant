@@ -823,7 +823,7 @@ async def test_that_guidelines_based_on_context_variables_arent_matched_repetiti
         create_context_variable(
             name="season",
             data={"season": "Summer"},
-            tags=[Tag.for_agent_id(agent.id)],
+            tags=[Tag.for_agent_id(agent.id).id],
         )
     ]
 
@@ -894,7 +894,7 @@ async def test_that_observational_guidelines_arent_wrongly_implied(
         create_context_variable(
             name="Date",
             data={"Year": "2025", "Month": "January", "Day": 24},
-            tags=[Tag.for_agent_id(agent.id)],
+            tags=[Tag.for_agent_id(agent.id).id],
         ),
     ]
 
@@ -945,19 +945,19 @@ async def test_that_observational_guidelines_are_detected_correctly_when_lots_of
         create_term(
             name="blorgnet",
             description="a figure of speech, meaning being annoyed by whoever you're interacting with",
-            tags=[Tag.for_agent_id(agent.id)],
+            tags=[Tag.for_agent_id(agent.id).id],
         ),
     ]
     context_variables = [
         create_context_variable(
             name="customer_location",
             data={"location": "Australia"},
-            tags=[Tag.for_agent_id(agent.id)],
+            tags=[Tag.for_agent_id(agent.id).id],
         ),
         create_context_variable(
             name="date",
             data={"date": "August 15th, 2024"},
-            tags=[Tag.for_agent_id(agent.id)],
+            tags=[Tag.for_agent_id(agent.id).id],
         ),
     ]
     tool_result = cast(

@@ -294,3 +294,103 @@ class Test_that_agent_utter_follows_guidelines(SDKTest):
 
         last_message = get_message(events[-1])
         assert await nlp_test(last_message, "it says the booking is confirmed")
+
+
+class Test_that_tag_reevaluation_triggers_guideline_after_tool_call(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.tool_called = False
+
+        self.agent = await server.create_agent(
+            name="Tag Reeval Agent",
+            description="Agent for testing tag-based reevaluation",
+        )
+
+        tag = await server.create_tag("post-lookup")
+
+        @p.tool
+        async def verify_account(context: ToolContext, account_id: str) -> ToolResult:
+            self.tool_called = True
+            return ToolResult(data={"verified": True})
+
+        await self.agent.create_observation(
+            condition="the customer asks to verify their account",
+            tools=[verify_account],
+        )
+
+        await self.agent.create_guideline(
+            condition="the customer's account has been verified",
+            action="Offer a Pepsi",
+            tags=[tag],
+        )
+
+        await tag.reevaluate_after(verify_account)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="Please verify my account, ID is 12345",
+            recipient=self.agent,
+        )
+
+        assert self.tool_called, "Expected verify_account tool to be called but it was not"
+        assert "pepsi" in response.lower(), (
+            f"Expected 'pepsi' in response (reevaluation should trigger the tagged guideline "
+            f"after the tool returns) but got: {response}"
+        )
+
+
+class Test_that_staged_tool_calls_are_accessible_in_custom_matcher_context(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Staged Tool Calls Agent",
+            description="Agent for testing staged_tool_calls in custom matcher",
+        )
+
+        @p.tool
+        async def check_account(context: ToolContext, account_id: str) -> ToolResult:
+            return ToolResult(data={"account_id": account_id, "verified": True})
+
+        await self.agent.create_observation(
+            condition="the customer asks to verify their account",
+            tools=[check_account],
+        )
+
+        self.saw_tool_call = False
+
+        async def matcher_that_checks_staged_tool_calls(
+            ctx: p.GuidelineMatchingContext, guideline: p.Guideline
+        ) -> p.GuidelineMatch:
+            for call in ctx.staged_tool_calls:
+                if call.tool_id.tool_name == "check_account":
+                    self.saw_tool_call = True
+                    return p.GuidelineMatch(
+                        id=guideline.id,
+                        matched=True,
+                        rationale="Found check_account in staged tool calls",
+                    )
+
+            return p.GuidelineMatch(
+                id=guideline.id,
+                matched=False,
+                rationale="check_account not found in staged tool calls",
+            )
+
+        pepsi_offer = await self.agent.create_guideline(
+            action="Offer the customer a Pepsi immediately",
+            matcher=matcher_that_checks_staged_tool_calls,
+        )
+
+        await pepsi_offer.reevaluate_after(check_account)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="Please verify my account, ID is 12345",
+            recipient=self.agent,
+        )
+
+        assert self.saw_tool_call, (
+            "Expected custom matcher to see check_account in staged_tool_calls"
+        )
+        assert "pepsi" in response.lower(), (
+            f"Expected 'pepsi' in response (matcher should match via staged_tool_calls) "
+            f"but got: {response}"
+        )

@@ -29,7 +29,10 @@ from parlant.core.sessions import Event, SessionId, ToolEventData
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.glossary import Term
 from parlant.core.engines.alpha.tool_calling.tool_caller import (
+    ToolCall,
     ToolCallContext,
+    ToolCallInferenceResult,
+    ToolCallResult,
     ToolCaller,
     ToolInsights,
 )
@@ -112,6 +115,96 @@ class ToolEventGenerator:
             staged_events,
         )
 
+    async def infer_tool_calls(
+        self,
+        preexecution_state: ToolPreexecutionState,
+        context: EngineContext,
+    ) -> ToolCallInferenceResult | None:
+        _ = preexecution_state
+
+        if not context.state.tool_enabled_guideline_matches:
+            self._logger.trace("Skipping tool calling; no tools associated with guidelines found")
+            return None
+
+        await context.session_event_emitter.emit_status_event(
+            trace_id=self._tracer.trace_id,
+            data={
+                "status": "processing",
+                "data": {"stage": "Considering tools"},
+            },
+        )
+
+        tool_call_context = ToolCallContext(
+            agent=context.agent,
+            session_id=context.session.id,
+            customer_id=context.customer.id,
+            context_variables=context.state.context_variables,
+            interaction_history=context.interaction.events,
+            terms=list(context.state.glossary_terms),
+            ordinary_guideline_matches=context.state.ordinary_guideline_matches,
+            tool_enabled_guideline_matches=context.state.tool_enabled_guideline_matches,
+            journeys=context.state.journeys,
+            staged_events=context.state.tool_events,
+        )
+
+        async with self._hist_tool_call_inference_duration.measure():
+            inference_result = await self._tool_caller.infer_tool_calls(
+                context=tool_call_context,
+            )
+
+        return inference_result
+
+    async def execute_tool_calls(
+        self,
+        context: EngineContext,
+        tool_calls: Sequence[ToolCall],
+    ) -> tuple[Sequence[EmittedEvent], Sequence[ToolCallResult]]:
+        if not tool_calls:
+            return [], []
+
+        tool_context = ToolContext(
+            agent_id=context.agent.id,
+            session_id=context.session.id,
+            customer_id=context.customer.id,
+        )
+
+        async with self._hist_tool_call_execution_duration.measure():
+            tool_results = await self._tool_caller.execute_tool_calls(
+                tool_context,
+                list(tool_calls),
+            )
+
+        if not tool_results:
+            return [], []
+
+        events: list[EmittedEvent] = []
+        for r in tool_results:
+            event_data: ToolEventData = {
+                "tool_calls": [
+                    {
+                        "tool_id": r.tool_call.tool_id.to_string(),
+                        "arguments": r.tool_call.arguments,
+                        "result": r.result,
+                    }
+                ]
+            }
+            if r.result["control"].get("lifespan", "session") == "session":
+                events.append(
+                    await context.session_event_emitter.emit_tool_event(
+                        trace_id=self._tracer.trace_id,
+                        data=event_data,
+                    )
+                )
+            else:
+                events.append(
+                    await context.response_event_emitter.emit_tool_event(
+                        trace_id=self._tracer.trace_id,
+                        data=event_data,
+                    )
+                )
+
+        return events, list(tool_results)
+
     async def generate_events(
         self,
         preexecution_state: ToolPreexecutionState,
@@ -127,7 +220,7 @@ class ToolEventGenerator:
             trace_id=self._tracer.trace_id,
             data={
                 "status": "processing",
-                "data": {"stage": "Fetching data"},
+                "data": {"stage": "Considering tools"},
             },
         )
 

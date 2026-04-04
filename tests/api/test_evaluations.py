@@ -222,11 +222,88 @@ async def test_that_action_proposition_is_evaluated(
         assert invoice["approved"]
 
         assert invoice["data"]
-        assert isinstance(invoice["data"]["guideline"]["properties_proposition"], dict)
-        assert (
-            invoice["data"]["guideline"]["properties_proposition"].get("internal_action")
-            is not None
-        )
+        guideline_data = invoice["data"]["guideline"]
+        assert isinstance(guideline_data["properties_proposition"], dict)
+        assert guideline_data["properties_proposition"].get("internal_action") is not None
+        assert guideline_data["action_proposition"] is not None
+
+
+async def test_that_agent_intention_condition_is_included_in_properties_proposition(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/evaluations",
+        json={
+            "payloads": [
+                {
+                    "kind": "guideline",
+                    "guideline": {
+                        "content": {
+                            "condition": "you want to upsell the customer",
+                            "action": "recommend the premium plan",
+                        },
+                        "operation": "add",
+                        "action_proposition": False,
+                        "properties_proposition": True,
+                        "tool_ids": [],
+                    },
+                }
+            ],
+        },
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+
+    evaluation_id = response.raise_for_status().json()["id"]
+
+    content = (await async_client.get(f"/evaluations/{evaluation_id}")).raise_for_status().json()
+
+    assert content["status"] == "completed"
+    assert len(content["invoices"]) == 1
+
+    invoice = content["invoices"][0]
+    assert invoice["approved"]
+
+    assert invoice["data"]
+    properties = invoice["data"]["guideline"]["properties_proposition"]
+    assert "agent_intention_condition" in properties
+
+
+async def test_that_payload_proposition_flags_are_correctly_returned_in_invoice(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/evaluations",
+        json={
+            "payloads": [
+                {
+                    "kind": "guideline",
+                    "guideline": {
+                        "content": {
+                            "condition": "the customer greets you",
+                            "action": "greet them back with 'Hello'",
+                        },
+                        "tool_ids": [],
+                        "operation": "add",
+                        "action_proposition": True,
+                        "properties_proposition": False,
+                    },
+                }
+            ],
+        },
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+
+    evaluation_id = response.raise_for_status().json()["id"]
+
+    content = (await async_client.get(f"/evaluations/{evaluation_id}")).raise_for_status().json()
+
+    assert content["status"] == "completed"
+    assert len(content["invoices"]) == 1
+
+    invoice = content["invoices"][0]
+    payload_guideline = invoice["payload"]["guideline"]
+    assert payload_guideline["action_proposition"] is True
+    assert payload_guideline["properties_proposition"] is False
 
 
 async def test_that_error_is_returned_when_no_propositions_are_provided_in_a_payload(

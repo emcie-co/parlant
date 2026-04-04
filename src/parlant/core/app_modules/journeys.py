@@ -91,7 +91,7 @@ class JourneyModule:
         for guideline in guidelines:
             await self._guideline_store.upsert_tag(
                 guideline_id=guideline.id,
-                tag_id=Tag.for_journey_id(journey.id),
+                tag_id=Tag.for_journey_id(journey.id).id,
             )
 
         return journey, guidelines
@@ -154,7 +154,7 @@ class JourneyModule:
 
                     await self._guideline_store.upsert_tag(
                         guideline_id=condition,
-                        tag_id=Tag.for_journey_id(journey_id),
+                        tag_id=Tag.for_journey_id(journey_id).id,
                     )
 
             if conditions.remove:
@@ -166,12 +166,12 @@ class JourneyModule:
 
                     guideline = await self._guideline_store.read_guideline(guideline_id=condition)
 
-                    if guideline.tags == [Tag.for_journey_id(journey_id)]:
+                    if guideline.tags == [Tag.for_journey_id(journey_id).id]:
                         await self._guideline_store.delete_guideline(guideline_id=condition)
                     else:
                         await self._guideline_store.remove_tag(
                             guideline_id=condition,
-                            tag_id=Tag.for_journey_id(journey_id),
+                            tag_id=Tag.for_journey_id(journey_id).id,
                         )
 
         if tags:
@@ -211,10 +211,10 @@ class JourneyModule:
             else:
                 guideline = await self._guideline_store.read_guideline(guideline_id=condition)
 
-                if guideline.tags == [Tag.for_journey_id(journey_id)]:
+                if guideline.tags == [Tag.for_journey_id(journey_id).id]:
                     await self._guideline_store.delete_guideline(guideline_id=condition)
                 else:
                     await self._guideline_store.remove_tag(
                         guideline_id=condition,
-                        tag_id=Tag.for_journey_id(journey_id),
+                        tag_id=Tag.for_journey_id(journey_id).id,
                     )

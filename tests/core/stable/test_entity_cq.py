@@ -17,6 +17,7 @@ from lagom import Container
 
 from parlant.core.agents import Agent, AgentStore
 from parlant.core.capabilities import CapabilityStore
+from parlant.core.engines.alpha.tool_calling.tool_caller import ToolCallEvaluation, ToolInsights
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.glossary import GlossaryStore
 from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
@@ -30,6 +31,7 @@ from parlant.core.canned_responses import CannedResponseStore
 from parlant.core.guidelines import GuidelineStore
 from parlant.core.journeys import JourneyStore
 from parlant.core.tags import Tag, TagId, TagStore
+from parlant.core.tools import ToolId
 
 
 async def test_that_list_guidelines_with_mutual_agent_tag_are_returned(
@@ -108,7 +110,7 @@ async def test_that_guideline_with_not_hierarchy_tag_is_not_returned(
 
     await guideline_store.upsert_tag(
         guideline_id=first_guideline.id,
-        tag_id=Tag.for_agent_id(agent.id),
+        tag_id=Tag.for_agent_id(agent.id).id,
     )
 
     await guideline_store.upsert_tag(
@@ -146,12 +148,12 @@ async def test_that_guideline_matches_are_not_filtered_by_enabled_journeys(
 
     await guideline_store.upsert_tag(
         guideline_id=journey_guideline.id,
-        tag_id=Tag.for_journey_id(journey.id),
+        tag_id=Tag.for_journey_id(journey.id).id,
     )
 
     await guideline_store.upsert_tag(
         guideline_id=guideline.id,
-        tag_id=Tag.for_journey_id(journey.id),
+        tag_id=Tag.for_journey_id(journey.id).id,
     )
 
     result = await entity_queries.find_guidelines_for_context(
@@ -159,7 +161,7 @@ async def test_that_guideline_matches_are_not_filtered_by_enabled_journeys(
         [journey],
     )
 
-    assert len(result) == 2
+    assert len(result) == 3
     assert any(journey_guideline.id == g.id for g in result)
     assert any(guideline.id == g.id for g in result)
 
@@ -188,12 +190,12 @@ async def test_that_guideline_tagged_with_disabled_journey_is_filtered_out_when_
 
     await guideline_store.upsert_tag(
         guideline_id=journey_guideline.id,
-        tag_id=Tag.for_journey_id(journey.id),
+        tag_id=Tag.for_journey_id(journey.id).id,
     )
 
     await guideline_store.upsert_tag(
         guideline_id=guideline.id,
-        tag_id=Tag.for_journey_id(journey.id),
+        tag_id=Tag.for_journey_id(journey.id).id,
     )
 
     result = await entity_queries.find_guidelines_for_context(
@@ -261,7 +263,7 @@ async def test_that_find_canned_responses_for_agent_and_journey_returns_journey_
         conditions=[],
     )
 
-    journey_tag = Tag.for_journey_id(journey.id)
+    journey_tag = Tag.for_journey_id(journey.id).id
     journey_canrep = await canrep_store.create_canned_response(
         value="Journey canrep",
         fields=[],
@@ -421,15 +423,16 @@ async def test_list_guidelines_dependent_directly_on_journey(
     await relationship_store.create_relationship(
         source=RelationshipEntity(id=guideline1.id, kind=RelationshipEntityKind.GUIDELINE),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(journey.id), kind=RelationshipEntityKind.TAG
+            id=Tag.for_journey_id(journey.id).id, kind=RelationshipEntityKind.TAG_ALL
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await entity_queries.find_journey_related_guidelines(journey)
 
-    assert len(result) == 1
-    assert result[0] == guideline1.id
+    assert len(result) == 2
+    assert any([guideline1.id in g for g in result])
+    assert any([journey.root_id in g for g in result])
 
 
 async def test_list_guidelines_dependent_indirectly_on_journey(
@@ -464,7 +467,7 @@ async def test_list_guidelines_dependent_indirectly_on_journey(
     await relationship_store.create_relationship(
         source=RelationshipEntity(id=guideline1.id, kind=RelationshipEntityKind.GUIDELINE),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(journey.id), kind=RelationshipEntityKind.TAG
+            id=Tag.for_journey_id(journey.id).id, kind=RelationshipEntityKind.TAG_ALL
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -477,20 +480,20 @@ async def test_list_guidelines_dependent_indirectly_on_journey(
 
     await relationship_store.create_relationship(
         source=RelationshipEntity(id=guideline3.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=tag.id, kind=RelationshipEntityKind.TAG),
+        target=RelationshipEntity(id=tag.id, kind=RelationshipEntityKind.TAG_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=tag.id, kind=RelationshipEntityKind.TAG),
+        source=RelationshipEntity(id=tag.id, kind=RelationshipEntityKind.TAG_ALL),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(journey.id), kind=RelationshipEntityKind.TAG
+            id=Tag.for_journey_id(journey.id).id, kind=RelationshipEntityKind.TAG_ALL
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await entity_queries.find_journey_related_guidelines(journey)
 
-    assert len(result) == 3
+    assert len(result) == 4
 
     assert any(guideline1.id == g for g in result)
     assert any(guideline2.id == g for g in result)
@@ -563,17 +566,17 @@ async def test_that_canned_responses_can_be_found_for_a_guideline(
 
     await canned_response_store.upsert_tag(
         canned_response_id=canrep_1.id,
-        tag_id=Tag.for_guideline_id(g1.id),
+        tag_id=Tag.for_guideline_id(g1.id).id,
     )
 
     await canned_response_store.upsert_tag(
         canned_response_id=canrep_2.id,
-        tag_id=Tag.for_guideline_id(g2.id),
+        tag_id=Tag.for_guideline_id(g2.id).id,
     )
 
     await canned_response_store.upsert_tag(
         canned_response_id=canrep_4.id,
-        tag_id=Tag.for_journey_node_id(node.id),
+        tag_id=Tag.for_journey_node_id(node.id).id,
     )
 
     results = await entity_queries.find_canned_responses_for_guidelines(
@@ -590,3 +593,66 @@ async def test_that_canned_responses_can_be_found_for_a_guideline(
     assert any(canrep_4.id == r.id for r in results)
 
     assert all(canrep_3.id != r.id for r in results)
+
+
+async def test_that_find_guidelines_that_need_reevaluation_finds_guidelines_by_tag(
+    container: Container,
+    agent: Agent,
+) -> None:
+    entity_queries = container[EntityQueries]
+    guideline_store = container[GuidelineStore]
+    relationship_store = container[RelationshipStore]
+    agent_store = container[AgentStore]
+
+    custom_tag_id = TagId("custom-tag")
+    tool_id = ToolId(service_name="built-in", tool_name="verify_account")
+
+    await agent_store.upsert_tag(
+        agent_id=agent.id,
+        tag_id=TagId("agent-tag"),
+    )
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer's account has been verified",
+        action="Offer a Pepsi",
+    )
+
+    await guideline_store.upsert_tag(
+        guideline_id=guideline.id,
+        tag_id=TagId("agent-tag"),
+    )
+
+    await guideline_store.upsert_tag(
+        guideline_id=guideline.id,
+        tag_id=custom_tag_id,
+    )
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(
+            id=custom_tag_id,
+            kind=RelationshipEntityKind.TAG_ALL,
+        ),
+        target=RelationshipEntity(
+            id=tool_id,
+            kind=RelationshipEntityKind.TOOL,
+        ),
+        kind=RelationshipKind.REEVALUATION,
+    )
+
+    tool_insights = ToolInsights(
+        evaluations=[(tool_id, ToolCallEvaluation.NEEDS_TO_RUN)],
+    )
+
+    # Re-read the guideline after tags were upserted
+    guideline = await guideline_store.read_guideline(guideline.id)
+
+    available_guidelines = {guideline.id: guideline}
+
+    result = await entity_queries.find_guidelines_that_need_reevaluation(
+        available_guidelines=available_guidelines,
+        active_journeys=[],
+        tool_insights=tool_insights,
+    )
+
+    assert len(result) == 1
+    assert result[0].id == guideline.id

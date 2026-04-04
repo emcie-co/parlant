@@ -127,7 +127,7 @@ def given_the_journey_called(
             context.sync_await(
                 guideline_store.upsert_tag(
                     guideline_id=c.id,
-                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                    tag_id=Tag.for_journey_id(journey_id=journey.id).id,
                 )
             )
 
@@ -164,8 +164,8 @@ def given_the_journey_called(
                     kind=RelationshipEntityKind.TOOL,
                 ),
                 target=RelationshipEntity(
-                    id=Tag.for_journey_node_id(node1.id),
-                    kind=RelationshipEntityKind.TAG,
+                    id=Tag.for_journey_node_id(node1.id).id,
+                    kind=RelationshipEntityKind.TAG_ALL,
                 ),
                 kind=RelationshipKind.REEVALUATION,
             )
@@ -324,8 +324,8 @@ def given_the_journey_called(
                     kind=RelationshipEntityKind.TOOL,
                 ),
                 target=RelationshipEntity(
-                    id=Tag.for_journey_node_id(node5.id),
-                    kind=RelationshipEntityKind.TAG,
+                    id=Tag.for_journey_node_id(node5.id).id,
+                    kind=RelationshipEntityKind.TAG_ALL,
                 ),
                 kind=RelationshipKind.REEVALUATION,
             )
@@ -410,7 +410,7 @@ def given_the_journey_called(
             context.sync_await(
                 guideline_store.upsert_tag(
                     guideline_id=c.id,
-                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                    tag_id=Tag.for_journey_id(journey_id=journey.id).id,
                 )
             )
 
@@ -543,8 +543,8 @@ def given_the_journey_called(
         context.sync_await(
             relationship_store.create_relationship(
                 source=RelationshipEntity(
-                    id=Tag.for_journey_node_id(node4.id),
-                    kind=RelationshipEntityKind.TAG,
+                    id=Tag.for_journey_node_id(node4.id).id,
+                    kind=RelationshipEntityKind.TAG_ALL,
                 ),
                 target=RelationshipEntity(
                     id=ToolId("local", tool.name),
@@ -669,7 +669,7 @@ def given_the_journey_called(
             context.sync_await(
                 guideline_store.upsert_tag(
                     guideline_id=c.id,
-                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                    tag_id=Tag.for_journey_id(journey_id=journey.id).id,
                 )
             )
 
@@ -871,8 +871,8 @@ def given_the_journey_called(
         context.sync_await(
             relationship_store.create_relationship(
                 source=RelationshipEntity(
-                    id=Tag.for_journey_node_id(node5.id),
-                    kind=RelationshipEntityKind.TAG,
+                    id=Tag.for_journey_node_id(node5.id).id,
+                    kind=RelationshipEntityKind.TAG_ALL,
                 ),
                 target=RelationshipEntity(
                     id=ToolId("local", tool.name),
@@ -934,7 +934,7 @@ def given_the_journey_called(
             context.sync_await(
                 guideline_store.upsert_tag(
                     guideline_id=c.id,
-                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                    tag_id=Tag.for_journey_id(journey_id=journey.id).id,
                 )
             )
 
@@ -1137,7 +1137,7 @@ def given_the_journey_called(
             context.sync_await(
                 guideline_store.upsert_tag(
                     guideline_id=c.id,
-                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                    tag_id=Tag.for_journey_id(journey_id=journey.id).id,
                 )
             )
 
@@ -1503,7 +1503,7 @@ def given_the_journey_called(
             context.sync_await(
                 guideline_store.upsert_tag(
                     guideline_id=c.id,
-                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                    tag_id=Tag.for_journey_id(journey_id=journey.id).id,
                 )
             )
 
@@ -1718,7 +1718,7 @@ def given_the_journey_called(
             context.sync_await(
                 guideline_store.upsert_tag(
                     guideline_id=c.id,
-                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                    tag_id=Tag.for_journey_id(journey_id=journey.id).id,
                 )
             )
 
@@ -1942,8 +1942,8 @@ def given_the_journey_called(
                     kind=RelationshipEntityKind.TOOL,
                 ),
                 target=RelationshipEntity(
-                    id=Tag.for_journey_node_id(node5.id),
-                    kind=RelationshipEntityKind.TAG,
+                    id=Tag.for_journey_node_id(node5.id).id,
+                    kind=RelationshipEntityKind.TAG_ALL,
                 ),
                 kind=RelationshipKind.REEVALUATION,
             )
@@ -2069,7 +2069,7 @@ def given_the_journey_called(
             context.sync_await(
                 guideline_store.upsert_tag(
                     guideline_id=c.id,
-                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                    tag_id=Tag.for_journey_id(journey_id=journey.id).id,
                 )
             )
 
@@ -2188,8 +2188,8 @@ def given_the_journey_called(
         context.sync_await(
             relationship_store.create_relationship(
                 source=RelationshipEntity(
-                    id=Tag.for_journey_node_id(node4.id),
-                    kind=RelationshipEntityKind.TAG,
+                    id=Tag.for_journey_node_id(node4.id).id,
+                    kind=RelationshipEntityKind.TAG_ALL,
                 ),
                 target=RelationshipEntity(
                     id=ToolId("local", tool.name),
@@ -2238,8 +2238,8 @@ def given_the_journey_called(
         context.sync_await(
             relationship_store.create_relationship(
                 source=RelationshipEntity(
-                    id=Tag.for_journey_node_id(node5.id),
-                    kind=RelationshipEntityKind.TAG,
+                    id=Tag.for_journey_node_id(node5.id).id,
+                    kind=RelationshipEntityKind.TAG_ALL,
                 ),
                 target=RelationshipEntity(
                     id=ToolId("local", tool.name),
@@ -2335,7 +2335,7 @@ def given_the_journey_called(
             context.sync_await(
                 guideline_store.upsert_tag(
                     guideline_id=c.id,
-                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                    tag_id=Tag.for_journey_id(journey_id=journey.id).id,
                 )
             )
 
@@ -2372,8 +2372,8 @@ def given_the_journey_called(
                     kind=RelationshipEntityKind.TOOL,
                 ),
                 target=RelationshipEntity(
-                    id=Tag.for_journey_node_id(node1.id),
-                    kind=RelationshipEntityKind.TAG,
+                    id=Tag.for_journey_node_id(node1.id).id,
+                    kind=RelationshipEntityKind.TAG_ALL,
                 ),
                 kind=RelationshipKind.REEVALUATION,
             )
@@ -2496,7 +2496,7 @@ def given_the_journey_called(
             context.sync_await(
                 guideline_store.upsert_tag(
                     guideline_id=c.id,
-                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                    tag_id=Tag.for_journey_id(journey_id=journey.id).id,
                 )
             )
 
@@ -2533,8 +2533,8 @@ def given_the_journey_called(
                     kind=RelationshipEntityKind.TOOL,
                 ),
                 target=RelationshipEntity(
-                    id=Tag.for_journey_node_id(node_blood.id),
-                    kind=RelationshipEntityKind.TAG,
+                    id=Tag.for_journey_node_id(node_blood.id).id,
+                    kind=RelationshipEntityKind.TAG_ALL,
                 ),
                 kind=RelationshipKind.REEVALUATION,
             )
@@ -2666,7 +2666,7 @@ def given_the_journey_called(
             context.sync_await(
                 guideline_store.upsert_tag(
                     guideline_id=c.id,
-                    tag_id=Tag.for_journey_id(journey_id=journey.id),
+                    tag_id=Tag.for_journey_id(journey_id=journey.id).id,
                 )
             )
         node1 = context.sync_await(
@@ -2938,7 +2938,7 @@ def given_the_journey_is_triggered_by_condition_applies(
     context.sync_await(
         guideline_store.upsert_tag(
             guideline_id=guideline_condition.id,
-            tag_id=Tag.for_journey_id(journey_id=journey.id),
+            tag_id=Tag.for_journey_id(journey_id=journey.id).id,
         )
     )
 
@@ -2978,7 +2978,7 @@ def given_the_journey_is_triggered_when(
     context.sync_await(
         guideline_store.upsert_tag(
             guideline_id=guideline_condition.id,
-            tag_id=Tag.for_journey_id(journey_id=journey.id),
+            tag_id=Tag.for_journey_id(journey_id=journey.id).id,
         )
     )
 
@@ -3094,8 +3094,8 @@ def given_the_node_is_tool_running_only(
         context.sync_await(
             relationship_store.create_relationship(
                 source=RelationshipEntity(
-                    id=Tag.for_journey_node_id(node.id),
-                    kind=RelationshipEntityKind.TAG,
+                    id=Tag.for_journey_node_id(node.id).id,
+                    kind=RelationshipEntityKind.TAG_ALL,
                 ),
                 target=RelationshipEntity(
                     id=tool_id,

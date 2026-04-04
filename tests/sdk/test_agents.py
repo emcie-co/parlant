@@ -96,7 +96,7 @@ class Test_that_an_agent_can_create_guideline(SDKTest):
 
         assert guideline.content.condition == "Always say hello"
         assert guideline.content.action == "Say hello to the user"
-        assert guideline.tags == [Tag.for_agent_id(self.agent.id)]
+        assert guideline.tags == [Tag.for_agent_id(self.agent.id).id]
 
 
 class Test_that_an_agent_can_attach_tool(SDKTest):
@@ -136,9 +136,7 @@ class Test_that_an_agent_can_create_canned_response(SDKTest):
             name="Canned Response Agent",
             description="Agent for canned response test",
         )
-        self.canrep_id = await self.agent.create_canned_response(
-            template="Hello, {user}!", tags=[Tag.for_agent_id(self.agent.id)]
-        )
+        self.canrep_id = await self.agent.create_canned_response(template="Hello, {user}!")
 
     async def run(self, ctx: Context) -> None:
         canrep_store = ctx.container[CannedResponseStore]
@@ -146,7 +144,7 @@ class Test_that_an_agent_can_create_canned_response(SDKTest):
         canrep = await canrep_store.read_canned_response(canned_response_id=self.canrep_id)
 
         assert canrep.value == "Hello, {user}!"
-        assert Tag.for_agent_id(self.agent.id) in canrep.tags
+        assert Tag.for_agent_id(self.agent.id).id in canrep.tags
 
 
 class Test_that_agents_can_be_listed(SDKTest):

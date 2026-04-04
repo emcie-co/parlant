@@ -31,6 +31,7 @@ from starlette.routing import Match
 from lagom import Container
 
 from parlant.adapters.loggers.websocket import WebSocketLogger
+from parlant.core.event_loop_monitor import EventLoopMonitor
 from parlant.api import agents, capabilities
 from parlant.api import evaluations
 from parlant.api import journeys
@@ -119,6 +120,8 @@ async def create_api_app(
         name="httpreq",
         description="HTTP Request Duration",
     )
+
+    event_loop_monitor = container[EventLoopMonitor]
 
     api_app = FastAPI(
         title="Parlant API",
@@ -245,8 +248,21 @@ async def create_api_app(
         return RedirectResponse("/chat")
 
     @api_app.get("/healthz")
-    async def health_check() -> dict[str, str]:
-        return {"status": "ok"}
+    async def health_check() -> dict[str, Any]:
+        event_loop_status = event_loop_monitor.status
+
+        # Overall status: worst of all checks (incident.io pattern)
+        overall_status = event_loop_status.health.value
+
+        return {
+            "status": overall_status,
+            "checks": {
+                "event_loop": {
+                    "status": event_loop_status.health.value,
+                    "latency_ms": event_loop_status.latency_ms,
+                },
+            },
+        }
 
     agent_router = APIRouter(prefix="/agents")
 

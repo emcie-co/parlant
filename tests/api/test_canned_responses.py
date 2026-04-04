@@ -383,7 +383,7 @@ async def test_that_agent_tag_can_be_added_to_a_canned_response(
             )
         ],
     )
-    agent_tag = Tag.for_agent_id(agent.id)
+    agent_tag = Tag.for_agent_id(agent.id).id
 
     update_payload = {"tags": {"add": [agent_tag]}}
     response = await async_client.patch(f"/canned_responses/{canrep.id}", json=update_payload)
@@ -404,7 +404,7 @@ async def test_that_agent_tag_can_be_removed_from_a_canned_response(
 
     tag1 = await tag_store.create_tag("tag1")
 
-    agent_tag = Tag.for_agent_id(agent.id)
+    agent_tag = Tag.for_agent_id(agent.id).id
 
     canrep = await canned_response_store.create_canned_response(
         value="Welcome {{username}}!",
@@ -442,7 +442,7 @@ async def test_that_journey_tags_can_be_added_to_a_canned_response(
         description="A journey for customer support interactions.",
         conditions=[],
     )
-    journey_tag = Tag.for_journey_id(journey.id)
+    journey_tag = Tag.for_journey_id(journey.id).id
 
     tag1 = await tag_store.create_tag("tag1")
 
@@ -477,7 +477,7 @@ async def test_that_journey_tags_can_be_removed_from_a_canned_response(
         description="A journey for customer support interactions.",
         conditions=[],
     )
-    journey_tag = Tag.for_journey_id(journey.id)
+    journey_tag = Tag.for_journey_id(journey.id).id
 
     tag1 = await tag_store.create_tag("tag1")
 

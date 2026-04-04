@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -21,7 +22,7 @@ from typing_extensions import override, TypedDict, Self
 
 from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.common import ItemNotFoundError, IdGenerator, UniqueId
-from parlant.core.persistence.common import ObjectId
+from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
     BaseDocument,
     DocumentCollection,
@@ -32,6 +33,8 @@ from parlant.core.persistence.document_database_helper import DocumentStoreMigra
 
 TagId = NewType("TagId", str)
 
+_BUILT_IN_TAG_CREATION_TIME = datetime(2025, 1, 1, tzinfo=timezone.utc)
+
 
 @dataclass(frozen=True)
 class Tag:
@@ -40,12 +43,20 @@ class Tag:
     name: str
 
     @staticmethod
-    def preamble() -> TagId:
-        return TagId("__preamble__")
+    def preamble() -> Tag:
+        return Tag(
+            id=TagId("__preamble__"),
+            name="__preamble__",
+            creation_utc=_BUILT_IN_TAG_CREATION_TIME,
+        )
 
     @staticmethod
-    def for_agent_id(agent_id: str) -> TagId:
-        return TagId(f"agent:{agent_id}")
+    def for_agent_id(agent_id: str) -> Tag:
+        return Tag(
+            id=TagId(f"agent:{agent_id}"),
+            name=f"agent:{agent_id}",
+            creation_utc=_BUILT_IN_TAG_CREATION_TIME,
+        )
 
     @staticmethod
     def extract_agent_id(tag_id: TagId) -> Optional[str]:
@@ -55,8 +66,12 @@ class Tag:
         return str(tag_id.split(":")[1])
 
     @staticmethod
-    def for_journey_id(journey_id: str) -> TagId:
-        return TagId(f"journey:{journey_id}")
+    def for_journey_id(journey_id: str) -> Tag:
+        return Tag(
+            id=TagId(f"journey:{journey_id}"),
+            name=f"journey:{journey_id}",
+            creation_utc=_BUILT_IN_TAG_CREATION_TIME,
+        )
 
     @staticmethod
     def extract_journey_id(tag_id: TagId) -> Optional[str]:
@@ -66,8 +81,12 @@ class Tag:
         return str(tag_id.split(":")[1])
 
     @staticmethod
-    def for_journey_node_id(journey_node_id: str) -> TagId:
-        return TagId(f"journey_node:{journey_node_id}")
+    def for_journey_node_id(journey_node_id: str) -> Tag:
+        return Tag(
+            id=TagId(f"journey_node:{journey_node_id}"),
+            name=f"journey_node:{journey_node_id}",
+            creation_utc=_BUILT_IN_TAG_CREATION_TIME,
+        )
 
     @staticmethod
     def extract_journey_node_id(tag_id: TagId) -> Optional[str]:
@@ -77,8 +96,12 @@ class Tag:
         return str(tag_id.split(":")[1])
 
     @staticmethod
-    def for_guideline_id(guideline_id: str) -> TagId:
-        return TagId(f"guideline:{guideline_id}")
+    def for_guideline_id(guideline_id: str) -> Tag:
+        return Tag(
+            id=TagId(f"guideline:{guideline_id}"),
+            name=f"guideline:{guideline_id}",
+            creation_utc=_BUILT_IN_TAG_CREATION_TIME,
+        )
 
     @staticmethod
     def extract_guideline_id(tag_id: TagId) -> Optional[str]:
@@ -116,6 +139,7 @@ class TagStore(ABC):
     @abstractmethod
     async def list_tags(
         self,
+        name: Optional[str] = None,
     ) -> Sequence[Tag]: ...
 
     @abstractmethod
@@ -200,6 +224,10 @@ class TagDocumentStore(TagStore):
         creation_utc: Optional[datetime] = None,
     ) -> Tag:
         async with self._lock.writer_lock:
+            existing = await self._collection.find({"name": {"$eq": name}})
+            if existing:
+                raise ValueError(f"Tag with name '{name}' already exists")
+
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
             tag_checksum = f"{name}"
@@ -250,9 +278,15 @@ class TagDocumentStore(TagStore):
     @override
     async def list_tags(
         self,
+        name: Optional[str] = None,
     ) -> Sequence[Tag]:
+        filters: Where = {}
+
+        if name is not None:
+            filters = {"name": {"$eq": name}}
+
         async with self._lock.reader_lock:
-            return [self._deserialize(doc) for doc in await self._collection.find({})]
+            return [self._deserialize(doc) for doc in await self._collection.find(filters)]
 
     @override
     async def delete_tag(

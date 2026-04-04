@@ -193,7 +193,7 @@ def given_a_guideline_name_to_when(
     _ = context.sync_await(
         guideline_store.upsert_tag(
             context.guidelines[guideline_name].id,
-            Tag.for_agent_id(agent_id),
+            Tag.for_agent_id(agent_id).id,
         )
     )
 
@@ -243,7 +243,7 @@ def given_50_other_random_guidelines(
         _ = context.sync_await(
             guideline_store.upsert_tag(
                 guideline.id,
-                Tag.for_agent_id(agent_id),
+                Tag.for_agent_id(agent_id).id,
             )
         )
 
@@ -496,7 +496,7 @@ def given_the_guideline_called(
         _ = context.sync_await(
             guideline_store.upsert_tag(
                 guideline.id,
-                Tag.for_agent_id(agent_id),
+                Tag.for_agent_id(agent_id).id,
             )
         )
 
@@ -676,8 +676,8 @@ def given_an_dependency_between_guideline_and_a_journey(
                 kind=RelationshipEntityKind.GUIDELINE,
             ),
             target=RelationshipEntity(
-                id=Tag.for_journey_id(journey.id),
-                kind=RelationshipEntityKind.TAG,
+                id=Tag.for_journey_id(journey.id).id,
+                kind=RelationshipEntityKind.TAG_ALL,
             ),
             kind=RelationshipKind.DEPENDENCY,
         )

@@ -13,7 +13,6 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
-import math
 import random
 from typing import cast
 from typing_extensions import override
@@ -44,12 +43,12 @@ class PerceivedPerformancePolicy(ABC):
     async def get_extended_processing_indicator_delay(
         self,
         context: EngineContext | None = None,
-    ) -> float:
+    ) -> float | None:
         """
         Returns the delay before the indicator (agent is thinking "hard"...) is sent.
 
         :param context: The loaded context containing session and interaction details.
-        :return: The delay in seconds before sending the indicator.
+        :return: The delay in seconds before sending the indicator, or None if an extended processing indicator is not supported.
         """
         ...
 
@@ -189,7 +188,7 @@ class BasicPerceivedPerformancePolicy(PerceivedPerformancePolicy):
 
         message_data = cast(MessageEventData, last_agent_message.data)
 
-        return Tag.preamble() in message_data.get("tags", [])
+        return Tag.preamble().id in message_data.get("tags", [])
 
     def _calculate_previous_customer_wait_times(self, context: EngineContext) -> list[float]:
         result = []
@@ -227,8 +226,8 @@ class NullPerceivedPerformancePolicy(PerceivedPerformancePolicy):
     async def get_extended_processing_indicator_delay(
         self,
         context: EngineContext | None = None,
-    ) -> float:
-        return math.inf
+    ) -> float | None:
+        return None
 
     @override
     async def get_follow_up_delay(

@@ -49,9 +49,11 @@ from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.alpha.perceived_performance_policy import (
     PerceivedPerformancePolicyProvider,
 )
+from parlant.core.engines.alpha.planners import Plan, PlannerProvider
 from parlant.core.engines.alpha.relational_resolver import RelationalResolver
 from parlant.core.engines.alpha.tool_calling.tool_caller import (
     MissingToolData,
+    ToolCallResult,
     ToolInsights,
     InvalidToolData,
     ProblematicToolData,
@@ -119,7 +121,7 @@ class _PreparationIterationResult:
 @dataclass(frozen=True)
 class _GuidelineAndJourneyMatchingResult:
     matching_result: GuidelineMatchingResult
-    matches_guidelines: list[GuidelineMatch]
+    matched_guidelines: list[GuidelineMatch]
     resolved_guidelines: list[GuidelineMatch]
     journeys: list[Journey]
 
@@ -146,6 +148,7 @@ class AlphaEngine(Engine):
         fluid_message_generator: MessageGenerator,
         canned_response_generator: CannedResponseGenerator,
         perceived_performance_policy_provider: PerceivedPerformancePolicyProvider,
+        planner_provider: PlannerProvider,
         hooks: EngineHooks,
     ) -> None:
         self._logger = logger
@@ -162,6 +165,7 @@ class AlphaEngine(Engine):
         self._canned_response_generator = canned_response_generator
         self._perceived_performance_policy_provider = perceived_performance_policy_provider
 
+        self._planner_provider = planner_provider
         self._hooks = hooks
 
         self._hist_engine_process_duration = self._meter.create_duration_histogram(
@@ -273,10 +277,14 @@ class AlphaEngine(Engine):
             return  # Hook requested to bail out
 
         try:
+            await self._initialize_response_state(context)
+
             if not await self._hooks.call_on_preparing(context):
                 return  # Hook requested to bail out
 
-            await self._initialize_response_state(context)
+            plan = await self._planner_provider.get_planner(
+                context.agent.id,
+            ).create_plan(context)
 
             while not context.state.prepared_to_respond:
                 # Need more data before we're ready to respond
@@ -290,7 +298,9 @@ class AlphaEngine(Engine):
                 # This happens in iterations in order to support a feedback loop
                 # where particular tool-call results may trigger new or different
                 # guidelines that we need to follow.
-                iteration_result = await self._run_preparation_iteration(context, preamble_task)
+                iteration_result = await self._run_preparation_iteration(
+                    context, preamble_task, plan
+                )
 
                 if iteration_result.resolution == _PreparationIterationResolution.BAIL:
                     return
@@ -302,9 +312,6 @@ class AlphaEngine(Engine):
                 if not await self._hooks.call_on_preparation_iteration_end(context):
                     break
 
-            # Inject tool-returned guidelines and re-apply priority filtering.
-            self._inject_transient_guidelines(context)
-
             # Filter problematic tool parameters by precedence.
             await self._inject_tool_insights(context)
 
@@ -313,6 +320,11 @@ class AlphaEngine(Engine):
             ) -> None:
                 if not await self._hooks.call_on_generating_messages(context):
                     return
+
+                # Inject tool-returned guidelines (including those emitted by
+                # retrievers during on_generating_messages) and re-apply
+                # relational resolution.
+                await self._inject_transient_guidelines(context)
 
                 # Call on_match handlers for all matched guidelines (before generating messages)
                 await self._call_guideline_handlers(
@@ -474,6 +486,7 @@ class AlphaEngine(Engine):
         self,
         context: EngineContext,
         preamble_task: asyncio.Task[bool],
+        plan: Plan,
     ) -> _PreparationIterationResult:
         with self._tracer.span(
             _PREPARATION_ITERATION_SPAN_NAME.format(
@@ -482,18 +495,18 @@ class AlphaEngine(Engine):
         ):
             if len(context.state.iterations) == 0:
                 # This is the first iteration, so we need to run the initial preparation iteration.
-                result = await self._run_initial_preparation_iteration(context, preamble_task)
+                result = await self._run_initial_preparation_iteration(context, preamble_task, plan)
 
             else:
                 # This is an additional iteration, so we run the additional preparation iteration.
-                result = await self._run_additional_preparation_iteration(context)
+                result = await self._run_additional_preparation_iteration(context, plan)
 
             context.state.iterations.append(result.state)
             context.state.journey_paths = self._list_journey_paths(context=context)
 
             # If there's no new information to consider (which would have come from
             # the tools), then we can consider ourselves prepared to respond.
-            if await self._check_if_prepared(context, result):
+            if await self._check_if_prepared(context, result, plan):
                 context.state.prepared_to_respond = True
 
             # Alternatively, we we've reached the max number of iterations,
@@ -513,6 +526,7 @@ class AlphaEngine(Engine):
         self,
         context: EngineContext,
         result: _PreparationIterationResult,
+        plan: Plan,
     ) -> bool:
         # If there's no new information to consider (which would have come from
         # the tools), then we can consider ourselves prepared to respond.
@@ -525,12 +539,16 @@ class AlphaEngine(Engine):
         if result.state.executed_tools or check_if_journey_node_with_tool_is_matched():
             return False
 
+        if plan.needs_additional_iteration:
+            return False
+
         return True
 
     async def _run_initial_preparation_iteration(
         self,
         context: EngineContext,
         preamble_task: asyncio.Task[bool],
+        plan: Plan,
     ) -> _PreparationIterationResult:
         matching_finished = False
 
@@ -544,7 +562,13 @@ class AlphaEngine(Engine):
                 return
 
             policy = self._perceived_performance_policy_provider.get_policy(context.agent.id)
-            timeout = async_utils.Timeout(await policy.get_extended_processing_indicator_delay())
+
+            extended_delay = await policy.get_extended_processing_indicator_delay()
+
+            if extended_delay is None:
+                return
+
+            timeout = async_utils.Timeout(extended_delay)
 
             while not matching_finished:
                 if await timeout.wait_up_to(0.1):
@@ -562,12 +586,15 @@ class AlphaEngine(Engine):
             # structured format such that we can distinguish
             # between ordinary and tool-enabled ones.
             guideline_and_journey_matching_result = (
-                await self._load_matched_guidelines_and_journeys(context)
+                await self._load_matched_guidelines_and_journeys(context, plan)
             )
 
             matching_finished = True
 
             context.state.journeys = guideline_and_journey_matching_result.journeys
+        except asyncio.CancelledError:
+            extended_thinking_status_task.cancel()
+            raise
         finally:
             await extended_thinking_status_task
 
@@ -576,7 +603,7 @@ class AlphaEngine(Engine):
             # hook decided we should not proceed with processing.
             return _PreparationIterationResult(
                 state=IterationState(
-                    matched_guidelines=guideline_and_journey_matching_result.matches_guidelines,
+                    matched_guidelines=guideline_and_journey_matching_result.matched_guidelines,
                     resolved_guidelines=guideline_and_journey_matching_result.resolved_guidelines,
                     tool_insights=ToolInsights(),
                     executed_tools=[],
@@ -602,22 +629,40 @@ class AlphaEngine(Engine):
             ),
         )
 
-        # Infer any needed tool calls and execute them,
-        # adding the resulting tool events to the session.
-        if tool_calling_result := await self._call_tools(context, tool_preexecution_state):
-            (
-                tool_event_generation_result,
-                new_tool_events,
-                tool_insights,
-            ) = tool_calling_result
+        # Let the plan react to the selected guidelines.
+        await plan.on_guidelines_resolved(context)
 
+        # Infer tool calls, let the plan filter/reorder them, then execute.
+        new_tool_events: list[EmittedEvent] = []
+        tool_insights = ToolInsights()
+        tool_results: Sequence[ToolCallResult] = []
+
+        with self._tracer.span(_TOOL_CALLER_SPAN_NAME):
+            inference_result = await self._tool_event_generator.infer_tool_calls(
+                tool_preexecution_state, context
+            )
+
+            if inference_result is not None:
+                tool_insights = inference_result.insights
+
+                # Allow the plan to intervene on the inferred tool calls, e.g. to filter or reorder them.
+                tool_calls = await plan.on_tools_inferred(context, inference_result)
+
+                if tool_calls:
+                    events, tool_results = await self._tool_event_generator.execute_tool_calls(
+                        context, tool_calls
+                    )
+                    new_tool_events = list(events)
+
+        # Update tool insights (explaining, for example, why tools weren't called)
+        context.state.tool_insights = tool_insights
+
+        if new_tool_events:
             context.state.tool_events += new_tool_events
-            context.state.tool_insights = tool_insights
-
             self._add_tool_events_to_tracer(new_tool_events)
 
-        else:
-            new_tool_events = []
+        # Let the plan react to the tool call results.
+        await plan.on_tools_called(context, tool_results)
 
         # Tool calls may have returned with data that uses glossary terms,
         # so we need to ground our response again by reevaluating terms.
@@ -626,7 +671,7 @@ class AlphaEngine(Engine):
         # Return structured inspection information, useful for later troubleshooting.
         return _PreparationIterationResult(
             state=IterationState(
-                matched_guidelines=guideline_and_journey_matching_result.matches_guidelines,
+                matched_guidelines=guideline_and_journey_matching_result.matched_guidelines,
                 resolved_guidelines=guideline_and_journey_matching_result.resolved_guidelines,
                 tool_insights=tool_insights,
                 executed_tools=[
@@ -641,6 +686,7 @@ class AlphaEngine(Engine):
     async def _run_additional_preparation_iteration(
         self,
         context: EngineContext,
+        plan: Plan,
     ) -> _PreparationIterationResult:
         # For optimization concerns, it's useful to capture the exact state
         # we were in before matching guidelines.
@@ -648,7 +694,7 @@ class AlphaEngine(Engine):
 
         # Match and retrieve guidelines and journeys based on the results of the previous iteration.
         guideline_and_journey_matching_result = (
-            await self._load_additional_matched_guidelines_and_journeys(context)
+            await self._load_additional_matched_guidelines_and_journeys(context, plan)
         )
 
         # FIXME: There might be cases where a journey got ACTIVATED, and then, during
@@ -670,7 +716,7 @@ class AlphaEngine(Engine):
         context.state.tool_enabled_guideline_matches = (
             await self._find_tool_enabled_guideline_matches(
                 guideline_matches=list(
-                    set(guideline_and_journey_matching_result.matches_guidelines).intersection(
+                    set(guideline_and_journey_matching_result.matched_guidelines).intersection(
                         set(guideline_and_journey_matching_result.resolved_guidelines)
                     )
                 ),
@@ -683,32 +729,50 @@ class AlphaEngine(Engine):
             ),
         )
 
-        # Infer any needed tool calls and execute them,
-        # adding the resulting tool events to the session.
-        if tool_calling_result := await self._call_tools(context, tool_preexecution_state):
-            (
-                tool_event_generation_result,
-                new_tool_events,
-                tool_insights,
-            ) = tool_calling_result
+        # Let the plan react to the selected guidelines.
+        await plan.on_guidelines_resolved(context)
 
-            context.state.tool_events += new_tool_events
-            context.state.tool_insights = ToolInsights(
-                evaluations=list(
-                    chain(context.state.tool_insights.evaluations, tool_insights.evaluations)
-                ),
-                missing_data=list(
-                    chain(context.state.tool_insights.missing_data, tool_insights.missing_data)
-                ),
-                invalid_data=list(
-                    chain(context.state.tool_insights.invalid_data, tool_insights.invalid_data)
-                ),
+        # Infer tool calls, let the plan filter/reorder them, then execute.
+        new_tool_events: list[EmittedEvent] = []
+        tool_insights = ToolInsights()
+        tool_results: Sequence[ToolCallResult] = []
+
+        with self._tracer.span(_TOOL_CALLER_SPAN_NAME):
+            inference_result = await self._tool_event_generator.infer_tool_calls(
+                tool_preexecution_state, context
             )
 
+            if inference_result is not None:
+                tool_insights = inference_result.insights
+
+                # Allow the plan to intervene on the inferred tool calls, e.g. to filter or reorder them.
+                tool_calls = await plan.on_tools_inferred(context, inference_result)
+
+                if tool_calls:
+                    events, tool_results = await self._tool_event_generator.execute_tool_calls(
+                        context, tool_calls
+                    )
+                    new_tool_events = list(events)
+
+        # Update tool insights (explaining, for example, why tools weren't called)
+        context.state.tool_insights = ToolInsights(
+            evaluations=list(
+                chain(context.state.tool_insights.evaluations, tool_insights.evaluations)
+            ),
+            missing_data=list(
+                chain(context.state.tool_insights.missing_data, tool_insights.missing_data)
+            ),
+            invalid_data=list(
+                chain(context.state.tool_insights.invalid_data, tool_insights.invalid_data)
+            ),
+        )
+
+        if new_tool_events:
+            context.state.tool_events += new_tool_events
             self._add_tool_events_to_tracer(new_tool_events)
 
-        else:
-            new_tool_events = []
+        # Let the plan react to the tool call results.
+        await plan.on_tools_called(context, tool_results)
 
         # Tool calls may have returned with data that uses glossary terms,
         # so we need to ground our response again by reevaluating terms.
@@ -716,7 +780,7 @@ class AlphaEngine(Engine):
 
         return _PreparationIterationResult(
             state=IterationState(
-                matched_guidelines=guideline_and_journey_matching_result.matches_guidelines,
+                matched_guidelines=guideline_and_journey_matching_result.matched_guidelines,
                 resolved_guidelines=guideline_and_journey_matching_result.resolved_guidelines,
                 tool_insights=tool_insights,
                 executed_tools=[
@@ -1141,6 +1205,7 @@ class AlphaEngine(Engine):
     async def _load_matched_guidelines_and_journeys(
         self,
         context: EngineContext,
+        plan: Plan,
     ) -> _GuidelineAndJourneyMatchingResult:
         # Step 1: Retrieve the journeys likely to be activated for this agent
         available_journeys = await self._entity_queries.finds_journeys_for_context(
@@ -1156,6 +1221,10 @@ class AlphaEngine(Engine):
             )
             if g.enabled
         }
+
+        # Cache usable guidelines on the context so they're available for
+        # later resolution passes (e.g. _inject_transient_guidelines).
+        context.state.usable_guidelines = list(all_stored_guidelines.values())
 
         # Step 3: Exclude guidelines whose prerequisite journeys are less likely to be activated
         # (everything beyond the first `top_k` journeys), and also remove all journey graph guidelines.
@@ -1215,15 +1284,19 @@ class AlphaEngine(Engine):
             self._add_match_events_to_tracer(second_match_result.matches)
 
         # Step 7: Build the set of matched guidelines:
-        matched_guidelines = await self._build_matched_guidelines(
-            context=context,
-            evaluated_guidelines=relevant_guidelines,
-            current_matched=set(matching_result.matches),
-            active_journeys=activated_journeys,
+        matched_guidelines = list(
+            await self._build_matched_guidelines(
+                context=context,
+                evaluated_guidelines=relevant_guidelines,
+                current_matched=set(matching_result.matches),
+                active_journeys=activated_journeys,
+            )
         )
 
-        # Step 8: Resolve guideline matches by loading related guidelines that may not have
-        # been inferrable just by looking at the interaction.
+        # Step 8: Let the plan potentially intervene
+        await plan.on_guidelines_matched(context, matched_guidelines)
+
+        # Step 9: Resolve guideline matches by considering relationships
         resolver_result = await self._relational_resolver.resolve(
             usable_guidelines=list(all_stored_guidelines.values()),
             matches=matched_guidelines,
@@ -1232,7 +1305,7 @@ class AlphaEngine(Engine):
 
         return _GuidelineAndJourneyMatchingResult(
             matching_result=matching_result,
-            matches_guidelines=list(matching_result.matches),
+            matched_guidelines=list(matching_result.matches),
             resolved_guidelines=list(resolver_result.matches),
             journeys=list(resolver_result.journeys),
         )
@@ -1240,21 +1313,16 @@ class AlphaEngine(Engine):
     async def _load_additional_matched_guidelines_and_journeys(
         self,
         context: EngineContext,
+        plan: Plan,
     ) -> _GuidelineAndJourneyMatchingResult:
         # Step 1: Retrieve all the possible journeys for this agent
         all_journeys = await self._entity_queries.finds_journeys_for_context(
             agent_id=context.agent.id,
         )
 
-        # Step 2 : Retrieve all the guidelines for this agent the journeys that are enabled
-        all_stored_guidelines = {
-            g.id: g
-            for g in await self._entity_queries.find_guidelines_for_context(
-                agent_id=context.agent.id,
-                journeys=all_journeys,
-            )
-            if g.enabled
-        }
+        # Step 2: Reuse the usable guidelines cached during the initial iteration.
+        # Tools do not create or modify stored guidelines, so the set is stable.
+        all_stored_guidelines = {g.id: g for g in context.state.usable_guidelines}
 
         # Step 3: Retrieve guidelines that need reevaluation based on tool calls made
         # in case no guidelines need reevaluation, we can skip the rest of the steps.
@@ -1313,22 +1381,28 @@ class AlphaEngine(Engine):
         # Step 7: Build the final set of matched guidelines:
         all_activated_journeys = list(set(context.state.journeys + activated_journeys))
 
-        matched_guidelines = await self._build_matched_guidelines(
-            context=context,
-            evaluated_guidelines=guidelines_to_reevaluate,
-            current_matched=set(matching_result.matches),
-            active_journeys=all_activated_journeys,
+        matched_guidelines = list(
+            await self._build_matched_guidelines(
+                context=context,
+                evaluated_guidelines=guidelines_to_reevaluate,
+                current_matched=set(matching_result.matches),
+                active_journeys=all_activated_journeys,
+            )
         )
 
+        # Step 8: Let the plan potentially intervene
+        await plan.on_guidelines_matched(context, matched_guidelines)
+
+        # Step 9: Resolve guideline matches by considering relationships
         resolver_result = await self._relational_resolver.resolve(
             usable_guidelines=list(all_stored_guidelines.values()),
-            matches=list(matched_guidelines),
+            matches=matched_guidelines,
             journeys=all_activated_journeys,
         )
 
         return _GuidelineAndJourneyMatchingResult(
             matching_result=matching_result,
-            matches_guidelines=list(matching_result.matches),
+            matched_guidelines=list(matching_result.matches),
             resolved_guidelines=list(resolver_result.matches),
             journeys=list(resolver_result.journeys),
         )
@@ -1869,27 +1943,26 @@ class AlphaEngine(Engine):
             utterance_request_to_match(i, request) for i, request in enumerate(requests, start=1)
         ]
 
-    def _inject_transient_guidelines(self, context: EngineContext) -> None:
+    async def _inject_transient_guidelines(self, context: EngineContext) -> None:
         """Extract transient guidelines from tool results, inject them as ordinary
-        guideline matches, and re-apply priority filtering on the combined set."""
+        guideline matches, and re-apply relational resolution on the combined set."""
         tool_guideline_matches = self._extract_guidelines_from_tool_results(
             context.state.tool_events
         )
         context.state.ordinary_guideline_matches.extend(tool_guideline_matches)
 
-        # Re-apply priority filtering now that tool guidelines (which may carry
-        # their own priority) have been injected into the combined match set.
+        # Re-apply full relational resolution now that tool guidelines (which may
+        # carry their own priority) have been injected into the combined match set.
+        # Use the full usable_guidelines cached during preparation for correct
+        # tag indexing (TAG_ALL needs to see all members, not just matched ones).
         if tool_guideline_matches:
-            deactivation_reasons: dict[GuidelineId, str] = {}
-            filtered_matches, filtered_journeys = (
-                self._relational_resolver.find_highest_priority_entities(
-                    context.state.ordinary_guideline_matches,
-                    context.state.journeys,
-                    deactivation_reasons,
-                )
+            resolver_result = await self._relational_resolver.resolve(
+                usable_guidelines=context.state.usable_guidelines,
+                matches=context.state.ordinary_guideline_matches,
+                journeys=context.state.journeys,
             )
-            context.state.ordinary_guideline_matches = filtered_matches
-            context.state.journeys = filtered_journeys
+            context.state.ordinary_guideline_matches = list(resolver_result.matches)
+            context.state.journeys = list(resolver_result.journeys)
 
     async def _inject_tool_insights(self, context: EngineContext) -> None:
         """Filter missing and invalid tool parameters jointly by precedence."""

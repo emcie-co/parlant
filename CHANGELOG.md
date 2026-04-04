@@ -6,6 +6,32 @@ All notable changes to Parlant will be documented here.
 
 ### Added
 
+- Add `AnyOf(tag)` and `AllOf(tag)` modifiers for explicit control over tag dependency semantics in `depend_on()` — `AnyOf` requires at least one tagged member to be active, `AllOf` requires all of them (bare `Tag` defaults to `AllOf`)
+- Add `depend_on_any()` to `Guideline`, `Tag`, and `Journey` for OR dependency relationships — at least one target must be active. Multiple `depend_on_any()` calls create independent OR groups that are AND'd together
+- Add event loop health monitoring to `/healthz` endpoint — measures callback latency and reports `healthy`, `degraded`, or `unhealthy` status with peak latency over a configurable window
+- Add resolution tracking to the relational resolver — every entity that enters resolution gets a `Resolution` with a `ResolutionKind` (`NONE`, `DEPRIORITIZED`, `UNMET_DEPENDENCY_ALL`, `UNMET_DEPENDENCY_ANY`, `ENTAILED`) and structured `ResolutionDetails` (relationship ID, target IDs) explaining why
+
+### Changed
+
+- Split `RelationshipEntityKind.TAG` into `TAG_ALL` and `TAG_ANY` to support explicit tag dependency semantics at the core level (existing `TAG` entries treated as `TAG_ALL` for backwards compatibility)
+
+### Fixed
+
+- Fix priority and dependency relationships propagating through inactive intermediaries — only direct relationships now affect resolution, consistent with the reinstatement principle from argumentation theory
+- Fix entailment recording only the highest-scoring source when multiple guidelines entail the same target — all entailing relationships are now recorded in resolution details
+- Fix `Variable.get_value()` returning `None` when called from a retriever, caused by retrievers starting before context variables were loaded
+
+## [3.3.0] - 2025-03-15
+
+### Added
+
+- Add per-agent planners via `Server.create_agent(planner=...)`, allowing each agent to use a custom `Planner` implementation
+- Accept `Tag` as a target in `depend_on()`, `exclude()`, and `prioritize_over()` on both `Guideline` and `Tag`, enabling relationships that target all guidelines sharing a custom tag
+- Add `Tag.depend_on()`, `Tag.exclude()`, and `Tag.prioritize_over()` methods to the SDK, enabling tag-based dependency and priority relationships with guidelines and journeys
+- Support custom TAG as source for DEPENDENCY relationships in the relational resolver
+- Add `tags` parameter to `create_guideline`, `create_observation`, and `create_journey` on both `Agent` and `Journey`, allowing custom tags to be attached to entities at creation time
+- Add `Tag.reevaluate_after()` method to the SDK, enabling tag-based reevaluation relationships with tools
+- Add tag-based reevaluation support in the engine: when a tool fires, all guidelines carrying a tag that has a reevaluation relationship with that tool are now re-evaluated
 - Add staged_events to GuidelineMatchingContext in SDK
 - Add `priority` property to guidelines and journeys for priority-based filtering in the relational resolver
 - Add transient guidelines (renamed from tool-provided guidelines), allowing tools to dynamically inject behavioral guidelines into the agent's context
@@ -13,10 +39,16 @@ All notable changes to Parlant will be documented here.
 - Add `Customer.update()` and `CustomerMetadata` to the SDK, allowing tools to update customer name and metadata
 - Add `Session.update()`, `SessionMetadata`, and `SessionLabels` to the SDK, allowing tools to update session properties, metadata, and labels
 - Add `customer`, `agent`, `mode`, and `title` properties to SDK `Session` class
+- Add `Server.get_tag()` to the SDK, supporting lookup by either `id` or `name`
+- Add name-based filtering to `TagStore.list_tags()` and the `GET /tags` API endpoint via an optional `name` query parameter
+- Enforce tag name uniqueness in `TagStore`, raising an error when creating a tag with a duplicate name
 
 ### Changed
 
-- Rename `ToolProvidedGuideline` to `TransientGuideline` across the codebase
+- Made extended thinking indicator optional in perceived performance policy
+- Change `reevaluate_after()` on `Tag` and `Guideline` to accept multiple tools (`*tools`) and return `Sequence[Relationship]`
+- Change `tags` field type from `Sequence[TagId]` to `Sequence[Tag]` on `Guideline`, `Journey`, `Capability`, `Term`, `Variable`, `Customer`, and `Agent` in the SDK
+- Change `Tag.preamble()` to return a full `Tag` object instead of a `TagId`
 - Upgrade MCP service and bump dependency versions to resolve security vulnerabilities
 
 ### Deprecated
@@ -25,6 +57,8 @@ All notable changes to Parlant will be documented here.
 
 ### Fixed
 
+- Fix deadlock when sending a new message right after a preamble
+- Fix transitive filtering in relational resolver for custom tag dependency targets (guidelines depending on a custom tag are now correctly deactivated when a tagged member is deprioritized)
 - Fix SSE `read_event` endpoint stalling after first streaming chunk until full completion
 - Fix response analysis logs not always reaching the integrated UI
 - Fix guideline formatting in canned response and streaming modes when condition is absent

@@ -12,4 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-VERSION = "3.3.0-alpha.1"
+VERSION = "3.3.0"

@@ -107,7 +107,9 @@ from parlant.core.engines.alpha.guideline_matching.generic.response_analysis_bat
 )
 from parlant.core.engines.alpha import message_generator
 from parlant.core.engines.alpha.hooks import EngineHooks
+from parlant.core.engines.alpha.planners import NullPlanner, PlannerProvider
 from parlant.core.engines.alpha.relational_resolver import RelationalResolver
+from parlant.core.event_loop_monitor import EventLoopMonitor
 from parlant.core.engines.alpha.tool_calling.default_tool_call_batcher import DefaultToolCallBatcher
 from parlant.core.engines.alpha.canned_response_generator import (
     CannedResponseDraftSchema,
@@ -348,6 +350,8 @@ async def container(
             container[WebSocketLogger].start(), tag="websocket-logger"
         )
 
+        container[EventLoopMonitor] = await stack.enter_async_context(EventLoopMonitor())
+
         container[AgentStore] = await stack.enter_async_context(
             AgentDocumentStore(container[IdGenerator], TransientDocumentDatabase())
         )
@@ -575,6 +579,7 @@ async def container(
         container[ToolCallBatcher] = lambda container: container[DefaultToolCallBatcher]
         container[ToolCaller] = Singleton(ToolCaller)
         container[RelationalResolver] = Singleton(RelationalResolver)
+        container[PlannerProvider] = PlannerProvider(default_planner=NullPlanner())
         container[CannedResponseGenerator] = Singleton(CannedResponseGenerator)
         container[NoMatchResponseProvider] = Singleton(BasicNoMatchResponseProvider)
         container[CannedResponseFieldExtractor] = Singleton(CannedResponseFieldExtractor)

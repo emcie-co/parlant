@@ -455,7 +455,7 @@ def _guideline_relationship_to_dto(
             creation_utc=rel_source_tag.creation_utc,
             name=rel_source_tag.name,
         )
-        if relationship.source_type == RelationshipEntityKind.TAG
+        if relationship.source_type.is_tag
         else None,
         target_guideline=GuidelineDTO(
             id=cast(Guideline | Tag, relationship.target).id,
@@ -482,7 +482,7 @@ def _guideline_relationship_to_dto(
             id=rel_target_tag.id,
             name=rel_target_tag.name,
         )
-        if relationship.target_type == RelationshipEntityKind.TAG
+        if relationship.target_type.is_tag
         else None,
         indirect=indirect,
         kind=_guideline_relationship_kind_to_dto(relationship.kind),

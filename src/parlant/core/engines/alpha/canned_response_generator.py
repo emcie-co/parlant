@@ -819,7 +819,7 @@ You will now be given the current state of the interaction to which you must gen
                     journeys=canrep_context.journeys,
                     guidelines=[m.guideline for m in canrep_context.guideline_matches],
                 )
-                if Tag.preamble() in canrep.tags
+                if Tag.preamble().id in canrep.tags
             ]
 
             async with self._hist_preamble_render_duration.measure():
@@ -906,7 +906,7 @@ You will now be given the current state of the interaction to which you must gen
                 data=MessageEventData(
                     message=canrep.content.preamble,
                     participant=Participant(id=agent.id, display_name=agent.name),
-                    tags=[Tag.preamble()],
+                    tags=[Tag.preamble().id],
                 ),
             )
 
@@ -946,7 +946,7 @@ You will now be given the current state of the interaction to which you must gen
                 journeys=context.journeys,
                 guidelines=[m.guideline for m in context.guideline_matches],
             )
-            if Tag.preamble() not in canrep.tags
+            if Tag.preamble().id not in canrep.tags
         ]
 
         # Add responses from staged tool events (transient)

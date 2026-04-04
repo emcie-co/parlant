@@ -988,6 +988,44 @@ async def test_that_deleted_events_no_longer_show_up_in_the_listing(
     assert all(e["offset"] > event_to_delete["offset"] for e in remaining_events) is False
 
 
+async def test_that_new_events_keep_increasing_offsets_after_deleted_events(
+    container: Container,
+    session_id: SessionId,
+) -> None:
+    session_store = container[SessionStore]
+
+    first_event = await session_store.create_event(
+        session_id=session_id,
+        source=EventSource.CUSTOMER,
+        kind=EventKind.CUSTOM,
+        trace_id=generate_id(),
+        data={},
+    )
+    second_event = await session_store.create_event(
+        session_id=session_id,
+        source=EventSource.CUSTOMER,
+        kind=EventKind.CUSTOM,
+        trace_id=generate_id(),
+        data={},
+    )
+
+    await session_store.delete_event(event_id=second_event.id)
+
+    third_event = await session_store.create_event(
+        session_id=session_id,
+        source=EventSource.CUSTOMER,
+        kind=EventKind.CUSTOM,
+        trace_id=generate_id(),
+        data={},
+    )
+    visible_events = await session_store.list_events(session_id=session_id)
+
+    assert first_event.offset == 0
+    assert second_event.offset == 1
+    assert third_event.offset == 2
+    assert [event.offset for event in visible_events] == [0, 2]
+
+
 async def test_that_delete_events_raises_if_not_first_of_trace_id(
     async_client: httpx.AsyncClient,
     container: Container,

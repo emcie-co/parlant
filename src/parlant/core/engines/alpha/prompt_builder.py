@@ -436,13 +436,15 @@ and let the user know if/when you assume they meant a term by their typo: ###
             self.add_section(
                 name=BuiltInSection.STAGED_EVENTS,
                 template="""
+STAGED EVENTS
+-------------
 Here are the most recent staged events for your reference.
 They represent interactions with external tools that perform actions or provide information.
 Prioritize their data over any other sources and use their details to complete your task: ###
 {staged_events_as_dict}
 ###
 """,
-                props={"staged_events_as_dict": staged_events_as_dict},
+                props={"staged_events_as_dict": staged_events_as_dict or "[None]"},
                 status=SectionStatus.ACTIVE,
             )
 

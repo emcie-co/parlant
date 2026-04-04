@@ -25,8 +25,9 @@ from parlant.core.common import ItemNotFoundError, UniqueId, Version, IdGenerato
 from parlant.core.persistence.common import Cursor, ObjectId, SortDirection, Where
 from parlant.core.persistence.document_database import (
     BaseDocument,
-    DocumentDatabase,
+    CollectionIndex,
     DocumentCollection,
+    DocumentDatabase,
 )
 
 CustomerId = NewType("CustomerId", str)
@@ -205,6 +206,21 @@ class CustomerDocumentStore(CustomerStore):
                 name="customer_tag_associations",
                 schema=_CustomerTagAssociationDocument,
                 document_loader=self._association_document_loader,
+            )
+            await self._customers_collection.ensure_indexes(
+                [CollectionIndex(fields=(("id", SortDirection.ASC),))]
+            )
+            await self._tag_association_collection.ensure_indexes(
+                [
+                    CollectionIndex(fields=(("customer_id", SortDirection.ASC),)),
+                    CollectionIndex(fields=(("tag_id", SortDirection.ASC),)),
+                    CollectionIndex(
+                        fields=(
+                            ("customer_id", SortDirection.ASC),
+                            ("tag_id", SortDirection.ASC),
+                        )
+                    ),
+                ]
             )
 
         return self

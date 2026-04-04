@@ -989,13 +989,13 @@ async def test_that_guidelines_are_matched_based_on_glossary(
         create_term(
             name="skateboard",
             description="a time-traveling device",
-            tags=[Tag.for_agent_id(agent.id)],
+            tags=[Tag.for_agent_id(agent.id).id],
         ),
         create_term(
             name="Pinewood Rash Syndrome",
             description="allergy to pinewood trees",
             synonyms=["Pine Rash", "PRS"],
-            tags=[Tag.for_agent_id(agent.id)],
+            tags=[Tag.for_agent_id(agent.id).id],
         ),
     ]
     conversation_context: list[tuple[EventSource, str]] = [
@@ -1177,17 +1177,17 @@ async def test_that_guidelines_are_matched_based_on_staged_tool_calls_and_contex
         create_context_variable(
             name="user_id_1",
             data={"name": "Jimmy McGill", "ID": 566317},
-            tags=[Tag.for_agent_id(agent.id)],
+            tags=[Tag.for_agent_id(agent.id).id],
         ),
         create_context_variable(
             name="user_id_2",
             data={"name": "Bob Bobberson", "ID": 199877},
-            tags=[Tag.for_agent_id(agent.id)],
+            tags=[Tag.for_agent_id(agent.id).id],
         ),
         create_context_variable(
             name="user_id_3",
             data={"name": "Dorothy Dortmund", "ID": 816779},
-            tags=[Tag.for_agent_id(agent.id)],
+            tags=[Tag.for_agent_id(agent.id).id],
         ),
     ]
     conversation_guideline_names: list[str] = ["suggest_drink_underage", "suggest_drink_adult"]
@@ -1858,7 +1858,7 @@ async def test_that_irrelevant_observational_guidelines_are_not_detected_2(
         create_context_variable(
             name="customer_location",
             data={"location": "Australia"},
-            tags=[Tag.for_agent_id(agent.id)],
+            tags=[Tag.for_agent_id(agent.id).id],
         ),
     ]
 
@@ -2035,12 +2035,12 @@ async def test_that_observational_guidelines_are_detected_based_on_context_varia
         create_context_variable(
             name="user_id_1",
             data={"name": "Jimmy McGill", "ID": 566317},
-            tags=[Tag.for_agent_id(agent.id)],
+            tags=[Tag.for_agent_id(agent.id).id],
         ),
         create_context_variable(
             name="season",
             data={"season": "Winter"},
-            tags=[Tag.for_agent_id(agent.id)],
+            tags=[Tag.for_agent_id(agent.id).id],
         ),
     ]
 
@@ -2131,7 +2131,7 @@ async def test_that_observational_guidelines_are_matched_based_on_glossary(
         create_term(
             name="play the old tambourine",
             description="local slang for getting your order delivered to your home",
-            tags=[Tag.for_agent_id(agent.id)],
+            tags=[Tag.for_agent_id(agent.id).id],
         ),
     ]
 
@@ -2487,7 +2487,7 @@ async def test_that_both_observational_and_actionable_guidelines_are_matched_tog
         create_context_variable(
             name="season",
             data={"season": "Spring"},
-            tags=[Tag.for_agent_id(agent.id)],
+            tags=[Tag.for_agent_id(agent.id).id],
         ),
     ]
 

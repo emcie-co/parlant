@@ -191,7 +191,7 @@ Expected output (JSON):
         guideline: GuidelineContent,
         temperature: float,
     ) -> AgentIntentionProposerSchema:
-        prompt = await self._build_prompt(guideline, _baseline_shots)
+        prompt = await self._build_prompt(guideline, await shot_collection.list())
 
         response = await self._schematic_generator.generate(
             prompt=prompt,
@@ -224,7 +224,7 @@ example_1_guideline = GuidelineContent(
     action="Do not send any personal information",
 )
 example_1_shot = AgentIntentionProposerShot(
-    description="",
+    description="Condition tries to predict the agent's own intention in the next turn",
     guideline=example_1_guideline,
     expected_result=AgentIntentionProposerSchema(
         condition=example_1_guideline.condition,
@@ -238,7 +238,7 @@ example_2_guideline = GuidelineContent(
     action="Add a disclaimer clarifying that the response is not legal advice",
 )
 example_2_shot = AgentIntentionProposerShot(
-    description="",
+    description="Condition tries to predict the agent's own intention in the next turn",
     guideline=example_2_guideline,
     expected_result=AgentIntentionProposerSchema(
         condition=example_2_guideline.condition,
@@ -252,7 +252,7 @@ example_3_guideline = GuidelineContent(
     action="provide the package's tracking information",
 )
 example_3_shot = AgentIntentionProposerShot(
-    description="",
+    description="Condition describes something that has already happened, which can be inferred from the conversation history, rather than something that is likely to happen in the next turn",
     guideline=example_3_guideline,
     expected_result=AgentIntentionProposerSchema(
         condition=example_3_guideline.condition,
@@ -265,7 +265,7 @@ example_4_guideline = GuidelineContent(
     action="Add a disclaimer clarifying that the response is not legal advice",
 )
 example_4_shot = AgentIntentionProposerShot(
-    description="",
+    description="Condition tries to predict the agent's own intention in the next turn, and is already phrased in a way that reflects that, so it doesn't need to be rewritten",
     guideline=example_4_guideline,
     expected_result=AgentIntentionProposerSchema(
         condition=example_4_guideline.condition,
@@ -279,10 +279,23 @@ example_5_guideline = GuidelineContent(
     action="Provide our opening hours as described on out website",
 )
 example_5_shot = AgentIntentionProposerShot(
-    description="",
+    description="Condition describes something that the customer is doing, which can be inferred from the conversation history, rather than something that the agent itself is likely to do in the next turn",
     guideline=example_5_guideline,
     expected_result=AgentIntentionProposerSchema(
         condition=example_5_guideline.condition,
+        is_agent_intention=False,
+    ),
+)
+
+example_6_guideline = GuidelineContent(
+    condition="The customer has an inquiry that could be answered by inspecting their order",
+    action="Answer ONLY based on the information provided",
+)
+example_6_shot = AgentIntentionProposerShot(
+    description="Condition describes something that the customer is doing, which cannot be directly inferred from the conversation history, but is also not something that the agent itself is likely to do in the next turn. The condition should not be considered an agent intention.",
+    guideline=example_6_guideline,
+    expected_result=AgentIntentionProposerSchema(
+        condition=example_6_guideline.condition,
         is_agent_intention=False,
     ),
 )

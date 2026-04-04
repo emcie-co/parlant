@@ -36,7 +36,7 @@ def get_or_create_variable(
     variable_name: str,
 ) -> ContextVariable:
     variables = context.sync_await(
-        context_variable_store.list_variables(tags=[Tag.for_agent_id(agent_id)])
+        context_variable_store.list_variables(tags=[Tag.for_agent_id(agent_id).id])
     )
     if variable := next(
         (variable for variable in variables if variable.name == variable_name), None
@@ -55,7 +55,7 @@ def get_or_create_variable(
     context.sync_await(
         context_variable_store.add_variable_tag(
             variable_id=variable.id,
-            tag_id=Tag.for_agent_id(agent_id),
+            tag_id=Tag.for_agent_id(agent_id).id,
         )
     )
     return variable
@@ -86,7 +86,7 @@ def given_a_context_variable(
     context.sync_await(
         context_variable_store.add_variable_tag(
             variable_id=variable.id,
-            tag_id=Tag.for_agent_id(agent_id),
+            tag_id=Tag.for_agent_id(agent_id).id,
         )
     )
 

@@ -506,7 +506,7 @@ async def test_that_ambiguity_detected_based_on_context_variable(
         create_context_variable(
             name="Customer tier",
             data={"tier": "VIP"},
-            tags=[Tag.for_agent_id(agent.id)],
+            tags=[Tag.for_agent_id(agent.id).id],
         ),
     ]
     to_disambiguate_guidelines = [
@@ -556,7 +556,7 @@ async def test_that_ambiguity_detected_based_on_context_variable_2(
         create_context_variable(
             name="Customer tier",
             data={"tier": "Basic"},
-            tags=[Tag.for_agent_id(agent.id)],
+            tags=[Tag.for_agent_id(agent.id).id],
         ),
     ]
     to_disambiguate_guidelines = [

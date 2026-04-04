@@ -15,6 +15,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import uuid
 from collections import defaultdict, deque
 from contextlib import AsyncExitStack
 import contextvars
@@ -42,7 +44,7 @@ from rich.progress import (
 )
 from rich.live import Live
 from rich.text import Text
-from types import TracebackType
+from types import ModuleType, TracebackType
 from typing import (
     Any,
     Awaitable,
@@ -256,6 +258,14 @@ from parlant.core.engines.alpha.perceived_performance_policy import (
     NullPerceivedPerformancePolicy,
     BasicPerceivedPerformancePolicy,
     VoiceOptimizedPerceivedPerformancePolicy,
+)
+from parlant.core.engines.alpha.planners import (
+    BasicPlanner,
+    NullPlan,
+    NullPlanner,
+    Plan,
+    Planner,
+    PlannerProvider,
 )
 from parlant.bin.server import PARLANT_HOME_DIR, start_parlant, StartupParameters
 from parlant.core.services.tools.plugins import PluginServer, ToolEntry, tool
@@ -819,11 +829,157 @@ class Tag:
     """A tag used to categorize and link entities."""
 
     @staticmethod
-    def preamble() -> TagId:
-        return _Tag.preamble()
+    def preamble() -> Tag:
+        core_tag = _Tag.preamble()
+        return Tag(id=core_tag.id, name=core_tag.name)
 
     id: TagId
     name: str
+    _server: Optional[Server] = field(default=None, repr=False)
+
+    async def reevaluate_after(self, *tools: ToolEntry) -> Sequence[Relationship]:
+        """Creates reevaluation relationships between this tag and one or more tools.
+
+        When any of the tools is called, all guidelines tagged with this tag
+        will be reevaluated."""
+        if self._server is None:
+            raise SDKError(
+                "Tag reevaluation can only be performed during the server startup scope."
+            )
+
+        if not tools:
+            raise SDKError("At least one tool must be provided for reevaluation.")
+
+        results: list[Relationship] = []
+        for t in tools:
+            relationship = await self._server._container[RelationshipStore].create_relationship(
+                source=RelationshipEntity(
+                    id=self.id,
+                    kind=RelationshipEntityKind.TAG_ALL,
+                ),
+                target=RelationshipEntity(
+                    id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
+                    kind=RelationshipEntityKind.TOOL,
+                ),
+                kind=RelationshipKind.REEVALUATION,
+            )
+
+            results.append(
+                Relationship(
+                    id=relationship.id,
+                    kind=relationship.kind,
+                    source=relationship.source.id,
+                    target=relationship.target.id,
+                )
+            )
+
+        return results
+
+    async def _create_relationship(
+        self,
+        target: Guideline | Journey | Tag | AnyOf | AllOf,
+        kind: RelationshipKind,
+        group_id: str | None = None,
+    ) -> Relationship:
+        server = self._server
+        if server is None:
+            raise SDKError("Tag relationships can only be created during the server startup scope.")
+
+        entity_source = RelationshipEntity(id=self.id, kind=RelationshipEntityKind.TAG_ALL)
+
+        if isinstance(target, Guideline):
+            entity_target = RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE)
+        elif isinstance(target, AnyOf):
+            entity_target = RelationshipEntity(
+                id=target.tag.id, kind=RelationshipEntityKind.TAG_ANY
+            )
+        elif isinstance(target, AllOf):
+            entity_target = RelationshipEntity(
+                id=target.tag.id, kind=RelationshipEntityKind.TAG_ALL
+            )
+        elif isinstance(target, Tag):
+            entity_target = RelationshipEntity(id=target.id, kind=RelationshipEntityKind.TAG_ALL)
+        else:
+            entity_target = RelationshipEntity(
+                id=_Tag.for_journey_id(target.id).id, kind=RelationshipEntityKind.TAG_ALL
+            )
+
+        relationship = await server._container[RelationshipStore].create_relationship(
+            source=entity_source,
+            target=entity_target,
+            kind=kind,
+            group_id=group_id,
+        )
+
+        return Relationship(
+            id=relationship.id,
+            kind=relationship.kind,
+            source=relationship.source.id,
+            target=relationship.target.id,
+        )
+
+    async def prioritize_over(
+        self, *targets: Guideline | Journey | Tag | AllOf
+    ) -> Sequence[Relationship]:
+        """Creates priority relationships with other guidelines, journeys, or tags."""
+        if not targets:
+            raise SDKError("At least one target must be provided for prioritization.")
+
+        return [await self._create_relationship(t, RelationshipKind.PRIORITY) for t in targets]
+
+    async def exclude(self, *targets: Guideline | Journey | Tag | AllOf) -> Sequence[Relationship]:
+        """Alias for prioritize_over. Creates priority relationships with other guidelines, journeys, or tags."""
+        return await self.prioritize_over(*targets)
+
+    async def depend_on(
+        self, *targets: Guideline | Journey | Tag | AnyOf | AllOf
+    ) -> Sequence[Relationship]:
+        """Creates dependency relationships with other guidelines, journeys, or tags."""
+        if not targets:
+            raise SDKError("At least one target must be provided for dependency.")
+
+        return [await self._create_relationship(t, RelationshipKind.DEPENDENCY) for t in targets]
+
+    async def depend_on_any(
+        self, *targets: Guideline | Journey | Tag | AnyOf | AllOf
+    ) -> Sequence[Relationship]:
+        """Creates OR dependency relationships. At least one target must be active."""
+        if not targets:
+            raise SDKError("At least one target must be provided for dependency.")
+
+        group_id = str(uuid.uuid4())
+        return [
+            await self._create_relationship(t, RelationshipKind.DEPENDENCY_ANY, group_id=group_id)
+            for t in targets
+        ]
+
+
+@dataclass(frozen=True)
+class AnyOf:
+    """Wraps a Tag to indicate ANY semantics in a dependency relationship.
+
+    When used as a target in ``depend_on()``, the dependency is satisfied if
+    at least one entity tagged with the given tag is active.
+    """
+
+    tag: Tag
+
+
+@dataclass(frozen=True)
+class AllOf:
+    """Wraps a Tag to indicate ALL semantics in a dependency relationship.
+
+    When used as a target in ``depend_on()``, ``prioritize_over()``, or ``exclude()``,
+    the dependency/priority is evaluated against all entities tagged with the given tag.
+    This is also the default when a bare ``Tag`` is passed.
+    """
+
+    tag: Tag
+
+
+def _tags_from_ids(tag_ids: Sequence[TagId]) -> list[Tag]:
+    """Convert a sequence of TagIds to a list of Tag objects, using the ID as the name."""
+    return [Tag(id=tag_id, name=str(tag_id)) for tag_id in tag_ids]
 
 
 @dataclass(frozen=True)
@@ -834,6 +990,15 @@ class Relationship:
     kind: RelationshipKind
     source: RelationshipEntityId
     target: RelationshipEntityId
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    """Represents a tool call by the agent."""
+
+    tool_id: ToolId
+    arguments: Mapping[str, JSONSerializable]
+    result: ToolResult
 
 
 @dataclass(frozen=True)
@@ -863,6 +1028,33 @@ class GuidelineMatchingContext:
     customer: Customer
     variables: Mapping[Variable, JSONSerializable]
     staged_events: Sequence[EmittedEvent]
+
+    @property
+    def staged_tool_calls(self) -> Sequence[ToolCall]:
+        """Returns the staged events that are tool calls."""
+        core_tool_calls = chain.from_iterable(
+            [
+                cast(ToolEventData, e.data)["tool_calls"]
+                for e in self.staged_events
+                if e.kind == EventKind.TOOL
+            ]
+        )
+
+        return [
+            ToolCall(
+                tool_id=ToolId.from_string(call["tool_id"]),
+                arguments=call["arguments"],
+                result=ToolResult(
+                    data=call["result"].get("data"),
+                    metadata=call["result"].get("metadata"),
+                    control=call["result"].get("control"),
+                    canned_responses=call["result"].get("canned_responses"),
+                    canned_response_fields=call["result"].get("canned_response_fields"),
+                    guidelines=call["result"].get("guidelines"),
+                ),
+            )
+            for call in core_tool_calls
+        ]
 
     @classmethod
     async def _from_core(
@@ -946,7 +1138,7 @@ class Guideline:
     id: GuidelineId
     condition: str
     action: str | None
-    tags: Sequence[TagId]
+    tags: Sequence[Tag]
     metadata: Mapping[str, JSONSerializable]
 
     _server: Server
@@ -963,8 +1155,10 @@ class Guideline:
             direction="source",
         )
 
-    async def prioritize_over(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
-        """Creates priority relationships with other guidelines or journeys."""
+    async def prioritize_over(
+        self, *targets: Guideline | Journey | Tag | AllOf
+    ) -> Sequence[Relationship]:
+        """Creates priority relationships with other guidelines, journeys, or tags."""
         if not targets:
             raise SDKError("At least one target must be provided for prioritization.")
 
@@ -977,12 +1171,14 @@ class Guideline:
             for t in targets
         ]
 
-    async def exclude(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
-        """Alias for prioritize_over. Creates priority relationships with other guidelines or journeys."""
+    async def exclude(self, *targets: Guideline | Journey | Tag | AllOf) -> Sequence[Relationship]:
+        """Alias for prioritize_over. Creates priority relationships with other guidelines, journeys, or tags."""
         return await self.prioritize_over(*targets)
 
-    async def depend_on(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
-        """Creates dependency relationships with other guidelines or journeys."""
+    async def depend_on(
+        self, *targets: Guideline | Journey | Tag | AnyOf | AllOf
+    ) -> Sequence[Relationship]:
+        """Creates dependency relationships with other guidelines, journeys, or tags."""
         if not targets:
             raise SDKError("At least one target must be provided for dependency.")
 
@@ -991,6 +1187,24 @@ class Guideline:
                 target=t,
                 kind=RelationshipKind.DEPENDENCY,
                 direction="source",
+            )
+            for t in targets
+        ]
+
+    async def depend_on_any(
+        self, *targets: Guideline | Journey | Tag | AnyOf | AllOf
+    ) -> Sequence[Relationship]:
+        """Creates OR dependency relationships. At least one target must be active."""
+        if not targets:
+            raise SDKError("At least one target must be provided for dependency.")
+
+        group_id = str(uuid.uuid4())
+        return [
+            await self._create_relationship(
+                target=t,
+                kind=RelationshipKind.DEPENDENCY_ANY,
+                direction="source",
+                group_id=group_id,
             )
             for t in targets
         ]
@@ -1018,26 +1232,35 @@ class Guideline:
             for t in guideline_targets + journey_conditions
         ]
 
-    async def reevaluate_after(self, tool: ToolEntry) -> Relationship:
-        """Creates a reevaluation relationship with a tool."""
-        relationship = await self._container[RelationshipStore].create_relationship(
-            source=RelationshipEntity(
-                id=self.id,
-                kind=RelationshipEntityKind.GUIDELINE,
-            ),
-            target=RelationshipEntity(
-                id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=tool.tool.name),
-                kind=RelationshipEntityKind.TOOL,
-            ),
-            kind=RelationshipKind.REEVALUATION,
-        )
+    async def reevaluate_after(self, *tools: ToolEntry) -> Sequence[Relationship]:
+        """Creates reevaluation relationships with one or more tools."""
+        if not tools:
+            raise SDKError("At least one tool must be provided for reevaluation.")
 
-        return Relationship(
-            id=relationship.id,
-            kind=relationship.kind,
-            source=relationship.source.id,
-            target=relationship.target.id,
-        )
+        results: list[Relationship] = []
+        for t in tools:
+            relationship = await self._container[RelationshipStore].create_relationship(
+                source=RelationshipEntity(
+                    id=self.id,
+                    kind=RelationshipEntityKind.GUIDELINE,
+                ),
+                target=RelationshipEntity(
+                    id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
+                    kind=RelationshipEntityKind.TOOL,
+                ),
+                kind=RelationshipKind.REEVALUATION,
+            )
+
+            results.append(
+                Relationship(
+                    id=relationship.id,
+                    kind=relationship.kind,
+                    source=relationship.source.id,
+                    target=relationship.target.id,
+                )
+            )
+
+        return results
 
     async def attach_retriever(
         self,
@@ -1059,33 +1282,38 @@ class Guideline:
 
     async def _create_relationship(
         self,
-        target: Guideline | Journey,
+        target: Guideline | Journey | Tag | AnyOf | AllOf,
         kind: RelationshipKind,
         direction: Literal["source", "target"],
+        group_id: str | None = None,
     ) -> Relationship:
-        if direction == "source":
-            entity_source = RelationshipEntity(id=self.id, kind=RelationshipEntityKind.GUIDELINE)
-            entity_target = (
-                RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE)
-                if isinstance(target, Guideline)
-                else RelationshipEntity(
-                    id=_Tag.for_journey_id(target.id), kind=RelationshipEntityKind.TAG
-                )
-            )
+        if isinstance(target, Guideline):
+            other_entity = RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE)
+        elif isinstance(target, AnyOf):
+            other_entity = RelationshipEntity(id=target.tag.id, kind=RelationshipEntityKind.TAG_ANY)
+        elif isinstance(target, AllOf):
+            other_entity = RelationshipEntity(id=target.tag.id, kind=RelationshipEntityKind.TAG_ALL)
+        elif isinstance(target, Tag):
+            other_entity = RelationshipEntity(id=target.id, kind=RelationshipEntityKind.TAG_ALL)
         else:
-            entity_source = (
-                RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE)
-                if isinstance(target, Guideline)
-                else RelationshipEntity(
-                    id=_Tag.for_journey_id(target.id), kind=RelationshipEntityKind.TAG
-                )
+            other_entity = RelationshipEntity(
+                id=_Tag.for_journey_id(target.id).id, kind=RelationshipEntityKind.TAG_ALL
             )
-            entity_target = RelationshipEntity(id=self.id, kind=RelationshipEntityKind.GUIDELINE)
+
+        self_entity = RelationshipEntity(id=self.id, kind=RelationshipEntityKind.GUIDELINE)
+
+        if direction == "source":
+            entity_source = self_entity
+            entity_target = other_entity
+        else:
+            entity_source = other_entity
+            entity_target = self_entity
 
         relationship = await self._container[RelationshipStore].create_relationship(
             source=entity_source,
             target=entity_target,
             kind=kind,
+            group_id=group_id,
         )
 
         return Relationship(
@@ -1187,8 +1415,8 @@ class JourneyState:
             [
                 await self._journey._container[RelationshipStore].create_relationship(
                     source=RelationshipEntity(
-                        id=_Tag.for_journey_node_id(actual_state.id),
-                        kind=RelationshipEntityKind.TAG,
+                        id=_Tag.for_journey_node_id(actual_state.id).id,
+                        kind=RelationshipEntityKind.TAG_ALL,
                     ),
                     target=RelationshipEntity(
                         id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
@@ -1244,7 +1472,8 @@ class JourneyState:
 
             for canrep_id in canned_responses:
                 await self._journey._container[CannedResponseStore].upsert_tag(
-                    canned_response_id=canrep_id, tag_id=_Tag.for_journey_node_id(actual_state.id)
+                    canned_response_id=canrep_id,
+                    tag_id=_Tag.for_journey_node_id(actual_state.id).id,
                 )
 
         cast(list[JourneyTransition[JourneyState]], self._journey.transitions).append(transition)
@@ -1300,8 +1529,8 @@ class JourneyState:
                 [
                     await self._journey._container[RelationshipStore].create_relationship(
                         source=RelationshipEntity(
-                            id=_Tag.for_journey_node_id(new_state.id),
-                            kind=RelationshipEntityKind.TAG,
+                            id=_Tag.for_journey_node_id(new_state.id).id,
+                            kind=RelationshipEntityKind.TAG_ALL,
                         ),
                         target=RelationshipEntity(
                             id=ToolId(
@@ -1340,8 +1569,8 @@ class JourneyState:
                 )
 
             # Copy canned responses from the original state to the new state
-            original_state_tag = _Tag.for_journey_node_id(state.id)
-            new_state_tag = _Tag.for_journey_node_id(new_state.id)
+            original_state_tag = _Tag.for_journey_node_id(state.id).id
+            new_state_tag = _Tag.for_journey_node_id(new_state.id).id
 
             # Get all canned responses associated with the original state
             canned_response_store = self._journey._container[CannedResponseStore]
@@ -2212,7 +2441,7 @@ class Journey:
     conditions: list[Guideline]
     states: Sequence[JourneyState]
     transitions: Sequence[JourneyTransition[JourneyState]]
-    tags: Sequence[TagId]
+    tags: Sequence[Tag]
     composition_mode: CompositionMode | None
 
     _start_state_id: JourneyStateId
@@ -2390,6 +2619,7 @@ class Journey:
         on_message: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        tags: Sequence[Tag] = [],
         id: GuidelineId | None = None,
         track: bool = True,
         labels: Iterable[str] = (),
@@ -2410,8 +2640,8 @@ class Journey:
             on_match=on_match,
             on_message=on_message,
             canned_response_field_provider=canned_response_field_provider,
-            tags=None,
-            relationship_target_tag_id=_Tag.for_journey_id(self.id),
+            tags=[t.id for t in tags] if tags else None,
+            relationship_target_tag_id=_Tag.for_journey_id(self.id).id,
             id=id,
             track=track,
             labels=labels,
@@ -2435,6 +2665,7 @@ class Journey:
         on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        tags: Sequence[Tag] = [],
         labels: Iterable[str] = (),
         dependencies: Sequence[Guideline | Journey] = [],
         priority: int = 0,
@@ -2450,6 +2681,7 @@ class Journey:
             matcher=matcher,
             on_match=on_match,
             canned_response_field_provider=canned_response_field_provider,
+            tags=tags,
             labels=labels,
             dependencies=dependencies,
             priority=priority,
@@ -2490,8 +2722,8 @@ class Journey:
                 kind=RelationshipEntityKind.GUIDELINE,
             ),
             target=RelationshipEntity(
-                id=_Tag.for_journey_id(self.id),
-                kind=RelationshipEntityKind.TAG,
+                id=_Tag.for_journey_id(self.id).id,
+                kind=RelationshipEntityKind.TAG_ALL,
             ),
             kind=RelationshipKind.DEPENDENCY,
         )
@@ -2522,7 +2754,7 @@ class Journey:
     async def create_canned_response(
         self,
         template: str,
-        tags: list[TagId] = [],
+        tags: list[Tag] = [],
         signals: list[str] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         field_dependencies: Sequence[str] = (),
@@ -2533,7 +2765,7 @@ class Journey:
 
         canrep = await self._container[CannedResponseStore].create_canned_response(
             value=template,
-            tags=[_Tag.for_journey_id(self.id), *tags],
+            tags=[_Tag.for_journey_id(self.id).id, *[t.id for t in tags]],
             fields=[],
             signals=signals,
             metadata=metadata,
@@ -2542,8 +2774,10 @@ class Journey:
 
         return canrep.id
 
-    async def prioritize_over(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
-        """Creates priority relationships with other guidelines or journeys."""
+    async def prioritize_over(
+        self, *targets: Guideline | Journey | Tag | AllOf
+    ) -> Sequence[Relationship]:
+        """Creates priority relationships with other guidelines, journeys, or tags."""
         if not targets:
             raise SDKError("At least one target must be provided for prioritization.")
 
@@ -2556,12 +2790,14 @@ class Journey:
             for t in targets
         ]
 
-    async def exclude(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
-        """Alias for prioritize_over. Creates priority relationships with other guidelines or journeys."""
+    async def exclude(self, *targets: Guideline | Journey | Tag | AllOf) -> Sequence[Relationship]:
+        """Alias for prioritize_over. Creates priority relationships with other guidelines, journeys, or tags."""
         return await self.prioritize_over(*targets)
 
-    async def depend_on(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
-        """Creates dependency relationships with other guidelines or journeys."""
+    async def depend_on(
+        self, *targets: Guideline | Journey | Tag | AnyOf | AllOf
+    ) -> Sequence[Relationship]:
+        """Creates dependency relationships with other guidelines, journeys, or tags."""
         if not targets:
             raise SDKError("At least one target must be provided for dependency.")
 
@@ -2574,39 +2810,61 @@ class Journey:
             for t in targets
         ]
 
+    async def depend_on_any(
+        self, *targets: Guideline | Journey | Tag | AnyOf | AllOf
+    ) -> Sequence[Relationship]:
+        """Creates OR dependency relationships. At least one target must be active."""
+        if not targets:
+            raise SDKError("At least one target must be provided for dependency.")
+
+        group_id = str(uuid.uuid4())
+        return [
+            await self._create_relationship(
+                target=t,
+                kind=RelationshipKind.DEPENDENCY_ANY,
+                direction="source",
+                group_id=group_id,
+            )
+            for t in targets
+        ]
+
     async def _create_relationship(
         self,
-        target: Guideline | Journey,
+        target: Guideline | Journey | Tag | AnyOf | AllOf,
         kind: RelationshipKind,
         direction: Literal["source", "target"],
+        group_id: str | None = None,
     ) -> Relationship:
-        if direction == "source":
-            entity_source = RelationshipEntity(
-                id=_Tag.for_journey_id(self.id), kind=RelationshipEntityKind.TAG
-            )
-            entity_target = (
-                RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE)
-                if isinstance(target, Guideline)
-                else RelationshipEntity(
-                    id=_Tag.for_journey_id(target.id), kind=RelationshipEntityKind.TAG
-                )
-            )
+        if isinstance(target, Guideline):
+            other_entity = RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE)
+        elif isinstance(target, AnyOf):
+            other_entity = RelationshipEntity(id=target.tag.id, kind=RelationshipEntityKind.TAG_ANY)
+        elif isinstance(target, AllOf):
+            other_entity = RelationshipEntity(id=target.tag.id, kind=RelationshipEntityKind.TAG_ALL)
+        elif isinstance(target, Tag):
+            other_entity = RelationshipEntity(id=target.id, kind=RelationshipEntityKind.TAG_ALL)
         else:
-            entity_source = (
-                RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE)
-                if isinstance(target, Guideline)
-                else RelationshipEntity(
-                    id=_Tag.for_journey_id(target.id), kind=RelationshipEntityKind.TAG
-                )
+            # Journey
+            other_entity = RelationshipEntity(
+                id=_Tag.for_journey_id(target.id).id, kind=RelationshipEntityKind.TAG_ALL
             )
-            entity_target = RelationshipEntity(
-                id=_Tag.for_journey_id(self.id), kind=RelationshipEntityKind.TAG
-            )
+
+        self_entity = RelationshipEntity(
+            id=_Tag.for_journey_id(self.id).id, kind=RelationshipEntityKind.TAG_ALL
+        )
+
+        if direction == "source":
+            entity_source = self_entity
+            entity_target = other_entity
+        else:
+            entity_source = other_entity
+            entity_target = self_entity
 
         relationship = await self._container[RelationshipStore].create_relationship(
             source=entity_source,
             target=entity_target,
             kind=kind,
+            group_id=group_id,
         )
 
         return Relationship(
@@ -2625,7 +2883,7 @@ class Capability:
     title: str
     description: str
     signals: Sequence[str]
-    tags: Sequence[TagId]
+    tags: Sequence[Tag]
 
 
 @dataclass(frozen=True)
@@ -2636,7 +2894,7 @@ class Term:
     name: str
     description: str
     synonyms: Sequence[str]
-    tags: Sequence[TagId]
+    tags: Sequence[Tag]
 
 
 @dataclass(frozen=True)
@@ -2648,7 +2906,7 @@ class Variable:
     description: str | None
     tool: ToolEntry | None
     freshness_rules: str | None
-    tags: Sequence[TagId]
+    tags: Sequence[Tag]
     _server: Server
     _container: Container
 
@@ -2785,7 +3043,7 @@ class Customer:
         id: CustomerId,
         name: str,
         metadata: Mapping[str, str],
-        tags: Sequence[TagId],
+        tags: Sequence[Tag],
         _server: Optional[Server] = None,
     ) -> None:
         self._id = id
@@ -2811,7 +3069,7 @@ class Customer:
         return self._metadata
 
     @property
-    def tags(self) -> Sequence[TagId]:
+    def tags(self) -> Sequence[Tag]:
         return self._tags
 
     @classproperty
@@ -2841,7 +3099,7 @@ class Customer:
             id=core_customer.id,
             name=core_customer.name,
             metadata=core_customer.extra,
-            tags=core_customer.tags,
+            tags=_tags_from_ids(core_customer.tags),
         )
 
     async def update(
@@ -2871,7 +3129,7 @@ class Customer:
 
         updated = await customer_store.read_customer(self._id)
         self._name = updated.name
-        self._tags = updated.tags
+        self._tags = _tags_from_ids(updated.tags)
 
 
 @dataclass(frozen=True)
@@ -2904,6 +3162,7 @@ class RetrieverResult:
     metadata: Mapping[str, JSONSerializable] = field(default_factory=dict)
     canned_responses: Sequence[str] = field(default_factory=list)
     canned_response_fields: Mapping[str, Any] = field(default_factory=dict)
+    guidelines: Sequence[TransientGuideline] = field(default_factory=list)
 
 
 DeferredRetriever: TypeAlias = Callable[[EngineContext], Awaitable[RetrieverResult | None]]
@@ -2977,7 +3236,7 @@ class ExperimentalAgentFeatures:
             title=title,
             description=description,
             signals=signals,
-            tags=[_Tag.for_agent_id(self._agent.id)],
+            tags=[_Tag.for_agent_id(self._agent.id).id],
         )
 
         return Capability(
@@ -2985,7 +3244,7 @@ class ExperimentalAgentFeatures:
             title=capability.title,
             description=capability.description,
             signals=capability.signals,
-            tags=capability.tags,
+            tags=_tags_from_ids(capability.tags),
         )
 
 
@@ -3002,7 +3261,7 @@ class Agent:
     max_engine_iterations: int
     composition_mode: CompositionMode
     output_mode: OutputMode
-    tags: Sequence[TagId]
+    tags: Sequence[Tag]
 
     retrievers: Mapping[str, RetrieverFunction] = field(default_factory=dict)
 
@@ -3020,6 +3279,7 @@ class Agent:
         composition_mode: CompositionMode | None = None,
         on_match: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
+        tags: Sequence[Tag] = [],
         labels: Iterable[str] = (),
         dependencies: Sequence[Guideline | Journey] = [],
         priority: int = 0,
@@ -3032,6 +3292,7 @@ class Agent:
             title,
             description,
             conditions,
+            tags=[t.id for t in tags],
             id=id,
             composition_mode=composition_mode,
             on_match=on_match,
@@ -3042,12 +3303,18 @@ class Agent:
 
         await self.attach_journey(journey)
 
+        for tag in tags:
+            await self._container[JourneyStore].upsert_tag(
+                journey.id,
+                tag.id,
+            )
+
         result = Journey(
             id=journey.id,
             title=journey.title,
             description=description,
             conditions=journey.conditions,
-            tags=journey.tags,
+            tags=[*journey.tags, *tags],
             states=journey.states,
             transitions=journey.transitions,
             composition_mode=journey.composition_mode,
@@ -3068,7 +3335,7 @@ class Agent:
 
         await self._container[JourneyStore].upsert_tag(
             journey.id,
-            _Tag.for_agent_id(self.id),
+            _Tag.for_agent_id(self.id).id,
         )
 
     async def create_guideline(
@@ -3088,6 +3355,7 @@ class Agent:
         on_message: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        tags: Sequence[Tag] = [],
         track: bool = True,
         labels: Iterable[str] = (),
         dependencies: Sequence[Guideline | Journey] = [],
@@ -3107,7 +3375,7 @@ class Agent:
             on_match=on_match,
             on_message=on_message,
             canned_response_field_provider=canned_response_field_provider,
-            tags=[_Tag.for_agent_id(self.id)],
+            tags=[_Tag.for_agent_id(self.id).id, *[t.id for t in tags]],
             relationship_target_tag_id=None,
             id=id,
             track=track,
@@ -3133,6 +3401,7 @@ class Agent:
         on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
+        tags: Sequence[Tag] = [],
         labels: Iterable[str] = (),
         dependencies: Sequence[Guideline | Journey] = [],
         priority: int = 0,
@@ -3149,6 +3418,7 @@ class Agent:
             on_match=on_match,
             criticality=criticality,
             canned_response_field_provider=canned_response_field_provider,
+            tags=tags,
             labels=labels,
             dependencies=dependencies,
             priority=priority,
@@ -3193,7 +3463,7 @@ class Agent:
     async def create_canned_response(
         self,
         template: str,
-        tags: list[TagId] = [],
+        tags: list[Tag] = [],
         signals: list[str] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         field_dependencies: Sequence[str] = (),
@@ -3204,7 +3474,7 @@ class Agent:
 
         canrep = await self._container[CannedResponseStore].create_canned_response(
             value=template,
-            tags=[_Tag.for_agent_id(self.id), *tags],
+            tags=[_Tag.for_agent_id(self.id).id, *[t.id for t in tags]],
             fields=[],
             signals=signals,
             metadata=metadata,
@@ -3228,7 +3498,7 @@ class Agent:
             name=name,
             description=description,
             synonyms=synonyms,
-            tags=[_Tag.for_agent_id(self.id)],
+            tags=[_Tag.for_agent_id(self.id).id],
             id=id,
         )
 
@@ -3237,7 +3507,7 @@ class Agent:
             name=term.name,
             description=term.description,
             synonyms=term.synonyms,
-            tags=term.tags,
+            tags=_tags_from_ids(term.tags),
         )
 
     async def create_variable(
@@ -3259,7 +3529,7 @@ class Agent:
             description=description,
             tool_id=ToolId(INTEGRATED_TOOL_SERVICE_NAME, tool.tool.name) if tool else None,
             freshness_rules=freshness_rules,
-            tags=[_Tag.for_agent_id(self.id)],
+            tags=[_Tag.for_agent_id(self.id).id],
         )
 
         return Variable(
@@ -3268,7 +3538,7 @@ class Agent:
             description=variable.description,
             tool=tool,
             freshness_rules=variable.freshness_rules,
-            tags=variable.tags,
+            tags=_tags_from_ids(variable.tags),
             _server=self._server,
             _container=self._container,
         )
@@ -3277,7 +3547,7 @@ class Agent:
         """Lists all variables associated with the agent."""
 
         variables = await self._container[ContextVariableStore].list_variables(
-            tags=[_Tag.for_agent_id(self.id)]
+            tags=[_Tag.for_agent_id(self.id).id]
         )
 
         return [
@@ -3289,7 +3559,7 @@ class Agent:
                 if variable.tool_id
                 else None,
                 freshness_rules=variable.freshness_rules,
-                tags=variable.tags,
+                tags=_tags_from_ids(variable.tags),
                 _server=self._server,
                 _container=self._container,
             )
@@ -3321,7 +3591,7 @@ class Agent:
                 (
                     v
                     for v in await self._container[ContextVariableStore].list_variables(
-                        tags=[_Tag.for_agent_id(self.id)]
+                        tags=[_Tag.for_agent_id(self.id).id]
                     )
                     if v.name == name
                 ),
@@ -3339,17 +3609,22 @@ class Agent:
             if variable.tool_id
             else None,
             freshness_rules=variable.freshness_rules,
-            tags=variable.tags,
+            tags=_tags_from_ids(variable.tags),
             _server=self._server,
             _container=self._container,
         )
 
-    async def get_variable(self, id: ContextVariableId | str) -> Variable:
-        """Retrieves a variable by its ID, raising an error if not found."""
+    async def get_variable(
+        self,
+        *,
+        id: ContextVariableId | str | None = None,
+        name: str | None = None,
+    ) -> Variable:
+        """Retrieves a variable by its ID or name, raising an error if not found."""
 
-        if variable := await self.find_variable(id=id):
+        if variable := await self.find_variable(id=id, name=name):
             return variable
-        raise SDKError(f"Variable with id {id} not found.")
+        raise SDKError(f"Variable with id {id} or name {name} not  found.")
 
     async def attach_retriever(
         self,
@@ -3428,7 +3703,7 @@ class Agent:
             max_engine_iterations=core_agent.max_engine_iterations,
             composition_mode=composition_mode_map[core_agent.composition_mode],
             output_mode=core_agent.message_output_mode or OutputMode.BLOCK,
-            tags=core_agent.tags,
+            tags=_tags_from_ids(core_agent.tags),
         )
 
 
@@ -4037,7 +4312,7 @@ class Server:
         )
 
         if canned_responses:
-            tag_id = _Tag.for_guideline_id(guideline.id)
+            tag_id = _Tag.for_guideline_id(guideline.id).id
 
             for canrep_id in canned_responses:
                 await self.container[CannedResponseStore].upsert_tag(
@@ -4062,7 +4337,7 @@ class Server:
                 ),
                 target=RelationshipEntity(
                     id=relationship_target_tag_id,
-                    kind=RelationshipEntityKind.TAG,
+                    kind=RelationshipEntityKind.TAG_ALL,
                 ),
                 kind=RelationshipKind.DEPENDENCY,
             )
@@ -4077,7 +4352,7 @@ class Server:
             id=guideline.id,
             condition=condition or "",
             action=action,
-            tags=guideline.tags,
+            tags=_tags_from_ids(guideline.tags),
             metadata=guideline.metadata,
             labels=guideline.labels,
             priority=guideline.priority,
@@ -4222,6 +4497,18 @@ class Server:
                 # No need to emit tool event if nothing was retrieved.
                 return EngineHookResult.CALL_NEXT
 
+            # Build the tool result
+            tool_result = _SessionToolResult(
+                data=result.data,
+                metadata=result.metadata,
+                control={"lifespan": "response"},
+                canned_responses=[u for u in result.canned_responses],
+                canned_response_fields=result.canned_response_fields,
+            )
+
+            if result.guidelines:
+                tool_result["guidelines"] = list(result.guidelines)
+
             # Emit tool event with retriever data
             ctx.state.tool_events.append(
                 await ctx.response_event_emitter.emit_tool_event(
@@ -4234,13 +4521,7 @@ class Server:
                                     tool_name=retriever_id,
                                 ).to_string(),
                                 arguments={},
-                                result=_SessionToolResult(
-                                    data=result.data,
-                                    metadata=result.metadata,
-                                    control={"lifespan": "response"},
-                                    canned_responses=[u for u in result.canned_responses],
-                                    canned_response_fields=result.canned_response_fields,
-                                ),
+                                result=tool_result,
                             )
                         ]
                     ),
@@ -4540,9 +4821,22 @@ class Server:
                         or retriever_result.metadata
                         or retriever_result.canned_responses
                         or retriever_result.canned_response_fields
+                        or retriever_result.guidelines
                     ):
                         # No need to emit tool event if nothing was retrieved.
                         return EngineHookResult.CALL_NEXT
+
+                    # Build the tool result
+                    tool_result = _SessionToolResult(
+                        data=retriever_result.data,
+                        metadata=retriever_result.metadata,
+                        control={"lifespan": "response"},
+                        canned_responses=[u for u in retriever_result.canned_responses],
+                        canned_response_fields=retriever_result.canned_response_fields,
+                    )
+
+                    if retriever_result.guidelines:
+                        tool_result["guidelines"] = list(retriever_result.guidelines)
 
                     ctx.state.tool_events.append(
                         await ctx.response_event_emitter.emit_tool_event(
@@ -4555,15 +4849,7 @@ class Server:
                                             tool_name=retriever_id,
                                         ).to_string(),
                                         arguments={},
-                                        result=_SessionToolResult(
-                                            data=retriever_result.data,
-                                            metadata=retriever_result.metadata,
-                                            control={"lifespan": "response"},
-                                            canned_responses=[
-                                                u for u in retriever_result.canned_responses
-                                            ],
-                                            canned_response_fields=retriever_result.canned_response_fields,
-                                        ),
+                                        result=tool_result,
                                     )
                                 ]
                             ),
@@ -4572,12 +4858,36 @@ class Server:
 
                 return EngineHookResult.CALL_NEXT
 
-            c[EngineHooks].on_acknowledged.append(on_message_acknowledged)
+            c[EngineHooks].on_preparing.append(on_message_acknowledged)
             c[EngineHooks].on_generating_messages.append(on_generating_messages)
 
         for agent in self._retrievers:
             for retriever_id, retriever in self._retrievers[agent].items():
                 await setup_retriever(self._container, agent, retriever_id, retriever)
+
+    async def get_tag(
+        self,
+        *,
+        id: TagId | None = None,
+        name: str | None = None,
+    ) -> Tag:
+        if (id is None) == (name is None):
+            raise SDKError("Exactly one of 'id' or 'name' must be provided.")
+
+        if id is not None:
+            tag = await self._container[TagStore].read_tag(tag_id=id)
+        else:
+            assert name is not None
+            tags = await self._container[TagStore].list_tags(name=name)
+            if not tags:
+                raise SDKError(f"Tag with name '{name}' not found.")
+            tag = tags[0]
+
+        return Tag(
+            id=tag.id,
+            name=tag.name,
+            _server=self,
+        )
 
     async def create_tag(self, name: str) -> Tag:
         self._advance_creation_progress()
@@ -4587,6 +4897,7 @@ class Server:
         return Tag(
             id=tag.id,
             name=tag.name,
+            _server=self,
         )
 
     async def create_agent(
@@ -4599,6 +4910,7 @@ class Server:
         tags: Sequence[TagId] = [],
         id: str | None = None,
         perceived_performance_policy: PerceivedPerformancePolicy | None = None,
+        planner: Planner | None = None,
         preamble_config: PreambleConfiguration | None = None,
     ) -> Agent:
         """Creates a new agent with the specified name, description, and composition mode.
@@ -4622,6 +4934,9 @@ class Server:
                 agent identifiers across deployments or integrations.
             perceived_performance_policy: Optional perceived performance policy for this agent.
                 If not specified, the agent will use the default policy (BasicPerceivedPerformancePolicy).
+            planner: Optional planner for this agent. Controls how the engine decides
+                which tools to execute each iteration. If not specified, the agent will
+                use the default planner (NullPlanner).
             preamble_config: Optional preamble configuration for this agent.
                 Allows customizing the preamble examples and adding additional instructions.
 
@@ -4650,6 +4965,9 @@ class Server:
                 agent.id, perceived_performance_policy
             )
 
+        if planner is not None:
+            self._container[PlannerProvider].set_planner(agent.id, planner)
+
         if preamble_config is not None:
             self._container[CannedResponseGenerator].set_preamble_config(agent.id, preamble_config)
 
@@ -4660,7 +4978,7 @@ class Server:
             max_engine_iterations=agent.max_engine_iterations,
             composition_mode=CompositionMode(agent.composition_mode),
             output_mode=agent.message_output_mode or OutputMode.BLOCK,
-            tags=tags,
+            tags=_tags_from_ids(tags),
             _server=self,
             _container=self._container,
         )
@@ -4678,7 +4996,7 @@ class Server:
                 max_engine_iterations=a.max_engine_iterations,
                 composition_mode=CompositionMode(a.composition_mode),
                 output_mode=a.message_output_mode or OutputMode.BLOCK,
-                tags=a.tags,
+                tags=_tags_from_ids(a.tags),
                 _server=self,
                 _container=self._container,
             )
@@ -4698,7 +5016,7 @@ class Server:
                 max_engine_iterations=agent.max_engine_iterations,
                 composition_mode=CompositionMode(agent.composition_mode),
                 output_mode=agent.message_output_mode or OutputMode.BLOCK,
-                tags=agent.tags,
+                tags=_tags_from_ids(agent.tags),
                 _server=self,
                 _container=self._container,
             )
@@ -4754,7 +5072,7 @@ class Server:
             id=customer.id,
             name=customer.name,
             metadata=customer.extra,
-            tags=customer.tags,
+            tags=_tags_from_ids(customer.tags),
             _server=self,
         )
 
@@ -4768,7 +5086,7 @@ class Server:
                 id=c.id,
                 name=c.name,
                 metadata=c.extra,
-                tags=c.tags,
+                tags=_tags_from_ids(c.tags),
             )
             for c in customers
         ]
@@ -4796,7 +5114,7 @@ class Server:
                 id=customer.id,
                 name=customer.name,
                 metadata=customer.extra,
-                tags=customer.tags,
+                tags=_tags_from_ids(customer.tags),
             )
 
         if name:
@@ -4807,7 +5125,7 @@ class Server:
                     id=customer.id,
                     name=customer.name,
                     metadata=customer.extra,
-                    tags=customer.tags,
+                    tags=_tags_from_ids(customer.tags),
                 )
 
         return None
@@ -4856,7 +5174,7 @@ class Server:
                     id=guideline.id,
                     condition=guideline.content.condition,
                     action=guideline.content.action,
-                    tags=guideline.tags,
+                    tags=_tags_from_ids(guideline.tags),
                     metadata=guideline.metadata,
                     _server=self,
                     _container=self._container,
@@ -4881,7 +5199,7 @@ class Server:
             conditions=condition_guidelines,
             states=[],
             transitions=[],
-            tags=tags,
+            tags=_tags_from_ids(tags),
             composition_mode=CompositionMode._from_core_composition_mode(
                 stored_journey.composition_mode
             ),
@@ -4908,7 +5226,7 @@ class Server:
         for c in condition_guidelines:
             await self._container[GuidelineStore].upsert_tag(
                 guideline_id=c.id,
-                tag_id=_Tag.for_journey_id(journey_id=journey.id),
+                tag_id=_Tag.for_journey_id(journey_id=journey.id).id,
             )
 
         self._add_journey_evaluation(journey)
@@ -4935,7 +5253,7 @@ class Server:
     async def create_canned_response(
         self,
         template: str,
-        tags: list[TagId] = [],
+        tags: list[Tag] = [],
         signals: list[str] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         field_dependencies: Sequence[str] = (),
@@ -4946,7 +5264,7 @@ class Server:
 
         canrep = await self._container[CannedResponseStore].create_canned_response(
             value=template,
-            tags=tags,
+            tags=[t.id for t in tags],
             fields=[],
             signals=signals,
             metadata=metadata,
@@ -5123,6 +5441,16 @@ class Server:
                     )  # type: ignore
                 )
 
+        def get_env_based_module() -> ModuleType | None:
+            if env_module_name := os.getenv("PARLANT_SDK_MODULE"):
+                try:
+                    return importlib.import_module(env_module_name)
+                except ImportError as e:
+                    raise SDKError(
+                        f"Failed to import module '{env_module_name}' specified in PARLANT_SDK_MODULE environment variable."
+                    ) from e
+            return None
+
         async def configure(c: Container) -> Container:
             latest_container = c
 
@@ -5137,6 +5465,10 @@ class Server:
             if self._configure_hooks:
                 hooks = await self._configure_hooks(c[EngineHooks])
                 latest_container[EngineHooks] = hooks
+
+            if env_based_module := get_env_based_module():
+                if configure_module := getattr(env_based_module, "configure_module", None):
+                    latest_container = await configure_module(latest_container.clone())
 
             return latest_container
 
@@ -5180,6 +5512,10 @@ class Server:
             if self._initialize:
                 await self._initialize(c)
 
+            if env_based_module := get_env_based_module():
+                if initialize_module := getattr(env_based_module, "initialize_module", None):
+                    await initialize_module(c.clone())
+
         return StartupParameters(
             host=self.host,
             port=self.port,
@@ -5214,11 +5550,14 @@ class Server:
 __all__ = [
     "Agent",
     "AgentId",
+    "AllOf",
+    "AnyOf",
     "AuthorizationException",
     "AuthorizationPolicy",
     "BasicNoMatchResponseProvider",
     "BasicOptimizationPolicy",
     "BasicPerceivedPerformancePolicy",
+    "BasicPlanner",
     "BasicRateLimiter",
     "CannedResponseId",
     "Capability",
@@ -5282,11 +5621,16 @@ __all__ = [
     "NoMatchResponseProvider",
     "NoModeration",
     "NullPerceivedPerformancePolicy",
+    "NullPlan",
+    "NullPlanner",
     "Operation",
     "OutputMode",
     "OptimizationPolicy",
     "PerceivedPerformancePolicy",
     "PerceivedPerformancePolicyProvider",
+    "Plan",
+    "Planner",
+    "PlannerProvider",
     "PluginServer",
     "PreambleConfiguration",
     "ProductionAuthorizationPolicy",

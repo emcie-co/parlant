@@ -266,13 +266,13 @@ class JourneyStore(ABC):
     @abstractmethod
     async def read_edge(
         self,
-        edge_id: JourneyNodeId,
+        edge_id: JourneyEdgeId,
     ) -> JourneyEdge: ...
 
     @abstractmethod
     async def update_edge(
         self,
-        edge_id: JourneyNodeId,
+        edge_id: JourneyEdgeId,
         params: JourneyEdgeUpdateParams,
     ) -> JourneyEdge: ...
 
@@ -1457,7 +1457,7 @@ class JourneyVectorStore(JourneyStore):
     @override
     async def read_edge(
         self,
-        edge_id: JourneyNodeId,
+        edge_id: JourneyEdgeId,
     ) -> JourneyEdge:
         async with self._lock.reader_lock:
             doc = await self._edge_association_collection.find_one({"id": {"$eq": edge_id}})
@@ -1470,7 +1470,7 @@ class JourneyVectorStore(JourneyStore):
     @override
     async def update_edge(
         self,
-        edge_id: JourneyNodeId,
+        edge_id: JourneyEdgeId,
         params: JourneyEdgeUpdateParams,
     ) -> JourneyEdge:
         async with self._lock.writer_lock:

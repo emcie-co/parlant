@@ -51,7 +51,7 @@ async def test_that_a_journey_can_be_created(
     assert guideline.id == journey["conditions"][0]
 
     guideline_after_update = await guideline_store.read_guideline(guideline.id)
-    assert guideline_after_update.tags == [Tag.for_journey_id(journey["id"])]
+    assert guideline_after_update.tags == [Tag.for_journey_id(journey["id"]).id]
 
 
 async def test_that_a_journey_can_be_created_with_multiple_conditions(
@@ -419,18 +419,18 @@ async def test_that_a_guideline_is_not_deleted_when_it_is_used_in_multiple_journ
     )
 
     await guideline_store.upsert_tag(
-        guideline_id=guideline.id, tag_id=Tag.for_journey_id(journey_to_delete.id)
+        guideline_id=guideline.id, tag_id=Tag.for_journey_id(journey_to_delete.id).id
     )
 
     await guideline_store.upsert_tag(
-        guideline_id=guideline.id, tag_id=Tag.for_journey_id(journey_to_keep.id)
+        guideline_id=guideline.id, tag_id=Tag.for_journey_id(journey_to_keep.id).id
     )
 
     delete_response = await async_client.delete(f"/journeys/{journey_to_delete.id}")
     assert delete_response.status_code == status.HTTP_204_NO_CONTENT
 
     guideline_after_update = await guideline_store.read_guideline(guideline.id)
-    assert guideline_after_update.tags == [Tag.for_journey_id(journey_to_keep.id)]
+    assert guideline_after_update.tags == [Tag.for_journey_id(journey_to_keep.id).id]
 
 
 async def test_that_a_tag_can_be_added_to_a_journey(
@@ -510,7 +510,7 @@ async def test_that_conditions_can_be_added_to_a_journey(
     assert guideline.id in updated_journey["conditions"]
 
     guideline_after_update = await guideline_store.read_guideline(guideline.id)
-    assert guideline_after_update.tags == [Tag.for_journey_id(journey.id)]
+    assert guideline_after_update.tags == [Tag.for_journey_id(journey.id).id]
 
 
 async def test_that_conditions_can_be_removed_from_a_journey(
@@ -538,11 +538,11 @@ async def test_that_conditions_can_be_removed_from_a_journey(
     )
 
     await guideline_store.upsert_tag(
-        guideline_id=guideline.id, tag_id=Tag.for_journey_id(journey_to_keep.id)
+        guideline_id=guideline.id, tag_id=Tag.for_journey_id(journey_to_keep.id).id
     )
 
     await guideline_store.upsert_tag(
-        guideline_id=guideline.id, tag_id=Tag.for_journey_id(journey_to_delete.id)
+        guideline_id=guideline.id, tag_id=Tag.for_journey_id(journey_to_delete.id).id
     )
 
     response = await async_client.patch(
@@ -555,7 +555,7 @@ async def test_that_conditions_can_be_removed_from_a_journey(
     assert guideline.id not in updated_journey["conditions"]
 
     guideline_after_update = await guideline_store.read_guideline(guideline.id)
-    assert guideline_after_update.tags == [Tag.for_journey_id(journey_to_keep.id)]
+    assert guideline_after_update.tags == [Tag.for_journey_id(journey_to_keep.id).id]
 
 
 async def test_that_a_guideline_is_deleted_when_conditions_are_removed_from_all_journeys(
@@ -583,7 +583,7 @@ async def test_that_a_guideline_is_deleted_when_conditions_are_removed_from_all_
     )
 
     await guideline_store.upsert_tag(
-        guideline_id=guideline.id, tag_id=Tag.for_journey_id(journey.id)
+        guideline_id=guideline.id, tag_id=Tag.for_journey_id(journey.id).id
     )
 
     response = await async_client.patch(

@@ -665,7 +665,7 @@ async def migrate_guidelines_0_1_0_to_0_3_0(
                 "guideline_id": GuidelineId(guideline["id"]),
                 "tag_id": Tag.for_agent_id(
                     cast(GuidelineDocument_v0_1_0, guideline)["guideline_set"]
-                ),
+                ).id,
             }
         )
 
@@ -708,7 +708,7 @@ async def migrate_context_variables_0_1_0_to_0_2_0(
                 "variable_id": ContextVariableId(context_variable["id"]),
                 "tag_id": Tag.for_agent_id(
                     cast(ContextVariableDocument_v0_1_0, context_variable)["variable_set"]
-                ),
+                ).id,
             }
         )
 
@@ -851,7 +851,7 @@ async def migrate_glossary_0_1_0_to_0_2_0(
                     "version": Version.String("0.2.0"),
                     "creation_utc": datetime.now(timezone.utc).isoformat(),
                     "term_id": TermId(cast(str, doc["id"])),
-                    "tag_id": Tag.for_agent_id(cast(TermDocument_v0_1_0, doc)["term_set"]),
+                    "tag_id": Tag.for_agent_id(cast(TermDocument_v0_1_0, doc)["term_set"]).id,
                 }
             )
 
@@ -1209,7 +1209,7 @@ async def migrate_evaluations_0_1_0_to_0_2_0(
                     "version": Version.String("0.2.0"),
                     "creation_utc": datetime.now(timezone.utc).isoformat(),
                     "evaluation_id": EvaluationId(evaluation_doc["id"]),
-                    "tag_id": Tag.for_agent_id(evaluation_doc["agent_id"]),
+                    "tag_id": Tag.for_agent_id(evaluation_doc["agent_id"]).id,
                 }
             )
 

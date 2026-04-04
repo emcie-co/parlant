@@ -73,6 +73,10 @@ Recommended actions:
 """
 
 
+class OpenRouterEmptyEmbeddingResponseError(Exception):
+    """Raised when OpenRouter returns an embedding response with no vectors."""
+
+
 class OpenRouterEstimatingTokenizer(EstimatingTokenizer):
     def __init__(self, model_name: str) -> None:
         self.model_name = model_name
@@ -138,6 +142,7 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
                     ConflictError,
                     RateLimitError,
                     APIResponseValidationError,
+                    OpenRouterEmptyEmbeddingResponseError,
                 ),
             ),
             retry(InternalServerError, max_exceptions=2, wait_times=(1.0, 5.0)),
@@ -429,6 +434,7 @@ class OpenRouterEmbedder(BaseEmbedder):
                     ConflictError,
                     RateLimitError,
                     APIResponseValidationError,
+                    OpenRouterEmptyEmbeddingResponseError,
                 ),
             ),
             retry(InternalServerError, max_exceptions=2, wait_times=(1.0, 5.0)),
@@ -447,6 +453,10 @@ class OpenRouterEmbedder(BaseEmbedder):
                 input=texts,
                 **filtered_hints,
             )
+        except ValueError as exc:
+            if "No embedding data received" in str(exc):
+                raise OpenRouterEmptyEmbeddingResponseError(str(exc)) from exc
+            raise
         except RateLimitError:
             self.logger.error(
                 f"\nRate limit exceeded for embedder model '{self.model_name}'.\n"
@@ -457,6 +467,9 @@ class OpenRouterEmbedder(BaseEmbedder):
                 f"  - Adding your own API key for higher limits\n"
             )
             raise
+
+        if not response.data:
+            raise OpenRouterEmptyEmbeddingResponseError("No embedding data received")
 
         vectors = [data_point.embedding for data_point in response.data]
 

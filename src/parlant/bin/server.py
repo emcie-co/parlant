@@ -122,7 +122,9 @@ from parlant.core.engines.alpha.perceived_performance_policy import (
     PerceivedPerformancePolicy,
     PerceivedPerformancePolicyProvider,
 )
+from parlant.core.engines.alpha.planners import NullPlanner, PlannerProvider
 from parlant.core.engines.alpha.relational_resolver import RelationalResolver
+from parlant.core.event_loop_monitor import EventLoopMonitor
 from parlant.core.engines.alpha.tool_calling.overlapping_tools_batch import (
     OverlappingToolsBatchSchema,
 )
@@ -643,6 +645,7 @@ async def setup_container() -> AsyncIterator[Container]:
     _define_singleton(c, ToolCaller, ToolCaller)
 
     _define_singleton(c, RelationalResolver, RelationalResolver)
+    _define_singleton_value(c, PlannerProvider, PlannerProvider(default_planner=NullPlanner()))
 
     _define_singleton(
         c,
@@ -655,6 +658,8 @@ async def setup_container() -> AsyncIterator[Container]:
     )
 
     _define_singleton(c, Engine, AlphaEngine)
+
+    c[EventLoopMonitor] = EventLoopMonitor()
 
     _define_singleton(c, Application, Application)
 
@@ -742,6 +747,7 @@ async def initialize_container(
             c[store_interface] = lambda _c: c[store_implementation]
 
     await EXIT_STACK.enter_async_context(c[BackgroundTaskService])
+    await EXIT_STACK.enter_async_context(c[EventLoopMonitor])
 
     c[Logger].set_level(
         log_level

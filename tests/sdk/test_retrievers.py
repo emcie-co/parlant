@@ -240,3 +240,29 @@ class Test_that_deferred_retriever_can_return_none_based_on_engine_context(SDKTe
         assert self.deferred_returned_none, "Deferred callable did not return None as expected"
         # The agent should still respond, just without retriever data
         assert len(response) > 0
+
+
+class Test_that_retriever_guidelines_are_followed_by_agent(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Retriever Guideline Agent",
+            description="Agent for testing retriever transient guidelines",
+        )
+
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            return p.RetrieverResult(
+                data={"status": "retrieved"},
+                guidelines=[
+                    {"action": "Offer the customer a Pepsi immediately"},
+                ],
+            )
+
+        await self.agent.attach_retriever(custom_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="Hello there",
+            recipient=self.agent,
+        )
+
+        assert "pepsi" in response.lower(), f"Expected 'pepsi' in response but got: {response}"

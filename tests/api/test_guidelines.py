@@ -45,7 +45,7 @@ async def create_guidelines_and_create_relationships_between_them(
     for guideline in guidelines:
         _ = await container[GuidelineStore].upsert_tag(
             guideline_id=guideline.id,
-            tag_id=Tag.for_agent_id(agent_id),
+            tag_id=Tag.for_agent_id(agent_id).id,
         )
 
     for source, target in zip(guidelines, guidelines[1:]):
@@ -171,14 +171,14 @@ async def test_that_a_guideline_can_be_created_with_tags(
     journey_store = container[JourneyStore]
 
     agent = await agent_store.create_agent("Test Agent")
-    agent_tag = Tag.for_agent_id(agent.id)
+    agent_tag = Tag.for_agent_id(agent.id).id
 
     journey = await journey_store.create_journey(
         title="Customer Support Journey",
         description="A journey for customer support interactions.",
         conditions=[],
     )
-    journey_tag = Tag.for_journey_id(journey.id)
+    journey_tag = Tag.for_journey_id(journey.id).id
 
     tag_1 = await tag_store.create_tag(name="pricing")
     tag_2 = await tag_store.create_tag(name="sales")
@@ -445,7 +445,7 @@ async def test_that_an_agent_tag_can_be_added_to_guideline(
     agent_store = container[AgentStore]
 
     agent = await agent_store.create_agent("test_agent")
-    agent_tag = Tag.for_agent_id(agent.id)
+    agent_tag = Tag.for_agent_id(agent.id).id
 
     guideline = await guideline_store.create_guideline(
         condition="the customer asks about the weather",
@@ -480,7 +480,7 @@ async def test_that_a_journey_tag_can_be_added_to_guideline(
         description="test_description",
         conditions=[],
     )
-    journey_tag = Tag.for_journey_id(journey.id)
+    journey_tag = Tag.for_journey_id(journey.id).id
 
     guideline = await guideline_store.create_guideline(
         condition="the customer asks about the weather",

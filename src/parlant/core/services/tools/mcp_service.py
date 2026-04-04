@@ -16,10 +16,11 @@ from __future__ import annotations
 
 from ast import literal_eval
 from datetime import datetime, timezone
+import json
 from mailbox import FormatError
 from mcp.types import Tool as McpTool
 from types import TracebackType
-from typing import Any, Sequence, Mapping, Optional, Literal, Callable
+from typing import Any, Sequence, Mapping, Optional, Literal, Callable, cast
 from typing_extensions import override
 import asyncio
 
@@ -153,6 +154,7 @@ class MCPToolClient(ToolService):
         else:
             self.url = url
             self.port = port
+        self.endpoint_url = f"{self.url}:{self.port}"
 
     async def __aenter__(self) -> MCPToolClient:
         try:
@@ -216,8 +218,7 @@ class MCPToolClient(ToolService):
             tool = await self.read_tool(name)
             arguments = prepare_tool_arguments(arguments, tool.parameters)
             result = await self._client.call_tool(name, dict(arguments))
-            text = next((r.text for r in result.content if r.type == "text"), None)
-            return ToolResult(data=text)
+            return ToolResult(data=mcp_result_to_tool_result_data(result))
         except Exception as e:
             raise ToolError(str(e))
 
@@ -238,7 +239,7 @@ mcp_parameter_type_map: dict[tuple[str, str | None], ToolParameterType] = {
 
 def mcp_tool_to_parlant_tool(mcp_tool: McpTool) -> Tool:
     parameters = {}
-    for param in mcp_tool.inputSchema["properties"]:
+    for param in mcp_tool.inputSchema.get("properties", {}):
         parameters[param] = (
             mcp_parameter_to_parlant_parameter(param, mcp_tool.inputSchema),
             ToolParameterOptions(),
@@ -249,7 +250,7 @@ def mcp_tool_to_parlant_tool(mcp_tool: McpTool) -> Tool:
         description=(mcp_tool.description if mcp_tool.description else ""),
         metadata={},
         parameters=parameters,
-        required=mcp_tool.inputSchema["required"],
+        required=mcp_tool.inputSchema.get("required", []),
         consequential=True,
         overlap=ToolOverlap.ALWAYS,
     )
@@ -264,11 +265,11 @@ def mcp_parameter_to_parlant_parameter(
         """ Union of types - currently only optional is supported"""
         mcp_param = resolve_optional(mcp_param["anyOf"])
 
-    param_type = mcp_param.get("type", None)
-    param_format = mcp_param.get("format", None)
-    description = mcp_param.get("title", None)
+    param_type: str | None = mcp_param.get("type", None)
+    param_format: str | None = mcp_param.get("format", None)
+    description = mcp_param.get("title") or mcp_param.get("description")
 
-    if (param_type, param_format) in mcp_parameter_type_map:
+    if param_type is not None and (param_type, param_format) in mcp_parameter_type_map:
         """ basic types + easily serializable types """
         return ToolParameterDescriptor(
             type=mcp_parameter_type_map[(param_type, param_format)], description=description
@@ -281,8 +282,10 @@ def mcp_parameter_to_parlant_parameter(
         )
 
     if "$ref" in mcp_param:
-        """ Reference to another schema - currently only enum is supported"""
+        """ Reference to another schema - enum and object references are supported"""
         def_ = resolve_ref(mcp_param["$ref"], schema)
+        if _is_object_schema(def_):
+            return ToolParameterDescriptor(type="string", description=description or "")
         return parse_enum_def(def_)
 
     if param_type == "array":
@@ -290,23 +293,85 @@ def mcp_parameter_to_parlant_parameter(
         if "items" not in mcp_param:
             raise FormatError("Only lists and sets are supported collections")
 
-        enum_desc = None
-        if "$ref" in mcp_param["items"]:
-            """ Reference to another schema - currently only enum is supported"""
-            def_ = resolve_ref(mcp_param["items"]["$ref"], schema)
-            enum_desc = parse_enum_def(def_)
+        item_type, enum = parse_mcp_array_item(mcp_param["items"], schema)
 
         return ToolParameterDescriptor(
             type="array",
-            item_type=(
-                enum_desc["type"]
-                if enum_desc
-                else mcp_parameter_type_map[(mcp_param["items"]["type"], None)]
-            ),
-            **({"enum": enum_desc["enum"]} if enum_desc is not None else {}),
+            item_type=item_type,
+            **({"enum": enum} if enum is not None else {}),
             description=mcp_param.get("title", ""),
         )
+    if _is_object_schema(mcp_param):
+        return ToolParameterDescriptor(type="string", description=description or "")
     raise FormatError(f"Unsupported parameter type: {param_type} (parameter is {parameter_name})")
+
+
+def parse_mcp_array_item(
+    item_schema: dict[str, Any],
+    root_schema: dict[str, Any],
+) -> tuple[ToolParameterType, Sequence[str] | None]:
+    if "$ref" in item_schema:
+        def_ = resolve_ref(item_schema["$ref"], root_schema)
+        if _is_object_schema(def_):
+            return ("string", None)
+
+        enum_desc = parse_enum_def(def_)
+        return (enum_desc["type"], enum_desc["enum"])
+
+    item_type = cast(str, item_schema.get("type"))
+    item_format = cast(str, item_schema.get("format"))
+
+    if _is_object_schema(item_schema):
+        return ("string", None)
+
+    key = (item_type, item_format)
+    if key in mcp_parameter_type_map:
+        return (mcp_parameter_type_map[cast(tuple[str, str | None], key)], None)
+
+    raise FormatError(f"Unsupported array item type: {item_type}")
+
+
+def _is_object_schema(schema_part: Mapping[str, Any]) -> bool:
+    return schema_part.get("type") == "object" or "properties" in schema_part
+
+
+def mcp_result_to_tool_result_data(result: Any) -> Any:
+    raw_data = getattr(result, "data", None)
+    if raw_data is not None:
+        return _deserialize_mcp_data(raw_data)
+
+    structured_content = getattr(result, "structuredContent", None)
+    if structured_content is None:
+        structured_content = getattr(result, "structured_content", None)
+    if structured_content is not None:
+        return structured_content
+
+    text_blocks = [
+        content.text for content in getattr(result, "content", []) if content.type == "text"
+    ]
+
+    if not text_blocks:
+        return None
+
+    parsed_blocks = [_deserialize_mcp_text(text) for text in text_blocks]
+
+    if len(parsed_blocks) == 1:
+        return parsed_blocks[0]
+
+    return parsed_blocks
+
+
+def _deserialize_mcp_text(text: str) -> Any:
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return text
+
+
+def _deserialize_mcp_data(data: Any) -> Any:
+    if isinstance(data, str):
+        return _deserialize_mcp_text(data)
+    return data
 
 
 def resolve_ref(ref_: str, schema: dict[str, Any]) -> dict[str, Any]:

@@ -182,7 +182,7 @@ async def test_that_context_variables_of_specific_tag_can_be_listed(
         description="description 1",
         tool_id=tool_id,
         freshness_rules="0 18 14 5 4",
-        tags=[Tag.for_agent_id(agent.id)],
+        tags=[Tag.for_agent_id(agent.id).id],
     )
 
     _ = await context_variable_store.create_variable(
@@ -192,7 +192,7 @@ async def test_that_context_variables_of_specific_tag_can_be_listed(
     )
 
     returned_variables = (
-        (await async_client.get(f"/context-variables?tag_id={Tag.for_agent_id(agent.id)}"))
+        (await async_client.get(f"/context-variables?tag_id={Tag.for_agent_id(agent.id).id}"))
         .raise_for_status()
         .json()
     )

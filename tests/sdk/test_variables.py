@@ -175,3 +175,42 @@ class Test_that_a_variable_can_be_found_by_id(SDKTest):
 
     async def run(self, ctx: Context) -> None:
         assert await self.agent.find_variable(id=self.variable.id) == self.variable
+
+
+class Test_that_variable_get_value_returns_correct_value_when_called_from_retriever(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Var Agent",
+            description="Agent for variable retriever test",
+        )
+
+        self.customer = await server.create_customer("Jane Doe")
+
+        self.variable = await self.agent.create_variable(
+            name="subscription_plan",
+            description="The current subscription plan of the user.",
+        )
+
+        await self.variable.set_value_for_customer(self.customer, "premium")
+
+        self.retrieved_value: p.JSONSerializable | None = None
+
+        variable = self.variable
+
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            self.retrieved_value = await variable.get_value()
+            return p.RetrieverResult(data={"plan": self.retrieved_value})
+
+        await self.agent.attach_retriever(custom_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="What is my subscription plan?",
+            recipient=self.agent,
+            sender=self.customer,
+        )
+
+        assert self.retrieved_value is not None, (
+            "Variable.get_value() returned None inside retriever"
+        )
+        assert self.retrieved_value == "premium"

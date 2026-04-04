@@ -25,6 +25,7 @@ from openai.types.completion_usage import CompletionUsage
 from parlant.adapters.nlp.openrouter_service import (  # type: ignore[reportMissingImports]
     OpenRouterService,
     OpenRouterSchematicGenerator,
+    OpenRouterEmbedder,
     OpenRouterGPT4O,
     OpenRouterGPT4OMini,
     OpenRouterClaude35Sonnet,
@@ -413,6 +414,93 @@ def test_that_openrouter_service_sets_default_max_tokens_for_llama(container: Co
         )
         generator = asyncio.run(service.get_schematic_generator(SchemaData))
         assert generator.max_tokens == 8192
+
+
+@patch("parlant.core.nlp.policies.asyncio.sleep", new_callable=AsyncMock)
+@patch("parlant.adapters.nlp.openrouter_service.AsyncClient")
+async def test_that_openrouter_embedder_retries_empty_embedding_value_error(
+    mock_client_class: Mock,
+    mock_sleep: AsyncMock,
+    container: Container,
+) -> None:
+    mock_client = AsyncMock()
+    mock_client.embeddings.create = AsyncMock(
+        side_effect=[
+            ValueError("No embedding data received"),
+            Mock(data=[Mock(embedding=[0.1, 0.2, 0.3])]),
+        ]
+    )
+    mock_client_class.return_value = mock_client
+
+    embedder = OpenRouterEmbedder(
+        model_name="openai/text-embedding-3-small",
+        logger=container[Logger],
+        tracer=container[Tracer],
+        meter=container[Meter],
+    )
+
+    result = await embedder.do_embed(["hello"])
+
+    assert result.vectors == [[0.1, 0.2, 0.3]]
+    assert mock_client.embeddings.create.await_count == 2
+    mock_sleep.assert_awaited_once()
+
+
+@patch("parlant.core.nlp.policies.asyncio.sleep", new_callable=AsyncMock)
+@patch("parlant.adapters.nlp.openrouter_service.AsyncClient")
+async def test_that_openrouter_embedder_retries_empty_embedding_response_data(
+    mock_client_class: Mock,
+    mock_sleep: AsyncMock,
+    container: Container,
+) -> None:
+    mock_client = AsyncMock()
+    mock_client.embeddings.create = AsyncMock(
+        side_effect=[
+            Mock(data=[]),
+            Mock(data=[Mock(embedding=[0.4, 0.5])]),
+        ]
+    )
+    mock_client_class.return_value = mock_client
+
+    embedder = OpenRouterEmbedder(
+        model_name="openai/text-embedding-3-small",
+        logger=container[Logger],
+        tracer=container[Tracer],
+        meter=container[Meter],
+    )
+
+    result = await embedder.do_embed(["hello"])
+
+    assert result.vectors == [[0.4, 0.5]]
+    assert mock_client.embeddings.create.await_count == 2
+    mock_sleep.assert_awaited_once()
+
+
+@patch("parlant.core.nlp.policies.asyncio.sleep", new_callable=AsyncMock)
+@patch("parlant.adapters.nlp.openrouter_service.AsyncClient")
+async def test_that_openrouter_embedder_does_not_retry_unrelated_value_error(
+    mock_client_class: Mock,
+    mock_sleep: AsyncMock,
+    container: Container,
+) -> None:
+    mock_client = AsyncMock()
+    mock_client.embeddings.create = AsyncMock(
+        side_effect=ValueError("Embedding payload is malformed")
+    )
+    mock_client_class.return_value = mock_client
+
+    embedder = OpenRouterEmbedder(
+        model_name="openai/text-embedding-3-small",
+        logger=container[Logger],
+        tracer=container[Tracer],
+        meter=container[Meter],
+    )
+
+    with pytest.raises(ValueError, match="Embedding payload is malformed"):
+        await embedder.do_embed(["hello"])
+
+    assert mock_client.embeddings.create.await_count == 1
+    mock_sleep.assert_not_awaited()
 
 
 @pytest.mark.skip(

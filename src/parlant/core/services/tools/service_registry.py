@@ -30,7 +30,10 @@ from parlant.core.emissions import EventEmitterFactory
 from parlant.core.loggers import Logger
 from parlant.core.nlp.moderation import ModerationService
 from parlant.core.nlp.service import NLPService
-from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
+from parlant.core.persistence.document_database_helper import (
+    DocumentStoreMigrationHelper,
+    DocumentMigrationHelper,
+)
 from parlant.core.services.tools.openapi import OpenAPIClient
 from parlant.core.services.tools.plugins import PluginClient
 from parlant.core.services.tools.mcp_service import MCPToolClient
@@ -163,9 +166,26 @@ class ServiceDocumentRegistry(ServiceRegistry):
         return service
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[_ToolServiceDocument]:
-        if doc["version"] == "0.1.0":
-            return cast(_ToolServiceDocument, doc)
-        return None
+        async def v0_1_0_to_v0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            if doc["version"] == "0.1.0":
+                _doc = cast(_ToolServiceDocument_v0_1_0, doc)
+                return _ToolServiceDocument(
+                    id=_doc["id"],
+                    creation_utc=datetime.now(timezone.utc).isoformat(),
+                    version=Version.from_string("0.2.0").to_string(),
+                    name=_doc["name"],
+                    kind=_doc["kind"],
+                    url=_doc["url"],
+                    source=_doc.get("source"),
+                )
+            return None
+
+        return await DocumentMigrationHelper[_ToolServiceDocument](
+            self,
+            {
+                "0.1.0": v0_1_0_to_v0_2_0,
+            },
+        ).migrate(doc)
 
     async def __aenter__(self) -> Self:
         self._nlp_services = self._nlp_services_provider()
@@ -239,7 +259,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
             url = service.url
         elif isinstance(service, MCPToolClient):
             kind = "mcp"
-            url = service.url
+            url = service.endpoint_url
         else:
             raise ValueError("Unsupported ToolService class.")
 
@@ -331,12 +351,6 @@ class ServiceDocumentRegistry(ServiceRegistry):
             )
 
             self._running_services[name] = service
-
-        await self._exit_stack.enter_async_context(
-            self._cast_to_specific_tool_service_class(service)
-        )
-
-        self._running_services[name] = service
 
         if not transient:
             await self._tool_services_collection.update_one(

@@ -260,7 +260,7 @@ async def create_term(
 
     await container[GlossaryStore].upsert_tag(
         term_id=term.id,
-        tag_id=Tag.for_agent_id(agent_id),
+        tag_id=Tag.for_agent_id(agent_id).id,
     )
 
     return term
@@ -307,7 +307,7 @@ async def create_guideline(
 
     _ = await container[GuidelineStore].upsert_tag(
         guideline.id,
-        Tag.for_agent_id(agent_id),
+        Tag.for_agent_id(agent_id).id,
     )
 
     if tool_function:

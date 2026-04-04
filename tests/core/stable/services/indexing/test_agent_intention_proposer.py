@@ -426,6 +426,10 @@ async def test_that_actions_which_are_not_agent_intention_are_classified_correct
             condition="The customer gives very short snappy responses like 'ok', 'sure', 'got it'",
             action="Keep the next point brief, one sentence maximum",
         ),
+        GuidelineContent(
+            condition="The customer has an inquiry that sounds high-level or basic, not drilling into specifics or details",
+            action="Answer ONLY based on the information provided",
+        ),
     ]
 
     for g in guidelines:

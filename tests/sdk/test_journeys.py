@@ -98,7 +98,7 @@ class Test_that_condition_guidelines_are_tagged_for_created_journey(SDKTest):
             await guideline_store.read_guideline(guideline_id=g_id) for g_id in journey.conditions
         ]
 
-        assert all(g.tags == [Tag.for_journey_id(self.journey.id)] for g in condition_guidelines)
+        assert all(g.tags == [Tag.for_journey_id(self.journey.id).id] for g in condition_guidelines)
 
 
 class Test_that_condition_guidelines_are_evaluated_in_journey_creation(SDKTest):
@@ -156,7 +156,7 @@ class Test_that_guideline_creation_from_journey_creates_dependency_relationship(
 
         assert relationships
         assert len(relationships) == 1
-        assert relationships[0].target.id == Tag.for_journey_id(self.journey.id)
+        assert relationships[0].target.id == Tag.for_journey_id(self.journey.id).id
 
 
 class Test_that_journey_can_be_created_with_guideline_object_as_condition(SDKTest):
@@ -403,14 +403,17 @@ class Test_that_journey_is_reevaluated_after_tool_call(SDKTest):
             kind=RelationshipKind.REEVALUATION,
             source_id=Tag.for_journey_node_id(
                 self.transition_check_balance.target.id,
-            ),
+            ).id,
         )
 
         assert relationships
         assert len(relationships) == 1
         assert relationships[0].kind == RelationshipKind.REEVALUATION
-        assert relationships[0].source.id == Tag.for_journey_node_id(
-            self.transition_check_balance.target.id,
+        assert (
+            relationships[0].source.id
+            == Tag.for_journey_node_id(
+                self.transition_check_balance.target.id,
+            ).id
         )
 
         assert relationships[0].target.id == ToolId(
@@ -489,7 +492,7 @@ class Test_that_journey_can_take_priority_over_another_journey(SDKTest):
         self.high_priority = await self.agent.create_journey(
             title="Journey 1",
             conditions=["Customer asks about drinks"],
-            description="Recommend Pepsi to the customer",
+            description="",
         )
 
         await self.high_priority.create_guideline(
@@ -500,7 +503,7 @@ class Test_that_journey_can_take_priority_over_another_journey(SDKTest):
         self.low_priority = await self.agent.create_journey(
             title="Journey 2",
             conditions=["Customer asks about drinks"],
-            description="Recommend Coca-Cola to the customer",
+            description="",
         )
 
         await self.low_priority.create_guideline(
@@ -565,6 +568,94 @@ class Test_that_journey_can_take_priority_over_a_guideline(SDKTest):
         )
 
 
+class Test_that_tagged_journey_takes_priority_over_a_guideline_via_tag_relationship(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Test Agent",
+            description="",
+        )
+
+        t1 = await server.create_tag("t1")
+
+        # Guideline that matches when customer is thirsty
+        self.guideline = await self.agent.create_guideline(
+            condition="Customer is thirsty",
+            action="Offer a banana smoothie",
+        )
+
+        # Journey tagged with t1 that also matches when customer is thirsty
+        self.journey = await self.agent.create_journey(
+            title="Drink Recommendation Journey",
+            conditions=["Customer is thirsty"],
+            description="",
+            tags=[t1],
+        )
+
+        # Use transition_to to create node guidelines (which carry journey's custom tags)
+        await self.journey.initial_state.transition_to(
+            chat_state="Offer a Pepsi to the customer",
+        )
+
+        # t1 (journey's custom tag) prioritizes over the standalone guideline
+        await t1.prioritize_over(self.guideline)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="I'm thirsty",
+            recipient=self.agent,
+        )
+
+        # Journey's recommendation should apply
+        assert "pepsi" in response.lower(), f"Expected 'Pepsi' in response: {response}"
+        # Guideline's recommendation should NOT apply
+        assert "banana" not in response.lower(), f"Did not expect 'Banana' in response: {response}"
+
+
+class Test_that_tagged_journey_takes_priority_over_a_guideline_via_tag_to_tag_relationship(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Test Agent",
+            description="",
+        )
+
+        t1 = await server.create_tag("t1")
+        t2 = await server.create_tag("t2")
+
+        # Guideline that matches when customer is thirsty
+        self.guideline = await self.agent.create_guideline(
+            condition="Customer is thirsty",
+            action="Offer a banana smoothie",
+            tags=[t2],
+        )
+
+        # Journey tagged with t1 that also matches when customer is thirsty
+        self.journey = await self.agent.create_journey(
+            title="Drink Recommendation Journey",
+            conditions=["Customer is thirsty"],
+            description="",
+            tags=[t1],
+        )
+
+        # Use transition_to to create node guidelines (which carry journey's custom tags)
+        await self.journey.initial_state.transition_to(
+            chat_state="Offer a Pepsi to the customer",
+        )
+
+        # t1 (journey's custom tag) prioritizes over the standalone guideline
+        await t1.prioritize_over(t2)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="I'm thirsty",
+            recipient=self.agent,
+        )
+
+        # Journey's recommendation should apply
+        assert "pepsi" in response.lower(), f"Expected 'Pepsi' in response: {response}"
+        # Guideline's recommendation should NOT apply
+        assert "banana" not in response.lower(), f"Did not expect 'Banana' in response: {response}"
+
+
 class Test_that_journey_can_depend_on_a_guideline(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
@@ -593,7 +684,7 @@ class Test_that_journey_can_depend_on_a_guideline(SDKTest):
         )
 
         assert relationship.kind == RelationshipKind.DEPENDENCY
-        assert relationship.source.id == Tag.for_journey_id(self.journey.id)
+        assert relationship.source.id == Tag.for_journey_id(self.journey.id).id
         assert relationship.target.id == self.guideline.id
 
 
@@ -619,7 +710,7 @@ class Test_that_journey_can_be_created_with_inline_dependencies(SDKTest):
     async def run(self, ctx: Context) -> None:
         relationship_store = ctx.container[RelationshipStore]
         relationships = await relationship_store.list_relationships(
-            source_id=Tag.for_journey_id(self.journey.id),
+            source_id=Tag.for_journey_id(self.journey.id).id,
             kind=RelationshipKind.DEPENDENCY,
         )
 
@@ -694,8 +785,8 @@ class Test_that_journey_guideline_can_be_created_with_canned_responses(SDKTest):
         updated_canrep1 = await canrep_store.read_canned_response(self.canrep1)
         updated_canrep2 = await canrep_store.read_canned_response(self.canrep2)
 
-        assert Tag.for_guideline_id(self.guideline.id) in updated_canrep1.tags
-        assert Tag.for_guideline_id(self.guideline.id) in updated_canrep2.tags
+        assert Tag.for_guideline_id(self.guideline.id).id in updated_canrep1.tags
+        assert Tag.for_guideline_id(self.guideline.id).id in updated_canrep2.tags
 
 
 class Test_that_journey_guideline_with_tools_can_have_canned_responses(SDKTest):
@@ -731,7 +822,7 @@ class Test_that_journey_guideline_with_tools_can_have_canned_responses(SDKTest):
 
         updated_canrep = await canrep_store.read_canned_response(self.canrep)
 
-        assert Tag.for_guideline_id(self.guideline.id) in updated_canrep.tags
+        assert Tag.for_guideline_id(self.guideline.id).id in updated_canrep.tags
 
 
 class Test_that_journey_state_can_have_its_own_canned_responses(SDKTest):
@@ -770,8 +861,8 @@ class Test_that_journey_state_can_have_its_own_canned_responses(SDKTest):
         stored_canrep1 = await canrep_store.read_canned_response(self.canrep1)
         stored_canrep2 = await canrep_store.read_canned_response(self.canrep2)
 
-        assert Tag.for_journey_node_id(self.initial_transition.target.id) in stored_canrep1.tags
-        assert Tag.for_journey_node_id(self.second_transition.target.id) in stored_canrep2.tags
+        assert Tag.for_journey_node_id(self.initial_transition.target.id).id in stored_canrep1.tags
+        assert Tag.for_journey_node_id(self.second_transition.target.id).id in stored_canrep2.tags
 
         response = await ctx.send_and_receive_message_event("Hello", recipient=self.agent)
 
@@ -830,7 +921,7 @@ class Test_that_a_journey_is_reevaluated_after_a_skipped_tool_call(SDKTest):
 class Test_that_a_missing_data_is_shown_after_journey_is_reevaluated(SDKTest):
     async def setup(self, server: p.Server) -> None:
         @tool
-        def get_customer_last_time_drank(context: ToolContext, customer_name: str) -> ToolResult:
+        def get_customer_last_time_drank(context: ToolContext, customer_age: int) -> ToolResult:
             return ToolResult(data={"last_time_drank": "January 1, 2000"})
 
         self.agent = await server.create_agent(
@@ -859,7 +950,7 @@ class Test_that_a_missing_data_is_shown_after_journey_is_reevaluated(SDKTest):
             "I'm really thirsty", recipient=self.agent, reuse_session=True
         )
 
-        assert await nlp_test(first_response, "It asks for the customer's name")
+        assert await nlp_test(first_response, "It asks for the customer's age")
 
 
 class Test_that_metadata_can_be_set_to_a_journey_state(SDKTest):

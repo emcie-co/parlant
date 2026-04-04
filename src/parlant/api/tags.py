@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from typing import Annotated, TypeAlias
-from fastapi import APIRouter, Path, Request, status
+from fastapi import APIRouter, Path, Query, Request, status
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import TagDTO, TagNameField, apigen_config, ExampleJson, tag_example
@@ -156,16 +156,25 @@ def create_router(
         },
         **apigen_config(group_name=API_GROUP, method_name="list"),
     )
-    async def list_tags(request: Request) -> list[TagDTO]:
+    async def list_tags(
+        request: Request,
+        name: Annotated[
+            str | None,
+            Query(
+                description="Filter tags by name",
+                examples=["premium-customer"],
+            ),
+        ] = None,
+    ) -> list[TagDTO]:
         """
-        Lists all tags in the system.
+        Lists all tags in the system, optionally filtered by name.
 
-        Returns an empty list if no tags exist.
+        Returns an empty list if no tags exist or none match the filter.
         Tags are returned in no particular order.
         """
         await authorization_policy.authorize(request=request, operation=Operation.LIST_TAGS)
 
-        tags = await app.tags.find()
+        tags = await app.tags.find(name=name)
 
         return [TagDTO(id=tag.id, creation_utc=tag.creation_utc, name=tag.name) for tag in tags]
 

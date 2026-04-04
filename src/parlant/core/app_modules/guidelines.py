@@ -323,7 +323,7 @@ class GuidelineModule:
                 return await self._guideline_store.read_guideline(
                     guideline_id=cast(GuidelineId, entity_id)
                 )
-            elif entity_type == RelationshipEntityKind.TAG:
+            elif entity_type.is_tag:
                 return await self._tag_store.read_tag(tag_id=cast(TagId, entity_id))
             else:
                 raise ValueError(f"Unsupported entity type: {entity_type}")
@@ -342,8 +342,8 @@ class GuidelineModule:
                 target_id=entity_id,
             ),
         ):
-            assert r.source.kind in (RelationshipEntityKind.GUIDELINE, RelationshipEntityKind.TAG)
-            assert r.target.kind in (RelationshipEntityKind.GUIDELINE, RelationshipEntityKind.TAG)
+            assert r.source.kind == RelationshipEntityKind.GUIDELINE or r.source.kind.is_tag
+            assert r.target.kind == RelationshipEntityKind.GUIDELINE or r.target.kind.is_tag
             assert type(r.kind) is RelationshipKind
 
             relationships.append(

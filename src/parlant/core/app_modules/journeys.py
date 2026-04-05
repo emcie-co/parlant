@@ -1,10 +1,11 @@
 from dataclasses import dataclass
-from typing import Sequence, Set
+from typing import Mapping, Sequence, Set
 
 from parlant.core.agents import CompositionMode
 from parlant.core.app_modules.application_context import ApplicationContext
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
 from parlant.core.loggers import Logger
+from parlant.core.common import JSONSerializable
 from parlant.core.journeys import (
     JourneyEdge,
     JourneyId,
@@ -148,6 +149,7 @@ class JourneyModule:
         composition_mode: CompositionMode | None = None,
         labels: JourneyLabelsUpdateParams | None = None,
         priority: int | None = None,
+        metadata: Mapping[str, JSONSerializable] | None = None,
     ) -> Journey:
         journey = await self._journey_store.read_journey(journey_id=journey_id)
 
@@ -160,6 +162,8 @@ class JourneyModule:
             update_params["composition_mode"] = composition_mode
         if priority is not None:
             update_params["priority"] = priority
+        if metadata is not None:
+            update_params["metadata"] = metadata
 
         if update_params:
             journey = await self._journey_store.update_journey(

@@ -119,6 +119,7 @@ class Journey:
     composition_mode: Optional[CompositionMode] = None
     labels: Set[str] = field(default_factory=set)
     priority: int = 0
+    metadata: Mapping[str, JSONSerializable] = field(default_factory=dict)
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -129,6 +130,7 @@ class JourneyUpdateParams(TypedDict, total=False):
     description: str
     composition_mode: Optional[CompositionMode]
     priority: int
+    metadata: Mapping[str, JSONSerializable]
 
 
 class JourneyNodeUpdateParams(TypedDict, total=False):
@@ -450,6 +452,7 @@ class JourneyDocument(TypedDict, total=False):
     composition_mode: Optional[str]
     labels: Sequence[str]
     priority: int
+    metadata: Mapping[str, JSONSerializable]
 
 
 class JourneyConditionAssociationDocument(TypedDict, total=False):
@@ -832,6 +835,7 @@ class JourneyVectorStore(JourneyStore):
             composition_mode=(journey.composition_mode.value if journey.composition_mode else None),
             labels=list(journey.labels),
             priority=journey.priority,
+            metadata=journey.metadata,
         )
 
     async def _deserialize(self, doc: JourneyDocument) -> Journey:
@@ -861,6 +865,7 @@ class JourneyVectorStore(JourneyStore):
             composition_mode=composition_mode,
             labels=set(doc.get("labels", [])),
             priority=doc.get("priority", 0),
+            metadata=doc.get("metadata", {}),
         )
 
     def _serialize_node(
@@ -1017,6 +1022,7 @@ class JourneyVectorStore(JourneyStore):
                 composition_mode=composition_mode,
                 labels=labels or set(),
                 priority=priority,
+                metadata={},
             )
 
             content = self.assemble_content(

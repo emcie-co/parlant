@@ -2198,7 +2198,6 @@ class Test_that_journey_state_retriever_does_not_run_when_state_is_inactive(SDKT
 
 
 class Test_that_tool_state_runs_again_after_missing_data(SDKTest):
-    STARTUP_TIMEOUT = 500
 
     async def setup(self, server: p.Server) -> None:
         @tool
@@ -2278,3 +2277,118 @@ class Test_that_tool_state_runs_again_after_missing_data(SDKTest):
         )
 
         assert "john_smith_8831" in third_response.lower()
+
+class Test_that_same_sub_journey_can_be_linked_multiple_times_to_same_parent(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Multi-Link Agent",
+            description="Agent that links the same sub-journey from two different paths",
+            composition_mode=p.CompositionMode.STRICT,
+        )
+
+        # Canned responses
+        self.choose_path_response = await server.create_canned_response(
+            template="Would you like to go through path A or path B?"
+        )
+        self.validation_response = await server.create_canned_response(
+            template="Please provide your name for validation."
+        )
+        self.path_a_done_response = await server.create_canned_response(
+            template="Path A completed after validation."
+        )
+        self.path_b_done_response = await server.create_canned_response(
+            template="Path B completed after validation."
+        )
+
+        # Create a shared validation sub-journey
+        self.validation_journey = await self.agent.create_journey(
+            title="Shared Validation",
+            conditions=[],
+            description="Validate the user by asking for their name",
+        )
+
+        await self.validation_journey.initial_state.transition_to(
+            chat_state="Ask the customer for their name to validate",
+            canned_responses=[self.validation_response],
+        )
+
+        # Create the main journey with two paths that both link to the same sub-journey
+        self.main_journey = await self.agent.create_journey(
+            title="Dual Path Journey",
+            conditions=["Customer needs service"],
+            description="Route customer through path A or B, both requiring validation",
+        )
+
+        self.choose_path = await self.main_journey.initial_state.transition_to(
+            chat_state="Ask which path the customer wants",
+            canned_responses=[self.choose_path_response],
+        )
+
+        # Path A -> validation -> done
+        self.path_a_validation = await self.choose_path.target.transition_to(
+            condition="if customer chooses path A",
+            journey=self.validation_journey,
+        )
+
+        await self.path_a_validation.target.transition_to(
+            condition="validation completed",
+            chat_state="Confirm path A is done after validation",
+            canned_responses=[self.path_a_done_response],
+        )
+
+        # Path B -> validation (same sub-journey!) -> done
+        self.path_b_validation = await self.choose_path.target.transition_to(
+            condition="if customer chooses path B",
+            journey=self.validation_journey,
+        )
+
+        await self.path_b_validation.target.transition_to(
+            condition="validation completed",
+            chat_state="Confirm path B is done after validation",
+            canned_responses=[self.path_b_done_response],
+        )
+
+    async def run(self, ctx: Context) -> None:
+        # Test path A
+        response1 = await ctx.send_and_receive_message(
+            "I need some service",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert response1 == "Would you like to go through path A or path B?"
+
+        response2 = await ctx.send_and_receive_message(
+            "I want path A",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert response2 == "Please provide your name for validation."
+
+        response3 = await ctx.send_and_receive_message(
+            "My name is Alice",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert response3 == "Path A completed after validation."
+
+        # Test path B with new session
+        response4 = await ctx.send_and_receive_message(
+            "I need some service",
+            recipient=self.agent,
+            reuse_session=False,
+        )
+        assert response4 == "Would you like to go through path A or path B?"
+
+        response5 = await ctx.send_and_receive_message(
+            "I want path B",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert response5 == "Please provide your name for validation."
+
+        response6 = await ctx.send_and_receive_message(
+            "My name is Bob",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert response6 == "Path B completed after validation."

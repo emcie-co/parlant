@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from collections import defaultdict, deque
+from collections import defaultdict
 from contextlib import AsyncExitStack
 import contextvars
 from dataclasses import dataclass, field
@@ -1607,258 +1607,34 @@ class JourneyState:
                 "Cannot transition to sub-journey from a state without a parent journey."
             )
 
-        # Create mappings for states and transitions for easy lookup
-        state_mapping: dict[JourneyStateId, JourneyState] = {}
-        transitions_by_source: dict[JourneyStateId, list[JourneyTransition[JourneyState]]] = (
-            defaultdict(list)
-        )
-        for transition in journey.transitions:
-            transitions_by_source[transition.source.id].append(transition)
-
-        # Create merge fork state for leaf nodes
-        fork_state = await self._journey._create_state(
-            ForkJourneyState,
-            metadata={"sub_journey_id": journey.id},
+        journey_store = self._journey._store_provider.get_store(
+            JourneyStore, StoreProviderHints(call_site="sdk")
         )
 
-        async def create_mapped_state(state: JourneyState) -> JourneyState:
-            assert self._journey  # We already checked this above
+        # create_link creates the merge fork node and persists the JourneyLink.
+        # The projection resolves the link at read time — no write-time cloning needed.
+        link = await journey_store.create_link(
+            journey_id=self._journey.id,
+            source_node_id=self.id,
+            sub_journey_id=journey.id,
+            condition=condition,
+        )
 
-            metadata = dict(state.metadata)
-            metadata["journey_node"] = {
-                **cast(dict[str, JSONSerializable], metadata.get("journey_node", {})),
-                "journey_id": self._journey.id,
-                "sub_journey_id": journey.id,
-            }
+        # Read back the merge node so we can wrap it in a ForkJourneyState
+        merge_node = await journey_store.read_node(node_id=link.merge_node_id)
 
-            # Create the new state
-            if state.tools:
-                new_state = cast(
-                    JourneyState,
-                    await self._journey._create_state(
-                        ToolJourneyState,
-                        action=state.action,
-                        tools=state.tools,
-                        metadata=metadata,
-                    ),
-                )
+        fork_state = ForkJourneyState(
+            id=merge_node.id,
+            action=merge_node.action,
+            tools=[],
+            metadata=merge_node.metadata,
+            description=merge_node.description,
+            _journey=self._journey,
+        )
 
-                [
-                    await self._journey._store_provider.get_store(
-                        RelationshipStore, StoreProviderHints(call_site="sdk")
-                    ).create_relationship(
-                        source=RelationshipEntity(
-                            id=_Tag.for_journey_node_id(new_state.id).id,
-                            kind=RelationshipEntityKind.TAG_ALL,
-                        ),
-                        target=RelationshipEntity(
-                            id=ToolId(
-                                service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name
-                            ),
-                            kind=RelationshipEntityKind.TOOL,
-                        ),
-                        kind=RelationshipKind.REEVALUATION,
-                    )
-                    for t in state.tools
-                ]
+        cast(list[JourneyState], self._journey.states).append(fork_state)
 
-            elif (
-                isinstance(state.metadata.get("journey_node"), dict)
-                and cast(dict[str, JSONSerializable], state.metadata.get("journey_node")).get(
-                    "kind"
-                )
-                == "fork"
-            ):
-                new_state = cast(
-                    JourneyState,
-                    await self._journey._create_state(
-                        ForkJourneyState,
-                        metadata=metadata,
-                    ),
-                )
-            else:
-                new_state = cast(
-                    JourneyState,
-                    await self._journey._create_state(
-                        ChatJourneyState,
-                        action=state.action,
-                        tools=[],
-                        metadata=metadata,
-                    ),
-                )
-
-            # Copy canned responses from the original state to the new state
-            original_state_tag = _Tag.for_journey_node_id(state.id).id
-            new_state_tag = _Tag.for_journey_node_id(new_state.id).id
-
-            # Get all canned responses associated with the original state
-            canned_response_store = self._journey._store_provider.get_store(
-                CannedResponseStore, StoreProviderHints(call_site="sdk")
-            )
-            canreps = await canned_response_store.list_canned_responses(tags=[original_state_tag])
-
-            # Associate them with the new state
-            for canrep in canreps:
-                await canned_response_store.upsert_tag(
-                    canned_response_id=canrep.id, tag_id=new_state_tag
-                )
-
-            return new_state
-
-        # Create entry point - either self directly or via a condition fork
-        entry_state: JourneyState
-
-        if condition:
-            # Create a fork state for the condition
-            entry_fork = await self._journey._create_state(
-                ForkJourneyState,
-                metadata={"sub_journey_id": journey.id},
-            )
-            cast(list[JourneyState], self._journey.states).append(entry_fork)
-
-            # Create transition from self to the entry fork with condition
-            entry_transition = await self._journey.create_transition(
-                condition=condition,
-                source=self,
-                target=entry_fork,
-            )
-            cast(list[JourneyTransition[JourneyState]], self._journey.transitions).append(
-                cast(JourneyTransition[JourneyState], entry_transition)
-            )
-            entry_state = entry_fork
-        else:
-            entry_state = self
-
-        # Traverse the journey starting from the root
-        queue: deque[tuple[JourneyStateId, JourneyState | None]] = deque()
-        visited: set[JourneyStateId] = set()
-
-        # Skip the root state and go directly to its target states
-        root_transitions = transitions_by_source[journey._start_state_id]
-
-        # Process each transition from the root state
-        for root_transition in root_transitions:
-            target_state_id = root_transition.target.id
-
-            if target_state_id == END_JOURNEY.id:
-                # Root transitions directly to END_JOURNEY - connect to fork
-                new_transition = await self._journey.create_transition(
-                    condition=root_transition.condition,
-                    source=entry_state,
-                    target=fork_state,
-                )
-                cast(list[JourneyTransition[JourneyState]], self._journey.transitions).append(
-                    cast(JourneyTransition[JourneyState], new_transition)
-                )
-            else:
-                # Create the target state and add it to processing queue
-                if target_state := next(
-                    (s for s in journey.states if s.id == target_state_id), None
-                ):
-                    new_state = await create_mapped_state(target_state)
-                    state_mapping[target_state_id] = new_state
-                    cast(list[JourneyState], self._journey.states).append(new_state)
-
-                    # Create transition from entry_state to the target
-                    new_transition = await self._journey.create_transition(
-                        condition=root_transition.condition,
-                        source=entry_state,
-                        target=cast(ForkJourneyState, new_state),
-                    )
-                    cast(list[JourneyTransition[JourneyState]], self._journey.transitions).append(
-                        cast(JourneyTransition[JourneyState], new_transition)
-                    )
-
-                    # Add to queue for further processing
-                    queue.append((target_state_id, new_state))
-
-        while queue:
-            current_state_id, mapped_source_state = queue.popleft()
-
-            if current_state_id in visited:
-                continue
-
-            visited.add(current_state_id)
-
-            # Get the current state from the sub-journey
-            current_state = next((s for s in journey.states if s.id == current_state_id), None)
-            if not current_state:
-                continue
-
-            # Check if this state has no outgoing transitions (leaf state)
-            state_transitions = transitions_by_source.get(current_state_id, [])
-            if (
-                not state_transitions
-                and mapped_source_state
-                and current_state_id != journey._start_state_id
-            ):
-                # This is a leaf state - connect it to the fork
-                new_transition = await self._journey.create_transition(
-                    condition=None,
-                    source=mapped_source_state,
-                    target=fork_state,
-                )
-                cast(list[JourneyTransition[JourneyState]], self._journey.transitions).append(
-                    cast(JourneyTransition[JourneyState], new_transition)
-                )
-                continue
-
-            # Process all transitions from this state
-            for transition in state_transitions:
-                target_state_id = transition.target.id
-
-                # Handle END_JOURNEY transitions - connect to fork
-                if target_state_id == END_JOURNEY.id:
-                    if mapped_source_state:
-                        new_transition = await self._journey.create_transition(
-                            condition=transition.condition,
-                            source=mapped_source_state,
-                            target=fork_state,
-                        )
-                        cast(
-                            list[JourneyTransition[JourneyState]], self._journey.transitions
-                        ).append(cast(JourneyTransition[JourneyState], new_transition))
-                    continue
-
-                # Get or create the target state
-                if target_state_id not in state_mapping:
-                    if target_state := next(
-                        (s for s in journey.states if s.id == target_state_id), None
-                    ):
-                        new_state = await create_mapped_state(target_state)
-                        state_mapping[target_state_id] = new_state
-                        cast(list[JourneyState], self._journey.states).append(new_state)
-
-                # Create the transition only if target state is in mapping
-                if target_state_id in state_mapping:
-                    target_mapped_state = state_mapping[target_state_id]
-                    if mapped_source_state:
-                        new_transition = await self._journey.create_transition(
-                            condition=transition.condition,
-                            source=mapped_source_state,
-                            target=cast(ForkJourneyState, target_mapped_state),
-                        )
-
-                        cast(
-                            list[JourneyTransition[JourneyState]], self._journey.transitions
-                        ).append(cast(JourneyTransition[JourneyState], new_transition))
-
-                    # Add target to queue for further processing
-                    queue.append((target_state_id, target_mapped_state))
-                else:
-                    # Target state not in mapping - this is a transition to another journey
-                    # Connect the source state to the fork state to exit this sub-journey
-                    if mapped_source_state:
-                        new_transition = await self._journey.create_transition(
-                            condition=transition.condition,
-                            source=mapped_source_state,
-                            target=fork_state,
-                        )
-                        cast(
-                            list[JourneyTransition[JourneyState]], self._journey.transitions
-                        ).append(cast(JourneyTransition[JourneyState], new_transition))
-
-        # We create a transient transition from self to the fork state to represent the exit point
+        # Return a transient transition so callers can chain from the merge fork
         result_transition = JourneyTransition[JourneyState](
             id=JourneyTransitionId("transient"),
             condition=condition,

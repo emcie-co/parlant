@@ -17,7 +17,7 @@ import json
 from typing import Optional, cast
 
 from parlant.core.guidelines import Guideline, GuidelineId
-from parlant.core.journeys import JourneyEdgeId, JourneyNodeId
+from parlant.core.journeys import JourneyEdgeId, JourneyLinkId, JourneyNodeId
 
 
 @dataclass
@@ -60,7 +60,11 @@ def internal_representation(g: Guideline) -> GuidelineInternalRepresentation:
 def format_journey_node_guideline_id(
     node_id: JourneyNodeId,
     edge_id: Optional[JourneyEdgeId] = None,
+    link_id: Optional[JourneyLinkId] = None,
 ) -> GuidelineId:
+    if edge_id and link_id:
+        return GuidelineId(f"journey_node:{node_id}:{edge_id}:{link_id}")
+
     if edge_id:
         return GuidelineId(f"journey_node:{node_id}:{edge_id}")
 

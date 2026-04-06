@@ -1,0 +1,113 @@
+#root {
+	height: 100vh;
+	margin: auto;
+	font-family: 'Inter';
+}
+
+body {
+	pointer-events: all !important;
+}
+
+.fixed-scroll {
+	overflow: scroll;
+	scrollbar-width: thin;
+	scrollbar-color: #ebecf0 transparent;
+}
+
+.fixed-scroll:hover {
+	scrollbar-color: #cdcdcd transparent;
+}
+
+.fixed-scroll::-webkit-scrollbar {
+	width: 10px;
+}
+
+.fixed-scroll::-webkit-scrollbar-thumb {
+	background-color: rgba(0, 0, 0, 0.5);
+	border-radius: 10px;
+}
+
+.fixed-scroll::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.markdown * {
+	font-size: revert;
+	font-weight: revert;
+	padding: revert;
+	margin: revert;
+	list-style-type: revert;
+	color: revert;
+	text-decoration: revert;
+}
+
+img {
+	user-select: none;
+}
+
+.bubblesWrapper {
+	height: fit-content;
+	width: fit-content;
+	background-color: #f5f9f7;
+	padding: 10px;
+	margin: 10px;
+	margin-inline-start: 20px;
+	border-radius: 15px;
+}
+
+.bubbles {
+	height: 15px;
+	width: 31px;
+	aspect-ratio: 2.5;
+	--_g: no-repeat radial-gradient(farthest-side, #333333 90%, #0000);
+	background: var(--_g), var(--_g), var(--_g);
+	background-size: 25% 50%;
+	animation: l43 1s infinite linear;
+}
+
+@keyframes l43 {
+	0% {
+		background-position: calc(0 * 100% / 2) 50%, calc(1 * 100% / 2) 50%, calc(2 * 100% / 2) 50%;
+	}
+	20% {
+		background-position: calc(0 * 100% / 2) 0, calc(1 * 100% / 2) 50%, calc(2 * 100% / 2) 50%;
+	}
+	40% {
+		background-position: calc(0 * 100% / 2) 100%, calc(1 * 100% / 2) 0, calc(2 * 100% / 2) 50%;
+	}
+	60% {
+		background-position: calc(0 * 100% / 2) 50%, calc(1 * 100% / 2) 100%, calc(2 * 100% / 2) 0;
+	}
+	80% {
+		background-position: calc(0 * 100% / 2) 50%, calc(1 * 100% / 2) 50%, calc(2 * 100% / 2) 100%;
+	}
+	100% {
+		background-position: calc(0 * 100% / 2) 50%, calc(1 * 100% / 2) 50%, calc(2 * 100% / 2) 50%;
+	}
+}
+
+@keyframes animate-slide-down {
+	from {
+		max-height: 0;
+	}
+	to {
+		max-height: 300px;
+		min-height: fit-content;
+	}
+}
+
+@keyframes animate-slide-up {
+	from {
+		max-height: 150px;
+	}
+	to {
+		max-height: 0;
+	}
+}
+
+.animate-slide-down {
+	animation: animate-slide-down 0.5s ease-out forwards;
+}
+.animate-slide-up {
+	animation: animate-slide-up 0.3s linear forwards;
+}

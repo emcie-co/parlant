@@ -1,0 +1,16 @@
+.editSession {
+	position: relative;
+	&::before {
+		content: '';
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		border: 1px solid black;
+		pointer-events: none;
+		box-sizing: border-box;
+		height: calc(100% - 4px);
+		width: calc(100% - 8px);
+		transform: translate(-50%, -50%);
+		border-radius: 6px;
+	}
+}

@@ -1,0 +1,1320 @@
+[
+    {
+      "title": "Samsung T7 Portable SSD",
+      "type": "Storage",
+      "vendor": "Samsung",
+      "description": "Portable SSD with USB 3.2 Gen 2 speeds.",
+      "tags": [
+        "storage",
+        "portable",
+        "external"
+      ],
+      "qty": 40,
+      "price": 119.99
+    },
+    {
+      "title": "Artisan NINJA FX ZERO",
+      "type": "Accessories",
+      "vendor": "Artisan",
+      "description": "Premium Japanese gaming mousepad.",
+      "tags": [
+        "mousepad",
+        "gaming",
+        "premium"
+      ],
+      "qty": 15,
+      "price": 59.99
+    },
+    {
+      "title": "AOC 24B2XH 24\" Monitor",
+      "type": "Monitor",
+      "vendor": "AOC",
+      "description": "Budget IPS monitor for productivity.",
+      "tags": [
+        "budget",
+        "ips",
+        "office"
+      ],
+      "qty": 35,
+      "price": 129.99
+    },
+    {
+      "title": "Shure MV7X Microphone",
+      "type": "Audio",
+      "vendor": "Shure",
+      "description": "Professional XLR dynamic microphone for streaming.",
+      "tags": [
+        "streaming",
+        "microphone",
+        "professional"
+      ],
+      "qty": 20,
+      "price": 179.99
+    },
+    {
+      "title": "Keychron K8 Keyboard",
+      "type": "Keyboard",
+      "vendor": "Keychron",
+      "description": "Wireless mechanical keyboard with hot-swappable switches.",
+      "tags": [
+        "mechanical",
+        "wireless",
+        "gaming"
+      ],
+      "qty": 30,
+      "price": 99.99
+    },
+    {
+      "title": "APC Surge Protector",
+      "type": "Accessories",
+      "vendor": "APC",
+      "description": "12-outlet surge protector with 4000 joules protection.",
+      "tags": [
+        "power",
+        "protection",
+        "surge"
+      ],
+      "qty": 80,
+      "price": 34.99
+    },
+    {
+      "title": "ASUS ROG STRIX GeForce RTX 4090 24GB GDDR6X",
+      "type": "Graphics Card",
+      "vendor": "ASUS",
+      "description": "The ASUS ROG STRIX GeForce RTX 4090 delivers revolutionary performance with NVIDIA Ada Lovelace architecture. Features 24GB GDDR6X memory and advanced cooling.",
+      "tags": [
+        "gaming",
+        "nvidia",
+        "high-end",
+        "rtx4090"
+      ],
+      "qty": 12,
+      "price": 1599.99
+    },
+    {
+      "title": "AMD Ryzen 9 5900X 12-Core Processor",
+      "type": "Processor",
+      "vendor": "AMD",
+      "description": "12 cores and 24 threads of processing power. 3.7GHz base clock and up to 4.8GHz boost.",
+      "tags": [
+        "amd",
+        "ryzen",
+        "gaming",
+        "high-performance"
+      ],
+      "qty": 25,
+      "price": 399.99
+    },
+    {
+      "title": "Samsung 990 PRO 2TB NVMe SSD",
+      "type": "Storage",
+      "vendor": "Samsung",
+      "description": "Lightning-fast NVMe SSD with sequential reads up to 7,450 MB/s and writes up to 6,900 MB/s.",
+      "tags": [
+        "ssd",
+        "nvme",
+        "storage",
+        "high-performance"
+      ],
+      "qty": 45,
+      "price": 179.99
+    },
+    {
+      "title": "Corsair RM850x 850W Power Supply",
+      "type": "Power Supply",
+      "vendor": "Corsair",
+      "description": "80 PLUS Gold certified fully modular power supply with silent operation and reliable performance.",
+      "tags": [
+        "psu",
+        "modular",
+        "gold-rated"
+      ],
+      "qty": 30,
+      "price": 149.99
+    },
+    {
+      "title": "MSI MPG Z690 Edge WiFi DDR4",
+      "type": "Motherboard",
+      "vendor": "MSI",
+      "description": "Intel Z690 chipset motherboard with PCIe 5.0, WiFi 6E, and robust power delivery.",
+      "tags": [
+        "intel",
+        "z690",
+        "wifi",
+        "gaming"
+      ],
+      "qty": 18,
+      "price": 279.99
+    },
+    {
+      "title": "FIFINE USB Microphone",
+      "type": "Audio",
+      "vendor": "FIFINE",
+      "description": "Budget USB condenser microphone for streaming.",
+      "tags": [
+        "streaming",
+        "microphone",
+        "budget"
+      ],
+      "qty": 65,
+      "price": 35.99
+    },
+    {
+      "title": "G.SKILL Trident Z5 RGB 32GB DDR5",
+      "type": "Memory",
+      "vendor": "G.SKILL",
+      "description": "High-performance DDR5 memory kit with RGB lighting. 6000MHz speed with tight timings.",
+      "tags": [
+        "ddr5",
+        "rgb",
+        "gaming"
+      ],
+      "qty": 40,
+      "price": 189.99
+    },
+    {
+      "title": "Lian Li O11 Dynamic EVO",
+      "type": "Case",
+      "vendor": "Lian Li",
+      "description": "Premium mid-tower case with excellent airflow and versatile building options.",
+      "tags": [
+        "case",
+        "atx",
+        "premium"
+      ],
+      "qty": 15,
+      "price": 169.99
+    },
+    {
+      "title": "ARCTIC Liquid Freezer II 360",
+      "type": "CPU Cooler",
+      "vendor": "ARCTIC",
+      "description": "High-performance 360mm AIO liquid cooler with VRM cooling fan.",
+      "tags": [
+        "cooling",
+        "aio",
+        "liquid-cooler"
+      ],
+      "qty": 22,
+      "price": 129.99
+    },
+    {
+      "title": "LG UltraGear 27GP950-B 27\" 4K Monitor",
+      "type": "Monitor",
+      "vendor": "LG",
+      "description": "27-inch 4K Nano IPS gaming monitor with 144Hz refresh rate and HDMI 2.1.",
+      "tags": [
+        "gaming",
+        "4k",
+        "144hz",
+        "hdmi2.1"
+      ],
+      "qty": 8,
+      "price": 799.99
+    },
+    {
+      "title": "Crucial P3 1TB NVMe SSD",
+      "type": "Storage",
+      "vendor": "Crucial",
+      "description": "Cost-effective NVMe SSD with good performance for gaming and general use.",
+      "tags": [
+        "ssd",
+        "nvme",
+        "storage",
+        "budget"
+      ],
+      "qty": 60,
+      "price": 59.99
+    },
+    {
+      "title": "Intel Core i7-13700K Processor",
+      "type": "Processor",
+      "vendor": "Intel",
+      "description": "16-core (8P+8E) processor with up to 5.4GHz boost clock. Great for gaming and productivity.",
+      "tags": [
+        "intel",
+        "gaming",
+        "13th-gen"
+      ],
+      "qty": 32,
+      "price": 419.99
+    },
+    {
+      "title": "MSI VENTUS GeForce RTX 4070 12GB",
+      "type": "Graphics Card",
+      "vendor": "MSI",
+      "description": "Efficient and powerful graphics card for 1440p gaming with DLSS 3.0 support.",
+      "tags": [
+        "gaming",
+        "nvidia",
+        "rtx4070"
+      ],
+      "qty": 20,
+      "price": 599.99
+    },
+    {
+      "title": "EVGA SuperNOVA 850 GT",
+      "type": "Power Supply",
+      "vendor": "EVGA",
+      "description": "80 PLUS Gold certified power supply with compact design and reliable performance.",
+      "tags": [
+        "psu",
+        "gold-rated"
+      ],
+      "qty": 25,
+      "price": 129.99
+    },
+    {
+      "title": "Fractal Design Torrent",
+      "type": "Case",
+      "vendor": "Fractal Design",
+      "description": "High-airflow ATX case with included 180mm fans and unique design.",
+      "tags": [
+        "case",
+        "airflow",
+        "premium"
+      ],
+      "qty": 10,
+      "price": 189.99
+    },
+    {
+      "title": "GIGABYTE X570 AORUS PRO WIFI",
+      "type": "Motherboard",
+      "vendor": "GIGABYTE",
+      "description": "AMD X570 motherboard with PCIe 4.0, WiFi 6, and robust VRM design.",
+      "tags": [
+        "amd",
+        "x570",
+        "wifi",
+        "gaming"
+      ],
+      "qty": 15,
+      "price": 259.99
+    },
+    {
+      "title": "Corsair K100 RGB Mechanical Keyboard",
+      "type": "Keyboard",
+      "vendor": "Corsair",
+      "description": "Premium mechanical gaming keyboard with optical switches and per-key RGB lighting.",
+      "tags": [
+        "gaming",
+        "mechanical",
+        "rgb"
+      ],
+      "qty": 35,
+      "price": 229.99
+    },
+    {
+      "title": "Logitech G502 X PLUS Wireless Mouse",
+      "type": "Mouse",
+      "vendor": "Logitech",
+      "description": "Premium wireless gaming mouse with HERO 25K sensor and LIGHTFORCE hybrid switches.",
+      "tags": [
+        "gaming",
+        "wireless",
+        "rgb"
+      ],
+      "qty": 42,
+      "price": 159.99
+    },
+    {
+      "title": "WD Black 8TB Performance Hard Drive",
+      "type": "Storage",
+      "vendor": "Western Digital",
+      "description": "High-capacity desktop hard drive optimized for gaming and content creation.",
+      "tags": [
+        "hdd",
+        "storage",
+        "gaming"
+      ],
+      "qty": 28,
+      "price": 249.99
+    },
+    {
+      "title": "SteelSeries Arctis 7P+ Wireless Headset",
+      "type": "Headset",
+      "vendor": "SteelSeries",
+      "description": "Low-latency wireless gaming headset with 30-hour battery life and superior comfort.",
+      "tags": [
+        "gaming",
+        "wireless",
+        "audio"
+      ],
+      "qty": 25,
+      "price": 169.99
+    },
+    {
+      "title": "ASUS TUF Gaming VG27AQ 27\" Monitor",
+      "type": "Monitor",
+      "vendor": "ASUS",
+      "description": "1440p IPS gaming monitor with 165Hz refresh rate and ELMB-SYNC technology.",
+      "tags": [
+        "gaming",
+        "1440p",
+        "165hz"
+      ],
+      "qty": 15,
+      "price": 329.99
+    },
+    {
+      "title": "Fractal Design Meshify 2",
+      "type": "Case",
+      "vendor": "Fractal Design",
+      "description": "Versatile mid-tower case with outstanding airflow and modular interior.",
+      "tags": [
+        "case",
+        "airflow",
+        "modular"
+      ],
+      "qty": 12,
+      "price": 149.99
+    },
+    {
+      "title": "NZXT Kraken Z73 RGB 360mm",
+      "type": "CPU Cooler",
+      "vendor": "NZXT",
+      "description": "Premium AIO liquid cooler with customizable LCD display and RGB fans.",
+      "tags": [
+        "cooling",
+        "aio",
+        "rgb"
+      ],
+      "qty": 18,
+      "price": 279.99
+    },
+    {
+      "title": "MSI PRO B660M-A WiFi DDR4",
+      "type": "Motherboard",
+      "vendor": "MSI",
+      "description": "Cost-effective B660 motherboard with WiFi 6 and good VRM design.",
+      "tags": [
+        "intel",
+        "b660",
+        "wifi",
+        "budget"
+      ],
+      "qty": 30,
+      "price": 149.99
+    },
+    {
+      "title": "Samsung 980 500GB NVMe SSD",
+      "type": "Storage",
+      "vendor": "Samsung",
+      "description": "Reliable NVMe SSD for gaming and everyday computing needs.",
+      "tags": [
+        "ssd",
+        "nvme",
+        "storage"
+      ],
+      "qty": 55,
+      "price": 49.99
+    },
+    {
+      "title": "Corsair RM750 Power Supply",
+      "type": "Power Supply",
+      "vendor": "Corsair",
+      "description": "80 PLUS Gold certified power supply with fully modular cables.",
+      "tags": [
+        "psu",
+        "modular",
+        "gold-rated"
+      ],
+      "qty": 40,
+      "price": 119.99
+    },
+    {
+      "title": "G.SKILL Ripjaws V 16GB DDR4",
+      "type": "Memory",
+      "vendor": "G.SKILL",
+      "description": "Reliable DDR4 memory kit with 3600MHz speed and good compatibility.",
+      "tags": [
+        "ddr4",
+        "gaming",
+        "budget"
+      ],
+      "qty": 65,
+      "price": 64.99
+    },
+    {
+      "title": "Lian Li LANCOOL 215",
+      "type": "Case",
+      "vendor": "Lian Li",
+      "description": "ATX case with excellent airflow and included RGB fans.",
+      "tags": [
+        "case",
+        "airflow",
+        "rgb"
+      ],
+      "qty": 20,
+      "price": 89.99
+    },
+    {
+      "title": "MSI Gaming X RTX 4060 Ti 8GB",
+      "type": "Graphics Card",
+      "vendor": "MSI",
+      "description": "Efficient mid-range graphics card with excellent 1080p and 1440p gaming performance.",
+      "tags": [
+        "gaming",
+        "nvidia",
+        "rtx4060ti"
+      ],
+      "qty": 28,
+      "price": 399.99
+    },
+    {
+      "title": "AMD Ryzen 5 7600 Processor",
+      "type": "Processor",
+      "vendor": "AMD",
+      "description": "6-core Zen 4 processor with great gaming performance and efficiency.",
+      "tags": [
+        "amd",
+        "ryzen",
+        "gaming"
+      ],
+      "qty": 40,
+      "price": 229.99
+    },
+    {
+      "title": "Corsair Force MP600 PRO 2TB",
+      "type": "Storage",
+      "vendor": "Corsair",
+      "description": "High-performance Gen4 NVMe SSD with included heatsink.",
+      "tags": [
+        "ssd",
+        "nvme",
+        "storage",
+        "high-performance"
+      ],
+      "qty": 25,
+      "price": 219.99
+    },
+    {
+      "title": "Seagate Barracuda 4TB HDD",
+      "type": "Storage",
+      "vendor": "Seagate",
+      "description": "Reliable desktop hard drive for mass storage needs.",
+      "tags": [
+        "hdd",
+        "storage"
+      ],
+      "qty": 50,
+      "price": 79.99
+    },
+    {
+      "title": "Razer DeathAdder V3 Pro",
+      "type": "Mouse",
+      "vendor": "Razer",
+      "description": "Ultra-lightweight wireless gaming mouse with Focus Pro 30K sensor.",
+      "tags": [
+        "gaming",
+        "wireless",
+        "lightweight"
+      ],
+      "qty": 30,
+      "price": 149.99
+    },
+    {
+      "title": "HyperX Alloy FPS Pro",
+      "type": "Keyboard",
+      "vendor": "HyperX",
+      "description": "Compact mechanical keyboard with Cherry MX switches and detachable cable.",
+      "tags": [
+        "gaming",
+        "mechanical",
+        "tenkeyless"
+      ],
+      "qty": 45,
+      "price": 79.99
+    },
+    {
+      "title": "NZXT H510 Flow",
+      "type": "Case",
+      "vendor": "NZXT",
+      "description": "Compact ATX case with improved airflow design.",
+      "tags": [
+        "case",
+        "compact",
+        "airflow"
+      ],
+      "qty": 35,
+      "price": 89.99
+    },
+    {
+      "title": "ASUS TUF Gaming B650-PLUS WiFi",
+      "type": "Motherboard",
+      "vendor": "ASUS",
+      "description": "AMD B650 motherboard with PCIe 5.0 and WiFi 6.",
+      "tags": [
+        "amd",
+        "b650",
+        "wifi",
+        "gaming"
+      ],
+      "qty": 22,
+      "price": 219.99
+    },
+    {
+      "title": "HyperX Cloud Alpha",
+      "type": "Headset",
+      "vendor": "HyperX",
+      "description": "Premium gaming headset with dual chamber drivers.",
+      "tags": [
+        "gaming",
+        "audio",
+        "wired"
+      ],
+      "qty": 38,
+      "price": 99.99
+    },
+    {
+      "title": "XPG BLADE DDR5 32GB",
+      "type": "Memory",
+      "vendor": "XPG",
+      "description": "High-performance DDR5 memory kit for gaming and content creation.",
+      "tags": [
+        "ddr5",
+        "gaming"
+      ],
+      "qty": 28,
+      "price": 159.99
+    },
+    {
+      "title": "Crucial MX500 1TB SATA SSD",
+      "type": "Storage",
+      "vendor": "Crucial",
+      "description": "Reliable SATA SSD with good performance and endurance.",
+      "tags": [
+        "ssd",
+        "sata",
+        "storage"
+      ],
+      "qty": 60,
+      "price": 69.99
+    },
+    {
+      "title": "AMD Ryzen 9 7950X Processor",
+      "type": "Processor",
+      "vendor": "AMD",
+      "description": "16-core flagship Zen 4 processor for ultimate performance.",
+      "tags": [
+        "amd",
+        "ryzen",
+        "high-performance"
+      ],
+      "qty": 15,
+      "price": 699.99
+    },
+    {
+      "title": "MSI SUPRIM GeForce RTX 4080 16GB",
+      "type": "Graphics Card",
+      "vendor": "MSI",
+      "description": "Premium graphics card with exceptional 4K gaming performance.",
+      "tags": [
+        "gaming",
+        "nvidia",
+        "rtx4080"
+      ],
+      "qty": 10,
+      "price": 1199.99
+    },
+    {
+      "title": "be quiet! Pure Base 500DX",
+      "type": "Case",
+      "vendor": "be quiet!",
+      "description": "Airflow-focused case with RGB lighting and sound dampening.",
+      "tags": [
+        "case",
+        "airflow",
+        "rgb"
+      ],
+      "qty": 25,
+      "price": 109.99
+    },
+    {
+      "title": "Samsung Odyssey G7 32\"",
+      "type": "Monitor",
+      "vendor": "Samsung",
+      "description": " Curved 1440p gaming monitor with 240Hz refresh rate.",
+      "tags": [
+        "gaming",
+        "curved",
+        "240hz"
+      ],
+      "qty": 12,
+      "price": 699.99
+    },
+    {
+      "title": "Elgato HD60 X Capture Card",
+      "type": "Capture Card",
+      "vendor": "Elgato",
+      "description": "4K60 HDR10 capture card for high-quality game streaming and recording.",
+      "tags": [
+        "streaming",
+        "capture",
+        "hdmi"
+      ],
+      "qty": 25,
+      "price": 199.99
+    },
+    {
+      "title": "Govee RGBIC LED Strip",
+      "type": "Accessories",
+      "vendor": "Govee",
+      "description": "Addressable RGB LED strip for PC case and desk lighting.",
+      "tags": [
+        "rgb",
+        "lighting",
+        "customization"
+      ],
+      "qty": 60,
+      "price": 29.99
+    },
+    {
+      "title": "Elgato Stream Deck MK.2",
+      "type": "Streaming",
+      "vendor": "Elgato",
+      "description": "15-key LCD macro pad for content creation and streaming control.",
+      "tags": [
+        "streaming",
+        "control",
+        "content-creation"
+      ],
+      "qty": 30,
+      "price": 149.99
+    },
+    {
+      "title": "CableMod Pro ModMesh Kit",
+      "type": "Accessories",
+      "vendor": "CableMod",
+      "description": "Custom sleeved PSU cable kit for clean PC builds.",
+      "tags": [
+        "cables",
+        "customization",
+        "modding"
+      ],
+      "qty": 20,
+      "price": 99.99
+    },
+    {
+      "title": "EVGA Z15 RGB Keyboard",
+      "type": "Keyboard",
+      "vendor": "EVGA",
+      "description": "Gaming keyboard with hot-swappable switches and RGB lighting.",
+      "tags": [
+        "gaming",
+        "mechanical",
+        "rgb"
+      ],
+      "qty": 35,
+      "price": 79.99
+    },
+    {
+      "title": "AVerMedia Live Gamer MINI",
+      "type": "Capture Card",
+      "vendor": "AVerMedia",
+      "description": "Compact 1080p60 capture card for game streaming.",
+      "tags": [
+        "streaming",
+        "capture",
+        "compact"
+      ],
+      "qty": 40,
+      "price": 129.99
+    },
+    {
+      "title": "Rode PodMic Dynamic Microphone",
+      "type": "Audio",
+      "vendor": "Rode",
+      "description": "Professional dynamic microphone for streaming and content creation.",
+      "tags": [
+        "streaming",
+        "microphone",
+        "audio"
+      ],
+      "qty": 28,
+      "price": 99.99
+    },
+    {
+      "title": "PowerColor Fighter RX 6600",
+      "type": "Graphics Card",
+      "vendor": "PowerColor",
+      "description": "Mid-range graphics card for 1080p gaming performance.",
+      "tags": [
+        "gaming",
+        "amd",
+        "rx6600"
+      ],
+      "qty": 22,
+      "price": 249.99
+    },
+    {
+      "title": "Lian Li SL120 Uni Fan 3-Pack",
+      "type": "Cooling",
+      "vendor": "Lian Li",
+      "description": "Daisy-chainable RGB fans with unique mounting system.",
+      "tags": [
+        "fans",
+        "rgb",
+        "cooling"
+      ],
+      "qty": 45,
+      "price": 79.99
+    },
+    {
+      "title": "Focusrite Scarlett Solo",
+      "type": "Audio",
+      "vendor": "Focusrite",
+      "description": "USB audio interface for streaming and content creation.",
+      "tags": [
+        "audio",
+        "streaming",
+        "interface"
+      ],
+      "qty": 32,
+      "price": 119.99
+    },
+    {
+      "title": "AsiaHorse Extension Cables",
+      "type": "Accessories",
+      "vendor": "AsiaHorse",
+      "description": "Sleeved PSU cable extensions for custom PC builds.",
+      "tags": [
+        "cables",
+        "customization",
+        "modding"
+      ],
+      "qty": 50,
+      "price": 29.99
+    },
+    {
+      "title": "Elgato Key Light Air",
+      "type": "Lighting",
+      "vendor": "Elgato",
+      "description": "Professional LED panel for content creation and streaming.",
+      "tags": [
+        "streaming",
+        "lighting",
+        "content-creation"
+      ],
+      "qty": 18,
+      "price": 129.99
+    },
+    {
+      "title": "TP-Link WiFi 6E PCIe Card",
+      "type": "Networking",
+      "vendor": "TP-Link",
+      "description": "PCIe WiFi 6E adapter with Bluetooth 5.2 support.",
+      "tags": [
+        "networking",
+        "wifi",
+        "pcie"
+      ],
+      "qty": 42,
+      "price": 59.99
+    },
+    {
+      "title": "Sabrent USB Hub",
+      "type": "Accessories",
+      "vendor": "Sabrent",
+      "description": "10-port USB 3.0 hub with individual power switches.",
+      "tags": [
+        "usb",
+        "connectivity",
+        "peripherals"
+      ],
+      "qty": 55,
+      "price": 39.99
+    },
+    {
+      "title": "Phanteks Neon RGB Strip",
+      "type": "Accessories",
+      "vendor": "Phanteks",
+      "description": "Digital RGB LED strip for PC case lighting.",
+      "tags": [
+        "rgb",
+        "lighting",
+        "customization"
+      ],
+      "qty": 65,
+      "price": 24.99
+    },
+    {
+      "title": "X-Rite i1 Display Pro",
+      "type": "Accessories",
+      "vendor": "X-Rite",
+      "description": "Professional monitor calibration tool for content creators.",
+      "tags": [
+        "calibration",
+        "professional",
+        "content-creation"
+      ],
+      "qty": 12,
+      "price": 249.99
+    },
+    {
+      "title": "SteelSeries QcK Heavy",
+      "type": "Accessories",
+      "vendor": "SteelSeries",
+      "description": "Premium thick gaming mousepad with micro-woven cloth surface.",
+      "tags": [
+        "mousepad",
+        "gaming",
+        "peripherals"
+      ],
+      "qty": 75,
+      "price": 19.99
+    },
+    {
+      "title": "Blue Compass Boom Arm",
+      "type": "Audio",
+      "vendor": "Blue",
+      "description": "Premium microphone boom arm with hidden channel cable management.",
+      "tags": [
+        "streaming",
+        "microphone",
+        "accessories"
+      ],
+      "qty": 25,
+      "price": 99.99
+    },
+    {
+      "title": "NZXT RGB & Fan Controller",
+      "type": "Accessories",
+      "vendor": "NZXT",
+      "description": "Digital RGB and fan speed controller for custom PC builds.",
+      "tags": [
+        "rgb",
+        "cooling",
+        "control"
+      ],
+      "qty": 40,
+      "price": 24.99
+    },
+    {
+      "title": "UPLIFT Desk Pad",
+      "type": "Accessories",
+      "vendor": "UPLIFT",
+      "description": "Premium desk pad for gaming and office use.",
+      "tags": [
+        "desk-pad",
+        "office",
+        "comfort"
+      ],
+      "qty": 85,
+      "price": 29.99
+    },
+    {
+      "title": "EVGA Z12 Gaming Keyboard",
+      "type": "Keyboard",
+      "vendor": "EVGA",
+      "description": "Budget-friendly gaming keyboard with RGB backlighting.",
+      "tags": [
+        "gaming",
+        "keyboard",
+        "budget"
+      ],
+      "qty": 45,
+      "price": 29.99
+    },
+    {
+      "title": "Yamaha HS5 Studio Monitor",
+      "type": "Audio",
+      "vendor": "Yamaha",
+      "description": "Professional powered studio monitor for content creation.",
+      "tags": [
+        "audio",
+        "studio",
+        "professional"
+      ],
+      "qty": 20,
+      "price": 199.99
+    },
+    {
+      "title": "BenQ ScreenBar Plus",
+      "type": "Lighting",
+      "vendor": "BenQ",
+      "description": "LED monitor light bar with wireless controller.",
+      "tags": [
+        "lighting",
+        "desk",
+        "productivity"
+      ],
+      "qty": 30,
+      "price": 129.99
+    },
+    {
+      "title": "LG 32UN650-W 32\" Monitor",
+      "type": "Monitor",
+      "vendor": "LG",
+      "description": "4K UHD IPS monitor for content creation and productivity.",
+      "tags": [
+        "4k",
+        "ips",
+        "professional"
+      ],
+      "qty": 15,
+      "price": 499.99
+    },
+    {
+      "title": "Razer Kiyo Pro Webcam",
+      "type": "Streaming",
+      "vendor": "Razer",
+      "description": "Professional USB webcam with adaptive light sensor.",
+      "tags": [
+        "streaming",
+        "webcam",
+        "usb"
+      ],
+      "qty": 28,
+      "price": 199.99
+    },
+    {
+      "title": "UGREEN USB-C Dock",
+      "type": "Accessories",
+      "vendor": "UGREEN",
+      "description": "12-in-1 USB-C docking station with dual 4K support.",
+      "tags": [
+        "dock",
+        "usb-c",
+        "connectivity"
+      ],
+      "qty": 35,
+      "price": 79.99
+    },
+    {
+      "title": "Creative Pebble V3",
+      "type": "Audio",
+      "vendor": "Creative",
+      "description": "USB-powered desktop speakers with Bluetooth support.",
+      "tags": [
+        "speakers",
+        "desktop",
+        "bluetooth"
+      ],
+      "qty": 50,
+      "price": 39.99
+    },
+    {
+      "title": "Cooler Master Laptop Stand",
+      "type": "Accessories",
+      "vendor": "Cooler Master",
+      "description": "Ergonomic laptop stand with built-in cooling.",
+      "tags": [
+        "laptop",
+        "cooling",
+        "ergonomic"
+      ],
+      "qty": 40,
+      "price": 29.99
+    },
+    {
+      "title": "Glorious Wooden Wrist Rest",
+      "type": "Accessories",
+      "vendor": "Glorious",
+      "description": "Premium wooden wrist rest for mechanical keyboards.",
+      "tags": [
+        "ergonomic",
+        "keyboard",
+        "wood"
+      ],
+      "qty": 55,
+      "price": 35.99
+    },
+    {
+      "title": "Anker USB-C Hub",
+      "type": "Accessories",
+      "vendor": "Anker",
+      "description": "7-in-1 USB-C hub with 4K HDMI support.",
+      "tags": [
+        "usb-c",
+        "hub",
+        "connectivity"
+      ],
+      "qty": 70,
+      "price": 29.99
+    },
+    {
+      "title": "Logitech C920x HD Webcam",
+      "type": "Streaming",
+      "vendor": "Logitech",
+      "description": "1080p webcam with dual microphones for streaming.",
+      "tags": [
+        "streaming",
+        "webcam",
+        "1080p"
+      ],
+      "qty": 45,
+      "price": 69.99
+    },
+    {
+      "title": "Creative Sound BlasterX G6",
+      "type": "Audio",
+      "vendor": "Creative",
+      "description": "External USB DAC and Amp for gaming.",
+      "tags": [
+        "audio",
+        "gaming",
+        "dac"
+      ],
+      "qty": 25,
+      "price": 149.99
+    },
+    {
+      "title": "Corsair K63 Wireless Lapboard",
+      "type": "Accessories",
+      "vendor": "Corsair",
+      "description": "Gaming lapboard for couch gaming setup.",
+      "tags": [
+        "gaming",
+        "wireless",
+        "comfort"
+      ],
+      "qty": 20,
+      "price": 59.99
+    },
+    {
+      "title": "BenQ GW2485 24\" Monitor",
+      "type": "Monitor",
+      "vendor": "BenQ",
+      "description": "Eye-care monitor with ultra-slim bezels.",
+      "tags": [
+        "office",
+        "eye-care",
+        "1080p"
+      ],
+      "qty": 40,
+      "price": 169.99
+    },
+    {
+      "title": "ROCCAT Syn Pro Air",
+      "type": "Audio",
+      "vendor": "ROCCAT",
+      "description": "Wireless gaming headset with 3D audio.",
+      "tags": [
+        "gaming",
+        "wireless",
+        "headset"
+      ],
+      "qty": 25,
+      "price": 149.99
+    },
+    {
+      "title": "MSI MAG274QRF-QD",
+      "type": "Monitor",
+      "vendor": "MSI",
+      "description": "27-inch 1440p gaming monitor with Quantum Dot.",
+      "tags": [
+        "gaming",
+        "1440p",
+        "quantum-dot"
+      ],
+      "qty": 18,
+      "price": 449.99
+    },
+    {
+      "title": "HAVIT KB487L Keyboard",
+      "type": "Keyboard",
+      "vendor": "HAVIT",
+      "description": "Low-profile mechanical keyboard with RGB.",
+      "tags": [
+        "gaming",
+        "mechanical",
+        "budget"
+      ],
+      "qty": 55,
+      "price": 49.99
+    },
+    {
+      "title": "VIVO Monitor Mount",
+      "type": "Accessories",
+      "vendor": "VIVO",
+      "description": "Dual monitor arm mount with cable management.",
+      "tags": [
+        "monitor",
+        "mount",
+        "ergonomic"
+      ],
+      "qty": 45,
+      "price": 39.99
+    },
+    {
+      "title": "ASUS ROG Zephyrus G16 RTX 4090",
+      "type": "Laptop",
+      "vendor": "ASUS",
+      "description": "16-inch gaming laptop with Intel Core i9-13900H, RTX 4090, 32GB DDR5, 2TB SSD, QHD 240Hz display.",
+      "tags": [
+        "gaming",
+        "premium",
+        "rtx4090",
+        "intel"
+      ],
+      "qty": 8,
+      "price": 3499.99
+    },
+    {
+      "title": "Lenovo Legion Pro 7i RTX 4080",
+      "type": "Laptop",
+      "vendor": "Lenovo",
+      "description": "16-inch gaming powerhouse with Intel i9-13900HX, RTX 4080, 32GB RAM, 1TB SSD, Mini LED display.",
+      "tags": [
+        "gaming",
+        "premium",
+        "rtx4080",
+        "intel"
+      ],
+      "qty": 12,
+      "price": 2999.99
+    },
+    {
+      "title": "Apple MacBook Pro 16 M3 Max",
+      "type": "Laptop",
+      "vendor": "Apple",
+      "description": "16-inch MacBook Pro with M3 Max chip, 32GB unified memory, 1TB SSD, Liquid Retina XDR display.",
+      "tags": [
+        "macbook",
+        "premium",
+        "m3",
+        "creative"
+      ],
+      "qty": 15,
+      "price": 3499.99
+    },
+    {
+      "title": "Razer Blade 18 RTX 4090",
+      "type": "Laptop",
+      "vendor": "Razer",
+      "description": "18-inch desktop replacement with Intel i9-13950HX, RTX 4090, 32GB DDR5, 2TB SSD, 4K display.",
+      "tags": [
+        "gaming",
+        "premium",
+        "rtx4090",
+        "intel"
+      ],
+      "qty": 6,
+      "price": 4499.99
+    },
+    {
+      "title": "MSI Stealth 16 Studio",
+      "type": "Laptop",
+      "vendor": "MSI",
+      "description": "16-inch content creation laptop with Intel i7-13700H, RTX 4070, 32GB RAM, 1TB SSD, OLED display.",
+      "tags": [
+        "creative",
+        "premium",
+        "rtx4070",
+        "intel"
+      ],
+      "qty": 10,
+      "price": 2299.99
+    },
+    {
+      "title": "Framework 13 AMD Ryzen",
+      "type": "Laptop",
+      "vendor": "Framework",
+      "description": "13-inch modular laptop with Ryzen 7 7840U, 32GB RAM, 1TB SSD, user-replaceable ports.",
+      "tags": [
+        "modular",
+        "premium",
+        "amd",
+        "productivity"
+      ],
+      "qty": 20,
+      "price": 1499.99
+    },
+    {
+      "title": "HP OMEN 16 RTX 4070",
+      "type": "Laptop",
+      "vendor": "HP",
+      "description": "16-inch gaming laptop with AMD Ryzen 9 7940HS, RTX 4070, 16GB RAM, 1TB SSD, QHD display.",
+      "tags": [
+        "gaming",
+        "premium",
+        "rtx4070",
+        "amd"
+      ],
+      "qty": 15,
+      "price": 1899.99
+    },
+    {
+      "title": "Dell XPS 15 OLED",
+      "type": "Laptop",
+      "vendor": "Dell",
+      "description": "15-inch premium laptop with Intel i7-13700H, RTX 4060, 32GB RAM, 1TB SSD, 3.5K OLED display.",
+      "tags": [
+        "premium",
+        "rtx4060",
+        "intel",
+        "productivity"
+      ],
+      "qty": 18,
+      "price": 2199.99
+    },
+    {
+      "title": "Acer Swift Go 14 OLED",
+      "type": "Laptop",
+      "vendor": "Acer",
+      "description": "14-inch ultrabook with Intel i7-13700H, Intel Xe Graphics, 16GB RAM, 1TB SSD, 2.8K OLED.",
+      "tags": [
+        "ultrabook",
+        "intel",
+        "productivity"
+      ],
+      "qty": 25,
+      "price": 999.99
+    },
+    {
+      "title": "Lenovo ThinkPad X1 Carbon",
+      "type": "Laptop",
+      "vendor": "Lenovo",
+      "description": "14-inch business laptop with Intel i7-1365U, 32GB RAM, 1TB SSD, 2.8K OLED display.",
+      "tags": [
+        "business",
+        "premium",
+        "intel",
+        "productivity"
+      ],
+      "qty": 22,
+      "price": 1899.99
+    },
+    {
+      "title": "Apple MacBook Pro 14 M3 Pro",
+      "type": "Laptop",
+      "vendor": "Apple",
+      "description": "14-inch MacBook Pro with M3 Pro chip, 18GB unified memory, 512GB SSD, Liquid Retina XDR.",
+      "tags": [
+        "macbook",
+        "premium",
+        "m3",
+        "creative"
+      ],
+      "qty": 20,
+      "price": 1999.99
+    },
+    {
+      "title": "ASUS ROG Zephyrus G14",
+      "type": "Laptop",
+      "vendor": "ASUS",
+      "description": "14-inch gaming laptop with AMD Ryzen 9 7940HS, RTX 4070, 16GB RAM, 1TB SSD, QHD display.",
+      "tags": [
+        "gaming",
+        "premium",
+        "rtx4070",
+        "amd"
+      ],
+      "qty": 14,
+      "price": 1799.99
+    },
+    {
+      "title": "Microsoft Surface Laptop 5",
+      "type": "Laptop",
+      "vendor": "Microsoft",
+      "description": "15-inch premium laptop with Intel i7-1355U, 16GB RAM, 512GB SSD, 3:2 touch display.",
+      "tags": [
+        "premium",
+        "intel",
+        "productivity"
+      ],
+      "qty": 28,
+      "price": 1499.99
+    }
+]

@@ -1,0 +1,16 @@
+{
+	"name": "Parlant",
+	"short_name": "Parlant",
+	"description": "Chatbot by Parlant",
+	"start_url": "/",
+	"display": "standalone",
+	"background_color": "#ffffff",
+	"theme_color": "#006e54",
+	"icons": [
+		{
+			"src": "/chat/logo-color.svg",
+			"sizes": "any",
+			"type": "image/svg+xml"
+		}
+	]
+}

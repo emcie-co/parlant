@@ -1,0 +1,13 @@
+{
+	"files": [],
+	"references": [{"path": "./tsconfig.app.json"}, {"path": "./tsconfig.node.json"}],
+	"compilerOptions": {
+		"noUnusedLocals": false,
+		"noUnusedParameters": false,
+		"lib": ["DOM", "ESNext", "ES2023"],
+		"baseUrl": ".",
+		"paths": {
+			"@/*": ["./src/*"]
+		}
+	}
+}

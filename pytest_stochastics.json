@@ -1,0 +1,118 @@
+{
+  "test_plan_list": [
+    {
+      "plan": "complete",
+      "_comment": "utility plan equivalent to running all the other plans. used for vscode test explorer.",
+      "policy_tests": [
+        {
+          "policy": "default",
+          "tests": [
+            "tests/(?!core)"
+          ]
+        },
+        {
+          "policy": "strict3",
+          "tests": [
+            "tests/core/stable"
+          ]
+        },
+        {
+          "policy": "majority3",
+          "tests": [
+            "tests/core/unstable"
+          ]
+        }
+      ]
+    },
+    {
+      "plan": "default_disabled",
+      "_comment": "baseline plan to disbale all tests that are not specifically enabled by using it as a base for other plans",
+      "policy_tests": [
+        {
+          "policy": "disable",
+          "tests": [
+            "tests/"
+          ]
+        }
+      ]
+    },
+    {
+      "plan": "deterministic",
+      "_comment": "Plan to test all the non-stochastic tests. All should pass.",
+      "policy_tests": [
+        {
+          "policy": "default",
+          "tests": [
+            "tests/(?!core)"
+          ]
+        }
+      ]
+    },
+    {
+      "plan": "core_stable",
+      "_comment": "Stable stochastic tests should pass 3 out of 3 runs.",
+      "policy_tests": [
+        {
+          "policy": "strict3",
+          "tests": [
+            "tests/core/stable"
+          ]
+        }
+      ]
+    },
+    {
+      "plan": "core_unstable",
+      "_comment": "Unstable test are allowed one failure out of 3 runs. (Temporarily encompases all of `core`)",
+      "policy_tests": [
+        {
+          "policy": "majority3",
+          "tests": [
+            "tests/core/unstable"
+          ]
+        }
+      ]
+    }
+  ],
+  "policy_list": [
+    {
+      "policy": "disable",
+      "at_least": 0,
+      "out_of": 0
+    },
+    {
+      "policy": "default",
+      "at_least": 1,
+      "out_of": 1
+    },
+    {
+      "policy": "experimental",
+      "at_least": 0,
+      "out_of": 3,
+      "pass_fast": false
+    },
+    {
+      "policy": "majority3",
+      "at_least": 2,
+      "out_of": 3
+    },
+    {
+      "policy": "strict3",
+      "at_least": 3,
+      "out_of": 3
+    }
+  ],
+  "plan_fallback_list": [
+    {
+      "plan": "deterministic",
+      "overrides": "default_disabled"
+    },
+    {
+      "plan": "core_stable",
+      "overrides": "default_disabled"
+    },
+    {
+      "plan": "core_unstable",
+      "overrides": "default_disabled"
+    }
+  ]
+}

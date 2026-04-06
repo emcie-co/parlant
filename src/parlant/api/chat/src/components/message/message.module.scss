@@ -1,0 +1,61 @@
+.pendingVideo {
+	clip-path: inset(1px 0.9px 0.5px 0.8px round 50%);
+}
+.markdown {
+	code {
+		white-space: break-spaces;
+		max-width: 100%;
+		word-break: break-word;
+		background: transparent !important;
+		font-size: 14px;
+	}
+	p {
+		word-break: break-word;
+	}
+	ul {
+		all: revert;
+		margin: 0;
+		padding: 0;
+		list-style: inside;
+	}
+	h2 {
+		font-weight: bold;
+	}
+	table {
+		white-space: nowrap;
+		display: block;
+		overflow: scroll;
+		scrollbar-width: auto;
+		border-radius: 2px;
+		th,
+		td {
+			padding-inline: 10px;
+			text-align: start;
+		}
+
+		th {
+			padding: 10px;
+		}
+
+		tr:last-child td {
+			padding-bottom: 10px;
+		}
+
+		thead {
+			border: 1px solid lightgray;
+			border-bottom: none;
+			border-radius: 3px 3px 0 0;
+			padding: 10px;
+		}
+
+		tbody {
+			border: 1px solid lightgray;
+			border-top: none;
+			border-radius: 0 0 3px 3px;
+			padding: 10px;
+		}
+	}
+	li > div {
+		display: inline;
+	}
+}

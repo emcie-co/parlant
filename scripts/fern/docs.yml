@@ -1,0 +1,8 @@
+instances:
+  - url: https://docs.parlant.io
+title: Parlant | Documentation
+navigation:
+  - api: API Reference
+colors:
+  accentPrimary: '#ffffff'
+  background: '#000000'

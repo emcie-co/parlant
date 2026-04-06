@@ -1,0 +1,41 @@
+name: Lint
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    strategy:
+      matrix:
+        python-version: ["3.10"]
+
+    steps:
+      - name: checkout branch commit
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Initial Configs
+        run: |
+          git config --local core.hooksPath .githooks/
+          chmod +x .githooks/pre-commit .githooks/pre-push
+
+      - name: Install packages
+        run: python scripts/install_packages.py
+        continue-on-error: false
+
+      - name: Lint packages
+        run: python scripts/lint.py
+        continue-on-error: false

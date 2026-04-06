@@ -1,0 +1,48 @@
+@font-face {
+    font-family: 'Ubuntu Sans';
+    font-style: normal;
+    font-weight: 100;
+    src: url('/fonts/ubuntu-sans/static/UbuntuSans-Thin.ttf') format('truetype')
+  }
+  @font-face {
+    font-family: 'Ubuntu Sans';
+    font-style: normal;
+    font-weight: 200;
+    src: url('/fonts/ubuntu-sans/static/UbuntuSans-ExtraLight.ttf') format('truetype')
+  }
+  @font-face {
+    font-family: 'Ubuntu Sans';
+    font-style: normal;
+    font-weight: 300;
+    src: url('/fonts/ubuntu-sans/static/UbuntuSans-Light.ttf') format('truetype')
+  }
+  @font-face {
+    font-family: 'Ubuntu Sans';
+    font-style: normal;
+    font-weight: 400;
+    src: url('/fonts/ubuntu-sans/static/UbuntuSans-Regular.ttf') format('truetype')
+  }
+  @font-face {
+    font-family: 'Ubuntu Sans';
+    font-style: normal;
+    font-weight: 500;
+    src: url('/fonts/ubuntu-sans/static/UbuntuSans-Medium.ttf') format('truetype')
+  }
+  @font-face {
+    font-family: 'Ubuntu Sans';
+    font-style: normal;
+    font-weight: 600;
+    src: url('/fonts/ubuntu-sans/static/UbuntuSans-SemiBold.ttf') format('truetype')
+  }
+  @font-face {
+    font-family: 'Ubuntu Sans';
+    font-style: normal;
+    font-weight: 700;
+    src: url('/fonts/ubuntu-sans/static/UbuntuSans-Bold.ttf') format('truetype')
+  }
+  @font-face {
+    font-family: 'Ubuntu Sans';
+    font-style: normal;
+    font-weight: 800;
+    src: url('/fonts/ubuntu-sans/static/UbuntuSans-ExtraBold.ttf') format('truetype')
+  }

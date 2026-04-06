@@ -1,0 +1,18 @@
+  .colorsButton {
+    .children {
+      color: white;
+      border-radius: 6px;
+      border: none;
+    }
+    &:hover, &:focus {
+      background: linear-gradient(89.94deg, #FFB800, #B4E64A, #87DAC6, #FF68C3, #005CE7);
+      background-size: 200% 200%;
+      div {
+        background: linear-gradient(89.94deg, #FFB800, #B4E64A, #87DAC6, #FF68C3, #005CE7);
+      }
+      .children {
+        color: black !important;
+        background-color: #ffffffc8 !important;
+      }
+    }
+  }

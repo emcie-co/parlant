@@ -1,0 +1,5 @@
+#!/bin/bash
+
+ROOT=$(git rev-parse --show-toplevel)
+cd $ROOT
+python scripts/lint.py --ruff

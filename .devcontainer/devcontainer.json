@@ -1,0 +1,52 @@
+{
+  "name": "uv-pyenv",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  // "features": {},
+  // 👇 Use 'forwardPorts' to make a list of ports inside the container available locally.
+  // "forwardPorts": [],
+  // 👇 Use 'postCreateCommand' to run commands after the container is created.
+  "postCreateCommand": "(cd /workspaces/parlant* && git config --global --add safe.directory $PWD && python ./scripts/initialize_repo.py)",
+  // 👇 Configure tool-specific properties.
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "alexkrechik.cucumberautocomplete",
+        "charliermarsh.ruff",
+        "github.remotehub",
+        "github.vscode-github-actions",
+        "GitHub.vscode-pull-request-github",
+        "hbenl.vscode-test-explorer",
+        "matangover.mypy",
+        "ms-azuretools.vscode-docker",
+        "ms-python.debugpy",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "mutantdino.resourcemonitor",
+        "njpwerner.autodocstring",
+        "tamasfe.even-better-toml",
+        "streetsidesoftware.code-spell-checker"
+      ]
+    }
+  },
+  // 👇 Features to add to the Dev Container. More info: https://containers.dev/implementors/features.
+  "features": {
+    "ghcr.io/devcontainers-extra/features/mypy:2": {
+      "version": "latest"
+    },
+    "node": {
+      "version": "lts",
+      "nodeGypDependencies": true
+    }
+  },
+  "mounts": [],
+  // 👇 Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
+  // "remoteUser": "root"
+  "containerEnv": {
+    "OPENAI_API_KEY": "${localEnv:OPENAI_API_KEY}"
+  },
+  "remoteEnv": {
+    "OPENAI_API_KEY": "${localEnv:OPENAI_API_KEY}"
+  }
+}

@@ -1,0 +1,968 @@
+# Copyright 2026 Emcie Co Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from typing import Mapping, NewType, Optional, Sequence, Set, cast
+from typing_extensions import override, TypedDict, Self
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+
+from parlant.core.agents import CompositionMode
+from parlant.core.async_utils import ReaderWriterLock
+from parlant.core.common import (
+    Criticality,
+    ItemNotFoundError,
+    JSONSerializable,
+    UniqueId,
+    Version,
+    IdGenerator,
+    md5_checksum,
+)
+from parlant.core.persistence.common import ObjectId, Where
+from parlant.core.persistence.document_database import (
+    BaseDocument,
+    DocumentDatabase,
+    DocumentCollection,
+)
+from parlant.core.persistence.document_database_helper import (
+    DocumentStoreMigrationHelper,
+    DocumentMigrationHelper,
+)
+from parlant.core.tags import TagId
+
+GuidelineId = NewType("GuidelineId", str)
+
+
+@dataclass(frozen=True)
+class GuidelineContent:
+    condition: str
+    action: Optional[str]
+    description: Optional[str] = field(default=None)
+
+
+@dataclass(frozen=True)
+class Guideline:
+    id: GuidelineId
+    creation_utc: datetime
+    content: GuidelineContent
+    enabled: bool
+    tags: Sequence[TagId]
+    metadata: Mapping[str, JSONSerializable]
+    criticality: Criticality
+    labels: Set[str] = field(default_factory=set)
+    composition_mode: Optional[CompositionMode] = None
+    track: bool = True
+    priority: int = 0
+
+    def __str__(self) -> str:
+        if self.content.condition and self.content.action:
+            return f"When {self.content.condition}, then {self.content.action}"
+        elif self.content.condition:
+            return f"Observation: {self.content.condition}"
+        elif self.content.action:
+            return self.content.action
+        else:
+            raise Exception("Invalid guideline content")
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    def __hash__(self) -> int:
+        return hash(self.id)
+
+
+class GuidelineUpdateParams(TypedDict, total=False):
+    condition: str
+    action: Optional[str]
+    description: Optional[str]
+    criticality: Criticality
+    enabled: bool
+    metadata: Mapping[str, JSONSerializable]
+    composition_mode: Optional[CompositionMode]
+    track: bool
+    priority: int
+
+
+class GuidelineStore(ABC):
+    @abstractmethod
+    async def create_guideline(
+        self,
+        condition: str,
+        action: Optional[str] = None,
+        description: Optional[str] = None,
+        criticality: Optional[Criticality] = None,
+        metadata: Mapping[str, JSONSerializable] = {},
+        creation_utc: Optional[datetime] = None,
+        enabled: bool = True,
+        tags: Optional[Sequence[TagId]] = None,
+        id: Optional[GuidelineId] = None,
+        composition_mode: Optional[CompositionMode] = None,
+        track: bool = True,
+        labels: Optional[Set[str]] = None,
+        priority: int = 0,
+    ) -> Guideline: ...
+
+    @abstractmethod
+    async def list_guidelines(
+        self,
+        tags: Optional[Sequence[TagId]] = None,
+        labels: Optional[Set[str]] = None,
+    ) -> Sequence[Guideline]: ...
+
+    @abstractmethod
+    async def read_guideline(
+        self,
+        guideline_id: GuidelineId,
+    ) -> Guideline: ...
+
+    @abstractmethod
+    async def delete_guideline(
+        self,
+        guideline_id: GuidelineId,
+    ) -> None: ...
+
+    @abstractmethod
+    async def update_guideline(
+        self,
+        guideline_id: GuidelineId,
+        params: GuidelineUpdateParams,
+    ) -> Guideline: ...
+
+    @abstractmethod
+    async def find_guideline(
+        self,
+        guideline_content: GuidelineContent,
+    ) -> Guideline: ...
+
+    @abstractmethod
+    async def upsert_tag(
+        self,
+        guideline_id: GuidelineId,
+        tag_id: TagId,
+        creation_utc: Optional[datetime] = None,
+    ) -> bool: ...
+
+    @abstractmethod
+    async def remove_tag(
+        self,
+        guideline_id: GuidelineId,
+        tag_id: TagId,
+    ) -> None: ...
+
+    @abstractmethod
+    async def set_metadata(
+        self,
+        guideline_id: GuidelineId,
+        key: str,
+        value: JSONSerializable,
+    ) -> Guideline: ...
+
+    @abstractmethod
+    async def unset_metadata(
+        self,
+        guideline_id: GuidelineId,
+        key: str,
+    ) -> Guideline: ...
+
+    @abstractmethod
+    async def upsert_labels(
+        self,
+        guideline_id: GuidelineId,
+        labels: Set[str],
+    ) -> Guideline: ...
+
+    @abstractmethod
+    async def remove_labels(
+        self,
+        guideline_id: GuidelineId,
+        labels: Set[str],
+    ) -> Guideline: ...
+
+
+class GuidelineDocument_v0_1_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    guideline_set: str
+    condition: str
+    action: str
+
+
+class GuidelineDocument_v0_2_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    guideline_set: str
+    condition: str
+    action: str
+    enabled: bool
+
+
+class GuidelineDocument_v0_3_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    condition: str
+    action: str
+    enabled: bool
+
+
+class GuidelineDocument_v0_4_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    condition: str
+    action: Optional[str]
+    description: Optional[str]
+    enabled: bool
+    metadata: Mapping[str, JSONSerializable]
+
+
+class GuidelineDocument_v0_5_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    condition: str
+    action: Optional[str]
+    description: Optional[str]
+    enabled: bool
+    metadata: Mapping[str, JSONSerializable]
+
+
+class GuidelineDocument_v0_6_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    condition: str
+    action: Optional[str]
+    description: Optional[str]
+    criticality: str
+    enabled: bool
+    metadata: Mapping[str, JSONSerializable]
+
+
+class GuidelineDocument_v0_7_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    condition: str
+    action: Optional[str]
+    description: Optional[str]
+    criticality: str
+    enabled: bool
+    metadata: Mapping[str, JSONSerializable]
+    composition_mode: Optional[str]
+
+
+class GuidelineDocument_v0_8_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    condition: str
+    action: Optional[str]
+    description: Optional[str]
+    criticality: str
+    enabled: bool
+    metadata: Mapping[str, JSONSerializable]
+    composition_mode: Optional[str]
+    track: bool
+
+
+class GuidelineDocument_v0_9_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    condition: str
+    action: Optional[str]
+    description: Optional[str]
+    criticality: str
+    enabled: bool
+    metadata: Mapping[str, JSONSerializable]
+    composition_mode: Optional[str]
+    track: bool
+    labels: Sequence[str]
+
+
+class GuidelineDocument(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    condition: str
+    action: Optional[str]
+    description: Optional[str]
+    criticality: str
+    enabled: bool
+    metadata: Mapping[str, JSONSerializable]
+    composition_mode: Optional[str]
+    track: bool
+    labels: Sequence[str]
+    priority: int
+
+
+class GuidelineTagAssociationDocument(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    guideline_id: GuidelineId
+    tag_id: TagId
+
+
+async def guideline_document_converter_0_1_0_to_0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
+    d = cast(GuidelineDocument_v0_1_0, doc)
+    return GuidelineDocument_v0_2_0(
+        id=d["id"],
+        version=Version.String("0.2.0"),
+        creation_utc=d["creation_utc"],
+        guideline_set=d["guideline_set"],
+        condition=d["condition"],
+        action=d["action"],
+        enabled=True,
+    )
+
+
+class GuidelineDocumentStore(GuidelineStore):
+    VERSION = Version.from_string("0.10.0")
+
+    def __init__(
+        self,
+        id_generator: IdGenerator,
+        database: DocumentDatabase,
+        allow_migration: bool = False,
+    ) -> None:
+        self._id_generator = id_generator
+
+        self._database = database
+        self._collection: DocumentCollection[GuidelineDocument]
+        self._tag_association_collection: DocumentCollection[GuidelineTagAssociationDocument]
+
+        self._allow_migration = allow_migration
+        self._lock = ReaderWriterLock()
+
+    async def _document_loader(self, doc: BaseDocument) -> Optional[GuidelineDocument]:
+        async def v0_9_0_to_v0_10_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(GuidelineDocument_v0_9_0, doc)
+            return GuidelineDocument(
+                id=d["id"],
+                version=Version.String("0.10.0"),
+                creation_utc=d["creation_utc"],
+                condition=d["condition"],
+                action=d["action"],
+                description=d.get("description", None),
+                criticality=d["criticality"],
+                enabled=d["enabled"],
+                metadata=d["metadata"],
+                composition_mode=d.get("composition_mode"),
+                track=d.get("track", True),
+                labels=d.get("labels", []),
+                priority=0,  # Default to 0 for existing guidelines
+            )
+
+        async def v0_8_0_to_v0_9_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(GuidelineDocument_v0_8_0, doc)
+            return GuidelineDocument_v0_9_0(
+                id=d["id"],
+                version=Version.String("0.9.0"),
+                creation_utc=d["creation_utc"],
+                condition=d["condition"],
+                action=d["action"],
+                description=d.get("description", None),
+                criticality=d["criticality"],
+                enabled=d["enabled"],
+                metadata=d["metadata"],
+                composition_mode=d.get("composition_mode"),
+                track=d.get("track", True),
+                labels=[],  # Default to empty labels for existing guidelines
+            )
+
+        async def v0_7_0_to_v0_8_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(GuidelineDocument_v0_7_0, doc)
+            return GuidelineDocument_v0_8_0(
+                id=d["id"],
+                version=Version.String("0.8.0"),
+                creation_utc=d["creation_utc"],
+                condition=d["condition"],
+                action=d["action"],
+                description=d.get("description", None),
+                criticality=d["criticality"],
+                enabled=d["enabled"],
+                metadata=d["metadata"],
+                composition_mode=d.get("composition_mode"),
+                track=True,  # Default to True for existing guidelines
+            )
+
+        async def v0_6_0_to_v0_7_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(GuidelineDocument_v0_6_0, doc)
+            return GuidelineDocument_v0_7_0(
+                id=d["id"],
+                version=Version.String("0.7.0"),
+                creation_utc=d["creation_utc"],
+                condition=d["condition"],
+                action=d["action"],
+                description=d.get("description", None),
+                criticality=d["criticality"],
+                enabled=d["enabled"],
+                metadata=d["metadata"],
+                composition_mode=None,  # Default to None for existing guidelines
+            )
+
+        async def v0_5_0_to_v0_6_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(GuidelineDocument_v0_5_0, doc)
+            return GuidelineDocument_v0_6_0(
+                id=d["id"],
+                version=Version.String("0.6.0"),
+                creation_utc=d["creation_utc"],
+                condition=d["condition"],
+                action=d["action"],
+                description=d.get("description", None),
+                criticality="medium",  # Default to MEDIUM for existing guidelines
+                enabled=d["enabled"],
+                metadata=d["metadata"],
+            )
+
+        async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(GuidelineDocument_v0_4_0, doc)
+            return GuidelineDocument_v0_5_0(
+                id=d["id"],
+                version=Version.String("0.5.0"),
+                creation_utc=d["creation_utc"],
+                condition=d["condition"],
+                action=d["action"],
+                description=d.get("description", None),
+                enabled=d["enabled"],
+                metadata=d["metadata"],
+            )
+
+        async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(GuidelineDocument_v0_3_0, doc)
+            return GuidelineDocument_v0_4_0(
+                id=d["id"],
+                version=Version.String("0.4.0"),
+                creation_utc=d["creation_utc"],
+                condition=d["condition"],
+                action=d["action"],
+                enabled=d["enabled"],
+                metadata={},
+            )
+
+        async def v0_2_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            raise Exception(
+                "This code should not be reached! Please run the 'parlant-prepare-migration' script."
+            )
+
+        return await DocumentMigrationHelper[GuidelineDocument](
+            self,
+            {
+                "0.1.0": guideline_document_converter_0_1_0_to_0_2_0,
+                "0.2.0": v0_2_0_to_v0_3_0,
+                "0.3.0": v0_3_0_to_v0_4_0,
+                "0.4.0": v0_4_0_to_v0_5_0,
+                "0.5.0": v0_5_0_to_v0_6_0,
+                "0.6.0": v0_6_0_to_v0_7_0,
+                "0.7.0": v0_7_0_to_v0_8_0,
+                "0.8.0": v0_8_0_to_v0_9_0,
+                "0.9.0": v0_9_0_to_v0_10_0,
+            },
+        ).migrate(doc)
+
+    async def _association_document_loader(
+        self, doc: BaseDocument
+    ) -> Optional[GuidelineTagAssociationDocument]:
+        if doc["version"] == "0.3.0":
+            d = cast(GuidelineTagAssociationDocument, doc)
+            return GuidelineTagAssociationDocument(
+                id=d["id"],
+                version=Version.String("0.5.0"),
+                creation_utc=d["creation_utc"],
+                guideline_id=d["guideline_id"],
+                tag_id=d["tag_id"],
+            )
+
+        if doc["version"] == "0.4.0":
+            d = cast(GuidelineTagAssociationDocument, doc)
+            return GuidelineTagAssociationDocument(
+                id=d["id"],
+                version=Version.String("0.5.0"),
+                creation_utc=d["creation_utc"],
+                guideline_id=d["guideline_id"],
+                tag_id=d["tag_id"],
+            )
+
+        if doc["version"] == "0.5.0":
+            return cast(GuidelineTagAssociationDocument, doc)
+
+        return None
+
+    async def __aenter__(self) -> Self:
+        async with DocumentStoreMigrationHelper(
+            store=self,
+            database=self._database,
+            allow_migration=self._allow_migration,
+        ):
+            self._collection = await self._database.get_or_create_collection(
+                name="guidelines",
+                schema=GuidelineDocument,
+                document_loader=self._document_loader,
+            )
+
+            self._tag_association_collection = await self._database.get_or_create_collection(
+                name="guideline_tag_associations",
+                schema=GuidelineTagAssociationDocument,
+                document_loader=self._association_document_loader,
+            )
+
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[object],
+    ) -> None:
+        pass
+
+    def _serialize(
+        self,
+        guideline: Guideline,
+    ) -> GuidelineDocument:
+        return GuidelineDocument(
+            id=ObjectId(guideline.id),
+            version=self.VERSION.to_string(),
+            creation_utc=guideline.creation_utc.isoformat(),
+            condition=guideline.content.condition,
+            action=guideline.content.action,
+            description=guideline.content.description,
+            criticality=guideline.criticality.value,
+            enabled=guideline.enabled,
+            metadata=guideline.metadata,
+            composition_mode=(
+                guideline.composition_mode.value if guideline.composition_mode else None
+            ),
+            track=guideline.track,
+            labels=list(guideline.labels),
+            priority=guideline.priority,
+        )
+
+    async def _deserialize(
+        self,
+        guideline_document: GuidelineDocument,
+    ) -> Guideline:
+        tag_ids = [
+            d["tag_id"]
+            for d in await self._tag_association_collection.find(
+                {"guideline_id": {"$eq": guideline_document["id"]}}
+            )
+        ]
+
+        composition_mode_str = guideline_document.get("composition_mode")
+        composition_mode = CompositionMode(composition_mode_str) if composition_mode_str else None
+
+        return Guideline(
+            id=GuidelineId(guideline_document["id"]),
+            creation_utc=datetime.fromisoformat(guideline_document["creation_utc"]),
+            content=GuidelineContent(
+                condition=guideline_document["condition"],
+                action=guideline_document["action"],
+                description=guideline_document.get("description", None),
+            ),
+            criticality=Criticality(guideline_document["criticality"]),
+            enabled=guideline_document["enabled"],
+            tags=[TagId(tag_id) for tag_id in tag_ids],
+            metadata=guideline_document["metadata"],
+            labels=set(guideline_document.get("labels", [])),
+            composition_mode=composition_mode,
+            track=guideline_document.get("track", True),
+            priority=guideline_document.get("priority", 0),
+        )
+
+    @override
+    async def create_guideline(
+        self,
+        condition: str,
+        action: Optional[str] = None,
+        description: Optional[str] = None,
+        criticality: Optional[Criticality] = None,
+        metadata: Mapping[str, JSONSerializable] = {},
+        creation_utc: Optional[datetime] = None,
+        enabled: bool = True,
+        tags: Optional[Sequence[TagId]] = None,
+        id: Optional[GuidelineId] = None,
+        composition_mode: Optional[CompositionMode] = None,
+        track: bool = True,
+        labels: Optional[Set[str]] = None,
+        priority: int = 0,
+    ) -> Guideline:
+        async with self._lock.writer_lock:
+            creation_utc = creation_utc or datetime.now(timezone.utc)
+            criticality = criticality or Criticality.MEDIUM
+
+            # Use provided ID or generate one
+            if id is not None:
+                guideline_id = id
+
+                # Check if guideline with this ID already exists
+                existing = await self._collection.find_one(filters={"id": {"$eq": guideline_id}})
+                if existing:
+                    raise ValueError(f"Guideline with id '{guideline_id}' already exists")
+            else:
+                guideline_checksum = md5_checksum(f"{condition}{action or ''}{enabled}{metadata}")
+                guideline_id = GuidelineId(self._id_generator.generate(guideline_checksum))
+
+            guideline = Guideline(
+                id=guideline_id,
+                creation_utc=creation_utc,
+                content=GuidelineContent(
+                    condition=condition,
+                    action=action,
+                    description=description,
+                ),
+                criticality=criticality,
+                enabled=enabled,
+                tags=tags or [],
+                metadata=metadata,
+                labels=labels or set(),
+                composition_mode=composition_mode,
+                track=track,
+                priority=priority,
+            )
+
+            await self._collection.insert_one(
+                document=self._serialize(
+                    guideline=guideline,
+                )
+            )
+
+            for tag_id in tags or []:
+                tag_checksum = md5_checksum(f"{guideline.id}{tag_id}")
+
+                await self._tag_association_collection.insert_one(
+                    document={
+                        "id": ObjectId(self._id_generator.generate(tag_checksum)),
+                        "version": self.VERSION.to_string(),
+                        "creation_utc": creation_utc.isoformat(),
+                        "guideline_id": guideline.id,
+                        "tag_id": tag_id,
+                    }
+                )
+
+        return guideline
+
+    @override
+    async def list_guidelines(
+        self,
+        tags: Optional[Sequence[TagId]] = None,
+        labels: Optional[Set[str]] = None,
+    ) -> Sequence[Guideline]:
+        filters: Where = {}
+
+        async with self._lock.reader_lock:
+            if tags is not None:
+                if len(tags) == 0:
+                    guideline_ids = {
+                        doc["guideline_id"]
+                        for doc in await self._tag_association_collection.find(filters={})
+                    }
+
+                    filters = (
+                        {"$and": [{"id": {"$ne": id}} for id in guideline_ids]}
+                        if guideline_ids
+                        else {}
+                    )
+                else:
+                    tag_filters: Where = {"$or": [{"tag_id": {"$eq": tag}} for tag in tags]}
+                    tag_associations = await self._tag_association_collection.find(
+                        filters=tag_filters
+                    )
+                    guideline_ids = {assoc["guideline_id"] for assoc in tag_associations}
+
+                    if not guideline_ids:
+                        return []
+
+                    filters = {"$or": [{"id": {"$eq": id}} for id in guideline_ids]}
+
+            guidelines = [
+                await self._deserialize(d) for d in await self._collection.find(filters=filters)
+            ]
+
+            # Filter by labels if specified
+            if labels is not None:
+                guidelines = [g for g in guidelines if labels.issubset(g.labels)]
+
+            return guidelines
+
+    @override
+    async def read_guideline(
+        self,
+        guideline_id: GuidelineId,
+    ) -> Guideline:
+        async with self._lock.reader_lock:
+            guideline_document = await self._collection.find_one(
+                filters={
+                    "id": {"$eq": guideline_id},
+                }
+            )
+
+        if not guideline_document:
+            raise ItemNotFoundError(item_id=UniqueId(guideline_id))
+
+        return await self._deserialize(guideline_document=guideline_document)
+
+    @override
+    async def delete_guideline(
+        self,
+        guideline_id: GuidelineId,
+    ) -> None:
+        async with self._lock.writer_lock:
+            result = await self._collection.delete_one(
+                filters={
+                    "id": {"$eq": guideline_id},
+                }
+            )
+
+            for doc in await self._tag_association_collection.find(
+                filters={
+                    "guideline_id": {"$eq": guideline_id},
+                }
+            ):
+                await self._tag_association_collection.delete_one(
+                    filters={"id": {"$eq": doc["id"]}}
+                )
+
+        if not result.deleted_document:
+            raise ItemNotFoundError(item_id=UniqueId(guideline_id))
+
+    @override
+    async def update_guideline(
+        self,
+        guideline_id: GuidelineId,
+        params: GuidelineUpdateParams,
+    ) -> Guideline:
+        async with self._lock.writer_lock:
+            guideline_document = GuidelineDocument(
+                {
+                    **({"condition": params["condition"]} if "condition" in params else {}),
+                    **({"action": params["action"]} if "action" in params else {}),
+                    **({"description": params["description"]} if "description" in params else {}),
+                    **(
+                        {"criticality": params["criticality"].value}
+                        if "criticality" in params
+                        else {}
+                    ),
+                    **({"enabled": params["enabled"]} if "enabled" in params else {}),
+                    **(
+                        {
+                            "composition_mode": (
+                                # Note that updating to None is also valid
+                                params["composition_mode"].value
+                                if params["composition_mode"] is not None
+                                else None
+                            )
+                        }
+                        if "composition_mode" in params
+                        else {}
+                    ),
+                    **({"priority": params["priority"]} if "priority" in params else {}),
+                }
+            )
+
+            result = await self._collection.update_one(
+                filters={"id": {"$eq": guideline_id}},
+                params=guideline_document,
+            )
+
+        assert result.updated_document
+
+        return await self._deserialize(guideline_document=result.updated_document)
+
+    @override
+    async def find_guideline(
+        self,
+        guideline_content: GuidelineContent,
+    ) -> Guideline:
+        async with self._lock.reader_lock:
+            filters = {
+                "condition": {"$eq": guideline_content.condition},
+                **(
+                    {"action": {"$eq": guideline_content.action}}
+                    if guideline_content.action
+                    else {}
+                ),
+            }
+
+            guideline_document = await self._collection.find_one(filters=cast(Where, filters))
+
+        if not guideline_document:
+            raise ItemNotFoundError(
+                item_id=UniqueId(f"{guideline_content.condition}{guideline_content.action}")
+            )
+
+        return await self._deserialize(guideline_document=guideline_document)
+
+    @override
+    async def upsert_tag(
+        self,
+        guideline_id: GuidelineId,
+        tag_id: TagId,
+        creation_utc: Optional[datetime] = None,
+    ) -> bool:
+        async with self._lock.writer_lock:
+            guideline = await self.read_guideline(guideline_id)
+
+            if tag_id in guideline.tags:
+                return False
+
+            creation_utc = creation_utc or datetime.now(timezone.utc)
+
+            association_checksum = md5_checksum(f"{guideline.id}{tag_id}")
+
+            association_document: GuidelineTagAssociationDocument = {
+                "id": ObjectId(self._id_generator.generate(association_checksum)),
+                "version": self.VERSION.to_string(),
+                "creation_utc": creation_utc.isoformat(),
+                "guideline_id": GuidelineId(guideline_id),
+                "tag_id": tag_id,
+            }
+
+            _ = await self._tag_association_collection.insert_one(document=association_document)
+
+            guideline_document = await self._collection.find_one({"id": {"$eq": guideline_id}})
+
+        if not guideline_document:
+            raise ItemNotFoundError(item_id=UniqueId(guideline_id))
+
+        return True
+
+    @override
+    async def remove_tag(
+        self,
+        guideline_id: GuidelineId,
+        tag_id: TagId,
+    ) -> None:
+        async with self._lock.writer_lock:
+            delete_result = await self._tag_association_collection.delete_one(
+                {
+                    "guideline_id": {"$eq": guideline_id},
+                    "tag_id": {"$eq": tag_id},
+                }
+            )
+
+            if delete_result.deleted_count == 0:
+                raise ItemNotFoundError(item_id=UniqueId(tag_id))
+
+            guideline_document = await self._collection.find_one({"id": {"$eq": guideline_id}})
+
+        if not guideline_document:
+            raise ItemNotFoundError(item_id=UniqueId(guideline_id))
+
+    @override
+    async def set_metadata(
+        self,
+        guideline_id: GuidelineId,
+        key: str,
+        value: JSONSerializable,
+    ) -> Guideline:
+        async with self._lock.writer_lock:
+            guideline_document = await self._collection.find_one({"id": {"$eq": guideline_id}})
+
+            if not guideline_document:
+                raise ItemNotFoundError(item_id=UniqueId(guideline_id))
+
+            updated_metadata = {**guideline_document["metadata"], key: value}
+
+            result = await self._collection.update_one(
+                filters={"id": {"$eq": guideline_id}},
+                params={
+                    "metadata": updated_metadata,
+                },
+            )
+
+        assert result.updated_document
+
+        return await self._deserialize(guideline_document=result.updated_document)
+
+    @override
+    async def unset_metadata(
+        self,
+        guideline_id: GuidelineId,
+        key: str,
+    ) -> Guideline:
+        async with self._lock.writer_lock:
+            guideline_document = await self._collection.find_one({"id": {"$eq": guideline_id}})
+
+            if not guideline_document:
+                raise ItemNotFoundError(item_id=UniqueId(guideline_id))
+
+            updated_metadata = {k: v for k, v in guideline_document["metadata"].items() if k != key}
+
+            result = await self._collection.update_one(
+                filters={"id": {"$eq": guideline_id}},
+                params={
+                    "metadata": updated_metadata,
+                },
+            )
+
+        assert result.updated_document
+
+        return await self._deserialize(guideline_document=result.updated_document)
+
+    @override
+    async def upsert_labels(
+        self,
+        guideline_id: GuidelineId,
+        labels: Set[str],
+    ) -> Guideline:
+        async with self._lock.writer_lock:
+            guideline_document = await self._collection.find_one({"id": {"$eq": guideline_id}})
+
+            if not guideline_document:
+                raise ItemNotFoundError(item_id=UniqueId(guideline_id))
+
+            current_labels = set(guideline_document.get("labels", []))
+            updated_labels = list(current_labels | labels)
+
+            result = await self._collection.update_one(
+                filters={"id": {"$eq": guideline_id}},
+                params={
+                    "labels": updated_labels,
+                },
+            )
+
+        assert result.updated_document
+
+        return await self._deserialize(guideline_document=result.updated_document)
+
+    @override
+    async def remove_labels(
+        self,
+        guideline_id: GuidelineId,
+        labels: Set[str],
+    ) -> Guideline:
+        async with self._lock.writer_lock:
+            guideline_document = await self._collection.find_one({"id": {"$eq": guideline_id}})
+
+            if not guideline_document:
+                raise ItemNotFoundError(item_id=UniqueId(guideline_id))
+
+            current_labels = set(guideline_document.get("labels", []))
+            updated_labels = list(current_labels - labels)
+
+            result = await self._collection.update_one(
+                filters={"id": {"$eq": guideline_id}},
+                params={
+                    "labels": updated_labels,
+                },
+            )
+
+        assert result.updated_document
+
+        return await self._deserialize(guideline_document=result.updated_document)

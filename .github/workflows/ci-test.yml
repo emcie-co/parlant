@@ -1,0 +1,65 @@
+name: Verify and Test
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "develop" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    strategy:
+      matrix:
+        python-version: ["3.10"]
+
+    steps:
+    - name: checkout branch commit
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install uv
+      run: pip install uv
+
+    - name: Initial Configs
+      run: |
+        git config --local core.hooksPath .githooks/
+        chmod +x .githooks/pre-commit .githooks/pre-push
+
+    - name: Install packages
+      run: python scripts/install_packages.py
+
+    - name: install just
+      uses: extractions/setup-just@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Test Parlant (deterministic)
+      if: always()
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      run: just test-deterministic
+    
+    - name: Test Parlant (core-stable)
+      if: always()
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      run: just test-core-stable
+    
+    - name: Test Parlant (core-unstable)
+      if: always()
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      run: just test-core-unstable
+    
+    - name: test log artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: testresults
+        path: logs/*

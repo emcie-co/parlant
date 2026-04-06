@@ -1,0 +1,156 @@
+[project]
+name = "parlant"
+version = "3.3.0"
+description = ""
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+    {name = "Yam Marcovitz", email = "yam@emcie.co"},
+    {name = "Dor Zohar", email = "dor@emcie.co"},
+]
+requires-python = ">=3.10,<3.15"  # Restricted for torch 2.8+ compatibility with triton
+dependencies = [
+    "aiofiles>=24.1.0",
+    "aiopenapi3==0.9.0",
+    "aiorwlock>=1.5.0",
+    "authlib>1.6.5",
+    "boto3>=1.35.70",
+    "cachetools>=6.0.0",
+    "click>=8.1.7",
+    "colorama>=0.4.6",
+    "coloredlogs>=15.0.1",
+    "contextvars>=2.4",
+    "croniter>=5.0.1",
+    "fastapi>=0.120.0",
+    "fastmcp>=2.14.0",
+    "httpx>=0.28.1",
+    "jinja2>=3.1.6",
+    "jsonfinder>=0.4.2",
+    "jsonschema>=4.23.0",
+    "lagom>=2.6.0",
+    "limits>=5.5.0",
+    "mcp>=1.23.0",
+    "more-itertools>=10.3.0",
+    "nano-vectordb>=0.0.4.3",
+    "nanoid>=2.0.0",
+    "networkx[default]>=3.3",
+    "openai>=2.8.0",
+    "openapi3-parser==1.1.21",
+    "opentelemetry-api>=1.37.0",
+    "opentelemetry-exporter-otlp>=1.37.0",
+    "opentelemetry-instrumentation>=0.58b0",
+    "opentelemetry-sdk>=1.37.0",
+    "parlant-client @ git+https://github.com/emcie-co/parlant-client-python.git@v3.2.0",
+    "python-dateutil>=2.8.2",
+    "python-dotenv>=1.0.1",
+    "requests>=2.32.5",
+    "rich>=14.0.0",
+    "semver>=3.0.2",
+    "starlette>=0.49.0",  # Specified for fix vulnerability of lower versions. Can be removed in case of future conflicts.
+    "structlog>=24.4.0",
+    "tabulate>=0.9.0",
+    "tiktoken>=0.12",
+    "tokenizers>=0.21",
+    "toml>=0.10.2",
+    "types-aiofiles>=24.1.0.20240626",
+    "types-cachetools>=6.0.0.20250525",
+    "types-croniter>=4.0.0.20241030",
+    "types-jsonschema>=4.22.0.20240610",
+    "uvicorn>=0.38.0",
+    "websocket-client>=1.5.3",
+    "wsproto>=1.2.0",
+]
+
+[project.scripts]
+parlant = "parlant.bin.client:main"
+parlant-server = "parlant.bin.server:main"
+parlant-prepare-migration = "parlant.bin.prepare_migration:main"
+
+[project.optional-dependencies]
+chroma = ["chromadb>=1.1.1"]
+qdrant = ["qdrant-client>=1.7.0"]
+mongo = ["pymongo>=4.11.1"]
+
+anthropic = ["anthropic>=0.60.0", "torch>=2.8.0", "transformers>=4.53.0"]
+
+aws = ["anthropic>=0.60.0", "transformers>=4.53.0", "torch>=2.8.0"]
+
+together = ["torch>=2.8.0", "together>=1.5.26", "transformers>=4.53.0"]
+
+cerebras = ["cerebras-cloud-sdk>=1.25.0", "torch>=2.8.0", "transformers>=4.53.0"]
+
+deepseek = ["torch>=2.8.0", "transformers>=4.53.0"]
+
+gemini = ["google-genai>=1.36.0", "google-api-core>=2.24.2", "torch>=2.8.0"]
+
+vertex = [
+    "google-genai>=1.36.0",
+    "google-api-core>=2.24.2",
+    "google-auth>=2.40.0",
+    "torch>=2.8.0",
+    "anthropic>=0.60.0",
+    "transformers>=4.53.0",
+]
+
+ollama = ["ollama>=0.5.0"]
+
+litellm = ["litellm>=1.61.16", "torch>=2.8.0", "transformers>=4.53.0"]
+
+azure = ["azure-identity>=1.20.0"]
+
+# fireworks = ["fireworks-ai>=0.19.19"]  # Disabled: pins protobuf=5.29.3 which has CVE-2025-4565
+
+mistral = ["mistralai>=1.0.0"]
+
+snowflake = ["snowflake-connector-python>=3.12.0"]
+
+zhipu = ["zhipuai>=2.0.0"]
+
+[dependency-groups]
+dev = [
+    "ipython>=8.26.0",
+    "mypy>=1.18.1",
+    "pep8-naming>=0.13.3",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.5",
+    "pytest-bdd>=8.1.0",
+    "pytest-cov>=5.0.0",
+    "pytest-tap>=3.4",
+    "pytest-timing @ git+https://github.com/emcie-co/mc-spitfyre.git@timing_v0.1.4#subdirectory=pytest-timing",
+    "python-dotenv>=1.0.1",
+    "ruff>=0.9.1",
+    "types-python-dateutil>=2.8.19.20240106",
+    "types-requests>=2.32.0.20240712",
+    "pytest-xdist>=3.6.1",
+]
+
+[tool.uv]
+override-dependencies = [
+    "pyjwt>=2.10.1",  # Override zhipuai's pyjwt<2.9.0 cap to allow mcp>=1.23.0 (CVE-2025-66416)
+    "onnxruntime<1.24; python_full_version < '3.11'",  # 1.24+ dropped Python 3.10 support
+]
+constraint-dependencies = [
+    # Minimum safe versions for transitive dependencies with known CVEs.
+    # These constraints only affect resolution — they do not force installation.
+    "aiohttp>=3.13.3",
+    "azure-core>=1.38.0",
+    "cryptography>=46.0.5",
+    "filelock>=3.20.3",
+    "fonttools>=4.60.2",
+    "orjson>=3.11.5",
+    "pillow>=12.1.1",
+    "protobuf>=6.33.5",
+    "pyasn1>=0.6.2",
+    "python-multipart>=0.0.22",
+    "urllib3>=2.6.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/parlant"]

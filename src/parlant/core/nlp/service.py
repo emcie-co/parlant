@@ -1,0 +1,79 @@
+# Copyright 2026 Emcie Co Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from abc import ABC, abstractmethod
+from enum import IntEnum
+from typing_extensions import TypedDict, NotRequired, TypeAlias, Literal
+
+from parlant.core.nlp.embedding import Embedder
+from parlant.core.nlp.generation import T, SchematicGenerator, StreamingTextGenerator
+from parlant.core.nlp.moderation import ModerationService
+
+
+class ModelSize(IntEnum):
+    NANO = 0
+    MINI = 1
+    LARGE = 2
+    AUTO = 99
+
+
+ModelGeneration: TypeAlias = Literal["auto", "stable", "latest"]
+
+ModelType: TypeAlias = Literal["auto", "standard", "reasoning"]
+
+
+class SchematicGeneratorHints(TypedDict, total=False):
+    model_size: NotRequired[ModelSize]
+    model_generation: NotRequired[ModelGeneration]
+    model_type: NotRequired[ModelType]
+
+
+class StreamingTextGeneratorHints(TypedDict, total=False):
+    model_size: NotRequired[ModelSize]
+    model_generation: NotRequired[ModelGeneration]
+
+
+class EmbedderHints(TypedDict, total=False):
+    model_size: NotRequired[ModelSize]
+
+
+class NLPService(ABC):
+    @property
+    @abstractmethod
+    def supports_streaming(self) -> bool:
+        """Return whether this NLP service supports streaming text generation."""
+        ...
+
+    @abstractmethod
+    async def get_schematic_generator(
+        self, t: type[T], hints: SchematicGeneratorHints = {}
+    ) -> SchematicGenerator[T]: ...
+
+    @abstractmethod
+    async def get_streaming_text_generator(
+        self, hints: StreamingTextGeneratorHints = {}
+    ) -> StreamingTextGenerator:
+        """Return a streaming text generator.
+
+        Raises:
+            NotImplementedError: If streaming is not supported (supports_streaming is False).
+                Callers should check supports_streaming before calling this method.
+        """
+        ...
+
+    @abstractmethod
+    async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder: ...
+
+    @abstractmethod
+    async def get_moderation_service(self) -> ModerationService: ...

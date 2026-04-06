@@ -441,6 +441,18 @@ class JourneyDocument_v0_5_0(TypedDict, total=False):
     labels: Sequence[str]
 
 
+class JourneyDocument_v0_6_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    title: str
+    description: str
+    root_id: JourneyNodeId
+    composition_mode: Optional[str]
+    labels: Sequence[str]
+    priority: int
+
+
 class JourneyDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
@@ -532,7 +544,7 @@ class JourneyLinkAssociationDocument(TypedDict, total=False):
 
 
 class JourneyVectorStore(JourneyStore):
-    VERSION = Version.from_string("0.6.0")
+    VERSION = Version.from_string("0.7.0")
 
     def __init__(
         self,
@@ -610,7 +622,7 @@ class JourneyVectorStore(JourneyStore):
 
         async def v0_5_0_to_v0_6_0(doc: BaseDocument) -> Optional[BaseDocument]:
             d = cast(JourneyDocument_v0_5_0, doc)
-            return JourneyDocument(
+            return JourneyDocument_v0_6_0(
                 id=d["id"],
                 version=Version.String("0.6.0"),
                 creation_utc=d["creation_utc"],
@@ -620,6 +632,21 @@ class JourneyVectorStore(JourneyStore):
                 composition_mode=d.get("composition_mode"),
                 labels=d.get("labels", []),
                 priority=0,  # Default to 0 for existing journeys
+            )
+
+        async def v0_6_0_to_v0_7_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(JourneyDocument_v0_6_0, doc)
+            return JourneyDocument(
+                id=d["id"],
+                version=Version.String("0.7.0"),
+                creation_utc=d["creation_utc"],
+                title=d["title"],
+                description=d["description"],
+                root_id=d["root_id"],
+                composition_mode=d.get("composition_mode"),
+                labels=d.get("labels", []),
+                priority=d.get("priority", 0),
+                metadata={},  # Default to empty metadata for existing journeys
             )
 
         async def v0_1_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
@@ -635,6 +662,7 @@ class JourneyVectorStore(JourneyStore):
                 "0.3.0": v0_3_0_to_v0_4_0,
                 "0.4.0": v0_4_0_to_v0_5_0,
                 "0.5.0": v0_5_0_to_v0_6_0,
+                "0.6.0": v0_6_0_to_v0_7_0,
             },
         ).migrate(doc)
 

@@ -96,11 +96,11 @@ class JourneyGuidelineProjection:
 
         def scoped_node_id(node_id: JourneyNodeId) -> JourneyNodeId:
             """Namespace a sub-journey node ID with link ID to prevent collisions."""
-            return JourneyNodeId(f"{link.id}:{node_id}")
+            return JourneyNodeId(f"{link.id}~{node_id}")
 
         def scoped_edge_id(edge_id: JourneyEdgeId) -> JourneyEdgeId:
             """Namespace a sub-journey edge ID with link ID to prevent collisions."""
-            return JourneyEdgeId(f"{link.id}:{edge_id}")
+            return JourneyEdgeId(f"{link.id}~{edge_id}")
 
         link_metadata: dict[str, JSONSerializable] = {
             "link_id": link.id,
@@ -165,7 +165,7 @@ class JourneyGuidelineProjection:
 
             # If leaf node (no outgoing edges), connect to merge
             if not current_edges:
-                leaf_edge_id = JourneyEdgeId(f"leaf:{link.id}:{current_id}")
+                leaf_edge_id = JourneyEdgeId(f"leaf~{link.id}~{current_id}")
                 leaf_edge = JourneyEdge(
                     id=leaf_edge_id,
                     creation_utc=datetime.now(timezone.utc),
@@ -237,7 +237,7 @@ class JourneyGuidelineProjection:
             "original_node_id": original.id,
         }
 
-        namespaced_id = JourneyNodeId(f"{link_id}:{original.id}")
+        namespaced_id = JourneyNodeId(f"{link_id}~{original.id}")
         nodes[namespaced_id] = replace(
             original,
             id=namespaced_id,
@@ -272,14 +272,12 @@ class JourneyGuidelineProjection:
             node: JourneyNode,
             edge: JourneyEdge | None,
         ) -> JourneyLinkId | None:
-            """Extract link_id from edge or node journey_node metadata."""
-            if edge:
-                edge_jn = edge.metadata.get("journey_node")
-                if isinstance(edge_jn, dict) and "link_id" in edge_jn:
-                    return JourneyLinkId(cast(str, edge_jn["link_id"]))
-
+            """Extract link_id only for nodes that originated from a sub-journey link."""
+            # Only return link_id if the node itself is a linked node (has original_node_id).
+            # Parent nodes (like merge_fork) should not get link_id even if they receive
+            # edges from linked contexts.
             node_jn = node.metadata.get("journey_node")
-            if isinstance(node_jn, dict) and "link_id" in node_jn:
+            if isinstance(node_jn, dict) and "original_node_id" in node_jn and "link_id" in node_jn:
                 return JourneyLinkId(cast(str, node_jn["link_id"]))
 
             return None
@@ -296,7 +294,7 @@ class JourneyGuidelineProjection:
             link_id: JourneyLinkId | None,
         ) -> JourneyEdgeId:
             """Get original edge ID by stripping link_id prefix from scoped edges."""
-            if link_id and edge.id.startswith(f"{link_id}:"):
+            if link_id and edge.id.startswith(f"{link_id}~"):
                 return JourneyEdgeId(edge.id[len(link_id) + 1 :])
             return edge.id
 

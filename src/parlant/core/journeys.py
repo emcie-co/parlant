@@ -933,10 +933,8 @@ class JourneyVectorStore(JourneyStore):
         self,
         link: JourneyLink,
     ) -> JourneyLinkAssociationDocument:
-        id_checksum = md5_checksum(f"{link.journey_id}{link.source_node_id}{link.sub_journey_id}")
-
         return JourneyLinkAssociationDocument(
-            id=ObjectId(self._id_generator.generate(id_checksum)),
+            id=ObjectId(link.id),
             version=self.VERSION.to_string(),
             creation_utc=link.creation_utc.isoformat(),
             journey_id=link.journey_id,

@@ -517,10 +517,13 @@ class SessionModule:
     ) -> None:
         session = await self._session_store.read_session(session_id)
 
-        events = await self._session_store.list_events(
-            session_id=session_id,
-            min_offset=0,
-            exclude_deleted=True,
+        events = sorted(
+            await self._session_store.list_events(
+                session_id=session_id,
+                min_offset=0,
+                exclude_deleted=True,
+            ),
+            key=lambda event: event.offset,
         )
 
         events_starting_from_min_offset = [e for e in events if e.offset >= min_offset]
@@ -546,10 +549,16 @@ class SessionModule:
             return
 
         state_index_offset = next(
-            i
-            for i, s in enumerate(session.agent_states, start=0)
-            if s.trace_id.startswith(event_at_min_offset.trace_id)
+            (
+                i
+                for i, s in enumerate(session.agent_states, start=0)
+                if s.trace_id.startswith(event_at_min_offset.trace_id)
+            ),
+            None,
         )
+
+        if state_index_offset is None:
+            return
 
         agent_states = session.agent_states[:state_index_offset]
 

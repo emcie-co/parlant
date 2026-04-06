@@ -291,6 +291,15 @@ class JourneyGuidelineProjection:
                 return JourneyNodeId(cast(str, node_jn["original_node_id"]))
             return node.id
 
+        def _get_original_edge_id(
+            edge: JourneyEdge,
+            link_id: JourneyLinkId | None,
+        ) -> JourneyEdgeId:
+            """Get original edge ID by stripping link_id prefix from scoped edges."""
+            if link_id and edge.id.startswith(f"{link_id}:"):
+                return JourneyEdgeId(edge.id[len(link_id) + 1 :])
+            return edge.id
+
         def _resolve_guideline_id(
             node: JourneyNode,
             edge: JourneyEdge | None,
@@ -298,9 +307,10 @@ class JourneyGuidelineProjection:
             """Build guideline ID using original node/edge IDs + link_id."""
             original_node_id = _get_original_node_id(node)
             link_id = _get_link_context(node, edge)
+            original_edge_id = _get_original_edge_id(edge, link_id) if edge else None
             return format_journey_node_guideline_id(
                 original_node_id,
-                edge.id if edge else None,
+                original_edge_id,
                 link_id,
             )
 

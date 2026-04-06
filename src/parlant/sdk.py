@@ -483,6 +483,16 @@ class NLPServices:
         return DeepSeekService(container[Logger], container[Tracer], container[Meter])
 
     @staticmethod
+    def novita(container: Container) -> NLPService:
+        """Creates a Novita AI NLPService instance using the provided container."""
+        from parlant.adapters.nlp.novita_service import NovitaService
+
+        if error := NovitaService.verify_environment():
+            raise NLPServiceConfigurationError(error)
+
+        return NovitaService(container[Logger], container[Tracer], container[Meter])
+
+    @staticmethod
     def snowflake(container: Container) -> NLPService:
         """Creates a SnowflakeCortexService instance using the provided container."""
         from parlant.adapters.nlp.snowflake_cortex_service import SnowflakeCortexService

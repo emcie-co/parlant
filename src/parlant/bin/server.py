@@ -283,6 +283,7 @@ NLPServiceName = Literal[
     "together",
     "litellm",
     "modelscope",
+    "novita",
 ]
 
 
@@ -393,6 +394,16 @@ def load_together(container: Container) -> NLPService:
     )
 
 
+def load_novita(container: Container) -> NLPService:
+    return load_nlp_service(
+        container,
+        "Novita AI",
+        "novita",
+        "NovitaService",
+        "parlant.adapters.nlp.novita_service",
+    )
+
+
 def load_litellm(container: Container) -> NLPService:
     from parlant.adapters.nlp.litellm_service import LiteLLMService
 
@@ -425,6 +436,7 @@ NLP_SERVICE_INITIALIZERS: dict[NLPServiceName, Callable[[Container], NLPService]
     "together": load_together,
     "litellm": load_litellm,
     "modelscope": load_modelscope,
+    "novita": load_novita,
 }
 
 
@@ -1212,6 +1224,12 @@ def main() -> None:
         default=False,
     )
     @click.option(
+        "--novita",
+        is_flag=True,
+        help="Run with Novita AI. The environment variable NOVITA_API_KEY must be set.",
+        default=False,
+    )
+    @click.option(
         "--litellm",
         is_flag=True,
         help="""Run with LiteLLM. The following environment variables must be set:
@@ -1270,6 +1288,7 @@ def main() -> None:
         anthropic: bool,
         cerebras: bool,
         together: bool,
+        novita: bool,
         litellm: bool,
         modelscope: bool,
         log_level: str,
@@ -1292,6 +1311,7 @@ def main() -> None:
                     anthropic,
                     cerebras,
                     together,
+                    novita,
                     litellm,
                     modelscope,
                 ]
@@ -1302,7 +1322,7 @@ def main() -> None:
             sys.exit(1)
 
         non_default_service_selected = any(
-            (aws, azure, deepseek, gemini, anthropic, cerebras, together, litellm, modelscope)
+            (aws, azure, deepseek, gemini, anthropic, cerebras, together, novita, litellm, modelscope)
         )
 
         if not non_default_service_selected:
@@ -1332,6 +1352,9 @@ def main() -> None:
         elif together:
             nlp_service = "together"
             require_env_keys(["TOGETHER_API_KEY"])
+        elif novita:
+            nlp_service = "novita"
+            require_env_keys(["NOVITA_API_KEY"])
         elif litellm:
             nlp_service = "litellm"
             require_env_keys(["LITELLM_PROVIDER_MODEL_NAME"])

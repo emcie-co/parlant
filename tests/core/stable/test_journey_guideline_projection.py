@@ -63,6 +63,138 @@ def _get_actions(guidelines: Sequence[Guideline]) -> set[str | None]:
     return {g.content.action for g in guidelines}
 
 
+async def test_that_projection_resolves_multi_step_sub_journey_with_tool(
+    container: Container,
+) -> None:
+    """Mimics the SDK validation linking test structure to debug projection."""
+    journey_store = container[JourneyStore]
+    guideline_store = container[GuidelineStore]
+
+    projection = JourneyGuidelineProjection(
+        journey_store=journey_store,
+        guideline_store=guideline_store,
+    )
+
+    # Sub-journey: root -> ask_name -> validate_tool (leaf)
+    sub = await journey_store.create_journey(
+        title="Validation Sub",
+        description="sub",
+        conditions=[],
+    )
+    ask_name = await journey_store.create_node(sub.id, action="ask for name", tools=[])
+    validate_tool = await journey_store.create_node(sub.id, action="validate", tools=[])
+    await journey_store.create_edge(sub.id, source=sub.root_id, target=ask_name.id, condition=None)
+    await journey_store.create_edge(
+        sub.id, source=ask_name.id, target=validate_tool.id, condition=None
+    )
+
+    # Parent: root -> room_type --(link)--> sub --> [merge_fork] -> confirmed / denied
+    parent = await journey_store.create_journey(
+        title="Parent",
+        description="parent",
+        conditions=[],
+    )
+    room_type = await journey_store.create_node(parent.id, action="ask room type", tools=[])
+    await journey_store.create_edge(
+        parent.id, source=parent.root_id, target=room_type.id, condition=None
+    )
+
+    link = await journey_store.create_link(
+        journey_id=parent.id,
+        source_node_id=room_type.id,
+        sub_journey_id=sub.id,
+    )
+
+    confirmed = await journey_store.create_node(parent.id, action="booking confirmed", tools=[])
+    denied = await journey_store.create_node(parent.id, action="booking denied", tools=[])
+    await journey_store.create_edge(
+        parent.id,
+        source=link.merge_node_id,
+        target=confirmed.id,
+        condition="if validation successful",
+    )
+    await journey_store.create_edge(
+        parent.id,
+        source=link.merge_node_id,
+        target=denied.id,
+        condition="if validation failed",
+    )
+
+    guidelines = await projection.project_journey_to_guidelines(parent.id)
+
+    actions = _get_actions(guidelines)
+    # All nodes should be represented
+    assert "ask room type" in actions
+    assert "ask for name" in actions
+    assert "validate" in actions
+    assert "booking confirmed" in actions
+    assert "booking denied" in actions
+
+    # Follow-up chain integrity
+    all_ids = {g.id for g in guidelines}
+    for g in guidelines:
+        followups = cast(dict[str, JSONSerializable], g.metadata.get("journey_node", {})).get(
+            "follow_ups", []
+        )
+        for f_id in cast(list[str], followups):
+            assert f_id in all_ids, (
+                f"Follow-up ID {f_id} listed in {g.id} but no guideline was created for it"
+            )
+
+    # Verify the chain: room_type -> ask_name -> validate -> merge_fork -> confirmed/denied
+    room_g = next(g for g in guidelines if g.content.action == "ask room type")
+    room_followups = cast(
+        list[str],
+        cast(dict[str, JSONSerializable], room_g.metadata["journey_node"])["follow_ups"],
+    )
+    assert len(room_followups) > 0, "room_type should have follow-ups to sub-journey"
+
+    # ask_name should have follow-up to validate
+    name_g = [g for g in guidelines if g.content.action == "ask for name"]
+    assert len(name_g) >= 1
+    name_followups = cast(
+        list[str],
+        cast(dict[str, JSONSerializable], name_g[0].metadata["journey_node"])["follow_ups"],
+    )
+    assert len(name_followups) > 0, "ask_name should have follow-up to validate"
+
+    # validate should have follow-up to merge_fork
+    val_g = [g for g in guidelines if g.content.action == "validate"]
+    assert len(val_g) >= 1
+    val_followups = cast(
+        list[str],
+        cast(dict[str, JSONSerializable], val_g[0].metadata["journey_node"])["follow_ups"],
+    )
+    assert len(val_followups) > 0, "validate should have follow-up to merge_fork"
+
+    # merge_fork should have follow-ups to confirmed and denied
+    # The merge_fork has action=None
+    fork_guidelines = [
+        g
+        for g in guidelines
+        if g.content.action is None
+        and cast(dict[str, JSONSerializable], g.metadata.get("journey_node", {})).get("kind")
+        == "fork"
+    ]
+    # There could be multiple guidelines for the fork (one per incoming edge)
+    fork_followup_actions: set[str | None] = set()
+    for fg in fork_guidelines:
+        fups = cast(
+            list[str],
+            cast(dict[str, JSONSerializable], fg.metadata["journey_node"])["follow_ups"],
+        )
+        for fup_id in fups:
+            fup_g = next((g for g in guidelines if g.id == fup_id), None)
+            if fup_g:
+                fork_followup_actions.add(fup_g.content.action)
+    assert "booking confirmed" in fork_followup_actions, (
+        f"merge_fork should have follow-up to 'booking confirmed', got {fork_followup_actions}"
+    )
+    assert "booking denied" in fork_followup_actions, (
+        f"merge_fork should have follow-up to 'booking denied', got {fork_followup_actions}"
+    )
+
+
 async def test_that_projection_resolves_sub_journey_link(container: Container) -> None:
     journey_store = container[JourneyStore]
     guideline_store = container[GuidelineStore]

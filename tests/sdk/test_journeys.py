@@ -1610,103 +1610,105 @@ class Test_that_three_journeys_can_be_concatenated(SDKTest):
 
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
-            name="Three Journey Agent",
-            description="Agent that links three journeys in sequence",
+            name="Loan Application Agent",
+            description="Agent for handling loan applications with identity verification and credit check",
             composition_mode=p.CompositionMode.STRICT,
         )
 
         # Create canned responses
-        self.step1_response = await server.create_canned_response(
-            template="Please tell me your name."
+        self.identity_response = await server.create_canned_response(
+            template="Please provide your full name and date of birth for identity verification."
         )
-        self.step2_response = await server.create_canned_response(
-            template="What's your favorite color?"
+        self.credit_response = await server.create_canned_response(
+            template="Thank you. We now need to run a credit check. Please provide your SSN."
         )
-        self.step3_response = await server.create_canned_response(
-            template="All done! Thank you for completing all steps."
+        self.approval_response = await server.create_canned_response(
+            template="Your loan application has been approved. You will receive the details by email."
         )
 
-        # Journey 1: Collect name
-        self.journey1 = await self.agent.create_journey(
-            title="Journey 1 - Name Collection",
+        # Sub-journey 1: Identity Verification
+        self.identity_verification = await self.agent.create_journey(
+            title="Identity Verification",
             conditions=[],
-            description="First journey to collect name",
+            description="Verify the customer's identity by collecting name and date of birth",
         )
 
-        self.name_transition = await self.journey1.initial_state.transition_to(
-            chat_state="Ask for name",
-            canned_responses=[self.step1_response],
+        await self.identity_verification.initial_state.transition_to(
+            chat_state="Ask the customer for their full name and date of birth to verify their identity",
+            canned_responses=[self.identity_response],
         )
 
-        # Journey 2: Collect favorite color
-        self.journey2 = await self.agent.create_journey(
-            title="Journey 2 - Color Collection",
+        # Sub-journey 2: Credit Check
+        self.credit_check = await self.agent.create_journey(
+            title="Credit Check",
             conditions=[],
-            description="Second journey to collect favorite color",
+            description="Run a credit check by collecting the customer's SSN",
         )
 
-        self.color_transition = await self.journey2.initial_state.transition_to(
-            chat_state="Ask for favorite color",
-            canned_responses=[self.step2_response],
+        await self.credit_check.initial_state.transition_to(
+            chat_state="Ask the customer for their SSN to run a credit check",
+            canned_responses=[self.credit_response],
         )
 
-        # Journey 3: Final completion
-        self.journey3 = await self.agent.create_journey(
-            title="Journey 3 - Completion",
+        # Sub-journey 3: Loan Approval
+        self.loan_approval = await self.agent.create_journey(
+            title="Loan Approval",
             conditions=[],
-            description="Third journey to complete process",
+            description="Approve the loan and notify the customer",
         )
 
-        self.completion_transition = await self.journey3.initial_state.transition_to(
-            chat_state="Complete the process",
-            canned_responses=[self.step3_response],
+        await self.loan_approval.initial_state.transition_to(
+            chat_state="Inform the customer that their loan has been approved",
+            canned_responses=[self.approval_response],
         )
 
-        # Main journey that chains all three journeys
+        # Main journey: Loan Application flow chaining all three sub-journeys
         self.main_journey = await self.agent.create_journey(
-            title="Main Journey",
-            conditions=["Customer wants to start process"],
-            description="Main journey that connects the three sub-journeys",
+            title="Loan Application",
+            conditions=["Customer wants to apply for a loan"],
+            description="Process a loan application through identity verification, credit check, and approval",
         )
 
-        # Chain the journeys at the main level: Main -> Journey1 -> Journey2 -> Journey3
-        # First transition: Main -> Journey 1 (name collection)
+        # Chain: Main -> Identity Verification -> Credit Check -> Loan Approval
         self.link1 = await self.main_journey.initial_state.transition_to(
-            journey=self.journey1,
+            journey=self.identity_verification,
         )
 
-        # Second transition: After name collected -> Journey 2 (color collection)
         self.link2 = await self.link1.target.transition_to(
-            journey=self.journey2,
+            journey=self.credit_check,
         )
 
-        # Third transition: After color collected -> Journey 3 (completion)
         self.link3 = await self.link2.target.transition_to(
-            journey=self.journey3,
+            journey=self.loan_approval,
         )
 
     async def run(self, ctx: Context) -> None:
-        # Test the complete flow through all three journeys
         response1 = await ctx.send_and_receive_message(
-            "I want to start the process",
+            "I'd like to apply for a loan",
             recipient=self.agent,
             reuse_session=True,
         )
-        assert response1 == "Please tell me your name."
+        assert (
+            response1
+            == "Please provide your full name and date of birth for identity verification."
+        )
 
         response2 = await ctx.send_and_receive_message(
-            "My name is Alice",
+            "My name is Alice Johnson, born January 15, 1990",
             recipient=self.agent,
             reuse_session=True,
         )
-        assert response2 == "What's your favorite color?"
+        assert response2 == "Thank you. We now need to run a credit check. Please provide your SSN."
 
         response3 = await ctx.send_and_receive_message(
-            "Blue",
+            "My SSN is 123-45-6789",
             recipient=self.agent,
             reuse_session=True,
         )
-        assert response3 == "All done! Thank you for completing all steps."
+        assert (
+            response3
+            == "Your loan application has been approved. You will receive the details by email."
+        )
 
 
 @pytest.mark.engine
@@ -2281,114 +2283,114 @@ class Test_that_tool_state_runs_again_after_missing_data(SDKTest):
 class Test_that_same_sub_journey_can_be_linked_multiple_times_to_same_parent(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
-            name="Multi-Link Agent",
-            description="Agent that links the same sub-journey from two different paths",
+            name="Insurance Agent",
+            description="Agent for handling insurance claims where both car and home claims require the same identity verification",
             composition_mode=p.CompositionMode.STRICT,
         )
 
         # Canned responses
-        self.choose_path_response = await server.create_canned_response(
-            template="Would you like to go through path A or path B?"
+        self.claim_type_response = await server.create_canned_response(
+            template="Is this a car insurance claim or a home insurance claim?"
         )
-        self.validation_response = await server.create_canned_response(
-            template="Please provide your name for validation."
+        self.verification_response = await server.create_canned_response(
+            template="Please provide your policy number for identity verification."
         )
-        self.path_a_done_response = await server.create_canned_response(
-            template="Path A completed after validation."
+        self.car_claim_response = await server.create_canned_response(
+            template="Your car insurance claim has been filed successfully."
         )
-        self.path_b_done_response = await server.create_canned_response(
-            template="Path B completed after validation."
+        self.home_claim_response = await server.create_canned_response(
+            template="Your home insurance claim has been filed successfully."
         )
 
-        # Create a shared validation sub-journey
-        self.validation_journey = await self.agent.create_journey(
-            title="Shared Validation",
+        # Shared identity verification sub-journey (used by both claim types)
+        self.identity_verification = await self.agent.create_journey(
+            title="Policy Holder Verification",
             conditions=[],
-            description="Validate the user by asking for their name",
+            description="Verify the policy holder's identity by asking for their policy number",
         )
 
-        await self.validation_journey.initial_state.transition_to(
-            chat_state="Ask the customer for their name to validate",
-            canned_responses=[self.validation_response],
+        await self.identity_verification.initial_state.transition_to(
+            chat_state="Ask the customer for their policy number to verify their identity",
+            canned_responses=[self.verification_response],
         )
 
-        # Create the main journey with two paths that both link to the same sub-journey
+        # Main journey: route to car or home claim, both requiring identity verification
         self.main_journey = await self.agent.create_journey(
-            title="Dual Path Journey",
-            conditions=["Customer needs service"],
-            description="Route customer through path A or B, both requiring validation",
+            title="Insurance Claim",
+            conditions=["Customer wants to file an insurance claim"],
+            description="Process insurance claims for car or home, both requiring identity verification",
         )
 
-        self.choose_path = await self.main_journey.initial_state.transition_to(
-            chat_state="Ask which path the customer wants",
-            canned_responses=[self.choose_path_response],
+        self.ask_claim_type = await self.main_journey.initial_state.transition_to(
+            chat_state="Ask the customer whether this is a car or home insurance claim",
+            canned_responses=[self.claim_type_response],
         )
 
-        # Path A -> validation -> done
-        self.path_a_validation = await self.choose_path.target.transition_to(
-            condition="if customer chooses path A",
-            journey=self.validation_journey,
+        # Car claim path -> identity verification -> claim filed
+        self.car_verification = await self.ask_claim_type.target.transition_to(
+            condition="if customer has a car insurance claim",
+            journey=self.identity_verification,
         )
 
-        await self.path_a_validation.target.transition_to(
-            condition="validation completed",
-            chat_state="Confirm path A is done after validation",
-            canned_responses=[self.path_a_done_response],
+        await self.car_verification.target.transition_to(
+            condition="identity has been verified",
+            chat_state="File the car insurance claim and confirm to the customer",
+            canned_responses=[self.car_claim_response],
         )
 
-        # Path B -> validation (same sub-journey!) -> done
-        self.path_b_validation = await self.choose_path.target.transition_to(
-            condition="if customer chooses path B",
-            journey=self.validation_journey,
+        # Home claim path -> identity verification (same sub-journey!) -> claim filed
+        self.home_verification = await self.ask_claim_type.target.transition_to(
+            condition="if customer has a home insurance claim",
+            journey=self.identity_verification,
         )
 
-        await self.path_b_validation.target.transition_to(
-            condition="validation completed",
-            chat_state="Confirm path B is done after validation",
-            canned_responses=[self.path_b_done_response],
+        await self.home_verification.target.transition_to(
+            condition="identity has been verified",
+            chat_state="File the home insurance claim and confirm to the customer",
+            canned_responses=[self.home_claim_response],
         )
 
     async def run(self, ctx: Context) -> None:
-        # Test path A
+        # Test car claim path
         response1 = await ctx.send_and_receive_message(
-            "I need some service",
+            "I need to file an insurance claim",
             recipient=self.agent,
             reuse_session=True,
         )
-        assert response1 == "Would you like to go through path A or path B?"
+        assert response1 == "Is this a car insurance claim or a home insurance claim?"
 
         response2 = await ctx.send_and_receive_message(
-            "I want path A",
+            "It's for my car",
             recipient=self.agent,
             reuse_session=True,
         )
-        assert response2 == "Please provide your name for validation."
+        assert response2 == "Please provide your policy number for identity verification."
 
         response3 = await ctx.send_and_receive_message(
-            "My name is Alice",
+            "My policy number is CAR-12345",
             recipient=self.agent,
             reuse_session=True,
         )
-        assert response3 == "Path A completed after validation."
+        assert response3 == "Your car insurance claim has been filed successfully."
 
-        # Test path B with new session
+        # Test home claim path with new session
         response4 = await ctx.send_and_receive_message(
-            "I need some service",
+            "I need to file an insurance claim",
             recipient=self.agent,
             reuse_session=False,
         )
-        assert response4 == "Would you like to go through path A or path B?"
+        assert response4 == "Is this a car insurance claim or a home insurance claim?"
 
         response5 = await ctx.send_and_receive_message(
-            "I want path B",
+            "It's for my home",
             recipient=self.agent,
             reuse_session=True,
         )
-        assert response5 == "Please provide your name for validation."
+        assert response5 == "Please provide your policy number for identity verification."
 
         response6 = await ctx.send_and_receive_message(
-            "My name is Bob",
+            "My policy number is HOME-67890",
             recipient=self.agent,
             reuse_session=True,
         )
-        assert response6 == "Path B completed after validation."
+        assert response6 == "Your home insurance claim has been filed successfully."

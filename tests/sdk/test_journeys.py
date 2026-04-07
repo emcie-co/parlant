@@ -2519,3 +2519,55 @@ class Test_that_linked_journey_projection_produces_correct_guidelines(SDKTest):
         assert verify_g[0].id in collect_followups, (
             f"Verify {verify_g[0].id} should be in collect's follow-ups {collect_followups}"
         )
+
+
+class Test_that_projection_works_when_linking_directly_from_root(SDKTest):
+    """Verifies projection when the initial_state links directly to a sub-journey
+    (no intermediate state before the link)."""
+
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Direct Link Agent",
+            description="Agent that links from root",
+        )
+
+        self.sub_journey = await self.agent.create_journey(
+            title="Identity Verification",
+            conditions=[],
+            description="Verify identity",
+        )
+        await self.sub_journey.initial_state.transition_to(
+            chat_state="Ask for ID number",
+        )
+
+        self.main_journey = await self.agent.create_journey(
+            title="Direct Link Journey",
+            conditions=["Customer wants verification"],
+            description="Link directly from root to sub-journey",
+        )
+
+        # Link directly from initial_state (root) — no intermediate node
+        self.link = await self.main_journey.initial_state.transition_to(
+            journey=self.sub_journey,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
+        from parlant.core.guidelines import GuidelineStore as _GuidelineStore
+
+        journey_store = ctx.container[JourneyStore]
+        guideline_store = ctx.container[_GuidelineStore]
+        projection = JourneyGuidelineProjection(
+            journey_store=journey_store,
+            guideline_store=guideline_store,
+        )
+
+        guidelines = await projection.project_journey_to_guidelines(self.main_journey.id)
+
+        actions = {g.content.action for g in guidelines}
+        assert "Ask for ID number" in actions, (
+            f"Sub-journey node missing from projection. Actions: {actions}"
+        )
+        assert len(guidelines) > 1, (
+            f"Expected more than just root, got {len(guidelines)} guidelines"
+        )

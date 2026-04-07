@@ -2306,3 +2306,133 @@ class Test_that_same_sub_journey_can_be_linked_multiple_times_to_same_parent(SDK
             reuse_session=True,
         )
         assert response6 == "Your home insurance claim has been filed successfully."
+
+
+class Test_that_linked_journey_projection_produces_correct_guidelines(SDKTest):
+    """Verifies that the SDK's create_link approach produces correct store state
+    and that the projection generates the expected guideline chain."""
+
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Projection Test Agent",
+            description="Agent to verify projection of linked journeys",
+        )
+
+        # Sub-journey: identity verification
+        self.sub_journey = await self.agent.create_journey(
+            title="Identity Verification",
+            conditions=[],
+            description="Verify the customer's identity",
+        )
+
+        self.verify_transition = await self.sub_journey.initial_state.transition_to(
+            chat_state="Ask the customer for their ID number",
+        )
+
+        # Main journey: collect info -> link to sub-journey -> confirm
+        self.main_journey = await self.agent.create_journey(
+            title="Account Opening",
+            conditions=["Customer wants to open an account"],
+            description="Open a new bank account with identity verification",
+        )
+
+        self.collect_transition = await self.main_journey.initial_state.transition_to(
+            chat_state="Ask the customer what type of account they want",
+        )
+
+        self.link_transition = await self.collect_transition.target.transition_to(
+            journey=self.sub_journey,
+        )
+
+        self.confirm_transition = await self.link_transition.target.transition_to(
+            condition="if identity is verified",
+            chat_state="Confirm the account has been opened",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
+        from parlant.core.guidelines import GuidelineStore as _GuidelineStore
+
+        journey_store = ctx.container[JourneyStore]
+        guideline_store = ctx.container[_GuidelineStore]
+
+        # Verify links were created
+        links = await journey_store.list_links(self.main_journey.id)
+        assert len(links) == 1, f"Expected 1 link, got {len(links)}"
+        link = links[0]
+        assert link.sub_journey_id == self.sub_journey.id
+        assert link.source_node_id == self.collect_transition.target.id
+
+        # Verify nodes in parent journey
+        parent_nodes = await journey_store.list_nodes(self.main_journey.id)
+        parent_node_ids = {n.id for n in parent_nodes}
+        assert self.main_journey.initial_state.id in parent_node_ids, "Root node missing"
+        assert self.collect_transition.target.id in parent_node_ids, "Collect node missing"
+        assert link.merge_node_id in parent_node_ids, "Merge fork node missing"
+        assert self.confirm_transition.target.id in parent_node_ids, "Confirm node missing"
+
+        # Verify edges in parent journey (real edges, not virtual)
+        parent_edges = await journey_store.list_edges(self.main_journey.id)
+        parent_edge_pairs = [(e.source, e.target) for e in parent_edges]
+        # root -> collect
+        assert (
+            self.main_journey.initial_state.id,
+            self.collect_transition.target.id,
+        ) in parent_edge_pairs, f"Missing root->collect edge. Edges: {parent_edge_pairs}"
+        # merge_fork -> confirm
+        assert (link.merge_node_id, self.confirm_transition.target.id) in parent_edge_pairs, (
+            f"Missing merge_fork->confirm edge. Edges: {parent_edge_pairs}"
+        )
+
+        # Run projection
+        projection = JourneyGuidelineProjection(
+            journey_store=journey_store,
+            guideline_store=guideline_store,
+        )
+        guidelines = await projection.project_journey_to_guidelines(self.main_journey.id)
+
+        actions = {g.content.action for g in guidelines}
+        assert "Ask the customer what type of account they want" in actions, (
+            f"Missing collect action. Actions: {actions}"
+        )
+        assert "Ask the customer for their ID number" in actions, (
+            f"Missing sub-journey verify action. Actions: {actions}"
+        )
+        assert "Confirm the account has been opened" in actions, (
+            f"Missing confirm action. Actions: {actions}"
+        )
+
+        # Verify follow-up chain integrity
+        from parlant.core.common import JSONSerializable as _JSONSerializable
+        from typing import cast as _cast
+
+        all_ids = {g.id for g in guidelines}
+        for g in guidelines:
+            jn = _cast(dict[str, _JSONSerializable], g.metadata.get("journey_node", {}))
+            followups = _cast(list[str], jn.get("follow_ups", []))
+            for f_id in followups:
+                assert f_id in all_ids, f"Dangling follow-up {f_id} in {g.id}"
+
+        # Verify the chain: collect -> verify (sub-journey) -> fork -> confirm
+        collect_g = [
+            g
+            for g in guidelines
+            if g.content.action == "Ask the customer what type of account they want"
+        ]
+        assert len(collect_g) >= 1, "Collect guideline not found"
+        collect_followups = _cast(
+            list[str],
+            _cast(dict[str, _JSONSerializable], collect_g[0].metadata["journey_node"])[
+                "follow_ups"
+            ],
+        )
+        assert len(collect_followups) > 0, "Collect node should have follow-ups to sub-journey"
+
+        verify_g = [
+            g for g in guidelines if g.content.action == "Ask the customer for their ID number"
+        ]
+        assert len(verify_g) >= 1, "Verify guideline not found"
+        # Verify should be reachable from collect
+        assert verify_g[0].id in collect_followups, (
+            f"Verify {verify_g[0].id} should be in collect's follow-ups {collect_followups}"
+        )

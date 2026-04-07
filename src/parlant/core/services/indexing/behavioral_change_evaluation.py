@@ -532,15 +532,8 @@ class JourneyEvaluator:
                 if node_id == JourneyStore.END_NODE_ID:
                     continue
 
-                # Virtual nodes from sub-journey link resolution have
-                # namespaced IDs ({link_id}/{original_node_id}). Read the
-                # original node from the sub-journey store instead.
-                actual_node_id = node_id
-                if "/" in node_id:
-                    actual_node_id = JourneyNodeId(node_id.split("/")[-1])
-
                 try:
-                    node = await self._journey_store.read_node(node_id=actual_node_id)
+                    node = await self._journey_store.read_node(node_id=node_id)
                 except ItemNotFoundError:
                     continue
 

@@ -1628,11 +1628,11 @@ class Test_that_three_linked_journeys_can_be_chained(SDKTest):
         self.identity_verification = await self.agent.create_journey(
             title="Identity Verification",
             conditions=[],
-            description="Verify the customer's identity by collecting name and date of birth",
+            description="Verify the customer's identity by collecting name",
         )
 
         await self.identity_verification.initial_state.transition_to(
-            chat_state="Ask the customer for their full name and date of birth to verify their identity",
+            chat_state="Ask the customer for their full name to verify their identity",
             canned_responses=[self.identity_response],
         )
 
@@ -1686,10 +1686,7 @@ class Test_that_three_linked_journeys_can_be_chained(SDKTest):
             recipient=self.agent,
             reuse_session=True,
         )
-        assert (
-            response1
-            == "Please provide your full name and date of birth for identity verification."
-        )
+        assert response1 == "Please provide your full name for identity verification."
 
         response2 = await ctx.send_and_receive_message(
             "My name is Alice Johnson, born January 15, 1990",
@@ -2493,3 +2490,105 @@ class Test_that_projection_works_when_linking_directly_from_root(SDKTest):
         assert len(guidelines) > 1, (
             f"Expected more than just root, got {len(guidelines)} guidelines"
         )
+
+
+class Test_that_chained_linked_journeys_have_reachable_followups_in_node_metadata(SDKTest):
+    """After SDK setup (which triggers evaluation), the sub-journey nodes should
+    have reachable_follow_ups in their metadata with real paths, not ['None']."""
+
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Loan Agent",
+            description="Loan application agent",
+        )
+
+        # Sub-journey 1: Identity
+        self.identity = await self.agent.create_journey(
+            title="Identity Verification",
+            conditions=[],
+            description="Verify identity",
+        )
+        await self.identity.initial_state.transition_to(
+            chat_state="Ask for full name and date of birth",
+        )
+
+        # Sub-journey 2: Credit
+        self.credit = await self.agent.create_journey(
+            title="Credit Check",
+            conditions=[],
+            description="Run credit check",
+        )
+        await self.credit.initial_state.transition_to(
+            chat_state="Ask for SSN",
+        )
+
+        # Sub-journey 3: Approval
+        self.approval = await self.agent.create_journey(
+            title="Loan Approval",
+            conditions=[],
+            description="Approve loan",
+        )
+        await self.approval.initial_state.transition_to(
+            chat_state="Inform customer loan is approved",
+        )
+
+        # Main journey: chain all three
+        self.main = await self.agent.create_journey(
+            title="Loan Application",
+            conditions=["Customer wants a loan"],
+            description="Full loan application process",
+        )
+        link1 = await self.main.initial_state.transition_to(journey=self.identity)
+        link2 = await link1.target.transition_to(journey=self.credit)
+        await link2.target.transition_to(journey=self.approval)
+
+    async def run(self, ctx: Context) -> None:
+        from typing import cast as _cast
+        from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
+        from parlant.core.guidelines import GuidelineStore as _GuidelineStore
+        from parlant.core.common import JSONSerializable as _JSON
+
+        journey_store = ctx.container[JourneyStore]
+        guideline_store = ctx.container[_GuidelineStore]
+        projection = JourneyGuidelineProjection(
+            journey_store=journey_store,
+            guideline_store=guideline_store,
+        )
+
+        guidelines = await projection.project_journey_to_guidelines(self.main.id)
+
+        # Print all guidelines for debugging
+        for g in guidelines:
+            jn = _cast(dict[str, _JSON], g.metadata.get("journey_node", {}))
+            print(
+                f"  [{jn.get('index')}] {g.id} | action={g.content.action!r} | "
+                f"followups={jn.get('follow_ups', [])} | "
+                f"reachable={jn.get('reachable_follow_ups', 'NOT SET')}"
+            )
+
+        # Verify reachable_follow_ups are set on non-terminal action nodes
+        action_guidelines = [g for g in guidelines if g.content.action is not None]
+        non_terminal = [
+            g
+            for g in action_guidelines
+            if _cast(dict[str, _JSON], g.metadata.get("journey_node", {})).get("follow_ups", [])
+        ]
+
+        for g in non_terminal:
+            jn = _cast(dict[str, _JSON], g.metadata.get("journey_node", {}))
+            reachable = jn.get("reachable_follow_ups")
+            assert reachable is not None, (
+                f"Node [{jn.get('index')}] action={g.content.action!r} has no reachable_follow_ups"
+            )
+            assert len(_cast(list[dict[str, _JSON]], reachable)) > 0, (
+                f"Node [{jn.get('index')}] action={g.content.action!r} has empty reachable_follow_ups"
+            )
+
+            # Check that paths don't contain 'None' as the only element
+            for r in _cast(list[dict[str, _JSON]], reachable):
+                path = _cast(list[str], r["path"])
+                assert path != ["None"], (
+                    f"Node [{jn.get('index')}] action={g.content.action!r}: "
+                    f"reachable_follow_ups has path=['None'] — "
+                    f"condition={r['condition']}"
+                )

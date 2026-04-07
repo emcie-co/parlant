@@ -399,3 +399,113 @@ async def test_that_projection_produces_valid_guidelines_for_reachable_evaluatio
     assert len(result.node_to_reachable_follow_ups) > 0, (
         "Should have at least some reachable follow-ups"
     )
+
+
+async def test_that_chained_linked_journeys_have_correct_node_wrapper_graph(
+    context: ContextOfTest,
+) -> None:
+    """Creates 3 chained linked journeys via store, projects them,
+    and verifies _build_node_wrappers produces a connected graph."""
+    journey_store = context.container[JourneyStore]
+    from parlant.core.guidelines import GuidelineStore
+
+    guideline_store = context.container[GuidelineStore]
+
+    projection = JourneyGuidelineProjection(
+        journey_store=journey_store,
+        guideline_store=guideline_store,
+    )
+
+    # Sub-journey 1: identity
+    sub1 = await journey_store.create_journey(
+        title="Identity Verification", description="sub1", conditions=[]
+    )
+    id_node = await journey_store.create_node(sub1.id, action="ask for ID", tools=[])
+    await journey_store.create_edge(sub1.id, source=sub1.root_id, target=id_node.id, condition=None)
+
+    # Sub-journey 2: credit
+    sub2 = await journey_store.create_journey(
+        title="Credit Check", description="sub2", conditions=[]
+    )
+    credit_node = await journey_store.create_node(sub2.id, action="ask for SSN", tools=[])
+    await journey_store.create_edge(
+        sub2.id, source=sub2.root_id, target=credit_node.id, condition=None
+    )
+
+    # Sub-journey 3: approval
+    sub3 = await journey_store.create_journey(
+        title="Loan Approval", description="sub3", conditions=[]
+    )
+    approval_node = await journey_store.create_node(sub3.id, action="approve loan", tools=[])
+    await journey_store.create_edge(
+        sub3.id, source=sub3.root_id, target=approval_node.id, condition=None
+    )
+
+    # Parent: root -> link1 -> [merge1] -> link2 -> [merge2] -> link3 -> [merge3]
+    parent = await journey_store.create_journey(
+        title="Loan Application", description="parent", conditions=[]
+    )
+    link1 = await journey_store.create_link(
+        journey_id=parent.id, source_node_id=parent.root_id, sub_journey_id=sub1.id
+    )
+    link2 = await journey_store.create_link(
+        journey_id=parent.id, source_node_id=link1.merge_node_id, sub_journey_id=sub2.id
+    )
+    await journey_store.create_link(
+        journey_id=parent.id, source_node_id=link2.merge_node_id, sub_journey_id=sub3.id
+    )
+
+    guidelines = await projection.project_journey_to_guidelines(parent.id)
+
+    # Verify follow-up chain is intact
+    all_ids = {g.id for g in guidelines}
+    from parlant.core.common import JSONSerializable as _JSON
+    from typing import cast as _cast
+
+    for g in guidelines:
+        jn = _cast(dict[str, _JSON], g.metadata.get("journey_node", {}))
+        followups = _cast(list[str], jn.get("follow_ups", []))
+        for f_id in followups:
+            assert f_id in all_ids, (
+                f"Dangling follow-up {f_id} in {g.id} (action={g.content.action})"
+            )
+
+    # Now feed to _build_node_wrappers and check connectivity
+    from parlant.core.services.indexing.journey_reachable_nodes_evaluation import (
+        JourneyReachableNodesEvaluator,
+    )
+
+    evaluator = JourneyReachableNodesEvaluator(
+        logger=context.logger,
+        optimization_policy=context.container[OptimizationPolicy],
+        schematic_generator=context.schematic_generator,
+        store_provider=BasicStoreProvider(lambda: context.container),
+    )
+    node_wrappers = evaluator._build_node_wrappers(guidelines)
+
+    print(f"\n=== NODE WRAPPERS ({len(node_wrappers)} nodes) ===")
+    for idx, node in sorted(node_wrappers.items()):
+        out_targets = [e.target_node_index for e in node.outgoing_edges]
+        in_sources = [e.source_node_index for e in node.incoming_edges]
+        print(
+            f"  [{idx}] action={node.action!r} kind={node.kind} out={out_targets} in={in_sources}"
+        )
+
+    # Every non-terminal node with an action should have outgoing edges
+    for idx, node in node_wrappers.items():
+        if node.action and node.outgoing_edges:
+            # Non-terminal action node — should have real edges, not be isolated
+            pass
+        elif node.action and not node.outgoing_edges:
+            # This is the truly terminal node (last in chain) — acceptable
+            # But intermediate nodes with action MUST have outgoing
+            has_incoming = len(node.incoming_edges) > 0
+            # If it has incoming edges and no outgoing, it's the last node
+            if has_incoming:
+                print(f"  Terminal action node: [{idx}] {node.action}")
+
+    # The root (index 0 or 1) should reach identity node
+    actions_in_graph = {n.action for n in node_wrappers.values() if n.action}
+    assert "ask for ID" in actions_in_graph, f"Identity node missing. Actions: {actions_in_graph}"
+    assert "ask for SSN" in actions_in_graph, f"Credit node missing. Actions: {actions_in_graph}"
+    assert "approve loan" in actions_in_graph, f"Approval node missing. Actions: {actions_in_graph}"

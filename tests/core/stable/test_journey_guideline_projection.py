@@ -438,7 +438,7 @@ async def test_that_journey_metadata_can_be_set_and_read(container: Container) -
     assert read_journey.metadata == updated.metadata
 
 
-async def test_that_projection_collapses_pass_through_forks_for_concatenated_journeys(
+async def test_that_projection_collapses_pass_through_forks_for_chained_linked_journeys(
     container: Container,
 ) -> None:
     """Three sub-journeys chained: identity -> credit -> approval.

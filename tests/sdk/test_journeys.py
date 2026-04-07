@@ -2682,3 +2682,77 @@ class Test_that_chained_linked_journeys_have_reachable_followups_in_node_metadat
                     f"reachable_follow_ups has path=['None'] — "
                     f"condition={r['condition']}"
                 )
+
+
+class Test_that_sub_journey_with_conditions_can_be_linked(SDKTest):
+    """A sub-journey that has its own trigger conditions (can be activated
+    independently) should also work when linked from a parent journey."""
+
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Bank Agent",
+            description="Agent for bank operations",
+            composition_mode=p.CompositionMode.STRICT,
+        )
+
+        self.verify_response = await server.create_canned_response(
+            template="Please provide your account number for verification."
+        )
+        self.transfer_response = await server.create_canned_response(
+            template="How much would you like to transfer and to which account?"
+        )
+        self.done_response = await server.create_canned_response(
+            template="Your transfer has been completed successfully."
+        )
+
+        # Sub-journey WITH conditions — can be triggered independently
+        self.verification_journey = await self.agent.create_journey(
+            title="Account Verification",
+            conditions=["Customer needs account verification"],
+            description="Verify customer account",
+        )
+        await self.verification_journey.initial_state.transition_to(
+            chat_state="Ask the customer for their account number to verify",
+            canned_responses=[self.verify_response],
+        )
+
+        # Main journey that links to the verification sub-journey
+        self.transfer_journey = await self.agent.create_journey(
+            title="Bank Transfer",
+            conditions=["Customer wants to make a bank transfer"],
+            description="Process a bank transfer with account verification",
+        )
+        self.transfer_details = await self.transfer_journey.initial_state.transition_to(
+            chat_state="Ask how much to transfer and to which account",
+            canned_responses=[self.transfer_response],
+        )
+        self.link = await self.transfer_details.target.transition_to(
+            journey=self.verification_journey,
+        )
+        await self.link.target.transition_to(
+            condition="if account is verified",
+            chat_state="Complete the transfer and confirm",
+            canned_responses=[self.done_response],
+        )
+
+    async def run(self, ctx: Context) -> None:
+        response1 = await ctx.send_and_receive_message(
+            "I want to transfer money",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert response1 == "How much would you like to transfer and to which account?"
+
+        response2 = await ctx.send_and_receive_message(
+            "Transfer 500 dollars to my savings account",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert response2 == "Please provide your account number for verification."
+
+        response3 = await ctx.send_and_receive_message(
+            "My account number is 12345678",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert response3 == "Your transfer has been completed successfully."

@@ -280,6 +280,21 @@ class JourneyStore(ABC):
     ) -> JourneyNode: ...
 
     @abstractmethod
+    async def set_journey_metadata(
+        self,
+        journey_id: JourneyId,
+        key: str,
+        value: JSONSerializable,
+    ) -> Journey: ...
+
+    @abstractmethod
+    async def unset_journey_metadata(
+        self,
+        journey_id: JourneyId,
+        key: str,
+    ) -> Journey: ...
+
+    @abstractmethod
     async def create_edge(
         self,
         journey_id: JourneyId,
@@ -1580,6 +1595,53 @@ class JourneyVectorStore(JourneyStore):
         return self._deserialize_node(result.updated_document)
 
     @override
+    async def set_journey_metadata(
+        self,
+        journey_id: JourneyId,
+        key: str,
+        value: JSONSerializable,
+    ) -> Journey:
+        async with self._lock.writer_lock:
+            doc = await self._collection.find_one({"id": {"$eq": journey_id}})
+
+            if not doc:
+                raise ItemNotFoundError(item_id=UniqueId(journey_id))
+
+            updated_metadata = {**doc.get("metadata", {}), key: value}
+
+            result = await self._collection.update_one(
+                filters={"id": {"$eq": journey_id}},
+                params={"metadata": updated_metadata},
+            )
+
+        assert result.updated_document
+
+        return await self._deserialize(result.updated_document)
+
+    @override
+    async def unset_journey_metadata(
+        self,
+        journey_id: JourneyId,
+        key: str,
+    ) -> Journey:
+        async with self._lock.writer_lock:
+            doc = await self._collection.find_one({"id": {"$eq": journey_id}})
+
+            if not doc:
+                raise ItemNotFoundError(item_id=UniqueId(journey_id))
+
+            updated_metadata = {k: v for k, v in doc.get("metadata", {}).items() if k != key}
+
+            result = await self._collection.update_one(
+                filters={"id": {"$eq": journey_id}},
+                params={"metadata": updated_metadata},
+            )
+
+        assert result.updated_document
+
+        return await self._deserialize(result.updated_document)
+
+    @override
     async def create_edge(
         self,
         journey_id: JourneyId,
@@ -2114,6 +2176,23 @@ class CompositeJourneyStore(JourneyStore):
         key: str,
     ) -> JourneyNode:
         return await self._writable_store.unset_node_metadata(node_id, key)
+
+    @override
+    async def set_journey_metadata(
+        self,
+        journey_id: JourneyId,
+        key: str,
+        value: JSONSerializable,
+    ) -> Journey:
+        return await self._writable_store.set_journey_metadata(journey_id, key, value)
+
+    @override
+    async def unset_journey_metadata(
+        self,
+        journey_id: JourneyId,
+        key: str,
+    ) -> Journey:
+        return await self._writable_store.unset_journey_metadata(journey_id, key)
 
     @override
     async def create_edge(

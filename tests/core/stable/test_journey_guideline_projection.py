@@ -479,10 +479,11 @@ async def test_that_journey_metadata_with_nested_node_evaluation_survives_update
         },
     }
 
-    # This update_journey call triggers KeyError in the transient vector DB
-    updated = await journey_store.update_journey(
+    # Use set_journey_metadata (not update_journey) to avoid vector DB interference
+    updated = await journey_store.set_journey_metadata(
         journey_id=journey.id,
-        params={"metadata": {"node_evaluation": node_evaluation}},
+        key="node_evaluation",
+        value=node_evaluation,
     )
 
     assert "node_evaluation" in updated.metadata
@@ -495,7 +496,7 @@ async def test_that_journey_metadata_with_nested_node_evaluation_survives_update
     assert node_a.id in cast(dict[str, object], stored_eval)
     assert node_b.id in cast(dict[str, object], stored_eval)
 
-    # Verify find_relevant_journeys still works (this is where the KeyError hit)
+    # Verify find_relevant_journeys still works
     all_journeys = await journey_store.list_journeys()
     relevant = await journey_store.find_relevant_journeys(
         query="test", available_journeys=list(all_journeys)

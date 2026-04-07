@@ -4082,6 +4082,13 @@ class Server:
         self,
         journey: Journey,
     ) -> None:
+        # Only evaluate journeys that have trigger conditions.
+        # Sub-journeys (conditions=[]) are evaluated as part of their parent
+        # journey's projection via link resolution. Evaluating them independently
+        # would overwrite the parent's correct reachable_follow_ups data with
+        # terminal paths (['None']) since the sub-journey doesn't see the full chain.
+        if not journey.conditions:
+            return
         self._journey_evaluations[journey.id] = ((journey,), self._evaluator.evaluate_journey)
 
     @staticmethod

@@ -4763,7 +4763,6 @@ class Server:
                 ).set_node_properties(
                     journey_id=journey_id,
                     node_properties=cast(Mapping[str, JSONSerializable], eval_node_properties),
-                )
 
     async def _setup_retrievers(self) -> None:
         async def setup_retriever(

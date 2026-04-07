@@ -205,10 +205,10 @@ async def test_that_reachable_followups_are_correct_for_linked_sub_journey(
         )
 
 
-async def test_that_reachable_followups_work_for_concatenated_linked_journeys(
+async def test_that_reachable_followups_work_for_chained_linked_journeys(
     context: ContextOfTest,
 ) -> None:
-    """Simulates three concatenated sub-journeys (loan application) after
+    """Simulates three chained linked sub-journeys (loan application) after
     the projection has collapsed pass-through fork nodes:
     identity_verification -> credit_check -> loan_approval
 

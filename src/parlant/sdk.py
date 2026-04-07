@@ -4560,9 +4560,15 @@ class Server:
                         if node_id == END_JOURNEY.id:
                             continue
 
-                        node = await self._store_provider.get_store(
+                        journey_store = self._store_provider.get_store(
                             JourneyStore, StoreProviderHints(call_site="sdk")
-                        ).read_node(node_id)
+                        )
+
+                        try:
+                            node = await journey_store.read_node(node_id)
+                        except ItemNotFoundError:
+                            continue
+
                         properties_to_add = {
                             k: v
                             for k, v in properties.items()
@@ -4572,22 +4578,22 @@ class Server:
                         journey_node_properties = {
                             **(
                                 cast(
-                                    dict[str, JSONSerializable], properties.get("journey_node", {})
+                                    dict[str, JSONSerializable],
+                                    properties.get("journey_node", {}),
                                 )
                                 if properties
                                 else {}
                             ),
                             **cast(
-                                dict[str, JSONSerializable], node.metadata.get("journey_node", {})
+                                dict[str, JSONSerializable],
+                                node.metadata.get("journey_node", {}),
                             ),
                         }
                         if journey_node_properties:
                             properties_to_add["journey_node"] = journey_node_properties
 
                         for key, value in properties_to_add.items():
-                            await self._store_provider.get_store(
-                                JourneyStore, StoreProviderHints(call_site="sdk")
-                            ).set_node_metadata(
+                            await journey_store.set_node_metadata(
                                 node_id=node_id,
                                 key=key,
                                 value=value,

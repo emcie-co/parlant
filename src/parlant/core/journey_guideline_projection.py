@@ -473,4 +473,42 @@ class JourneyGuidelineProjection:
 
             visited.add((edge_id, node_id))
 
+        # Inject evaluation results from Journey.metadata into guidelines.
+        # The SDK stores per-node evaluation data on the journey (not on
+        # individual nodes) to avoid cross-journey interference when the
+        # same sub-journey node is linked from multiple parent journeys.
+        node_evaluation = cast(
+            dict[str, JSONSerializable],
+            journey.metadata.get("node_evaluation", {}),
+        )
+
+        if node_evaluation:
+            for guideline in guidelines.values():
+                original_node_id = extract_node_id_from_journey_node_guideline_id(guideline.id)
+                eval_props = cast(
+                    dict[str, JSONSerializable],
+                    node_evaluation.get(original_node_id, {}),
+                )
+                if not eval_props:
+                    continue
+
+                # Merge evaluation journey_node data (reachable_follow_ups, etc.)
+                eval_jn = cast(
+                    dict[str, JSONSerializable],
+                    eval_props.get("journey_node", {}),
+                )
+                if eval_jn:
+                    guideline_jn = cast(
+                        dict[str, JSONSerializable],
+                        guideline.metadata["journey_node"],
+                    )
+                    for k, v in eval_jn.items():
+                        if k not in guideline_jn:
+                            guideline_jn[k] = v
+
+                # Merge top-level evaluation properties (internal_action, etc.)
+                for k, v in eval_props.items():
+                    if k != "journey_node" and k not in guideline.metadata:
+                        guideline.metadata[k] = v  # type: ignore[index]
+
         return list(guidelines.values())

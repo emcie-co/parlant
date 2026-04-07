@@ -2638,6 +2638,13 @@ class Test_that_chained_linked_journeys_have_reachable_followups_in_node_metadat
             guideline_store=guideline_store,
         )
 
+        # Check what's in journey metadata
+        main_journey = await journey_store.read_journey(self.main.id)
+        eval_data = main_journey.metadata.get("node_evaluation", {})
+        print(
+            f"\n=== Journey metadata node_evaluation keys: {list(_cast(dict[str, object], eval_data).keys())}"
+        )
+
         guidelines = await projection.project_journey_to_guidelines(self.main.id)
 
         # Print all guidelines for debugging

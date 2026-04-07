@@ -438,6 +438,72 @@ async def test_that_journey_metadata_can_be_set_and_read(container: Container) -
     assert read_journey.metadata == updated.metadata
 
 
+async def test_that_journey_metadata_with_nested_node_evaluation_survives_update(
+    container: Container,
+) -> None:
+    """Reproduces the KeyError in transient vector DB when update_journey is called
+    with metadata containing a nested dict keyed by node IDs (evaluation results).
+
+    This is the pattern used when storing evaluation results on Journey.metadata
+    instead of individual node metadata."""
+    journey_store = container[JourneyStore]
+
+    journey = await journey_store.create_journey(
+        title="Evaluation Metadata Test",
+        description="test journey for evaluation storage",
+        conditions=[],
+    )
+
+    # Create some nodes to simulate real evaluation data
+    node_a = await journey_store.create_node(journey.id, action="ask name", tools=[])
+    node_b = await journey_store.create_node(journey.id, action="verify", tools=[])
+
+    # This is the shape of data that _apply_evaluation_results would write:
+    # node_id -> {journey_node: {reachable_follow_ups: [...]}, internal_action: "..."}
+    node_evaluation: dict[str, JSONSerializable] = {
+        node_a.id: {
+            "journey_node": {
+                "reachable_follow_ups": [
+                    {"condition": "customer provided name", "path": ["2"]},
+                    {"condition": "customer provided name and verified", "path": ["2", "3"]},
+                ],
+            },
+            "internal_action": "Ask the customer for their full name",
+        },
+        node_b.id: {
+            "journey_node": {
+                "reachable_follow_ups": [
+                    {"condition": "verification complete", "path": ["None"]},
+                ],
+            },
+        },
+    }
+
+    # This update_journey call triggers KeyError in the transient vector DB
+    updated = await journey_store.update_journey(
+        journey_id=journey.id,
+        params={"metadata": {"node_evaluation": node_evaluation}},
+    )
+
+    assert "node_evaluation" in updated.metadata
+
+    # Verify the data round-trips correctly
+    read_back = await journey_store.read_journey(journey.id)
+    assert "node_evaluation" in read_back.metadata
+    stored_eval = read_back.metadata["node_evaluation"]
+    assert isinstance(stored_eval, dict)
+    assert node_a.id in cast(dict[str, object], stored_eval)
+    assert node_b.id in cast(dict[str, object], stored_eval)
+
+    # Verify find_relevant_journeys still works (this is where the KeyError hit)
+    all_journeys = await journey_store.list_journeys()
+    relevant = await journey_store.find_relevant_journeys(
+        query="test", available_journeys=list(all_journeys)
+    )
+    # Should not crash — the journey should be findable
+    assert any(j.id == journey.id for j in relevant)
+
+
 async def test_that_projection_collapses_pass_through_forks_for_chained_linked_journeys(
     container: Container,
 ) -> None:

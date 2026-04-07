@@ -108,22 +108,6 @@ class UnauthorizedError(EmcieAPIError):
     pass
 
 
-def _parse_error_response(response: httpx.Response) -> tuple[str, str]:
-    """Safely extract error message and request ID from an Emcie API error response.
-
-    Returns (message, request_id). Falls back to raw text if JSON parsing fails
-    (e.g., when Cloudflare returns an HTML error page for 522/503 errors).
-    """
-    try:
-        body = response.json()
-        message = body["detail"]["error"]["message"]
-        request_id = body["detail"]["request_id"]
-        return str(message), str(request_id)
-    except Exception:
-        text = response.text[:200] if response.text else "<empty>"
-        return text, "unknown"
-
-
 class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
     supported_emcie_params = ["temperature"]
 
@@ -206,20 +190,20 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
                 )
 
                 if response.status_code == 429:
-                    msg, rid = _parse_error_response(response)
-                    raise RateLimitError(f"Emcie API rate limit exceeded: {msg} (RID={rid})")
+                    raise RateLimitError(
+                        f"Emcie API rate limit exceeded: {response.json()['detail']['error']['message']} (RID={response.json()['detail']['request_id']})"
+                    )
                 elif response.status_code == 402:
-                    msg, rid = _parse_error_response(response)
                     raise InsufficientCreditsError(
-                        f"Insufficient API credits for Emcie API: {msg} (RID={rid})"
+                        f"Insufficient API credits for Emcie API: {response.json()['detail']['error']['message']} (RID={response.json()['detail']['request_id']})"
                     )
                 elif response.status_code == 403:
-                    msg, rid = _parse_error_response(response)
-                    raise UnauthorizedError(f"Unauthorized access to Emcie API: {msg} (RID={rid})")
+                    raise UnauthorizedError(
+                        f"Unauthorized access to Emcie API: {response.json()['detail']['error']['message']} (RID={response.json()['detail']['request_id']})"
+                    )
                 elif response.status_code >= 500:
-                    msg, rid = _parse_error_response(response)
                     raise EmcieAPIError(
-                        f"Emcie API error: {response.status_code} {msg} (RID={rid})"
+                        f"Emcie API error: {response.status_code} {response.json()['detail']['error']['message']} (RID={response.json()['detail']['request_id']})"
                     )
 
                 response.raise_for_status()
@@ -597,20 +581,20 @@ class EmcieEmbedder(BaseEmbedder):
                 )
 
                 if response.status_code == 429:
-                    msg, rid = _parse_error_response(response)
-                    raise RateLimitError(f"Emcie API rate limit exceeded: {msg} (RID={rid})")
+                    raise RateLimitError(
+                        f"Emcie API rate limit exceeded: {response.json()['detail']['error']['message']} (RID={response.json()['detail']['request_id']})"
+                    )
                 elif response.status_code == 402:
-                    msg, rid = _parse_error_response(response)
                     raise InsufficientCreditsError(
-                        f"Insufficient API credits for Emcie API: {msg} (RID={rid})"
+                        f"Insufficient API credits for Emcie API: {response.json()['detail']['error']['message']} (RID={response.json()['detail']['request_id']})"
                     )
                 elif response.status_code == 403:
-                    msg, rid = _parse_error_response(response)
-                    raise UnauthorizedError(f"Unauthorized access to Emcie API: {msg} (RID={rid})")
+                    raise UnauthorizedError(
+                        f"Unauthorized access to Emcie API: {response.json()['detail']['error']['message']} (RID={response.json()['detail']['request_id']})"
+                    )
                 elif response.status_code >= 500:
-                    msg, rid = _parse_error_response(response)
                     raise EmcieAPIError(
-                        f"Emcie API error: {response.status_code} {msg} (RID={rid})"
+                        f"Emcie API error: {response.status_code} {response.json()['detail']['error']['message']} (RID={response.json()['detail']['request_id']})"
                     )
 
                 response.raise_for_status()

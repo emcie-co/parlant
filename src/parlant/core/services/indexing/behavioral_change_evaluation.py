@@ -39,6 +39,7 @@ from parlant.core.evaluations import (
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineStore
 from parlant.core.journey_guideline_projection import (
     JourneyGuidelineProjection,
+    extract_link_id_from_journey_node_guideline_id,
     extract_node_id_from_journey_node_guideline_id,
 )
 from parlant.core.journeys import Journey, JourneyId, JourneyNodeId, JourneyStore
@@ -385,12 +386,20 @@ class JourneyEvaluator:
         reachable_nodes_evaluations: Sequence[ReachableNodesEvaluation],
         journey_projections: dict[JourneyId, tuple[Journey, Sequence[Guideline], tuple[Guideline]]],
     ) -> Sequence[InvoiceJourneyData]:
-        # Create mapping from index to node_id for relative actions and reachable nodes
-        index_to_node_ids = {
+        # Build index-to-key mappings. Use node_id:link_id as key to distinguish
+        # the same sub-journey node linked multiple times from the same parent.
+        def _evaluation_key(g: Guideline) -> JourneyNodeId:
+            node_id = extract_node_id_from_journey_node_guideline_id(g.id)
+            link_id = extract_link_id_from_journey_node_guideline_id(g.id)
+            if link_id:
+                return JourneyNodeId(f"{node_id}:{link_id}")
+            return node_id
+
+        index_to_eval_keys: dict[JourneyId, dict[str | JSONSerializable, JourneyNodeId]] = {
             journey_id: {
                 cast(dict[str, JSONSerializable], g.metadata["journey_node"])[
                     "index"
-                ]: extract_node_id_from_journey_node_guideline_id(g.id)
+                ]: _evaluation_key(g)
                 for g in journey_projections[journey_id][1]
             }
             for journey_id in journey_projections
@@ -406,34 +415,33 @@ class JourneyEvaluator:
             # Add guideline evaluation properties for each node
             _, step_guidelines, __ = journey_projections[journey_id]
             for guideline in step_guidelines:
-                # Extract node ID directly from the guideline ID
-                node_id = extract_node_id_from_journey_node_guideline_id(guideline.id)
+                eval_key = _evaluation_key(guideline)
 
-                if node_id not in node_properties_proposition:
-                    node_properties_proposition[node_id] = {}
+                if eval_key not in node_properties_proposition:
+                    node_properties_proposition[eval_key] = {}
 
                 # Extract guideline evaluation metadata
                 for key, value in cast(
                     dict[str, JSONSerializable], guideline.metadata.get("guideline_evaluation", {})
                 ).items():
-                    node_properties_proposition[node_id][key] = value
+                    node_properties_proposition[eval_key][key] = value
 
             for a in action_proposition.actions:
-                node_id = index_to_node_ids[journey_id][a.index]
-                if node_id not in node_properties_proposition:
-                    node_properties_proposition[node_id] = {}
-                node_properties_proposition[node_id]["internal_action"] = a.rewritten_actions
+                eval_key = index_to_eval_keys[journey_id][a.index]
+                if eval_key not in node_properties_proposition:
+                    node_properties_proposition[eval_key] = {}
+                node_properties_proposition[eval_key]["internal_action"] = a.rewritten_actions
 
             for index, r in reachable_node_evaluation.node_to_reachable_follow_ups.items():
-                node_id = index_to_node_ids[journey_id][index]
-                if node_id not in node_properties_proposition:
-                    node_properties_proposition[node_id] = {}
-                if "journey_node" not in node_properties_proposition[node_id]:
-                    node_properties_proposition[node_id]["journey_node"] = {}
-                node_properties_proposition[node_id]["journey_node"] = {
+                eval_key = index_to_eval_keys[journey_id][index]
+                if eval_key not in node_properties_proposition:
+                    node_properties_proposition[eval_key] = {}
+                if "journey_node" not in node_properties_proposition[eval_key]:
+                    node_properties_proposition[eval_key]["journey_node"] = {}
+                node_properties_proposition[eval_key]["journey_node"] = {
                     **cast(
                         dict[str, JSONSerializable],
-                        node_properties_proposition[node_id]["journey_node"],
+                        node_properties_proposition[eval_key]["journey_node"],
                     ),
                     "reachable_follow_ups": [{"condition": c, "path": p} for c, p in r],
                 }

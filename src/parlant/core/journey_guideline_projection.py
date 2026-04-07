@@ -475,9 +475,8 @@ class JourneyGuidelineProjection:
             visited.add((edge_id, node_id))
 
         # Inject evaluation results from Journey.metadata into guidelines.
-        # The SDK stores per-node evaluation data on the journey (not on
-        # individual nodes) to avoid cross-journey interference when the
-        # same sub-journey node is linked from multiple parent journeys.
+        # Evaluation data is keyed by node_id (or node_id:link_id for linked
+        # nodes) to distinguish the same sub-journey node linked multiple times.
         node_evaluation = cast(
             dict[str, JSONSerializable],
             journey.metadata.get("node_evaluation", {}),
@@ -485,10 +484,12 @@ class JourneyGuidelineProjection:
 
         if node_evaluation:
             for guideline in guidelines.values():
-                original_node_id = extract_node_id_from_journey_node_guideline_id(guideline.id)
+                node_id = extract_node_id_from_journey_node_guideline_id(guideline.id)
+                link_id = extract_link_id_from_journey_node_guideline_id(guideline.id)
+                eval_key = f"{node_id}:{link_id}" if link_id else node_id
                 eval_props = cast(
                     dict[str, JSONSerializable],
-                    node_evaluation.get(original_node_id, {}),
+                    node_evaluation.get(eval_key, {}),
                 )
                 if not eval_props:
                     continue

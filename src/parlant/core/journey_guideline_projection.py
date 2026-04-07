@@ -244,6 +244,71 @@ class JourneyGuidelineProjection:
             metadata=metadata,
         )
 
+    @staticmethod
+    def _collapse_pass_through_forks(
+        nodes: dict[JourneyNodeId, JourneyNode],
+        edges: dict[JourneyEdgeId, JourneyEdge],
+        node_edges: dict[JourneyNodeId, list[JourneyEdge]],
+    ) -> None:
+        """Remove fork nodes that have exactly one outgoing edge with no condition.
+
+        These are pass-through nodes created by create_link as merge points.
+        When they only have a single unconditional successor, they add no value
+        to the graph and cause the reachable follow-ups evaluator to treat
+        their parents as terminal (producing path=['None']).
+
+        Rewires all incoming edges to point directly to the fork's single target.
+        """
+        fork_ids = [
+            node_id
+            for node_id, node in nodes.items()
+            if not node.action
+            and isinstance(node.metadata.get("journey_node"), dict)
+            and cast(dict[str, JSONSerializable], node.metadata.get("journey_node")).get("kind")
+            == "fork"
+        ]
+
+        for fork_id in fork_ids:
+            outgoing = node_edges.get(fork_id, [])
+
+            if len(outgoing) == 0:
+                # Terminal fork with no successors — remove it entirely
+                # and drop all edges that target it
+                for edge_id, edge in list(edges.items()):
+                    if edge.target == fork_id:
+                        del edges[edge_id]
+                        source_edges = node_edges.get(edge.source, [])
+                        node_edges[edge.source] = [se for se in source_edges if se.id != edge_id]
+
+                if fork_id in node_edges:
+                    del node_edges[fork_id]
+                if fork_id in nodes:
+                    del nodes[fork_id]
+
+            elif len(outgoing) == 1 and not outgoing[0].condition:
+                # Single unconditional successor — rewire incoming edges
+                # to point directly to the target and remove the fork
+                target_id = outgoing[0].target
+                out_edge = outgoing[0]
+
+                for edge_id, edge in list(edges.items()):
+                    if edge.target == fork_id:
+                        rewired = replace(edge, target=target_id)
+                        edges[edge_id] = rewired
+
+                        source_edges = node_edges.get(edge.source, [])
+                        for i, se in enumerate(source_edges):
+                            if se.id == edge_id:
+                                source_edges[i] = rewired
+                                break
+
+                del edges[out_edge.id]
+
+                if fork_id in node_edges:
+                    del node_edges[fork_id]
+                if fork_id in nodes:
+                    del nodes[fork_id]
+
     async def project_journey_to_guidelines(
         self,
         journey_id: JourneyId,
@@ -267,6 +332,12 @@ class JourneyGuidelineProjection:
 
         # Resolve sub-journey links into the graph
         await self._resolve_links(journey_id, nodes, edges, node_edges)
+
+        # Eliminate pass-through fork nodes: if a fork has exactly one outgoing edge
+        # with no condition, rewire all incoming edges to point directly to the target
+        # and remove the fork. This avoids terminal-looking fork nodes that cause
+        # path=['None'] in the reachable follow-ups evaluator.
+        self._collapse_pass_through_forks(nodes, edges, node_edges)
 
         def _get_link_context(
             node: JourneyNode,

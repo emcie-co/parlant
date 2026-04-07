@@ -436,3 +436,99 @@ async def test_that_journey_metadata_can_be_set_and_read(container: Container) -
     # Read back
     read_journey = await journey_store.read_journey(journey.id)
     assert read_journey.metadata == updated.metadata
+
+
+async def test_that_projection_collapses_pass_through_forks_for_concatenated_journeys(
+    container: Container,
+) -> None:
+    """Three sub-journeys chained: identity -> credit -> approval.
+    Pass-through merge_forks should be collapsed so the resulting guidelines
+    form a flat chain without fork nodes in between."""
+    journey_store = container[JourneyStore]
+    guideline_store = container[GuidelineStore]
+
+    projection = JourneyGuidelineProjection(
+        journey_store=journey_store,
+        guideline_store=guideline_store,
+    )
+
+    # Sub-journey 1: identity verification
+    sub1 = await journey_store.create_journey(
+        title="Identity Verification", description="sub1", conditions=[]
+    )
+    id_node = await journey_store.create_node(sub1.id, action="ask for ID", tools=[])
+    await journey_store.create_edge(sub1.id, source=sub1.root_id, target=id_node.id, condition=None)
+
+    # Sub-journey 2: credit check
+    sub2 = await journey_store.create_journey(
+        title="Credit Check", description="sub2", conditions=[]
+    )
+    credit_node = await journey_store.create_node(sub2.id, action="ask for SSN", tools=[])
+    await journey_store.create_edge(
+        sub2.id, source=sub2.root_id, target=credit_node.id, condition=None
+    )
+
+    # Sub-journey 3: approval
+    sub3 = await journey_store.create_journey(
+        title="Loan Approval", description="sub3", conditions=[]
+    )
+    approval_node = await journey_store.create_node(sub3.id, action="approve loan", tools=[])
+    await journey_store.create_edge(
+        sub3.id, source=sub3.root_id, target=approval_node.id, condition=None
+    )
+
+    # Parent: root -> link1 -> [merge1] -> link2 -> [merge2] -> link3 -> [merge3]
+    parent = await journey_store.create_journey(
+        title="Loan Application", description="parent", conditions=[]
+    )
+
+    link1 = await journey_store.create_link(
+        journey_id=parent.id, source_node_id=parent.root_id, sub_journey_id=sub1.id
+    )
+    link2 = await journey_store.create_link(
+        journey_id=parent.id, source_node_id=link1.merge_node_id, sub_journey_id=sub2.id
+    )
+    await journey_store.create_link(
+        journey_id=parent.id, source_node_id=link2.merge_node_id, sub_journey_id=sub3.id
+    )
+
+    guidelines = await projection.project_journey_to_guidelines(parent.id)
+
+    actions = _get_actions(guidelines)
+    assert "ask for ID" in actions, f"Missing identity node. Actions: {actions}"
+    assert "ask for SSN" in actions, f"Missing credit node. Actions: {actions}"
+    assert "approve loan" in actions, f"Missing approval node. Actions: {actions}"
+
+    # No fork nodes should remain — all pass-through/terminal forks collapsed
+    for g in guidelines:
+        jn = cast(dict[str, JSONSerializable], g.metadata.get("journey_node", {}))
+        assert jn.get("kind") != "fork", (
+            f"Fork node should have been collapsed: {g.id} action={g.content.action}"
+        )
+
+    # Follow-up chain integrity
+    all_ids = {g.id for g in guidelines}
+    for g in guidelines:
+        followups = cast(dict[str, JSONSerializable], g.metadata.get("journey_node", {})).get(
+            "follow_ups", []
+        )
+        for f_id in cast(list[str], followups):
+            assert f_id in all_ids, (
+                f"Follow-up ID {f_id} listed in {g.id} but no guideline exists for it"
+            )
+
+    # The chain should be: root -> ask_for_ID -> ask_for_SSN -> approve_loan
+    id_g = [g for g in guidelines if g.content.action == "ask for ID"]
+    assert len(id_g) == 1
+    id_followups = cast(
+        list[str],
+        cast(dict[str, JSONSerializable], id_g[0].metadata["journey_node"])["follow_ups"],
+    )
+    assert len(id_followups) > 0, "ask_for_ID should have follow-ups to credit check"
+
+    # The follow-up should point to ask_for_SSN (not a fork)
+    ssn_g = [g for g in guidelines if g.content.action == "ask for SSN"]
+    assert len(ssn_g) == 1
+    assert ssn_g[0].id in id_followups, (
+        f"ask_for_ID follow-ups {id_followups} should include ask_for_SSN {ssn_g[0].id}"
+    )

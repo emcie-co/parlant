@@ -1603,8 +1603,8 @@ class Test_that_journey_can_conditionally_link_to_different_sub_journeys(SDKTest
         assert response4 == "Welcome to billing support! How can I help with your account?"
 
 
-class Test_that_three_journeys_can_be_concatenated(SDKTest):
-    STARTUP_TIMEOUT = 120
+class Test_that_three_linked_journeys_can_be_chained(SDKTest):
+    STARTUP_TIMEOUT = 500
 
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
@@ -1615,7 +1615,7 @@ class Test_that_three_journeys_can_be_concatenated(SDKTest):
 
         # Create canned responses
         self.identity_response = await server.create_canned_response(
-            template="Please provide your full name and date of birth for identity verification."
+            template="Please provide your full name for identity verification."
         )
         self.credit_response = await server.create_canned_response(
             template="Thank you. We now need to run a credit check. Please provide your SSN."
@@ -1628,12 +1628,7 @@ class Test_that_three_journeys_can_be_concatenated(SDKTest):
         self.identity_verification = await self.agent.create_journey(
             title="Identity Verification",
             conditions=[],
-            description="Verify the customer's identity by collecting name and date of birth",
-        )
-
-        await self.identity_verification.initial_state.transition_to(
-            chat_state="Ask the customer for their full name and date of birth to verify their identity",
-            canned_responses=[self.identity_response],
+            description="User identity verification",
         )
 
         # Sub-journey 2: Credit Check

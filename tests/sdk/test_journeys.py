@@ -1630,7 +1630,12 @@ class Test_that_three_linked_journeys_can_be_chained(SDKTest):
         self.identity_verification = await self.agent.create_journey(
             title="Identity Verification",
             conditions=[],
-            description="User identity verification",
+            description="Verify the customer's identity by collecting name and date of birth",
+        )
+
+        await self.identity_verification.initial_state.transition_to(
+            chat_state="Ask the customer for their full name and date of birth to verify their identity",
+            canned_responses=[self.identity_response],
         )
 
         # Sub-journey 2: Credit Check

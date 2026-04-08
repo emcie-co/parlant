@@ -29,9 +29,11 @@ REMINDER_OPTIONS = "Reminder: when stating an action completion consider Conditi
 
 
 class JourneyNodeKind(Enum):
+    ROOT = "root"
     FORK = "fork"
     CHAT = "chat"
     TOOL = "tool"
+    END = "end"
     NA = "NA"
 
 

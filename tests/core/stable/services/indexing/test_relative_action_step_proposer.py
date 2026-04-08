@@ -126,6 +126,7 @@ def create_journey(
     journey = Journey(
         id=journey_id,
         root_id=JourneyNodeId(root_guideline.id),
+        end_id=JourneyNodeId("end"),
         creation_utc=datetime.now(timezone.utc),
         description="",
         triggers=[g.id for g in trigger_guidelines],

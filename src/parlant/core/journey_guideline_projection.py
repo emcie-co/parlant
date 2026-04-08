@@ -8,6 +8,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.common import (
 )
 from parlant.core.guidelines import Guideline, GuidelineStore, GuidelineContent, GuidelineId
 from parlant.core.journeys import (
+    END_NODE_ID,
     JourneyEdge,
     JourneyEdgeId,
     JourneyId,
@@ -116,7 +117,7 @@ class JourneyGuidelineProjection:
         root_edges = sub_node_edges.get(sub_journey.root_id, [])
 
         for root_edge in root_edges:
-            if root_edge.target == JourneyStore.END_NODE_ID:
+            if root_edge.target == END_NODE_ID:
                 # Root directly transitions to END — wire source to merge node
                 virtual_edge = JourneyEdge(
                     id=scoped_edge_id(root_edge.id),
@@ -180,7 +181,7 @@ class JourneyGuidelineProjection:
                 continue
 
             for sub_edge in current_edges:
-                if sub_edge.target == JourneyStore.END_NODE_ID:
+                if sub_edge.target == END_NODE_ID:
                     # END transition — wire to merge node
                     virtual_edge = JourneyEdge(
                         id=scoped_edge_id(sub_edge.id),

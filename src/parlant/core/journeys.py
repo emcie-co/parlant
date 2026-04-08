@@ -74,6 +74,9 @@ class NodeKind(Enum):
     END = "end"
 
 
+END_NODE_ID = JourneyNodeId("end")
+
+
 @dataclass(frozen=True)
 class JourneyNode:
     id: JourneyNodeId
@@ -154,8 +157,6 @@ class JourneyEdgeUpdateParams(TypedDict, total=False):
 
 
 class JourneyStore(ABC):
-    END_NODE_ID = JourneyNodeId("end")
-
     DEFAULT_ROOT_ACTION = (
         "<<JOURNEY ROOT: start the journey at the appropriate step based on the context>>"
     )
@@ -1588,16 +1589,7 @@ class JourneyVectorStore(JourneyStore):
                 filters={"journey_id": {"$eq": journey_id}}
             )
 
-        return [self._deserialize_node(doc) for doc in docs] + [
-            JourneyNode(
-                id=self.END_NODE_ID,
-                creation_utc=datetime.now(timezone.utc),
-                action=None,
-                tools=[],
-                metadata={},
-                description=None,
-            )
-        ]
+        return [self._deserialize_node(doc) for doc in docs]
 
     @override
     async def set_node_metadata(

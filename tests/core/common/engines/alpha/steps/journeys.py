@@ -285,7 +285,7 @@ def given_the_journey_called(
             journey_store.create_edge(
                 journey_id=journey.id,
                 source=node4.id,
-                target=JourneyStore.END_NODE_ID,
+                target=journey.end_id,
                 condition=None,
             )
         )
@@ -3233,7 +3233,7 @@ def given_a_transition_from_to_end_when_in_journey(
         journey_store.create_edge(
             journey_id=journey.id,
             source=node.id,
-            target=JourneyStore.END_NODE_ID,
+            target=journey.end_id,
             condition=condition,
         )
     )
@@ -3260,7 +3260,7 @@ def given_a_transition_from_to_end_in_journey(
         journey_store.create_edge(
             journey_id=journey.id,
             source=node.id,
-            target=JourneyStore.END_NODE_ID,
+            target=journey.end_id,
             condition=None,
         )
     )

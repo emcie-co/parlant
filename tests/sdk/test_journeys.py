@@ -437,15 +437,8 @@ class Test_that_journey_state_can_transition_to_end_state(SDKTest):
         self.transition_to_end = await self.journey.initial_state.transition_to(state=p.END_JOURNEY)
 
     async def run(self, ctx: Context) -> None:
-        from parlant.core.journeys import NodeKind as _NodeKind
-
         assert self.transition_to_end in self.journey.transitions
-        # The target should be the journey's END node
-        journey_store = ctx.container[JourneyStore]
-        end_node = next(
-            n for n in await journey_store.list_nodes(self.journey.id) if n.kind == _NodeKind.END
-        )
-        assert self.transition_to_end.target.id == end_node.id
+        assert self.transition_to_end.target.id == JourneyStore.END_NODE_ID
 
 
 class Test_that_journey_state_can_be_created_with_internal_action(SDKTest):

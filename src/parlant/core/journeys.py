@@ -1091,7 +1091,6 @@ class JourneyVectorStore(JourneyStore):
                 journey_checksum = md5_checksum(f"{title}{description}{conditions}")
                 journey_id = JourneyId(self._id_generator.generate(journey_checksum))
             journey_root_id = JourneyNodeId(self._id_generator.generate(f"{journey_id}root"))
-            journey_end_id = JourneyNodeId(self._id_generator.generate(f"{journey_id}end"))
 
             root = JourneyNode(
                 id=journey_root_id,
@@ -1102,22 +1101,8 @@ class JourneyVectorStore(JourneyStore):
                 description=None,
             )
 
-            end = JourneyNode(
-                id=journey_end_id,
-                creation_utc=creation_utc,
-                action=None,
-                tools=[],
-                metadata={},
-                description=None,
-                kind=NodeKind.END,
-            )
-
             await self._node_association_collection.insert_one(
                 document=self._serialize_node(root, journey_id)
-            )
-
-            await self._node_association_collection.insert_one(
-                document=self._serialize_node(end, journey_id)
             )
 
             journey = Journey(
@@ -1602,7 +1587,17 @@ class JourneyVectorStore(JourneyStore):
                 filters={"journey_id": {"$eq": journey_id}}
             )
 
-        return [self._deserialize_node(doc) for doc in docs]
+        return [self._deserialize_node(doc) for doc in docs] + [
+            JourneyNode(
+                id=self.END_NODE_ID,
+                creation_utc=datetime.now(timezone.utc),
+                action=None,
+                tools=[],
+                metadata={},
+                description=None,
+                kind=NodeKind.END,
+            )
+        ]
 
     @override
     async def set_node_metadata(

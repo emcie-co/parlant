@@ -2342,7 +2342,6 @@ class Journey:
     composition_mode: CompositionMode | None
 
     _start_state_id: JourneyStateId
-    _end_id: JourneyStateId
     _server: Server
     _container: Container
     _store_provider: StoreProvider
@@ -2449,12 +2448,22 @@ class Journey:
 
         self._server._advance_creation_progress()
 
+        if target is END_JOURNEY:
+            # Find the journey's END node
+            journey_nodes = await self._store_provider.get_store(
+                JourneyStore, StoreProviderHints(call_site="sdk")
+            ).list_nodes(journey_id=self.id)
+            end_node = next(n for n in journey_nodes if n.kind == NodeKind.END)
+            actual_target_id = end_node.id
+        else:
+            actual_target_id = target.id
+
         transition = await self._store_provider.get_store(
             JourneyStore, StoreProviderHints(call_site="sdk")
         ).create_edge(
             journey_id=self.id,
             source=source.id,
-            target=target.id if target is not END_JOURNEY else self._end_id,
+            target=actual_target_id,
             condition=condition,
         )
 
@@ -3255,7 +3264,6 @@ class Agent:
             labels=journey.labels,
             priority=journey.priority,
             _start_state_id=journey._start_state_id,
-            _end_id=journey._end_id,
             _server=self._server,
             _container=self._container,
             _store_provider=self._store_provider,
@@ -5280,7 +5288,6 @@ class Server:
             labels=stored_journey.labels,
             priority=stored_journey.priority,
             _start_state_id=stored_journey.root_id,
-            _end_id=stored_journey.end_id,
             _server=self,
             _container=self._container,
             _store_provider=self._store_provider,

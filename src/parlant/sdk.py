@@ -2362,22 +2362,12 @@ class Journey:
 
         self._server._advance_creation_progress()
 
-        if target is END_JOURNEY:
-            # Find the journey's END node
-            journey_nodes = await self._store_provider.get_store(
-                JourneyStore, StoreProviderHints(call_site="sdk")
-            ).list_nodes(journey_id=self.id)
-            end_node = next(n for n in journey_nodes if n.kind == NodeKind.END)
-            actual_target_id = end_node.id
-        else:
-            actual_target_id = target.id
-
         transition = await self._store_provider.get_store(
             JourneyStore, StoreProviderHints(call_site="sdk")
         ).create_edge(
             journey_id=self.id,
             source=source.id,
-            target=actual_target_id,
+            target=target.id if target else JourneyStore.END_NODE_ID,
             condition=condition,
         )
 
@@ -2416,25 +2406,11 @@ class Journey:
                     )
                     engine_hooks.on_guideline_match_handlers[guideline_id].append(shim)
 
-        actual_target = target
-        if target is END_JOURNEY:
-            actual_target = cast(
-                TState,
-                JourneyState(
-                    id=JourneyStateId(actual_target_id),
-                    action=None,
-                    tools=[],
-                    metadata={},
-                    description=None,
-                    _journey=self,
-                ),
-            )
-
         return JourneyTransition[TState](
             id=transition.id,
             condition=condition,
             source=source,
-            target=actual_target,
+            target=target,
             metadata=transition.metadata,
         )
 

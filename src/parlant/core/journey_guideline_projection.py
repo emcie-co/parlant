@@ -16,6 +16,7 @@ from parlant.core.journeys import (
     JourneyNode,
     JourneyNodeId,
     JourneyStore,
+    NodeKind,
 )
 
 
@@ -262,10 +263,7 @@ class JourneyGuidelineProjection:
         fork_ids = [
             node_id
             for node_id, node in nodes.items()
-            if not node.action
-            and isinstance(node.metadata.get("journey_node"), dict)
-            and cast(dict[str, JSONSerializable], node.metadata.get("journey_node")).get("kind")
-            == "fork"
+            if not node.action and node.kind == NodeKind.FORK
         ]
 
         for fork_id in fork_ids:
@@ -392,13 +390,16 @@ class JourneyGuidelineProjection:
                 index += 1
                 node_indexes[node.id] = index
 
-            base_journey_node = {
+            base_journey_node: dict[str, JSONSerializable] = {
                 "follow_ups": [],
                 "index": str(node_indexes[node.id]),
                 "journey_id": journey_id,
                 "labels": list(node.labels),
                 "tool_ids": list(node.tools),
             }
+
+            if node.kind:
+                base_journey_node["kind"] = node.kind.value
 
             # Extract nested journey_node metadata from edge and node
             edge_journey_node = (

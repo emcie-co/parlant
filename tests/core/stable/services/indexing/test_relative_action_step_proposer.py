@@ -126,7 +126,6 @@ def create_journey(
     journey = Journey(
         id=journey_id,
         root_id=JourneyNodeId(root_guideline.id),
-        end_id=JourneyNodeId("end"),
         creation_utc=datetime.now(timezone.utc),
         description="",
         conditions=[g.id for g in condition_guidelines],

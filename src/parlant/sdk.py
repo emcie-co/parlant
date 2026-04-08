@@ -220,7 +220,6 @@ from parlant.core.guidelines import (
     GuidelineStore,
 )
 from parlant.core.journeys import (
-    END_NODE_ID as _END_NODE_ID,
     JourneyEdgeId,
     JourneyId,
     JourneyNodeId,
@@ -1686,7 +1685,7 @@ class JourneyState:
 
 
 END_JOURNEY = JourneyState(
-    id=_END_NODE_ID,
+    id=JourneyStore.END_NODE_ID,
     action=None,
     tools=[],
     metadata={},

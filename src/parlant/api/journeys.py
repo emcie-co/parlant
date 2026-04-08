@@ -38,11 +38,11 @@ from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 from typing import Any
 from parlant.core.journeys import (
-    END_NODE_ID,
     JourneyEdge,
     JourneyId,
     JourneyNode,
     JourneyNodeId,
+    JourneyStore,
 )
 from datetime import datetime
 from parlant.core.guidelines import GuidelineId
@@ -342,7 +342,7 @@ async def _build_mermaid_chart(
     nodes = model.nodes
     edges = model.edges
 
-    node_by_id = {n.id: n for n in nodes if n.id != END_NODE_ID}
+    node_by_id = {n.id: n for n in nodes if n.id != JourneyStore.END_NODE_ID}
 
     outgoing: dict[JourneyNodeId, list[JourneyEdge]] = defaultdict(list)
     for e in edges:
@@ -351,14 +351,14 @@ async def _build_mermaid_chart(
     alias: dict[JourneyNodeId, str] = {}
 
     def mermaid_id(nid: JourneyNodeId) -> str:
-        if nid == END_NODE_ID:
+        if nid == JourneyStore.END_NODE_ID:
             return "[*]"
         if nid not in alias:
             alias[nid] = f"N{len(alias)}"
         return alias[nid]
 
     def node_label(nid: JourneyNodeId) -> str:
-        if nid == END_NODE_ID:
+        if nid == JourneyStore.END_NODE_ID:
             return "End"
         n = node_by_id.get(nid)
         if not n:
@@ -390,7 +390,7 @@ async def _build_mermaid_chart(
         return re.sub(r"&#(x[0-9a-fA-F]+|[0-9]+);", convert_match, html_escaped)
 
     def declare(nid: JourneyNodeId) -> None:
-        if nid == END_NODE_ID or nid in declared:
+        if nid == JourneyStore.END_NODE_ID or nid in declared:
             return
         lbl = node_label(nid)
         if not lbl:
@@ -435,10 +435,10 @@ async def _build_mermaid_chart(
                 else:
                     transitions.append(f"    {src} --> {dst}")
 
-            if tid != END_NODE_ID and tid not in visited:
+            if tid != JourneyStore.END_NODE_ID and tid not in visited:
                 stack.append(tid)
 
-    orphans = [n.id for n in nodes if n.id not in visited and n.id != END_NODE_ID]
+    orphans = [n.id for n in nodes if n.id not in visited and n.id != JourneyStore.END_NODE_ID]
     if orphans:
         lines.append("    %% Unreachable states:")
         for oid in orphans:

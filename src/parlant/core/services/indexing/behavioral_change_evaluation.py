@@ -42,7 +42,7 @@ from parlant.core.journey_guideline_projection import (
     extract_link_id_from_journey_node_guideline_id,
     extract_node_id_from_journey_node_guideline_id,
 )
-from parlant.core.journeys import END_NODE_ID, Journey, JourneyId, JourneyNodeId, JourneyStore
+from parlant.core.journeys import Journey, JourneyId, JourneyNodeId, JourneyStore
 from parlant.core.services.indexing.common import EvaluationError, ProgressReport
 from parlant.core.services.indexing.customer_dependent_action_detector import (
     CustomerDependentActionDetector,
@@ -537,7 +537,7 @@ class JourneyEvaluator:
             journey_to_node_guidelines[journey_id] = {}
             for guideline in step_guidelines:
                 node_id = extract_node_id_from_journey_node_guideline_id(guideline.id)
-                if node_id == END_NODE_ID:
+                if node_id == JourneyStore.END_NODE_ID:
                     continue
 
                 try:

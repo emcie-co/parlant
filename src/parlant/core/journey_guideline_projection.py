@@ -468,11 +468,7 @@ class JourneyGuidelineProjection:
                 if (edge.id, edge.target) in visited:
                     continue
 
-                # Skip END nodes — they are terminal markers, not real states
                 target_node = nodes.get(edge.target)
-                if target_node and target_node.kind == NodeKind.END:
-                    continue
-
                 if target_node is None:
                     continue
 

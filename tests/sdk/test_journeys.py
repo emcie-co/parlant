@@ -15,7 +15,7 @@
 import pytest
 
 from parlant.core.guidelines import GuidelineStore
-from parlant.core.journeys import JourneyStore
+from parlant.core.journeys import END_NODE_ID, JourneyStore
 from parlant.core.relationships import RelationshipKind, RelationshipStore
 from parlant.core.services.tools.plugins import tool
 from parlant.core.tags import Tag
@@ -438,7 +438,7 @@ class Test_that_journey_state_can_transition_to_end_state(SDKTest):
 
     async def run(self, ctx: Context) -> None:
         assert self.transition_to_end in self.journey.transitions
-        assert self.transition_to_end.target.id == JourneyStore.END_NODE_ID
+        assert self.transition_to_end.target.id == END_NODE_ID
 
 
 class Test_that_journey_state_can_be_created_with_internal_action(SDKTest):

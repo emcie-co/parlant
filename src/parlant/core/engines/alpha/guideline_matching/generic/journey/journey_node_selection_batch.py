@@ -55,9 +55,11 @@ EMPTY_GENERATION_INFO = GenerationInfo(
 
 
 class JourneyNodeKind(Enum):
+    ROOT = "root"
     FORK = "fork"
     CHAT = "chat"
     TOOL = "tool"
+    END = "end"
     NA = "NA"
 
 

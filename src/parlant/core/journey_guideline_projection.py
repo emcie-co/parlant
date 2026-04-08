@@ -397,8 +397,7 @@ class JourneyGuidelineProjection:
                 "labels": list(node.labels),
             }
 
-            if node.kind:
-                base_journey_node["kind"] = node.kind.value
+            base_journey_node["kind"] = node.kind.value
 
             # Extract nested journey_node metadata from edge and node
             edge_journey_node = (

@@ -66,9 +66,11 @@ JourneyLinkId = NewType("JourneyLinkId", str)
 
 
 class NodeKind(Enum):
+    ROOT = "root"
     CHAT = "chat"
     TOOL = "tool"
     FORK = "fork"
+    END = "end"
 
 
 @dataclass(frozen=True)
@@ -80,8 +82,8 @@ class JourneyNode:
     metadata: Mapping[str, JSONSerializable]
     description: Optional[str] = None
     composition_mode: Optional[CompositionMode] = None
+    kind: NodeKind = NodeKind.ROOT
     labels: Set[str] = field(default_factory=set)
-    kind: Optional[NodeKind] = None
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -244,7 +246,7 @@ class JourneyStore(ABC):
         composition_mode: Optional[CompositionMode] = None,
         id: Optional[JourneyNodeId] = None,
         labels: Optional[Set[str]] = None,
-        kind: Optional[NodeKind] = None,
+        kind: NodeKind = NodeKind.ROOT,
     ) -> JourneyNode: ...
 
     @abstractmethod
@@ -771,11 +773,11 @@ class JourneyVectorStore(JourneyStore):
 
         async def v0_5_0_to_v0_7_0(doc: BaseDocument) -> Optional[BaseDocument]:
             d = cast(JourneyNodeAssociationDocument_v0_6_0, doc)
-            # Extract kind from metadata["journey_node"]["kind"] if present
+            # Extract kind from metadata["journey_node"]["kind"] if present, default to "root"
+            kind: str = NodeKind.ROOT.value
             journey_node_meta = d.get("metadata", {}).get("journey_node")
-            kind: Optional[str] = None
-            if isinstance(journey_node_meta, dict):
-                kind = journey_node_meta.get("kind")
+            if isinstance(journey_node_meta, dict) and journey_node_meta.get("kind"):
+                kind = journey_node_meta["kind"]
             return JourneyNodeAssociationDocument(
                 id=d["id"],
                 node_id=d["node_id"],
@@ -977,14 +979,14 @@ class JourneyVectorStore(JourneyStore):
             description=node.description,
             composition_mode=(node.composition_mode.value if node.composition_mode else None),
             labels=list(node.labels),
-            kind=node.kind.value if node.kind else None,
+            kind=node.kind.value,
         )
 
     def _deserialize_node(self, doc: JourneyNodeAssociationDocument) -> JourneyNode:
         composition_mode_str = doc.get("composition_mode")
         composition_mode = CompositionMode(composition_mode_str) if composition_mode_str else None
         kind_str = doc.get("kind")
-        kind = NodeKind(kind_str) if kind_str else None
+        kind = NodeKind(kind_str) if kind_str else NodeKind.ROOT
 
         return JourneyNode(
             id=JourneyNodeId(doc["node_id"]),
@@ -1466,7 +1468,7 @@ class JourneyVectorStore(JourneyStore):
         composition_mode: Optional[CompositionMode] = None,
         id: Optional[JourneyNodeId] = None,
         labels: Optional[Set[str]] = None,
-        kind: Optional[NodeKind] = None,
+        kind: NodeKind = NodeKind.ROOT,
         creation_utc: Optional[datetime] = None,
     ) -> JourneyNode:
         creation_utc = creation_utc or datetime.now(timezone.utc)
@@ -2167,7 +2169,7 @@ class CompositeJourneyStore(JourneyStore):
         composition_mode: Optional[CompositionMode] = None,
         id: Optional[JourneyNodeId] = None,
         labels: Optional[Set[str]] = None,
-        kind: Optional[NodeKind] = None,
+        kind: NodeKind = NodeKind.ROOT,
     ) -> JourneyNode:
         return await self._writable_store.create_node(
             journey_id=journey_id,

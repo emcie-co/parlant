@@ -15,6 +15,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+from enum import Enum
 from itertools import chain
 from typing import Awaitable, Callable, Mapping, NewType, Optional, Sequence, Set, cast
 from typing_extensions import override, TypedDict, Self, Required
@@ -64,6 +65,12 @@ JourneyEdgeId = NewType("JourneyEdgeId", str)
 JourneyLinkId = NewType("JourneyLinkId", str)
 
 
+class NodeKind(Enum):
+    CHAT = "chat"
+    TOOL = "tool"
+    FORK = "fork"
+
+
 @dataclass(frozen=True)
 class JourneyNode:
     id: JourneyNodeId
@@ -74,6 +81,7 @@ class JourneyNode:
     description: Optional[str] = None
     composition_mode: Optional[CompositionMode] = None
     labels: Set[str] = field(default_factory=set)
+    kind: Optional[NodeKind] = None
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -236,6 +244,7 @@ class JourneyStore(ABC):
         composition_mode: Optional[CompositionMode] = None,
         id: Optional[JourneyNodeId] = None,
         labels: Optional[Set[str]] = None,
+        kind: Optional[NodeKind] = None,
     ) -> JourneyNode: ...
 
     @abstractmethod
@@ -514,6 +523,20 @@ class JourneyNodeAssociationDocument_v0_4_0(TypedDict, total=False):
     composition_mode: Optional[str]
 
 
+class JourneyNodeAssociationDocument_v0_6_0(TypedDict, total=False):
+    id: ObjectId
+    node_id: JourneyNodeId
+    version: Version.String
+    creation_utc: str
+    journey_id: JourneyId
+    action: Optional[str]
+    tools: Sequence[ToolId]
+    metadata: Mapping[str, JSONSerializable]
+    description: Optional[str]
+    composition_mode: Optional[str]
+    labels: Sequence[str]
+
+
 class JourneyNodeAssociationDocument(TypedDict, total=False):
     id: ObjectId
     node_id: JourneyNodeId
@@ -526,6 +549,7 @@ class JourneyNodeAssociationDocument(TypedDict, total=False):
     description: Optional[str]
     composition_mode: Optional[str]
     labels: Sequence[str]
+    kind: Optional[str]
 
 
 class JourneyEdgeAssociationDocument(TypedDict, total=False):
@@ -731,7 +755,7 @@ class JourneyVectorStore(JourneyStore):
 
         async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
             d = cast(JourneyNodeAssociationDocument_v0_4_0, doc)
-            return JourneyNodeAssociationDocument(
+            return JourneyNodeAssociationDocument_v0_6_0(
                 id=d["id"],
                 node_id=d["node_id"],
                 version=Version.String("0.5.0"),
@@ -745,6 +769,28 @@ class JourneyVectorStore(JourneyStore):
                 labels=[],  # Default to empty labels for existing nodes
             )
 
+        async def v0_5_0_to_v0_7_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(JourneyNodeAssociationDocument_v0_6_0, doc)
+            # Extract kind from metadata["journey_node"]["kind"] if present
+            journey_node_meta = d.get("metadata", {}).get("journey_node")
+            kind: Optional[str] = None
+            if isinstance(journey_node_meta, dict):
+                kind = journey_node_meta.get("kind")
+            return JourneyNodeAssociationDocument(
+                id=d["id"],
+                node_id=d["node_id"],
+                version=Version.String("0.7.0"),
+                creation_utc=d["creation_utc"],
+                journey_id=d["journey_id"],
+                action=d["action"],
+                tools=d["tools"],
+                metadata=d["metadata"],
+                description=d.get("description"),
+                composition_mode=d.get("composition_mode"),
+                labels=d.get("labels", []),
+                kind=kind,
+            )
+
         async def v0_1_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
@@ -756,6 +802,8 @@ class JourneyVectorStore(JourneyStore):
                 "0.1.0": v0_1_0_to_v0_3_0,
                 "0.3.0": v0_3_0_to_v0_4_0,
                 "0.4.0": v0_4_0_to_v0_5_0,
+                "0.5.0": v0_5_0_to_v0_7_0,
+                "0.6.0": v0_5_0_to_v0_7_0,
             },
         ).migrate(doc)
 
@@ -929,11 +977,14 @@ class JourneyVectorStore(JourneyStore):
             description=node.description,
             composition_mode=(node.composition_mode.value if node.composition_mode else None),
             labels=list(node.labels),
+            kind=node.kind.value if node.kind else None,
         )
 
     def _deserialize_node(self, doc: JourneyNodeAssociationDocument) -> JourneyNode:
         composition_mode_str = doc.get("composition_mode")
         composition_mode = CompositionMode(composition_mode_str) if composition_mode_str else None
+        kind_str = doc.get("kind")
+        kind = NodeKind(kind_str) if kind_str else None
 
         return JourneyNode(
             id=JourneyNodeId(doc["node_id"]),
@@ -944,6 +995,7 @@ class JourneyVectorStore(JourneyStore):
             description=doc.get("description"),
             composition_mode=composition_mode,
             labels=set(doc.get("labels", [])),
+            kind=kind,
         )
 
     def _serialize_edge(
@@ -1414,6 +1466,7 @@ class JourneyVectorStore(JourneyStore):
         composition_mode: Optional[CompositionMode] = None,
         id: Optional[JourneyNodeId] = None,
         labels: Optional[Set[str]] = None,
+        kind: Optional[NodeKind] = None,
         creation_utc: Optional[datetime] = None,
     ) -> JourneyNode:
         creation_utc = creation_utc or datetime.now(timezone.utc)
@@ -1434,6 +1487,7 @@ class JourneyVectorStore(JourneyStore):
                 description=description,
                 composition_mode=composition_mode,
                 labels=labels or set(),
+                kind=kind,
             )
 
             await self._node_association_collection.insert_one(
@@ -1906,11 +1960,12 @@ class JourneyVectorStore(JourneyStore):
             action=None,
             tools=[],
             description=None,
+            kind=NodeKind.FORK,
         )
         await self.set_node_metadata(
             node_id=merge_node.id,
             key="journey_node",
-            value={"kind": "fork", "sub_journey_id": sub_journey_id},
+            value={"sub_journey_id": sub_journey_id},
         )
 
         link_id = id or JourneyLinkId(
@@ -2112,6 +2167,7 @@ class CompositeJourneyStore(JourneyStore):
         composition_mode: Optional[CompositionMode] = None,
         id: Optional[JourneyNodeId] = None,
         labels: Optional[Set[str]] = None,
+        kind: Optional[NodeKind] = None,
     ) -> JourneyNode:
         return await self._writable_store.create_node(
             journey_id=journey_id,
@@ -2121,6 +2177,7 @@ class CompositeJourneyStore(JourneyStore):
             composition_mode=composition_mode,
             id=id,
             labels=labels,
+            kind=kind,
         )
 
     @override

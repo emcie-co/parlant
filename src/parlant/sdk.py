@@ -2238,6 +2238,7 @@ class Journey:
     composition_mode: CompositionMode | None
 
     _start_state_id: JourneyStateId
+    _end_id: JourneyStateId
     _server: Server
     _container: Container
     _store_provider: StoreProvider
@@ -2351,7 +2352,7 @@ class Journey:
         ).create_edge(
             journey_id=self.id,
             source=source.id,
-            target=target.id if target else END_JOURNEY.id,
+            target=target.id if target is not END_JOURNEY else self._end_id,
             condition=condition,
         )
 
@@ -3144,6 +3145,7 @@ class Agent:
             labels=journey.labels,
             priority=journey.priority,
             _start_state_id=journey._start_state_id,
+            _end_id=journey._end_id,
             _server=self._server,
             _container=self._container,
             _store_provider=self._store_provider,
@@ -5082,6 +5084,7 @@ class Server:
             labels=stored_journey.labels,
             priority=stored_journey.priority,
             _start_state_id=stored_journey.root_id,
+            _end_id=stored_journey.end_id,
             _server=self,
             _container=self._container,
             _store_provider=self._store_provider,

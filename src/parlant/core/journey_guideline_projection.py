@@ -116,7 +116,8 @@ class JourneyGuidelineProjection:
         root_edges = sub_node_edges.get(sub_journey.root_id, [])
 
         for root_edge in root_edges:
-            if root_edge.target == JourneyStore.END_NODE_ID:
+            target_node = sub_nodes.get(root_edge.target)
+            if target_node and target_node.kind == NodeKind.END:
                 # Root directly transitions to END — wire source to merge node
                 virtual_edge = JourneyEdge(
                     id=scoped_edge_id(root_edge.id),
@@ -180,7 +181,8 @@ class JourneyGuidelineProjection:
                 continue
 
             for sub_edge in current_edges:
-                if sub_edge.target == JourneyStore.END_NODE_ID:
+                sub_target = sub_nodes.get(sub_edge.target)
+                if sub_target and sub_target.kind == NodeKind.END:
                     # END transition — wire to merge node
                     virtual_edge = JourneyEdge(
                         id=scoped_edge_id(sub_edge.id),
@@ -465,9 +467,16 @@ class JourneyGuidelineProjection:
                 if (edge.id, edge.target) in visited:
                     continue
 
+                # Skip END nodes — they are terminal markers, not real states
+                target_node = nodes.get(edge.target)
+                if target_node and target_node.kind == NodeKind.END:
+                    continue
+
+                if target_node is None:
+                    continue
+
                 queue.append((edge.id, edge.target))
 
-                target_node = nodes[edge.target]
                 follow_up_id = _resolve_guideline_id(target_node, edge)
                 add_edge_guideline_metadata(new_guideline.id, follow_up_id)
 

@@ -17,7 +17,7 @@ from fastapi import APIRouter, Path, Query, Request, status
 from fastapi.responses import PlainTextResponse
 from html import escape
 from pydantic import Field
-from typing import Annotated, Sequence, TypeAlias, cast
+from typing import Annotated, Sequence, TypeAlias
 
 from parlant.api.authorization import Operation, AuthorizationPolicy
 from parlant.api.common import (
@@ -35,14 +35,14 @@ from parlant.core.app_modules.journeys import (
     JourneyTagUpdateParams,
 )
 from parlant.core.application import Application
-from parlant.core.common import DefaultBaseModel, JSONSerializable
+from parlant.core.common import DefaultBaseModel
 from typing import Any
 from parlant.core.journeys import (
     JourneyEdge,
     JourneyId,
     JourneyNode,
     JourneyNodeId,
-    JourneyStore,
+    NodeKind,
 )
 from datetime import datetime
 from parlant.core.guidelines import GuidelineId
@@ -332,17 +332,17 @@ async def _build_mermaid_chart(
     NORMAL_STYLE = "fill:#006e53,stroke:#ffffff,stroke-width:2px,color:#ffffff"
     TOOL_STYLE = "fill:#ffeeaa,stroke:#ffeeaa,stroke-width:2px,color:#dd6600"
 
+    def _is_end_node(node: JourneyNode) -> bool:
+        return node.kind == NodeKind.END
+
     def _is_tool_node(node: JourneyNode) -> bool:
-        return (
-            cast(dict[str, JSONSerializable], node.metadata.get("journey_node", {})).get("kind")
-            == "tool"
-        )
+        return node.kind == NodeKind.TOOL
 
     root_id: JourneyNodeId = model.journey.root_id
     nodes = model.nodes
     edges = model.edges
 
-    node_by_id = {n.id: n for n in nodes if n.id != JourneyStore.END_NODE_ID}
+    node_by_id = {n.id: n for n in nodes if not _is_end_node(n)}
 
     outgoing: dict[JourneyNodeId, list[JourneyEdge]] = defaultdict(list)
     for e in edges:
@@ -350,15 +350,19 @@ async def _build_mermaid_chart(
 
     alias: dict[JourneyNodeId, str] = {}
 
+    def _is_end_target(nid: JourneyNodeId) -> bool:
+        n = next((n for n in nodes if n.id == nid), None)
+        return n is not None and _is_end_node(n)
+
     def mermaid_id(nid: JourneyNodeId) -> str:
-        if nid == JourneyStore.END_NODE_ID:
+        if _is_end_target(nid):
             return "[*]"
         if nid not in alias:
             alias[nid] = f"N{len(alias)}"
         return alias[nid]
 
     def node_label(nid: JourneyNodeId) -> str:
-        if nid == JourneyStore.END_NODE_ID:
+        if _is_end_target(nid):
             return "End"
         n = node_by_id.get(nid)
         if not n:
@@ -390,7 +394,7 @@ async def _build_mermaid_chart(
         return re.sub(r"&#(x[0-9a-fA-F]+|[0-9]+);", convert_match, html_escaped)
 
     def declare(nid: JourneyNodeId) -> None:
-        if nid == JourneyStore.END_NODE_ID or nid in declared:
+        if _is_end_target(nid) or nid in declared:
             return
         lbl = node_label(nid)
         if not lbl:
@@ -435,10 +439,10 @@ async def _build_mermaid_chart(
                 else:
                     transitions.append(f"    {src} --> {dst}")
 
-            if tid != JourneyStore.END_NODE_ID and tid not in visited:
+            if not _is_end_target(tid) and tid not in visited:
                 stack.append(tid)
 
-    orphans = [n.id for n in nodes if n.id not in visited and n.id != JourneyStore.END_NODE_ID]
+    orphans = [n.id for n in nodes if n.id not in visited and not _is_end_node(n)]
     if orphans:
         lines.append("    %% Unreachable states:")
         for oid in orphans:

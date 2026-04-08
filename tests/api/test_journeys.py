@@ -19,7 +19,7 @@ from fastapi import status, HTTPException
 from lagom import Container
 from pytest import mark, raises
 
-from parlant.core.journeys import END_NODE_ID, JourneyStore
+from parlant.core.journeys import JourneyStore
 from parlant.core.guidelines import GuidelineStore
 from parlant.core.tags import Tag, TagStore
 from parlant.core.common import ItemNotFoundError
@@ -820,7 +820,7 @@ async def test_that_reading_a_journey_returns_nodes_and_edges(
     edge3 = await journey_store.create_edge(
         journey_id=journey_id,
         source=node3.id,
-        target=END_NODE_ID,
+        target=JourneyStore.END_NODE_ID,
         condition=None,
     )
 

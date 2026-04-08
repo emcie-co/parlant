@@ -35,9 +35,11 @@ EXIT_NODE_ACTION = "Exit the journey"
 
 
 class JourneyNodeKind(Enum):
+    ROOT = "root"
     FORK = "fork"
     CHAT = "chat"
     TOOL = "tool"
+    END = "end"
     NA = "NA"
 
 

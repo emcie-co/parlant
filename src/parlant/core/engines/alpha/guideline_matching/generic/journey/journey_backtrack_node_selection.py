@@ -44,9 +44,11 @@ LAST_PRESENTED_NODE_INSTRUCTION = "Do not advance past this step. If you got her
 
 
 class JourneyNodeKind(Enum):
+    ROOT = "root"
     FORK = "fork"
     CHAT = "chat"
     TOOL = "tool"
+    END = "end"
     NA = "NA"
 
 

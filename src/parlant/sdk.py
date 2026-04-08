@@ -2400,11 +2400,25 @@ class Journey:
                     )
                     engine_hooks.on_guideline_match_handlers[guideline_id].append(shim)
 
+        actual_target = target
+        if target is END_JOURNEY:
+            actual_target = cast(
+                TState,
+                JourneyState(
+                    id=JourneyStateId(actual_target_id),
+                    action=None,
+                    tools=[],
+                    metadata={},
+                    description=None,
+                    _journey=self,
+                ),
+            )
+
         return JourneyTransition[TState](
             id=transition.id,
             condition=condition,
             source=source,
-            target=target,
+            target=actual_target,
             metadata=transition.metadata,
         )
 

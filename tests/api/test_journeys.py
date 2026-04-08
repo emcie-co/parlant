@@ -817,10 +817,11 @@ async def test_that_reading_a_journey_returns_nodes_and_edges(
         target=node3.id,
         condition="Issue identified",
     )
+    stored_journey = await journey_store.read_journey(journey_id=journey_id)
     edge3 = await journey_store.create_edge(
         journey_id=journey_id,
         source=node3.id,
-        target=JourneyStore.END_NODE_ID,
+        target=stored_journey.end_id,
         condition=None,
     )
 

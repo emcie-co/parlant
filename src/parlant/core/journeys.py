@@ -124,6 +124,7 @@ class Journey:
     conditions: Sequence[GuidelineId]
     title: str
     root_id: JourneyNodeId
+    end_id: JourneyNodeId
     tags: Sequence[TagId]
     composition_mode: Optional[CompositionMode] = None
     labels: Set[str] = field(default_factory=set)
@@ -486,6 +487,7 @@ class JourneyDocument(TypedDict, total=False):
     title: str
     description: str
     root_id: JourneyNodeId
+    end_id: JourneyNodeId
     composition_mode: Optional[str]
     labels: Sequence[str]
     priority: int
@@ -688,6 +690,7 @@ class JourneyVectorStore(JourneyStore):
                 labels=d.get("labels", []),
                 priority=d.get("priority", 0),
                 metadata={},  # Default to empty metadata for existing journeys
+                end_id=self.END_NODE_ID,  # Legacy: use sentinel for pre-existing journeys
             )
 
         async def v0_1_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
@@ -924,6 +927,7 @@ class JourneyVectorStore(JourneyStore):
             title=journey.title,
             description=journey.description,
             root_id=journey.root_id,
+            end_id=journey.end_id,
             composition_mode=(journey.composition_mode.value if journey.composition_mode else None),
             labels=list(journey.labels),
             priority=journey.priority,
@@ -953,6 +957,7 @@ class JourneyVectorStore(JourneyStore):
             title=doc["title"],
             description=doc["description"],
             root_id=JourneyNodeId(doc["root_id"]),
+            end_id=JourneyNodeId(doc.get("end_id", self.END_NODE_ID)),
             tags=tags,
             composition_mode=composition_mode,
             labels=set(doc.get("labels", [])),
@@ -1091,6 +1096,7 @@ class JourneyVectorStore(JourneyStore):
                 journey_checksum = md5_checksum(f"{title}{description}{conditions}")
                 journey_id = JourneyId(self._id_generator.generate(journey_checksum))
             journey_root_id = JourneyNodeId(self._id_generator.generate(f"{journey_id}root"))
+            journey_end_id = JourneyNodeId(self._id_generator.generate(f"{journey_id}end"))
 
             root = JourneyNode(
                 id=journey_root_id,
@@ -1101,8 +1107,22 @@ class JourneyVectorStore(JourneyStore):
                 description=None,
             )
 
+            end = JourneyNode(
+                id=journey_end_id,
+                creation_utc=creation_utc,
+                action=None,
+                tools=[],
+                metadata={},
+                description=None,
+                kind=NodeKind.END,
+            )
+
             await self._node_association_collection.insert_one(
                 document=self._serialize_node(root, journey_id)
+            )
+
+            await self._node_association_collection.insert_one(
+                document=self._serialize_node(end, journey_id)
             )
 
             journey = Journey(
@@ -1112,6 +1132,7 @@ class JourneyVectorStore(JourneyStore):
                 title=title,
                 description=description,
                 root_id=journey_root_id,
+                end_id=journey_end_id,
                 tags=tags or [],
                 composition_mode=composition_mode,
                 labels=labels or set(),
@@ -1587,17 +1608,7 @@ class JourneyVectorStore(JourneyStore):
                 filters={"journey_id": {"$eq": journey_id}}
             )
 
-        return [self._deserialize_node(doc) for doc in docs] + [
-            JourneyNode(
-                id=self.END_NODE_ID,
-                creation_utc=datetime.now(timezone.utc),
-                action=None,
-                tools=[],
-                metadata={},
-                description=None,
-                kind=NodeKind.END,
-            )
-        ]
+        return [self._deserialize_node(doc) for doc in docs]
 
     @override
     async def set_node_metadata(

@@ -225,6 +225,7 @@ from parlant.core.journeys import (
     JourneyNodeId,
     JourneyStore,
     JourneyVectorStore,
+    NodeKind,
 )
 
 from parlant.core.loggers import LogLevel, Logger
@@ -2366,10 +2367,10 @@ class Journey:
         id: JourneyStateId | None = None,
         labels: Iterable[str] = (),
     ) -> TState:
-        metadata_type = {
-            ForkJourneyState: "fork",
-            ToolJourneyState: "tool",
-            ChatJourneyState: "chat",
+        node_kind = {
+            ForkJourneyState: NodeKind.FORK,
+            ToolJourneyState: NodeKind.TOOL,
+            ChatJourneyState: NodeKind.CHAT,
         }[state_type]
 
         await _enable_tool_refs(self._server._plugin_server, tools)
@@ -2395,14 +2396,7 @@ class Journey:
             composition_mode=CompositionMode._to_core_composition_mode(effective_composition_mode),
             id=id,
             labels=set(labels) if labels else None,
-        )
-
-        node = await self._store_provider.get_store(
-            JourneyStore, StoreProviderHints(call_site="sdk")
-        ).set_node_metadata(
-            node_id=node.id,
-            key="journey_node",
-            value={"kind": metadata_type},
+            kind=node_kind,
         )
 
         for k, v in metadata.items():

@@ -119,78 +119,52 @@ class JourneyGuidelineProjection:
             "sub_journey_id": link.sub_journey_id,
         }
 
-        # BFS through sub-journey
+        # BFS through sub-journey, skipping the root node
         queue: deque[JourneyNodeId] = deque()
         visited: set[JourneyNodeId] = set()
 
+        # Start from root's children
         root_edges = sub_node_edges.get(sub_journey.root_id, [])
 
-        # Determine if root can be dropped (no conditions on outgoing edges)
-        # or must be kept as a fork (has conditional edges).
-        root_has_conditions = any(e.condition for e in root_edges)
-
-        if root_has_conditions:
-            # Keep root as a fork node — inject it and wire from source_node
-            root_node = sub_nodes[sub_journey.root_id]
-            namespaced_root = scoped_node_id(sub_journey.root_id)
-            self._inject_sub_node(nodes, root_node, parent_journey_id, link.sub_journey_id, link.id)
-            # Override the injected node's kind to FORK since it acts as a branching point
-            injected = nodes[namespaced_root]
-            nodes[namespaced_root] = replace(injected, kind=JourneyNodeKind.FORK)
-
-            # Wire source_node -> injected root (with the link condition if any)
-            entry_edge = JourneyEdge(
-                id=scoped_edge_id(JourneyEdgeId(f"entry~{sub_journey.root_id}")),
-                creation_utc=root_node.creation_utc,
-                source=link.source_node_id,
-                target=namespaced_root,
-                condition=link.condition,
-                metadata={"journey_node": link_metadata},
-            )
-            edges[entry_edge.id] = entry_edge
-            node_edges[entry_edge.source].append(entry_edge)
-
-            # Process root's edges as regular BFS edges from the injected root
-            queue.append(sub_journey.root_id)
-        else:
-            # Root has no conditional edges — drop it and wire directly from source_node
-            for root_edge in root_edges:
-                target_node = sub_nodes.get(root_edge.target)
-                if target_node and target_node.kind == JourneyNodeKind.END:
-                    # Root directly transitions to END — wire source to merge node
-                    virtual_edge = JourneyEdge(
-                        id=scoped_edge_id(root_edge.id),
-                        creation_utc=root_edge.creation_utc,
-                        source=link.source_node_id,
-                        target=link.merge_node_id,
-                        condition=link.condition,
-                        metadata={**root_edge.metadata, "journey_node": link_metadata},
-                    )
-                    edges[virtual_edge.id] = virtual_edge
-                    node_edges[virtual_edge.source].append(virtual_edge)
-                    continue
-
-                if not target_node:
-                    continue
-
-                namespaced_target = scoped_node_id(root_edge.target)
-                if namespaced_target not in nodes:
-                    self._inject_sub_node(
-                        nodes, target_node, parent_journey_id, link.sub_journey_id, link.id
-                    )
-
+        for root_edge in root_edges:
+            target_node = sub_nodes.get(root_edge.target)
+            if target_node and target_node.kind == JourneyNodeKind.END:
+                # Root directly transitions to END — wire source to merge node
                 virtual_edge = JourneyEdge(
                     id=scoped_edge_id(root_edge.id),
                     creation_utc=root_edge.creation_utc,
                     source=link.source_node_id,
-                    target=namespaced_target,
-                    condition=link.condition,
+                    target=link.merge_node_id,
+                    condition=link.condition or root_edge.condition,
                     metadata={**root_edge.metadata, "journey_node": link_metadata},
                 )
                 edges[virtual_edge.id] = virtual_edge
                 node_edges[virtual_edge.source].append(virtual_edge)
+                continue
 
-                queue.append(root_edge.target)
+            target_node = sub_nodes.get(root_edge.target)
+            if not target_node:
+                continue
+
+            namespaced_target = scoped_node_id(root_edge.target)
+            if namespaced_target not in nodes:
+                self._inject_sub_node(
+                    nodes, target_node, parent_journey_id, link.sub_journey_id, link.id
+                )
+
+            condition = link.condition or root_edge.condition
+            virtual_edge = JourneyEdge(
+                id=scoped_edge_id(root_edge.id),
+                creation_utc=root_edge.creation_utc,
+                source=link.source_node_id,
+                target=namespaced_target,
+                condition=condition,
+                metadata={**root_edge.metadata, "journey_node": link_metadata},
+            )
+            edges[virtual_edge.id] = virtual_edge
+            node_edges[virtual_edge.source].append(virtual_edge)
+
+            queue.append(root_edge.target)
 
         # BFS the rest of the sub-journey
         while queue:

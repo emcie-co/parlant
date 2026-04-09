@@ -42,7 +42,7 @@ from parlant.core.journeys import (
     JourneyId,
     JourneyNode,
     JourneyNodeId,
-    NodeKind,
+    JourneyNodeKind,
 )
 from datetime import datetime
 from parlant.core.guidelines import GuidelineId
@@ -333,10 +333,10 @@ async def _build_mermaid_chart(
     TOOL_STYLE = "fill:#ffeeaa,stroke:#ffeeaa,stroke-width:2px,color:#dd6600"
 
     def _is_end_node(node: JourneyNode) -> bool:
-        return node.kind == NodeKind.END
+        return node.kind == JourneyNodeKind.END
 
     def _is_tool_node(node: JourneyNode) -> bool:
-        return node.kind == NodeKind.TOOL
+        return node.kind == JourneyNodeKind.TOOL
 
     root_id: JourneyNodeId = model.journey.root_id
     nodes = model.nodes

@@ -113,9 +113,7 @@ from parlant.core.context_variables import (
 )
 from parlant.core.emission.event_publisher import EventPublisherFactory
 from parlant.core.health import HealthReporter
-from parlant.core.engines.alpha.guideline_matching.generic.common import (
-    format_journey_node_guideline_id,
-)
+from parlant.core.journey_guideline_projection import format_journey_node_guideline_id
 from parlant.core.meter import Meter
 from parlant.core.tracer import Tracer
 from parlant.core.customers import (
@@ -225,7 +223,7 @@ from parlant.core.journeys import (
     JourneyNodeId,
     JourneyStore,
     JourneyVectorStore,
-    NodeKind,
+    JourneyNodeKind,
 )
 
 from parlant.core.loggers import LogLevel, Logger
@@ -2368,9 +2366,9 @@ class Journey:
         labels: Iterable[str] = (),
     ) -> TState:
         node_kind = {
-            ForkJourneyState: NodeKind.FORK,
-            ToolJourneyState: NodeKind.TOOL,
-            ChatJourneyState: NodeKind.CHAT,
+            ForkJourneyState: JourneyNodeKind.FORK,
+            ToolJourneyState: JourneyNodeKind.TOOL,
+            ChatJourneyState: JourneyNodeKind.CHAT,
         }[state_type]
 
         await _enable_tool_refs(self._server._plugin_server, tools)

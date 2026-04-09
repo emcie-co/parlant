@@ -20,7 +20,7 @@ from typing import Optional, Sequence, cast
 from parlant.core import async_utils
 from parlant.core.agents import AgentStore
 from parlant.core.background_tasks import BackgroundTaskService
-from parlant.core.common import ItemNotFoundError, JSONSerializable, xxh3_checksum
+from parlant.core.common import JSONSerializable, xxh3_checksum
 from parlant.core.evaluations import (
     Evaluation,
     EvaluationStatus,
@@ -42,7 +42,7 @@ from parlant.core.journey_guideline_projection import (
     extract_link_id_from_journey_node_guideline_id,
     extract_node_id_from_journey_node_guideline_id,
 )
-from parlant.core.journeys import Journey, JourneyId, JourneyNodeId, JourneyStore, NodeKind
+from parlant.core.journeys import Journey, JourneyId, JourneyNodeId, JourneyStore
 from parlant.core.services.indexing.common import EvaluationError, ProgressReport
 from parlant.core.services.indexing.customer_dependent_action_detector import (
     CustomerDependentActionDetector,
@@ -538,13 +538,8 @@ class JourneyEvaluator:
             for guideline in step_guidelines:
                 node_id = extract_node_id_from_journey_node_guideline_id(guideline.id)
 
-                try:
+                if node_id != JourneyStore.END_NODE_ID:
                     node = await self._journey_store.read_node(node_id=node_id)
-                except ItemNotFoundError:
-                    continue
-
-                if node.kind == NodeKind.END:
-                    continue
 
                 # Store the guideline by node_id for later mapping
                 journey_to_node_guidelines[journey_id][node_id] = guideline

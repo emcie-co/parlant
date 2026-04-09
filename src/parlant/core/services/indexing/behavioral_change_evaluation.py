@@ -395,11 +395,11 @@ class JourneyEvaluator:
                 return JourneyNodeId(f"{node_id}:{link_id}")
             return node_id
 
-        index_to_eval_keys: dict[JourneyId, dict[str | JSONSerializable, JourneyNodeId]] = {
+        index_to_eval_keys: dict[JourneyId, dict[str, JourneyNodeId]] = {
             journey_id: {
-                cast(dict[str, JSONSerializable], g.metadata["journey_node"])[
-                    "index"
-                ]: _evaluation_key(g)
+                str(
+                    cast(dict[str, JSONSerializable], g.metadata["journey_node"])["index"]
+                ): _evaluation_key(g)
                 for g in journey_projections[journey_id][1]
             }
             for journey_id in journey_projections

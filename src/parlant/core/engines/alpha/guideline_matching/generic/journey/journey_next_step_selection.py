@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from enum import Enum
 import json
 import traceback
 from typing import Any, Optional, Sequence, cast
@@ -17,7 +16,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matching_context im
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
-from parlant.core.journeys import Journey
+from parlant.core.journeys import Journey, JourneyNodeKind
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
@@ -34,15 +33,6 @@ FORK_NODE_ACTION_STR = (
 EXIT_NODE_ACTION = "Exit the journey"
 
 
-class JourneyNodeKind(Enum):
-    ROOT = "root"
-    FORK = "fork"
-    CHAT = "chat"
-    TOOL = "tool"
-    END = "end"
-    NA = "NA"
-
-
 class JourneyNextStepSelectionSchema(DefaultBaseModel):
     journey_continues: bool
     current_step_completed_rationale: str
@@ -55,7 +45,7 @@ class JourneyNextStepSelectionSchema(DefaultBaseModel):
 class _JourneyNode:
     id: str
     action: str
-    kind: JourneyNodeKind
+    kind: Optional[JourneyNodeKind]
     customer_dependent_action: bool
     customer_action_description: Optional[str] = None
     agent_dependent_action: Optional[bool] = None
@@ -157,9 +147,8 @@ class JourneyNextStepSelection:
         ) -> _JourneyNode:
             guideline = self._guideline_id_to_guideline[guideline_id]
 
-            kind = JourneyNodeKind(
-                cast(dict[str, Any], guideline.metadata.get("journey_node", {})).get("kind", "NA")
-            )
+            kind_str = cast(dict[str, Any], guideline.metadata.get("journey_node", {})).get("kind")
+            kind: Optional[JourneyNodeKind] = JourneyNodeKind(kind_str) if kind_str else None
             customer_dependent_action = cast(
                 dict[str, bool], guideline.metadata.get("customer_dependent_action_data", {})
             ).get("is_customer_dependent", False)

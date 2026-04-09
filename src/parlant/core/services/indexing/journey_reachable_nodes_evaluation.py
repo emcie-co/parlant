@@ -1,6 +1,5 @@
 import copy
 from dataclasses import dataclass, field
-from enum import Enum
 import json
 import traceback
 from typing import Any, List, Optional, Sequence, Set, Tuple, cast
@@ -9,6 +8,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.common import interna
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.guidelines import Guideline, GuidelineId
+from parlant.core.journeys import JourneyNodeKind
 
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
@@ -26,15 +26,6 @@ REMINDER_OF_ACTION_TYPE_CHILD = "Reminder: when stating whether child_action has
 REMINDER_OF_ACTION_TYPE_NOT_CHILD = "Reminder: when stating whether child_action has not been completed, consider the rules for CUSTOMER DEPENDENT ACTION - CUSTOMER'S perspective or REQUIRES AGENT ACTION - AGENT'S perspective"
 
 REMINDER_OPTIONS = "Reminder: when stating an action completion consider Condition Clarity and Specificity, include all options in conditions"
-
-
-class JourneyNodeKind(Enum):
-    ROOT = "root"
-    FORK = "fork"
-    CHAT = "chat"
-    TOOL = "tool"
-    END = "end"
-    NA = "NA"
 
 
 @dataclass
@@ -56,7 +47,7 @@ class _JourneyNode:  # Refactor after node type is implemented
     action: str | None
     incoming_edges: list[_JourneyEdge]
     outgoing_edges: list[_JourneyEdge]
-    kind: JourneyNodeKind
+    kind: Optional[JourneyNodeKind]
     customer_dependent_action: bool
     customer_action_description: Optional[str] = None
     agent_dependent_action: Optional[bool] = None
@@ -142,9 +133,8 @@ class JourneyReachableNodesEvaluator:
         for g in guidelines:
             node_index: str = _get_guideline_node_index(g)
             if node_index not in node_wrappers:
-                kind = JourneyNodeKind(
-                    cast(dict[str, Any], g.metadata.get("journey_node", {})).get("kind", "NA")
-                )
+                kind_str = cast(dict[str, Any], g.metadata.get("journey_node", {})).get("kind")
+                kind: Optional[JourneyNodeKind] = JourneyNodeKind(kind_str) if kind_str else None
                 customer_dependent_action = cast(
                     dict[str, bool], g.metadata.get("customer_dependent_action_data", {})
                 ).get("is_customer_dependent", False)

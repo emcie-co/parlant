@@ -13,9 +13,9 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backt
     SINGLE_FOLLOW_UP_CONDITION_STR,
     _JourneyEdge,
     _JourneyNode,
-    JourneyNodeKind,
     get_pruned_nodes,
 )
+from parlant.core.journeys import JourneyNodeKind
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingBatchError,
 )
@@ -107,9 +107,8 @@ class JourneyBacktrackCheck:
         for g in guidelines:
             node_index: str = guideline_id_to_node_index[g.id]
             if node_index not in node_wrappers:
-                kind = JourneyNodeKind(
-                    cast(dict[str, Any], g.metadata.get("journey_node", {})).get("kind", "NA")
-                )
+                kind_str = cast(dict[str, Any], g.metadata.get("journey_node", {})).get("kind")
+                kind = JourneyNodeKind(kind_str) if kind_str else None
                 customer_dependent_action = cast(
                     dict[str, bool], g.metadata.get("customer_dependent_action_data", {})
                 ).get("is_customer_dependent", False)
@@ -291,7 +290,7 @@ This journey is not currently active. We may need to:
                     print_node = False
 
             # Node kind flags
-            if node.kind in {JourneyNodeKind.CHAT, JourneyNodeKind.NA} and node.action is None:
+            if node.kind in {JourneyNodeKind.CHAT, None} and node.action is None:
                 print_node = False
             elif node.kind == JourneyNodeKind.FORK:
                 displayed_node_action = FORK_NODE_ACTION_STR

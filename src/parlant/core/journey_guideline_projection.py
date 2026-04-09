@@ -119,26 +119,40 @@ class JourneyGuidelineProjection:
             "sub_journey_id": link.sub_journey_id,
         }
 
-        # BFS through sub-journey
+        # Sub-journey root handling:
+        #
+        # The sub-journey root is the entry point of the linked journey.
+        # How it's handled depends on whether its outgoing edges have conditions:
+        #
+        # 1. Root has NO conditional edges (simple linear entry):
+        #    Drop the root entirely. Wire source_node directly to the root's
+        #    children. The link.condition (if any) goes on these edges.
+        #    Example: source_node --link.condition--> child_node
+        #
+        # 2. Root HAS conditional edges (fork/branching entry):
+        #    Keep the root as a FORK node in the parent graph. This preserves
+        #    both the link condition AND the root's branch conditions as two
+        #    separate levels:
+        #    Example: source_node --link.condition--> fork --"if A"--> node_A
+        #                                                 --"if B"--> node_B
+        #    Without this, link.condition would overwrite the branch conditions.
+
         queue: deque[JourneyNodeId] = deque()
         visited: set[JourneyNodeId] = set()
 
         root_edges = sub_node_edges.get(sub_journey.root_id, [])
-
-        # Determine if root can be dropped (no conditions on outgoing edges)
-        # or must be kept as a fork (has conditional edges).
         root_has_conditions = any(e.condition for e in root_edges)
 
         if root_has_conditions:
-            # Keep root as a fork node — inject it and wire from source_node
+            # Root acts as a branching point — inject it as a FORK node
+            # so both the link condition and branch conditions are preserved.
             root_node = sub_nodes[sub_journey.root_id]
             namespaced_root = scoped_node_id(sub_journey.root_id)
             self._inject_sub_node(nodes, root_node, parent_journey_id, link.sub_journey_id, link.id)
-            # Override the injected node's kind to FORK since it acts as a branching point
             injected = nodes[namespaced_root]
             nodes[namespaced_root] = replace(injected, kind=JourneyNodeKind.FORK)
 
-            # Wire source_node -> injected root (with the link condition if any)
+            # Wire: source_node --link.condition--> injected_root_fork
             entry_edge = JourneyEdge(
                 id=scoped_edge_id(JourneyEdgeId(f"entry~{sub_journey.root_id}")),
                 creation_utc=root_node.creation_utc,
@@ -150,10 +164,11 @@ class JourneyGuidelineProjection:
             edges[entry_edge.id] = entry_edge
             node_edges[entry_edge.source].append(entry_edge)
 
-            # Process root's edges as regular BFS edges from the injected root
+            # The root's conditional edges will be processed by the BFS below
             queue.append(sub_journey.root_id)
         else:
-            # Root has no conditional edges — drop it and wire directly from source_node
+            # Root has no conditional edges — drop it, wire source_node
+            # directly to children with the link condition.
             for root_edge in root_edges:
                 target_node = sub_nodes.get(root_edge.target)
                 if target_node and target_node.kind == JourneyNodeKind.END:

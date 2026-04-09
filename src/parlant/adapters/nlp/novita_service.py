@@ -23,7 +23,8 @@ from openai import (
     InternalServerError,
     RateLimitError,
 )
-from typing import Any, Mapping
+import re
+from typing import Any, AsyncIterator, Callable, Mapping
 from typing_extensions import override
 import json
 import jsonfinder  # type: ignore
@@ -50,6 +51,7 @@ from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import (
     T,
     BaseSchematicGenerator,
+    BaseStreamingTextGenerator,
     SchematicGenerationResult,
     StreamingTextGenerator,
 )
@@ -209,13 +211,201 @@ class NovitaSchematicGenerator(BaseSchematicGenerator[T]):
 class Novita_KimiK2(NovitaSchematicGenerator[T]):
     def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(
-            model_name=NOVITA_DEFAULT_MODEL, logger=logger, tracer=tracer, meter=meter
+            model_name="moonshotai/kimi-k2.5", logger=logger, tracer=tracer, meter=meter
         )
 
     @property
     @override
     def max_tokens(self) -> int:
         return 262_144
+
+
+class Novita_DeepSeekV3(NovitaSchematicGenerator[T]):
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(
+            model_name="deepseek/deepseek-v3.2", logger=logger, tracer=tracer, meter=meter
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 163_840
+
+
+class Novita_GLM5(NovitaSchematicGenerator[T]):
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(
+            model_name="zai-org/glm-5.1", logger=logger, tracer=tracer, meter=meter
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 204_800
+
+
+class Novita_MinimaxM2(NovitaSchematicGenerator[T]):
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(
+            model_name="minimax/minimax-m2.7", logger=logger, tracer=tracer, meter=meter
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 204_800
+
+
+class CustomNovitaSchematicGenerator(NovitaSchematicGenerator[T]):
+    """Generic Novita AI generator that accepts any model name."""
+
+    def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(
+            model_name=model_name,
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 128 * 1024
+
+
+# ============================================================================
+# Streaming Text Generators
+# ============================================================================
+
+# Pattern to detect word boundaries for chunking
+# Matches after any whitespace character
+_WORD_BOUNDARY_PATTERN = re.compile(r"(?<=\s)")
+
+# Number of words to buffer before yielding a chunk
+_WORDS_PER_CHUNK = 3
+
+
+class NovitaStreamingTextGenerator(BaseStreamingTextGenerator):
+    """Streaming text generator using Novita AI's OpenAI-compatible streaming API.
+
+    Buffers tokens into word-sized chunks for smoother frontend rendering.
+    """
+
+    supported_novita_params = ["temperature", "max_tokens"]
+
+    def __init__(
+        self,
+        model_name: str,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+    ) -> None:
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+
+        self._client = AsyncClient(
+            base_url=NOVITA_BASE_URL,
+            api_key=os.environ["NOVITA_API_KEY"],
+        )
+        self._tokenizer = NovitaEstimatingTokenizer(model_name=self.model_name)
+
+    @property
+    @override
+    def id(self) -> str:
+        return f"novita-streaming/{self.model_name}"
+
+    @property
+    @override
+    def tokenizer(self) -> NovitaEstimatingTokenizer:
+        return self._tokenizer
+
+    def _list_arguments(self, hints: Mapping[str, Any]) -> Mapping[str, Any]:
+        return {k: v for k, v in hints.items() if k in self.supported_novita_params}
+
+    @override
+    async def do_generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> tuple[AsyncIterator[str | None], Callable[[], UsageInfo]]:
+        if isinstance(prompt, PromptBuilder):
+            prompt = prompt.build()
+
+        novita_api_arguments = self._list_arguments(hints)
+
+        stream = await self._client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model=self.model_name,
+            stream=True,
+            stream_options={"include_usage": True},
+            **novita_api_arguments,
+        )
+
+        # Track usage from final chunk
+        usage_info: UsageInfo | None = None
+
+        async def chunk_generator() -> AsyncIterator[str | None]:
+            nonlocal usage_info
+
+            # Buffer for accumulating tokens into word-sized chunks
+            buffer = ""
+
+            async for chunk in stream:
+                # Check for usage in final chunk (when stream_options include_usage is set)
+                if chunk.usage is not None:
+                    self.logger.trace(chunk.usage.model_dump_json(indent=2))
+
+                    cached_tokens = getattr(
+                        chunk.usage,
+                        "prompt_cache_hit_tokens",
+                        0,
+                    ) or 0
+
+                    usage_info = UsageInfo(
+                        input_tokens=chunk.usage.prompt_tokens,
+                        output_tokens=chunk.usage.completion_tokens,
+                        extra={"cached_input_tokens": cached_tokens},
+                    )
+
+                if chunk.choices and chunk.choices[0].delta.content:
+                    token = chunk.choices[0].delta.content
+                    buffer += token
+
+                    # Count word boundaries in buffer
+                    boundaries = list(_WORD_BOUNDARY_PATTERN.finditer(buffer))
+                    if len(boundaries) >= _WORDS_PER_CHUNK:
+                        # Yield up to the last complete word boundary
+                        last_boundary = boundaries[_WORDS_PER_CHUNK - 1]
+                        chunk_text = buffer[: last_boundary.end()]
+                        buffer = buffer[last_boundary.end() :]
+                        yield chunk_text
+
+            # Yield any remaining content in the buffer
+            if buffer:
+                yield buffer
+
+            # Record metrics if we have usage info
+            if usage_info is not None:
+                await record_llm_metrics(
+                    self.meter,
+                    self.model_name,
+                    schema_name="streaming",
+                    input_tokens=usage_info.input_tokens,
+                    output_tokens=usage_info.output_tokens,
+                    cached_input_tokens=usage_info.extra.get("cached_input_tokens", 0)
+                    if usage_info.extra
+                    else 0,
+                )
+
+            # Signal completion
+            yield None
+
+        def get_usage() -> UsageInfo:
+            if usage_info is None:
+                # Fallback if usage wasn't available
+                return UsageInfo(input_tokens=0, output_tokens=0)
+            return usage_info
+
+        return chunk_generator(), get_usage
 
 
 class NovitaService(NLPService):
@@ -237,27 +427,62 @@ Please set NOVITA_API_KEY in your environment before running Parlant.
         tracer: Tracer,
         meter: Meter,
     ) -> None:
+        self.model_name = os.environ.get("NOVITA_MODEL", NOVITA_DEFAULT_MODEL)
         self._logger = logger
         self._tracer = tracer
         self._meter = meter
-        self._logger.info("Initialized NovitaService")
+        self._logger.info(f"Initialized NovitaService with model: {self.model_name}")
 
     @property
     @override
     def supports_streaming(self) -> bool:
-        return False
+        return True
 
     @override
     async def get_streaming_text_generator(
         self, hints: StreamingTextGeneratorHints = {}
     ) -> StreamingTextGenerator:
-        raise NotImplementedError("Streaming is not supported. Check supports_streaming first.")
+        return NovitaStreamingTextGenerator(
+            model_name=self.model_name,
+            logger=self._logger,
+            tracer=self._tracer,
+            meter=self._meter,
+        )
+
+    def _get_specialized_generator_class(
+        self,
+        model_name: str,
+        schema_type: type[T],
+    ) -> Callable[[Logger, Tracer, Meter], NovitaSchematicGenerator[T]] | None:
+        """Returns the specialized generator class for known models, or None for custom models."""
+        model_to_class: dict[
+            str, Callable[[Logger, Tracer, Meter], NovitaSchematicGenerator[T]]
+        ] = {
+            "moonshotai/kimi-k2.5": Novita_KimiK2[schema_type],  # type: ignore
+            "deepseek/deepseek-v3.2": Novita_DeepSeekV3[schema_type],  # type: ignore
+            "zai-org/glm-5.1": Novita_GLM5[schema_type],  # type: ignore
+            "minimax/minimax-m2.7": Novita_MinimaxM2[schema_type],  # type: ignore
+        }
+
+        return model_to_class.get(model_name)
 
     @override
     async def get_schematic_generator(
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> NovitaSchematicGenerator[T]:
-        return Novita_KimiK2[t](self._logger, self._tracer, self._meter)  # type: ignore
+        specialized_class = self._get_specialized_generator_class(self.model_name, schema_type=t)
+
+        if specialized_class:
+            self._logger.debug(f"Using specialized generator for model: {self.model_name}")
+            return specialized_class(self._logger, self._tracer, self._meter)
+        else:
+            self._logger.debug(f"Using custom generator for model: {self.model_name}")
+            return CustomNovitaSchematicGenerator[t](  # type: ignore
+                model_name=self.model_name,
+                logger=self._logger,
+                tracer=self._tracer,
+                meter=self._meter,
+            )
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:

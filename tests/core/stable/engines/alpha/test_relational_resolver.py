@@ -23,7 +23,7 @@ from parlant.core.engines.alpha.relational_resolver import (
     ResolvedEntityId,
 )
 from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
-from parlant.core.journeys import JourneyStore
+from parlant.core.journeys import JourneyNodeKind, JourneyStore
 from parlant.core.relationships import (
     RelationshipEntityKind,
     RelationshipKind,
@@ -201,12 +201,14 @@ async def test_that_relational_resolver_prioritizes_guideline_over_journey(
     # Add nodes to the journey to create a graph
     journey_node_1 = await journey_store.create_node(
         journey_id=journey.id,
+        kind=JourneyNodeKind.CHAT,
         action="Ask what drink they want",
         tools=[],
     )
 
     journey_node_2 = await journey_store.create_node(
         journey_id=journey.id,
+        kind=JourneyNodeKind.CHAT,
         action="Recommend Coca-Cola",
         tools=[],
     )
@@ -277,12 +279,14 @@ async def test_that_relational_resolver_prioritizes_journey_over_guideline(
     # Add nodes to the journey to create a graph
     journey_node_1 = await journey_store.create_node(
         journey_id=journey.id,
+        kind=JourneyNodeKind.CHAT,
         action="Ask what drink they want",
         tools=[],
     )
 
     journey_node_2 = await journey_store.create_node(
         journey_id=journey.id,
+        kind=JourneyNodeKind.CHAT,
         action="Recommend Pepsi",
         tools=[],
     )

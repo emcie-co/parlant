@@ -1,10 +1,10 @@
 import asyncio
-from enum import Enum
-from typing import Any, cast, Sequence
+from typing import Any, Optional, cast, Sequence
 from typing_extensions import override
 from parlant.core import async_utils
 
 from parlant.core.common import JSONSerializable
+from parlant.core.journeys import JourneyNodeKind
 from parlant.core.engines.alpha.guideline_matching.common import measure_guideline_matching_batch
 
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
@@ -52,15 +52,6 @@ EMPTY_GENERATION_INFO = GenerationInfo(
         extra={},
     ),
 )
-
-
-class JourneyNodeKind(Enum):
-    ROOT = "root"
-    FORK = "fork"
-    CHAT = "chat"
-    TOOL = "tool"
-    END = "end"
-    NA = "NA"
 
 
 class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
@@ -137,10 +128,9 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
         ).get("follow_ups", [])
 
     @staticmethod
-    def _get_kind(guideline: Guideline) -> JourneyNodeKind:
-        return JourneyNodeKind(
-            cast(dict[str, Any], guideline.metadata.get("journey_node", {})).get("kind", "NA")
-        )
+    def _get_kind(guideline: Guideline) -> Optional[JourneyNodeKind]:
+        kind_str = cast(dict[str, Any], guideline.metadata.get("journey_node", {})).get("kind")
+        return JourneyNodeKind(kind_str) if kind_str else None
 
     def auto_return_match(self) -> GuidelineMatchingBatchResult | None:
         node_index_to_guideline: dict[str, Guideline] = {

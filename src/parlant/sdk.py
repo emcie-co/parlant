@@ -2349,7 +2349,7 @@ class Journey:
         ).create_edge(
             journey_id=self.id,
             source=source.id,
-            target=target.id if target else JourneyStore.END_NODE_ID,
+            target=target.id if target else END_JOURNEY.id,
             condition=condition,
         )
 
@@ -4550,14 +4550,14 @@ class Server:
                 # is referenced by multiple journeys. The projection injects
                 # this data into guidelines at read time.
                 journey_id = cast(JourneyId, entity_id)
-                node_evaluation = cast(_CachedEvaluator.JourneyEvaluation, result).node_properties
+                node_properties = cast(_CachedEvaluator.JourneyEvaluation, result).node_properties
 
                 await self._store_provider.get_store(
                     JourneyStore, StoreProviderHints(call_site="sdk")
                 ).set_journey_metadata(
                     journey_id=journey_id,
-                    key="node_evaluation",
-                    value=cast(Mapping[str, JSONSerializable], node_evaluation),
+                    key="node_properties",
+                    value=cast(Mapping[str, JSONSerializable], node_properties),
                 )
 
     async def _setup_retrievers(self) -> None:

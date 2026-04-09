@@ -174,8 +174,8 @@ class NovitaSchematicGenerator(BaseSchematicGenerator[T]):
                 input_tokens=response.usage.prompt_tokens,
                 output_tokens=response.usage.completion_tokens,
                 cached_input_tokens=getattr(
-                    response,
-                    "usage.prompt_cache_hit_tokens",
+                    response.usage,
+                    "prompt_cache_hit_tokens",
                     0,
                 ),
             )
@@ -191,8 +191,8 @@ class NovitaSchematicGenerator(BaseSchematicGenerator[T]):
                         output_tokens=response.usage.completion_tokens,
                         extra={
                             "cached_input_tokens": getattr(
-                                response,
-                                "usage.prompt_cache_hit_tokens",
+                                response.usage,
+                                "prompt_cache_hit_tokens",
                                 0,
                             )
                         },

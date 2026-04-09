@@ -394,6 +394,68 @@ async def test_that_consumption_offsets_can_be_updated(
     assert session_dto["consumption_offsets"][consumer_id] == 1
 
 
+async def test_that_consumption_offsets_can_be_updated_to_zero(
+    async_client: httpx.AsyncClient,
+    long_session_id: SessionId,
+) -> None:
+    (
+        await async_client.patch(
+            f"/sessions/{long_session_id}",
+            json={
+                "consumption_offsets": {
+                    "client": 1,
+                }
+            },
+        )
+    ).raise_for_status()
+
+    session_dto = (
+        (
+            await async_client.patch(
+                f"/sessions/{long_session_id}",
+                json={
+                    "consumption_offsets": {
+                        "client": 0,
+                    }
+                },
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert session_dto["consumption_offsets"]["client"] == 0
+
+
+async def test_that_omitting_consumption_offsets_does_not_reset_them(
+    async_client: httpx.AsyncClient,
+    long_session_id: SessionId,
+) -> None:
+    (
+        await async_client.patch(
+            f"/sessions/{long_session_id}",
+            json={
+                "consumption_offsets": {
+                    "client": 1,
+                }
+            },
+        )
+    ).raise_for_status()
+
+    session_dto = (
+        (
+            await async_client.patch(
+                f"/sessions/{long_session_id}",
+                json={"title": "updated title"},
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert session_dto["consumption_offsets"]["client"] == 1
+
+
 async def test_that_title_can_be_updated(
     async_client: httpx.AsyncClient,
     session_id: SessionId,
@@ -410,6 +472,24 @@ async def test_that_title_can_be_updated(
     )
 
     assert session_dto["title"] == "new session title"
+
+
+async def test_that_title_can_be_updated_to_an_empty_string(
+    async_client: httpx.AsyncClient,
+    session_id: SessionId,
+) -> None:
+    session_dto = (
+        (
+            await async_client.patch(
+                f"/sessions/{session_id}",
+                json={"title": ""},
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert session_dto["title"] == ""
 
 
 async def test_that_mode_can_be_updated(

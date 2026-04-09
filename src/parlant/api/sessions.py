@@ -1608,28 +1608,28 @@ def create_router(
         async def from_dto(dto: SessionUpdateParamsDTO) -> SessionUpdateParamsModel:
             params: SessionUpdateParamsModel = {}
 
-            if dto.consumption_offsets:
+            if dto.consumption_offsets is not None:
                 session = await app.sessions.read(session_id)
 
-                if dto.consumption_offsets.client:
+                if dto.consumption_offsets.client is not None:
                     params["consumption_offsets"] = {
                         **session.consumption_offsets,
                         "client": dto.consumption_offsets.client,
                     }
 
-            if dto.title:
+            if dto.title is not None:
                 params["title"] = dto.title
 
-            if dto.mode:
+            if dto.mode is not None:
                 params["mode"] = dto.mode.value
 
-            if dto.customer_id:
+            if dto.customer_id is not None:
                 params["customer_id"] = dto.customer_id
 
-            if dto.agent_id:
+            if dto.agent_id is not None:
                 params["agent_id"] = dto.agent_id
 
-            if dto.metadata:
+            if dto.metadata is not None:
                 session = await app.sessions.read(session_id)
                 current_metadata = dict(session.metadata)
 

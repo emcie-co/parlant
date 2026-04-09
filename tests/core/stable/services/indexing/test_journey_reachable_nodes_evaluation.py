@@ -7,7 +7,7 @@ from pytest import fixture
 
 from parlant.core.common import Criticality, JSONSerializable
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
-from parlant.core.journeys import JourneyId, JourneyStore
+from parlant.core.journeys import JourneyId, JourneyNodeKind, JourneyStore
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
@@ -320,7 +320,7 @@ async def test_that_projection_produces_valid_guidelines_for_reachable_evaluatio
         conditions=[],
     )
     verify_node = await journey_store.create_node(
-        sub.id, action="Ask the customer for their ID number", tools=[]
+        sub.id, kind=JourneyNodeKind.CHAT, action="Ask the customer for their ID number", tools=[]
     )
     await journey_store.create_edge(
         sub.id, source=sub.root_id, target=verify_node.id, condition=None
@@ -333,7 +333,10 @@ async def test_that_projection_produces_valid_guidelines_for_reachable_evaluatio
         conditions=[],
     )
     collect_info = await journey_store.create_node(
-        parent.id, action="Ask the customer what type of account they want", tools=[]
+        parent.id,
+        kind=JourneyNodeKind.CHAT,
+        action="Ask the customer what type of account they want",
+        tools=[],
     )
     await journey_store.create_edge(
         parent.id, source=parent.root_id, target=collect_info.id, condition=None
@@ -346,7 +349,7 @@ async def test_that_projection_produces_valid_guidelines_for_reachable_evaluatio
     )
 
     confirmed = await journey_store.create_node(
-        parent.id, action="Confirm the account has been opened", tools=[]
+        parent.id, kind=JourneyNodeKind.CHAT, action="Confirm the account has been opened", tools=[]
     )
     await journey_store.create_edge(
         parent.id,
@@ -420,14 +423,18 @@ async def test_that_chained_linked_journeys_have_correct_node_wrapper_graph(
     sub1 = await journey_store.create_journey(
         title="Identity Verification", description="sub1", conditions=[]
     )
-    id_node = await journey_store.create_node(sub1.id, action="ask for ID", tools=[])
+    id_node = await journey_store.create_node(
+        sub1.id, kind=JourneyNodeKind.CHAT, action="ask for ID", tools=[]
+    )
     await journey_store.create_edge(sub1.id, source=sub1.root_id, target=id_node.id, condition=None)
 
     # Sub-journey 2: credit
     sub2 = await journey_store.create_journey(
         title="Credit Check", description="sub2", conditions=[]
     )
-    credit_node = await journey_store.create_node(sub2.id, action="ask for SSN", tools=[])
+    credit_node = await journey_store.create_node(
+        sub2.id, kind=JourneyNodeKind.CHAT, action="ask for SSN", tools=[]
+    )
     await journey_store.create_edge(
         sub2.id, source=sub2.root_id, target=credit_node.id, condition=None
     )
@@ -436,7 +443,9 @@ async def test_that_chained_linked_journeys_have_correct_node_wrapper_graph(
     sub3 = await journey_store.create_journey(
         title="Loan Approval", description="sub3", conditions=[]
     )
-    approval_node = await journey_store.create_node(sub3.id, action="approve loan", tools=[])
+    approval_node = await journey_store.create_node(
+        sub3.id, kind=JourneyNodeKind.CHAT, action="approve loan", tools=[]
+    )
     await journey_store.create_edge(
         sub3.id, source=sub3.root_id, target=approval_node.id, condition=None
     )

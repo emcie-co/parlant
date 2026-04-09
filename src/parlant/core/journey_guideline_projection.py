@@ -534,19 +534,19 @@ class JourneyGuidelineProjection:
         # Inject evaluation results from Journey.metadata into guidelines.
         # Evaluation data is keyed by node_id (or node_id:link_id for linked
         # nodes) to distinguish the same sub-journey node linked multiple times.
-        node_evaluation = cast(
+        node_properties = cast(
             dict[str, JSONSerializable],
-            journey.metadata.get("node_evaluation", {}),
+            journey.metadata.get("node_properties", {}),
         )
 
-        if node_evaluation:
+        if node_properties:
             for guideline in guidelines.values():
                 node_id = extract_node_id_from_journey_node_guideline_id(guideline.id)
                 link_id = extract_link_id_from_journey_node_guideline_id(guideline.id)
                 eval_key = f"{node_id}:{link_id}" if link_id else node_id
                 eval_props = cast(
                     dict[str, JSONSerializable],
-                    node_evaluation.get(eval_key, {}),
+                    node_properties.get(eval_key, {}),
                 )
                 if not eval_props:
                     continue

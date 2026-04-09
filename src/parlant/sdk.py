@@ -2451,7 +2451,7 @@ class Journey:
         ).create_edge(
             journey_id=self.id,
             source=source.id,
-            target=target.id if target else JourneyStore.END_NODE_ID,
+            target=target.id if target else END_JOURNEY.id,
             condition=condition,
         )
 

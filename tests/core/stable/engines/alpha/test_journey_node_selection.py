@@ -21,9 +21,9 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backt
     JourneyBacktrackCheckSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
-    JourneyNodeKind,
     JourneyBacktrackNodeSelectionSchema,
 )
+from parlant.core.journeys import JourneyNodeKind
 from parlant.core.engines.alpha.guideline_matching.guideline_matching_context import (
     GuidelineMatchingContext,
 )

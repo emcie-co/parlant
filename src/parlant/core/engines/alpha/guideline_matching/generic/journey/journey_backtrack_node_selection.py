@@ -18,7 +18,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matching_context im
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
-from parlant.core.journeys import Journey
+from parlant.core.journeys import Journey, JourneyNodeKind
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
@@ -43,15 +43,6 @@ FORK_NODE_ACTION_STR = (
 LAST_PRESENTED_NODE_INSTRUCTION = "Do not advance past this step. If you got here - mark this step as incomplete and return it as next_step"
 
 
-class JourneyNodeKind(Enum):
-    ROOT = "root"
-    FORK = "fork"
-    CHAT = "chat"
-    TOOL = "tool"
-    END = "end"
-    NA = "NA"
-
-
 class StepCompletionStatus(Enum):
     COMPLETED = "completed"
     NEEDS_CUSTOMER_INPUT = "needs_customer_input"
@@ -73,7 +64,7 @@ class _JourneyNode:  # Refactor after node type is implemented
     action: str | None
     incoming_edges: list[_JourneyEdge]
     outgoing_edges: list[_JourneyEdge]
-    kind: JourneyNodeKind
+    kind: Optional[JourneyNodeKind]
     customer_dependent_action: bool
     customer_action_description: Optional[str] = None
     agent_dependent_action: Optional[bool] = None
@@ -123,9 +114,8 @@ def build_node_wrappers(guidelines: Sequence[Guideline]) -> dict[str, _JourneyNo
     for g in guidelines:
         node_index: str = guideline_id_to_node_index[g.id]
         if node_index not in node_wrappers:
-            kind = JourneyNodeKind(
-                cast(dict[str, Any], g.metadata.get("journey_node", {})).get("kind", "NA")
-            )
+            kind_str = cast(dict[str, Any], g.metadata.get("journey_node", {})).get("kind")
+            kind: Optional[JourneyNodeKind] = JourneyNodeKind(kind_str) if kind_str else None
             customer_dependent_action = cast(
                 dict[str, bool], g.metadata.get("customer_dependent_action_data", {})
             ).get("is_customer_dependent", False)
@@ -357,7 +347,7 @@ def get_journey_transition_map_text(
 
         # Node kind flags
         if (
-            node.kind in {JourneyNodeKind.CHAT, JourneyNodeKind.NA}
+            node.kind in {JourneyNodeKind.CHAT, None}
             and node.action is None
             and len(node.outgoing_edges) <= 1
         ):

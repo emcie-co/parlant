@@ -1,11 +1,8 @@
 from collections import defaultdict, deque
 from dataclasses import replace
 from datetime import datetime, timezone
-from typing import Sequence, cast
+from typing import Optional, Sequence, cast
 from parlant.core.common import Criticality, JSONSerializable
-from parlant.core.engines.alpha.guideline_matching.generic.common import (
-    format_journey_node_guideline_id,
-)
 from parlant.core.guidelines import Guideline, GuidelineStore, GuidelineContent, GuidelineId
 from parlant.core.journeys import (
     JourneyEdge,
@@ -16,8 +13,22 @@ from parlant.core.journeys import (
     JourneyNode,
     JourneyNodeId,
     JourneyStore,
-    NodeKind,
+    JourneyNodeKind,
 )
+
+
+def format_journey_node_guideline_id(
+    node_id: JourneyNodeId,
+    edge_id: Optional[JourneyEdgeId] = None,
+    link_id: Optional[JourneyLinkId] = None,
+) -> GuidelineId:
+    if edge_id and link_id:
+        return GuidelineId(f"journey_node:{node_id}:{edge_id}:{link_id}")
+
+    if edge_id:
+        return GuidelineId(f"journey_node:{node_id}:{edge_id}")
+
+    return GuidelineId(f"journey_node:{node_id}")
 
 
 def extract_edge_id_from_journey_node_guideline_id(
@@ -117,7 +128,7 @@ class JourneyGuidelineProjection:
 
         for root_edge in root_edges:
             target_node = sub_nodes.get(root_edge.target)
-            if target_node and target_node.kind == NodeKind.END:
+            if target_node and target_node.kind == JourneyNodeKind.END:
                 # Root directly transitions to END — wire source to merge node
                 virtual_edge = JourneyEdge(
                     id=scoped_edge_id(root_edge.id),
@@ -182,7 +193,7 @@ class JourneyGuidelineProjection:
 
             for sub_edge in current_edges:
                 sub_target = sub_nodes.get(sub_edge.target)
-                if sub_target and sub_target.kind == NodeKind.END:
+                if sub_target and sub_target.kind == JourneyNodeKind.END:
                     # END transition — wire to merge node
                     virtual_edge = JourneyEdge(
                         id=scoped_edge_id(sub_edge.id),
@@ -265,7 +276,7 @@ class JourneyGuidelineProjection:
         fork_ids = [
             node_id
             for node_id, node in nodes.items()
-            if not node.action and node.kind == NodeKind.FORK
+            if not node.action and node.kind == JourneyNodeKind.FORK
         ]
 
         for fork_id in fork_ids:

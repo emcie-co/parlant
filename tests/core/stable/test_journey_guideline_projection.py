@@ -599,3 +599,90 @@ async def test_that_projection_collapses_pass_through_forks_for_chained_linked_j
     assert ssn_g[0].id in id_followups, (
         f"ask_for_ID follow-ups {id_followups} should include ask_for_SSN {ssn_g[0].id}"
     )
+
+
+async def test_that_sub_journey_with_conditional_root_edges_preserves_conditions(
+    container: Container,
+) -> None:
+    """When a sub-journey root has conditional outgoing edges (a fork pattern),
+    the conditions must be preserved in the projection. The root should be kept
+    as a fork node — not dropped.
+
+    Sub-journey:
+        root --"customer is new"--> onboard_node
+        root --"customer is existing"--> greet_node
+
+    Parent:
+        root -> collect_info --(link with condition "needs routing")--> sub-journey -> merge
+    """
+    journey_store = container[JourneyStore]
+    guideline_store = container[GuidelineStore]
+
+    projection = JourneyGuidelineProjection(
+        journey_store=journey_store,
+        guideline_store=guideline_store,
+    )
+
+    # Sub-journey with conditional root edges
+    sub = await journey_store.create_journey(
+        title="Customer Routing", description="Route based on customer type", conditions=[]
+    )
+    onboard_node = await journey_store.create_node(sub.id, action="onboard new customer", tools=[])
+    greet_node = await journey_store.create_node(sub.id, action="greet existing customer", tools=[])
+    await journey_store.create_edge(
+        sub.id, source=sub.root_id, target=onboard_node.id, condition="customer is new"
+    )
+    await journey_store.create_edge(
+        sub.id, source=sub.root_id, target=greet_node.id, condition="customer is existing"
+    )
+
+    # Parent journey
+    parent = await journey_store.create_journey(
+        title="Service Flow", description="parent", conditions=[]
+    )
+    collect_node = await journey_store.create_node(
+        parent.id, action="collect customer info", tools=[]
+    )
+    await journey_store.create_edge(
+        parent.id, source=parent.root_id, target=collect_node.id, condition=None
+    )
+    await journey_store.create_link(
+        journey_id=parent.id,
+        source_node_id=collect_node.id,
+        sub_journey_id=sub.id,
+        condition="needs routing",
+    )
+
+    guidelines = await projection.project_journey_to_guidelines(parent.id)
+
+    actions = _get_actions(guidelines)
+    assert "collect customer info" in actions
+    assert "onboard new customer" in actions, f"Onboard node missing. Actions: {actions}"
+    assert "greet existing customer" in actions, f"Greet node missing. Actions: {actions}"
+
+    # Both sub-journey branch conditions must be present in the projected guidelines
+    onboard_g = next(g for g in guidelines if g.content.action == "onboard new customer")
+    greet_g = next(g for g in guidelines if g.content.action == "greet existing customer")
+
+    assert onboard_g.content.condition == "customer is new", (
+        f"Expected 'customer is new', got '{onboard_g.content.condition}'"
+    )
+    assert greet_g.content.condition == "customer is existing", (
+        f"Expected 'customer is existing', got '{greet_g.content.condition}'"
+    )
+
+    # The link condition ("needs routing") should also be present —
+    # either on the edge to the fork or on the branch edges
+    all_conditions = {g.content.condition for g in guidelines if g.content.condition}
+    assert "needs routing" in all_conditions, (
+        f"Link condition 'needs routing' missing from guidelines. Conditions: {all_conditions}"
+    )
+
+    # Follow-up chain integrity
+    all_ids = {g.id for g in guidelines}
+    for g in guidelines:
+        followups = cast(dict[str, JSONSerializable], g.metadata.get("journey_node", {})).get(
+            "follow_ups", []
+        )
+        for f_id in cast(list[str], followups):
+            assert f_id in all_ids, f"Dangling follow-up {f_id} in {g.id}"

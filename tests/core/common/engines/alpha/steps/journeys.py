@@ -18,7 +18,7 @@ from pytest_bdd import given, parsers
 from parlant.core.common import JSONSerializable
 from parlant.core.entity_cq import EntityCommands
 from parlant.core.evaluations import JourneyPayload, PayloadOperation
-from parlant.core.journeys import Journey, JourneyId, JourneyNodeId, JourneyStore, NodeKind
+from parlant.core.journeys import Journey, JourneyId, JourneyNodeId, JourneyStore, JourneyNodeKind
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
 
 from parlant.core.relationships import (
@@ -288,7 +288,7 @@ def given_the_journey_called(
                 target=next(
                     n.id
                     for n in context.sync_await(journey_store.list_nodes(journey.id))
-                    if n.kind == NodeKind.END
+                    if n.kind == JourneyNodeKind.END
                 ),
                 condition=None,
             )
@@ -3240,7 +3240,7 @@ def given_a_transition_from_to_end_when_in_journey(
             target=next(
                 n.id
                 for n in context.sync_await(journey_store.list_nodes(journey.id))
-                if n.kind == NodeKind.END
+                if n.kind == JourneyNodeKind.END
             ),
             condition=condition,
         )
@@ -3271,7 +3271,7 @@ def given_a_transition_from_to_end_in_journey(
             target=next(
                 n.id
                 for n in context.sync_await(journey_store.list_nodes(journey.id))
-                if n.kind == NodeKind.END
+                if n.kind == JourneyNodeKind.END
             ),
             condition=None,
         )

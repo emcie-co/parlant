@@ -817,7 +817,7 @@ async def test_that_reading_a_journey_returns_nodes_and_edges(
         target=node3.id,
         condition="Issue identified",
     )
-    from parlant.core.journeys import NodeKind as _NodeKind
+    from parlant.core.journeys import JourneyNodeKind as _NodeKind
 
     journey_nodes = await journey_store.list_nodes(journey_id=journey_id)
     end_node = next(n for n in journey_nodes if n.kind == _NodeKind.END)

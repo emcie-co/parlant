@@ -135,6 +135,7 @@ def given_the_journey_called(
         node1 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Use list_cards tool to get the customer's cards",
                 tools=[ToolId("local", tool1.name)],
             )
@@ -182,6 +183,7 @@ def given_the_journey_called(
         node2 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Present the user with their list of cards and ask which one they want to lock",
                 tools=[],
             )
@@ -220,6 +222,7 @@ def given_the_journey_called(
         node3 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Ask for the reason for locking the card (e.g., lost, stolen, temporary lock, etc.)",
                 tools=[],
             )
@@ -258,6 +261,7 @@ def given_the_journey_called(
         node4 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Ask them to call customer support at 123456789 to report the lost or stolen card",
                 tools=[],
             )
@@ -299,6 +303,7 @@ def given_the_journey_called(
         node5 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Use lock_card tool to lock the selected card",
                 tools=[ToolId("local", tool2.name)],
             )
@@ -346,6 +351,7 @@ def given_the_journey_called(
         node6 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Confirm whether or not the card has been locked successfully",
                 tools=[],
             )
@@ -420,6 +426,7 @@ def given_the_journey_called(
         node1 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="ask for their username",
                 tools=[],
             )
@@ -457,6 +464,7 @@ def given_the_journey_called(
         node2 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Ask for their email address or phone number",
                 tools=[],
             )
@@ -494,6 +502,7 @@ def given_the_journey_called(
         node3 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Wish them a good day",
                 tools=[],
             )
@@ -522,6 +531,7 @@ def given_the_journey_called(
         node4 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Use the reset_password tool with the provided information",
                 tools=[ToolId("local", tool.name)],
             )
@@ -569,6 +579,7 @@ def given_the_journey_called(
         node5 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Report the result to the customer",
                 tools=[],
             )
@@ -596,6 +607,7 @@ def given_the_journey_called(
         node6 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Apologize to the customer and report that the password cannot be reset at this times",
                 tools=[],
             )
@@ -679,6 +691,7 @@ def given_the_journey_called(
         node1 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="ask for the source and destination airport",
                 tools=[],
             )
@@ -718,6 +731,7 @@ def given_the_journey_called(
         node2 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="ask for the dates of the departure and return flight",
                 tools=[],
             )
@@ -757,6 +771,7 @@ def given_the_journey_called(
         node3 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="ask whether they want economy or business class",
                 tools=[],
             )
@@ -796,6 +811,7 @@ def given_the_journey_called(
         node4 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="ask for the name of the traveler",
                 tools=[],
             )
@@ -837,6 +853,7 @@ def given_the_journey_called(
         node5 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="book the flight using book_flight tool and the provided details",
                 tools=[ToolId("local", tool.name)],
             )
@@ -944,6 +961,7 @@ def given_the_journey_called(
         node1 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Ask for the pickup location",
                 tools=[],
             )
@@ -983,6 +1001,7 @@ def given_the_journey_called(
         node2 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Ask for the drop-off location",
                 tools=[],
             )
@@ -1022,6 +1041,7 @@ def given_the_journey_called(
         node3 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Ask for the desired pickup time",
                 tools=[],
             )
@@ -1061,6 +1081,7 @@ def given_the_journey_called(
         node4 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Confirm all details with the customer before booking",
                 tools=[],
             )
@@ -1147,6 +1168,7 @@ def given_the_journey_called(
         node1 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Ask if they’d like a salad or a sandwich",
                 tools=[],
             )
@@ -1186,6 +1208,7 @@ def given_the_journey_called(
         node2 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="ask what kind of bread they’d like",
                 tools=[],
             )
@@ -1225,6 +1248,7 @@ def given_the_journey_called(
         node3 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="ask what main filling they’d like from: Peanut butter, jam or pesto",
                 tools=[],
             )
@@ -1264,6 +1288,7 @@ def given_the_journey_called(
         node4 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="ask if they want any extras",
                 tools=[],
             )
@@ -1303,6 +1328,7 @@ def given_the_journey_called(
         node5 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="ask what base greens they want",
                 tools=[],
             )
@@ -1342,6 +1368,7 @@ def given_the_journey_called(
         node6 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="what toppings they’d like",
                 tools=[],
             )
@@ -1380,6 +1407,7 @@ def given_the_journey_called(
         node7 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="what kind of dressing they prefer",
                 tools=[],
             )
@@ -1419,6 +1447,7 @@ def given_the_journey_called(
         node8 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Confirm the full order before placing it",
                 tools=[],
             )
@@ -1513,6 +1542,7 @@ def given_the_journey_called(
         node1 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="ask for the customer's account number",
                 tools=[],
             )
@@ -1552,6 +1582,7 @@ def given_the_journey_called(
         node2 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Ask for the customer's full name",
                 tools=[],
             )
@@ -1591,6 +1622,7 @@ def given_the_journey_called(
         node3 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="suggest all relevant capabilities available in this prompt",
                 tools=[],
             )
@@ -1618,6 +1650,7 @@ def given_the_journey_called(
         node4 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="inform the customer that you cannot help them with their request",
                 tools=[],
             )
@@ -1644,6 +1677,7 @@ def given_the_journey_called(
         node5 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Ask the customer if they need any further help",
                 tools=[],
             )
@@ -1728,6 +1762,7 @@ def given_the_journey_called(
         node1 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="ask what type of loan the customer is interested in",
                 tools=[],
             )
@@ -1767,6 +1802,7 @@ def given_the_journey_called(
         node2 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Ask for the loan amount",
                 tools=[],
             )
@@ -1806,6 +1842,7 @@ def given_the_journey_called(
         node3 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Ask for the purpose of the loan",
                 tools=[],
             )
@@ -1845,6 +1882,7 @@ def given_the_journey_called(
         node4 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Ask for account number for validation",
                 tools=[],
             )
@@ -1885,6 +1923,7 @@ def given_the_journey_called(
         node5 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Validate the customer's eligibility",
                 tools=[ToolId("local", tool.name)],
             )
@@ -1955,6 +1994,7 @@ def given_the_journey_called(
         node6 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Confirm eligibility with terms and ask to proceed with application",
                 tools=[],
             )
@@ -1993,6 +2033,7 @@ def given_the_journey_called(
         node7 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Explain the denied request for a loan due to ineligibility",
                 tools=[],
             )
@@ -2080,6 +2121,7 @@ def given_the_journey_called(
         node1 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Ask for their account name",
                 tools=[],
             )
@@ -2108,6 +2150,7 @@ def given_the_journey_called(
         node2 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Ask for the new desired credit limit",
                 tools=[],
             )
@@ -2136,6 +2179,7 @@ def given_the_journey_called(
         node3 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Thank them and confirm the requested change",
                 tools=[],
             )
@@ -2166,6 +2210,7 @@ def given_the_journey_called(
         node4 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Use the get_credit_limit tool with the provided account name to get the current limit",
                 tools=[ToolId("local", tool.name)],
             )
@@ -2216,6 +2261,7 @@ def given_the_journey_called(
         node5 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Use the change_credit_limit tool with the provided account and desired limit",
                 tools=[ToolId("local", tool.name)],
             )
@@ -2265,6 +2311,7 @@ def given_the_journey_called(
         node6 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Let the customer know that the credit limit has been successfully updated",
                 tools=[],
             )
@@ -2282,6 +2329,7 @@ def given_the_journey_called(
         node7 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Apologize and inform the customer that the credit limit change can not be done. Explain why according to tool result",
                 tools=[],
             )
@@ -2347,6 +2395,7 @@ def given_the_journey_called(
         node1 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Use check_lab_results tool to get the customer's lab results",
                 tools=[ToolId("local", tool.name)],
             )
@@ -2394,6 +2443,7 @@ def given_the_journey_called(
         node2 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Congratulate the customer for their good results",
                 tools=[],
             )
@@ -2421,6 +2471,7 @@ def given_the_journey_called(
         node3 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Tell the customer to contact the lab at 999-224-545 to get their results",
                 tools=[],
             )
@@ -2508,6 +2559,7 @@ def given_the_journey_called(
         node_blood = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Use check_lab_results tool to get the customer's blood test results",
                 tools=[ToolId("local", tool.name)],
             )
@@ -2555,6 +2607,7 @@ def given_the_journey_called(
         node_blood_report = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Report the blood test results to the customer",
                 tools=[],
             )
@@ -2582,6 +2635,7 @@ def given_the_journey_called(
         node_plasma = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Ask the customer to call their personal doctor for the full results",
                 tools=[],
             )
@@ -2609,6 +2663,7 @@ def given_the_journey_called(
         node_brain = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Tell the customer the results are not in yet, and ask them to check again later.",
                 tools=[],
             )
@@ -2675,6 +2730,7 @@ def given_the_journey_called(
         node1 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Ask which hotel the customer would you like to stay in.",
                 tools=[],
             )
@@ -2711,6 +2767,7 @@ def given_the_journey_called(
         node2 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Ask what dates the customer would like to check in and check out?",
                 tools=[],
             )
@@ -2747,6 +2804,7 @@ def given_the_journey_called(
         node3 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Ask how many guests will be staying",
                 tools=[],
             )
@@ -2783,6 +2841,7 @@ def given_the_journey_called(
         node4 = context.sync_await(
             journey_store.create_node(
                 journey_id=journey.id,
+                kind=JourneyNodeKind.CHAT,
                 action="Ask the customer if they need a specific type of room, like single, double, or suite",
                 tools=[],
             )
@@ -3007,6 +3066,7 @@ def given_a_node_with_an_action_in_journey(
     node = context.sync_await(
         journey_store.create_node(
             journey_id=journey.id,
+            kind=JourneyNodeKind.CHAT,
             action=action,
             tools=[],
         )

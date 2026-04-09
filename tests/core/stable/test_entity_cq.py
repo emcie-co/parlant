@@ -29,7 +29,7 @@ from parlant.core.relationships import (
 )
 from parlant.core.canned_responses import CannedResponseStore
 from parlant.core.guidelines import GuidelineStore
-from parlant.core.journeys import JourneyStore
+from parlant.core.journeys import JourneyNodeKind, JourneyStore
 from parlant.core.tags import Tag, TagId, TagStore
 from parlant.core.tools import ToolId
 
@@ -527,6 +527,7 @@ async def test_that_canned_responses_can_be_found_for_a_guideline(
 
     node = await journey_store.create_node(
         journey_id=journey.id,
+        kind=JourneyNodeKind.CHAT,
         action="Test Node",
         tools=[],
     )

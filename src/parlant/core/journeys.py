@@ -78,12 +78,12 @@ class JourneyNodeKind(Enum):
 class JourneyNode:
     id: JourneyNodeId
     creation_utc: datetime
+    kind: JourneyNodeKind
     action: Optional[str]
     tools: Sequence[ToolId]
     metadata: Mapping[str, JSONSerializable]
     description: Optional[str] = None
     composition_mode: Optional[CompositionMode] = None
-    kind: JourneyNodeKind = JourneyNodeKind.ROOT
     labels: Set[str] = field(default_factory=set)
 
     def __hash__(self) -> int:
@@ -241,13 +241,13 @@ class JourneyStore(ABC):
     async def create_node(
         self,
         journey_id: JourneyId,
+        kind: JourneyNodeKind,
         action: Optional[str],
         tools: Sequence[ToolId],
         description: Optional[str] = None,
         composition_mode: Optional[CompositionMode] = None,
         id: Optional[JourneyNodeId] = None,
         labels: Optional[Set[str]] = None,
-        kind: JourneyNodeKind = JourneyNodeKind.ROOT,
     ) -> JourneyNode: ...
 
     @abstractmethod
@@ -1096,6 +1096,7 @@ class JourneyVectorStore(JourneyStore):
             root = JourneyNode(
                 id=journey_root_id,
                 creation_utc=creation_utc,
+                kind=JourneyNodeKind.ROOT,
                 action=None,
                 tools=[],
                 metadata={},
@@ -1463,13 +1464,13 @@ class JourneyVectorStore(JourneyStore):
     async def create_node(
         self,
         journey_id: JourneyId,
+        kind: JourneyNodeKind,
         action: Optional[str],
         tools: Sequence[ToolId],
         description: Optional[str] = None,
         composition_mode: Optional[CompositionMode] = None,
         id: Optional[JourneyNodeId] = None,
         labels: Optional[Set[str]] = None,
-        kind: JourneyNodeKind = JourneyNodeKind.ROOT,
         creation_utc: Optional[datetime] = None,
     ) -> JourneyNode:
         creation_utc = creation_utc or datetime.now(timezone.utc)
@@ -2165,23 +2166,23 @@ class CompositeJourneyStore(JourneyStore):
     async def create_node(
         self,
         journey_id: JourneyId,
+        kind: JourneyNodeKind,
         action: Optional[str],
         tools: Sequence[ToolId],
         description: Optional[str] = None,
         composition_mode: Optional[CompositionMode] = None,
         id: Optional[JourneyNodeId] = None,
         labels: Optional[Set[str]] = None,
-        kind: JourneyNodeKind = JourneyNodeKind.ROOT,
     ) -> JourneyNode:
         return await self._writable_store.create_node(
             journey_id=journey_id,
+            kind=kind,
             action=action,
             tools=tools,
             description=description,
             composition_mode=composition_mode,
             id=id,
             labels=labels,
-            kind=kind,
         )
 
     @override

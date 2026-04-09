@@ -8,7 +8,7 @@ from parlant.core.journey_guideline_projection import (
     extract_link_id_from_journey_node_guideline_id,
     extract_node_id_from_journey_node_guideline_id,
 )
-from parlant.core.journeys import JourneyStore
+from parlant.core.journeys import JourneyNodeKind, JourneyStore
 
 
 async def test_that_projection_yields_followup_for_existing_guideline(container: Container) -> None:
@@ -28,12 +28,14 @@ async def test_that_projection_yields_followup_for_existing_guideline(container:
 
     node_a = await journey_store.create_node(
         journey.id,
+        kind=JourneyNodeKind.CHAT,
         action="ask_name",
         tools=[],
     )
 
     node_b = await journey_store.create_node(
         journey.id,
+        kind=JourneyNodeKind.CHAT,
         action="ask_email",
         tools=[],
     )
@@ -81,8 +83,12 @@ async def test_that_projection_resolves_multi_step_sub_journey_with_tool(
         description="sub",
         conditions=[],
     )
-    ask_name = await journey_store.create_node(sub.id, action="ask for name", tools=[])
-    validate_tool = await journey_store.create_node(sub.id, action="validate", tools=[])
+    ask_name = await journey_store.create_node(
+        sub.id, kind=JourneyNodeKind.CHAT, action="ask for name", tools=[]
+    )
+    validate_tool = await journey_store.create_node(
+        sub.id, kind=JourneyNodeKind.CHAT, action="validate", tools=[]
+    )
     await journey_store.create_edge(sub.id, source=sub.root_id, target=ask_name.id, condition=None)
     await journey_store.create_edge(
         sub.id, source=ask_name.id, target=validate_tool.id, condition=None
@@ -94,7 +100,9 @@ async def test_that_projection_resolves_multi_step_sub_journey_with_tool(
         description="parent",
         conditions=[],
     )
-    room_type = await journey_store.create_node(parent.id, action="ask room type", tools=[])
+    room_type = await journey_store.create_node(
+        parent.id, kind=JourneyNodeKind.CHAT, action="ask room type", tools=[]
+    )
     await journey_store.create_edge(
         parent.id, source=parent.root_id, target=room_type.id, condition=None
     )
@@ -105,8 +113,12 @@ async def test_that_projection_resolves_multi_step_sub_journey_with_tool(
         sub_journey_id=sub.id,
     )
 
-    confirmed = await journey_store.create_node(parent.id, action="booking confirmed", tools=[])
-    denied = await journey_store.create_node(parent.id, action="booking denied", tools=[])
+    confirmed = await journey_store.create_node(
+        parent.id, kind=JourneyNodeKind.CHAT, action="booking confirmed", tools=[]
+    )
+    denied = await journey_store.create_node(
+        parent.id, kind=JourneyNodeKind.CHAT, action="booking denied", tools=[]
+    )
     await journey_store.create_edge(
         parent.id,
         source=link.merge_node_id,
@@ -210,7 +222,9 @@ async def test_that_projection_resolves_sub_journey_link(container: Container) -
         description="sub",
         conditions=[],
     )
-    sub_node = await journey_store.create_node(sub.id, action="do sub thing", tools=[])
+    sub_node = await journey_store.create_node(
+        sub.id, kind=JourneyNodeKind.CHAT, action="do sub thing", tools=[]
+    )
     await journey_store.create_edge(sub.id, source=sub.root_id, target=sub_node.id, condition=None)
 
     # Create parent journey: root -> source_node --(link)--> sub journey -> merge_node
@@ -219,7 +233,9 @@ async def test_that_projection_resolves_sub_journey_link(container: Container) -
         description="parent",
         conditions=[],
     )
-    source_node = await journey_store.create_node(parent.id, action="ask something", tools=[])
+    source_node = await journey_store.create_node(
+        parent.id, kind=JourneyNodeKind.CHAT, action="ask something", tools=[]
+    )
     await journey_store.create_edge(
         parent.id, source=parent.root_id, target=source_node.id, condition=None
     )
@@ -284,7 +300,9 @@ async def test_that_projection_includes_link_id_in_guideline_ids_for_linked_node
         description="sub",
         conditions=[],
     )
-    sub_node = await journey_store.create_node(sub.id, action="sub action", tools=[])
+    sub_node = await journey_store.create_node(
+        sub.id, kind=JourneyNodeKind.CHAT, action="sub action", tools=[]
+    )
     await journey_store.create_edge(sub.id, source=sub.root_id, target=sub_node.id, condition=None)
 
     # Create parent: root -> source_node --(link)--> sub
@@ -293,7 +311,9 @@ async def test_that_projection_includes_link_id_in_guideline_ids_for_linked_node
         description="parent",
         conditions=[],
     )
-    source_node = await journey_store.create_node(parent.id, action="parent action", tools=[])
+    source_node = await journey_store.create_node(
+        parent.id, kind=JourneyNodeKind.CHAT, action="parent action", tools=[]
+    )
     await journey_store.create_edge(
         parent.id, source=parent.root_id, target=source_node.id, condition=None
     )
@@ -350,7 +370,9 @@ async def test_that_same_sub_journey_linked_twice_produces_no_collisions(
         description="reusable sub",
         conditions=[],
     )
-    sub_node = await journey_store.create_node(sub.id, action="shared action", tools=[])
+    sub_node = await journey_store.create_node(
+        sub.id, kind=JourneyNodeKind.CHAT, action="shared action", tools=[]
+    )
     await journey_store.create_edge(sub.id, source=sub.root_id, target=sub_node.id, condition=None)
 
     # Create parent: root -> node_a --(link1)--> sub
@@ -360,8 +382,12 @@ async def test_that_same_sub_journey_linked_twice_produces_no_collisions(
         description="parent",
         conditions=[],
     )
-    node_a = await journey_store.create_node(parent.id, action="path A", tools=[])
-    node_b = await journey_store.create_node(parent.id, action="path B", tools=[])
+    node_a = await journey_store.create_node(
+        parent.id, kind=JourneyNodeKind.CHAT, action="path A", tools=[]
+    )
+    node_b = await journey_store.create_node(
+        parent.id, kind=JourneyNodeKind.CHAT, action="path B", tools=[]
+    )
     await journey_store.create_edge(
         parent.id, source=parent.root_id, target=node_a.id, condition="go A"
     )
@@ -455,8 +481,12 @@ async def test_that_journey_metadata_with_nested_node_evaluation_survives_update
     )
 
     # Create some nodes to simulate real evaluation data
-    node_a = await journey_store.create_node(journey.id, action="ask name", tools=[])
-    node_b = await journey_store.create_node(journey.id, action="verify", tools=[])
+    node_a = await journey_store.create_node(
+        journey.id, kind=JourneyNodeKind.CHAT, action="ask name", tools=[]
+    )
+    node_b = await journey_store.create_node(
+        journey.id, kind=JourneyNodeKind.CHAT, action="verify", tools=[]
+    )
 
     # This is the shape of data that _apply_evaluation_results would write:
     # node_id -> {journey_node: {reachable_follow_ups: [...]}, internal_action: "..."}
@@ -523,14 +553,18 @@ async def test_that_projection_collapses_pass_through_forks_for_chained_linked_j
     sub1 = await journey_store.create_journey(
         title="Identity Verification", description="sub1", conditions=[]
     )
-    id_node = await journey_store.create_node(sub1.id, action="ask for ID", tools=[])
+    id_node = await journey_store.create_node(
+        sub1.id, kind=JourneyNodeKind.CHAT, action="ask for ID", tools=[]
+    )
     await journey_store.create_edge(sub1.id, source=sub1.root_id, target=id_node.id, condition=None)
 
     # Sub-journey 2: credit check
     sub2 = await journey_store.create_journey(
         title="Credit Check", description="sub2", conditions=[]
     )
-    credit_node = await journey_store.create_node(sub2.id, action="ask for SSN", tools=[])
+    credit_node = await journey_store.create_node(
+        sub2.id, kind=JourneyNodeKind.CHAT, action="ask for SSN", tools=[]
+    )
     await journey_store.create_edge(
         sub2.id, source=sub2.root_id, target=credit_node.id, condition=None
     )
@@ -539,7 +573,9 @@ async def test_that_projection_collapses_pass_through_forks_for_chained_linked_j
     sub3 = await journey_store.create_journey(
         title="Loan Approval", description="sub3", conditions=[]
     )
-    approval_node = await journey_store.create_node(sub3.id, action="approve loan", tools=[])
+    approval_node = await journey_store.create_node(
+        sub3.id, kind=JourneyNodeKind.CHAT, action="approve loan", tools=[]
+    )
     await journey_store.create_edge(
         sub3.id, source=sub3.root_id, target=approval_node.id, condition=None
     )
@@ -627,8 +663,12 @@ async def test_that_sub_journey_with_conditional_root_edges_preserves_conditions
     sub = await journey_store.create_journey(
         title="Customer Routing", description="Route based on customer type", conditions=[]
     )
-    onboard_node = await journey_store.create_node(sub.id, action="onboard new customer", tools=[])
-    greet_node = await journey_store.create_node(sub.id, action="greet existing customer", tools=[])
+    onboard_node = await journey_store.create_node(
+        sub.id, kind=JourneyNodeKind.CHAT, action="onboard new customer", tools=[]
+    )
+    greet_node = await journey_store.create_node(
+        sub.id, kind=JourneyNodeKind.CHAT, action="greet existing customer", tools=[]
+    )
     await journey_store.create_edge(
         sub.id, source=sub.root_id, target=onboard_node.id, condition="customer is new"
     )
@@ -641,7 +681,7 @@ async def test_that_sub_journey_with_conditional_root_edges_preserves_conditions
         title="Service Flow", description="parent", conditions=[]
     )
     collect_node = await journey_store.create_node(
-        parent.id, action="collect customer info", tools=[]
+        parent.id, kind=JourneyNodeKind.CHAT, action="collect customer info", tools=[]
     )
     await journey_store.create_edge(
         parent.id, source=parent.root_id, target=collect_node.id, condition=None

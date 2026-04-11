@@ -2585,7 +2585,9 @@ class Test_that_projection_works_when_linking_directly_from_root(SDKTest):
         )
 
 
-class Test_that_chained_linked_journeys_have_reachable_followups_in_node_metadata(SDKTest):
+class test_that_sub_journey_states_include_parent_journey_states_in_their_reachable_followups(
+    SDKTest
+):
     """After SDK setup (which triggers evaluation), the sub-journey nodes should
     have reachable_follow_ups in their metadata with real paths, not ['None']."""
 
@@ -2694,8 +2696,8 @@ class Test_that_chained_linked_journeys_have_reachable_followups_in_node_metadat
                 )
 
 
-class Test_that_sub_journey_with_conditions_can_be_linked(SDKTest):
-    """A sub-journey that has its own trigger conditions (can be activated
+class Test_that_independent_journey_can_be_linked_as_sub_journey(SDKTest):
+    """A journey that has its own trigger conditions (can be activated
     independently) should also work when linked from a parent journey."""
 
     async def setup(self, server: p.Server) -> None:

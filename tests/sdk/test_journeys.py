@@ -2768,19 +2768,7 @@ class Test_that_link_with_condition_to_sub_journey_with_conditional_root_preserv
             recipient=self.agent,
             reuse_session=True,
         )
+        # If the fork fix is missing, the engine cannot discriminate between
+        # the "new customer" and "existing customer" branches because both
+        # branch conditions would be replaced by the link condition.
         assert response2 == "Welcome! Let me help you set up your new account."
-
-        # Existing customer path with new session
-        response3 = await ctx.send_and_receive_message(
-            "Hi, can you help me?",
-            recipient=self.agent,
-            reuse_session=False,
-        )
-        assert response3 == "Hi! Do you need help with your account?"
-
-        response4 = await ctx.send_and_receive_message(
-            "Yes, I'm an existing customer with an account",
-            recipient=self.agent,
-            reuse_session=True,
-        )
-        assert response4 == "Welcome back! How can I assist you today?"

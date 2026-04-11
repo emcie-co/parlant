@@ -2685,3 +2685,102 @@ class Test_that_independent_journey_can_be_linked_as_sub_journey(SDKTest):
             reuse_session=True,
         )
         assert response3 == "Your transfer has been completed successfully."
+
+
+class Test_that_link_with_condition_to_sub_journey_with_conditional_root_preserves_both(SDKTest):
+    """Tests the case where:
+    - The link from parent has its own condition (e.g. "if customer needs help")
+    - The sub-journey root has conditional outgoing edges (branching by customer type)
+
+    Both the link condition and the root branch conditions must be preserved.
+    The sub-journey root must be kept as a FORK node so the two condition levels
+    are not flattened/lost.
+    """
+
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Customer Service Agent",
+            description="Routes customers based on type",
+            composition_mode=p.CompositionMode.STRICT,
+        )
+
+        self.greeting_response = await server.create_canned_response(
+            template="Hi! Do you need help with your account?"
+        )
+        self.new_customer_response = await server.create_canned_response(
+            template="Welcome! Let me help you set up your new account."
+        )
+        self.existing_customer_response = await server.create_canned_response(
+            template="Welcome back! How can I assist you today?"
+        )
+        self.farewell_response = await server.create_canned_response(template="Have a great day!")
+
+        # Sub-journey: routing root with TWO conditional edges
+        # root --"customer is new"--> onboard_node
+        # root --"customer is existing"--> greet_node
+        self.routing_journey = await self.agent.create_journey(
+            title="Customer Routing",
+            conditions=[],
+            description="Route the customer based on whether they are new or existing",
+        )
+        await self.routing_journey.initial_state.transition_to(
+            condition="if the customer is new",
+            chat_state="Onboard the new customer with a welcome message",
+            canned_responses=[self.new_customer_response],
+        )
+        await self.routing_journey.initial_state.transition_to(
+            condition="if the customer is existing",
+            chat_state="Greet the returning customer warmly",
+            canned_responses=[self.existing_customer_response],
+        )
+
+        # Parent journey: greeting -> link (with condition) -> sub-journey -> farewell
+        self.main_journey = await self.agent.create_journey(
+            title="Customer Service",
+            conditions=["Customer needs help"],
+            description="Main customer service flow",
+        )
+        greeting = await self.main_journey.initial_state.transition_to(
+            chat_state="Greet the customer and ask if they need help",
+            canned_responses=[self.greeting_response],
+        )
+        link_target = await greeting.target.transition_to(
+            condition="if the customer wants help",
+            journey=self.routing_journey,
+        )
+        await link_target.target.transition_to(
+            condition="customer has been routed",
+            chat_state="Say goodbye to the customer",
+            canned_responses=[self.farewell_response],
+        )
+
+    async def run(self, ctx: Context) -> None:
+        # New customer path
+        response1 = await ctx.send_and_receive_message(
+            "Hello, I need some help",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert response1 == "Hi! Do you need help with your account?"
+
+        response2 = await ctx.send_and_receive_message(
+            "Yes please, I'm a new customer here",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert response2 == "Welcome! Let me help you set up your new account."
+
+        # Existing customer path with new session
+        response3 = await ctx.send_and_receive_message(
+            "Hi, can you help me?",
+            recipient=self.agent,
+            reuse_session=False,
+        )
+        assert response3 == "Hi! Do you need help with your account?"
+
+        response4 = await ctx.send_and_receive_message(
+            "Yes, I'm an existing customer with an account",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert response4 == "Welcome back! How can I assist you today?"

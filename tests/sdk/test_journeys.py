@@ -2460,3 +2460,18 @@ class Test_that_link_with_condition_to_sub_journey_with_conditional_root_preserv
         # the "new customer" and "existing customer" branches because both
         # branch conditions would be replaced by the link condition.
         assert response2 == "Welcome! Let me help you set up your new account."
+
+        # Existing customer path — verify the other branch works too
+        response3 = await ctx.send_and_receive_message(
+            "Hello, I need some help",
+            recipient=self.agent,
+            reuse_session=False,
+        )
+        assert response3 == "Hi! Do you need help with your account?"
+
+        response4 = await ctx.send_and_receive_message(
+            "Yes, I've been a customer here for years",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+        assert response4 == "Welcome back! How can I assist you today?"

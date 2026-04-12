@@ -130,6 +130,7 @@ class Journey:
     labels: Set[str] = field(default_factory=set)
     priority: int = 0
     metadata: Mapping[str, JSONSerializable] = field(default_factory=dict)
+    node_properties: Optional[Mapping[str, JSONSerializable]] = None
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -303,6 +304,13 @@ class JourneyStore(ABC):
         self,
         journey_id: JourneyId,
         key: str,
+    ) -> Journey: ...
+
+    @abstractmethod
+    async def set_node_properties(
+        self,
+        journey_id: JourneyId,
+        node_properties: Mapping[str, JSONSerializable],
     ) -> Journey: ...
 
     @abstractmethod
@@ -491,6 +499,7 @@ class JourneyDocument(TypedDict, total=False):
     labels: Sequence[str]
     priority: int
     metadata: Mapping[str, JSONSerializable]
+    node_properties: Optional[Mapping[str, JSONSerializable]]
 
 
 class JourneyConditionAssociationDocument(TypedDict, total=False):
@@ -689,6 +698,7 @@ class JourneyVectorStore(JourneyStore):
                 labels=d.get("labels", []),
                 priority=d.get("priority", 0),
                 metadata={},  # Default to empty metadata for existing journeys
+                node_properties=None,  # Will be populated on next evaluation
             )
 
         async def v0_1_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
@@ -929,6 +939,7 @@ class JourneyVectorStore(JourneyStore):
             labels=list(journey.labels),
             priority=journey.priority,
             metadata=journey.metadata,
+            node_properties=journey.node_properties,
         )
 
     async def _deserialize(self, doc: JourneyDocument) -> Journey:
@@ -959,6 +970,7 @@ class JourneyVectorStore(JourneyStore):
             labels=set(doc.get("labels", [])),
             priority=doc.get("priority", 0),
             metadata=doc.get("metadata", {}),
+            node_properties=doc.get("node_properties"),
         )
 
     def _serialize_node(
@@ -1700,6 +1712,27 @@ class JourneyVectorStore(JourneyStore):
         return await self._deserialize(result.updated_document)
 
     @override
+    async def set_node_properties(
+        self,
+        journey_id: JourneyId,
+        node_properties: Mapping[str, JSONSerializable],
+    ) -> Journey:
+        async with self._lock.writer_lock:
+            doc = await self._collection.find_one({"id": {"$eq": journey_id}})
+
+            if not doc:
+                raise ItemNotFoundError(item_id=UniqueId(journey_id))
+
+            result = await self._collection.update_one(
+                filters={"id": {"$eq": journey_id}},
+                params={"node_properties": node_properties},
+            )
+
+        assert result.updated_document
+
+        return await self._deserialize(result.updated_document)
+
+    @override
     async def create_edge(
         self,
         journey_id: JourneyId,
@@ -2254,6 +2287,14 @@ class CompositeJourneyStore(JourneyStore):
         key: str,
     ) -> Journey:
         return await self._writable_store.unset_journey_metadata(journey_id, key)
+
+    @override
+    async def set_node_properties(
+        self,
+        journey_id: JourneyId,
+        node_properties: Mapping[str, JSONSerializable],
+    ) -> Journey:
+        return await self._writable_store.set_node_properties(journey_id, node_properties)
 
     @override
     async def create_edge(

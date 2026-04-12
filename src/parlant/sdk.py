@@ -4573,19 +4573,20 @@ class Server:
                     )
 
             elif entity_type == "journey":
-                # Store evaluation results on Journey.metadata (not individual
-                # nodes) to avoid cross-journey interference when the same node
-                # is referenced by multiple journeys. The projection injects
-                # this data into guidelines at read time.
+                # Store evaluation results on Journey.node_properties (not
+                # individual nodes) to avoid cross-journey interference when
+                # the same node is referenced by multiple journeys. The
+                # projection injects this data into guidelines at read time.
                 journey_id = cast(JourneyId, entity_id)
-                node_properties = cast(_CachedEvaluator.JourneyEvaluation, result).node_properties
+                eval_node_properties = cast(
+                    _CachedEvaluator.JourneyEvaluation, result
+                ).node_properties
 
                 await self._store_provider.get_store(
                     JourneyStore, StoreProviderHints(call_site="sdk")
-                ).set_journey_metadata(
+                ).set_node_properties(
                     journey_id=journey_id,
-                    key="node_properties",
-                    value=cast(Mapping[str, JSONSerializable], node_properties),
+                    node_properties=cast(Mapping[str, JSONSerializable], eval_node_properties),
                 )
 
     async def _setup_retrievers(self) -> None:

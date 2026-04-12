@@ -536,7 +536,7 @@ class JourneyGuidelineProjection:
         # nodes) to distinguish the same sub-journey node linked multiple times.
         node_properties = cast(
             dict[str, JSONSerializable],
-            journey.metadata.get("node_properties", {}),
+            journey.node_properties or {},
         )
 
         if node_properties:

@@ -1595,8 +1595,6 @@ class Test_that_journey_can_conditionally_link_to_different_sub_journeys(SDKTest
 
 
 class Test_that_three_linked_journeys_can_be_chained(SDKTest):
-    STARTUP_TIMEOUT = 500
-
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Loan Application Agent",

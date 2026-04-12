@@ -17,6 +17,8 @@ from typing import Mapping, Optional, Sequence, cast
 
 from cachetools import TTLCache
 
+import warnings
+
 from parlant.core import async_utils
 from parlant.core.agents import Agent, AgentId, AgentStore
 from parlant.core.capabilities import Capability, CapabilityStore
@@ -174,10 +176,22 @@ class EntityQueries:
             tags=[Tag.for_journey_id(journey.id).id for journey in journeys]
         )
 
+        projectable_journeys = []
+        for journey in journeys:
+            if not journey.conditions:
+                continue
+            if journey.node_properties is None:
+                warnings.warn(
+                    f"Journey '{journey.title}' (id={journey.id}) has no node_properties — "
+                    f"skipping projection. Re-evaluate the journey to populate it.",
+                    stacklevel=1,
+                )
+                continue
+            projectable_journeys.append(journey)
+
         tasks = [
             self._journey_guideline_projection.project_journey_to_guidelines(journey.id)
-            for journey in journeys
-            if journey.conditions  # If a journey has no conditions, it indicates that the journey cannot be activated.
+            for journey in projectable_journeys
         ]
         projected_journey_guidelines = await async_utils.safe_gather(*tasks)
 

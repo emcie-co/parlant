@@ -726,3 +726,51 @@ async def test_that_sub_journey_with_conditional_root_edges_preserves_conditions
         )
         for f_id in cast(list[str], followups):
             assert f_id in all_ids, f"Dangling follow-up {f_id} in {g.id}"
+
+
+async def test_that_journey_without_node_properties_is_skipped_with_warning(
+    container: Container,
+) -> None:
+    """When a journey has node_properties=None (not yet evaluated),
+    the engine should skip it with a warning instead of crashing."""
+    import warnings
+
+    from parlant.core.agents import AgentStore
+    from parlant.core.entity_cq import EntityQueries
+
+    journey_store = container[JourneyStore]
+    guideline_store = container[GuidelineStore]
+
+    # Create a journey with a condition (so it would normally be projected)
+    condition = await guideline_store.create_guideline(
+        condition="customer needs help",
+        action=None,
+    )
+    journey = await journey_store.create_journey(
+        title="Unevaluated Journey",
+        description="Journey that has not been evaluated yet",
+        conditions=[condition.id],
+    )
+
+    # Verify node_properties is None (not yet evaluated)
+    assert journey.node_properties is None
+
+    # The engine's find_guidelines_for_context should skip this journey with a warning
+    entity_queries = container[EntityQueries]
+    agent_store = container[AgentStore]
+    agent = await agent_store.create_agent(name="test-agent")
+
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        await entity_queries.find_guidelines_for_context(
+            agent_id=agent.id,
+            journeys=[journey],
+        )
+
+    # Should have emitted a warning about the missing node_properties
+    node_prop_warnings = [w for w in caught_warnings if "node_properties" in str(w.message)]
+    assert len(node_prop_warnings) == 1, (
+        f"Expected 1 warning about node_properties, got {len(node_prop_warnings)}: "
+        f"{[str(w.message) for w in caught_warnings]}"
+    )
+    assert journey.title in str(node_prop_warnings[0].message)

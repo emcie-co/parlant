@@ -182,9 +182,7 @@ class EntityQueries:
                 continue
             if journey.node_properties is None:
                 warnings.warn(
-                    f"Journey '{journey.title}' (id={journey.id}) has no node_properties — "
-                    f"skipping projection. Re-evaluate the journey to populate it.",
-                    stacklevel=1,
+                    f"Skipping journey '{journey.title}' (id={journey.id}) for not having node_properties"
                 )
                 continue
             projectable_journeys.append(journey)

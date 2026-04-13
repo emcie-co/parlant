@@ -107,7 +107,7 @@ def _resolve_operation_id(request: Request) -> str | None:
 
 async def create_api_app(
     container: Container,
-    configure: Callable[[FastAPI], Awaitable[None]] | None = None,
+    configure: Callable[[FastAPI], Awaitable[FastAPI | None]] | None = None,
     contextvar_propagation: Mapping[ContextVar[Any], Any] = {},
 ) -> ASGIApplication:
     logger = container[Logger]
@@ -393,7 +393,8 @@ async def create_api_app(
 
     # Call configure_api hook if provided
     if configure:
-        await configure(api_app)
+        if new_app := await configure(api_app):
+            api_app = new_app
 
     # Store FastAPI app in container for access via Server.api property
     container[FastAPI] = api_app

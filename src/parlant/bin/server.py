@@ -328,7 +328,7 @@ class StartupParameters:
     migrate: bool
     configure: Callable[[Container], Awaitable[Container]] | None = None
     initialize: Callable[[Container], Awaitable[None]] | None = None
-    configure_api: Callable[[FastAPI], Awaitable[None]] | None = None
+    configure_api: Callable[[FastAPI], Awaitable[FastAPI | None]] | None = None
     contextvar_propagation: Mapping[ContextVar[Any], Any] = field(default_factory=dict)
 
 

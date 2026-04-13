@@ -5384,8 +5384,8 @@ class Server:
                 latest_container[EngineHooks] = hooks
 
             if env_based_module := get_env_based_module():
-                if configure_module := getattr(env_based_module, "configure_container", None):
-                    latest_container = await configure_module(latest_container.clone())
+                if module_func := getattr(env_based_module, "configure_container", None):
+                    latest_container = await module_func(latest_container.clone())
 
             return latest_container
 
@@ -5430,8 +5430,19 @@ class Server:
                 await self._initialize(c)
 
             if env_based_module := get_env_based_module():
-                if initialize_module := getattr(env_based_module, "initialize_container", None):
-                    await initialize_module(c.clone())
+                if module_func := getattr(env_based_module, "initialize_container", None):
+                    await module_func(c.clone())
+
+        async def configure_api(app: FastAPI) -> FastAPI:
+            if self._configure_api:
+                await self._configure_api(app)
+
+            if env_based_module := get_env_based_module():
+                if module_func := getattr(env_based_module, "configure_api", None):
+                    if new_app := await module_func(app):
+                        app = new_app
+
+            return app
 
         return StartupParameters(
             host=self.host,
@@ -5442,7 +5453,7 @@ class Server:
             migrate=self._migrate,
             configure=configure,
             initialize=initialize,
-            configure_api=self._configure_api,
+            configure_api=configure_api,
             contextvar_propagation={
                 self._current_server_var: self,
             },

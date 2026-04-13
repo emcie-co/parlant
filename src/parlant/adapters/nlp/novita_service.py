@@ -138,9 +138,7 @@ class NovitaSchematicGenerator(BaseSchematicGenerator[T]):
         if isinstance(prompt, PromptBuilder):
             prompt = prompt.build()
 
-        novita_api_arguments = {
-            k: v for k, v in hints.items() if k in self.supported_novita_params
-        }
+        novita_api_arguments = {k: v for k, v in hints.items() if k in self.supported_novita_params}
 
         t_start = time.time()
         response = await self._client.chat.completions.create(
@@ -234,9 +232,7 @@ class Novita_DeepSeekV3(NovitaSchematicGenerator[T]):
 
 class Novita_GLM5(NovitaSchematicGenerator[T]):
     def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(
-            model_name="zai-org/glm-5.1", logger=logger, tracer=tracer, meter=meter
-        )
+        super().__init__(model_name="zai-org/glm-5.1", logger=logger, tracer=tracer, meter=meter)
 
     @property
     @override
@@ -354,11 +350,14 @@ class NovitaStreamingTextGenerator(BaseStreamingTextGenerator):
                 if chunk.usage is not None:
                     self.logger.trace(chunk.usage.model_dump_json(indent=2))
 
-                    cached_tokens = getattr(
-                        chunk.usage,
-                        "prompt_cache_hit_tokens",
-                        0,
-                    ) or 0
+                    cached_tokens = (
+                        getattr(
+                            chunk.usage,
+                            "prompt_cache_hit_tokens",
+                            0,
+                        )
+                        or 0
+                    )
 
                     usage_info = UsageInfo(
                         input_tokens=chunk.usage.prompt_tokens,

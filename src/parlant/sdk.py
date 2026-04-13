@@ -5384,7 +5384,7 @@ class Server:
                 latest_container[EngineHooks] = hooks
 
             if env_based_module := get_env_based_module():
-                if configure_module := getattr(env_based_module, "configure_module", None):
+                if configure_module := getattr(env_based_module, "configure_container", None):
                     latest_container = await configure_module(latest_container.clone())
 
             return latest_container
@@ -5430,7 +5430,7 @@ class Server:
                 await self._initialize(c)
 
             if env_based_module := get_env_based_module():
-                if initialize_module := getattr(env_based_module, "initialize_module", None):
+                if initialize_module := getattr(env_based_module, "initialize_container", None):
                     await initialize_module(c.clone())
 
         return StartupParameters(

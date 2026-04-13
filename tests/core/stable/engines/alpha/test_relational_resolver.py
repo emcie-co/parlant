@@ -5922,8 +5922,8 @@ async def test_that_already_matched_entailment_target_gets_none_not_entailed(
     result = await resolver.resolve(
         [g1, g2],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=8, rationale=""),  # Already matched
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),  # Already matched
         ],
         journeys=[],
     )
@@ -5968,8 +5968,8 @@ async def test_that_guideline_entailed_by_two_sources_records_both_entailment_re
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=8, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # G3 NOT matched — activated via entailment from both G1 and G2
         ],
         journeys=[],
@@ -6025,9 +6025,9 @@ async def test_that_entailed_guideline_satisfies_dependency_of_matched_guideline
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 NOT matched — will be entailed by G1
-            GuidelineMatch(guideline=g3, score=8, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )

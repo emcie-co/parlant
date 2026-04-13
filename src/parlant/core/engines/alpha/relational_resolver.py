@@ -52,10 +52,10 @@ from parlant.core.relationships import (
     RelationshipStore,
 )
 from parlant.core.guidelines import Guideline, GuidelineId
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 from parlant.core.tags import TagId, Tag
 from parlant.core.tools import ToolId
 from parlant.core.tracer import Tracer
-from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 # ---------------------------------------------------------------------------
@@ -213,19 +213,15 @@ class RelationalResolver:
 
     def __init__(
         self,
+        store_provider: StoreProvider,
         logger: Logger,
         tracer: Tracer,
-        store_provider: StoreProvider,
     ) -> None:
-        self._logger = logger
-        self._store_provider = store_provider
-        self._tracer = tracer
-
-    @property
-    def _relationship_store(self) -> RelationshipStore:
-        return self._store_provider.get_store(
+        self._relationship_store = store_provider.get_store(
             RelationshipStore, StoreProviderHints(call_site="engine")
         )
+        self._logger = logger
+        self._tracer = tracer
 
     # -- Public API ---------------------------------------------------------
 
@@ -1270,27 +1266,28 @@ class RelationalResolver:
                             )
                         )
 
-        # For each entailed guideline: use the highest-scoring match for the
+        # For each entailed guideline: use the last match since all same for the
         # GuidelineMatch, but collect ALL relationship IDs from every source.
         result: list[tuple[GuidelineMatch, list[RelationshipId | None]]] = []
         seen_guidelines: set[GuidelineId] = set()
         for gid, entries in related_by_match.items():
-            # We're basically saying, if this related guideline is already
-            # related to a match we will just take the later one, to avoid duplications
-            if entries and gid not in seen_guidelines:
-                pairs.append(entries[-1])
-                seen_guidelines.add(gid)
+            if gid in seen_guidelines:
+                continue
+            seen_guidelines.add(gid)
 
-        return [
-            (
-                GuidelineMatch(
-                    guideline=guideline,
-                    rationale="[Activated via entailment] Automatically inferred from context",
-                ),
-                rel_id,
-            )
-            for match, guideline, rel_id in pairs
-        ]
+            if entries:
+                all_rel_ids = [entry[2] for entry in entries]
+                result.append(
+                    (
+                        GuidelineMatch(
+                            guideline=entries[-1][1],
+                            rationale="[Activated via entailment] Automatically inferred from context",
+                        ),
+                        all_rel_ids,
+                    )
+                )
+
+        return result
 
     # -- Shared helpers -----------------------------------------------------
 

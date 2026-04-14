@@ -30,13 +30,15 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matching_context im
     GuidelineMatchingContext,
 )
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
+from parlant.core.emissions import EmittedEvent
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
-from parlant.core.store_provider import StoreProvider, StoreProviderHints
+from parlant.core.sessions import EventKind, ToolEventData
+from parlant.core.tools import ToolId
 
 
 PRE_ROOT_INDEX = "0"
@@ -132,6 +134,24 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
         kind_str = cast(dict[str, Any], guideline.metadata.get("journey_node", {})).get("kind")
         return JourneyNodeKind(kind_str) if kind_str else None
 
+    @staticmethod
+    def _get_tool_ids(guideline: Guideline) -> Sequence[ToolId]:
+        return cast(
+            dict[str, Sequence[ToolId]],
+            guideline.metadata.get("journey_node", {}),
+        ).get("tool_ids", [])
+
+    @staticmethod
+    def _extract_tool_ids_from_staged_events(
+        staged_events: Sequence[EmittedEvent],
+    ) -> set[ToolId]:
+        return {
+            ToolId.from_string(tc["tool_id"])
+            for e in staged_events
+            if e.kind == EventKind.TOOL
+            for tc in cast(ToolEventData, e.data)["tool_calls"]
+        }
+
     def auto_return_match(self) -> GuidelineMatchingBatchResult | None:
         node_index_to_guideline: dict[str, Guideline] = {
             self._get_guideline_node_index(g): g for g in self._node_guidelines
@@ -152,7 +172,14 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
             kind = self._get_kind(last_visited_guideline)
             outgoing_edges = self._get_follow_ups(last_visited_guideline)
 
-            if kind == JourneyNodeKind.TOOL and len(outgoing_edges) == 1:
+            if (
+                kind == JourneyNodeKind.TOOL
+                and len(outgoing_edges) == 1
+                and (
+                    set(self._get_tool_ids(last_visited_guideline))
+                    & self._extract_tool_ids_from_staged_events(self._context.staged_events)
+                )
+            ):
                 current_node: GuidelineId = outgoing_edges[0]
                 journey_path = list(self._previous_path) + [
                     self._get_guideline_node_index(guideline_id_to_guideline[current_node])

@@ -449,6 +449,7 @@ class JourneyGuidelineProjection:
                 "index": str(node_indexes[node.id]),
                 "journey_id": journey_id,
                 "labels": list(node.labels),
+                "tool_ids": list(node.tools),
             }
 
             base_journey_node["kind"] = node.kind.value

@@ -2473,3 +2473,85 @@ class Test_that_link_with_condition_to_sub_journey_with_conditional_root_preserv
             reuse_session=True,
         )
         assert response4 == "Welcome back! How can I assist you today?"
+
+class Test_that_tool_state_runs_again_after_missing_data(SDKTest):
+    STARTUP_TIMEOUT = 500
+
+    async def setup(self, server: p.Server) -> None:
+        @tool
+        def find_user_id_by_name(
+            context: ToolContext, first_name: str, last_name: str
+        ) -> ToolResult:
+            return ToolResult(data={"user_id": f"{first_name.lower()}_{last_name.lower()}_8831"})
+
+        @tool
+        def find_user_id_by_email(context: ToolContext, email: str) -> ToolResult:
+            return ToolResult(data={"user_id": f"{email}_8831"})
+
+        self.agent = await server.create_agent(
+            name="Retail Agent",
+            description="You are a customer-service agent for an online retail store.",
+            max_engine_iterations=3,
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Meet & Greet",
+            description=(
+                "Start the conversation with a friendly greeting and ask for their "
+                "full name or email address to look up their account first."
+            ),
+            conditions=[await self.agent.create_observation(matcher=p.MATCH_ALWAYS)],
+        )
+
+        t0 = await self.journey.initial_state.transition_to(
+            chat_state=(
+                "Greet the customer and ask for their full name or email address "
+                "to look up their account"
+            ),
+        )
+        t1 = await t0.target.transition_to(
+            condition="The customer provides their full name",
+            tool_instruction="Look up the customer's account using the provided information",
+            tool_state=find_user_id_by_name,
+        )
+        t2 = await t0.target.transition_to(
+            condition="The customer provides their email",
+            tool_instruction="Look up the customer's account using the provided information",
+            tool_state=find_user_id_by_email,
+        )
+        t3_via_t1 = await t1.target.transition_to(
+            condition="The customer's account is successfully found using the provided information",
+            chat_state="Tell them their exact user ID for reference, and offer them a Pepsi",
+        )
+        _ = await t2.target.transition_to(
+            condition="The customer's account is successfully found using the provided information",
+            state=t3_via_t1.target,
+        )
+
+    async def run(self, ctx: Context) -> None:
+        first_response = await ctx.send_and_receive_message(
+            "I’d like to know exactly how many t-shirt options are available in your online store right now.",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+
+        assert await nlp_test(first_response, "It asks for their full name or email address")
+
+        second_response = await ctx.send_and_receive_message(
+            "My name is John",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+
+        assert await nlp_test(
+            second_response,
+            "It asks for the last name",
+        )
+
+        third_response = await ctx.send_and_receive_message(
+            "Smith",
+            recipient=self.agent,
+            reuse_session=True,
+        )
+
+        assert "john_smith_8831" in third_response.lower()

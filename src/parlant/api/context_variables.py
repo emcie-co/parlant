@@ -225,6 +225,7 @@ class ContextVariableDTO(
     tool_id: ToolIdDTO | None = None
     freshness_rules: FreshnessRulesField | None = None
     tags: ContextVariableTagsField | None = None
+    last_modified: datetime
 
 
 context_variable_tags_update_params_example: ExampleJson = {
@@ -412,6 +413,7 @@ def create_router(
             else None,
             freshness_rules=variable.freshness_rules,
             tags=variable.tags,
+            last_modified=variable.last_modified,
         )
 
     @router.patch(
@@ -473,6 +475,7 @@ def create_router(
             else None,
             freshness_rules=updated_variable.freshness_rules,
             tags=updated_variable.tags,
+            last_modified=updated_variable.last_modified,
         )
 
     @router.get(
@@ -509,6 +512,7 @@ def create_router(
                 else None,
                 freshness_rules=v.freshness_rules,
                 tags=v.tags,
+                last_modified=v.last_modified,
             )
             for v in variables
         ]
@@ -554,6 +558,7 @@ def create_router(
             else None,
             freshness_rules=variable.freshness_rules,
             tags=variable.tags,
+            last_modified=variable.last_modified,
         )
 
         if not include_values:

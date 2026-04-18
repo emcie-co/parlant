@@ -184,6 +184,7 @@ class CannedResponseDTO(
 ):
     id: CannedResponseIdField
     creation_utc: CannedResponseCreationUTCField
+    last_modified: datetime
     value: CannedResponseValueField
     fields: CannedResponseFieldSequenceField
     tags: TagIdSequenceField
@@ -373,6 +374,7 @@ def create_router(
         return CannedResponseDTO(
             id=canrep.id,
             creation_utc=canrep.creation_utc,
+            last_modified=canrep.last_modified,
             value=canrep.value,
             fields=[_canned_response_field_to_dto(s) for s in canrep.fields],
             tags=canrep.tags,
@@ -408,6 +410,7 @@ def create_router(
         return CannedResponseDTO(
             id=canrep.id,
             creation_utc=canrep.creation_utc,
+            last_modified=canrep.last_modified,
             value=canrep.value,
             fields=[_canned_response_field_to_dto(s) for s in canrep.fields],
             tags=canrep.tags,
@@ -440,6 +443,7 @@ def create_router(
             CannedResponseDTO(
                 id=f.id,
                 creation_utc=f.creation_utc,
+                last_modified=f.last_modified,
                 value=f.value,
                 fields=[_canned_response_field_to_dto(s) for s in f.fields],
                 tags=f.tags,
@@ -510,6 +514,7 @@ def create_router(
         return CannedResponseDTO(
             id=canrep.id,
             creation_utc=canrep.creation_utc,
+            last_modified=canrep.last_modified,
             value=canrep.value,
             fields=[_canned_response_field_to_dto(s) for s in canrep.fields],
             tags=canrep.tags,

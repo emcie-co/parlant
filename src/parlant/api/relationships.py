@@ -178,6 +178,7 @@ def create_router(
                 tags=model.source_guideline.tags,
                 metadata=model.source_guideline.metadata,
                 priority=model.source_guideline.priority,
+                last_modified=model.source_guideline.last_modified,
             )
             if model.source_guideline
             else None,
@@ -195,6 +196,7 @@ def create_router(
                 tags=model.target_guideline.tags,
                 metadata=model.target_guideline.metadata,
                 priority=model.target_guideline.priority,
+                last_modified=model.target_guideline.last_modified,
             )
             if model.target_guideline
             else None,

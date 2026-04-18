@@ -345,6 +345,7 @@ class GuidelineDTO(
     track: bool = True
     labels: GuidelineLabelsField = set()
     priority: int = 0
+    last_modified: datetime
 
 
 EnumValueTypeDTO: TypeAlias = str | int

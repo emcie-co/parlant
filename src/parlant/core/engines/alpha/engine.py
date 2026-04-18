@@ -2017,6 +2017,7 @@ class AlphaEngine(Engine):
                 guideline=Guideline(
                     id=GuidelineId(f"<canrep-request-{i}>"),
                     creation_utc=datetime.now(timezone.utc),
+                    last_modified=datetime.now(timezone.utc),
                     content=GuidelineContent(
                         condition="",  # FIXME: Change this to None when we support `str | None` conditions
                         action=utterance_request.action,
@@ -2090,6 +2091,7 @@ class AlphaEngine(Engine):
                             guideline=Guideline(
                                 id=GuidelineId(f"<tool-guideline-{guideline_index}>"),
                                 creation_utc=datetime.now(timezone.utc),
+                                last_modified=datetime.now(timezone.utc),
                                 content=GuidelineContent(
                                     condition=guideline_data.get("condition", ""),
                                     action=guideline_data["action"],

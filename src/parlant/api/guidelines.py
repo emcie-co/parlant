@@ -447,6 +447,7 @@ def _guideline_relationship_to_dto(
             track=rel_source_guideline.track,
             labels=rel_source_guideline.labels,
             priority=rel_source_guideline.priority,
+            last_modified=rel_source_guideline.last_modified,
         )
         if relationship.source_type == RelationshipEntityKind.GUIDELINE
         else None,
@@ -475,6 +476,7 @@ def _guideline_relationship_to_dto(
             track=rel_target_guideline.track,
             labels=rel_target_guideline.labels,
             priority=rel_target_guideline.priority,
+            last_modified=rel_target_guideline.last_modified,
         )
         if relationship.target_type == RelationshipEntityKind.GUIDELINE
         else None,
@@ -566,6 +568,7 @@ def create_router(
             track=guideline.track,
             labels=guideline.labels,
             priority=guideline.priority,
+            last_modified=guideline.last_modified,
         )
 
     @router.get(
@@ -613,6 +616,7 @@ def create_router(
                 track=guideline.track,
                 labels=guideline.labels,
                 priority=guideline.priority,
+                last_modified=guideline.last_modified,
             )
             for guideline in guidelines
         ]
@@ -677,6 +681,7 @@ def create_router(
                 track=guideline.track,
                 labels=guideline.labels,
                 priority=guideline.priority,
+                last_modified=guideline.last_modified,
             ),
             relationships=[
                 _guideline_relationship_to_dto(relationship, indirect)
@@ -799,6 +804,7 @@ def create_router(
                 track=updated_guideline.track,
                 labels=updated_guideline.labels,
                 priority=updated_guideline.priority,
+                last_modified=updated_guideline.last_modified,
             ),
             relationships=[
                 _guideline_relationship_to_dto(relationship, indirect)

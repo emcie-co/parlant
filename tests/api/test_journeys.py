@@ -53,6 +53,8 @@ async def test_that_a_journey_can_be_created(
     guideline_after_update = await guideline_store.read_guideline(guideline.id)
     assert guideline_after_update.tags == [Tag.for_journey_id(journey["id"]).id]
 
+    assert "last_modified" in journey
+
 
 async def test_that_a_journey_can_be_created_with_multiple_conditions(
     async_client: httpx.AsyncClient,
@@ -278,6 +280,7 @@ async def test_that_a_journey_can_be_updated(
 
     assert updated_journey["title"] == expected_title
     assert updated_journey["description"] == expected_description
+    assert updated_journey["last_modified"] > journey["last_modified"]
 
 
 async def test_that_tags_can_be_added_to_a_journey(

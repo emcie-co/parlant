@@ -790,7 +790,7 @@ class PluginClient(ToolService):
     async def __aenter__(self) -> PluginClient:
         self._http_client = await httpx.AsyncClient(
             follow_redirects=True,
-            timeout=httpx.Timeout(120),
+            timeout=httpx.Timeout(int(os.environ.get("PARLANT_TOOL_TIMEOUT", 120))),
         ).__aenter__()
         return self
 

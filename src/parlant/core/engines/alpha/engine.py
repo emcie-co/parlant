@@ -92,7 +92,7 @@ from parlant.core.engines.alpha.tool_event_generator import (
 from parlant.core.engines.alpha.utils import context_variables_to_json
 from parlant.core.engines.types import Context, Engine, UtteranceRationale, UtteranceRequest
 from parlant.core.emissions import EventEmitter, EmittedEvent
-from parlant.core.tracer import Tracer
+from parlant.core.tracer import AttributeValue, Tracer
 from parlant.core.loggers import Logger
 from parlant.core.entity_cq import EntityQueries, EntityCommands
 from parlant.core.tools import ToolContext, ToolId
@@ -1058,9 +1058,15 @@ class AlphaEngine(Engine):
                 )
             )
 
-            event_data["matched_guidelines"] = [{"id": m.guideline.id} for m in all_matches]
+            event_data["matched_guidelines"] = [
+                {"id": m.guideline.id, "last_modified": m.guideline.last_modified.isoformat()}
+                for m in all_matches
+            ]
 
-            event_data["matched_journeys"] = [{"id": j.id} for j in context.state.journeys]
+            event_data["matched_journeys"] = [
+                {"id": j.id, "last_modified": j.last_modified.isoformat()}
+                for j in context.state.journeys
+            ]
 
             # Extract journey states from guideline matches with journey_node metadata
             event_data["matched_journey_states"] = [
@@ -1160,45 +1166,36 @@ class AlphaEngine(Engine):
 
     def _add_match_events_to_tracer(
         self,
-        matched_guidelines: Sequence[GuidelineMatch],
-        skipped_guidelines: Sequence[GuidelineMatch],
+        matches: Sequence[GuidelineMatch],
+        journeys: Optional[Mapping[JourneyId, Journey]] = None,
     ) -> None:
         for match in matched_guidelines:
             if match.guideline.metadata.get("journey_node"):
-                edge_id = extract_edge_id_from_journey_node_guideline_id(match.guideline.id)
+                journey_node_meta = cast(
+                    dict[str, JSONSerializable],
+                    match.guideline.metadata["journey_node"],
+                )
+                journey_id = cast(str, journey_node_meta["journey_id"])
+
+                attributes: dict[str, AttributeValue] = {
+                    "node_id": extract_node_id_from_journey_node_guideline_id(match.guideline.id),
+                    "condition": match.guideline.content.condition,
+                    "action": match.guideline.content.action or "",
+                    "rationale": match.rationale,
+                    "journey_id": journey_id,
+                }
+
+                if "sub_journey_id" in journey_node_meta:
+                    attributes["sub_journey_id"] = cast(str, journey_node_meta["sub_journey_id"])
+
+                if journeys and JourneyId(journey_id) in journeys:
+                    attributes["last_modified"] = journeys[
+                        JourneyId(journey_id)
+                    ].last_modified.isoformat()
 
                 self._tracer.add_event(
                     "journey.state.activate",
-                    attributes={
-                        **({"edge_id": edge_id} if edge_id else {}),
-                        "node_id": extract_node_id_from_journey_node_guideline_id(
-                            match.guideline.id
-                        ),
-                        "journey_path": json.dumps(
-                            match.metadata.get("journey_path_guideline_ids", [])
-                        ),
-                        "condition": match.guideline.content.condition,
-                        "action": match.guideline.content.action or "",
-                        "rationale": match.rationale,
-                        "journey_id": cast(str, match.metadata.get("step_selection_journey_id")),
-                        **(
-                            {
-                                "sub_journey_id": cast(
-                                    str,
-                                    cast(
-                                        dict[str, JSONSerializable],
-                                        match.guideline.metadata["journey_node"],
-                                    )["sub_journey_id"],
-                                )
-                            }
-                            if "sub_journey_id"
-                            in cast(
-                                dict[str, JSONSerializable],
-                                match.guideline.metadata["journey_node"],
-                            )
-                            else {}
-                        ),
-                    },
+                    attributes=attributes,
                 )
 
             else:
@@ -1206,6 +1203,7 @@ class AlphaEngine(Engine):
                     "gm.activate",
                     attributes={
                         "guideline_id": match.guideline.id,
+                        "last_modified": match.guideline.last_modified.isoformat(),
                         "condition": match.guideline.content.condition,
                         "action": match.guideline.content.action or "",
                         "rationale": match.rationale,
@@ -1308,6 +1306,10 @@ class AlphaEngine(Engine):
                 guidelines=relevant_guidelines,
             )
 
+        journeys_by_id = {j.id: j for j in available_journeys}
+
+        self._add_match_events_to_tracer(matching_result.matches, journeys=journeys_by_id)
+
         # Step 5: Filter the journeys that are activated by the matched guidelines.
         activated_journeys = self._filter_activated_journeys(
             context, matching_result.matched_guidelines, available_journeys
@@ -1343,6 +1345,8 @@ class AlphaEngine(Engine):
                     )
                 ),
             )
+
+            self._add_match_events_to_tracer(second_match_result.matches, journeys=journeys_by_id)
 
         # Step 7: Build the set of matched guidelines:
         matched_guidelines = list(
@@ -1415,6 +1419,10 @@ class AlphaEngine(Engine):
                 guidelines=guidelines_to_reevaluate,
             )
 
+        reeval_journeys_by_id = {j.id: j for j in all_journeys}
+
+        self._add_match_events_to_tracer(matching_result.matches, journeys=reeval_journeys_by_id)
+
         # Step 5: Filter out the journeys activated by the matched guidelines.
         # If a journey was already active in a previous guideline-matching iteration, we still retrieve it
         # so we can exclude it from the next guideline-matching iteration.
@@ -1452,6 +1460,9 @@ class AlphaEngine(Engine):
                         [matching_result.skipped_guidelines, second_match_result.skipped_guidelines]
                     )
                 ),
+            )
+            self._add_match_events_to_tracer(
+                second_match_result.matches, journeys=reeval_journeys_by_id
             )
 
         # Step 7: Build the final set of matched guidelines:

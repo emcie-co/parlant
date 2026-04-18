@@ -130,6 +130,7 @@ def create_journey(
         id=journey_id,
         root_id=JourneyNodeId(root_guideline.id),
         creation_utc=datetime.now(timezone.utc),
+        last_modified=datetime.now(timezone.utc),
         description="",
         conditions=[g.id for g in condition_guidelines],
         title=title,

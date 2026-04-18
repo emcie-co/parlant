@@ -13,6 +13,8 @@
 # limitations under the License.
 
 from collections import defaultdict
+from datetime import datetime
+
 from fastapi import APIRouter, Path, Query, Request, status
 from fastapi.responses import PlainTextResponse
 from html import escape
@@ -176,6 +178,7 @@ class JourneyDTO(
     composition_mode: CompositionModeDTO | None = None
     labels: JourneyLabelsField = set()
     priority: int = 0
+    last_modified: datetime
 
 
 class JourneyGraphDTO(JourneyDTO):
@@ -518,6 +521,7 @@ def create_router(
             else None,
             labels=journey.labels,
             priority=journey.priority,
+            last_modified=journey.last_modified,
         )
 
     @router.get(
@@ -559,6 +563,7 @@ def create_router(
                     else None,
                     labels=journey.labels,
                     priority=journey.priority,
+                    last_modified=journey.last_modified,
                 )
             )
 
@@ -624,6 +629,7 @@ def create_router(
             else None,
             labels=model.journey.labels,
             priority=model.journey.priority,
+            last_modified=model.journey.last_modified,
             nodes=[node_to_dto(n) for n in model.nodes],
             edges=[edge_to_dto(e) for e in model.edges],
         )
@@ -720,6 +726,7 @@ def create_router(
             else None,
             labels=journey.labels,
             priority=journey.priority,
+            last_modified=journey.last_modified,
         )
 
     @router.delete(

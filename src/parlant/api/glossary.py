@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from datetime import datetime
+
 from fastapi import APIRouter, HTTPException, Path, Query, Request, status
 from typing import Annotated, Sequence, TypeAlias
 from pydantic import Field
@@ -151,6 +153,7 @@ class TermDTO(
     description: TermDescriptionField
     synonyms: TermSynonymsField = []
     tags: TermTagsField
+    last_modified: datetime
 
 
 TermTagsUpdateAddField: TypeAlias = Annotated[
@@ -264,6 +267,7 @@ def create_router(
             description=term.description,
             synonyms=term.synonyms,
             tags=term.tags,
+            last_modified=term.last_modified,
         )
 
     @router.get(
@@ -298,6 +302,7 @@ def create_router(
             description=term.description,
             synonyms=term.synonyms,
             tags=term.tags,
+            last_modified=term.last_modified,
         )
 
     @router.get(
@@ -333,6 +338,7 @@ def create_router(
                 description=term.description,
                 synonyms=term.synonyms,
                 tags=term.tags,
+                last_modified=term.last_modified,
             )
             for term in terms
         ]
@@ -387,6 +393,7 @@ def create_router(
             description=term.description,
             synonyms=term.synonyms,
             tags=term.tags,
+            last_modified=term.last_modified,
         )
 
     @router.delete(

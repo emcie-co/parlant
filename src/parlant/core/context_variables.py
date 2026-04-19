@@ -53,6 +53,7 @@ class ContextVariable:
     name: str
     description: Optional[str]
     creation_utc: datetime
+    last_modified: datetime
     tool_id: Optional[ToolId]
     freshness_rules: Optional[str]
     tags: Sequence[TagId]
@@ -178,9 +179,20 @@ class _ContextVariableDocument_v0_2_0(TypedDict, total=False):
     freshness_rules: Optional[str]
 
 
+class _ContextVariableDocument_v0_3_0(TypedDict, total=False):
+    id: ObjectId
+    creation_utc: str
+    version: Version.String
+    name: str
+    description: Optional[str]
+    tool_id: Optional[str]
+    freshness_rules: Optional[str]
+
+
 class _ContextVariableDocument(TypedDict, total=False):
     id: ObjectId
     creation_utc: str
+    last_modified: str
     version: Version.String
     name: str
     description: Optional[str]
@@ -227,7 +239,7 @@ class ContextVariableTagAssociationDocument(TypedDict, total=False):
 
 
 class ContextVariableDocumentStore(ContextVariableStore):
-    VERSION = Version.from_string("0.3.0")
+    VERSION = Version.from_string("0.4.0")
 
     def __init__(
         self,
@@ -260,10 +272,24 @@ class ContextVariableDocumentStore(ContextVariableStore):
         async def v0_2_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
             d = cast(_ContextVariableDocument_v0_2_0, doc)
 
-            return _ContextVariableDocument(
+            return _ContextVariableDocument_v0_3_0(
                 id=d["id"],
                 creation_utc=datetime.now(timezone.utc).isoformat(),
                 version=Version.String("0.3.0"),
+                name=d["name"],
+                description=d.get("description"),
+                tool_id=d.get("tool_id"),
+                freshness_rules=d.get("freshness_rules"),
+            )
+
+        async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(_ContextVariableDocument_v0_3_0, doc)
+
+            return _ContextVariableDocument(
+                id=d["id"],
+                creation_utc=d["creation_utc"],
+                last_modified=d["creation_utc"],
+                version=Version.String("0.4.0"),
                 name=d["name"],
                 description=d.get("description"),
                 tool_id=d.get("tool_id"),
@@ -275,6 +301,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
             {
                 "0.1.0": v0_1_0_to_v0_2_0,
                 "0.2.0": v0_2_0_to_v0_3_0,
+                "0.3.0": v0_3_0_to_v0_4_0,
             },
         ).migrate(doc)
 
@@ -305,11 +332,24 @@ class ContextVariableDocumentStore(ContextVariableStore):
                 data=d["data"],
             )
 
+        async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(_ContextVariableValueDocument, doc)
+            return _ContextVariableValueDocument(
+                id=d["id"],
+                creation_utc=d.get("creation_utc", datetime.now(timezone.utc).isoformat()),
+                version=Version.String("0.4.0"),
+                last_modified=d["last_modified"],
+                variable_id=d["variable_id"],
+                key=d["key"],
+                data=d["data"],
+            )
+
         return await DocumentMigrationHelper[_ContextVariableValueDocument](
             self,
             {
                 "0.1.0": v0_1_0_to_v0_2_0,
                 "0.2.0": v0_2_0_to_v0_3_0,
+                "0.3.0": v0_3_0_to_v0_4_0,
             },
         ).migrate(doc)
 
@@ -338,11 +378,22 @@ class ContextVariableDocumentStore(ContextVariableStore):
                 tag_id=d["tag_id"],
             )
 
+        async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(ContextVariableTagAssociationDocument, doc)
+            return ContextVariableTagAssociationDocument(
+                id=d["id"],
+                creation_utc=d["creation_utc"],
+                version=Version.String("0.4.0"),
+                variable_id=d["variable_id"],
+                tag_id=d["tag_id"],
+            )
+
         return await DocumentMigrationHelper[ContextVariableTagAssociationDocument](
             self,
             {
                 "0.1.0": v0_1_0_to_v0_2_0,
                 "0.2.0": v0_2_0_to_v0_3_0,
+                "0.3.0": v0_3_0_to_v0_4_0,
             },
         ).migrate(doc)
 
@@ -396,6 +447,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
             name=context_variable.name,
             description=context_variable.description,
             creation_utc=context_variable.creation_utc.isoformat(),
+            last_modified=context_variable.last_modified.isoformat(),
             tool_id=context_variable.tool_id.to_string() if context_variable.tool_id else None,
             freshness_rules=context_variable.freshness_rules,
         )
@@ -434,6 +486,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
             name=context_variable_document["name"],
             description=context_variable_document.get("description"),
             creation_utc=datetime.fromisoformat(context_variable_document["creation_utc"]),
+            last_modified=datetime.fromisoformat(context_variable_document["last_modified"]),
             tool_id=ToolId.from_string(context_variable_document["tool_id"])
             if context_variable_document["tool_id"]
             else None,
@@ -472,6 +525,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
                 name=name,
                 description=description,
                 creation_utc=creation_utc,
+                last_modified=creation_utc,
                 tool_id=tool_id,
                 freshness_rules=freshness_rules,
                 tags=tags or [],
@@ -529,6 +583,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
                         else None
                     }
                 ),
+                "last_modified": datetime.now(timezone.utc).isoformat(),
             }
 
             result = await self._variable_collection.update_one(

@@ -2184,7 +2184,6 @@ class Test_that_journey_state_retriever_does_not_run_when_state_is_inactive(SDKT
 
 
 class Test_that_tool_state_runs_again_after_missing_data(SDKTest):
-
     async def setup(self, server: p.Server) -> None:
         @tool
         def find_user_id_by_name(
@@ -2263,6 +2262,7 @@ class Test_that_tool_state_runs_again_after_missing_data(SDKTest):
         )
 
         assert "john_smith_8831" in third_response.lower()
+
 
 class Test_that_same_sub_journey_can_be_linked_multiple_times_to_same_parent(SDKTest):
     async def setup(self, server: p.Server) -> None:

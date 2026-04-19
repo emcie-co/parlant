@@ -1063,7 +1063,10 @@ class AlphaEngine(Engine):
                 for m in all_matches
             ]
 
-            event_data["matched_journeys"] = [{"id": j.id} for j in context.state.journeys]
+            event_data["matched_journeys"] = [
+                {"id": j.id, "last_modified": j.last_modified.isoformat()}
+                for j in context.state.journeys
+            ]
 
             # Extract journey states from guideline matches with journey_node metadata
             event_data["matched_journey_states"] = [

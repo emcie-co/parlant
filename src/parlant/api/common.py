@@ -137,6 +137,14 @@ JSONSerializableDTO: TypeAlias = Annotated[
 ]
 
 
+LastModifiedField: TypeAlias = Annotated[
+    datetime,
+    Field(
+        description="Timestamp of the last modification",
+    ),
+]
+
+
 class EvaluationStatusDTO(Enum):
     """
     Current state of an evaluation task
@@ -350,6 +358,7 @@ class GuidelineDTO(
     enabled: GuidelineEnabledField = True
     tags: GuidelineTagsField
     metadata: GuidelineMetadataField
+    last_modified: LastModifiedField
     composition_mode: CompositionModeDTO | None = None
     track: bool = True
     labels: GuidelineLabelsField = set()

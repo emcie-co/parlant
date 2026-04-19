@@ -57,6 +57,7 @@ class GuidelineContent:
 class Guideline:
     id: GuidelineId
     creation_utc: datetime
+    last_modified: datetime
     content: GuidelineContent
     enabled: bool
     tags: Sequence[TagId]
@@ -319,6 +320,7 @@ class GuidelineDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
+    last_modified: str
     condition: str
     action: Optional[str]
     description: Optional[str]
@@ -380,6 +382,7 @@ class GuidelineDocumentStore(GuidelineStore):
                 id=d["id"],
                 version=Version.String("0.11.0"),
                 creation_utc=d["creation_utc"],
+                last_modified=d["creation_utc"],
                 condition=d["condition"],
                 action=d["action"],
                 description=d.get("description", None),
@@ -588,6 +591,7 @@ class GuidelineDocumentStore(GuidelineStore):
             id=ObjectId(guideline.id),
             version=self.VERSION.to_string(),
             creation_utc=guideline.creation_utc.isoformat(),
+            last_modified=guideline.last_modified.isoformat(),
             condition=guideline.content.condition,
             action=guideline.content.action,
             description=guideline.content.description,
@@ -620,6 +624,7 @@ class GuidelineDocumentStore(GuidelineStore):
         return Guideline(
             id=GuidelineId(guideline_document["id"]),
             creation_utc=datetime.fromisoformat(guideline_document["creation_utc"]),
+            last_modified=datetime.fromisoformat(guideline_document["last_modified"]),
             content=GuidelineContent(
                 condition=guideline_document["condition"],
                 action=guideline_document["action"],
@@ -673,6 +678,7 @@ class GuidelineDocumentStore(GuidelineStore):
             guideline = Guideline(
                 id=guideline_id,
                 creation_utc=creation_utc,
+                last_modified=creation_utc,
                 content=GuidelineContent(
                     condition=condition,
                     action=action,
@@ -826,6 +832,7 @@ class GuidelineDocumentStore(GuidelineStore):
                         else {}
                     ),
                     **({"priority": params["priority"]} if "priority" in params else {}),
+                    "last_modified": datetime.now(timezone.utc).isoformat(),
                 }
             )
 
@@ -937,6 +944,7 @@ class GuidelineDocumentStore(GuidelineStore):
                 filters={"id": {"$eq": guideline_id}},
                 params={
                     "metadata": updated_metadata,
+                    "last_modified": datetime.now(timezone.utc).isoformat(),
                 },
             )
 
@@ -962,6 +970,7 @@ class GuidelineDocumentStore(GuidelineStore):
                 filters={"id": {"$eq": guideline_id}},
                 params={
                     "metadata": updated_metadata,
+                    "last_modified": datetime.now(timezone.utc).isoformat(),
                 },
             )
 

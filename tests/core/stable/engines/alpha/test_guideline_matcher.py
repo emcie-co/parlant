@@ -454,6 +454,7 @@ async def create_guideline(
     guideline = Guideline(
         id=GuidelineId(generate_id()),
         creation_utc=datetime.now(timezone.utc),
+        last_modified=datetime.now(timezone.utc),
         content=GuidelineContent(
             condition=condition,
             action=action,
@@ -475,6 +476,7 @@ async def create_disambiguation_guideline(
     guideline = Guideline(
         id=GuidelineId(generate_id()),
         creation_utc=datetime.now(timezone.utc),
+        last_modified=datetime.now(timezone.utc),
         content=GuidelineContent(
             condition=condition,
             action=None,

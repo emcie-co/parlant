@@ -1018,6 +1018,7 @@ async def create_journey(
     root_guideline = Guideline(
         id=GuidelineId("root"),
         creation_utc=datetime.now(timezone.utc),
+        last_modified=datetime.now(timezone.utc),
         content=GuidelineContent(condition="", action=None),
         criticality=Criticality.MEDIUM,
         enabled=True,
@@ -1035,6 +1036,7 @@ async def create_journey(
         Guideline(
             id=GuidelineId(node.id),
             creation_utc=datetime.now(timezone.utc),
+            last_modified=datetime.now(timezone.utc),
             content=GuidelineContent(
                 condition=node.condition or "",
                 action=node.action,

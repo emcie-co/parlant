@@ -85,6 +85,7 @@ async def test_that_a_guideline_can_be_created(
     assert guideline["enabled"] is True
     assert guideline["tags"] == []
     assert guideline["metadata"] == {"key1": "value1", "key2": "value2"}
+    assert "last_modified" in guideline
 
 
 async def test_that_a_guideline_can_be_created_without_an_action(
@@ -321,6 +322,7 @@ async def test_that_a_guideline_condition_can_be_updated(
     assert updated_guideline["id"] == guideline.id
     assert updated_guideline["condition"] == "the customer inquires about weather"
     assert updated_guideline["action"] == guideline.content.action
+    assert updated_guideline["last_modified"] != guideline.creation_utc.isoformat()
 
 
 async def test_that_a_guideline_action_can_be_updated(

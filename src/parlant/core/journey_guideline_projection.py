@@ -484,6 +484,7 @@ class JourneyGuidelineProjection:
                 ),
                 criticality=Criticality.HIGH,
                 creation_utc=datetime.now(timezone.utc),
+                last_modified=datetime.now(timezone.utc),
                 enabled=True,
                 tags=list(journey.tags),
                 metadata=metadata,

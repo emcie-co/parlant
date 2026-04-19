@@ -1058,7 +1058,10 @@ class AlphaEngine(Engine):
                 )
             )
 
-            event_data["matched_guidelines"] = [{"id": m.guideline.id} for m in all_matches]
+            event_data["matched_guidelines"] = [
+                {"id": m.guideline.id, "last_modified": m.guideline.last_modified.isoformat()}
+                for m in all_matches
+            ]
 
             event_data["matched_journeys"] = [{"id": j.id} for j in context.state.journeys]
 
@@ -1206,6 +1209,7 @@ class AlphaEngine(Engine):
                     "gm.activate",
                     attributes={
                         "guideline_id": match.guideline.id,
+                        "last_modified": match.guideline.last_modified.isoformat(),
                         "condition": match.guideline.content.condition,
                         "action": match.guideline.content.action or "",
                         "rationale": match.rationale,
@@ -2017,6 +2021,7 @@ class AlphaEngine(Engine):
                 guideline=Guideline(
                     id=GuidelineId(f"<canrep-request-{i}>"),
                     creation_utc=datetime.now(timezone.utc),
+                    last_modified=datetime.now(timezone.utc),
                     content=GuidelineContent(
                         condition="",  # FIXME: Change this to None when we support `str | None` conditions
                         action=utterance_request.action,
@@ -2090,6 +2095,7 @@ class AlphaEngine(Engine):
                             guideline=Guideline(
                                 id=GuidelineId(f"<tool-guideline-{guideline_index}>"),
                                 creation_utc=datetime.now(timezone.utc),
+                                last_modified=datetime.now(timezone.utc),
                                 content=GuidelineContent(
                                     condition=guideline_data.get("condition", ""),
                                     action=guideline_data["action"],

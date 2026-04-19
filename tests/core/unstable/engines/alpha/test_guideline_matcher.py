@@ -400,6 +400,7 @@ def create_context_variable(
     return ContextVariable(
         id=ContextVariableId("-"),
         creation_utc=datetime.now(timezone.utc),
+        last_modified=datetime.now(timezone.utc),
         name=name,
         description="",
         tool_id=None,

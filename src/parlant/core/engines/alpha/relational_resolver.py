@@ -1540,8 +1540,6 @@ class RelationalResolver:
                     attributes={
                         "guideline_id": match.guideline.id,
                         "last_modified": match.guideline.last_modified.isoformat(),
-                        "condition": match.guideline.content.condition,
-                        "action": match.guideline.content.action or "",
                         "rationale": "Activated via entailment",
                     },
                 )
@@ -1558,8 +1556,6 @@ class RelationalResolver:
                 attributes={
                     "guideline_id": gid,
                     "last_modified": m.guideline.last_modified.isoformat(),
-                    "condition": m.guideline.content.condition,
-                    "action": m.guideline.content.action or "",
                     "rationale": rationale,
                 },
             )

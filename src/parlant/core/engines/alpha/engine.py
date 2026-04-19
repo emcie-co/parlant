@@ -1166,7 +1166,8 @@ class AlphaEngine(Engine):
 
     def _add_match_events_to_tracer(
         self,
-        matches: Sequence[GuidelineMatch],
+        matched_guidelines: Sequence[GuidelineMatch],
+        skipped_guidelines: Sequence[GuidelineMatch] = (),
         journeys: Optional[Mapping[JourneyId, Journey]] = None,
     ) -> None:
         for match in matched_guidelines:
@@ -1308,7 +1309,11 @@ class AlphaEngine(Engine):
 
         journeys_by_id = {j.id: j for j in available_journeys}
 
-        self._add_match_events_to_tracer(matching_result.matches, journeys=journeys_by_id)
+        self._add_match_events_to_tracer(
+            matched_guidelines=matching_result.matched_guidelines,
+            skipped_guidelines=matching_result.skipped_guidelines,
+            journeys=journeys_by_id,
+        )
 
         # Step 5: Filter the journeys that are activated by the matched guidelines.
         activated_journeys = self._filter_activated_journeys(
@@ -1346,7 +1351,11 @@ class AlphaEngine(Engine):
                 ),
             )
 
-            self._add_match_events_to_tracer(second_match_result.matches, journeys=journeys_by_id)
+            self._add_match_events_to_tracer(
+                matched_guidelines=second_match_result.matched_guidelines,
+                skipped_guidelines=second_match_result.skipped_guidelines,
+                journeys=journeys_by_id,
+            )
 
         # Step 7: Build the set of matched guidelines:
         matched_guidelines = list(
@@ -1369,14 +1378,15 @@ class AlphaEngine(Engine):
         )
 
         self._add_match_events_to_tracer(
-            resolver_result.matches,
-            list(
+            matched_guidelines=resolver_result.matches,
+            skipped_guidelines=list(
                 set(matching_result.skipped_guidelines).union(
                     set(
                         second_match_result.skipped_guidelines if second_match_result else []
                     ).difference(resolver_result.matches)
                 )
             ),
+            journeys=journeys_by_id,
         )
 
         return _GuidelineAndJourneyMatchingResult(
@@ -1421,7 +1431,11 @@ class AlphaEngine(Engine):
 
         reeval_journeys_by_id = {j.id: j for j in all_journeys}
 
-        self._add_match_events_to_tracer(matching_result.matches, journeys=reeval_journeys_by_id)
+        self._add_match_events_to_tracer(
+            matched_guidelines=matching_result.matched_guidelines,
+            skipped_guidelines=matching_result.skipped_guidelines,
+            journeys=reeval_journeys_by_id,
+        )
 
         # Step 5: Filter out the journeys activated by the matched guidelines.
         # If a journey was already active in a previous guideline-matching iteration, we still retrieve it
@@ -1462,7 +1476,9 @@ class AlphaEngine(Engine):
                 ),
             )
             self._add_match_events_to_tracer(
-                second_match_result.matches, journeys=reeval_journeys_by_id
+                matched_guidelines=second_match_result.matched_guidelines,
+                skipped_guidelines=second_match_result.skipped_guidelines,
+                journeys=reeval_journeys_by_id,
             )
 
         # Step 7: Build the final set of matched guidelines:
@@ -1488,14 +1504,15 @@ class AlphaEngine(Engine):
         )
 
         self._add_match_events_to_tracer(
-            resolver_result.matches,
-            list(
+            matched_guidelines=resolver_result.matches,
+            skipped_guidelines=list(
                 set(matching_result.skipped_guidelines).union(
                     set(
                         second_match_result.skipped_guidelines if second_match_result else []
                     ).difference(resolver_result.matches)
                 )
             ),
+            journeys=reeval_journeys_by_id,
         )
 
         return _GuidelineAndJourneyMatchingResult(

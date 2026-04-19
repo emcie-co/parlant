@@ -38,6 +38,7 @@ from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.sessions import EventKind, ToolEventData
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 from parlant.core.tools import ToolId
 
 

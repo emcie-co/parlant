@@ -2474,6 +2474,7 @@ class Test_that_link_with_condition_to_sub_journey_with_conditional_root_preserv
         )
         assert response4 == "Welcome back! How can I assist you today?"
 
+
 class Test_that_tool_state_runs_again_after_missing_data(SDKTest):
     STARTUP_TIMEOUT = 500
 

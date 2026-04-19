@@ -267,6 +267,8 @@ from parlant.core.engines.alpha.planners import (
     Plan,
     Planner,
     PlannerProvider,
+    ToolOrchestrationPlan,
+    ToolOrchestrationPlanner,
 )
 from parlant.bin.server import PARLANT_HOME_DIR, start_parlant, StartupParameters
 from parlant.core.services.tools.plugins import PluginServer, ToolEntry, tool
@@ -5857,6 +5859,8 @@ __all__ = [
     "NullPerceivedPerformancePolicy",
     "NullPlan",
     "NullPlanner",
+    "ToolOrchestrationPlan",
+    "ToolOrchestrationPlanner",
     "Operation",
     "OutputMode",
     "OptimizationPolicy",

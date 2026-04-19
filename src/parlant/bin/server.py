@@ -123,7 +123,7 @@ from parlant.core.engines.alpha.perceived_performance_policy import (
     PerceivedPerformancePolicy,
     PerceivedPerformancePolicyProvider,
 )
-from parlant.core.engines.alpha.planners import NullPlanner, PlannerProvider
+from parlant.core.engines.alpha.planners import NullPlanner, PlannerProvider, ToolInferenceChoiceSchema
 from parlant.core.engines.alpha.relational_resolver import RelationalResolver
 from parlant.core.event_loop_monitor import EventLoopMonitor
 from parlant.core.health import HealthReporter
@@ -916,6 +916,7 @@ async def initialize_container(
         JourneyBacktrackCheckSchema,
         RelativeActionSchema,
         ReachableNodesEvaluationSchema,
+        ToolInferenceChoiceSchema
     ):
         generator = await nlp_service_instance.get_schematic_generator(schema)
 

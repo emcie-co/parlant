@@ -49,6 +49,7 @@ async def test_that_a_canned_response_can_be_created(
 
     assert "id" in canned_response
     assert "creation_utc" in canned_response
+    assert "last_modified" in canned_response
 
 
 async def test_that_a_canned_response_can_be_created_with_tags(
@@ -236,6 +237,7 @@ async def test_that_a_canned_response_can_be_updated(
     updated_canned_response = response.json()
     assert updated_canned_response["value"] == update_payload["value"]
     assert updated_canned_response["fields"] == update_payload["fields"]
+    assert updated_canned_response["last_modified"] != canned_response.creation_utc.isoformat()
 
 
 async def test_that_a_canned_response_can_be_deleted(

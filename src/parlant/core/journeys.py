@@ -121,6 +121,7 @@ class JourneyLink:
 class Journey:
     id: JourneyId
     creation_utc: datetime
+    last_modified: datetime
     description: str
     conditions: Sequence[GuidelineId]
     title: str
@@ -492,6 +493,7 @@ class JourneyDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
+    last_modified: str
     title: str
     description: str
     root_id: JourneyNodeId
@@ -691,6 +693,7 @@ class JourneyVectorStore(JourneyStore):
                 id=d["id"],
                 version=Version.String("0.7.0"),
                 creation_utc=d["creation_utc"],
+                last_modified=d["creation_utc"],
                 title=d["title"],
                 description=d["description"],
                 root_id=d["root_id"],
@@ -932,6 +935,7 @@ class JourneyVectorStore(JourneyStore):
             id=ObjectId(journey.id),
             version=self.VERSION.to_string(),
             creation_utc=journey.creation_utc.isoformat(),
+            last_modified=journey.last_modified.isoformat(),
             title=journey.title,
             description=journey.description,
             root_id=journey.root_id,
@@ -961,6 +965,7 @@ class JourneyVectorStore(JourneyStore):
         return Journey(
             id=JourneyId(doc["id"]),
             creation_utc=datetime.fromisoformat(doc["creation_utc"]),
+            last_modified=datetime.fromisoformat(doc.get("last_modified", doc["creation_utc"])),
             conditions=conditions,
             title=doc["title"],
             description=doc["description"],
@@ -1122,6 +1127,7 @@ class JourneyVectorStore(JourneyStore):
             journey = Journey(
                 id=journey_id,
                 creation_utc=creation_utc,
+                last_modified=creation_utc,
                 conditions=conditions,
                 title=title,
                 description=description,
@@ -1204,7 +1210,11 @@ class JourneyVectorStore(JourneyStore):
             nodes = await self.list_nodes(journey_id=journey_id)
             edges = await self.list_edges(journey_id=journey_id)
 
-            updated = {**doc, **params}
+            updated = {
+                **doc,
+                **params,
+                "last_modified": datetime.now(timezone.utc).isoformat(),
+            }
 
             content = self.assemble_content(
                 title=cast(str, updated["title"]),

@@ -1076,6 +1076,7 @@ async def create_journey(
         id=journey_id,
         root_id=JourneyNodeId(root_guideline.id),
         creation_utc=datetime.now(timezone.utc),
+        last_modified=datetime.now(timezone.utc),
         description=description,
         triggers=trigger_ids,
         title=title,

@@ -23,6 +23,7 @@ from parlant.api.authorization import Operation, AuthorizationPolicy
 from parlant.api.common import (
     CompositionModeDTO,
     ExampleJson,
+    LastModifiedField,
     apigen_config,
     composition_mode_dto_to_composition_mode,
     composition_mode_to_composition_mode_dto,
@@ -176,6 +177,7 @@ class JourneyDTO(
     composition_mode: CompositionModeDTO | None = None
     labels: JourneyLabelsField = set()
     priority: int = 0
+    last_modified: LastModifiedField
 
 
 class JourneyGraphDTO(JourneyDTO):
@@ -518,6 +520,7 @@ def create_router(
             else None,
             labels=journey.labels,
             priority=journey.priority,
+            last_modified=journey.last_modified,
         )
 
     @router.get(
@@ -559,6 +562,7 @@ def create_router(
                     else None,
                     labels=journey.labels,
                     priority=journey.priority,
+                    last_modified=journey.last_modified,
                 )
             )
 
@@ -624,6 +628,7 @@ def create_router(
             else None,
             labels=model.journey.labels,
             priority=model.journey.priority,
+            last_modified=model.journey.last_modified,
             nodes=[node_to_dto(n) for n in model.nodes],
             edges=[edge_to_dto(e) for e in model.edges],
         )
@@ -720,6 +725,7 @@ def create_router(
             else None,
             labels=journey.labels,
             priority=journey.priority,
+            last_modified=journey.last_modified,
         )
 
     @router.delete(

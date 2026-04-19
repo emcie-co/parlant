@@ -13,7 +13,6 @@
 # limitations under the License.
 
 from pydantic import Field, field_validator
-from datetime import datetime
 from croniter import croniter
 from fastapi import HTTPException, Path, Query, Request, status
 from typing import Annotated, Sequence, TypeAlias, cast
@@ -22,6 +21,7 @@ from fastapi import APIRouter
 from parlant.api import common
 from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import (
+    LastModifiedField,
     ToolIdDTO,
     JSONSerializableDTO,
     apigen_config,
@@ -93,13 +93,6 @@ ValueIdField: TypeAlias = Annotated[
     Field(
         description="Unique identifier for the variable value",
         examples=["val_789abc"],
-    ),
-]
-
-LastModifiedField: TypeAlias = Annotated[
-    datetime,
-    Field(
-        description="Timestamp of the last modification",
     ),
 ]
 
@@ -225,6 +218,7 @@ class ContextVariableDTO(
     tool_id: ToolIdDTO | None = None
     freshness_rules: FreshnessRulesField | None = None
     tags: ContextVariableTagsField | None = None
+    last_modified: LastModifiedField
 
 
 context_variable_tags_update_params_example: ExampleJson = {
@@ -412,6 +406,7 @@ def create_router(
             else None,
             freshness_rules=variable.freshness_rules,
             tags=variable.tags,
+            last_modified=variable.last_modified,
         )
 
     @router.patch(
@@ -473,6 +468,7 @@ def create_router(
             else None,
             freshness_rules=updated_variable.freshness_rules,
             tags=updated_variable.tags,
+            last_modified=updated_variable.last_modified,
         )
 
     @router.get(
@@ -509,6 +505,7 @@ def create_router(
                 else None,
                 freshness_rules=v.freshness_rules,
                 tags=v.tags,
+                last_modified=v.last_modified,
             )
             for v in variables
         ]
@@ -554,6 +551,7 @@ def create_router(
             else None,
             freshness_rules=variable.freshness_rules,
             tags=variable.tags,
+            last_modified=variable.last_modified,
         )
 
         if not include_values:

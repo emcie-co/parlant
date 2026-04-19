@@ -20,8 +20,8 @@ from typing import Annotated, Sequence, TypeAlias, cast
 from fastapi import APIRouter
 from parlant.api import common
 from parlant.api.authorization import AuthorizationPolicy, Operation
+from datetime import datetime
 from parlant.api.common import (
-    LastModifiedField,
     ToolIdDTO,
     JSONSerializableDTO,
     apigen_config,
@@ -101,6 +101,20 @@ DataField: TypeAlias = Annotated[
     JSONSerializableDTO,
     Field(
         description="The actual data stored in the variable",
+    ),
+]
+
+LastModifiedField: TypeAlias = Annotated[
+    datetime,
+    Field(
+        description="Timestamp of the last modification",
+    ),
+]
+
+ContextVariableLastModifiedField: TypeAlias = Annotated[
+    datetime,
+    Field(
+        description="UTC timestamp of the last modification to the context variable",
     ),
 ]
 
@@ -218,7 +232,7 @@ class ContextVariableDTO(
     tool_id: ToolIdDTO | None = None
     freshness_rules: FreshnessRulesField | None = None
     tags: ContextVariableTagsField | None = None
-    last_modified: LastModifiedField
+    last_modified: ContextVariableLastModifiedField
 
 
 context_variable_tags_update_params_example: ExampleJson = {

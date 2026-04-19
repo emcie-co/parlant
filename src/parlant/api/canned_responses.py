@@ -33,7 +33,6 @@ from parlant.core.tags import TagId
 from parlant.api.common import (
     ExampleJson,
     JSONSerializableDTO,
-    LastModifiedField,
     apigen_config,
     example_json_content,
 )
@@ -163,6 +162,13 @@ CannedResponseCreationUTCField: TypeAlias = Annotated[
     ),
 ]
 
+CannedResponseLastModifiedField: TypeAlias = Annotated[
+    datetime,
+    Field(
+        description="UTC timestamp of the last modification to the canned response",
+    ),
+]
+
 CannedResponseValueField: TypeAlias = Annotated[
     str,
     Field(
@@ -190,7 +196,7 @@ class CannedResponseDTO(
 ):
     id: CannedResponseIdField
     creation_utc: CannedResponseCreationUTCField
-    last_modified: LastModifiedField
+    last_modified: CannedResponseLastModifiedField
     value: CannedResponseValueField
     fields: CannedResponseFieldSequenceField
     tags: TagIdSequenceField

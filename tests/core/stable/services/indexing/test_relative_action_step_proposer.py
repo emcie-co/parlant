@@ -68,6 +68,7 @@ def create_journey(
         Guideline(
             id=GuidelineId(f"c-{i}"),
             creation_utc=datetime.now(timezone.utc),
+            last_modified=datetime.now(timezone.utc),
             content=GuidelineContent(condition=condition, action=None),
             criticality=Criticality.MEDIUM,
             enabled=False,
@@ -80,6 +81,7 @@ def create_journey(
     root_guideline = Guideline(
         id=GuidelineId("root"),
         creation_utc=datetime.now(timezone.utc),
+        last_modified=datetime.now(timezone.utc),
         content=GuidelineContent(condition="", action=None),
         criticality=Criticality.MEDIUM,
         enabled=True,
@@ -97,6 +99,7 @@ def create_journey(
         Guideline(
             id=GuidelineId(step.id),
             creation_utc=datetime.now(timezone.utc),
+            last_modified=datetime.now(timezone.utc),
             content=GuidelineContent(
                 condition=step.condition or "",
                 action=step.action,

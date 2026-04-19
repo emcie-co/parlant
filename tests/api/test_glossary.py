@@ -44,6 +44,7 @@ async def test_that_a_term_can_be_created(
     assert data["description"] == description
     assert data["synonyms"] == synonyms
     assert data["tags"] == []
+    assert "last_modified" in data
 
 
 async def test_that_a_term_can_be_created_with_tags(
@@ -242,6 +243,7 @@ async def test_that_a_term_can_be_updated_with_new_values(
     assert data["description"] == updated_description
     assert data["synonyms"] == updated_synonyms
     assert set(data["tags"]) == set(tags_to_add)
+    assert data["last_modified"] != term["last_modified"]
 
 
 async def test_that_tags_can_be_removed_from_a_term(

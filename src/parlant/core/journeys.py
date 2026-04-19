@@ -1070,7 +1070,7 @@ class JourneyVectorStore(JourneyStore):
             merge_node_id=JourneyNodeId(doc["merge_node_id"]),
         )
 
-    async def _touch_journey_last_modified(self, journey_id: JourneyId) -> None:
+    async def _update_journey_last_modified(self, journey_id: JourneyId) -> None:
         """Update the journey's last_modified timestamp."""
         await self._collection.update_one(
             filters={"id": {"$eq": journey_id}},
@@ -1527,7 +1527,7 @@ class JourneyVectorStore(JourneyStore):
                 document=self._serialize_node(node, journey_id)
             )
 
-            await self._touch_journey_last_modified(journey_id)
+            await self._update_journey_last_modified(journey_id)
 
         return node
 
@@ -1576,7 +1576,7 @@ class JourneyVectorStore(JourneyStore):
                 params=cast(JourneyNodeAssociationDocument, to_json_dict(updated)),
             )
 
-            await self._touch_journey_last_modified(doc["journey_id"])
+            await self._update_journey_last_modified(doc["journey_id"])
 
         assert result.updated_document
 
@@ -1606,7 +1606,7 @@ class JourneyVectorStore(JourneyStore):
                 filters={"node_id": {"$eq": node_id}}
             )
 
-            await self._touch_journey_last_modified(journey_id)
+            await self._update_journey_last_modified(journey_id)
 
         if result.deleted_count == 0:
             raise ItemNotFoundError(item_id=UniqueId(node_id))
@@ -1790,7 +1790,7 @@ class JourneyVectorStore(JourneyStore):
                 document=self._serialize_edge(edge, journey_id)
             )
 
-            await self._touch_journey_last_modified(journey_id)
+            await self._update_journey_last_modified(journey_id)
 
         return edge
 
@@ -1826,7 +1826,7 @@ class JourneyVectorStore(JourneyStore):
                 params=cast(JourneyEdgeAssociationDocument, to_json_dict(updated)),
             )
 
-            await self._touch_journey_last_modified(doc["journey_id"])
+            await self._update_journey_last_modified(doc["journey_id"])
 
         assert result.updated_document
 
@@ -1872,7 +1872,7 @@ class JourneyVectorStore(JourneyStore):
             )
 
             if result.deleted_count > 0 and edge_doc:
-                await self._touch_journey_last_modified(edge_doc["journey_id"])
+                await self._update_journey_last_modified(edge_doc["journey_id"])
 
         if result.deleted_count == 0:
             raise ItemNotFoundError(item_id=UniqueId(edge_id))
@@ -2067,7 +2067,7 @@ class JourneyVectorStore(JourneyStore):
 
         async with self._lock.writer_lock:
             await self._link_association_collection.insert_one(document=self._serialize_link(link))
-            await self._touch_journey_last_modified(journey_id)
+            await self._update_journey_last_modified(journey_id)
 
         return link
 

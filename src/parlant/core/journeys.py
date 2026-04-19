@@ -1069,6 +1069,13 @@ class JourneyVectorStore(JourneyStore):
             merge_node_id=JourneyNodeId(doc["merge_node_id"]),
         )
 
+    async def _touch_journey_last_modified(self, journey_id: JourneyId) -> None:
+        """Update the journey's last_modified timestamp."""
+        await self._collection.update_one(
+            filters={"id": {"$eq": journey_id}},
+            params={"last_modified": datetime.now(timezone.utc).isoformat()},
+        )
+
     @staticmethod
     def assemble_content(
         title: str,
@@ -1519,6 +1526,8 @@ class JourneyVectorStore(JourneyStore):
                 document=self._serialize_node(node, journey_id)
             )
 
+            await self._touch_journey_last_modified(journey_id)
+
         return node
 
     @override
@@ -1566,6 +1575,8 @@ class JourneyVectorStore(JourneyStore):
                 params=cast(JourneyNodeAssociationDocument, to_json_dict(updated)),
             )
 
+            await self._touch_journey_last_modified(doc["journey_id"])
+
         assert result.updated_document
 
         return self._deserialize_node(result.updated_document)
@@ -1583,7 +1594,9 @@ class JourneyVectorStore(JourneyStore):
             if not node_doc:
                 raise ItemNotFoundError(item_id=UniqueId(node_id))
 
-            edges = await self.list_edges(journey_id=node_doc["journey_id"], node_id=node_id)
+            journey_id = node_doc["journey_id"]
+
+            edges = await self.list_edges(journey_id=journey_id, node_id=node_id)
 
             for edge in edges:
                 await self.delete_edge(edge.id)
@@ -1591,6 +1604,8 @@ class JourneyVectorStore(JourneyStore):
             result = await self._node_association_collection.delete_one(
                 filters={"node_id": {"$eq": node_id}}
             )
+
+            await self._touch_journey_last_modified(journey_id)
 
         if result.deleted_count == 0:
             raise ItemNotFoundError(item_id=UniqueId(node_id))
@@ -1690,7 +1705,10 @@ class JourneyVectorStore(JourneyStore):
 
             result = await self._collection.update_one(
                 filters={"id": {"$eq": journey_id}},
-                params={"metadata": updated_metadata},
+                params={
+                    "metadata": updated_metadata,
+                    "last_modified": datetime.now(timezone.utc).isoformat(),
+                },
             )
 
         assert result.updated_document
@@ -1713,7 +1731,10 @@ class JourneyVectorStore(JourneyStore):
 
             result = await self._collection.update_one(
                 filters={"id": {"$eq": journey_id}},
-                params={"metadata": updated_metadata},
+                params={
+                    "metadata": updated_metadata,
+                    "last_modified": datetime.now(timezone.utc).isoformat(),
+                },
             )
 
         assert result.updated_document
@@ -1734,7 +1755,10 @@ class JourneyVectorStore(JourneyStore):
 
             result = await self._collection.update_one(
                 filters={"id": {"$eq": journey_id}},
-                params={"node_properties": node_properties},
+                params={
+                    "node_properties": node_properties,
+                    "last_modified": datetime.now(timezone.utc).isoformat(),
+                },
             )
 
         assert result.updated_document
@@ -1764,6 +1788,8 @@ class JourneyVectorStore(JourneyStore):
             await self._edge_association_collection.insert_one(
                 document=self._serialize_edge(edge, journey_id)
             )
+
+            await self._touch_journey_last_modified(journey_id)
 
         return edge
 
@@ -1798,6 +1824,8 @@ class JourneyVectorStore(JourneyStore):
                 filters={"id": {"$eq": edge_id}},
                 params=cast(JourneyEdgeAssociationDocument, to_json_dict(updated)),
             )
+
+            await self._touch_journey_last_modified(doc["journey_id"])
 
         assert result.updated_document
 
@@ -1836,9 +1864,14 @@ class JourneyVectorStore(JourneyStore):
         edge_id: JourneyEdgeId,
     ) -> None:
         async with self._lock.writer_lock:
+            edge_doc = await self._edge_association_collection.find_one({"id": {"$eq": edge_id}})
+
             result = await self._edge_association_collection.delete_one(
                 filters={"id": {"$eq": edge_id}}
             )
+
+            if result.deleted_count > 0 and edge_doc:
+                await self._touch_journey_last_modified(edge_doc["journey_id"])
 
         if result.deleted_count == 0:
             raise ItemNotFoundError(item_id=UniqueId(edge_id))
@@ -2033,6 +2066,7 @@ class JourneyVectorStore(JourneyStore):
 
         async with self._lock.writer_lock:
             await self._link_association_collection.insert_one(document=self._serialize_link(link))
+            await self._touch_journey_last_modified(journey_id)
 
         return link
 
@@ -2074,7 +2108,7 @@ class JourneyVectorStore(JourneyStore):
 
         link = self._deserialize_link(link_doc)
 
-        # Delete the merge fork node
+        # Delete the merge fork node (also touches last_modified via delete_node)
         await self.delete_node(link.merge_node_id)
 
         async with self._lock.writer_lock:

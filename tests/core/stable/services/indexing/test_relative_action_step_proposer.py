@@ -38,7 +38,7 @@ class _StepData:
 class _JourneyData:
     title: str
     steps: list[_StepData]
-    triggers: Sequence[str] = field(default_factory=list)
+    conditions: Sequence[str] = field(default_factory=list)
 
 
 @fixture
@@ -57,29 +57,31 @@ def context(
 def create_journey(
     title: str,
     steps: list[_StepData],
-    triggers: Sequence[str],
+    conditions: Sequence[str],
 ) -> tuple[Journey, Sequence[Guideline], Sequence[Guideline]]:
-    # 1. Create trigger guidelines, get IDs
+    # 1. Create conditions, get IDs
     # 2. Create guidelines from step data
-    # 3. Return journey, step guidelines, trigger guidelines
+    # 3. Return journey, guidelines, conditions
     journey_id = JourneyId("j1")
 
-    trigger_guidelines: Sequence[Guideline] = [
+    condition_guidelines: Sequence[Guideline] = [
         Guideline(
             id=GuidelineId(f"c-{i}"),
             creation_utc=datetime.now(timezone.utc),
-            content=GuidelineContent(condition=trigger, action=None),
+            last_modified=datetime.now(timezone.utc),
+            content=GuidelineContent(condition=condition, action=None),
             criticality=Criticality.MEDIUM,
             enabled=False,
             tags=[],
             metadata={},
         )
-        for i, trigger in enumerate(triggers)
+        for i, condition in enumerate(conditions)
     ]
 
     root_guideline = Guideline(
         id=GuidelineId("root"),
         creation_utc=datetime.now(timezone.utc),
+        last_modified=datetime.now(timezone.utc),
         content=GuidelineContent(condition="", action=None),
         criticality=Criticality.MEDIUM,
         enabled=True,
@@ -97,6 +99,7 @@ def create_journey(
         Guideline(
             id=GuidelineId(step.id),
             creation_utc=datetime.now(timezone.utc),
+            last_modified=datetime.now(timezone.utc),
             content=GuidelineContent(
                 condition=step.condition or "",
                 action=step.action,
@@ -128,12 +131,12 @@ def create_journey(
         root_id=JourneyNodeId(root_guideline.id),
         creation_utc=datetime.now(timezone.utc),
         description="",
-        triggers=[g.id for g in trigger_guidelines],
+        conditions=[g.id for g in condition_guidelines],
         title=title,
         tags=[],
     )
 
-    return journey, [root_guideline] + list(step_guidelines), trigger_guidelines
+    return journey, [root_guideline] + list(step_guidelines), condition_guidelines
 
 
 async def base_test_that_related_action_step_proposed(
@@ -143,15 +146,15 @@ async def base_test_that_related_action_step_proposed(
 ) -> None:
     relative_action_proposer = context.container[RelativeActionProposer]
 
-    examined_journey, step_guidelines, trigger_guidelines = create_journey(
+    examined_journey, step_guidelines, condition_guidelines = create_journey(
         title=journey.title,
         steps=journey.steps,
-        triggers=journey.triggers,
+        conditions=journey.conditions,
     )
     result = await relative_action_proposer.propose_relative_action(
         examined_journey,
         step_guidelines,
-        trigger_guidelines,
+        condition_guidelines,
     )
     proposed_actions = {a.index: a.rewritten_actions for a in result.actions}
 
@@ -170,7 +173,7 @@ async def test_action_is_proposed_when_needed(
     context: ContextOfTest,
 ) -> None:
     journey = _JourneyData(
-        triggers=["the customer wants to apply for a personal loan"],
+        conditions=["the customer wants to apply for a personal loan"],
         title="Personal Loan Application",
         steps=[
             _StepData(
@@ -251,7 +254,7 @@ async def test_action_is_not_proposed_when_not_needed(
     context: ContextOfTest,
 ) -> None:
     journey = _JourneyData(
-        triggers=["the customer wants to order a calzone"],
+        conditions=["the customer wants to order a calzone"],
         title="Deliver Calzone Journey",
         steps=[
             _StepData(
@@ -352,7 +355,7 @@ async def test_action_is_proposed_when_needed_2(
     context: ContextOfTest,
 ) -> None:
     journey = _JourneyData(
-        triggers=["the customer wants to order a calzone"],
+        conditions=["the customer wants to order a calzone"],
         title="Deliver Calzone Journey",
         steps=[
             _StepData(

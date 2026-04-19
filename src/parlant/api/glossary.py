@@ -18,7 +18,7 @@ from pydantic import Field
 
 from parlant.api import common
 from parlant.api.authorization import Operation, AuthorizationPolicy
-from parlant.api.common import apigen_config, ExampleJson
+from parlant.api.common import LastModifiedField, apigen_config, ExampleJson
 from parlant.core.app_modules.glossary import TermTagsUpdateParamsModel
 from parlant.core.agents import AgentId
 from parlant.core.application import Application
@@ -151,6 +151,7 @@ class TermDTO(
     description: TermDescriptionField
     synonyms: TermSynonymsField = []
     tags: TermTagsField
+    last_modified: LastModifiedField
 
 
 TermTagsUpdateAddField: TypeAlias = Annotated[
@@ -264,6 +265,7 @@ def create_router(
             description=term.description,
             synonyms=term.synonyms,
             tags=term.tags,
+            last_modified=term.last_modified,
         )
 
     @router.get(
@@ -298,6 +300,7 @@ def create_router(
             description=term.description,
             synonyms=term.synonyms,
             tags=term.tags,
+            last_modified=term.last_modified,
         )
 
     @router.get(
@@ -333,6 +336,7 @@ def create_router(
                 description=term.description,
                 synonyms=term.synonyms,
                 tags=term.tags,
+                last_modified=term.last_modified,
             )
             for term in terms
         ]
@@ -387,6 +391,7 @@ def create_router(
             description=term.description,
             synonyms=term.synonyms,
             tags=term.tags,
+            last_modified=term.last_modified,
         )
 
     @router.delete(

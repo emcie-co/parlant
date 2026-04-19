@@ -137,14 +137,6 @@ JSONSerializableDTO: TypeAlias = Annotated[
 ]
 
 
-LastModifiedField: TypeAlias = Annotated[
-    datetime,
-    Field(
-        description="Timestamp of the last modification",
-    ),
-]
-
-
 class EvaluationStatusDTO(Enum):
     """
     Current state of an evaluation task
@@ -300,6 +292,13 @@ def example_json_content(json_example: ExampleJson) -> ExtraSchema:
     return {"application/json": {"example": json_example}}
 
 
+GuidelineLastModifiedField: TypeAlias = Annotated[
+    datetime,
+    Field(
+        description="UTC timestamp of the last modification to the guideline",
+    ),
+]
+
 GuidelineMetadataField: TypeAlias = Annotated[
     Mapping[str, JSONSerializableDTO],
     Field(description="Metadata for the guideline"),
@@ -358,7 +357,7 @@ class GuidelineDTO(
     enabled: GuidelineEnabledField = True
     tags: GuidelineTagsField
     metadata: GuidelineMetadataField
-    last_modified: LastModifiedField
+    last_modified: GuidelineLastModifiedField
     composition_mode: CompositionModeDTO | None = None
     track: bool = True
     labels: GuidelineLabelsField = set()

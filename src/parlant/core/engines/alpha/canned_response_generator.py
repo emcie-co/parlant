@@ -1072,6 +1072,32 @@ You will now be given the current state of the interaction to which you must gen
                 policy = self._perceived_performance_policy_provider.get_policy(context.agent.id)
                 event_metadata = get_canrep_metadata(generation_result)
 
+                if generation_result.chosen_canned_responses:
+                    canrep_id, rendered = generation_result.chosen_canned_responses[0]
+                    chosen = next(
+                        (
+                            canrep
+                            for canrep, _ in generation_result.rendered_canned_responses
+                            if canrep.id == canrep_id
+                        ),
+                        None,
+                    )
+
+                    self._tracer.add_event(
+                        "canrep.selected",
+                        attributes={
+                            "canned_response_id": canrep_id,
+                            **(
+                                {
+                                    "last_modified": chosen.last_modified.isoformat(),
+                                }
+                                if chosen
+                                else {}
+                            ),
+                            "rendered": rendered,
+                        },
+                    )
+
                 if await policy.is_message_splitting_required(
                     loaded_context, generation_result.message
                 ):

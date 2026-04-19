@@ -484,6 +484,43 @@ class AlphaEngine(Engine):
         context.state.glossary_terms.update(glossary)
         context.state.capabilities = list(capabilities)
 
+        # Emit trace events for loaded context
+        if context.state.context_variables:
+            self._tracer.add_event(
+                "ctx.variables_loaded",
+                attributes={
+                    "variables": json.dumps(
+                        [
+                            {
+                                "id": cv.id,
+                                "last_modified": cv.last_modified.isoformat(),
+                                "key": value.id,
+                                "value": value.data
+                                if isinstance(value.data, (str, int, float, bool))
+                                else json.dumps(value.data),
+                            }
+                            for cv, value in context.state.context_variables
+                        ]
+                    ),
+                },
+            )
+
+        if context.state.glossary_terms:
+            self._tracer.add_event(
+                "glossary.terms_loaded",
+                attributes={
+                    "terms": json.dumps(
+                        [
+                            {
+                                "id": t.id,
+                                "last_modified": t.last_modified.isoformat(),
+                            }
+                            for t in context.state.glossary_terms
+                        ]
+                    ),
+                },
+            )
+
     async def _run_preparation_iteration(
         self,
         context: EngineContext,

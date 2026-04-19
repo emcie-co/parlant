@@ -4001,7 +4001,7 @@ class Server:
         customer_store: Literal["transient", "local"] | str | CustomerStore = "transient",
         variable_store: Literal["transient", "local"] | str | ContextVariableStore = "transient",
         log_level: LogLevel = LogLevel.INFO,
-        modules: list[str] = ["parlant.adapters.modules.emcie"],
+        modules: list[str] = [],
         migrate: bool = False,
         configure_hooks: Callable[[EngineHooks], Awaitable[EngineHooks]] | None = None,
         configure_container: Callable[[Container], Awaitable[Container]] | None = None,

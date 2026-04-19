@@ -4722,10 +4722,9 @@ class Server:
         result: _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation,
     ) -> None:
         if entity_type == "guideline":
-            if entity_type == "guideline":
-                guideline = await self._store_provider.get_store(
-                    GuidelineStore, StoreProviderHints(call_site="sdk")
-                ).read_guideline(guideline_id=cast(GuidelineId, entity_id))
+            guideline = await self._store_provider.get_store(
+                GuidelineStore, StoreProviderHints(call_site="sdk")
+            ).read_guideline(guideline_id=cast(GuidelineId, entity_id))
 
             properties = cast(_CachedEvaluator.GuidelineEvaluation, result).properties
 
@@ -4740,22 +4739,20 @@ class Server:
                     value=value,
                 )
 
-            elif entity_type == "journey":
-                # Store evaluation results on Journey.node_properties (not
-                # individual nodes) to avoid cross-journey interference when
-                # the same node is referenced by multiple journeys. The
-                # projection injects this data into guidelines at read time.
-                journey_id = cast(JourneyId, entity_id)
-                eval_node_properties = cast(
-                    _CachedEvaluator.JourneyEvaluation, result
-                ).node_properties
+        elif entity_type == "journey":
+            # Store evaluation results on Journey.node_properties (not
+            # individual nodes) to avoid cross-journey interference when
+            # the same node is referenced by multiple journeys. The
+            # projection injects this data into guidelines at read time.
+            journey_id = cast(JourneyId, entity_id)
+            eval_node_properties = cast(_CachedEvaluator.JourneyEvaluation, result).node_properties
 
-                await self._store_provider.get_store(
-                    JourneyStore, StoreProviderHints(call_site="sdk")
-                ).set_node_properties(
-                    journey_id=journey_id,
-                    node_properties=cast(Mapping[str, JSONSerializable], eval_node_properties),
-                )
+            await self._store_provider.get_store(
+                JourneyStore, StoreProviderHints(call_site="sdk")
+            ).set_node_properties(
+                journey_id=journey_id,
+                node_properties=cast(Mapping[str, JSONSerializable], eval_node_properties),
+            )
 
     async def _setup_retrievers(self) -> None:
         async def setup_retriever(

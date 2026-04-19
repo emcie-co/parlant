@@ -18,7 +18,8 @@ from pydantic import Field
 
 from parlant.api import common
 from parlant.api.authorization import Operation, AuthorizationPolicy
-from parlant.api.common import LastModifiedField, apigen_config, ExampleJson
+from datetime import datetime
+from parlant.api.common import apigen_config, ExampleJson
 from parlant.core.app_modules.glossary import TermTagsUpdateParamsModel
 from parlant.core.agents import AgentId
 from parlant.core.application import Application
@@ -88,6 +89,13 @@ TermTagsField: TypeAlias = Annotated[
     ),
 ]
 
+TermLastModifiedField: TypeAlias = Annotated[
+    datetime,
+    Field(
+        description="UTC timestamp of the last modification to the term",
+    ),
+]
+
 
 class TermCreationParamsDTO(
     DefaultBaseModel,
@@ -151,7 +159,7 @@ class TermDTO(
     description: TermDescriptionField
     synonyms: TermSynonymsField = []
     tags: TermTagsField
-    last_modified: LastModifiedField
+    last_modified: TermLastModifiedField
 
 
 TermTagsUpdateAddField: TypeAlias = Annotated[

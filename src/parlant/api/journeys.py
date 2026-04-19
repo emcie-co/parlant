@@ -23,7 +23,6 @@ from parlant.api.authorization import Operation, AuthorizationPolicy
 from parlant.api.common import (
     CompositionModeDTO,
     ExampleJson,
-    LastModifiedField,
     apigen_config,
     composition_mode_dto_to_composition_mode,
     composition_mode_to_composition_mode_dto,
@@ -108,6 +107,13 @@ JourneyLabelsField: TypeAlias = Annotated[
     ),
 ]
 
+JourneyLastModifiedField: TypeAlias = Annotated[
+    datetime,
+    Field(
+        description="UTC timestamp of the last modification to the journey",
+    ),
+]
+
 journey_example: ExampleJson = {
     "id": "IUCGT-lvpS",
     "title": "Customer Onboarding",
@@ -177,7 +183,7 @@ class JourneyDTO(
     composition_mode: CompositionModeDTO | None = None
     labels: JourneyLabelsField = set()
     priority: int = 0
-    last_modified: LastModifiedField
+    last_modified: JourneyLastModifiedField
 
 
 class JourneyGraphDTO(JourneyDTO):

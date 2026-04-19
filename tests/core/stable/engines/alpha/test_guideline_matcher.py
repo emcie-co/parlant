@@ -511,6 +511,7 @@ def create_term(
     return Term(
         id=TermId("-"),
         creation_utc=datetime.now(timezone.utc),
+        last_modified=datetime.now(timezone.utc),
         name=name,
         description=description,
         synonyms=synonyms,

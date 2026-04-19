@@ -57,6 +57,7 @@ TermId = NewType("TermId", str)
 class Term:
     id: TermId
     creation_utc: datetime
+    last_modified: datetime
     name: str
     description: str
     synonyms: list[str]
@@ -151,12 +152,24 @@ class TermDocument_v0_1_0(TypedDict, total=False):
     synonyms: Optional[str]
 
 
+class _TermDocument_v0_2_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    content: str
+    checksum: Required[str]
+    creation_utc: str
+    name: str
+    description: str
+    synonyms: Optional[str]
+
+
 class _TermDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     content: str
     checksum: Required[str]
     creation_utc: str
+    last_modified: str
     name: str
     description: str
     synonyms: Optional[str]
@@ -171,7 +184,7 @@ class TermTagAssociationDocument(TypedDict, total=False):
 
 
 class GlossaryVectorStore(GlossaryStore):
-    VERSION = Version.from_string("0.2.0")
+    VERSION = Version.from_string("0.3.0")
 
     def __init__(
         self,
@@ -206,10 +219,25 @@ class GlossaryVectorStore(GlossaryStore):
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
 
+        async def v0_2_0_to_v0_3_0(document: VectorBaseDocument) -> Optional[VectorBaseDocument]:
+            d = cast(_TermDocument_v0_2_0, document)
+            return _TermDocument(
+                id=d["id"],
+                version=Version.String("0.3.0"),
+                content=d["content"],
+                checksum=d["checksum"],
+                creation_utc=d["creation_utc"],
+                last_modified=d["creation_utc"],
+                name=d["name"],
+                description=d["description"],
+                synonyms=d.get("synonyms"),
+            )
+
         return await VectorDocumentMigrationHelper[_TermDocument](
             self,
             {
                 "0.1.0": v0_1_0_to_v0_2_0,
+                "0.2.0": v0_2_0_to_v0_3_0,
             },
         ).migrate(document)
 
@@ -273,6 +301,7 @@ class GlossaryVectorStore(GlossaryStore):
             content=content,
             checksum=checksum,
             creation_utc=term.creation_utc.isoformat(),
+            last_modified=term.last_modified.isoformat(),
             name=term.name,
             description=term.description,
             synonyms=(", ").join(term.synonyms) if term.synonyms is not None else "",
@@ -286,6 +315,7 @@ class GlossaryVectorStore(GlossaryStore):
         return Term(
             id=TermId(term_document["id"]),
             creation_utc=datetime.fromisoformat(term_document["creation_utc"]),
+            last_modified=datetime.fromisoformat(term_document["last_modified"]),
             name=term_document["name"],
             description=term_document["description"],
             synonyms=term_document["synonyms"].split(", ") if term_document["synonyms"] else [],
@@ -324,6 +354,7 @@ class GlossaryVectorStore(GlossaryStore):
             term = Term(
                 id=term_id,
                 creation_utc=creation_utc,
+                last_modified=creation_utc,
                 name=name,
                 description=description,
                 synonyms=list(synonyms) if synonyms else [],
@@ -399,6 +430,7 @@ class GlossaryVectorStore(GlossaryStore):
                     "description": description,
                     "synonyms": ", ".join(synonyms) if synonyms else "",
                     "checksum": xxh3_checksum(content),
+                    "last_modified": datetime.now(timezone.utc).isoformat(),
                 },
             )
 

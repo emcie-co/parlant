@@ -13,7 +13,6 @@
 # limitations under the License.
 
 from collections import defaultdict
-from datetime import datetime
 
 from fastapi import APIRouter, Path, Query, Request, status
 from fastapi.responses import PlainTextResponse
@@ -25,6 +24,7 @@ from parlant.api.authorization import Operation, AuthorizationPolicy
 from parlant.api.common import (
     CompositionModeDTO,
     ExampleJson,
+    LastModifiedField,
     apigen_config,
     composition_mode_dto_to_composition_mode,
     composition_mode_to_composition_mode_dto,
@@ -178,7 +178,7 @@ class JourneyDTO(
     composition_mode: CompositionModeDTO | None = None
     labels: JourneyLabelsField = set()
     priority: int = 0
-    last_modified: datetime
+    last_modified: LastModifiedField
 
 
 class JourneyGraphDTO(JourneyDTO):

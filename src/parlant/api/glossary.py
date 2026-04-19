@@ -12,15 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from datetime import datetime
-
 from fastapi import APIRouter, HTTPException, Path, Query, Request, status
 from typing import Annotated, Sequence, TypeAlias
 from pydantic import Field
 
 from parlant.api import common
 from parlant.api.authorization import Operation, AuthorizationPolicy
-from parlant.api.common import apigen_config, ExampleJson
+from parlant.api.common import LastModifiedField, apigen_config, ExampleJson
 from parlant.core.app_modules.glossary import TermTagsUpdateParamsModel
 from parlant.core.agents import AgentId
 from parlant.core.application import Application
@@ -153,7 +151,7 @@ class TermDTO(
     description: TermDescriptionField
     synonyms: TermSynonymsField = []
     tags: TermTagsField
-    last_modified: datetime
+    last_modified: LastModifiedField
 
 
 TermTagsUpdateAddField: TypeAlias = Annotated[

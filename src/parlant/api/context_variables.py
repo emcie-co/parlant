@@ -13,7 +13,6 @@
 # limitations under the License.
 
 from pydantic import Field, field_validator
-from datetime import datetime
 from croniter import croniter
 from fastapi import HTTPException, Path, Query, Request, status
 from typing import Annotated, Sequence, TypeAlias, cast
@@ -22,6 +21,7 @@ from fastapi import APIRouter
 from parlant.api import common
 from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import (
+    LastModifiedField,
     ToolIdDTO,
     JSONSerializableDTO,
     apigen_config,
@@ -95,14 +95,6 @@ ValueIdField: TypeAlias = Annotated[
         examples=["val_789abc"],
     ),
 ]
-
-LastModifiedField: TypeAlias = Annotated[
-    datetime,
-    Field(
-        description="Timestamp of the last modification",
-    ),
-]
-
 
 DataField: TypeAlias = Annotated[
     JSONSerializableDTO,
@@ -225,7 +217,7 @@ class ContextVariableDTO(
     tool_id: ToolIdDTO | None = None
     freshness_rules: FreshnessRulesField | None = None
     tags: ContextVariableTagsField | None = None
-    last_modified: datetime
+    last_modified: LastModifiedField
 
 
 context_variable_tags_update_params_example: ExampleJson = {

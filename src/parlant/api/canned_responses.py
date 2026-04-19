@@ -30,7 +30,13 @@ from parlant.core.canned_responses import (
     CannedResponseField,
 )
 from parlant.core.tags import TagId
-from parlant.api.common import ExampleJson, JSONSerializableDTO, apigen_config, example_json_content
+from parlant.api.common import (
+    ExampleJson,
+    JSONSerializableDTO,
+    LastModifiedField,
+    apigen_config,
+    example_json_content,
+)
 
 
 API_GROUP = "canned_responses"
@@ -184,7 +190,7 @@ class CannedResponseDTO(
 ):
     id: CannedResponseIdField
     creation_utc: CannedResponseCreationUTCField
-    last_modified: datetime
+    last_modified: LastModifiedField
     value: CannedResponseValueField
     fields: CannedResponseFieldSequenceField
     tags: TagIdSequenceField

@@ -284,6 +284,13 @@ def example_json_content(json_example: ExampleJson) -> ExtraSchema:
     return {"application/json": {"example": json_example}}
 
 
+LastModifiedField: TypeAlias = Annotated[
+    datetime,
+    Field(
+        description="Timestamp of the last modification",
+    ),
+]
+
 GuidelineMetadataField: TypeAlias = Annotated[
     Mapping[str, JSONSerializableDTO],
     Field(description="Metadata for the guideline"),
@@ -345,7 +352,7 @@ class GuidelineDTO(
     track: bool = True
     labels: GuidelineLabelsField = set()
     priority: int = 0
-    last_modified: datetime
+    last_modified: LastModifiedField
 
 
 EnumValueTypeDTO: TypeAlias = str | int

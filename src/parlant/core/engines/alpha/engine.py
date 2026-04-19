@@ -1190,8 +1190,6 @@ class AlphaEngine(Engine):
                         "journey_path": json.dumps(
                             match.metadata.get("journey_path_guideline_ids", [])
                         ),
-                        "condition": match.guideline.content.condition,
-                        "action": match.guideline.content.action or "",
                         "rationale": match.rationale,
                         "journey_id": journey_id,
                         **(
@@ -1225,8 +1223,6 @@ class AlphaEngine(Engine):
                     attributes={
                         "guideline_id": match.guideline.id,
                         "last_modified": match.guideline.last_modified.isoformat(),
-                        "condition": match.guideline.content.condition,
-                        "action": match.guideline.content.action or "",
                         "rationale": match.rationale,
                     },
                 )
@@ -1242,8 +1238,6 @@ class AlphaEngine(Engine):
                         "node_id": extract_node_id_from_journey_node_guideline_id(
                             skip.guideline.id
                         ),
-                        "condition": skip.guideline.content.condition,
-                        "action": skip.guideline.content.action or "",
                         "rationale": skip.rationale,
                         "journey_path": json.dumps(
                             skip.guideline.metadata.get("journey_path_guideline_ids", [])
@@ -1274,8 +1268,6 @@ class AlphaEngine(Engine):
                     "gm.skipped",
                     attributes={
                         "guideline_id": skip.guideline.id,
-                        "condition": skip.guideline.content.condition,
-                        "action": skip.guideline.content.action or "",
                         "rationale": skip.rationale,
                     },
                 )

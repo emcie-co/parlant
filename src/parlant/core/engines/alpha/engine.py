@@ -1201,10 +1201,17 @@ class AlphaEngine(Engine):
         self,
         matched_guidelines: Sequence[GuidelineMatch],
         skipped_guidelines: Sequence[GuidelineMatch],
+        journeys: Optional[Mapping[JourneyId, Journey]] = None,
     ) -> None:
         for match in matched_guidelines:
             if match.guideline.metadata.get("journey_node"):
                 edge_id = extract_edge_id_from_journey_node_guideline_id(match.guideline.id)
+                journey_id = cast(str, match.metadata.get("step_selection_journey_id"))
+                journey_last_modified = ""
+                if journeys and journey_id:
+                    j = journeys.get(JourneyId(journey_id))
+                    if j:
+                        journey_last_modified = j.last_modified.isoformat()
 
                 self._tracer.add_event(
                     "journey.state.activate",
@@ -1219,7 +1226,12 @@ class AlphaEngine(Engine):
                         "condition": match.guideline.content.condition,
                         "action": match.guideline.content.action or "",
                         "rationale": match.rationale,
-                        "journey_id": cast(str, match.metadata.get("step_selection_journey_id")),
+                        "journey_id": journey_id,
+                        **(
+                            {"last_modified": journey_last_modified}
+                            if journey_last_modified
+                            else {}
+                        ),
                         **(
                             {
                                 "sub_journey_id": cast(
@@ -1413,6 +1425,7 @@ class AlphaEngine(Engine):
                     ).difference(resolver_result.matches)
                 )
             ),
+            journeys={j.id: j for j in activated_journeys},
         )
 
         return _GuidelineAndJourneyMatchingResult(
@@ -1525,6 +1538,7 @@ class AlphaEngine(Engine):
                     ).difference(resolver_result.matches)
                 )
             ),
+            journeys={j.id: j for j in all_activated_journeys},
         )
 
         return _GuidelineAndJourneyMatchingResult(

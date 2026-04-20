@@ -51,6 +51,7 @@ class TrackingPlan(Plan):
         self._inner = inner
         self._inject_synthetic_missing_data = inject_synthetic_missing_data
         self.record = LifecycleRecord()
+        self.reevaluate_all_tool_guidelines = inner.reevaluate_all_tool_guidelines
 
     @property
     def reasoning(self) -> str:
@@ -199,7 +200,7 @@ class Test_that_tool_orchestration_planner_defers_tool_with_missing_dependency(S
             )
         )
         self.find_address_called = False
-        self.ship_order_called = False
+        self.ship_order_call_count = 0
         self.ship_order_address: str | None = None
 
         self.agent = await server.create_agent(
@@ -215,7 +216,7 @@ class Test_that_tool_orchestration_planner_defers_tool_with_missing_dependency(S
 
         @p.tool
         async def ship_order(context: ToolContext, customer_address: str) -> ToolResult:
-            self.ship_order_called = True
+            self.ship_order_call_count += 1
             self.ship_order_address = customer_address
             return ToolResult(data={"status": "shipped", "address": customer_address})
 
@@ -250,12 +251,63 @@ class Test_that_tool_orchestration_planner_defers_tool_with_missing_dependency(S
             f"Expected find_address on first iteration, got {first_iteration_calls[0].tool_id}"
         )
 
-        assert self.ship_order_called, (
-            "Expected ship_order to be called in a later iteration after find_address"
+        assert self.ship_order_call_count == 1, (
+            f"Expected ship_order to be called exactly once after find_address, "
+            f"got {self.ship_order_call_count}"
         )
         assert self.ship_order_address == "123 Main St", (
             f"Expected ship_order to be called with '123 Main St' (the address "
             f"returned by find_address), got {self.ship_order_address!r}"
+        )
+
+
+class Test_that_tool_orchestration_planner_reports_missing_argument_when_address_cannot_be_resolved(
+    SDKTest,
+):
+    async def setup(self, server: p.Server) -> None:
+        self.tracking_planner = TrackingPlanner(
+            p.ToolOrchestrationPlanner(
+                logger=server.container[p.Logger],
+                tracer=server.container[p.Tracer],
+                nlp_service=server.container[p.NLPService],
+            )
+        )
+        self.ship_order_called = False
+
+        self.agent = await server.create_agent(
+            name="Shipping Agent",
+            description="Agent that helps customers ship orders",
+            planner=self.tracking_planner,
+        )
+
+        @p.tool
+        async def ship_order(context: ToolContext, customer_address: str) -> ToolResult:
+            self.ship_order_called = True
+            return ToolResult(data={"status": "shipped", "address": customer_address})
+
+        await self.agent.attach_tool(
+            tool=ship_order,
+            condition="the user wants to ship their order",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="Please ship my order. My customer number is 12345.",
+            recipient=self.agent,
+        )
+
+        assert not self.ship_order_called, (
+            "Expected ship_order not to be called when customer_address cannot be resolved"
+        )
+
+        plan = self.tracking_planner.record.plans[0]
+        all_missing_params = [
+            d.parameter
+            for insights in plan.record.tool_insights_after_on_tools_called
+            for d in insights.missing_data
+        ]
+        assert any("address" in param for param in all_missing_params), (
+            f"Expected a missing_data entry for customer_address, got {all_missing_params}"
         )
 
 
@@ -411,3 +463,215 @@ class Test_that_tool_orchestration_plan_preserves_tool_insights_when_not_deferri
                 f"Expected synthetic missing_data to be preserved on iteration {i}, "
                 f"got {insights.missing_data}"
             )
+
+
+class Test_that_tool_orchestration_planner_reevaluates_guideline_condition_based_on_prior_tool_result(
+    SDKTest
+):
+    async def setup(self, server: p.Server) -> None:
+        self.tracking_planner = TrackingPlanner(
+            p.ToolOrchestrationPlanner(
+                logger=server.container[p.Logger],
+                tracer=server.container[p.Tracer],
+                nlp_service=server.container[p.NLPService],
+            )
+        )
+        self.get_subscription_status_called = False
+        self.activate_enterprise_features_called = False
+
+        self.agent = await server.create_agent(
+            name="Enterprise Agent",
+            description="Agent that helps customers activate enterprise features",
+            planner=self.tracking_planner,
+        )
+
+        @p.tool
+        async def get_subscription_status(context: ToolContext, user_id: str) -> ToolResult:
+            self.get_subscription_status_called = True
+            return ToolResult(data={"user_id": user_id, "plan": "enterprise"})
+
+        @p.tool
+        async def activate_enterprise_features(context: ToolContext, user_id: str) -> ToolResult:
+            self.activate_enterprise_features_called = True
+            return ToolResult(data={"user_id": user_id, "status": "activated"})
+
+        await self.agent.attach_tool(
+            tool=get_subscription_status,
+            condition="you need to determine the user's subscription plan",
+        )
+
+        await self.agent.attach_tool(
+            tool=activate_enterprise_features,
+            condition="the user's subscription plan has been confirmed as enterprise",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="Please activate enterprise features. My user ID is USR001.",
+            recipient=self.agent,
+        )
+
+        assert self.get_subscription_status_called, "Expected get_subscription_status to be called"
+        assert self.activate_enterprise_features_called, (
+            "Expected activate_enterprise_features to be called after subscription "
+            "status was confirmed as enterprise in a prior iteration"
+        )
+
+
+class Test_that_tool_orchestration_planner_defers_tool_whose_description_requires_prior_tool(
+    SDKTest,
+):
+    async def setup(self, server: p.Server) -> None:
+        self.tracking_planner = TrackingPlanner(
+            p.ToolOrchestrationPlanner(
+                logger=server.container[p.Logger],
+                tracer=server.container[p.Tracer],
+                nlp_service=server.container[p.NLPService],
+            )
+        )
+        self.diagnose_system_called = False
+        self.file_incident_report_called = False
+        self.file_incident_report_diagnosis: str | None = None
+
+        self.agent = await server.create_agent(
+            name="IT Support Agent",
+            description="Agent that handles system diagnostics and incident reporting",
+            planner=self.tracking_planner,
+        )
+
+        @p.tool
+        async def diagnose_system(context: ToolContext, component: str) -> ToolResult:
+            """Diagnoses a system component and returns a summary of detected issues. Always run this before filing an incident report."""
+            self.diagnose_system_called = True
+            return ToolResult(
+                data={"component": component, "issues": ["high CPU usage", "memory leak"]}
+            )
+
+        @p.tool
+        async def file_incident_report(
+            context: ToolContext, component: str, diagnosis: str
+        ) -> ToolResult:
+            """Files an incident report for a system component. Must only be called after diagnose_system has been run for the same component; use the issues summary from diagnose_system as the diagnosis argument."""
+            self.file_incident_report_called = True
+            self.file_incident_report_diagnosis = diagnosis
+            return ToolResult(data={"ticket_id": "INC-001", "status": "filed"})
+
+        await self.agent.attach_tool(
+            tool=diagnose_system,
+            condition="a system component needs to be diagnosed",
+        )
+
+        await self.agent.attach_tool(
+            tool=file_incident_report,
+            condition="the user wants to file an incident report",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="The payment system is having issues. Please file an incident report.",
+            recipient=self.agent,
+        )
+
+        assert self.diagnose_system_called, "Expected diagnose_system to be called"
+        assert self.file_incident_report_called, "Expected file_incident_report to be called"
+
+        plan = self.tracking_planner.record.plans[0]
+        first_iteration_calls = plan.record.inferred_tool_calls[0]
+        assert len(first_iteration_calls) == 1, (
+            f"Expected planner to defer file_incident_report on first iteration per its description, "
+            f"but {len(first_iteration_calls)} tool calls were passed through"
+        )
+        assert "diagnose_system" in str(first_iteration_calls[0].tool_id), (
+            f"Expected diagnose_system on first iteration, got {first_iteration_calls[0].tool_id}"
+        )
+
+        assert self.file_incident_report_diagnosis is not None and (
+            "cpu" in self.file_incident_report_diagnosis.lower()
+            or "memory" in self.file_incident_report_diagnosis.lower()
+            or "usage" in self.file_incident_report_diagnosis.lower()
+        ), (
+            f"Expected file_incident_report to be called with diagnosis from diagnose_system, "
+            f"got {self.file_incident_report_diagnosis!r}"
+        )
+
+
+class Test_that_tool_orchestration_planner_prefers_account_number_from_tool_over_customer_provided(
+    SDKTest,
+):
+    async def setup(self, server: p.Server) -> None:
+        self.tracking_planner = TrackingPlanner(
+            p.ToolOrchestrationPlanner(
+                logger=server.container[p.Logger],
+                tracer=server.container[p.Tracer],
+                nlp_service=server.container[p.NLPService],
+            )
+        )
+        self.find_account_number_called = False
+        self.charge_order_called = False
+        self.charge_order_account_number: str | None = None
+
+        self.agent = await server.create_agent(
+            name="Billing Agent",
+            description="Agent that handles billing and order charges",
+            planner=self.tracking_planner,
+        )
+
+        self.customer = await server.create_customer("John Doe")
+
+        self.email_var = await self.agent.create_variable(
+            name="email",
+            description="The customer's email address",
+        )
+        await self.email_var.set_value_for_customer(self.customer, "ddd@gmail.com")
+
+        @p.tool
+        async def find_account_number_from_email(context: ToolContext, email: str) -> ToolResult:
+            """Looks up the account number associated with a customer's email address."""
+            self.find_account_number_called = True
+            return ToolResult(data={"account_number": "654321"})
+
+        @p.tool
+        async def charge_order(
+            context: ToolContext, account_number: str, order_id: str
+        ) -> ToolResult:
+            """Charges an order to the specified account. When account_number can be obtained from find_account_number_from_email, always prefer that value over any account number provided by the customer. If find_account_number_from_email has not yet been called but an email is available in context, defer this call until after find_account_number_from_email completes."""
+            self.charge_order_called = True
+            self.charge_order_account_number = account_number
+            return ToolResult(data={"order_id": order_id, "account_number": account_number})
+
+        await self.agent.attach_tool(
+            tool=find_account_number_from_email,
+            condition="the customer's email address is available in context",
+        )
+
+        await self.agent.attach_tool(
+            tool=charge_order,
+            condition="the user wants to charge an order",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="Please charge order ORD-999. My account number is 123456.",
+            recipient=self.agent,
+            sender=self.customer,
+        )
+
+        assert self.find_account_number_called, (
+            "Expected find_account_number_from_email to be called"
+        )
+        assert self.charge_order_called, "Expected charge_order to be called"
+        assert self.charge_order_account_number == "654321", (
+            f"Expected charge_order to use account number 654321 from find_account_number_from_email, "
+            f"got {self.charge_order_account_number!r}"
+        )
+
+        plan = self.tracking_planner.record.plans[0]
+        first_iteration_calls = plan.record.inferred_tool_calls[0]
+        assert len(first_iteration_calls) == 1, (
+            f"Expected planner to defer charge_order on first iteration, "
+            f"but {len(first_iteration_calls)} tool calls were passed through"
+        )
+        assert "find_account_number_from_email" in str(first_iteration_calls[0].tool_id), (
+            f"Expected find_account_number_from_email on first iteration, "
+            f"got {first_iteration_calls[0].tool_id}"
+        )

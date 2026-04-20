@@ -120,6 +120,7 @@ class ToolCallInferenceResult:
     batch_generations: Sequence[GenerationInfo]
     batches: Sequence[Sequence[ToolCall]]
     insights: ToolInsights
+    tool_descriptions: dict[ToolId, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -247,6 +248,7 @@ class ToolCaller:
                 missing_data=aggregated_missing_data,
                 invalid_data=aggregated_invalid_data,
             ),
+            tool_descriptions={tool_id: tool.description for tool_id, tool in tools},
         )
 
     @staticmethod

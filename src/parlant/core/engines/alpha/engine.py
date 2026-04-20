@@ -1367,12 +1367,28 @@ class AlphaEngine(Engine):
             )
         )
 
+        # When the active plan opts in, re-evaluate all tool-enabled guidelines on every additional
+        # iteration — not just those with explicit REEVALUATION relationships — so that a prior tool
+        # result can cause a previously-unmatched condition to apply. Non-tool guidelines are still
+        # only re-evaluated when an explicit REEVALUATION relationship exists (existing behaviour).
+        if plan.reevaluate_all_tool_guidelines:
+            tool_associations = await self._entity_queries.find_guideline_tool_associations()
+            tool_enabled_guideline_ids = {a.guideline_id for a in tool_associations}
+            tool_enabled_guidelines = [
+                g for gid, g in all_stored_guidelines.items() if gid in tool_enabled_guideline_ids
+            ]
+            guidelines_for_matching: Sequence[Guideline] = list(
+                {g.id: g for g in chain(tool_enabled_guidelines, guidelines_to_reevaluate)}.values()
+            )
+        else:
+            guidelines_for_matching = guidelines_to_reevaluate
+
         # Step 4: Reevaluate those guidelines using the latest context.
         with self._tracer.span(_GUIDELINE_MATCHER_SPAN_NAME, attributes={"phase": "reevaluation"}):
             matching_result = await self._guideline_matcher.match_guidelines(
                 context=context,
                 active_journeys=context.state.journeys,
-                guidelines=guidelines_to_reevaluate,
+                guidelines=guidelines_for_matching,
             )
 
         self._add_match_events_to_tracer(matching_result.matches)
@@ -1391,7 +1407,7 @@ class AlphaEngine(Engine):
         if second_match_result := await self._match_dependent_guidelines_and_active_journeys(
             context=context,
             all_stored_guidelines=all_stored_guidelines,
-            already_examined_guidelines={g.id for g in guidelines_to_reevaluate},
+            already_examined_guidelines={g.id for g in guidelines_for_matching},
             activated_journeys=activated_journeys,
         ):
             batches = list(chain(matching_result.batches, second_match_result.batches))
@@ -1417,7 +1433,7 @@ class AlphaEngine(Engine):
         matched_guidelines = list(
             await self._build_matched_guidelines(
                 context=context,
-                evaluated_guidelines=guidelines_to_reevaluate,
+                evaluated_guidelines=guidelines_for_matching,
                 current_matched=set(matching_result.matches),
                 active_journeys=all_activated_journeys,
             )

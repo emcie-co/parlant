@@ -22,6 +22,7 @@ from parlant.core.common import DefaultBaseModel
 from parlant.core.engines.alpha.engine_context import EngineContext
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.tools import ToolId
 from parlant.core.engines.alpha.tool_calling.tool_caller import (
     ToolCall,
     ToolCallInferenceResult,
@@ -40,6 +41,9 @@ class Plan(ABC):
     def __init__(self) -> None:
         self.needs_additional_iteration: bool = False
         self.thoughts: list[str] = []
+        # When True, the engine re-evaluates all tool-enabled guideline conditions on every
+        # additional iteration, rather than only those with explicit REEVALUATION relationships.
+        self.reevaluate_all_tool_guidelines: bool = False
 
     @property
     @abstractmethod
@@ -219,6 +223,7 @@ class ToolOrchestrationPlan(BasicPlan):
     ) -> None:
         super().__init__(logger, tracer)
         self._schematic_generator = schematic_generator
+        self.reevaluate_all_tool_guidelines = True
 
     @property
     def reasoning(self) -> str:
@@ -248,7 +253,7 @@ class ToolOrchestrationPlan(BasicPlan):
 
         call_index = {str(i): call for i, call in enumerate(all_calls, start=1)}
 
-        prompt = self._build_prompt(context, call_index)
+        prompt = self._build_prompt(context, call_index, inference_result.tool_descriptions)
 
         result = await self._schematic_generator.generate(prompt)
 
@@ -291,13 +296,16 @@ class ToolOrchestrationPlan(BasicPlan):
         self,
         context: EngineContext,
         call_index: dict[str, ToolCall],
+        tool_descriptions: dict[ToolId, str],
     ) -> PromptBuilder:
         builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
 
-        tool_calls_text = "\n".join(
-            f"{cid}) tool: {call.tool_id}, arguments: {json.dumps(dict(call.arguments))}"
-            for cid, call in call_index.items()
-        )
+        def _format_call(cid: str, call: ToolCall) -> str:
+            desc = tool_descriptions.get(call.tool_id)
+            description_part = f", description: {desc}" if desc else ""
+            return f"{cid}) tool: {call.tool_id}{description_part}, arguments: {json.dumps(dict(call.arguments))}"
+
+        tool_calls_text = "\n".join(_format_call(cid, call) for cid, call in call_index.items())
 
         result_structure = json.dumps(
             {

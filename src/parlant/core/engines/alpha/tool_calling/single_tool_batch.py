@@ -1147,11 +1147,28 @@ Optional parameters: {optional_params}
             builder.add_section(
                 name=_SECTION_NAMES["staged-tool-calls"] + _NON_CONSEQUENTIAL_SUFFIX,
                 template="""
-**ALREADY STAGED CALLS:**
+STAGED TOOL CALLS
+-----------------
+The following is a list of tool calls staged after the interaction's latest state. Use this information to avoid redundant calls and to guide your response.
+
+Reminder: If a tool is already staged with the exact same arguments, set "same_call_is_already_staged" to true.
+You may still choose to re-run the tool call, but only if there is a specific reason for it to be executed multiple times.
+
+The staged tool calls are:
 {staged_calls}
-Do not call the tool again with the same arguments.
+###
 """,
                 props={"staged_calls": staged_calls},
+            )
+        else:
+            builder.add_section(
+                name=_SECTION_NAMES["empty-staged-tool-calls"] + _NON_CONSEQUENTIAL_SUFFIX,
+                template="""
+STAGED TOOL CALLS
+-----------------
+There are no staged tool calls at this time.
+""",
+                props={},
             )
 
         arg_formats = []

@@ -3,7 +3,10 @@
 All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
-TBD
+
+### Removed
+
+- Remove redundant `glm_service.py` NLP adapter and `NLPServices.glm()` factory method — the GLM/bigmodel.cn API is already covered by the existing Zhipu adapter (`zhipu_service.py`), which uses the official `zhipuai` SDK and supports GLM-4 model variants. Use `NLPServices.zhipu()` instead.
 
 ## [3.3.1] - 2026-04-14
 

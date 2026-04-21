@@ -46,7 +46,7 @@
     "tailwind-merge": "^2.5.4",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^1.1.2",
-    "vite": "^7.1.12"
+    "vite": "^7.3.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.11.1",
@@ -71,5 +71,13 @@
     "typescript": "^5.5.3",
     "typescript-eslint": "^8.7.0",
     "vitest": "^4.0.6"
+  },
+  "overrides": {
+    "brace-expansion": "^2.0.3",
+    "flatted": "^3.4.2",
+    "immutable": "^5.1.5",
+    "lodash": "^4.18.0",
+    "picomatch": "^4.0.4",
+    "yaml": "^2.8.3"
   }
 }

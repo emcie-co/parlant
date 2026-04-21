@@ -4,6 +4,11 @@ All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
 
+### Security
+
+- Upgrade dependencies to address known CVEs: authlib (>=1.6.11), requests (>=2.33.0), fastmcp (>=3.2.0), litellm (>=1.83.0), pytest (>=9.0.3), pyjwt (>=2.11.1), and constrain transitive deps — aiohttp, cryptography, pillow, pyopenssl, werkzeug, Mako, pyasn1, python-multipart, orjson, Pygments, diskcache
+- Upgrade chat frontend: vite (>=7.3.2) and override transitive deps — picomatch, lodash, flatted, brace-expansion, immutable, yaml
+
 ### Fixed
 
 - Fix WebSocketLogger event loop starvation — when no WebSocket clients are subscribed, the drain loop processed queued messages without yielding, progressively blocking the async event loop and causing increasing latency over time

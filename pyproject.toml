@@ -13,7 +13,7 @@ dependencies = [
     "aiofiles>=24.1.0",
     "aiopenapi3==0.9.0",
     "aiorwlock>=1.5.0",
-    "authlib>1.6.5",
+    "authlib>=1.6.11",
     "boto3>=1.35.70",
     "cachetools>=6.0.0",
     "click>=8.1.7",
@@ -22,7 +22,7 @@ dependencies = [
     "contextvars>=2.4",
     "croniter>=5.0.1",
     "fastapi>=0.120.0",
-    "fastmcp>=2.14.0",
+    "fastmcp>=3.2.0",
     "griffe<2", # Pinned to <2 because fastmcp (at least v3.2.4) is not compatible with griffe 2.0+ due to breaking changes. Can be removed in case of future fastmcp updates.
     "httpx>=0.28.1",
     "jinja2>=3.1.6",
@@ -44,7 +44,7 @@ dependencies = [
     "parlant-client @ git+https://github.com/emcie-co/parlant-client-python.git@v3.2.0",
     "python-dateutil>=2.8.2",
     "python-dotenv>=1.0.1",
-    "requests>=2.32.5",
+    "requests>=2.33.0",
     "rich>=14.0.0",
     "semver>=3.0.2",
     "starlette>=0.49.0", # Specified for fix vulnerability of lower versions. Can be removed in case of future conflicts.
@@ -95,7 +95,7 @@ vertex = [
 
 ollama = ["ollama>=0.5.0"]
 
-litellm = ["litellm>=1.61.16", "torch>=2.8.0", "transformers>=4.53.0"]
+litellm = ["litellm>=1.83.0", "torch>=2.8.0", "transformers>=4.53.0"]
 
 azure = ["azure-identity>=1.20.0"]
 
@@ -112,7 +112,7 @@ dev = [
     "ipython>=8.26.0",
     "mypy>=1.18.1",
     "pep8-naming>=0.13.3",
-    "pytest>=8.0.0",
+    "pytest>=9.0.3",
     "pytest-asyncio>=0.23.5",
     "pytest-bdd>=8.1.0",
     "pytest-cov>=5.0.0",
@@ -127,23 +127,28 @@ dev = [
 
 [tool.uv]
 override-dependencies = [
-    "pyjwt>=2.10.1",  # Override zhipuai's pyjwt<2.9.0 cap to allow mcp>=1.23.0 (CVE-2025-66416)
+    "pyjwt>=2.11.1",  # Override zhipuai's pyjwt<2.9.0 cap to allow mcp>=1.23.0 (CVE-2025-66416, CVE-2026-32597)
     "onnxruntime<1.24; python_full_version < '3.11'",  # 1.24+ dropped Python 3.10 support
 ]
 constraint-dependencies = [
     # Minimum safe versions for transitive dependencies with known CVEs.
     # These constraints only affect resolution — they do not force installation.
-    "aiohttp>=3.13.3",
+    "aiohttp>=3.13.4",
     "azure-core>=1.38.0",
-    "cryptography>=46.0.5",
+    "cryptography>=46.0.7",
+    "diskcache>=5.6.4",
     "filelock>=3.20.3",
     "fonttools>=4.60.2",
-    "orjson>=3.11.5",
-    "pillow>=12.1.1",
+    "Mako>=1.3.11",
+    "orjson>=3.11.6",
+    "pillow>=12.2.0",
     "protobuf>=6.33.5",
-    "pyasn1>=0.6.2",
-    "python-multipart>=0.0.22",
+    "pyasn1>=0.6.3",
+    "Pygments>=2.20.0",
+    "pyopenssl>=26.0.0",
+    "python-multipart>=0.0.26",
     "urllib3>=2.6.3",
+    "werkzeug>=3.1.6",
 ]
 
 [build-system]

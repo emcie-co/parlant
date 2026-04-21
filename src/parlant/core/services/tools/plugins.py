@@ -624,6 +624,10 @@ class PluginServer:
                     detail=f"Tool: '{name}' does not exists",
                 )
 
+            # Restore context vars for same-process hosted mode
+            for var, value in self.context_vars.items():
+                var.set(value)
+
             tool = await _recompute_and_marshal_tool(
                 spec.tool,
                 self.plugin_data,

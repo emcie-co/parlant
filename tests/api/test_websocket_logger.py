@@ -19,7 +19,8 @@ from lagom import Container
 import pytest
 
 from parlant.adapters.loggers.websocket import WebSocketLogger
-from parlant.core.tracer import Tracer
+from parlant.core.loggers import LogLevel
+from parlant.core.tracer import LocalTracer, Tracer
 
 
 @pytest.fixture
@@ -69,3 +70,33 @@ async def test_that_websocket_reconnects_and_receives_messages(
         assert "Second connection test" in data2["message"]
         assert data2["level"] == "INFO"
         assert data2["trace_id"] == tracer.trace_id
+
+
+async def test_that_draining_queued_messages_without_subscribers_does_not_starve_event_loop() -> (
+    None
+):
+    NUM_MESSAGES = 200_000
+    MAX_STALL_SECONDS = 0.05
+
+    tracer = LocalTracer()
+    logger = WebSocketLogger(tracer, LogLevel.INFO)
+
+    for i in range(NUM_MESSAGES):
+        logger.info(f"Message {i}")
+
+    drain_task = asyncio.create_task(logger.start())
+
+    t0 = asyncio.get_event_loop().time()
+    await asyncio.sleep(0)
+    stall = asyncio.get_event_loop().time() - t0
+
+    drain_task.cancel()
+    try:
+        await drain_task
+    except asyncio.CancelledError:
+        pass
+
+    assert stall < MAX_STALL_SECONDS, (
+        f"Event loop was starved for {stall:.3f}s while draining {NUM_MESSAGES} messages "
+        f"(threshold: {MAX_STALL_SECONDS}s)"
+    )

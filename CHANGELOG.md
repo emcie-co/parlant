@@ -4,6 +4,10 @@ All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Fix WebSocketLogger event loop starvation — when no WebSocket clients are subscribed, the drain loop processed queued messages without yielding, progressively blocking the async event loop and causing increasing latency over time
+
 ### Removed
 
 - Remove redundant `glm_service.py` NLP adapter and `NLPServices.glm()` factory method — the GLM/bigmodel.cn API is already covered by the existing Zhipu adapter (`zhipu_service.py`), which uses the official `zhipuai` SDK and supports GLM-4 model variants. Use `NLPServices.zhipu()` instead.

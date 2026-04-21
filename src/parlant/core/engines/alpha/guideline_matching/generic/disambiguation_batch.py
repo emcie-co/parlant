@@ -78,6 +78,7 @@ class _Guideline:
     conditions: list[str]
     action: str | None
     ids: list[GuidelineId]
+    description: Optional[str] = None
 
 
 class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
@@ -138,6 +139,7 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
                 conditions=[internal_representation(g).condition],
                 action=internal_representation(g).action,
                 ids=[g.id],
+                description=internal_representation(g).description,
             )
             i += 1
         return guidelines
@@ -292,7 +294,7 @@ Example {i} - {shot.description}: ###
 
         disambiguation_targets_text = "\n".join(
             f"{id}) Condition: {', '.join(g.conditions) if len(g.conditions) > 1 else g.conditions[0]}. "
-            f"Action: {g.action}"
+            f"Action: {g.action}" + (f" Description: {g.description}" if g.description else "")
             for id, g in disambiguation_targets_guidelines.items()
         )
         builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))

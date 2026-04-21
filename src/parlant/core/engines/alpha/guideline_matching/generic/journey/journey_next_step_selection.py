@@ -57,6 +57,7 @@ class _JourneyNode:
     customer_action_description: Optional[str] = None
     agent_dependent_action: Optional[bool] = None
     agent_action_description: Optional[str] = None
+    description: Optional[str] = None
     guideline: Guideline | None = None
 
 
@@ -181,6 +182,7 @@ class JourneyNextStepSelection:
                     dict[str, str | None],
                     guideline.metadata.get("customer_dependent_action_data", {}),
                 ).get("agent_action", None),
+                description=guideline.content.description,
                 guideline=guideline,
             )
             return node
@@ -410,9 +412,12 @@ When in doubt, prefer to re-verify previous decisions unless it's clear they hav
         elif current_node.kind == JourneyNodeKind.TOOL:
             flags_str += "- TOOL EXECUTION: This step is considered complete as long as the tool has been executed.\n"
 
+        node_description_line = (
+            f"Description: {current_node.description}\n" if current_node.description else ""
+        )
         current_node_description = f"""
 {current_node.action}
-{flags_str}
+{node_description_line}{flags_str}
 """
 
         follow_ups_nodes_description = ""

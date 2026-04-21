@@ -230,6 +230,11 @@ class GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingBatch(
 
         guidelines_text = "\n".join(
             f"{i}) Condition: {guideline_representations[g.id].condition}. Action: {guideline_representations[g.id].action}"
+            + (
+                f" Description: {guideline_representations[g.id].description}"
+                if guideline_representations[g.id].description
+                else ""
+            )
             for i, g in self._guidelines.items()
         )
 

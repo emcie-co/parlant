@@ -15,7 +15,7 @@
 from abc import ABC, abstractmethod
 import json
 from itertools import chain
-from typing import Sequence
+from typing import Optional, Sequence
 
 from parlant.core.agents import AgentId
 from parlant.core.common import DefaultBaseModel
@@ -260,15 +260,22 @@ class ToolOrchestrationPlan(BasicPlan):
         self._logger.trace(f"Completion:\n{result.content.model_dump_json(indent=2)}")
 
         chosen_ids = set(result.content.tool_call_ids)
-        chosen_calls = [call_index[cid] for cid in call_index if cid in chosen_ids]
+        # Accept both numeric call numbers ("1", "2", ...) and full tool IDs ("built-in:X")
+        # as the LLM may return either form.
+        chosen_calls = [
+            call
+            for cid, call in call_index.items()
+            if cid in chosen_ids or str(call.tool_id) in chosen_ids
+        ]
 
         if len(chosen_calls) == len(all_calls):
             self.needs_additional_iteration = False
         else:
             self.needs_additional_iteration = result.content.further_iteration_needed
 
+        chosen_tool_ids = {str(call.tool_id) for call in chosen_calls}
         for cid, call in call_index.items():
-            if cid in chosen_ids:
+            if str(call.tool_id) in chosen_tool_ids:
                 self._logger.debug(f"Running tool call {cid}: {call.tool_id}")
             else:
                 self._logger.debug(f"Deferring tool call {cid}: {call.tool_id}")
@@ -309,7 +316,9 @@ class ToolOrchestrationPlan(BasicPlan):
 
         result_structure = json.dumps(
             {
-                "tool_call_ids": ["<IDs of tool calls to execute now>"],
+                "tool_call_ids": [
+                    "<call numbers to execute now, e.g. '1', '3' — use the numeric labels from the list above>"
+                ],
                 "further_iteration_needed": "<true if remaining tool calls should run in a subsequent iteration, false otherwise>",
             },
             indent=2,
@@ -400,15 +409,17 @@ class ToolOrchestrationPlanner(BasicPlanner):
         logger: Logger,
         tracer: Tracer,
         nlp_service: NLPService,
+        schematic_generator: Optional[SchematicGenerator[ToolInferenceChoiceSchema]] = None,
     ) -> None:
         super().__init__(logger, tracer)
         self._nlp_service = nlp_service
+        self._schematic_generator = schematic_generator
 
     async def do_create_plan(self, context: EngineContext) -> Plan:
-        schematic_generator = await self._nlp_service.get_schematic_generator(
+        generator = self._schematic_generator or await self._nlp_service.get_schematic_generator(
             ToolInferenceChoiceSchema,
         )
-        return ToolOrchestrationPlan(self._logger, self._tracer, schematic_generator)
+        return ToolOrchestrationPlan(self._logger, self._tracer, generator)
 
 
 class PlannerProvider:

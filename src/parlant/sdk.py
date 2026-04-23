@@ -267,6 +267,7 @@ from parlant.core.engines.alpha.planners import (
     Plan,
     Planner,
     PlannerProvider,
+    ToolInferenceChoiceSchema,
     ToolOrchestrationPlan,
     ToolOrchestrationPlanner,
 )
@@ -5186,6 +5187,16 @@ class Server:
             )
 
         if planner is not None:
+            if (
+                isinstance(planner, ToolOrchestrationPlanner)
+                and planner._schematic_generator is None
+            ):
+                try:
+                    planner._schematic_generator = self._container[
+                        SchematicGenerator[ToolInferenceChoiceSchema]
+                    ]
+                except KeyError:
+                    pass
             self._container[PlannerProvider].set_planner(agent.id, planner)
 
         if preamble_config is not None:
@@ -5859,6 +5870,7 @@ __all__ = [
     "NullPerceivedPerformancePolicy",
     "NullPlan",
     "NullPlanner",
+    "ToolInferenceChoiceSchema",
     "ToolOrchestrationPlan",
     "ToolOrchestrationPlanner",
     "Operation",

@@ -630,11 +630,11 @@ class Test_that_tool_orchestration_planner_prefers_account_number_from_tool_over
             self.find_account_number_called = True
             return ToolResult(data={"account_number": "654321"})
 
-        @p.tool
+        @p.tool(consequential=True)
         async def charge_order(
             context: ToolContext, account_number: str, order_id: str
         ) -> ToolResult:
-            """Charges an order to the specified account. When account_number can be obtained from find_account_number_from_email, always prefer that value over any account number provided by the customer. If find_account_number_from_email has not yet been called but an email is available in context, defer this call until after find_account_number_from_email completes."""
+            """Charges an order to the specified account. When account_number can be obtained from find_account_number_from_email, prefer that value over any account number provided by the customer."""
             self.charge_order_called = True
             self.charge_order_account_number = account_number
             return ToolResult(data={"order_id": order_id, "account_number": account_number})
@@ -674,4 +674,315 @@ class Test_that_tool_orchestration_planner_prefers_account_number_from_tool_over
         assert "find_account_number_from_email" in str(first_iteration_calls[0].tool_id), (
             f"Expected find_account_number_from_email on first iteration, "
             f"got {first_iteration_calls[0].tool_id}"
+        )
+
+
+class Test_that_tool_orchestration_planner_selects_specific_over_general_overlapping_tool(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.tracking_planner = TrackingPlanner(
+            p.ToolOrchestrationPlanner(
+                logger=server.container[p.Logger],
+                tracer=server.container[p.Tracer],
+                nlp_service=server.container[p.NLPService],
+            )
+        )
+        self.vehicle_price_call_count = 0
+        self.motorcycle_price_call_count = 0
+
+        self.agent = await server.create_agent(
+            name="Vehicle Sales Agent",
+            description="Agent that provides vehicle pricing information",
+            planner=self.tracking_planner,
+        )
+
+        @p.tool
+        async def check_vehicle_price(context: ToolContext, model: str) -> ToolResult:
+            """Returns the listed price for any vehicle model."""
+            self.vehicle_price_call_count += 1
+            return ToolResult(data={"model": model, "price": 25000})
+
+        @p.tool
+        async def check_motorcycle_price(context: ToolContext, model: str) -> ToolResult:
+            """Returns the listed price for a motorcycle model. Use this instead of check_vehicle_price when the vehicle is a motorcycle."""
+            self.motorcycle_price_call_count += 1
+            return ToolResult(data={"model": model, "price": 18000})
+
+        await self.agent.attach_tool(
+            tool=check_vehicle_price,
+            condition="the user asks about vehicle pricing",
+        )
+
+        await self.agent.attach_tool(
+            tool=check_motorcycle_price,
+            condition="the user asks about motorcycle pricing",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="What's the price of a Harley-Davidson Street Glide?",
+            recipient=self.agent,
+        )
+
+        assert self.motorcycle_price_call_count == 1, (
+            "Expected check_motorcycle_price to be called once"
+        )
+        assert self.vehicle_price_call_count == 0, (
+            "Expected check_vehicle_price not to be called — overlapped by the more specific check_motorcycle_price"
+        )
+
+        plan = self.tracking_planner.record.plans[0]
+        first_iteration_calls = plan.record.inferred_tool_calls[0]
+        assert len(first_iteration_calls) == 1, (
+            f"Expected planner to select only one of the two overlapping tools, "
+            f"but {len(first_iteration_calls)} tool calls were passed through"
+        )
+        assert "motorcycle" in str(first_iteration_calls[0].tool_id), (
+            f"Expected check_motorcycle_price to be selected, got {first_iteration_calls[0].tool_id}"
+        )
+
+
+class Test_that_tool_orchestration_planner_selects_preferred_tool_when_two_overlap(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.tracking_planner = TrackingPlanner(
+            p.ToolOrchestrationPlanner(
+                logger=server.container[p.Logger],
+                tracer=server.container[p.Tracer],
+                nlp_service=server.container[p.NLPService],
+            )
+        )
+        self.get_account_balance_call_count = 0
+        self.get_account_summary_call_count = 0
+
+        self.agent = await server.create_agent(
+            name="Banking Agent",
+            description="Agent that provides account information to customers",
+            planner=self.tracking_planner,
+        )
+
+        @p.tool
+        async def get_account_balance(context: ToolContext, account_id: str) -> ToolResult:
+            """Returns the current balance for the given account."""
+            self.get_account_balance_call_count += 1
+            return ToolResult(data={"account_id": account_id, "balance": 1500.00})
+
+        @p.tool
+        async def get_account_summary(context: ToolContext, account_id: str) -> ToolResult:
+            """Returns a full account summary including balance, recent transactions, and account status. Use this instead of get_account_balance when the customer wants an account overview."""
+            self.get_account_summary_call_count += 1
+            return ToolResult(
+                data={
+                    "account_id": account_id,
+                    "balance": 1500.00,
+                    "status": "active",
+                    "recent_transactions": 3,
+                }
+            )
+
+        await self.agent.attach_tool(
+            tool=get_account_balance,
+            condition="the user asks about their account balance or account overview",
+        )
+
+        await self.agent.attach_tool(
+            tool=get_account_summary,
+            condition="the user asks about their account balance or account overview",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="Can you show me my account overview? My account ID is ACC-789.",
+            recipient=self.agent,
+        )
+
+        assert self.get_account_summary_call_count == 1, (
+            "Expected get_account_summary to be called once"
+        )
+        assert self.get_account_balance_call_count == 0, (
+            "Expected get_account_balance not to be called — overlapped by the more complete get_account_summary"
+        )
+
+        plan = self.tracking_planner.record.plans[0]
+        first_iteration_calls = plan.record.inferred_tool_calls[0]
+        assert len(first_iteration_calls) == 1, (
+            f"Expected planner to select only one of the two overlapping tools, "
+            f"but {len(first_iteration_calls)} tool calls were passed through"
+        )
+        assert "summary" in str(first_iteration_calls[0].tool_id), (
+            f"Expected get_account_summary to be selected, got {first_iteration_calls[0].tool_id}"
+        )
+
+
+class Test_that_tool_orchestration_planner_handles_three_iteration_tool_chain(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.tracking_planner = TrackingPlanner(
+            p.ToolOrchestrationPlanner(
+                logger=server.container[p.Logger],
+                tracer=server.container[p.Tracer],
+                nlp_service=server.container[p.NLPService],
+            )
+        )
+        self.get_patient_id_called = False
+        self.get_medical_record_called = False
+        self.book_appointment_record_id: str | None = None
+        self.book_appointment_specialty: str | None = None
+
+        self.agent = await server.create_agent(
+            name="Healthcare Agent",
+            description="Agent that helps patients book specialist appointments",
+            planner=self.tracking_planner,
+        )
+
+        @p.tool
+        async def get_patient_id(context: ToolContext, name: str) -> ToolResult:
+            """Looks up a patient's ID by their full name."""
+            self.get_patient_id_called = True
+            return ToolResult(data={"patient_id": "P-001"})
+
+        @p.tool
+        async def get_medical_record(context: ToolContext, patient_id: str) -> ToolResult:
+            """Retrieves a patient's medical record by patient ID. Must be called after get_patient_id to obtain the patient_id."""
+            self.get_medical_record_called = True
+            return ToolResult(data={"record_id": "REC-001", "patient_id": patient_id})
+
+        @p.tool
+        async def book_specialist_appointment(
+            context: ToolContext, record_id: str, specialty: str
+        ) -> ToolResult:
+            """Books a specialist appointment for a patient. Must be called after get_medical_record to obtain the record_id."""
+            self.book_appointment_record_id = record_id
+            self.book_appointment_specialty = specialty
+            return ToolResult(
+                data={"status": "booked", "record_id": record_id, "specialty": specialty}
+            )
+
+        await self.agent.attach_tool(
+            tool=get_patient_id,
+            condition="the user wants to book an appointment and provides a patient name",
+        )
+
+        await self.agent.attach_tool(
+            tool=get_medical_record,
+            condition="the user wants to book an appointment and provides a patient name",
+        )
+
+        await self.agent.attach_tool(
+            tool=book_specialist_appointment,
+            condition="the user wants to book a specialist appointment",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="Please book a cardiology appointment for patient John Smith.",
+            recipient=self.agent,
+        )
+
+        assert self.get_patient_id_called, "Expected get_patient_id to be called"
+        assert self.get_medical_record_called, "Expected get_medical_record to be called"
+        assert self.book_appointment_record_id == "REC-001", (
+            f"Expected book_specialist_appointment to receive record_id='REC-001', "
+            f"got {self.book_appointment_record_id!r}"
+        )
+        assert self.book_appointment_specialty is not None, (
+            "Expected book_specialist_appointment to be called with a specialty"
+        )
+
+        plan = self.tracking_planner.record.plans[0]
+        assert len(plan.record.inferred_tool_calls) >= 3, (
+            f"Expected at least 3 iterations for the three-step chain, "
+            f"got {len(plan.record.inferred_tool_calls)}"
+        )
+        first_iteration_calls = plan.record.inferred_tool_calls[0]
+        assert len(first_iteration_calls) == 1, (
+            f"Expected exactly 1 tool call on first iteration (get_patient_id only), "
+            f"got {len(first_iteration_calls)}"
+        )
+        assert "get_patient_id" in str(first_iteration_calls[0].tool_id), (
+            f"Expected get_patient_id on first iteration, got {first_iteration_calls[0].tool_id}"
+        )
+
+
+class Test_that_tool_orchestration_planner_handles_overlap_and_dependency_simultaneously(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.tracking_planner = TrackingPlanner(
+            p.ToolOrchestrationPlanner(
+                logger=server.container[p.Logger],
+                tracer=server.container[p.Tracer],
+                nlp_service=server.container[p.NLPService],
+            )
+        )
+        self.get_product_price_called = False
+        self.get_catalog_price_called = False
+        self.apply_member_discount_listed_price: float | None = None
+
+        self.agent = await server.create_agent(
+            name="E-Commerce Agent",
+            description="Agent that helps customers with product pricing and member discounts",
+            planner=self.tracking_planner,
+        )
+
+        @p.tool
+        async def get_product_price(context: ToolContext, product_id: str) -> ToolResult:
+            """Returns the current real-time price for a specific product. Preferred over get_catalog_price."""
+            self.get_product_price_called = True
+            return ToolResult(data={"product_id": product_id, "price": 49.99})
+
+        @p.tool
+        async def get_catalog_price(context: ToolContext, product_id: str) -> ToolResult:
+            """Returns the general catalog price for a product. Use get_product_price instead when available, as it returns more accurate real-time pricing."""
+            self.get_catalog_price_called = True
+            return ToolResult(data={"product_id": product_id, "price": 55.00})
+
+        @p.tool
+        async def apply_member_discount(
+            context: ToolContext, listed_price: float, member_id: str
+        ) -> ToolResult:
+            """Applies a member discount to a product price. Must be called after get_product_price to obtain the listed_price."""
+            self.apply_member_discount_listed_price = listed_price
+            return ToolResult(
+                data={
+                    "member_id": member_id,
+                    "original_price": listed_price,
+                    "discounted_price": listed_price * 0.9,
+                }
+            )
+
+        await self.agent.attach_tool(
+            tool=get_product_price,
+            condition="the user asks about the price of a product",
+        )
+
+        await self.agent.attach_tool(
+            tool=get_catalog_price,
+            condition="the user asks about the price of a product and no product price has been retrieved from a tool yet in this conversation",
+        )
+
+        await self.agent.attach_tool(
+            tool=apply_member_discount,
+            condition="the user is a member and wants a discounted price for a product",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="I'm a member with ID M-123. What's the discounted price for product PRD-42?",
+            recipient=self.agent,
+        )
+
+        assert self.get_product_price_called, "Expected get_product_price to be called"
+        # Verify overlap: the dependency tool received the price from get_product_price (49.99),
+        # not from get_catalog_price (55.00), confirming get_product_price was preferred.
+        assert self.apply_member_discount_listed_price == 49.99, (
+            f"Expected apply_member_discount to receive listed_price=49.99 from get_product_price, "
+            f"got {self.apply_member_discount_listed_price!r}"
+        )
+
+        plan = self.tracking_planner.record.plans[0]
+        first_iteration_calls = plan.record.inferred_tool_calls[0]
+        # Overlap: orchestrator selected get_product_price over get_catalog_price in iter 1.
+        assert len(first_iteration_calls) == 1, (
+            f"Expected exactly 1 tool call on first iteration "
+            f"(get_product_price only — overlap over get_catalog_price), "
+            f"got {len(first_iteration_calls)}: {[str(c.tool_id) for c in first_iteration_calls]}"
+        )
+        assert "get_product_price" in str(first_iteration_calls[0].tool_id), (
+            f"Expected get_product_price on first iteration, got {first_iteration_calls[0].tool_id}"
         )

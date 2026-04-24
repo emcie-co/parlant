@@ -578,11 +578,16 @@ def split_arg_list(argument: str | list[Any], item_type: Any) -> list[str]:
         return argument
     if item_type is str or issubclass(item_type, Enum):
         # literal_eval is used for protection against nesting of single/double quotes of str (and our enums are always strings)
-        return list(literal_eval(argument))
+        # Fall back to comma-splitting when the LLM omits the surrounding brackets
+        try:
+            return list(literal_eval(argument))
+        except (ValueError, SyntaxError):
+            return [v.strip() for v in argument.split(",")]
     if item_type in VALID_TOOL_BASE_TYPES:
         # Split list is used for most types so we won't have to rely on the LLM to provide pythonic syntax
+        # Also handle the case where the LLM omits the surrounding brackets
         list_str = argument.strip()
         if list_str.startswith("[") and list_str.endswith("]"):
-            return list_str[1:-1].split(",")
-        raise ValueError(f"Invalid list format for argument '{argument}'")
+            list_str = list_str[1:-1]
+        return [item.strip() for item in list_str.split(",")]
     raise TypeError(f"Unsupported list item type '{item_type}' for parameter '{argument}'.")

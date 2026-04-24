@@ -282,7 +282,12 @@ class SingleToolBatch(ToolCallBatch):
             if descriptor["type"] == "string":
                 return value in descriptor["enum"]
             if descriptor["type"] == "array":
-                return all(v in descriptor["enum"] for v in ast.literal_eval(value))
+                try:
+                    items = ast.literal_eval(value)
+                except (ValueError, SyntaxError):
+                    # LLM may provide comma-separated values without surrounding brackets
+                    items = [v.strip() for v in value.split(",")]
+                return all(v in descriptor["enum"] for v in items)
         return True
 
     async def _infer_calls_for_consequential_tool(

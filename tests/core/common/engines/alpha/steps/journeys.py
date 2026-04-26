@@ -27,7 +27,7 @@ from parlant.core.relationships import (
     RelationshipKind,
     RelationshipStore,
 )
-from parlant.core.services.indexing.behavioral_change_evaluation import JourneyEvaluator
+from parlant.core.services.indexing.evaluation_service import JourneyEvaluator
 from parlant.core.sessions import AgentState, SessionId, SessionStore, SessionUpdateParams
 from parlant.core.tags import Tag
 from parlant.core.tools import LocalToolService, ToolId

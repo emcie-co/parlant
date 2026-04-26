@@ -211,7 +211,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
 )
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.types import Engine
-from parlant.core.services.indexing.behavioral_change_evaluation import (
+from parlant.core.services.indexing.evaluation_service import (
     GuidelineEvaluator,
     JourneyEvaluator,
 )

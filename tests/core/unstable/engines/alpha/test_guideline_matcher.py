@@ -54,7 +54,7 @@ from parlant.core.nlp.generation import SchematicGenerator
 
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
-from parlant.core.services.indexing.behavioral_change_evaluation import GuidelineEvaluator
+from parlant.core.services.indexing.evaluation_service import GuidelineEvaluator
 from parlant.core.sessions import (
     AgentState,
     Event,

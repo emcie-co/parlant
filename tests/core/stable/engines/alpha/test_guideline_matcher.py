@@ -14,7 +14,6 @@
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from itertools import chain
 from typing import Sequence, cast
 from typing_extensions import override
 
@@ -421,7 +420,7 @@ async def match_guidelines(
         guidelines=context.guidelines,
     )
 
-    return list(chain.from_iterable(guideline_matching_result.batches))
+    return list(guideline_matching_result.matched_guidelines)
 
 
 async def create_guideline(

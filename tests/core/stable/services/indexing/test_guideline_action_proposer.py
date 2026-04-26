@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from itertools import chain
 from typing import Any
 from lagom import Container
 from pytest import fixture
@@ -362,7 +361,7 @@ async def base_test_that_guideline_with_proposed_action_matched(
         guidelines=context.guidelines,
     )
 
-    guideline_matches = list(chain.from_iterable(guideline_matching_result.batches))
+    guideline_matches = list(guideline_matching_result.matched_guidelines)
 
     matched_guidelines = [p.guideline for p in guideline_matches]
     assert set(matched_guidelines) == set([guideline_with_action])

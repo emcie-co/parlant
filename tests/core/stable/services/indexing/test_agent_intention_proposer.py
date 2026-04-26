@@ -14,7 +14,6 @@
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from itertools import chain
 from typing import Sequence
 from lagom import Container
 from pytest import fixture
@@ -152,7 +151,7 @@ def match_guidelines(
         )
     )
 
-    return list(chain.from_iterable(guideline_matching_result.batches))
+    return list(guideline_matching_result.matched_guidelines)
 
 
 def create_guideline(

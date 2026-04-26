@@ -27,7 +27,7 @@ from parlant.core.relationships import (
 )
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineStore
 
-from parlant.core.services.indexing.behavioral_change_evaluation import GuidelineEvaluator
+from parlant.core.services.indexing.evaluation_service import GuidelineEvaluator
 from parlant.core.sessions import AgentState, SessionId, SessionStore, SessionUpdateParams
 from parlant.core.tags import Tag
 from parlant.core.tools import ToolId

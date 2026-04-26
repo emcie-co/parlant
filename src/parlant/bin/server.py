@@ -242,10 +242,10 @@ from parlant.core.engines.alpha.message_generator import (
 )
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.types import Engine
-from parlant.core.services.indexing.behavioral_change_evaluation import BehavioralChangeEvaluator
+from parlant.core.services.indexing.evaluation_service import EvaluationService
 from parlant.core.loggers import CompositeLogger, FileLogger, LogLevel, Logger
 from parlant.core.application import Application
-from parlant.core.store_provider import BasicStoreProvider, StoreProvider
+from parlant.core.store_provider import BasicStoreProvider, StoreProvider, StoreProviderHints
 from parlant.core.version import VERSION
 
 
@@ -657,7 +657,7 @@ async def setup_container() -> AsyncIterator[Container]:
 
     _define_singleton(c, JourneyGuidelineProjection, JourneyGuidelineProjection)
 
-    _define_singleton(c, BehavioralChangeEvaluator, BehavioralChangeEvaluator)
+    _define_singleton(c, EvaluationService, EvaluationService)
     _define_singleton(c, EvaluationListener, PollingEvaluationListener)
 
     _define_singleton(c, ResponseAnalysisBatch, GenericResponseAnalysisBatch)
@@ -962,13 +962,14 @@ async def initialize_container(
 
 
 async def recover_server_tasks(
-    evaluation_store: EvaluationStore,
-    evaluator: BehavioralChangeEvaluator,
+    evaluation_service: EvaluationService,
 ) -> None:
-    for evaluation in await evaluation_store.list_evaluations():
+    hints = StoreProviderHints(call_site="engine")
+    evaluations = await evaluation_service.list_evaluations(hints=hints)
+    for evaluation in evaluations:
         if evaluation.status in [EvaluationStatus.PENDING, EvaluationStatus.RUNNING]:
             LOGGER.info(f"Recovering evaluation task: '{evaluation.id}'")
-            await evaluator.run_evaluation(evaluation)
+            await evaluation_service.run_evaluation(evaluation, hints=hints)
 
 
 async def check_required_schema_migrations() -> None:
@@ -1028,8 +1029,7 @@ async def load_app(params: StartupParameters) -> AsyncIterator[tuple[ASGIApplica
             await params.initialize(actual_container)
 
         await recover_server_tasks(
-            evaluation_store=actual_container[EvaluationStore],
-            evaluator=actual_container[BehavioralChangeEvaluator],
+            evaluation_service=actual_container[EvaluationService],
         )
 
         if not params.configure:

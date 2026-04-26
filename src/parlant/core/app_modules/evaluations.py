@@ -6,15 +6,14 @@ from parlant.core.loggers import Logger
 from parlant.core.evaluations import (
     EvaluationId,
     EvaluationListener,
-    EvaluationStore,
     Evaluation,
     EvaluationUpdateParams,
     Payload,
     PayloadDescriptor,
     PayloadKind,
 )
-from parlant.core.services.indexing.behavioral_change_evaluation import BehavioralChangeEvaluator
-from parlant.core.store_provider import StoreProviderHints, StoreProvider
+from parlant.core.services.indexing.evaluation_service import EvaluationService
+from parlant.core.store_provider import StoreProviderHints
 
 
 class EvaluationModule:
@@ -22,24 +21,18 @@ class EvaluationModule:
         self,
         application_context: ApplicationContext,
         logger: Logger,
-        evaluation_service: BehavioralChangeEvaluator,
+        evaluation_service: EvaluationService,
         evaluation_listener: EvaluationListener,
-        store_provider: StoreProvider,
     ):
         self._application_context = application_context
         self._logger = logger
-        self._store_provider = store_provider
         self._evaluation_service = evaluation_service
         self._evaluation_listener = evaluation_listener
 
-    @property
-    def _evaluation_store(self) -> EvaluationStore:
-        return self._store_provider.get_store(
-            EvaluationStore,
-            StoreProviderHints(
-                call_site="app",
-                origin=self._application_context.get_origin(),
-            ),
+    def _hints(self) -> StoreProviderHints:
+        return StoreProviderHints(
+            call_site="app",
+            origin=self._application_context.get_origin(),
         )
 
     async def create(self, payloads: Sequence[Payload]) -> Evaluation:
@@ -47,27 +40,33 @@ class EvaluationModule:
             payload_descriptors=[
                 PayloadDescriptor(PayloadKind.GUIDELINE, p) for p in [p for p in payloads]
             ],
+            hints=self._hints(),
         )
 
-        evaluation = await self._evaluation_store.read_evaluation(evaluation_id)
+        evaluation = await self._evaluation_service.read_evaluation(
+            evaluation_id=evaluation_id,
+            hints=self._hints(),
+        )
 
         return evaluation
 
     async def read(self, evaluation_id: EvaluationId) -> Evaluation:
-        evaluation = await self._evaluation_store.read_evaluation(evaluation_id=evaluation_id)
-        return evaluation
+        return await self._evaluation_service.read_evaluation(
+            evaluation_id=evaluation_id,
+            hints=self._hints(),
+        )
 
     async def find(self) -> Sequence[Evaluation]:
-        evaluations = await self._evaluation_store.list_evaluations()
-        return evaluations
+        return await self._evaluation_service.list_evaluations(hints=self._hints())
 
     async def update(
         self, evaluation_id: EvaluationId, params: EvaluationUpdateParams
     ) -> Evaluation:
-        evaluation = await self._evaluation_store.update_evaluation(
-            evaluation_id=evaluation_id, params=params
+        return await self._evaluation_service.update_evaluation(
+            evaluation_id=evaluation_id,
+            params=params,
+            hints=self._hints(),
         )
-        return evaluation
 
     async def wait_for_completion(
         self,

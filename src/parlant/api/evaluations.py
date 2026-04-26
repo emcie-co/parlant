@@ -47,7 +47,7 @@ from parlant.core.evaluations import (
     PayloadKind,
 )
 from parlant.core.guidelines import GuidelineContent
-from parlant.core.services.indexing.behavioral_change_evaluation import (
+from parlant.core.services.indexing.evaluation_service import (
     EvaluationValidationError,
 )
 from parlant.core.tools import ToolId

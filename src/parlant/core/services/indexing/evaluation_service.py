@@ -25,6 +25,7 @@ from parlant.core.evaluations import (
     Evaluation,
     EvaluationStatus,
     EvaluationId,
+    EvaluationUpdateParams,
     GuidelinePayload,
     InvoiceData,
     InvoiceJourneyData,
@@ -678,13 +679,11 @@ class JourneyEvaluator:
         return sparse_results
 
 
-class BehavioralChangeEvaluator:
+class EvaluationService:
     def __init__(
         self,
         logger: Logger,
         background_task_service: BackgroundTaskService,
-        guideline_store: GuidelineStore,
-        journey_store: JourneyStore,
         entity_queries: EntityQueries,
         journey_guideline_projection: JourneyGuidelineProjection,
         guideline_action_proposer: GuidelineActionProposer,
@@ -723,11 +722,8 @@ class BehavioralChangeEvaluator:
     def _agent_store(self) -> AgentStore:
         return self._store_provider.get_store(AgentStore, StoreProviderHints(call_site="engine"))
 
-    @property
-    def _evaluation_store(self) -> EvaluationStore:
-        return self._store_provider.get_store(
-            EvaluationStore, StoreProviderHints(call_site="engine")
-        )
+    def _get_evaluation_store(self, hints: StoreProviderHints) -> EvaluationStore:
+        return self._store_provider.get_store(EvaluationStore, hints)
 
     async def validate_payloads(
         self,
@@ -739,26 +735,54 @@ class BehavioralChangeEvaluator:
     async def create_evaluation_task(
         self,
         payload_descriptors: Sequence[PayloadDescriptor],
+        hints: StoreProviderHints = {},
     ) -> EvaluationId:
         await self.validate_payloads(payload_descriptors)
 
-        evaluation = await self._evaluation_store.create_evaluation(
+        evaluation = await self._get_evaluation_store(hints).create_evaluation(
             payload_descriptors,
         )
 
         await self._background_task_service.start(
-            self.run_evaluation(evaluation),
+            self.run_evaluation(evaluation, hints=hints),
             tag=f"evaluation({evaluation.id})",
         )
 
         return evaluation.id
 
+    async def read_evaluation(
+        self,
+        evaluation_id: EvaluationId,
+        hints: StoreProviderHints = {},
+    ) -> Evaluation:
+        return await self._get_evaluation_store(hints).read_evaluation(evaluation_id)
+
+    async def list_evaluations(
+        self,
+        hints: StoreProviderHints = {},
+    ) -> Sequence[Evaluation]:
+        return await self._get_evaluation_store(hints).list_evaluations()
+
+    async def update_evaluation(
+        self,
+        evaluation_id: EvaluationId,
+        params: EvaluationUpdateParams,
+        hints: StoreProviderHints = {},
+    ) -> Evaluation:
+        return await self._get_evaluation_store(hints).update_evaluation(
+            evaluation_id=evaluation_id,
+            params=params,
+        )
+
     async def run_evaluation(
         self,
         evaluation: Evaluation,
+        hints: StoreProviderHints = {},
     ) -> None:
+        evaluation_store = self._get_evaluation_store(hints)
+
         async def _update_progress(percentage: float) -> None:
-            await self._evaluation_store.update_evaluation(
+            await evaluation_store.update_evaluation(
                 evaluation_id=evaluation.id,
                 params={"progress": percentage},
             )
@@ -766,7 +790,7 @@ class BehavioralChangeEvaluator:
         progress_report = ProgressReport(_update_progress)
 
         try:
-            await self._evaluation_store.update_evaluation(
+            await evaluation_store.update_evaluation(
                 evaluation_id=evaluation.id,
                 params={"status": EvaluationStatus.RUNNING},
             )
@@ -813,14 +837,14 @@ class BehavioralChangeEvaluator:
                     )
                 )
 
-            await self._evaluation_store.update_evaluation(
+            await evaluation_store.update_evaluation(
                 evaluation_id=evaluation.id,
                 params={"invoices": invoices},
             )
 
             self._logger.trace(f"evaluation task '{evaluation.id}' completed")
 
-            await self._evaluation_store.update_evaluation(
+            await evaluation_store.update_evaluation(
                 evaluation_id=evaluation.id,
                 params={"status": EvaluationStatus.COMPLETED},
             )
@@ -831,7 +855,7 @@ class BehavioralChangeEvaluator:
                 f"Evaluation task '{evaluation.id}' failed due to the following error: '{str(exc)}'"
             )
 
-            await self._evaluation_store.update_evaluation(
+            await evaluation_store.update_evaluation(
                 evaluation_id=evaluation.id,
                 params={
                     "status": EvaluationStatus.FAILED,

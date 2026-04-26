@@ -44,7 +44,7 @@ from parlant.core.evaluations import GuidelinePayload, PayloadOperation
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.services.indexing.behavioral_change_evaluation import GuidelineEvaluator
+from parlant.core.services.indexing.evaluation_service import GuidelineEvaluator
 from parlant.core.services.indexing.guideline_agent_intention_proposer import AgentIntentionProposer
 from parlant.core.sessions import (
     AgentState,

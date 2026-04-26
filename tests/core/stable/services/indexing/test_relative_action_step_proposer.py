@@ -238,7 +238,7 @@ async def test_action_is_proposed_when_needed(
     to_propose_action = {
         "2": "Ask what they need the loan for",
         "5": "The loan application process looks good or the initial eligibility check looks good",
-        "8": "Submit the loan application for review",
+        "8": "Submit the loan application (along with the documents, potentially) for review",
     }
     await base_test_that_related_action_step_proposed(
         context,

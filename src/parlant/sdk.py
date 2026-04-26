@@ -175,7 +175,7 @@ from parlant.core.relationships import (
     RelationshipId,
     RelationshipStore,
 )
-from parlant.core.services.indexing.behavioral_change_evaluation import BehavioralChangeEvaluator
+from parlant.core.services.indexing.evaluation_service import EvaluationService
 from parlant.core.services.tools.service_registry import ServiceDocumentRegistry, ServiceRegistry
 from parlant.core.sessions import (
     Event,
@@ -698,7 +698,7 @@ class _CachedEvaluator:
             f"Evaluating guideline: Condition: {g.condition or 'None'}, Action: {g.action or 'None'}"
         )
 
-        evaluation_id = await self._container[BehavioralChangeEvaluator].create_evaluation_task(
+        evaluation_id = await self._container[EvaluationService].create_evaluation_task(
             payload_descriptors=[
                 PayloadDescriptor(
                     PayloadKind.GUIDELINE,
@@ -715,13 +715,13 @@ class _CachedEvaluator:
                     ),
                 )
             ],
+            hints=StoreProviderHints(call_site="sdk"),
         )
 
         while True:
-            evaluation = await self._store_provider.get_store(
-                EvaluationStore, StoreProviderHints(call_site="sdk")
-            ).read_evaluation(
+            evaluation = await self._container[EvaluationService].read_evaluation(
                 evaluation_id=evaluation_id,
+                hints=StoreProviderHints(call_site="sdk"),
             )
 
             self._set_progress(entity_id, evaluation.progress)
@@ -783,7 +783,7 @@ class _CachedEvaluator:
 
         self._logger.trace(f"Evaluating journey: Title: {journey.title or 'None'}")
 
-        evaluation_id = await self._container[BehavioralChangeEvaluator].create_evaluation_task(
+        evaluation_id = await self._container[EvaluationService].create_evaluation_task(
             payload_descriptors=[
                 PayloadDescriptor(
                     PayloadKind.JOURNEY,
@@ -793,13 +793,13 @@ class _CachedEvaluator:
                     ),
                 )
             ],
+            hints=StoreProviderHints(call_site="sdk"),
         )
 
         while True:
-            evaluation = await self._store_provider.get_store(
-                EvaluationStore, StoreProviderHints(call_site="sdk")
-            ).read_evaluation(
+            evaluation = await self._container[EvaluationService].read_evaluation(
                 evaluation_id=evaluation_id,
+                hints=StoreProviderHints(call_site="sdk"),
             )
 
             self._set_progress(journey.id, evaluation.progress)

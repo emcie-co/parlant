@@ -77,7 +77,7 @@ from parlant.core.relationships import (
     RelationshipEntityKind,
     RelationshipStore,
 )
-from parlant.core.services.indexing.behavioral_change_evaluation import GuidelineEvaluator
+from parlant.core.services.indexing.evaluation_service import GuidelineEvaluator
 from parlant.core.sessions import (
     AgentState,
     Event,

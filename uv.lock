@@ -188,7 +188,7 @@ wheels = [
 
 [[package]]
 name = "aiopenapi3"
-version = "0.9.0"
+version = "0.8.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "email-validator" },
@@ -199,9 +199,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "yarl" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f3/54/824633c6b2c3cb32227f0286dfa41310eea7f1f91df0491fbb0d34b0034f/aiopenapi3-0.9.0.tar.gz", hash = "sha256:f4740681cf829e5c5975065ac2fdd59c14c6ae60b085e7b461999056d4405a0e", size = 68951, upload-time = "2025-11-28T08:00:54.183Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9e/bc/b5be54133ebc97d46e2c50dc2b788e6146bde85a3f681608cd850381ea43/aiopenapi3-0.8.1.tar.gz", hash = "sha256:ef9a84b6a45f72e3016b74621025e5b1c6cb9a3c5da5b77998ddf16e2decd4c4", size = 68670, upload-time = "2025-04-19T07:44:28.016Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/01/80/d95677b2dac09db6dbb5b7c657643e7f444e0b5a1e988ae20d919c313b6f/aiopenapi3-0.9.0-py3-none-any.whl", hash = "sha256:a35e81cb305579bd4b502b5ff856519546b3085c435d4bc65bb17704cf041d00", size = 88826, upload-time = "2025-11-28T08:00:52.886Z" },
+    { url = "https://files.pythonhosted.org/packages/17/cc/4748475c7d570c5042569ee4a0fc0a203fb3650f07e5a4f6548ff1b768a6/aiopenapi3-0.8.1-py3-none-any.whl", hash = "sha256:f1054a9f3a593f616a3ef3f01f4084049877e8e1907f82354127243c9b890c18", size = 88893, upload-time = "2025-04-19T07:44:24.611Z" },
 ]
 
 [[package]]
@@ -4389,7 +4389,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiofiles", specifier = ">=24.1.0" },
-    { name = "aiopenapi3", specifier = "==0.9.0" },
+    { name = "aiopenapi3", specifier = ">=0.8.1,<0.9.0" },
     { name = "aiorwlock", specifier = ">=1.5.0" },
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.60.0" },
     { name = "anthropic", marker = "extra == 'aws'", specifier = ">=0.60.0" },

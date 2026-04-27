@@ -44,6 +44,7 @@ from parlant.core.persistence.vector_database import (
     SimilarDocumentResult,
     TDocument,
     UpdateResult,
+    VectorCollectionIndex,
     VectorDatabase,
 )
 from parlant.core.tracer import Tracer
@@ -105,10 +106,16 @@ class MongoVectorDatabase(VectorDatabase):
         self,
         mongo_collection: AsyncCollection[Any],
         embedder: Embedder,
+        filter_fields: Sequence[str] = (),
     ) -> None:
         """Create a vector search index on the collection if it doesn't exist."""
         # Ensure the collection exists in MongoDB before creating a search index
         await self._ensure_collection_exists(mongo_collection.name)
+
+        base_filter_fields = {"id", "version", "checksum"}
+        all_filter_fields = sorted(base_filter_fields | set(filter_fields))
+
+        expected_definition = self._build_index_definition(embedder, all_filter_fields)
 
         # Check if the index already exists
         existing_indexes: list[Mapping[str, Any]] = []
@@ -118,35 +125,20 @@ class MongoVectorDatabase(VectorDatabase):
 
         for index in existing_indexes:
             if index.get("name") == VECTOR_INDEX_NAME:
-                return
+                if self._index_matches(index, all_filter_fields):
+                    return
+
+                # Index exists but is stale — drop and recreate
+                self._logger.info(
+                    f"Recreating vector search index '{VECTOR_INDEX_NAME}' "
+                    f"on collection '{mongo_collection.name}' (filter fields changed)"
+                )
+                await mongo_collection.drop_search_index(VECTOR_INDEX_NAME)
+                await self._wait_for_index_dropped(mongo_collection)
+                break
 
         search_index_model = SearchIndexModel(
-            definition={
-                "fields": [
-                    {
-                        "type": "vector",
-                        "path": "__embedding__",
-                        "numDimensions": embedder.dimensions,
-                        "similarity": "cosine",
-                    },
-                    {
-                        "type": "filter",
-                        "path": "id",
-                    },
-                    {
-                        "type": "filter",
-                        "path": "version",
-                    },
-                    {
-                        "type": "filter",
-                        "path": "name",
-                    },
-                    {
-                        "type": "filter",
-                        "path": "checksum",
-                    },
-                ]
-            },
+            definition=expected_definition,
             name=VECTOR_INDEX_NAME,
             type="vectorSearch",
         )
@@ -159,6 +151,57 @@ class MongoVectorDatabase(VectorDatabase):
 
         # Wait for the index to be ready
         await self._wait_for_index_ready(mongo_collection)
+
+    @staticmethod
+    def _build_index_definition(
+        embedder: Embedder,
+        filter_fields: Sequence[str],
+    ) -> dict[str, Any]:
+        fields: list[dict[str, Any]] = [
+            {
+                "type": "vector",
+                "path": "__embedding__",
+                "numDimensions": embedder.dimensions,
+                "similarity": "cosine",
+            },
+        ]
+        for field in filter_fields:
+            fields.append({"type": "filter", "path": field})
+        return {"fields": fields}
+
+    @staticmethod
+    def _index_matches(
+        index: Mapping[str, Any],
+        expected_filter_fields: Sequence[str],
+    ) -> bool:
+        definition = index.get("latestDefinition", index.get("definition", {}))
+        existing_filter_paths = {
+            f["path"] for f in definition.get("fields", []) if f.get("type") == "filter"
+        }
+        return existing_filter_paths == set(expected_filter_fields)
+
+    async def _wait_for_index_dropped(
+        self,
+        mongo_collection: AsyncCollection[Any],
+    ) -> None:
+        """Poll until the vector search index is fully removed."""
+        elapsed = 0.0
+        while elapsed < _INDEX_READY_TIMEOUT:
+            index_cursor = await mongo_collection.list_search_indexes()
+            found = False
+            async for index in index_cursor:
+                if index.get("name") == VECTOR_INDEX_NAME:
+                    found = True
+                    break
+            if not found:
+                return
+            await asyncio.sleep(_INDEX_READY_POLL_INTERVAL)
+            elapsed += _INDEX_READY_POLL_INTERVAL
+
+        self._logger.warning(
+            f"Vector search index '{VECTOR_INDEX_NAME}' on '{mongo_collection.name}' "
+            f"did not drop within {_INDEX_READY_TIMEOUT}s"
+        )
 
     async def _wait_for_index_ready(
         self,
@@ -203,6 +246,7 @@ class MongoVectorDatabase(VectorDatabase):
             schema=schema,
             embedder=embedder,
             embedding_cache_provider=self._embedding_cache_provider,
+            database=self,
         )
 
         self._collections[name] = collection  # type: ignore[assignment]
@@ -241,6 +285,7 @@ class MongoVectorDatabase(VectorDatabase):
             schema=schema,
             embedder=embedder,
             embedding_cache_provider=self._embedding_cache_provider,
+            database=self,
         )
 
         self._collections[name] = collection  # type: ignore[assignment]
@@ -274,6 +319,7 @@ class MongoVectorDatabase(VectorDatabase):
             schema=schema,
             embedder=embedder,
             embedding_cache_provider=self._embedding_cache_provider,
+            database=self,
         )
 
         self._collections[name] = collection  # type: ignore[assignment]
@@ -372,6 +418,7 @@ class MongoVectorCollection(Generic[TDocument], BaseVectorCollection[TDocument])
         schema: type[TDocument],
         embedder: Embedder,
         embedding_cache_provider: EmbeddingCacheProvider,
+        database: MongoVectorDatabase,
     ) -> None:
         super().__init__(tracer)
 
@@ -381,7 +428,20 @@ class MongoVectorCollection(Generic[TDocument], BaseVectorCollection[TDocument])
         self._embedder = embedder
         self._embedding_cache_provider = embedding_cache_provider
         self._mongo_collection = mongo_collection
+        self._database = database
         self._lock = ReaderWriterLock()
+
+    @override
+    async def ensure_indexes(
+        self,
+        indexes: Sequence[VectorCollectionIndex],
+    ) -> None:
+        filter_fields = [idx.field for idx in indexes]
+        await self._database._ensure_vector_index(
+            self._mongo_collection,
+            self._embedder,
+            filter_fields=filter_fields,
+        )
 
     def _strip_internal_fields(self, doc: dict[str, Any]) -> TDocument:
         """Remove MongoDB internal fields and embedding from a document."""

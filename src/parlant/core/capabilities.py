@@ -35,6 +35,7 @@ from parlant.core.persistence.vector_database import (
     BaseDocument as VectorBaseDocument,
     SimilarDocumentResult,
     VectorCollection,
+    VectorCollectionIndex,
     VectorDatabase,
 )
 from parlant.core.persistence.vector_database_helper import (
@@ -234,6 +235,9 @@ class CapabilityVectorStore(CapabilityStore):
                 schema=CapabilityVectorDocument,
                 embedder_type=embedder_type,
                 document_loader=self._vector_document_loader,
+            )
+            await self._vector_collection.ensure_indexes(
+                [VectorCollectionIndex(field="capability_id")]
             )
 
         async with DocumentStoreMigrationHelper(

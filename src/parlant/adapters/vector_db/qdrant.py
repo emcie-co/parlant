@@ -44,6 +44,7 @@ from parlant.core.persistence.vector_database import (
     InsertResult,
     SimilarDocumentResult,
     UpdateResult,
+    VectorCollectionIndex,
     VectorDatabase,
     TDocument,
     identity_loader,
@@ -922,6 +923,13 @@ class QdrantCollection(Generic[TDocument], BaseVectorCollection[TDocument]):
         self._database: Optional[QdrantDatabase] = (
             None  # Reference to parent database for version methods
         )
+
+    @override
+    async def ensure_indexes(
+        self,
+        indexes: Sequence[VectorCollectionIndex],
+    ) -> None:
+        pass
 
     @override
     async def find(

@@ -1535,6 +1535,32 @@ EXAMPLES
             },
         )
         builder.add_glossary(terms)
+
+        journeys_with_descriptions = [
+            j for j in journeys if j.description and j.description.strip()
+        ]
+
+        if journeys_with_descriptions:
+            formatted_journeys = "\n".join(
+                f"{i}) {j.title}: {j.description.strip()}"
+                for i, j in enumerate(journeys_with_descriptions, start=1)
+            )
+
+            builder.add_section(
+                name="canned-response-generator-draft-active-journeys",
+                template="""
+ACTIVE JOURNEYS
+---------------
+The following journeys are currently active in this interaction. You may use their descriptions as background to inform your reply: ###
+{formatted_journeys}
+###
+""",
+                props={
+                    "formatted_journeys": formatted_journeys,
+                    "journeys": journeys_with_descriptions,
+                },
+            )
+
         builder.add_context_variables(context_variables)
         builder.add_capabilities_for_message_generation(capabilities)
         builder.add_low_criticality_guidelines(

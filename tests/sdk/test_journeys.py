@@ -2278,3 +2278,25 @@ class Test_that_tool_state_runs_again_after_missing_data(SDKTest):
         )
 
         assert "john_smith_8831" in third_response.lower()
+
+
+class Test_that_active_journey_description_influences_canned_response_draft(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Banana Agent",
+            description="Agent for testing journey description rendering in draft prompt",
+        )
+
+        self.journey = await self.agent.create_journey(
+            title="Banana Mention Journey",
+            description="When you reply to the customer, always include the word 'banana' somewhere in your response.",
+            conditions=["Customer asks anything at all"],
+        )
+
+    async def run(self, ctx: Context) -> None:
+        answer = await ctx.send_and_receive_message(
+            customer_message="Hello, what's the weather like today?",
+            recipient=self.agent,
+        )
+
+        assert await nlp_test(answer, "It mentions a banana")

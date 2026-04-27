@@ -44,6 +44,11 @@ class BaseDocument(TypedDict, total=False):
 TDocument = TypeVar("TDocument", bound=BaseDocument)
 
 
+@dataclass(frozen=True)
+class VectorCollectionIndex:
+    field: str
+
+
 async def identity_loader(doc: BaseDocument) -> BaseDocument:
     return doc
 
@@ -175,6 +180,14 @@ class VectorCollection(ABC, Generic[TDocument]):
         k: int,
         hints: Mapping[str, Any] = {},
     ) -> Sequence[SimilarDocumentResult[TDocument]]: ...
+
+    @abstractmethod
+    async def ensure_indexes(
+        self,
+        indexes: Sequence[VectorCollectionIndex],
+    ) -> None:
+        """Ensures the requested filter indexes exist for the collection."""
+        ...
 
 
 class BaseVectorCollection(VectorCollection[TDocument]):

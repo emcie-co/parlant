@@ -71,6 +71,7 @@ from parlant.core.persistence.vector_database import (
     InsertResult,
     SimilarDocumentResult,
     UpdateResult,
+    VectorCollectionIndex,
     VectorDatabase,
     TDocument,
 )
@@ -213,6 +214,13 @@ class TransientVectorCollection(Generic[TDocument], BaseVectorCollection[TDocume
         self._lock = asyncio.Lock()
         self._nano_db = nano_db
         self._documents: list[TDocument] = []
+
+    @override
+    async def ensure_indexes(
+        self,
+        indexes: Sequence[VectorCollectionIndex],
+    ) -> None:
+        pass
 
     @staticmethod
     def _build_filter_lambda(

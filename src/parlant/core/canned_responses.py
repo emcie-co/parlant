@@ -32,6 +32,7 @@ from parlant.core.persistence.document_database_helper import (
 from parlant.core.persistence.vector_database import (
     SimilarDocumentResult,
     VectorCollection,
+    VectorCollectionIndex,
     VectorDatabase,
     BaseDocument as VectorDocument,
 )
@@ -517,6 +518,9 @@ class CannedResponseVectorStore(CannedResponseStore):
                 schema=CannedResponseVectorDocument,
                 embedder_type=embedder_type,
                 document_loader=self._vector_document_loader,
+            )
+            await self._canreps_vector_collection.ensure_indexes(
+                [VectorCollectionIndex(field="canned_response_id")]
             )
 
         async with DocumentStoreMigrationHelper(

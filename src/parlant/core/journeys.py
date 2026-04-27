@@ -48,6 +48,7 @@ from parlant.core.persistence.document_database_helper import (
 )
 from parlant.core.persistence.vector_database import (
     VectorCollection,
+    VectorCollectionIndex,
     VectorDatabase,
     BaseDocument as VectorDocument,
 )
@@ -858,6 +859,9 @@ class JourneyVectorStore(JourneyStore):
                 schema=JourneyVectorDocument,
                 embedder_type=embedder_type,
                 document_loader=self._vector_document_loader,
+            )
+            await self._vector_collection.ensure_indexes(
+                [VectorCollectionIndex(field="journey_id")]
             )
 
         async with DocumentStoreMigrationHelper(

@@ -131,7 +131,6 @@ from parlant.core.engines.alpha.prompt_builder import PromptBuilder, PromptSecti
 from parlant.core.engines.alpha.hooks import EngineHook, EngineHookResult, EngineHooks
 from parlant.core.engines.alpha.engine_context import (
     EngineContext,
-    LoadedContext,  # type: ignore
     Interaction,
     InteractionMessage,
 )
@@ -1329,8 +1328,8 @@ class Guideline:
             )
 
         guideline_targets = [t for t in targets if isinstance(t, Guideline)]
-        journey_conditions = list(
-            chain.from_iterable([t.conditions for t in targets if isinstance(t, Journey)])
+        journey_triggers = list(
+            chain.from_iterable([t.triggers for t in targets if isinstance(t, Journey)])
         )
 
         return [
@@ -1339,7 +1338,7 @@ class Guideline:
                 kind=RelationshipKind.DISAMBIGUATION,
                 direction="source",
             )
-            for t in guideline_targets + journey_conditions
+            for t in guideline_targets + journey_triggers
         ]
 
     async def reevaluate_after(self, *tools: ToolRef) -> Sequence[Relationship]:
@@ -1491,7 +1490,7 @@ class JourneyState:
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         composition_mode: CompositionMode | None = None,
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -1576,7 +1575,7 @@ class JourneyState:
             condition=condition,
             source=self,
             target=actual_state or END_JOURNEY,
-            on_match=on_match,
+            on_selected=on_selected,
             on_message=on_message,
             canned_response_field_provider=canned_response_field_provider,
         )
@@ -1703,7 +1702,7 @@ def _validate_transition_parameters(
     journey: Any = None,
     canned_responses: Sequence[CannedResponseId] = [],
     metadata: Mapping[str, JSONSerializable] = {},
-    on_match: Any = None,
+    on_selected: Any = None,
     is_fork_state: bool = False,
 ) -> None:
     """Validate transition parameters against overload signatures."""
@@ -1762,8 +1761,8 @@ def _validate_transition_parameters(
             invalid_params.append("canned_responses")
         if metadata:
             invalid_params.append("metadata")
-        if on_match is not None:
-            invalid_params.append("on_match")
+        if on_selected is not None:
+            invalid_params.append("on_selected")
         if tool_instruction is not None:
             invalid_params.append("tool_instruction")
 
@@ -1778,7 +1777,7 @@ def _validate_transition_parameters(
         if tool_instruction is not None:
             # This is valid - tool_instruction + tool_state combination
             pass
-        # canned_responses, metadata, on_match are all allowed for tool_state transitions
+        # canned_responses, metadata, on_selected are all allowed for tool_state transitions
 
     elif target_param in ["state", "chat_state"]:
         # State and chat_state overloads: tool_instruction not allowed
@@ -1787,7 +1786,7 @@ def _validate_transition_parameters(
                 f"tool_instruction cannot be used with {target_param}. "
                 "tool_instruction is only valid when using tool_state."
             )
-        # canned_responses, metadata, on_match are all allowed
+        # canned_responses, metadata, on_selected are all allowed
 
     # Special validation for ForkJourneyState
     if is_fork_state and target_param != "journey":
@@ -1809,7 +1808,7 @@ class InitialJourneyState(JourneyState):
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
@@ -1826,7 +1825,7 @@ class InitialJourneyState(JourneyState):
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -1843,7 +1842,7 @@ class InitialJourneyState(JourneyState):
         tool_state: ToolRef,
         description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -1860,7 +1859,7 @@ class InitialJourneyState(JourneyState):
         tool_state: Sequence[ToolRef],
         description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -1888,7 +1887,7 @@ class InitialJourneyState(JourneyState):
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
@@ -1906,7 +1905,7 @@ class InitialJourneyState(JourneyState):
             journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
-            on_match=on_match,
+            on_selected=on_selected,
             is_fork_state=False,
         )
 
@@ -1919,7 +1918,7 @@ class InitialJourneyState(JourneyState):
             journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
-            on_match=on_match,
+            on_selected=on_selected,
             on_message=on_message,
             composition_mode=composition_mode,
             canned_response_field_provider=canned_response_field_provider,
@@ -1940,7 +1939,7 @@ class ToolJourneyState(JourneyState):
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
@@ -1957,7 +1956,7 @@ class ToolJourneyState(JourneyState):
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -1974,7 +1973,7 @@ class ToolJourneyState(JourneyState):
         tool_state: ToolRef,
         description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -1991,7 +1990,7 @@ class ToolJourneyState(JourneyState):
         tool_state: Sequence[ToolRef],
         description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2019,7 +2018,7 @@ class ToolJourneyState(JourneyState):
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
@@ -2037,7 +2036,7 @@ class ToolJourneyState(JourneyState):
             journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
-            on_match=on_match,
+            on_selected=on_selected,
             is_fork_state=False,
         )
 
@@ -2050,7 +2049,7 @@ class ToolJourneyState(JourneyState):
             journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
-            on_match=on_match,
+            on_selected=on_selected,
             on_message=on_message,
             composition_mode=composition_mode,
             canned_response_field_provider=canned_response_field_provider,
@@ -2074,7 +2073,7 @@ class ChatJourneyState(JourneyState):
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
@@ -2091,7 +2090,7 @@ class ChatJourneyState(JourneyState):
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2108,7 +2107,7 @@ class ChatJourneyState(JourneyState):
         tool_state: ToolRef,
         description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2125,7 +2124,7 @@ class ChatJourneyState(JourneyState):
         tool_state: Sequence[ToolRef],
         description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2153,7 +2152,7 @@ class ChatJourneyState(JourneyState):
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
@@ -2171,7 +2170,7 @@ class ChatJourneyState(JourneyState):
             journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
-            on_match=on_match,
+            on_selected=on_selected,
             is_fork_state=False,
         )
 
@@ -2184,7 +2183,7 @@ class ChatJourneyState(JourneyState):
             journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
-            on_match=on_match,
+            on_selected=on_selected,
             on_message=on_message,
             composition_mode=composition_mode,
             canned_response_field_provider=canned_response_field_provider,
@@ -2208,7 +2207,7 @@ class ForkJourneyState(JourneyState):
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2224,7 +2223,7 @@ class ForkJourneyState(JourneyState):
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2241,7 +2240,7 @@ class ForkJourneyState(JourneyState):
         tool_state: ToolRef,
         description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2258,7 +2257,7 @@ class ForkJourneyState(JourneyState):
         tool_state: Sequence[ToolRef],
         description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2286,7 +2285,7 @@ class ForkJourneyState(JourneyState):
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
@@ -2304,7 +2303,7 @@ class ForkJourneyState(JourneyState):
             journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
-            on_match=on_match,
+            on_selected=on_selected,
             is_fork_state=True,
         )
 
@@ -2317,7 +2316,7 @@ class ForkJourneyState(JourneyState):
             journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
-            on_match=on_match,
+            on_selected=on_selected,
             on_message=on_message,
             composition_mode=composition_mode,
             canned_response_field_provider=canned_response_field_provider,
@@ -2333,7 +2332,7 @@ class Journey:
     id: JourneyId
     title: str
     description: str
-    conditions: list[Guideline]
+    triggers: list[Guideline]
     states: Sequence[JourneyState]
     transitions: Sequence[JourneyTransition[JourneyState]]
     tags: Sequence[Tag]
@@ -2437,7 +2436,7 @@ class Journey:
         condition: str | None,
         source: JourneyState,
         target: TState,
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2458,21 +2457,21 @@ class Journey:
         # Register handlers if provided
         if target is not None:
             if (
-                on_match is not None
+                on_selected is not None
                 or on_message is not None
                 or canned_response_field_provider is not None
             ):
                 guideline_id = format_journey_node_guideline_id(target.id, transition.id)
                 engine_hooks = self._container[EngineHooks]
 
-                if on_match is not None:
+                if on_selected is not None:
                     shim = partial(
                         Journey._create_journey_state_handler_shim,
-                        on_match,
+                        on_selected,
                         target.id,
                         transition.id,
                     )
-                    engine_hooks.on_guideline_match_handlers[guideline_id].append(shim)
+                    engine_hooks.on_guideline_selected_handlers[guideline_id].append(shim)
 
                 if on_message is not None:
                     shim = partial(
@@ -2488,7 +2487,7 @@ class Journey:
                         Server._create_field_provider_shim,
                         canned_response_field_provider,
                     )
-                    engine_hooks.on_guideline_match_handlers[guideline_id].append(shim)
+                    engine_hooks.on_guideline_selected_handlers[guideline_id].append(shim)
 
         return JourneyTransition[TState](
             id=transition.id,
@@ -2510,7 +2509,7 @@ class Journey:
         composition_mode: CompositionMode | None = None,
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
         | None = None,
-        on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2534,7 +2533,7 @@ class Journey:
             criticality=criticality,
             composition_mode=composition_mode,
             matcher=matcher,
-            on_match=on_match,
+            on_selected=on_selected,
             on_message=on_message,
             canned_response_field_provider=canned_response_field_provider,
             tags=[t.id for t in tags] if tags else None,
@@ -2559,7 +2558,7 @@ class Journey:
         composition_mode: CompositionMode | None = None,
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
         | None = None,
-        on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         tags: Sequence[Tag] = [],
@@ -2580,7 +2579,7 @@ class Journey:
             canned_responses=canned_responses,
             composition_mode=composition_mode,
             matcher=matcher,
-            on_match=on_match,
+            on_selected=on_selected,
             canned_response_field_provider=canned_response_field_provider,
             tags=tags,
             labels=labels,
@@ -2848,6 +2847,22 @@ class Variable:
             key=f"tag:{tag}",
             data=value,
         )
+
+    async def set_value_for_agent(self, agent: Agent, value: JSONSerializable) -> None:
+        """Sets the value of the variable for a specific agent."""
+        await self._container[ContextVariableStore].update_value(
+            variable_id=self.id,
+            key=_Tag.for_agent_id(agent.id).id,
+            data=value,
+        )
+
+    async def get_value_for_agent(self, agent: Agent) -> JSONSerializable | None:
+        """Retrieves the value of the variable for a specific agent."""
+        value = await self._container[ContextVariableStore].read_value(
+            variable_id=self.id,
+            key=_Tag.for_agent_id(agent.id).id,
+        )
+        return value.data if value else None
 
     async def set_global_value(self, value: JSONSerializable) -> None:
         """Sets the global value of the variable, which is accessible to all customers by default."""
@@ -3205,28 +3220,28 @@ class Agent:
         self,
         title: str,
         description: str,
-        conditions: list[str | Guideline],
+        triggers: list[str | Guideline] | None = None,
         id: JourneyId | None = None,
         composition_mode: CompositionMode | None = None,
-        on_match: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
         tags: Sequence[Tag] = [],
         labels: Iterable[str] = (),
         dependencies: Sequence[Guideline | Journey] = [],
         priority: int = 0,
     ) -> Journey:
-        """Creates a new journey with the specified title, description, and conditions."""
+        """Creates a new journey with the specified title, description, and triggers."""
 
         self._server._advance_creation_progress()
 
         journey = await self._server.create_journey(
             title,
             description,
-            conditions,
+            triggers,
             tags=[t.id for t in tags],
             id=id,
             composition_mode=composition_mode,
-            on_match=on_match,
+            on_selected=on_selected,
             on_message=on_message,
             labels=labels,
             priority=priority,
@@ -3244,7 +3259,7 @@ class Agent:
             id=journey.id,
             title=journey.title,
             description=description,
-            conditions=journey.conditions,
+            triggers=journey.triggers,
             tags=[*journey.tags, *tags],
             states=journey.states,
             transitions=journey.transitions,
@@ -3284,7 +3299,7 @@ class Agent:
         composition_mode: CompositionMode | None = None,
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
         | None = None,
-        on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -3308,7 +3323,7 @@ class Agent:
             criticality=criticality,
             composition_mode=composition_mode,
             matcher=matcher,
-            on_match=on_match,
+            on_selected=on_selected,
             on_message=on_message,
             canned_response_field_provider=canned_response_field_provider,
             tags=[_Tag.for_agent_id(self.id).id, *[t.id for t in tags]],
@@ -3334,7 +3349,7 @@ class Agent:
         composition_mode: CompositionMode | None = None,
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
         | None = None,
-        on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         tags: Sequence[Tag] = [],
@@ -3355,7 +3370,7 @@ class Agent:
             canned_responses=canned_responses,
             composition_mode=composition_mode,
             matcher=matcher,
-            on_match=on_match,
+            on_selected=on_selected,
             criticality=criticality,
             canned_response_field_provider=canned_response_field_provider,
             tags=tags,
@@ -4198,12 +4213,12 @@ class Server:
         self,
         journey: Journey,
     ) -> None:
-        # Only evaluate journeys that have trigger conditions.
-        # Sub-journeys (conditions=[]) are evaluated as part of their parent
+        # Only evaluate journeys that have triggers.
+        # Sub-journeys (triggers=[]) are evaluated as part of their parent
         # journey's projection via link resolution. Evaluating them independently
         # would overwrite the parent's correct reachable_follow_ups data with
         # terminal paths (['None']) since the sub-journey doesn't see the full chain.
-        if not journey.conditions:
+        if not journey.triggers:
             return
         self._journey_evaluations[journey.id] = ((journey,), self._evaluator.evaluate_journey)
 
@@ -4244,7 +4259,7 @@ class Server:
         composition_mode: CompositionMode | None,
         canned_responses: Sequence[CannedResponseId],
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]] | None,
-        on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None,
+        on_selected: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None,
         on_message: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None,
@@ -4373,19 +4388,19 @@ class Server:
             ] = strategy
 
         if (
-            on_match is not None
+            on_selected is not None
             or on_message is not None
             or canned_response_field_provider is not None
         ):
             engine_hooks = self.container[EngineHooks]
 
-            if on_match is not None:
+            if on_selected is not None:
                 shim = partial(
                     Server._create_guideline_handler_shim,
-                    on_match,
+                    on_selected,
                     guideline.id,
                 )
-                engine_hooks.on_guideline_match_handlers[guideline.id].append(shim)
+                engine_hooks.on_guideline_selected_handlers[guideline.id].append(shim)
 
             if on_message is not None:
                 shim = partial(
@@ -4400,7 +4415,7 @@ class Server:
                     Server._create_field_provider_shim,
                     canned_response_field_provider,
                 )
-                engine_hooks.on_guideline_match_handlers[guideline.id].append(shim)
+                engine_hooks.on_guideline_selected_handlers[guideline.id].append(shim)
 
         return result_guideline
 
@@ -5204,37 +5219,37 @@ class Server:
         self,
         title: str,
         description: str,
-        conditions: list[str | Guideline],
+        triggers: list[str | Guideline] | None = None,
         tags: Sequence[TagId] = [],
         id: JourneyId | None = None,
         composition_mode: CompositionMode | None = None,
-        on_match: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
         labels: Iterable[str] = (),
         priority: int = 0,
     ) -> Journey:
-        """Creates a new journey with the specified title, description, and conditions."""
+        """Creates a new journey with the specified title, description, and triggers."""
 
         self._advance_creation_progress()
 
-        condition_guidelines = [c for c in conditions if isinstance(c, Guideline)]
+        trigger_guidelines = [c for c in (triggers or []) if isinstance(c, Guideline)]
 
-        str_conditions = [c for c in conditions if isinstance(c, str)]
+        str_triggers = [c for c in (triggers or []) if isinstance(c, str)]
 
-        for str_condition in str_conditions:
+        for str_trigger in str_triggers:
             guideline = await self._store_provider.get_store(
                 GuidelineStore, StoreProviderHints(call_site="sdk")
             ).create_guideline(
-                condition=str_condition,
+                condition=str_trigger,
             )
 
             self._add_guideline_evaluation(
                 guideline.id,
-                GuidelineContent(condition=str_condition, action=None),
+                GuidelineContent(condition=str_trigger, action=None),
                 tool_ids=[],
             )
 
-            condition_guidelines.append(
+            trigger_guidelines.append(
                 Guideline(
                     id=guideline.id,
                     condition=guideline.content.condition,
@@ -5252,7 +5267,7 @@ class Server:
         ).create_journey(
             title=title,
             description=description,
-            conditions=[c.id for c in condition_guidelines],
+            triggers=[c.id for c in trigger_guidelines],
             tags=[],
             id=id,
             composition_mode=CompositionMode._to_core_composition_mode(composition_mode),
@@ -5264,7 +5279,7 @@ class Server:
             id=stored_journey.id,
             title=title,
             description=description,
-            conditions=condition_guidelines,
+            triggers=trigger_guidelines,
             states=[],
             transitions=[],
             tags=_tags_from_ids(tags),
@@ -5294,7 +5309,7 @@ class Server:
             )
         )
 
-        for c in condition_guidelines:
+        for c in trigger_guidelines:
             await self._store_provider.get_store(
                 GuidelineStore, StoreProviderHints(call_site="sdk")
             ).upsert_tag(
@@ -5304,14 +5319,14 @@ class Server:
 
         self._add_journey_evaluation(journey)
 
-        # Register journey-level on_match and on_message handlers
-        if on_match:
+        # Register journey-level on_selected and on_message handlers
+        if on_selected:
             engine_hooks = self._container[EngineHooks]
 
-            async def on_match_shim(ctx: EngineContext) -> None:
-                await on_match(ctx, JourneyMatch(journey_id=journey.id))
+            async def on_selected_shim(ctx: EngineContext) -> None:
+                await on_selected(ctx, JourneyMatch(journey_id=journey.id))
 
-            engine_hooks.on_journey_match_handlers[journey.id].append(on_match_shim)
+            engine_hooks.on_journey_selected_handlers[journey.id].append(on_selected_shim)
 
         if on_message:
             engine_hooks = self._container[EngineHooks]
@@ -5700,7 +5715,7 @@ __all__ = [
     "JourneyTransition",
     "JourneyTransitionId",
     "Lifespan",
-    "LoadedContext",
+    "EngineContext",
     "LogLevel",
     "Logger",
     "MATCH_ALWAYS",

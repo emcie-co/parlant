@@ -52,6 +52,7 @@ from parlant.client.types import (
     CustomerTagUpdateParams,
     Event,
     Journey,
+    JourneyGraph,
     JourneyTagUpdateParams,
     JourneyTriggerUpdateParams,
     Guideline,
@@ -1245,7 +1246,7 @@ class Actions:
     def view_journey(
         ctx: click.Context,
         journey_id: str,
-    ) -> Journey:
+    ) -> JourneyGraph:
         client = cast(ParlantClient, ctx.obj.client)
         return client.journeys.retrieve(journey_id=journey_id)
 

@@ -34,6 +34,7 @@ from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.vector_database import (
     BaseDocument as VectorBaseDocument,
     VectorCollection,
+    VectorCollectionIndex,
     VectorDatabase,
 )
 from parlant.core.persistence.vector_database_helper import (
@@ -264,6 +265,7 @@ class GlossaryVectorStore(GlossaryStore):
                 embedder_type=embedder_type,
                 document_loader=self._document_loader,
             )
+            await self._collection.ensure_indexes([VectorCollectionIndex(field="id")])
 
         async with DocumentStoreMigrationHelper(
             store=self,

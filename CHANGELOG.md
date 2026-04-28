@@ -5,7 +5,32 @@ All notable changes to Parlant will be documented here.
 ## [Unreleased]
 TBD
 
-## [3.3.1] - 2025-04-14
+## [3.3.2] - 2026-04-28
+
+### Added
+
+- Add `PARLANT_TOOL_CALL_TIMEOUT` environment variable to control the plugin tool-call timeout
+
+### Changed
+
+- Include guideline description (in addition to the condition) in matcher prompts
+- Render active journeys' descriptions in the canned response draft prompt
+- Improve error messages surfaced by `EmcieService` to be more diagnostic
+- Relax the `aiopenapi3` pin to `>=0.8.1,<0.9.0`
+
+### Fixed
+
+- Fix redundant batch creation in `ToolCaller` across guideline matches, which in some agents caused a lot of latency unnecessarily
+- Fix WebSocketLogger event loop starvation which progressively blocked the async event loop, causing increasing latency over time
+- Fix `p.Server.current` becoming unavailable in the `resolve_tool` plugin endpoint under Uvicorn 0.39+. Context vars are now restored at the start of `resolve_tool`, mirroring the existing pattern in `call_tool`, so choice providers depending on `p.Server.current` work again
+- Fix MCP tool clients getting stuck after sessions go stale. Clients now reconnect automatically instead of failing subsequent calls
+
+### Security
+
+- Upgrade dependencies to address known CVEs: authlib (>=1.6.11), requests (>=2.33.0), fastmcp (>=3.2.0), litellm (>=1.83.0), pytest (>=9.0.3), pyjwt (>=2.11.1), and constrain transitive deps — aiohttp, cryptography, pillow, pyopenssl, werkzeug, Mako, pyasn1, python-multipart, orjson, Pygments, diskcache
+- Upgrade chat frontend: vite (>=7.3.2) and override transitive deps: picomatch, lodash, flatted, brace-expansion, immutable, yaml
+
+## [3.3.1] - 2026-04-14
 
 ### Added
 
@@ -28,7 +53,7 @@ TBD
 - Fix `Variable.get_value()` returning `None` when called from a retriever, caused by retrievers starting before context variables were loaded
 - Fix journey tool-state auto-advancing even when the tool did not run
 
-## [3.3.0] - 2025-03-15
+## [3.3.0] - 2026-03-15
 
 ### Added
 
@@ -80,7 +105,7 @@ TBD
 
 - Remove stale `parlant-test` entry point and testing framework documentation from README
 
-## [3.2.2] - 2025-02-18
+## [3.2.2] - 2026-02-18
 
 ### Added
 

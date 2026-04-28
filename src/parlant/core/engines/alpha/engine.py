@@ -1233,6 +1233,13 @@ class AlphaEngine(Engine):
             if skip.guideline.metadata.get("journey_node"):
                 edge_id = extract_edge_id_from_journey_node_guideline_id(skip.guideline.id)
 
+                journey_id = cast(str, skip.metadata.get("step_selection_journey_id"))
+                skip_journey_last_modified = ""
+                if journeys and journey_id:
+                    j = journeys.get(JourneyId(journey_id))
+                    if j:
+                        skip_journey_last_modified = j.last_modified.isoformat()
+
                 self._tracer.add_event(
                     "journey.state.skipped",
                     attributes={
@@ -1244,7 +1251,12 @@ class AlphaEngine(Engine):
                         "journey_path": json.dumps(
                             skip.guideline.metadata.get("journey_path_guideline_ids", [])
                         ),
-                        "journey_id": cast(str, skip.metadata.get("step_selection_journey_id")),
+                        "journey_id": journey_id,
+                        **(
+                            {"last_modified": skip_journey_last_modified}
+                            if skip_journey_last_modified
+                            else {}
+                        ),
                         **(
                             {
                                 "sub_journey_id": cast(
@@ -1270,6 +1282,7 @@ class AlphaEngine(Engine):
                     "gm.skipped",
                     attributes={
                         "guideline_id": skip.guideline.id,
+                        "last_modified": skip.guideline.last_modified.isoformat(),
                         "rationale": skip.rationale,
                     },
                 )

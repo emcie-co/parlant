@@ -389,6 +389,17 @@ class GPT_5_1(OpenAISchematicGenerator[T]):
         return 400_000
 
 
+class GPT_5_2(OpenAISchematicGenerator[T]):
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="gpt-5.2", logger=logger, tracer=tracer, meter=meter)
+        self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 400_000
+
+
 class GPT_5_Mini(OpenAISchematicGenerator[T]):
     def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
         super().__init__(model_name="gpt-5-mini", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
@@ -753,12 +764,12 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
         match hints.get("model_size", ModelSize.AUTO):
             case ModelSize.AUTO:
                 return {
-                    SingleToolBatchSchema: GPT_4o[SingleToolBatchSchema],
-                    NonConsequentialToolBatchSchema: GPT_4_1[NonConsequentialToolBatchSchema],
+                    SingleToolBatchSchema: GPT_5_2[SingleToolBatchSchema],
+                    NonConsequentialToolBatchSchema: GPT_5_2[NonConsequentialToolBatchSchema],
                     JourneyBacktrackNodeSelectionSchema: GPT_4_1[
                         JourneyBacktrackNodeSelectionSchema
                     ],
-                    CannedResponseDraftSchema: GPT_4_1[CannedResponseDraftSchema],
+                    CannedResponseDraftSchema: GPT_5_2[CannedResponseDraftSchema],
                     CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
                     JourneyNextStepSelectionSchema: GPT_4_1[JourneyNextStepSelectionSchema],
                     JourneyBacktrackCheckSchema: GPT_4_1_Mini[JourneyBacktrackCheckSchema],

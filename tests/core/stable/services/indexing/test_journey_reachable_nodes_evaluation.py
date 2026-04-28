@@ -318,7 +318,7 @@ async def test_that_projection_produces_valid_guidelines_for_reachable_evaluatio
     sub = await journey_store.create_journey(
         title="Identity Verification",
         description="Verify customer identity",
-        conditions=[],
+        triggers=[],
     )
     verify_node = await journey_store.create_node(
         sub.id, kind=JourneyNodeKind.CHAT, action="Ask the customer for their ID number", tools=[]
@@ -331,7 +331,7 @@ async def test_that_projection_produces_valid_guidelines_for_reachable_evaluatio
     parent = await journey_store.create_journey(
         title="Account Opening",
         description="Open a new bank account",
-        conditions=[],
+        triggers=[],
     )
     collect_info = await journey_store.create_node(
         parent.id,
@@ -422,7 +422,7 @@ async def test_that_chained_linked_journeys_have_correct_node_wrapper_graph(
 
     # Sub-journey 1: identity
     sub1 = await journey_store.create_journey(
-        title="Identity Verification", description="sub1", conditions=[]
+        title="Identity Verification", description="sub1", triggers=[]
     )
     id_node = await journey_store.create_node(
         sub1.id, kind=JourneyNodeKind.CHAT, action="ask for ID", tools=[]
@@ -430,9 +430,7 @@ async def test_that_chained_linked_journeys_have_correct_node_wrapper_graph(
     await journey_store.create_edge(sub1.id, source=sub1.root_id, target=id_node.id, condition=None)
 
     # Sub-journey 2: credit
-    sub2 = await journey_store.create_journey(
-        title="Credit Check", description="sub2", conditions=[]
-    )
+    sub2 = await journey_store.create_journey(title="Credit Check", description="sub2", triggers=[])
     credit_node = await journey_store.create_node(
         sub2.id, kind=JourneyNodeKind.CHAT, action="ask for SSN", tools=[]
     )
@@ -442,7 +440,7 @@ async def test_that_chained_linked_journeys_have_correct_node_wrapper_graph(
 
     # Sub-journey 3: approval
     sub3 = await journey_store.create_journey(
-        title="Loan Approval", description="sub3", conditions=[]
+        title="Loan Approval", description="sub3", triggers=[]
     )
     approval_node = await journey_store.create_node(
         sub3.id, kind=JourneyNodeKind.CHAT, action="approve loan", tools=[]
@@ -453,7 +451,7 @@ async def test_that_chained_linked_journeys_have_correct_node_wrapper_graph(
 
     # Parent: root -> link1 -> [merge1] -> link2 -> [merge2] -> link3 -> [merge3]
     parent = await journey_store.create_journey(
-        title="Loan Application", description="parent", conditions=[]
+        title="Loan Application", description="parent", triggers=[]
     )
     link1 = await journey_store.create_link(
         journey_id=parent.id, source_node_id=parent.root_id, sub_journey_id=sub1.id

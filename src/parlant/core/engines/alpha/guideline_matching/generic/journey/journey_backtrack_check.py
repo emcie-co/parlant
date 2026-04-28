@@ -251,9 +251,7 @@ class JourneyBacktrackCheck:
         else:
             journey_description_str = ""
         if journey_triggers:
-            journey_triggers_str = " OR ".join(
-                f'"{g.content.condition}"' for g in journey_triggers
-            )
+            journey_triggers_str = " OR ".join(f'"{g.content.condition}"' for g in journey_triggers)
             journey_triggers_str = f"\nJourney activation condition: {journey_triggers_str}"
         else:
             journey_triggers_str = ""

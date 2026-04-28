@@ -132,7 +132,7 @@ def create_journey(
         creation_utc=datetime.now(timezone.utc),
         last_modified=datetime.now(timezone.utc),
         description="",
-        conditions=[g.id for g in condition_guidelines],
+        triggers=[g.id for g in condition_guidelines],
         title=title,
         tags=[],
     )

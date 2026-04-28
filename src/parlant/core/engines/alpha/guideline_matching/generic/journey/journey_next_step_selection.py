@@ -91,7 +91,7 @@ class JourneyNextStepSelection:
 
         self._context = context
         self._examined_journey = examined_journey
-        self._journey_conditions = journey_conditions
+        self._journey_triggers = journey_triggers
 
         self._guideline_id_to_guideline: dict[GuidelineId, Guideline] = {
             g.id: g for g in node_guidelines
@@ -424,9 +424,7 @@ class JourneyNextStepSelection:
         else:
             journey_description_str = ""
         if journey_triggers:
-            journey_triggers_str = " OR ".join(
-                f'"{g.content.condition}"' for g in journey_triggers
-            )
+            journey_triggers_str = " OR ".join(f'"{g.content.condition}"' for g in journey_triggers)
             journey_triggers_str = f"\nJourney activation condition: {journey_triggers_str}"
         else:
             journey_triggers_str = ""

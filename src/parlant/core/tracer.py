@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager, ExitStack
 import contextvars
 from typing import Iterator, Mapping, Union, Sequence
-import deprecated
+
 from typing_extensions import override
 
 from parlant.core.common import generate_id
@@ -283,8 +283,3 @@ class CompositeTracer(Tracer):
     def flush(self) -> None:
         for tracer in self._tracers:
             tracer.flush()
-
-
-@deprecated("Please use the Tracer class instead of ContextualCorrelator")
-class ContextualCorrelator(Tracer):
-    pass

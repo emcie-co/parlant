@@ -178,7 +178,7 @@ class EntityQueries:
 
         projectable_journeys = []
         for journey in journeys:
-            if not journey.conditions:
+            if not journey.triggers:
                 continue
             if journey.node_properties is None:
                 warnings.warn(

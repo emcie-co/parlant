@@ -112,8 +112,7 @@ class MongoVectorDatabase(VectorDatabase):
         # Ensure the collection exists in MongoDB before creating a search index
         await self._ensure_collection_exists(mongo_collection.name)
 
-        base_filter_fields = {"id", "version", "checksum"}
-        all_filter_fields = sorted(base_filter_fields | set(filter_fields))
+        all_filter_fields = sorted({"id"} | set(filter_fields))
 
         expected_definition = self._build_index_definition(embedder, all_filter_fields)
 

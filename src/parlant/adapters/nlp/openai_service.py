@@ -104,6 +104,9 @@ class OpenAIEstimatingTokenizer(EstimatingTokenizer):
 
         if "5.1" in model_name:
             model_name_query = model_name.replace("5.1", "5")
+        if "5.2" in model_name:
+            model_name_query = model_name.replace("5.2", "5")
+
         else:
             model_name_query = model_name
 

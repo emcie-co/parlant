@@ -1083,9 +1083,12 @@ class CompositeGuidelineStore(GuidelineStore):
         results = await safe_gather(
             *[try_or_none(store.read_guideline(guideline_id)) for store in self._all_stores]
         )
+
         result = next((r for r in results if r is not None), None)
+
         if result is None:
             raise ItemNotFoundError(item_id=UniqueId(guideline_id))
+
         return result
 
     @override

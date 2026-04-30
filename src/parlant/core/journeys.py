@@ -2186,9 +2186,12 @@ class CompositeJourneyStore(JourneyStore):
         results = await safe_gather(
             *[try_or_none(store.read_journey(journey_id)) for store in self._all_stores]
         )
+
         result = next((r for r in results if r is not None), None)
+
         if result is None:
             raise ItemNotFoundError(item_id=UniqueId(journey_id))
+
         return result
 
     @override
@@ -2306,8 +2309,10 @@ class CompositeJourneyStore(JourneyStore):
         self,
         journey_id: JourneyId,
     ) -> Sequence[JourneyNode]:
-        results = await safe_gather(*[store.list_nodes(journey_id) for store in self._all_stores])
-        return list(chain.from_iterable(results))
+        raw_results = await safe_gather(
+            *[try_or_none(store.list_nodes(journey_id)) for store in self._all_stores]
+        )
+        return list(chain.from_iterable(r for r in raw_results if r is not None))
 
     @override
     async def set_node_metadata(
@@ -2389,9 +2394,9 @@ class CompositeJourneyStore(JourneyStore):
         node_id: Optional[JourneyNodeId] = None,
     ) -> Sequence[JourneyEdge]:
         results = await safe_gather(
-            *[store.list_edges(journey_id, node_id) for store in self._all_stores]
+            *[try_or_none(store.list_edges(journey_id, node_id)) for store in self._all_stores]
         )
-        return list(chain.from_iterable(results))
+        return list(chain.from_iterable(r for r in results if r is not None))
 
     @override
     async def delete_edge(

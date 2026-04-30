@@ -1628,10 +1628,13 @@ class JourneyVectorStore(JourneyStore):
         journey_id: JourneyId,
     ) -> Sequence[JourneyNode]:
         async with self._lock.reader_lock:
-            journey = await self.read_journey(journey_id)
+            try:
+                journey = await self.read_journey(journey_id)
+            except ItemNotFoundError:
+                return []
 
             if not journey:
-                raise ItemNotFoundError(item_id=UniqueId(journey_id))
+                return []
 
             docs = await self._node_association_collection.find(
                 filters={"journey_id": {"$eq": journey_id}}
@@ -1851,10 +1854,13 @@ class JourneyVectorStore(JourneyStore):
     ) -> Sequence[JourneyEdge]:
         async with self._lock.reader_lock:
             if journey_id is not None:
-                journey = await self.read_journey(journey_id)
+                try:
+                    journey = await self.read_journey(journey_id)
+                except ItemNotFoundError:
+                    return []
 
                 if not journey:
-                    raise ItemNotFoundError(item_id=UniqueId(journey_id))
+                    return []
 
                 filters: Where = {"journey_id": {"$eq": journey_id}}
 

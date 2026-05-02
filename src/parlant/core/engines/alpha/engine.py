@@ -475,6 +475,17 @@ class AlphaEngine(Engine):
         # Load the relevant context variable values.
         context.state.context_variables = await self._load_context_variables(context)
 
+        for var, val in context.state.context_variables:
+            self._tracer.add_event(
+                "ctx.variable_loaded",
+                attributes={
+                    "variable_id": var.id,
+                    "name": var.name,
+                    "value": str(val.data),
+                    "last_modified": var.last_modified.isoformat(),
+                },
+            )
+
         # Load relevant glossary terms and capabilities, initially based
         # mostly on the current interaction history.
         glossary, capabilities = await async_utils.safe_gather(
@@ -484,6 +495,16 @@ class AlphaEngine(Engine):
 
         context.state.glossary_terms.update(glossary)
         context.state.capabilities = list(capabilities)
+
+        for term in glossary:
+            self._tracer.add_event(
+                "glossary.term_loaded",
+                attributes={
+                    "term_id": term.id,
+                    "name": term.name,
+                    "last_modified": term.last_modified.isoformat(),
+                },
+            )
 
     async def _run_preparation_iteration(
         self,

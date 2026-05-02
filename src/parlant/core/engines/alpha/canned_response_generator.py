@@ -2434,6 +2434,14 @@ Output a JSON object with three properties:
                 chosen_canned_responses=[(no_match_canrep.id, no_match_canrep.value)],
             )
 
+        self._tracer.add_event(
+            "canrep.selected",
+            attributes={
+                "canned_response_id": selected_canrep_id,
+                "rendered": rendered_canned_response or "",
+            },
+        )
+
         return {
             "draft": draft_response.info,
             "selection": selection_response.info,

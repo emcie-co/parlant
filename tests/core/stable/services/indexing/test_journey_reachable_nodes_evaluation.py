@@ -67,7 +67,7 @@ def _make_guideline(
     return Guideline(
         id=GuidelineId(id),
         creation_utc=datetime.now(timezone.utc),
-        last_modified=datetime.now(timezone.utc),
+        last_modified_utc=datetime.now(timezone.utc),
         content=GuidelineContent(condition=condition, action=action),
         criticality=Criticality.MEDIUM,
         enabled=True,

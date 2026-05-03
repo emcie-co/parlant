@@ -317,7 +317,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                         guideline=Guideline(
                             id=cast(GuidelineId, f"<transient_{generate_id()}>"),
                             creation_utc=datetime.now(),
-                            last_modified=datetime.now(),
+                            last_modified_utc=datetime.now(),
                             content=GuidelineContent(
                                 condition=internal_representation(m.guideline).condition,
                                 action=cast(

@@ -138,7 +138,7 @@ def create_guideline(
     guideline = Guideline(
         id=GuidelineId(generate_id()),
         creation_utc=datetime.now(timezone.utc),
-        last_modified=datetime.now(timezone.utc),
+        last_modified_utc=datetime.now(timezone.utc),
         content=GuidelineContent(
             condition=condition,
             action=action,
@@ -164,7 +164,7 @@ def create_guideline_with_tools(
     guideline = Guideline(
         id=GuidelineId(generate_id()),
         creation_utc=datetime.now(timezone.utc),
-        last_modified=datetime.now(timezone.utc),
+        last_modified_utc=datetime.now(timezone.utc),
         content=GuidelineContent(
             condition=condition,
             action=action,

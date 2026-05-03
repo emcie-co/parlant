@@ -122,7 +122,7 @@ class JourneyLink:
 class Journey:
     id: JourneyId
     creation_utc: datetime
-    last_modified: datetime
+    last_modified_utc: datetime
     description: str
     triggers: Sequence[GuidelineId]
     title: str
@@ -947,7 +947,7 @@ class JourneyVectorStore(JourneyStore):
             id=ObjectId(journey.id),
             version=self.VERSION.to_string(),
             creation_utc=journey.creation_utc.isoformat(),
-            last_modified=journey.last_modified.isoformat(),
+            last_modified=journey.last_modified_utc.isoformat(),
             title=journey.title,
             description=journey.description,
             root_id=journey.root_id,
@@ -977,7 +977,7 @@ class JourneyVectorStore(JourneyStore):
         return Journey(
             id=JourneyId(doc["id"]),
             creation_utc=datetime.fromisoformat(doc["creation_utc"]),
-            last_modified=datetime.fromisoformat(doc.get("last_modified", doc["creation_utc"])),
+            last_modified_utc=datetime.fromisoformat(doc.get("last_modified", doc["creation_utc"])),
             triggers=triggers,
             title=doc["title"],
             description=doc["description"],
@@ -1146,7 +1146,7 @@ class JourneyVectorStore(JourneyStore):
             journey = Journey(
                 id=journey_id,
                 creation_utc=creation_utc,
-                last_modified=creation_utc,
+                last_modified_utc=creation_utc,
                 triggers=triggers,
                 title=title,
                 description=description,

@@ -120,7 +120,7 @@ ContextVariableLastModifiedField: TypeAlias = Annotated[
 
 context_variable_value_example: ExampleJson = {
     "id": "val_789abc",
-    "last_modified": "2024-03-24T12:00:00Z",
+    "last_modified_utc": "2024-03-24T12:00:00Z",
     "data": {
         "balance": 5000.50,
         "currency": "USD",
@@ -143,7 +143,7 @@ class ContextVariableValueDTO(
     """
 
     id: ValueIdField
-    last_modified: LastModifiedField
+    last_modified_utc: LastModifiedField
     data: DataField
 
 
@@ -232,7 +232,7 @@ class ContextVariableDTO(
     tool_id: ToolIdDTO | None = None
     freshness_rules: FreshnessRulesField | None = None
     tags: ContextVariableTagsField | None = None
-    last_modified: ContextVariableLastModifiedField
+    last_modified_utc: ContextVariableLastModifiedField
 
 
 context_variable_tags_update_params_example: ExampleJson = {
@@ -420,7 +420,7 @@ def create_router(
             else None,
             freshness_rules=variable.freshness_rules,
             tags=variable.tags,
-            last_modified=variable.last_modified,
+            last_modified_utc=variable.last_modified_utc,
         )
 
     @router.patch(
@@ -482,7 +482,7 @@ def create_router(
             else None,
             freshness_rules=updated_variable.freshness_rules,
             tags=updated_variable.tags,
-            last_modified=updated_variable.last_modified,
+            last_modified_utc=updated_variable.last_modified_utc,
         )
 
     @router.get(
@@ -519,7 +519,7 @@ def create_router(
                 else None,
                 freshness_rules=v.freshness_rules,
                 tags=v.tags,
-                last_modified=v.last_modified,
+                last_modified_utc=v.last_modified_utc,
             )
             for v in variables
         ]
@@ -565,7 +565,7 @@ def create_router(
             else None,
             freshness_rules=variable.freshness_rules,
             tags=variable.tags,
-            last_modified=variable.last_modified,
+            last_modified_utc=variable.last_modified_utc,
         )
 
         if not include_values:
@@ -581,7 +581,7 @@ def create_router(
             key_value_pairs={
                 key: ContextVariableValueDTO(
                     id=value.id,
-                    last_modified=value.last_modified,
+                    last_modified_utc=value.last_modified_utc,
                     data=cast(JSONSerializableDTO, value.data),
                 )
                 for key, value in key_value_pairs
@@ -661,7 +661,7 @@ def create_router(
         if value:
             return ContextVariableValueDTO(
                 id=value.id,
-                last_modified=value.last_modified,
+                last_modified_utc=value.last_modified_utc,
                 data=cast(JSONSerializableDTO, value.data),
             )
 
@@ -703,7 +703,7 @@ def create_router(
 
         return ContextVariableValueDTO(
             id=value.id,
-            last_modified=value.last_modified,
+            last_modified_utc=value.last_modified_utc,
             data=cast(JSONSerializableDTO, value.data),
         )
 

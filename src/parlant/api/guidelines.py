@@ -442,7 +442,7 @@ def _guideline_relationship_to_dto(
             enabled=rel_source_guideline.enabled,
             tags=rel_source_guideline.tags,
             metadata=rel_source_guideline.metadata,
-            last_modified=rel_source_guideline.last_modified,
+            last_modified_utc=rel_source_guideline.last_modified_utc,
             composition_mode=composition_mode_to_composition_mode_dto(
                 rel_source_guideline.composition_mode
             )
@@ -472,7 +472,7 @@ def _guideline_relationship_to_dto(
             enabled=rel_target_guideline.enabled,
             tags=rel_target_guideline.tags,
             metadata=rel_target_guideline.metadata,
-            last_modified=rel_target_guideline.last_modified,
+            last_modified_utc=rel_target_guideline.last_modified_utc,
             composition_mode=composition_mode_to_composition_mode_dto(
                 rel_target_guideline.composition_mode
             )
@@ -566,7 +566,7 @@ def create_router(
             title=guideline.title,
             criticality=_criticality_to_dto(guideline.criticality),
             metadata=guideline.metadata,
-            last_modified=guideline.last_modified,
+            last_modified_utc=guideline.last_modified_utc,
             enabled=guideline.enabled,
             tags=guideline.tags,
             composition_mode=composition_mode_to_composition_mode_dto(guideline.composition_mode)
@@ -613,7 +613,7 @@ def create_router(
                 title=guideline.title,
                 criticality=_criticality_to_dto(guideline.criticality),
                 metadata=guideline.metadata,
-                last_modified=guideline.last_modified,
+                last_modified_utc=guideline.last_modified_utc,
                 enabled=guideline.enabled,
                 tags=guideline.tags,
                 composition_mode=composition_mode_to_composition_mode_dto(
@@ -679,7 +679,7 @@ def create_router(
                 title=guideline.title,
                 criticality=_criticality_to_dto(guideline.criticality),
                 metadata=guideline.metadata,
-                last_modified=guideline.last_modified,
+                last_modified_utc=guideline.last_modified_utc,
                 enabled=guideline.enabled,
                 tags=guideline.tags,
                 composition_mode=composition_mode_to_composition_mode_dto(
@@ -804,7 +804,7 @@ def create_router(
                 title=updated_guideline.title,
                 criticality=_criticality_to_dto(updated_guideline.criticality),
                 metadata=updated_guideline.metadata,
-                last_modified=updated_guideline.last_modified,
+                last_modified_utc=updated_guideline.last_modified_utc,
                 enabled=updated_guideline.enabled,
                 tags=updated_guideline.tags,
                 composition_mode=composition_mode_to_composition_mode_dto(

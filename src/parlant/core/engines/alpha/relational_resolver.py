@@ -1539,7 +1539,7 @@ class RelationalResolver:
                     "gm.activate",
                     attributes={
                         "guideline_id": match.guideline.id,
-                        "last_modified": match.guideline.last_modified.isoformat(),
+                        "last_modified": match.guideline.last_modified_utc.isoformat(),
                         "rationale": "Activated via entailment",
                     },
                 )
@@ -1555,7 +1555,7 @@ class RelationalResolver:
                 "gm.deactivate",
                 attributes={
                     "guideline_id": gid,
-                    "last_modified": m.guideline.last_modified.isoformat(),
+                    "last_modified": m.guideline.last_modified_utc.isoformat(),
                     "rationale": rationale,
                 },
             )

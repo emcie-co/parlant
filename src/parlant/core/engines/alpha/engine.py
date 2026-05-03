@@ -1060,12 +1060,12 @@ class AlphaEngine(Engine):
             )
 
             event_data["matched_guidelines"] = [
-                {"id": m.guideline.id, "last_modified": m.guideline.last_modified.isoformat()}
+                {"id": m.guideline.id, "last_modified": m.guideline.last_modified_utc.isoformat()}
                 for m in all_matches
             ]
 
             event_data["matched_journeys"] = [
-                {"id": j.id, "last_modified": j.last_modified.isoformat()}
+                {"id": j.id, "last_modified": j.last_modified_utc.isoformat()}
                 for j in context.state.journeys
             ]
 
@@ -1176,11 +1176,11 @@ class AlphaEngine(Engine):
             if match.guideline.metadata.get("journey_node"):
                 edge_id = extract_edge_id_from_journey_node_guideline_id(match.guideline.id)
                 journey_id = cast(str, match.metadata.get("step_selection_journey_id"))
-                journey_last_modified = ""
+                journey_last_modified_utc = ""
                 if journeys and journey_id:
                     j = journeys.get(JourneyId(journey_id))
                     if j:
-                        journey_last_modified = j.last_modified.isoformat()
+                        journey_last_modified_utc = j.last_modified_utc.isoformat()
 
                 self._tracer.add_event(
                     "journey.state.activate",
@@ -1195,8 +1195,8 @@ class AlphaEngine(Engine):
                         "rationale": match.rationale,
                         "journey_id": journey_id,
                         **(
-                            {"last_modified": journey_last_modified}
-                            if journey_last_modified
+                            {"last_modified": journey_last_modified_utc}
+                            if journey_last_modified_utc
                             else {}
                         ),
                         **(
@@ -1224,7 +1224,7 @@ class AlphaEngine(Engine):
                     "gm.activate",
                     attributes={
                         "guideline_id": match.guideline.id,
-                        "last_modified": match.guideline.last_modified.isoformat(),
+                        "last_modified": match.guideline.last_modified_utc.isoformat(),
                         "rationale": match.rationale,
                     },
                 )
@@ -1234,11 +1234,11 @@ class AlphaEngine(Engine):
                 edge_id = extract_edge_id_from_journey_node_guideline_id(skip.guideline.id)
 
                 journey_id = cast(str, skip.metadata.get("step_selection_journey_id"))
-                skip_journey_last_modified = ""
+                skip_journey_last_modified_utc = ""
                 if journeys and journey_id:
                     j = journeys.get(JourneyId(journey_id))
                     if j:
-                        skip_journey_last_modified = j.last_modified.isoformat()
+                        skip_journey_last_modified_utc = j.last_modified_utc.isoformat()
 
                 self._tracer.add_event(
                     "journey.state.skipped",
@@ -1253,8 +1253,8 @@ class AlphaEngine(Engine):
                         ),
                         "journey_id": journey_id,
                         **(
-                            {"last_modified": skip_journey_last_modified}
-                            if skip_journey_last_modified
+                            {"last_modified": skip_journey_last_modified_utc}
+                            if skip_journey_last_modified_utc
                             else {}
                         ),
                         **(
@@ -1282,7 +1282,7 @@ class AlphaEngine(Engine):
                     "gm.skipped",
                     attributes={
                         "guideline_id": skip.guideline.id,
-                        "last_modified": skip.guideline.last_modified.isoformat(),
+                        "last_modified": skip.guideline.last_modified_utc.isoformat(),
                         "rationale": skip.rationale,
                     },
                 )
@@ -2045,7 +2045,7 @@ class AlphaEngine(Engine):
                 guideline=Guideline(
                     id=GuidelineId(f"<canrep-request-{i}>"),
                     creation_utc=datetime.now(timezone.utc),
-                    last_modified=datetime.now(timezone.utc),
+                    last_modified_utc=datetime.now(timezone.utc),
                     content=GuidelineContent(
                         condition="",  # FIXME: Change this to None when we support `str | None` conditions
                         action=utterance_request.action,
@@ -2119,7 +2119,7 @@ class AlphaEngine(Engine):
                             guideline=Guideline(
                                 id=GuidelineId(f"<tool-guideline-{guideline_index}>"),
                                 creation_utc=datetime.now(timezone.utc),
-                                last_modified=datetime.now(timezone.utc),
+                                last_modified_utc=datetime.now(timezone.utc),
                                 content=GuidelineContent(
                                     condition=guideline_data.get("condition", ""),
                                     action=guideline_data["action"],
@@ -2321,7 +2321,7 @@ async def load_fresh_context_variable_value(
     # So we do have a tool attached.
     # Do we already have a value, and is it sufficiently fresh?
     if value and variable.freshness_rules:
-        cron_iterator = croniter(variable.freshness_rules, value.last_modified)
+        cron_iterator = croniter(variable.freshness_rules, value.last_modified_utc)
 
         if cron_iterator.get_next(datetime) > current_time:
             # We already have a fresh value in store. Return it.

@@ -348,7 +348,7 @@ class GuidelineDTO(
     enabled: GuidelineEnabledField = True
     tags: GuidelineTagsField
     metadata: GuidelineMetadataField
-    last_modified: GuidelineLastModifiedField
+    last_modified_utc: GuidelineLastModifiedField
     composition_mode: CompositionModeDTO | None = None
     track: bool = True
     labels: GuidelineLabelsField = set()

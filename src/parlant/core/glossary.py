@@ -58,7 +58,7 @@ TermId = NewType("TermId", str)
 class Term:
     id: TermId
     creation_utc: datetime
-    last_modified: datetime
+    last_modified_utc: datetime
     name: str
     description: str
     synonyms: list[str]
@@ -303,7 +303,7 @@ class GlossaryVectorStore(GlossaryStore):
             content=content,
             checksum=checksum,
             creation_utc=term.creation_utc.isoformat(),
-            last_modified=term.last_modified.isoformat(),
+            last_modified=term.last_modified_utc.isoformat(),
             name=term.name,
             description=term.description,
             synonyms=(", ").join(term.synonyms) if term.synonyms is not None else "",
@@ -317,7 +317,7 @@ class GlossaryVectorStore(GlossaryStore):
         return Term(
             id=TermId(term_document["id"]),
             creation_utc=datetime.fromisoformat(term_document["creation_utc"]),
-            last_modified=datetime.fromisoformat(term_document["last_modified"]),
+            last_modified_utc=datetime.fromisoformat(term_document["last_modified"]),
             name=term_document["name"],
             description=term_document["description"],
             synonyms=term_document["synonyms"].split(", ") if term_document["synonyms"] else [],
@@ -356,7 +356,7 @@ class GlossaryVectorStore(GlossaryStore):
             term = Term(
                 id=term_id,
                 creation_utc=creation_utc,
-                last_modified=creation_utc,
+                last_modified_utc=creation_utc,
                 name=name,
                 description=description,
                 synonyms=list(synonyms) if synonyms else [],

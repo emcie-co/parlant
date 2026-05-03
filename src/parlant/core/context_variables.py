@@ -53,7 +53,7 @@ class ContextVariable:
     name: str
     description: Optional[str]
     creation_utc: datetime
-    last_modified: datetime
+    last_modified_utc: datetime
     tool_id: Optional[ToolId]
     freshness_rules: Optional[str]
     tags: Sequence[TagId]
@@ -66,7 +66,7 @@ class ContextVariable:
 @dataclass(frozen=True)
 class ContextVariableValue:
     id: ContextVariableValueId
-    last_modified: datetime
+    last_modified_utc: datetime
     data: JSONSerializable
 
 
@@ -447,7 +447,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
             name=context_variable.name,
             description=context_variable.description,
             creation_utc=context_variable.creation_utc.isoformat(),
-            last_modified=context_variable.last_modified.isoformat(),
+            last_modified=context_variable.last_modified_utc.isoformat(),
             tool_id=context_variable.tool_id.to_string() if context_variable.tool_id else None,
             freshness_rules=context_variable.freshness_rules,
         )
@@ -458,7 +458,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
         variable_id: ContextVariableId,
         key: str,
     ) -> _ContextVariableValueDocument:
-        last_modified_str = context_variable_value.last_modified.isoformat()
+        last_modified_str = context_variable_value.last_modified_utc.isoformat()
 
         return _ContextVariableValueDocument(
             id=ObjectId(context_variable_value.id),
@@ -486,7 +486,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
             name=context_variable_document["name"],
             description=context_variable_document.get("description"),
             creation_utc=datetime.fromisoformat(context_variable_document["creation_utc"]),
-            last_modified=datetime.fromisoformat(context_variable_document["last_modified"]),
+            last_modified_utc=datetime.fromisoformat(context_variable_document["last_modified"]),
             tool_id=ToolId.from_string(context_variable_document["tool_id"])
             if context_variable_document["tool_id"]
             else None,
@@ -500,7 +500,9 @@ class ContextVariableDocumentStore(ContextVariableStore):
     ) -> ContextVariableValue:
         return ContextVariableValue(
             id=ContextVariableValueId(context_variable_value_document["id"]),
-            last_modified=datetime.fromisoformat(context_variable_value_document["last_modified"]),
+            last_modified_utc=datetime.fromisoformat(
+                context_variable_value_document["last_modified"]
+            ),
             data=context_variable_value_document["data"],
         )
 
@@ -525,7 +527,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
                 name=name,
                 description=description,
                 creation_utc=creation_utc,
-                last_modified=creation_utc,
+                last_modified_utc=creation_utc,
                 tool_id=tool_id,
                 freshness_rules=freshness_rules,
                 tags=tags or [],
@@ -698,7 +700,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
 
             value = ContextVariableValue(
                 id=ContextVariableValueId(self._id_generator.generate(value_checksum)),
-                last_modified=last_modified,
+                last_modified_utc=last_modified,
                 data=data,
             )
 

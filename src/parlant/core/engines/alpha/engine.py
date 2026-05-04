@@ -513,7 +513,7 @@ class AlphaEngine(Engine):
                     "variable_id": var.id,
                     "name": var.name,
                     "value": str(val.data),
-                    "last_modified": var.last_modified.isoformat(),
+                    "last_modified_utc": var.last_modified_utc.isoformat(),
                 },
             )
 
@@ -533,7 +533,7 @@ class AlphaEngine(Engine):
                 attributes={
                     "term_id": term.id,
                     "name": term.name,
-                    "last_modified": term.last_modified.isoformat(),
+                    "last_modified_utc": term.last_modified_utc.isoformat(),
                 },
             )
 

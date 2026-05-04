@@ -4024,8 +4024,8 @@ class Server:
         configure_api: Callable[[FastAPI], Awaitable[None]] | None = None,
     ) -> None:
         self.host = host
-        self.port = port
-        self.tool_service_port = tool_service_port
+        self.port = int(os.environ.get("PORT", port))
+        self.tool_service_port = int(os.environ.get("TOOL_SERVICE_PORT", tool_service_port))
         self.log_level = log_level
         self.modules = modules
 

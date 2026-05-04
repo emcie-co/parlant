@@ -35,25 +35,9 @@ from pydantic import ValidationError
 import tiktoken
 
 from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
-from parlant.core.engines.alpha.canned_response_generator import (
-    CannedResponseDraftSchema,
-    CannedResponseSelectionSchema,
-)
 
-from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
-    JourneyBacktrackCheckSchema,
-)
-from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
-    JourneyBacktrackNodeSelectionSchema,
-)
-from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_step_selection import (
-    JourneyNextStepSelectionSchema,
-)
+
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.engines.alpha.tool_calling.single_tool_batch import (
-    NonConsequentialToolBatchSchema,
-    SingleToolBatchSchema,
-)
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
@@ -107,8 +91,7 @@ class OpenAIEstimatingTokenizer(EstimatingTokenizer):
         if "5.2" in model_name:
             model_name_query = model_name.replace("5.2", "5")
         if "5.4" in model_name:
-            model_name_query = model_name.replace("5.2", "5")
-
+            model_name_query = model_name.replace("5.4", "5")
 
         else:
             model_name_query = model_name
@@ -398,6 +381,17 @@ class GPT_5_1(OpenAISchematicGenerator[T]):
 class GPT_5_2(OpenAISchematicGenerator[T]):
     def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
         super().__init__(model_name="gpt-5.2", logger=logger, tracer=tracer, meter=meter)
+        self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 400_000
+
+
+class GPT_5_4(OpenAISchematicGenerator[T]):
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+        super().__init__(model_name="gpt-5.4", logger=logger, tracer=tracer, meter=meter)
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property

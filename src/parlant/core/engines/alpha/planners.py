@@ -14,6 +14,7 @@
 
 from abc import ABC, abstractmethod
 import json
+import traceback
 from itertools import chain
 from typing import Optional, Sequence
 
@@ -226,7 +227,7 @@ class ToolOrchestrationPlan(BasicPlan):
         self.reevaluate_all_tool_guidelines = True
 
     @property
-    def reasoning(self) -> str:
+    def reasoning(self) -> str:  # TODO use this when writing the on guideline match hooks
         return ""
 
     async def do_on_guidelines_matched(
@@ -255,11 +256,33 @@ class ToolOrchestrationPlan(BasicPlan):
 
         prompt = self._build_prompt(context, call_index, inference_result.tool_descriptions)
 
-        result = await self._schematic_generator.generate(prompt)
+        result_content: ToolInferenceChoiceSchema | None = None
+        last_generation_exception: Exception | None = None
 
-        self._logger.trace(f"Completion:\n{result.content.model_dump_json(indent=2)}")
+        for generation_attempt in range(3):
+            try:
+                result = await self._schematic_generator.generate(prompt)
+                result_content = result.content
+                self._logger.trace(f"Completion:\n{result_content.model_dump_json(indent=2)}")
+                break
+            except Exception as exc:
+                self._logger.warning(
+                    f"Attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+                )
+                last_generation_exception = exc
 
-        chosen_ids = set(result.content.tool_call_ids)
+        if result_content is None:
+            self._logger.warning(
+                f"Tool orchestration LLM failed after 3 attempts; "
+                f"falling back to running all inferred tool calls. "
+                f"Last error: {last_generation_exception}"
+            )
+            result_content = ToolInferenceChoiceSchema(
+                tool_call_ids=list(call_index.keys()),
+                further_iteration_needed=False,
+            )
+
+        chosen_ids = set(result_content.tool_call_ids)
         # Accept both numeric call numbers ("1", "2", ...) and full tool IDs ("built-in:X")
         # as the LLM may return either form.
         chosen_calls = [
@@ -271,7 +294,7 @@ class ToolOrchestrationPlan(BasicPlan):
         if len(chosen_calls) == len(all_calls):
             self.needs_additional_iteration = False
         else:
-            self.needs_additional_iteration = result.content.further_iteration_needed
+            self.needs_additional_iteration = result_content.further_iteration_needed
 
         chosen_tool_ids = {str(call.tool_id) for call in chosen_calls}
         for cid, call in call_index.items():

@@ -106,6 +106,9 @@ class OpenAIEstimatingTokenizer(EstimatingTokenizer):
             model_name_query = model_name.replace("5.1", "5")
         if "5.2" in model_name:
             model_name_query = model_name.replace("5.2", "5")
+        if "5.4" in model_name:
+            model_name_query = model_name.replace("5.2", "5")
+
 
         else:
             model_name_query = model_name
@@ -766,17 +769,8 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
     ) -> OpenAISchematicGenerator[T]:
         match hints.get("model_size", ModelSize.AUTO):
             case ModelSize.AUTO:
-                return {
-                    SingleToolBatchSchema: GPT_5_2[SingleToolBatchSchema],
-                    NonConsequentialToolBatchSchema: GPT_5_2[NonConsequentialToolBatchSchema],
-                    JourneyBacktrackNodeSelectionSchema: GPT_4_1[
-                        JourneyBacktrackNodeSelectionSchema
-                    ],
-                    CannedResponseDraftSchema: GPT_5_2[CannedResponseDraftSchema],
-                    CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
-                    JourneyNextStepSelectionSchema: GPT_4_1[JourneyNextStepSelectionSchema],
-                    JourneyBacktrackCheckSchema: GPT_4_1_Mini[JourneyBacktrackCheckSchema],
-                }.get(t, GPT_4o_24_08_06[t])(self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
+
+                return GPT_5_4[t](self._logger, self._tracer, self._meter)  # type: ignore
             case ModelSize.NANO:
                 match hints.get("model_generation", "auto"):
                     case "auto" | "stable":

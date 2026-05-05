@@ -379,8 +379,8 @@ class GPT_5_1(OpenAISchematicGenerator[T]):
 
 
 class GPT_5_2(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(model_name="gpt-5.2", logger=logger, tracer=tracer, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+        super().__init__(model_name="gpt-5.2", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -390,8 +390,8 @@ class GPT_5_2(OpenAISchematicGenerator[T]):
 
 
 class GPT_5_4(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(model_name="gpt-5.4", logger=logger, tracer=tracer, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+        super().__init__(model_name="gpt-5.4", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -764,7 +764,7 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
         match hints.get("model_size", ModelSize.AUTO):
             case ModelSize.AUTO:
 
-                return GPT_5_4[t](self._logger, self._tracer, self._meter)  # type: ignore
+                return GPT_5_4[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
             case ModelSize.NANO:
                 match hints.get("model_generation", "auto"):
                     case "auto" | "stable":

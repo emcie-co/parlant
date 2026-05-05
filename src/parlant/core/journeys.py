@@ -503,9 +503,7 @@ class JourneyVectorStore(JourneyStore):
         self._edge_association_collection: DocumentCollection[JourneyEdgeAssociationDocument]
 
         self._tag_association_collection: DocumentCollection[JourneyTagAssociationDocument]
-        self._trigger_association_collection: DocumentCollection[
-            JourneyTriggerAssociationDocument
-        ]
+        self._trigger_association_collection: DocumentCollection[JourneyTriggerAssociationDocument]
 
         self._allow_migration = allow_migration
 
@@ -731,12 +729,10 @@ class JourneyVectorStore(JourneyStore):
                 document_loader=self._tag_association_loader,
             )
 
-            self._trigger_association_collection = (
-                await self._document_db.get_or_create_collection(
-                    name="journey_triggers",
-                    schema=JourneyTriggerAssociationDocument,
-                    document_loader=self._trigger_association_loader,
-                )
+            self._trigger_association_collection = await self._document_db.get_or_create_collection(
+                name="journey_triggers",
+                schema=JourneyTriggerAssociationDocument,
+                document_loader=self._trigger_association_loader,
             )
 
         return self

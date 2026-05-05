@@ -682,9 +682,7 @@ async def setup_container() -> AsyncIterator[Container]:
 
     _define_singleton(c, Engine, AlphaEngine)
 
-    _define_singleton_value(
-        c, ApplicationContext, ApplicationContext(instance_id=generate_id())
-    )
+    _define_singleton_value(c, ApplicationContext, ApplicationContext(instance_id=generate_id()))
     _define_singleton(c, EventLoopMonitor, EventLoopMonitor)
     _define_singleton(c, HealthReporter, HealthReporter)
 

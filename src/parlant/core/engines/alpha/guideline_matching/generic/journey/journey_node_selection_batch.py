@@ -276,10 +276,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
 
         journey_triggers = list(
             await async_utils.safe_gather(
-                *[
-                    self._guideline_store.read_guideline(c)
-                    for c in self._examined_journey.triggers
-                ]
+                *[self._guideline_store.read_guideline(c) for c in self._examined_journey.triggers]
             )
         )
 

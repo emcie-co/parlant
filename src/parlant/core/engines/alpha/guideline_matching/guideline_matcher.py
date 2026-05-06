@@ -71,8 +71,8 @@ class GuidelineMatchingResult:
     batch_count: int
     batch_generations: Sequence[GenerationInfo]
     batches: Sequence[Sequence[GuidelineMatch]]
-    matched_guidelines: Sequence[GuidelineMatch]
-    skipped_guidelines: Sequence[GuidelineMatch]
+    matched: Sequence[GuidelineMatch]
+    ruled_out: Sequence[GuidelineMatch]
 
 
 @dataclass(frozen=True)
@@ -208,8 +208,8 @@ class GuidelineMatcher:
                 batch_count=0,
                 batch_generations=[],
                 batches=[],
-                matched_guidelines=[],
-                skipped_guidelines=[],
+                matched=[],
+                ruled_out=[],
             )
 
         t_start = time.time()
@@ -278,8 +278,8 @@ class GuidelineMatcher:
             batch_count=sum(map(len, batches)),
             batch_generations=[result.generation_info for result in batch_results],
             batches=result_batches,
-            matched_guidelines=matched_guidelines,
-            skipped_guidelines=skipped_guidelines,
+            matched=matched_guidelines,
+            ruled_out=skipped_guidelines,
         )
 
     async def analyze_response(

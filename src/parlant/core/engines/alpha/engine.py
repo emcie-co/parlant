@@ -53,10 +53,10 @@ from parlant.core.engines.alpha.planners import Plan, PlannerProvider
 from parlant.core.engines.alpha.relational_resolver import RelationalResolver
 from parlant.core.engines.alpha.tool_calling.tool_caller import (
     MissingToolData,
+    ToolCallId,
     ToolCallResult,
     ToolInsights,
     InvalidToolData,
-    ProblematicToolData,
 )
 from parlant.core.engines.alpha.canned_response_generator import CannedResponseGenerator
 from parlant.core.engines.alpha.message_event_composer import (
@@ -360,17 +360,6 @@ class AlphaEngine(Engine):
                 # relational resolution.
                 await self._inject_transient_guidelines(context)
 
-                # Call on_selected handlers for all selected guidelines (before generating messages)
-                await self._call_guideline_handlers(
-                    context, self._hooks.on_guideline_selected_handlers
-                )
-
-                # Call on_selected handlers for all active journeys (before generating messages)
-                await self._call_journey_handlers(context, self._hooks.on_journey_selected_handlers)
-
-                # Update session labels from matched entities
-                await self._update_session_labels(context)
-
                 # Money time: communicate with the customer given
                 # all of the information we have prepared.
                 with self._tracer.span(_MESSAGE_GENERATION_SPAN_NAME):
@@ -537,6 +526,19 @@ class AlphaEngine(Engine):
                 },
             )
 
+    async def _on_iteration_completed(
+        self,
+        context: EngineContext,
+    ) -> None:
+        # Call on_selected handlers for all selected guidelines (before generating messages)
+        await self._call_guideline_handlers(context, self._hooks.on_guideline_selected_handlers)
+
+        # Call on_selected handlers for all active journeys (before generating messages)
+        await self._call_journey_handlers(context, self._hooks.on_journey_selected_handlers)
+
+        # Update session labels from matched entities
+        await self._update_session_labels(context)
+
     async def _run_preparation_iteration(
         self,
         context: EngineContext,
@@ -555,6 +557,8 @@ class AlphaEngine(Engine):
             else:
                 # This is an additional iteration, so we run the additional preparation iteration.
                 result = await self._run_additional_preparation_iteration(context, plan)
+
+            await self._on_iteration_completed(context)
 
             context.state.iterations.append(result.state)
             context.state.journey_paths = self._list_journey_paths(
@@ -815,21 +819,14 @@ class AlphaEngine(Engine):
                     new_tool_events = list(events)
 
         # Update tool insights (explaining, for example, why tools weren't called)
-        context.state.tool_insights = ToolInsights(
-            evaluations=list(
-                chain(context.state.tool_insights.evaluations, tool_insights.evaluations)
-            ),
-            missing_data=list(
-                chain(context.state.tool_insights.missing_data, tool_insights.missing_data)
-            ),
-            invalid_data=list(
-                chain(context.state.tool_insights.invalid_data, tool_insights.invalid_data)
-            ),
-        )
+        context.state.tool_insights = ToolInsights.merge(context.state.tool_insights, tool_insights)
 
         if new_tool_events:
             context.state.tool_events += new_tool_events
             self._add_tool_events_to_tracer(new_tool_events)
+
+        if context.state.tool_insights:
+            self._add_tool_insights_to_tracer(context.state.tool_insights)
 
         # Let the plan react to the tool call results.
         await plan.on_tools_called(context, tool_results)
@@ -1218,6 +1215,35 @@ class AlphaEngine(Engine):
                     },
                 )
 
+    def _add_tool_insights_to_tracer(
+        self,
+        tool_insights: ToolInsights,
+    ) -> None:
+        for tool_id, tc_missing in tool_insights.missing_data.items():
+            for missing_tc_id, missing_items in tc_missing.items():
+                for missing_item in missing_items:
+                    self._tracer.add_event(
+                        "tc.missing",
+                        attributes={
+                            "tool_id": tool_id.to_string(),
+                            "tool_call_id": missing_tc_id,
+                            "parameter": missing_item.parameter,
+                        },
+                    )
+
+        for tool_id, tc_invalid in tool_insights.invalid_data.items():
+            for invalid_tc_id, invalid_items in tc_invalid.items():
+                for invalid_item in invalid_items:
+                    self._tracer.add_event(
+                        "tc.invalid",
+                        attributes={
+                            "tool_id": tool_id.to_string(),
+                            "tool_call_id": invalid_tc_id,
+                            "parameter": invalid_item.parameter,
+                            "invalid_value": invalid_item.invalid_value,
+                        },
+                    )
+
     def _add_match_events_to_tracer(
         self,
         matched_guidelines: Sequence[GuidelineMatch],
@@ -1273,7 +1299,7 @@ class AlphaEngine(Engine):
 
             else:
                 self._tracer.add_event(
-                    "gm.activate",
+                    "gm.selected",
                     attributes={
                         "guideline_id": match.guideline.id,
                         "last_modified": match.guideline.last_modified_utc.isoformat(),
@@ -1331,7 +1357,7 @@ class AlphaEngine(Engine):
 
             else:
                 self._tracer.add_event(
-                    "gm.skipped",
+                    "gm.ruled_out",
                     attributes={
                         "guideline_id": skip.guideline.id,
                         "last_modified": skip.guideline.last_modified_utc.isoformat(),
@@ -1388,7 +1414,7 @@ class AlphaEngine(Engine):
 
         # Step 5: Filter the journeys that are activated by the matched guidelines.
         activated_journeys = self._filter_activated_journeys(
-            context, matching_result.matched_guidelines, available_journeys
+            context, matching_result.matched, available_journeys
         )
 
         # Step 6: If any of the lower-probability journeys (those originally filtered out)
@@ -1410,15 +1436,11 @@ class AlphaEngine(Engine):
                     )
                 ),
                 batches=list(chain(matching_result.batches, second_match_result.batches)),
-                matched_guidelines=list(
-                    chain.from_iterable(
-                        [matching_result.matched_guidelines, second_match_result.matched_guidelines]
-                    )
+                matched=list(
+                    chain.from_iterable([matching_result.matched, second_match_result.matched])
                 ),
-                skipped_guidelines=list(
-                    chain.from_iterable(
-                        [matching_result.skipped_guidelines, second_match_result.skipped_guidelines]
-                    )
+                ruled_out=list(
+                    chain.from_iterable([matching_result.ruled_out, second_match_result.ruled_out])
                 ),
             )
 
@@ -1427,7 +1449,7 @@ class AlphaEngine(Engine):
             await self._build_matched_guidelines(
                 context=context,
                 evaluated_guidelines=relevant_guidelines,
-                current_matched=set(matching_result.matched_guidelines),
+                current_matched=set(matching_result.matched),
                 active_journeys=activated_journeys,
             )
         )
@@ -1445,10 +1467,10 @@ class AlphaEngine(Engine):
         self._add_match_events_to_tracer(
             resolver_result.matches,
             list(
-                set(matching_result.skipped_guidelines).union(
-                    set(
-                        second_match_result.skipped_guidelines if second_match_result else []
-                    ).difference(resolver_result.matches)
+                set(matching_result.ruled_out).union(
+                    set(second_match_result.ruled_out if second_match_result else []).difference(
+                        resolver_result.matches
+                    )
                 )
             ),
             journeys={j.id: j for j in activated_journeys},
@@ -1456,8 +1478,8 @@ class AlphaEngine(Engine):
 
         return _GuidelineAndJourneyMatchingResult(
             matching_result=matching_result,
-            matched_guidelines=list(matching_result.matched_guidelines),
-            skipped_guidelines=list(matching_result.skipped_guidelines),
+            matched_guidelines=list(matching_result.matched),
+            skipped_guidelines=list(matching_result.ruled_out),
             resolved_guidelines=list(resolver_result.matches),
             journeys=list(resolver_result.journeys),
         )
@@ -1498,7 +1520,7 @@ class AlphaEngine(Engine):
         # If a journey was already active in a previous guideline-matching iteration, we still retrieve it
         # so we can exclude it from the next guideline-matching iteration.
         activated_journeys = self._filter_activated_journeys_for_advanced_iterations(
-            matching_result.matched_guidelines,
+            matching_result.matched,
             all_journeys,
         )
 
@@ -1521,15 +1543,11 @@ class AlphaEngine(Engine):
                     )
                 ),
                 batches=list(chain(matching_result.batches, second_match_result.batches)),
-                matched_guidelines=list(
-                    chain.from_iterable(
-                        [matching_result.matched_guidelines, second_match_result.matched_guidelines]
-                    )
+                matched=list(
+                    chain.from_iterable([matching_result.matched, second_match_result.matched])
                 ),
-                skipped_guidelines=list(
-                    chain.from_iterable(
-                        [matching_result.skipped_guidelines, second_match_result.skipped_guidelines]
-                    )
+                ruled_out=list(
+                    chain.from_iterable([matching_result.ruled_out, second_match_result.ruled_out])
                 ),
             )
 
@@ -1540,7 +1558,7 @@ class AlphaEngine(Engine):
             await self._build_matched_guidelines(
                 context=context,
                 evaluated_guidelines=guidelines_to_reevaluate,
-                current_matched=set(matching_result.matched_guidelines),
+                current_matched=set(matching_result.matched),
                 active_journeys=all_activated_journeys,
             )
         )
@@ -1558,10 +1576,10 @@ class AlphaEngine(Engine):
         self._add_match_events_to_tracer(
             resolver_result.matches,
             list(
-                set(matching_result.skipped_guidelines).union(
-                    set(
-                        second_match_result.skipped_guidelines if second_match_result else []
-                    ).difference(resolver_result.matches)
+                set(matching_result.ruled_out).union(
+                    set(second_match_result.ruled_out if second_match_result else []).difference(
+                        resolver_result.matches
+                    )
                 )
             ),
             journeys={j.id: j for j in all_activated_journeys},
@@ -1569,8 +1587,8 @@ class AlphaEngine(Engine):
 
         return _GuidelineAndJourneyMatchingResult(
             matching_result=matching_result,
-            matched_guidelines=list(matching_result.matched_guidelines),
-            skipped_guidelines=list(matching_result.skipped_guidelines),
+            matched_guidelines=list(matching_result.matched),
+            skipped_guidelines=list(matching_result.ruled_out),
             resolved_guidelines=list(resolver_result.matches),
             journeys=list(resolver_result.journeys),
         )
@@ -2137,14 +2155,17 @@ class AlphaEngine(Engine):
 
     async def _inject_tool_insights(self, context: EngineContext) -> None:
         """Filter missing and invalid tool parameters jointly by precedence."""
-        problematic_data = await self._filter_problematic_tool_parameters_based_on_precedence(
-            list(context.state.tool_insights.missing_data)
-            + list(context.state.tool_insights.invalid_data)
+        insights = context.state.tool_insights
+        (
+            missing_data,
+            invalid_data,
+        ) = await self._filter_problematic_tool_parameters_based_on_precedence(
+            insights.missing_data, insights.invalid_data
         )
         context.state.tool_insights = ToolInsights(
-            evaluations=context.state.tool_insights.evaluations,
-            missing_data=[p for p in problematic_data if isinstance(p, MissingToolData)],
-            invalid_data=[p for p in problematic_data if isinstance(p, InvalidToolData)],
+            evaluations=insights.evaluations,
+            missing_data=missing_data,
+            invalid_data=invalid_data,
         )
 
     def _extract_guidelines_from_tool_results(
@@ -2207,16 +2228,47 @@ class AlphaEngine(Engine):
         )
 
     async def _filter_problematic_tool_parameters_based_on_precedence(
-        self, problematic_parameters: Sequence[ProblematicToolData]
-    ) -> Sequence[ProblematicToolData]:
-        precedence_values = [
-            m.precedence for m in problematic_parameters if m.precedence is not None
+        self,
+        missing_data: Mapping[ToolId, Mapping[ToolCallId, Sequence[MissingToolData]]],
+        invalid_data: Mapping[ToolId, Mapping[ToolCallId, Sequence[InvalidToolData]]],
+    ) -> tuple[
+        Mapping[ToolId, Mapping[ToolCallId, Sequence[MissingToolData]]],
+        Mapping[ToolId, Mapping[ToolCallId, Sequence[InvalidToolData]]],
+    ]:
+        all_precedences = [
+            item.precedence
+            for tree in (missing_data, invalid_data)
+            for tc_dict in tree.values()
+            for items in tc_dict.values()
+            for item in items
+            if item.precedence is not None
         ]
+        if not all_precedences:
+            return missing_data, invalid_data
 
-        if precedence_values == []:
-            return problematic_parameters
+        min_precedence = min(all_precedences)
 
-        return [m for m in problematic_parameters if m.precedence == min(precedence_values)]
+        filtered_missing: dict[ToolId, dict[ToolCallId, list[MissingToolData]]] = {}
+        for missing_tool_id, missing_tc_dict in missing_data.items():
+            inner_m = {
+                tc_id: kept_m
+                for tc_id, items in missing_tc_dict.items()
+                if (kept_m := [p for p in items if p.precedence == min_precedence])
+            }
+            if inner_m:
+                filtered_missing[missing_tool_id] = inner_m
+
+        filtered_invalid: dict[ToolId, dict[ToolCallId, list[InvalidToolData]]] = {}
+        for invalid_tool_id, invalid_tc_dict in invalid_data.items():
+            inner_i = {
+                tc_id: kept_i
+                for tc_id, items in invalid_tc_dict.items()
+                if (kept_i := [p for p in items if p.precedence == min_precedence])
+            }
+            if inner_i:
+                filtered_invalid[invalid_tool_id] = inner_i
+
+        return filtered_missing, filtered_invalid
 
     def _todo_add_associated_guidelines(self, guideline_matches: Sequence[GuidelineMatch]) -> None:
         # TODO write this method - it should add guidelines that are associated with the previously matched guidelines (due to having similar actions, as flagged by the conversation designer)

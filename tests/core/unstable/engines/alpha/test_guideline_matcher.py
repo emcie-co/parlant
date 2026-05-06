@@ -328,7 +328,7 @@ async def match_guidelines(
         guidelines=context.guidelines,
     )
 
-    return list(guideline_matching_result.matched_guidelines)
+    return list(guideline_matching_result.matched)
 
 
 async def create_guideline(

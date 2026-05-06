@@ -361,7 +361,7 @@ async def base_test_that_guideline_with_proposed_action_matched(
         guidelines=context.guidelines,
     )
 
-    guideline_matches = list(guideline_matching_result.matched_guidelines)
+    guideline_matches = list(guideline_matching_result.matched)
 
     matched_guidelines = [p.guideline for p in guideline_matches]
     assert set(matched_guidelines) == set([guideline_with_action])

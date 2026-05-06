@@ -135,7 +135,7 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
                                 )
                             )
                         else:
-                            self._logger.debug(f"Skipped:\n{match.model_dump_json(indent=2)}")
+                            self._logger.debug(f"Not matched:\n{match.model_dump_json(indent=2)}")
                             skipped_guidelines.append(
                                 GuidelineMatch(
                                     guideline=self._guidelines[match.guideline_id],

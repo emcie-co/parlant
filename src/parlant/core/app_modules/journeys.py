@@ -9,10 +9,7 @@ from parlant.core.common import JSONSerializable
 from parlant.core.journeys import (
     JourneyEdge,
     JourneyId,
-    JourneyLink,
-    JourneyLinkId,
     JourneyNode,
-    JourneyNodeId,
     JourneyStore,
     Journey,
     JourneyUpdateParams,
@@ -247,37 +244,3 @@ class JourneyModule:
                         guideline_id=trigger,
                         tag_id=Tag.for_journey_id(journey_id).id,
                     )
-
-    async def create_link(
-        self,
-        journey_id: JourneyId,
-        source_node_id: JourneyNodeId,
-        sub_journey_id: JourneyId,
-        condition: str | None = None,
-        id: JourneyLinkId | None = None,
-    ) -> JourneyLink:
-        return await self._journey_store.create_link(
-            journey_id=journey_id,
-            source_node_id=source_node_id,
-            sub_journey_id=sub_journey_id,
-            condition=condition,
-            id=id,
-        )
-
-    async def read_link(
-        self,
-        link_id: JourneyLinkId,
-    ) -> JourneyLink:
-        return await self._journey_store.read_link(link_id=link_id)
-
-    async def list_links(
-        self,
-        journey_id: JourneyId,
-    ) -> Sequence[JourneyLink]:
-        return await self._journey_store.list_links(journey_id=journey_id)
-
-    async def delete_link(
-        self,
-        link_id: JourneyLinkId,
-    ) -> None:
-        await self._journey_store.delete_link(link_id=link_id)

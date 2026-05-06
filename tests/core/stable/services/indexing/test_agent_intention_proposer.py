@@ -151,7 +151,7 @@ def match_guidelines(
         )
     )
 
-    return list(guideline_matching_result.matched_guidelines)
+    return list(guideline_matching_result.matched)
 
 
 def create_guideline(

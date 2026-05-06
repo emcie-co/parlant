@@ -244,7 +244,14 @@ class StandardFieldExtraction(CannedResponseFieldExtractionMethod):
         self,
         tool_insights: ToolInsights,
     ) -> list[str]:
-        return [missing_data.parameter for missing_data in tool_insights.missing_data]
+        return [
+            missing_data.parameter
+            for missing_data in chain.from_iterable(
+                items
+                for missing_data_params in tool_insights.missing_data.values()
+                for items in missing_data_params.values()
+            )
+        ]
 
     def _extract_invalid_params(
         self,
@@ -252,7 +259,11 @@ class StandardFieldExtraction(CannedResponseFieldExtractionMethod):
     ) -> dict[str, str]:
         return {
             invalid_data.parameter: invalid_data.invalid_value
-            for invalid_data in tool_insights.invalid_data
+            for invalid_data in chain.from_iterable(
+                items
+                for invalid_data_params in tool_insights.invalid_data.values()
+                for items in invalid_data_params.values()
+            )
         }
 
 
@@ -1613,7 +1624,11 @@ If it makes sense in the current state of the interaction, inform the user about
                                 **({"significance": d.significance} if d.significance else {}),
                                 **({"examples": d.examples} if d.examples else {}),
                             }
-                            for d in tool_insights.missing_data
+                            for d in chain.from_iterable(
+                                items
+                                for missing_data_params in tool_insights.missing_data.values()
+                                for items in missing_data_params.values()
+                            )
                         ]
                     ),
                     "missing_data": tool_insights.missing_data,
@@ -1641,7 +1656,11 @@ You should inform the user about this invalid data: ###
                                 **({"significance": d.significance} if d.significance else {}),
                                 **({"examples": d.examples} if d.examples else {}),
                             }
-                            for d in tool_insights.invalid_data
+                            for d in chain.from_iterable(
+                                items
+                                for invalid_data_params in tool_insights.invalid_data.values()
+                                for items in invalid_data_params.values()
+                            )
                         ]
                     ),
                     "invalid_data": tool_insights.invalid_data,
@@ -1859,7 +1878,11 @@ in order to run tools. If it makes sense in the current state of the interaction
                                 **({"significance": d.significance} if d.significance else {}),
                                 **({"examples": d.examples} if d.examples else {}),
                             }
-                            for d in tool_insights.missing_data
+                            for d in chain.from_iterable(
+                                items
+                                for missing_data_params in tool_insights.missing_data.values()
+                                for items in missing_data_params.values()
+                            )
                         ]
                     ),
                     "missing_data": tool_insights.missing_data,
@@ -1886,7 +1909,11 @@ in order to run tools. You should inform the user about this invalid data: ###
                                 **({"significance": d.significance} if d.significance else {}),
                                 **({"examples": d.examples} if d.examples else {}),
                             }
-                            for d in tool_insights.invalid_data
+                            for d in chain.from_iterable(
+                                items
+                                for invalid_data_params in tool_insights.invalid_data.values()
+                                for items in invalid_data_params.values()
+                            )
                         ]
                     ),
                     "invalid_data": tool_insights.invalid_data,

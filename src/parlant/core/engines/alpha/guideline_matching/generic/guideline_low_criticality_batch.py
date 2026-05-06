@@ -114,7 +114,7 @@ class GenericLowCriticalityGuidelineMatchingBatch(GuidelineMatchingBatch):
                             )
                         else:
                             self._logger.debug(
-                                f"Skipped:\n{inference.content.model_dump_json(indent=2)}"
+                                f"Not matched:\n{inference.content.model_dump_json(indent=2)}"
                             )
                             skipped_guidelines.append(
                                 GuidelineMatch(

@@ -79,7 +79,7 @@ class CustomGuidelineMatchingBatch(GuidelineMatchingBatch):
             matched_guidelines = [match]
             skipped_guidelines = []
         else:
-            self._logger.debug(f"Skipped:\n{data}")
+            self._logger.debug(f"Not matched:\n{data}")
             matched_guidelines = []
             skipped_guidelines = [
                 GuidelineMatch(

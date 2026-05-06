@@ -449,9 +449,11 @@ class EntityQueries:
         if not tool_insights.evaluations:
             return []
 
-        executed_tool_ids = [
-            tid for tid, e in tool_insights.evaluations if e == ToolCallEvaluation.NEEDS_TO_RUN
-        ]
+        executed_tool_ids = {
+            tid
+            for tid, e in tool_insights.evaluations.items()
+            if any(value == ToolCallEvaluation.NEEDS_TO_RUN for value in e.values())
+        }
 
         active_journeys_mapping = {journey.id: journey for journey in active_journeys}
         guidelines: list[Guideline] = []
@@ -462,7 +464,7 @@ class EntityQueries:
                 indirect=False,
                 target_id=tool_id,
             )
-            for tool_id in set(tid for tid, _ in tool_insights.evaluations)
+            for tool_id in tool_insights.evaluations
         ]
 
         reevaluation_relationships = list(
@@ -511,14 +513,17 @@ class EntityQueries:
                     # was called ON BEHALF OF THE JOURNEY NODE — since it could have been called
                     # for some other reason, e.g. due to an unrelated guideline.
 
+                    tc_evals_for_tool = tool_insights.evaluations.get(
+                        cast(ToolId, the_id_of_the_tool_related_to_the_guideline_to_reevaluate),
+                        {},
+                    )
                     tool_should_be_considered_as_having_been_called = all(
                         e
                         in [
                             ToolCallEvaluation.DATA_ALREADY_IN_CONTEXT,
                             ToolCallEvaluation.NEEDS_TO_RUN,
                         ]
-                        for tool_id, e in tool_insights.evaluations
-                        if tool_id == the_id_of_the_tool_related_to_the_guideline_to_reevaluate
+                        for e in tc_evals_for_tool.values()
                     )
 
                     if tool_should_be_considered_as_having_been_called:

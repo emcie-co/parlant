@@ -20,7 +20,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from itertools import chain
-import json
 from pprint import pformat
 import traceback
 from typing import Any, Awaitable, Callable, Mapping, Optional, Sequence, cast
@@ -50,11 +49,8 @@ from parlant.core.engines.alpha.perceived_performance_policy import (
     PerceivedPerformancePolicyProvider,
 )
 from parlant.core.engines.alpha.planners import Plan, PlannerProvider
-from parlant.core.engines.alpha.relational_resolver import (
-    RelationalResolver,
-    RelationalResolverResult,
-    ResolutionKind,
-)
+from parlant.core.engines.alpha.relational_resolver import RelationalResolver
+from parlant.core.engines.alpha.tracing import EngineTracer
 from parlant.core.engines.alpha.tool_calling.tool_caller import (
     MissingToolData,
     ToolCallId,
@@ -75,7 +71,6 @@ from parlant.core.health import (
     HealthReporter,
 )
 from parlant.core.journey_guideline_projection import (
-    extract_edge_id_from_journey_node_guideline_id,
     extract_node_id_from_journey_node_guideline_id,
 )
 from parlant.core.journeys import Journey, JourneyId
@@ -114,35 +109,6 @@ _GUIDELINE_MATCHER_SPAN_NAME = "guideline_matcher"
 _RESPONSE_ANALYSIS_SPAN_NAME = "response_analysis"
 _MESSAGE_GENERATION_SPAN_NAME = "message_generation"
 _TOOL_CALLER_SPAN_NAME = "tool_caller"
-
-
-class MatchReason(str, Enum):
-    """The reason a guideline appears in a match-tracer event.
-
-    Mirrors :class:`ResolutionKind` for tracing — ``NONE`` is renamed to
-    ``COMPLETION`` since "no relational changes" reads, from the trace
-    consumer's perspective, as "selected via matcher completion".
-    """
-
-    COMPLETION = "completion"
-    UNMET_DEPENDENCY_ALL = "unmet_dependency_all"
-    UNMET_DEPENDENCY_ANY = "unmet_dependency_any"
-    DEPRIORITIZED = "deprioritized"
-    ENTAILED = "entailed"
-
-
-def _resolution_kind_to_match_reason(kind: ResolutionKind) -> MatchReason:
-    match kind:
-        case ResolutionKind.NONE:
-            return MatchReason.COMPLETION
-        case ResolutionKind.UNMET_DEPENDENCY_ALL:
-            return MatchReason.UNMET_DEPENDENCY_ALL
-        case ResolutionKind.UNMET_DEPENDENCY_ANY:
-            return MatchReason.UNMET_DEPENDENCY_ANY
-        case ResolutionKind.DEPRIORITIZED:
-            return MatchReason.DEPRIORITIZED
-        case ResolutionKind.ENTAILED:
-            return MatchReason.ENTAILED
 
 
 class _PreparationIterationResolution(Enum):
@@ -196,6 +162,7 @@ class AlphaEngine(Engine):
     ) -> None:
         self._logger = logger
         self._tracer = tracer
+        self._engine_tracer = EngineTracer(tracer)
         self._meter = meter
         self._health_reporter = health_reporter
 
@@ -529,14 +496,7 @@ class AlphaEngine(Engine):
         context.state.context_variables = await self._load_context_variables(context)
 
         for var, val in context.state.context_variables:
-            self._tracer.add_event(
-                "ctx.variable_loaded",
-                attributes={
-                    "variable_id": var.id,
-                    "name": var.name,
-                    "value": str(val.data),
-                },
-            )
+            self._engine_tracer.context_variable_loaded(var, val)
 
         # Load relevant glossary terms and capabilities, initially based
         # mostly on the current interaction history.
@@ -549,14 +509,7 @@ class AlphaEngine(Engine):
         context.state.capabilities = list(capabilities)
 
         for term in glossary:
-            self._tracer.add_event(
-                "glossary.term_loaded",
-                attributes={
-                    "term_id": term.id,
-                    "last_modified": term.last_modified_utc.isoformat(),
-                    "name": term.name,
-                },
-            )
+            self._engine_tracer.glossary_term_loaded(term)
 
     async def _on_iteration_completed(
         self,
@@ -754,7 +707,7 @@ class AlphaEngine(Engine):
 
         if new_tool_events:
             context.state.tool_events += new_tool_events
-            self._add_tool_events_to_tracer(new_tool_events)
+            self._engine_tracer.tool_calls(new_tool_events)
 
         # Let the plan react to the tool call results.
         await plan.on_tools_called(context, tool_results)
@@ -855,10 +808,10 @@ class AlphaEngine(Engine):
 
         if new_tool_events:
             context.state.tool_events += new_tool_events
-            self._add_tool_events_to_tracer(new_tool_events)
+            self._engine_tracer.tool_calls(new_tool_events)
 
         if context.state.tool_insights:
-            self._add_tool_insights_to_tracer(context.state.tool_insights)
+            self._engine_tracer.tool_insights(context.state.tool_insights)
 
         # Let the plan react to the tool call results.
         await plan.on_tools_called(context, tool_results)
@@ -1230,217 +1183,6 @@ class AlphaEngine(Engine):
             context.state.tool_events,
         )
 
-    def _add_tool_events_to_tracer(
-        self,
-        tool_events: Sequence[EmittedEvent],
-    ) -> None:
-        for tool_event in tool_events:
-            tool_calls = cast(ToolEventData, tool_event.data)["tool_calls"]
-            for tool_call in tool_calls:
-                self._tracer.add_event(
-                    "tc.result",
-                    attributes={
-                        "tool_id": tool_call["tool_id"],
-                        "rationale": tool_call["rationale"],
-                        "arguments": json.dumps(tool_call["arguments"]),
-                        "result": json.dumps(tool_call["result"]),
-                    },
-                )
-
-    def _add_tool_insights_to_tracer(
-        self,
-        tool_insights: ToolInsights,
-    ) -> None:
-        for tool_id, tc_missing in tool_insights.missing_data.items():
-            for missing_tc_id, missing_items in tc_missing.items():
-                for missing_item in missing_items:
-                    self._tracer.add_event(
-                        "tc.missing",
-                        attributes={
-                            "tool_id": tool_id.to_string(),
-                            "tool_call_id": missing_tc_id,
-                            "parameter": missing_item.parameter,
-                        },
-                    )
-
-        for tool_id, tc_invalid in tool_insights.invalid_data.items():
-            for invalid_tc_id, invalid_items in tc_invalid.items():
-                for invalid_item in invalid_items:
-                    self._tracer.add_event(
-                        "tc.invalid",
-                        attributes={
-                            "tool_id": tool_id.to_string(),
-                            "tool_call_id": invalid_tc_id,
-                            "parameter": invalid_item.parameter,
-                            "invalid_value": invalid_item.invalid_value,
-                        },
-                    )
-
-    def _add_match_events_to_tracer(
-        self,
-        matcher_matched: Sequence[GuidelineMatch],
-        matcher_ruled_out: Sequence[GuidelineMatch],
-        resolver_result: RelationalResolverResult,
-        journeys: Optional[Mapping[JourneyId, Journey]] = None,
-    ) -> None:
-        matcher_match_ids = {m.guideline.id for m in matcher_matched}
-        final_match_ids = {m.guideline.id for m in resolver_result.matches}
-
-        matcher_by_id = {m.guideline.id: m for m in matcher_matched}
-        final_by_id = {m.guideline.id: m for m in resolver_result.matches}
-
-        def _resolutions_attr(gid: GuidelineId) -> Mapping[str, str]:
-            items: list[dict[str, JSONSerializable]] = [
-                {
-                    "reason": _resolution_kind_to_match_reason(r.kind).value,
-                    "description": r.details.description,
-                    "target_ids": list(r.details.target_ids),
-                    **(
-                        {"relationship_id": r.details.relationship_id}
-                        if r.details.relationship_id
-                        else {}
-                    ),
-                }
-                for r in resolver_result.resolutions.get(gid, [])
-            ]
-            return {"resolutions": json.dumps(items)} if items else {}
-
-        def _sub_journey_attrs(match: GuidelineMatch) -> Mapping[str, str]:
-            journey_node = cast(
-                dict[str, JSONSerializable],
-                match.guideline.metadata["journey_node"],
-            )
-            if "sub_journey_id" not in journey_node:
-                return {}
-
-            attrs: dict[str, str] = {
-                "sub_journey_id": cast(str, journey_node["sub_journey_id"]),
-            }
-            if "sub_journey_last_modified_utc" in journey_node:
-                attrs["sub_journey_last_modified_utc"] = cast(
-                    str, journey_node["sub_journey_last_modified_utc"]
-                )
-            return attrs
-
-        def _emit_selected(match: GuidelineMatch, rationale: str) -> None:
-            gid = match.guideline.id
-            if match.guideline.metadata.get("journey_node"):
-                edge_id = extract_edge_id_from_journey_node_guideline_id(gid)
-                journey_id = cast(str, match.metadata.get("step_selection_journey_id"))
-                journey_last_modified_utc = ""
-                if journeys and journey_id:
-                    j = journeys.get(JourneyId(journey_id))
-                    if j:
-                        journey_last_modified_utc = j.last_modified_utc.isoformat()
-
-                self._tracer.add_event(
-                    "journey.state.selected",
-                    attributes={
-                        **({"edge_id": edge_id} if edge_id else {}),
-                        "node_id": extract_node_id_from_journey_node_guideline_id(gid),
-                        "journey_path": json.dumps(
-                            match.metadata.get("journey_path_guideline_ids", [])
-                        ),
-                        "rationale": rationale,
-                        "journey_id": journey_id,
-                        **(
-                            {"last_modified": journey_last_modified_utc}
-                            if journey_last_modified_utc
-                            else {}
-                        ),
-                        **_sub_journey_attrs(match),
-                        **_resolutions_attr(gid),
-                    },
-                )
-            else:
-                self._tracer.add_event(
-                    "gm.selected",
-                    attributes={
-                        "guideline_id": gid,
-                        "last_modified": match.guideline.last_modified_utc.isoformat(),
-                        "rationale": rationale,
-                        **_resolutions_attr(gid),
-                    },
-                )
-
-        def _emit_ruled_out(match: GuidelineMatch, rationale: str) -> None:
-            gid = match.guideline.id
-            if match.guideline.metadata.get("journey_node"):
-                edge_id = extract_edge_id_from_journey_node_guideline_id(gid)
-                journey_id = cast(str, match.metadata.get("step_selection_journey_id"))
-                journey_last_modified_utc = ""
-                if journeys and journey_id:
-                    j = journeys.get(JourneyId(journey_id))
-                    if j:
-                        journey_last_modified_utc = j.last_modified_utc.isoformat()
-
-                self._tracer.add_event(
-                    "journey.state.ruled_out",
-                    attributes={
-                        **({"edge_id": edge_id} if edge_id else {}),
-                        "node_id": extract_node_id_from_journey_node_guideline_id(gid),
-                        "journey_path": json.dumps(
-                            match.guideline.metadata.get("journey_path_guideline_ids", [])
-                        ),
-                        "rationale": rationale,
-                        "journey_id": journey_id,
-                        **(
-                            {"last_modified": journey_last_modified_utc}
-                            if journey_last_modified_utc
-                            else {}
-                        ),
-                        **_sub_journey_attrs(match),
-                        **_resolutions_attr(gid),
-                    },
-                )
-            else:
-                self._tracer.add_event(
-                    "gm.ruled_out",
-                    attributes={
-                        "guideline_id": gid,
-                        "last_modified": match.guideline.last_modified_utc.isoformat(),
-                        "rationale": rationale,
-                        **_resolutions_attr(gid),
-                    },
-                )
-
-        # gm.selected: every guideline in the final match set.
-        # Rationale comes from the matcher when the guideline was originally matched;
-        # for entailed guidelines, fall back to the first non-NONE resolution description.
-        for gid in final_match_ids:
-            match = final_by_id[gid]
-            if gid in matcher_match_ids:
-                rationale = matcher_by_id[gid].rationale
-            else:
-                rationale = next(
-                    (
-                        r.details.description
-                        for r in resolver_result.resolutions.get(gid, [])
-                        if r.kind != ResolutionKind.NONE
-                    ),
-                    "",
-                )
-            _emit_selected(match, rationale)
-
-        # gm.ruled_out: matcher's ruled out, plus matched-but-dropped-by-resolver.
-        for ruled_out in matcher_ruled_out:
-            _emit_ruled_out(ruled_out, ruled_out.rationale)
-
-        for gid in matcher_match_ids - final_match_ids:
-            match = matcher_by_id[gid]
-            # Rationale here describes WHY the resolver dropped it (e.g. "Removed:
-            # dependency X unmet"), not why the matcher selected it — otherwise
-            # the event would carry a "why I matched it" reason on a "ruled_out" event.
-            rationale = next(
-                (
-                    r.details.description
-                    for r in resolver_result.resolutions.get(gid, [])
-                    if r.kind != ResolutionKind.NONE
-                ),
-                "",
-            )
-            _emit_ruled_out(match, rationale)
-
     async def _load_matched_guidelines_and_journeys(
         self,
         context: EngineContext,
@@ -1540,7 +1282,7 @@ class AlphaEngine(Engine):
             journeys=activated_journeys,
         )
 
-        self._add_match_events_to_tracer(
+        self._engine_tracer.matches(
             matcher_matched=matched_guidelines,
             matcher_ruled_out=list(matching_result.ruled_out),
             resolver_result=resolver_result,
@@ -1644,7 +1386,7 @@ class AlphaEngine(Engine):
             journeys=all_activated_journeys,
         )
 
-        self._add_match_events_to_tracer(
+        self._engine_tracer.matches(
             matcher_matched=matched_guidelines,
             matcher_ruled_out=list(matching_result.ruled_out),
             resolver_result=resolver_result,
@@ -2215,7 +1957,7 @@ class AlphaEngine(Engine):
                 matches=pre_resolution_matches,
                 journeys=context.state.journeys,
             )
-            self._add_match_events_to_tracer(
+            self._engine_tracer.matches(
                 matcher_matched=pre_resolution_matches,
                 matcher_ruled_out=[],
                 resolver_result=resolver_result,

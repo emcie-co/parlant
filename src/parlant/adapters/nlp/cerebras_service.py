@@ -66,13 +66,21 @@ class LlamaEstimatingTokenizer(EstimatingTokenizer):
 class CerebrasSchematicGenerator(BaseSchematicGenerator[T]):
     supported_hints = ["temperature"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name=model_name,
+        )
 
         self._client = AsyncCerebras(api_key=os.environ.get("CEREBRAS_API_KEY"))
 
@@ -177,12 +185,15 @@ class CerebrasSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class Llama3_3_8B(CerebrasSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             model_name="llama3.1-8b",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
         self._estimating_tokenizer = LlamaEstimatingTokenizer()
 
@@ -203,12 +214,15 @@ class Llama3_3_8B(CerebrasSchematicGenerator[T]):
 
 
 class Llama3_3_70B(CerebrasSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             model_name="llama3.3-70b",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
         self._estimating_tokenizer = LlamaEstimatingTokenizer()

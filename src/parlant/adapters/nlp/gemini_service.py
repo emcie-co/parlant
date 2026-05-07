@@ -89,13 +89,21 @@ class GoogleEstimatingTokenizer(EstimatingTokenizer):
 class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
     supported_hints = ["temperature", "thinking_config"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name=model_name,
+        )
 
         self._client = google.genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
@@ -256,12 +264,15 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class Gemini_2_0_Flash(GeminiSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             model_name="gemini-2.0-flash",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -271,12 +282,15 @@ class Gemini_2_0_Flash(GeminiSchematicGenerator[T]):
 
 
 class Gemini_2_0_Flash_Lite(GeminiSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             model_name="gemini-2.0-flash-lite-preview-02-05",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -286,12 +300,15 @@ class Gemini_2_0_Flash_Lite(GeminiSchematicGenerator[T]):
 
 
 class Gemini_2_5_Flash(GeminiSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             model_name="gemini-2.5-flash",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @override
@@ -312,12 +329,15 @@ class Gemini_2_5_Flash(GeminiSchematicGenerator[T]):
 
 
 class Gemini_2_5_Flash_Lite(GeminiSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             model_name="gemini-2.5-flash-lite",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @override
@@ -338,12 +358,15 @@ class Gemini_2_5_Flash_Lite(GeminiSchematicGenerator[T]):
 
 
 class Gemini_2_5_Pro(GeminiSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             model_name="gemini-2.5-pro",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -355,7 +378,14 @@ class Gemini_2_5_Pro(GeminiSchematicGenerator[T]):
 class GoogleEmbedder(BaseEmbedder):
     supported_hints = ["title", "task_type"]
 
-    def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self,
+        model_name: str,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+    ) -> None:
         super().__init__(logger, tracer, meter, model_name, health_reporter)
 
         self._client = google.genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
@@ -420,12 +450,15 @@ class GoogleEmbedder(BaseEmbedder):
 
 
 class GeminiTextEmbedding_001(GoogleEmbedder):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             model_name="gemini-embedding-001",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -451,10 +484,12 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
 
         return None
 
-    def __init__(self,
+    def __init__(
+        self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
         self.logger = logger
         self._tracer = tracer
@@ -495,7 +530,9 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return GeminiTextEmbedding_001(self.logger, self._tracer, self._meter, self._health_reporter)
+        return GeminiTextEmbedding_001(
+            self.logger, self._tracer, self._meter, self._health_reporter
+        )
 
     @override
     async def get_moderation_service(self) -> ModerationService:

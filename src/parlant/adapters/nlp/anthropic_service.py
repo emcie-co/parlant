@@ -79,13 +79,21 @@ class AnthropicEstimatingTokenizer(EstimatingTokenizer):
 class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
     supported_hints = ["temperature"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name=model_name,
+        )
 
         self._client = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
         self._estimating_tokenizer = AnthropicEstimatingTokenizer(self._client, model_name)
@@ -203,12 +211,15 @@ class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class Claude_Sonnet_3_5(AnthropicAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             model_name="claude-3-5-sonnet-20241022",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -218,12 +229,15 @@ class Claude_Sonnet_3_5(AnthropicAISchematicGenerator[T]):
 
 
 class Claude_Sonnet_4(AnthropicAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             model_name="claude-sonnet-4-20250514",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -233,12 +247,15 @@ class Claude_Sonnet_4(AnthropicAISchematicGenerator[T]):
 
 
 class Claude_Opus_4_1(AnthropicAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             model_name="claude-opus-4-1-20250805",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -260,7 +277,9 @@ Please set ANTHROPIC_API_KEY in your environment before running Parlant.
 
         return None
 
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         self.logger = logger
         self._tracer = tracer
         self._meter = meter

@@ -114,8 +114,21 @@ class HuggingFaceEstimatingTokenizer(EstimatingTokenizer):
 
 
 class HuggingFaceEmbedder(BaseEmbedder):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter, model_name: str) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+        model_name: str,
+    ) -> None:
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name=model_name,
+        )
 
         self._model = _create_auto_model(model_name)
         self._tokenizer = HuggingFaceEstimatingTokenizer(model_name=model_name)
@@ -166,10 +179,13 @@ class HuggingFaceEmbedder(BaseEmbedder):
 
 
 class JinaAIEmbedder(HuggingFaceEmbedder):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             logger=logger,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
             tracer=tracer,
             model_name="jinaai/jina-embeddings-v2-base-en",
         )

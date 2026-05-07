@@ -30,7 +30,10 @@ from parlant.core.persistence.document_database import (
     DocumentDatabase,
 )
 from parlant.core.common import Version
-from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
+from parlant.core.persistence.document_database_helper import (
+    DocumentMigrationHelper,
+    DocumentStoreMigrationHelper,
+)
 
 TagId = NewType("TagId", str)
 
@@ -41,6 +44,7 @@ _BUILT_IN_TAG_CREATION_TIME = datetime(2025, 1, 1, tzinfo=timezone.utc)
 class Tag:
     id: TagId
     creation_utc: datetime
+    last_modified_utc: datetime
     name: str
 
     @staticmethod
@@ -49,6 +53,7 @@ class Tag:
             id=TagId("__preamble__"),
             name="__preamble__",
             creation_utc=_BUILT_IN_TAG_CREATION_TIME,
+            last_modified_utc=_BUILT_IN_TAG_CREATION_TIME,
         )
 
     @staticmethod
@@ -57,6 +62,7 @@ class Tag:
             id=TagId(f"agent:{agent_id}"),
             name=f"agent:{agent_id}",
             creation_utc=_BUILT_IN_TAG_CREATION_TIME,
+            last_modified_utc=_BUILT_IN_TAG_CREATION_TIME,
         )
 
     @staticmethod
@@ -72,6 +78,7 @@ class Tag:
             id=TagId(f"journey:{journey_id}"),
             name=f"journey:{journey_id}",
             creation_utc=_BUILT_IN_TAG_CREATION_TIME,
+            last_modified_utc=_BUILT_IN_TAG_CREATION_TIME,
         )
 
     @staticmethod
@@ -87,6 +94,7 @@ class Tag:
             id=TagId(f"journey_node:{journey_node_id}"),
             name=f"journey_node:{journey_node_id}",
             creation_utc=_BUILT_IN_TAG_CREATION_TIME,
+            last_modified_utc=_BUILT_IN_TAG_CREATION_TIME,
         )
 
     @staticmethod
@@ -102,6 +110,7 @@ class Tag:
             id=TagId(f"guideline:{guideline_id}"),
             name=f"guideline:{guideline_id}",
             creation_utc=_BUILT_IN_TAG_CREATION_TIME,
+            last_modified_utc=_BUILT_IN_TAG_CREATION_TIME,
         )
 
     @staticmethod
@@ -122,6 +131,7 @@ class TagStore(ABC):
         self,
         name: str,
         creation_utc: Optional[datetime] = None,
+        id: Optional[TagId] = None,
     ) -> Tag: ...
 
     @abstractmethod
@@ -150,15 +160,23 @@ class TagStore(ABC):
     ) -> None: ...
 
 
-class _TagDocument(TypedDict, total=False):
+class _TagDocument_v0_1_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
     name: str
 
 
+class _TagDocument(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    last_modified: str
+    name: str
+
+
 class TagDocumentStore(TagStore):
-    VERSION = Version.from_string("0.1.0")
+    VERSION = Version.from_string("0.2.0")
 
     def __init__(
         self,
@@ -176,9 +194,22 @@ class TagDocumentStore(TagStore):
         self._lock = ReaderWriterLock()
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[_TagDocument]:
-        if doc["version"] == "0.1.0":
-            return cast(_TagDocument, doc)
-        return None
+        async def v0_1_0_to_v0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(_TagDocument_v0_1_0, doc)
+            return _TagDocument(
+                id=d["id"],
+                version=Version.String("0.2.0"),
+                creation_utc=d["creation_utc"],
+                last_modified=d["creation_utc"],
+                name=d["name"],
+            )
+
+        return await DocumentMigrationHelper[_TagDocument](
+            self,
+            {
+                "0.1.0": v0_1_0_to_v0_2_0,
+            },
+        ).migrate(doc)
 
     async def __aenter__(self) -> Self:
         async with DocumentStoreMigrationHelper(
@@ -211,6 +242,7 @@ class TagDocumentStore(TagStore):
             id=ObjectId(tag.id),
             version=self.VERSION.to_string(),
             creation_utc=tag.creation_utc.isoformat(),
+            last_modified=tag.last_modified_utc.isoformat(),
             name=tag.name,
         )
 
@@ -218,6 +250,7 @@ class TagDocumentStore(TagStore):
         return Tag(
             id=TagId(document["id"]),
             creation_utc=datetime.fromisoformat(document["creation_utc"]),
+            last_modified_utc=datetime.fromisoformat(document["last_modified"]),
             name=document["name"],
         )
 
@@ -226,6 +259,7 @@ class TagDocumentStore(TagStore):
         self,
         name: str,
         creation_utc: Optional[datetime] = None,
+        id: Optional[TagId] = None,
     ) -> Tag:
         async with self._lock.writer_lock:
             existing = await self._collection.find({"name": {"$eq": name}})
@@ -234,11 +268,18 @@ class TagDocumentStore(TagStore):
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            tag_checksum = f"{name}"
+            if id is not None:
+                tag_id = id
+                existing_by_id = await self._collection.find_one(filters={"id": {"$eq": tag_id}})
+                if existing_by_id:
+                    raise ValueError(f"Tag with id '{tag_id}' already exists")
+            else:
+                tag_id = TagId(self._id_generator.generate(f"{name}"))
 
             tag = Tag(
-                id=TagId(self._id_generator.generate(tag_checksum)),
+                id=tag_id,
                 creation_utc=creation_utc,
+                last_modified_utc=creation_utc,
                 name=name,
             )
             await self._collection.insert_one(self._serialize(tag))
@@ -272,7 +313,10 @@ class TagDocumentStore(TagStore):
 
             result = await self._collection.update_one(
                 filters={"id": {"$eq": tag_id}},
-                params={"name": params["name"]},
+                params={
+                    "name": params["name"],
+                    "last_modified": datetime.now(timezone.utc).isoformat(),
+                },
             )
 
         assert result.updated_document
@@ -319,8 +363,9 @@ class CompositeTagStore(TagStore):
         self,
         name: str,
         creation_utc: Optional[datetime] = None,
+        id: Optional[TagId] = None,
     ) -> Tag:
-        return await self._writable_store.create_tag(name, creation_utc)
+        return await self._writable_store.create_tag(name, creation_utc, id=id)
 
     @override
     async def read_tag(

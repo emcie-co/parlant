@@ -110,6 +110,7 @@ class Relationship:
 
     id: RelationshipId
     creation_utc: datetime
+    last_modified_utc: datetime
     source: RelationshipEntity
     target: RelationshipEntity
     kind: RelationshipKind
@@ -127,6 +128,8 @@ class RelationshipStore(ABC):
         target: RelationshipEntity,
         kind: RelationshipKind,
         group_id: Optional[str] = None,
+        creation_utc: Optional[datetime] = None,
+        id: Optional[RelationshipId] = None,
     ) -> Relationship: ...
 
     @abstractmethod
@@ -168,7 +171,7 @@ class GuidelineRelationshipDocument_v0_2_0(TypedDict, total=False):
     kind: RelationshipKind
 
 
-class RelationshipDocument(TypedDict, total=False):
+class RelationshipDocument_v0_3_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
@@ -180,8 +183,21 @@ class RelationshipDocument(TypedDict, total=False):
     group_id: str
 
 
+class RelationshipDocument(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    last_modified: str
+    source: str
+    source_type: str
+    target: str
+    target_type: str
+    kind: str
+    group_id: str
+
+
 class RelationshipDocumentStore(RelationshipStore):
-    VERSION = Version.from_string("0.3.0")
+    VERSION = Version.from_string("0.4.0")
 
     def __init__(
         self,
@@ -200,6 +216,21 @@ class RelationshipDocumentStore(RelationshipStore):
         self._lock = ReaderWriterLock()
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[RelationshipDocument]:
+        async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(RelationshipDocument_v0_3_0, doc)
+            return RelationshipDocument(
+                id=d["id"],
+                version=Version.String("0.4.0"),
+                creation_utc=d["creation_utc"],
+                last_modified=d["creation_utc"],
+                source=d["source"],
+                source_type=d["source_type"],
+                target=d["target"],
+                target_type=d["target_type"],
+                kind=d["kind"],
+                group_id=d.get("group_id", ""),
+            )
+
         async def v0_2_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise ValueError("Cannot load v0.2.0 relationships")
 
@@ -211,6 +242,7 @@ class RelationshipDocumentStore(RelationshipStore):
             {
                 "0.1.0": v0_1_0_to_v0_2_0,
                 "0.2.0": v0_2_0_to_v0_3_0,
+                "0.3.0": v0_3_0_to_v0_4_0,
             },
         ).migrate(doc)
 
@@ -247,6 +279,7 @@ class RelationshipDocumentStore(RelationshipStore):
             id=ObjectId(relationship.id),
             version=self.VERSION.to_string(),
             creation_utc=relationship.creation_utc.isoformat(),
+            last_modified=relationship.last_modified_utc.isoformat(),
             source=relationship.source.id_to_string(),
             source_type=relationship.source.kind.value,
             target=relationship.target.id_to_string(),
@@ -303,6 +336,7 @@ class RelationshipDocumentStore(RelationshipStore):
         return Relationship(
             id=RelationshipId(relationship_document["id"]),
             creation_utc=datetime.fromisoformat(relationship_document["creation_utc"]),
+            last_modified_utc=datetime.fromisoformat(relationship_document["last_modified"]),
             source=source,
             target=target,
             kind=kind,
@@ -349,15 +383,28 @@ class RelationshipDocumentStore(RelationshipStore):
         kind: RelationshipKind,
         group_id: Optional[str] = None,
         creation_utc: Optional[datetime] = None,
+        id: Optional[RelationshipId] = None,
     ) -> Relationship:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            relationship_checksum = f"{source.id_to_string()}{target.id_to_string()}{kind.value}"
+            if id is not None:
+                relationship_id = id
+                existing_by_id = await self._collection.find_one(
+                    filters={"id": {"$eq": relationship_id}}
+                )
+                if existing_by_id:
+                    raise ValueError(f"Relationship with id '{relationship_id}' already exists")
+            else:
+                relationship_checksum = (
+                    f"{source.id_to_string()}{target.id_to_string()}{kind.value}"
+                )
+                relationship_id = RelationshipId(self._id_generator.generate(relationship_checksum))
 
             relationship = Relationship(
-                id=RelationshipId(self._id_generator.generate(relationship_checksum)),
+                id=relationship_id,
                 creation_utc=creation_utc,
+                last_modified_utc=creation_utc,
                 source=source,
                 target=target,
                 kind=kind,
@@ -580,9 +627,11 @@ class CompositeRelationshipStore(RelationshipStore):
         target: RelationshipEntity,
         kind: RelationshipKind,
         group_id: Optional[str] = None,
+        creation_utc: Optional[datetime] = None,
+        id: Optional[RelationshipId] = None,
     ) -> Relationship:
         return await self._writable_store.create_relationship(
-            source, target, kind, group_id=group_id
+            source, target, kind, group_id=group_id, creation_utc=creation_utc, id=id
         )
 
     @override

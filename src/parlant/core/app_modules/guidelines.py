@@ -21,7 +21,7 @@ from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tags import Tag, TagId, TagStore
 from parlant.core.tools import Tool, ToolId
 from parlant.core.store_provider import StoreProviderHints, StoreProvider
-from parlant.core.app_modules.application_context import ApplicationContext
+from parlant.core.app_modules.request_context import RequestContext
 
 
 @dataclass(frozen=True)
@@ -61,11 +61,11 @@ class GuidelineRelationship:
 class GuidelineModule:
     def __init__(
         self,
-        application_context: ApplicationContext,
+        request_context: RequestContext,
         logger: Logger,
         store_provider: StoreProvider,
     ):
-        self._application_context = application_context
+        self._request_context = request_context
         self._logger = logger
         self._store_provider = store_provider
 
@@ -75,7 +75,7 @@ class GuidelineModule:
             GuidelineStore,
             StoreProviderHints(
                 call_site="app",
-                origin=self._application_context.get_origin(),
+                origin=self._request_context.get_origin(),
             ),
         )
 
@@ -85,7 +85,7 @@ class GuidelineModule:
             TagStore,
             StoreProviderHints(
                 call_site="app",
-                origin=self._application_context.get_origin(),
+                origin=self._request_context.get_origin(),
             ),
         )
 
@@ -95,7 +95,7 @@ class GuidelineModule:
             AgentStore,
             StoreProviderHints(
                 call_site="app",
-                origin=self._application_context.get_origin(),
+                origin=self._request_context.get_origin(),
             ),
         )
 
@@ -105,7 +105,7 @@ class GuidelineModule:
             JourneyStore,
             StoreProviderHints(
                 call_site="app",
-                origin=self._application_context.get_origin(),
+                origin=self._request_context.get_origin(),
             ),
         )
 
@@ -115,7 +115,7 @@ class GuidelineModule:
             RelationshipStore,
             StoreProviderHints(
                 call_site="app",
-                origin=self._application_context.get_origin(),
+                origin=self._request_context.get_origin(),
             ),
         )
 
@@ -125,7 +125,7 @@ class GuidelineModule:
             GuidelineToolAssociationStore,
             StoreProviderHints(
                 call_site="app",
-                origin=self._application_context.get_origin(),
+                origin=self._request_context.get_origin(),
             ),
         )
 
@@ -135,7 +135,7 @@ class GuidelineModule:
             ServiceRegistry,
             StoreProviderHints(
                 call_site="app",
-                origin=self._application_context.get_origin(),
+                origin=self._request_context.get_origin(),
             ),
         )
 

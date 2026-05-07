@@ -55,7 +55,7 @@ from parlant.api.authorization import (
     ProductionAuthorizationPolicy,
 )
 
-from parlant.core.app_modules.application_context import ApplicationContext
+from parlant.core.app_modules.request_context import RequestContext
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.application_context import ApplicationContext
 from parlant.core.common import IdGenerator, generate_id
@@ -714,7 +714,7 @@ async def setup_container() -> AsyncIterator[Container]:
     _define_singleton(c, HealthReporter, HealthReporter)
 
     _define_singleton(c, Application, Application)
-    _define_singleton(c, ApplicationContext, ApplicationContext)
+    _define_singleton(c, RequestContext, RequestContext)
 
     c[StoreProvider] = BasicStoreProvider(lambda: c)
 

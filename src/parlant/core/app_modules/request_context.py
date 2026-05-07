@@ -7,12 +7,12 @@ class _ContextData:
     origin: str | None = None
 
 
-class ApplicationContext:
+class RequestContext:
     def __init__(
         self,
     ) -> None:
         self._context_var = contextvars.ContextVar[_ContextData](
-            "_parlant_application_context",
+            "_parlant_request_context",
             default=_ContextData(),
         )
 

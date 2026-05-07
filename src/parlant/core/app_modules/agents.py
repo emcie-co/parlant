@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Sequence
 
-from parlant.core.app_modules.application_context import ApplicationContext
+from parlant.core.app_modules.request_context import RequestContext
 from parlant.core.loggers import Logger
 from parlant.core.agents import (
     AgentId,
@@ -24,11 +24,11 @@ class AgentTagUpdateParamsModel:
 class AgentModule:
     def __init__(
         self,
-        application_context: ApplicationContext,
+        request_context: RequestContext,
         logger: Logger,
         store_provider: StoreProvider,
     ):
-        self._application_context = application_context
+        self._request_context = request_context
         self._logger = logger
         self._store_provider = store_provider
 
@@ -38,7 +38,7 @@ class AgentModule:
             AgentStore,
             StoreProviderHints(
                 call_site="app",
-                origin=self._application_context.get_origin(),
+                origin=self._request_context.get_origin(),
             ),
         )
 
@@ -48,7 +48,7 @@ class AgentModule:
             TagStore,
             StoreProviderHints(
                 call_site="app",
-                origin=self._application_context.get_origin(),
+                origin=self._request_context.get_origin(),
             ),
         )
 

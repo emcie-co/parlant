@@ -461,10 +461,6 @@ class RelationalResolver:
                             )
                         ]
 
-                self._emit_tracer_events(
-                    initial_match_ids, current_matches, matches, resolutions, guidelines_by_id
-                )
-
                 return RelationalResolverResult(
                     matches=current_matches,
                     journeys=current_journeys,
@@ -1520,42 +1516,3 @@ class RelationalResolver:
         if len(a) != len(b):
             return False
         return {j.id for j in a} == {j.id for j in b}
-
-    def _emit_tracer_events(
-        self,
-        initial_ids: set[GuidelineId],
-        final_matches: list[GuidelineMatch],
-        original_matches: Sequence[GuidelineMatch],
-        resolutions: dict[ResolvedEntity, list[Resolution]],
-        guidelines_by_id: dict[GuidelineId, Guideline],
-    ) -> None:
-        """Emit tracer events for activated (entailed) and deactivated guidelines."""
-        final_ids = {m.guideline.id for m in final_matches}
-        all_matches = {m.guideline.id: m for m in list(original_matches) + final_matches}
-
-        for match in final_matches:
-            if match.guideline.id not in initial_ids:
-                self._tracer.add_event(
-                    "gm.activate",
-                    attributes={
-                        "guideline_id": match.guideline.id,
-                        "last_modified": match.guideline.last_modified_utc.isoformat(),
-                        "rationale": "Activated via entailment",
-                    },
-                )
-
-        for gid in initial_ids - final_ids:
-            m = all_matches[gid]
-            entity = ResolvedEntity.guideline(guidelines_by_id[gid])
-            res_list = resolutions.get(entity, [])
-            rationale = (
-                "; ".join(r.details.description for r in res_list) if res_list else "Unknown reason"
-            )
-            self._tracer.add_event(
-                "gm.deactivate",
-                attributes={
-                    "guideline_id": gid,
-                    "last_modified": m.guideline.last_modified_utc.isoformat(),
-                    "rationale": rationale,
-                },
-            )

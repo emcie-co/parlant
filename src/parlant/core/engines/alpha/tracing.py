@@ -29,11 +29,14 @@ from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.relational_resolver import (
     RelationalResolverResult,
+    Resolution,
     ResolutionKind,
+    ResolvedEntity,
 )
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.glossary import Term
-from parlant.core.guidelines import GuidelineId
+from parlant.core.guidelines import Guideline, GuidelineId
+from parlant.core.tags import Tag
 from parlant.core.journey_guideline_projection import (
     extract_edge_id_from_journey_node_guideline_id,
     extract_node_id_from_journey_node_guideline_id,
@@ -155,19 +158,50 @@ class EngineTracer:
         matcher_by_id = {m.guideline.id: m for m in matcher_matched}
         final_by_id = {m.guideline.id: m for m in resolver_result.matches}
 
+        guideline_resolutions: dict[GuidelineId, list[Resolution]] = {}
+        for re, res_list in resolver_result.resolutions.items():
+            if isinstance(re.entity, Guideline):
+                guideline_resolutions[re.entity.id] = res_list
+
+        def _counterpart(re: ResolvedEntity) -> dict[str, str]:
+            if isinstance(re.entity, Guideline):
+                return {
+                    "entity_type": "guideline",
+                    "id": str(re.entity.id),
+                    "last_modified_utc": re.entity.last_modified_utc.isoformat(),
+                }
+            if isinstance(re.entity, Journey):
+                return {
+                    "entity_type": "journey",
+                    "id": str(re.entity.id),
+                    "last_modified_utc": re.entity.last_modified_utc.isoformat(),
+                }
+            if isinstance(re.entity, Tag):
+                return {
+                    "entity_type": "tag",
+                    "id": str(re.entity.id),
+                    "last_modified_utc": re.entity.last_modified_utc.isoformat(),
+                }
+            raise ValueError(f"Unknown ResolvedEntity entity type: {type(re.entity).__name__}")
+
         def _resolutions_attr(gid: GuidelineId) -> Mapping[str, str]:
             items: list[dict[str, JSONSerializable]] = [
                 {
                     "reason": _resolution_kind_to_match_reason(r.kind).value,
                     "description": r.details.description,
-                    "target_ids": list(r.details.target_ids),
+                    "counterparts": [_counterpart(c) for c in r.details.counterparts],
                     **(
-                        {"relationship_id": r.details.relationship_id}
-                        if r.details.relationship_id
+                        {
+                            "relationship": {
+                                "id": str(r.details.relationship.id),
+                                "last_modified_utc": r.details.relationship.last_modified_utc.isoformat(),
+                            }
+                        }
+                        if r.details.relationship
                         else {}
                     ),
                 }
-                for r in resolver_result.resolutions.get(gid, [])
+                for r in guideline_resolutions.get(gid, [])
             ]
             return {"resolutions": json.dumps(items)} if items else {}
 
@@ -281,7 +315,7 @@ class EngineTracer:
                 rationale = next(
                     (
                         r.details.description
-                        for r in resolver_result.resolutions.get(gid, [])
+                        for r in guideline_resolutions.get(gid, [])
                         if r.kind != ResolutionKind.NONE
                     ),
                     "",
@@ -300,7 +334,7 @@ class EngineTracer:
             rationale = next(
                 (
                     r.details.description
-                    for r in resolver_result.resolutions.get(gid, [])
+                    for r in guideline_resolutions.get(gid, [])
                     if r.kind != ResolutionKind.NONE
                 ),
                 "",

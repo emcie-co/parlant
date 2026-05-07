@@ -2069,7 +2069,7 @@ class JourneyVectorStore(JourneyStore):
 
         link_id = id or JourneyLinkId(
             self._id_generator.generate(
-                md5_checksum(f"{journey_id}{source_node_id}{sub_journey_id}")
+                xxh3_checksum(f"{journey_id}{source_node_id}{sub_journey_id}")
             )
         )
 

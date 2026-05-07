@@ -98,13 +98,21 @@ class MistralSchematicGenerator(BaseSchematicGenerator[T]):
     supported_mistral_params = ["temperature", "max_tokens"]
     supported_hints = supported_mistral_params
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name=model_name,
+        )
 
         self._client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
         self._tokenizer = MistralEstimatingTokenizer(model_name=self.model_name)
@@ -219,8 +227,16 @@ class MistralSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class Mistral_Large_2411(MistralSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(model_name="mistral-large-2411", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
+        super().__init__(
+            model_name="mistral-large-2411",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+        )
 
     @property
     @override
@@ -229,9 +245,15 @@ class Mistral_Large_2411(MistralSchematicGenerator[T]):
 
 
 class Mistral_Medium_2508(MistralSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
-            model_name="mistral-medium-2508", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter
+            model_name="mistral-medium-2508",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -241,8 +263,16 @@ class Mistral_Medium_2508(MistralSchematicGenerator[T]):
 
 
 class Mistral_Small_2506(MistralSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(model_name="mistral-small-2506", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
+        super().__init__(
+            model_name="mistral-small-2506",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+        )
 
     @property
     @override
@@ -251,8 +281,16 @@ class Mistral_Small_2506(MistralSchematicGenerator[T]):
 
 
 class MistralEmbedder(BaseEmbedder):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name="mistral-embed")
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name="mistral-embed",
+        )
         self._client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
         self._tokenizer = MistralEstimatingTokenizer(model_name=self.model_name)
 
@@ -378,10 +416,12 @@ Please set MISTRAL_API_KEY in your environment before running Parlant.
 
         return None
 
-    def __init__(self,
+    def __init__(
+        self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
         self._logger = logger
         self._tracer = tracer
@@ -410,8 +450,12 @@ Please set MISTRAL_API_KEY in your environment before running Parlant.
             or t == DisambiguationGuidelineMatchesSchema
             or t == CannedResponseSelectionSchema
         ):
-            return Mistral_Large_2411[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
-        return Mistral_Medium_2508[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
+            return Mistral_Large_2411[t](
+                self._logger, self._tracer, self._meter, self._health_reporter
+            )  # type: ignore
+        return Mistral_Medium_2508[t](
+            self._logger, self._tracer, self._meter, self._health_reporter
+        )  # type: ignore
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:

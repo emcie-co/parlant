@@ -93,13 +93,21 @@ class OpenRouterEstimatingTokenizer(EstimatingTokenizer):
 class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
     supported_openrouter_params = ["temperature", "max_tokens"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name=model_name,
+        )
         self._logger = logger
 
         # Build extra headers from environment variables
@@ -312,8 +320,16 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class OpenRouterGPT4O(OpenRouterSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(model_name="openai/gpt-4o", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
+        super().__init__(
+            model_name="openai/gpt-4o",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+        )
 
     @property
     @override
@@ -322,8 +338,16 @@ class OpenRouterGPT4O(OpenRouterSchematicGenerator[T]):
 
 
 class OpenRouterGPT4OMini(OpenRouterSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(model_name="openai/gpt-4o-mini", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
+        super().__init__(
+            model_name="openai/gpt-4o-mini",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+        )
 
     @property
     @override
@@ -332,9 +356,15 @@ class OpenRouterGPT4OMini(OpenRouterSchematicGenerator[T]):
 
 
 class OpenRouterClaude35Sonnet(OpenRouterSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
-            model_name="anthropic/claude-3.5-sonnet", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter
+            model_name="anthropic/claude-3.5-sonnet",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -344,12 +374,15 @@ class OpenRouterClaude35Sonnet(OpenRouterSchematicGenerator[T]):
 
 
 class OpenRouterLlama33_70B(OpenRouterSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             model_name="meta-llama/llama-3.3-70b-instruct",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -370,7 +403,14 @@ class OpenRouterEmbedder(BaseEmbedder):
         "qwen/qwen-embedding-v2": 1536,
     }
 
-    def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self,
+        model_name: str,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+    ) -> None:
         super().__init__(logger, tracer, meter, model_name, health_reporter)
 
         # Build extra headers from environment variables
@@ -489,9 +529,15 @@ class OpenRouterEmbedder(BaseEmbedder):
 
 
 class OpenRouterTextEmbedding3Large(OpenRouterEmbedder):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
-            model_name="openai/text-embedding-3-large", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter
+            model_name="openai/text-embedding-3-large",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -518,10 +564,12 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
 
         return None
 
-    def __init__(self,
+    def __init__(
+        self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
         self._logger = logger
         self._tracer = tracer
@@ -586,12 +634,16 @@ Please set OPENROUTER_API_KEY in your environment before running Parlant.
             "openai/gpt-4o": lambda logger, tracer, meter, health_reporter: OpenRouterGPT4O[t](  # type: ignore
                 logger, tracer, meter, health_reporter
             ),
-            "openai/gpt-4o-mini": lambda logger, tracer, meter, health_reporter: OpenRouterGPT4OMini[t](  # type: ignore
-                logger, tracer, meter, health_reporter
+            "openai/gpt-4o-mini": lambda logger, tracer, meter, health_reporter: (
+                OpenRouterGPT4OMini[t](  # type: ignore
+                    logger, tracer, meter, health_reporter
+                )
             ),
-            "anthropic/claude-3.5-sonnet": lambda logger, tracer, meter, health_reporter: OpenRouterClaude35Sonnet[
-                t  # type: ignore
-            ](logger, tracer, meter, health_reporter),
+            "anthropic/claude-3.5-sonnet": lambda logger, tracer, meter, health_reporter: (
+                OpenRouterClaude35Sonnet[
+                    t  # type: ignore
+                ](logger, tracer, meter, health_reporter)
+            ),
             "meta-llama/llama-3.3-70b-instruct": lambda logger, tracer, meter, health_reporter: (
                 OpenRouterLlama33_70B[t](  # type: ignore
                     logger, tracer, meter, health_reporter

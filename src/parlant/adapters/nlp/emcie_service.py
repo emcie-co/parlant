@@ -114,14 +114,22 @@ class UnauthorizedError(EmcieAPIError):
 class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
     supported_emcie_params = ["temperature"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         model_role: ModelRole,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name=model_name,
+        )
 
         self._model_role = model_role
         self._tokenizer = EmcieEstimatingTokenizer()
@@ -271,17 +279,20 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class Jackal(EmcieSchematicGenerator[T]):
-    def __init__(self,
+    def __init__(
+        self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
         model_role: ModelRole,
     ) -> None:
         super().__init__(
             model_name="jackal",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
             model_role=model_role,
         )
 
@@ -292,17 +303,20 @@ class Jackal(EmcieSchematicGenerator[T]):
 
 
 class Bison(EmcieSchematicGenerator[T]):
-    def __init__(self,
+    def __init__(
+        self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
         model_role: ModelRole,
     ) -> None:
         super().__init__(
             model_name="bison",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
             model_role=model_role,
         )
 
@@ -325,14 +339,22 @@ class EmcieStreamingTextGenerator(BaseStreamingTextGenerator):
 
     supported_emcie_params = ["temperature"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         model_role: ModelRole,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name=model_name,
+        )
         self._model_role = model_role
         self._tokenizer = EmcieEstimatingTokenizer()
 
@@ -484,34 +506,40 @@ class EmcieStreamingTextGenerator(BaseStreamingTextGenerator):
 
 
 class JackalStreaming(EmcieStreamingTextGenerator):
-    def __init__(self,
+    def __init__(
+        self,
         model_role: ModelRole,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
         super().__init__(
             model_name="jackal",
             model_role=model_role,
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
 
 class BisonStreaming(EmcieStreamingTextGenerator):
-    def __init__(self,
+    def __init__(
+        self,
         model_role: ModelRole,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
         super().__init__(
             model_name="bison",
             model_role=model_role,
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
 
@@ -523,11 +551,13 @@ class BisonStreaming(EmcieStreamingTextGenerator):
 class EmcieEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
         super().__init__(logger, tracer, meter, model_name, health_reporter)
         self._tokenizer = EmcieEstimatingTokenizer()
@@ -607,12 +637,15 @@ class EmcieEmbedder(BaseEmbedder):
 
 
 class BisonEmbedding(EmcieEmbedder):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             model_name="bison-embedding",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -626,12 +659,15 @@ class BisonEmbedding(EmcieEmbedder):
 
 
 class JackalEmbedding(EmcieEmbedder):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             model_name="jackal-embedding",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -670,10 +706,12 @@ Get an API key for Emcie by signing up at https://www.emcie.co."""
 
         return None
 
-    def __init__(self,
+    def __init__(
+        self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
         model_tier: GenerationModelTier | None = None,
         model_role: ModelRole | None = None,
     ) -> None:
@@ -746,9 +784,13 @@ Get an API key for Emcie by signing up at https://www.emcie.co."""
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         match hints.get("model_size", ModelSize.AUTO):
             case ModelSize.AUTO | ModelSize.LARGE:
-                return BisonEmbedding(self._logger, self._tracer, self._meter, self._health_reporter)
+                return BisonEmbedding(
+                    self._logger, self._tracer, self._meter, self._health_reporter
+                )
             case _:
-                return JackalEmbedding(self._logger, self._tracer, self._meter, self._health_reporter)
+                return JackalEmbedding(
+                    self._logger, self._tracer, self._meter, self._health_reporter
+                )
 
     @override
     async def get_moderation_service(self) -> ModerationService:

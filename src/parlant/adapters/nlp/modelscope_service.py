@@ -77,13 +77,21 @@ class ModelScopeSchematicGenerator(BaseSchematicGenerator[T]):
     supported_modelscope_params = ["temperature", "logit_bias", "max_tokens"]
     supported_hints = supported_modelscope_params + ["strict"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name=model_name,
+        )
 
         self._client = AsyncClient(
             base_url="https://api-inference.modelscope.cn/v1",
@@ -198,9 +206,17 @@ class ModelScopeSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class ModelScopeChat(ModelScopeSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         model_name = os.environ["MODELSCOPE_MODEL_NAME"]
-        super().__init__(model_name=model_name, logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
+        super().__init__(
+            model_name=model_name,
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+        )
 
     @property
     @override
@@ -225,10 +241,12 @@ Please set MODELSCOPE_API_KEY in your environment before running Parlant.
 """
         return None
 
-    def __init__(self,
+    def __init__(
+        self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
         self._logger = logger
         self._tracer = tracer

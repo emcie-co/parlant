@@ -117,6 +117,7 @@ class JourneyGuidelineProjection:
         link_metadata: dict[str, JSONSerializable] = {
             "link_id": link.id,
             "sub_journey_id": link.sub_journey_id,
+            "sub_journey_last_modified_utc": sub_journey.last_modified_utc.isoformat(),
         }
 
         # Sub-journey root handling:

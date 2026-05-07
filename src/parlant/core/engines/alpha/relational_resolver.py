@@ -292,8 +292,6 @@ class RelationalResolver:
                     for tid in g.tags:
                         guidelines_by_tag[tid].append(g)
 
-                initial_match_ids = {m.guideline.id for m in matches}
-                initial_journey_ids = {j.id for j in journeys}
                 # Keep the full original match list so that dep-failed
                 # guidelines can be re-evaluated when entailment expands
                 # the match set in a later iteration.

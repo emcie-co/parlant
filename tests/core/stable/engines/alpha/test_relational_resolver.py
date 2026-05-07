@@ -21,7 +21,6 @@ from parlant.core.engines.alpha.relational_resolver import (
     Resolution,
     ResolutionKind,
     ResolvedEntity,
-    ResolvedEntityId,
 )
 from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
 from parlant.core.journeys import JourneyNodeKind, JourneyStore

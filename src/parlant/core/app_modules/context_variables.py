@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from parlant.core.agents import AgentId, AgentStore
-from parlant.core.app_modules.application_context import ApplicationContext
+from parlant.core.app_modules.request_context import RequestContext
 from parlant.core.common import JSONSerializable
 from parlant.core.loggers import Logger
 from parlant.core.context_variables import (
@@ -27,11 +27,11 @@ class ContextVariableTagsUpdateParams:
 class ContextVariableModule:
     def __init__(
         self,
-        application_context: ApplicationContext,
+        request_context: RequestContext,
         logger: Logger,
         store_provider: StoreProvider,
     ) -> None:
-        self._application_context = application_context
+        self._request_context = request_context
         self._logger = logger
         self._store_provider = store_provider
 
@@ -41,7 +41,7 @@ class ContextVariableModule:
             ContextVariableStore,
             StoreProviderHints(
                 call_site="app",
-                origin=self._application_context.get_origin(),
+                origin=self._request_context.get_origin(),
             ),
         )
 
@@ -51,7 +51,7 @@ class ContextVariableModule:
             ServiceRegistry,
             StoreProviderHints(
                 call_site="app",
-                origin=self._application_context.get_origin(),
+                origin=self._request_context.get_origin(),
             ),
         )
 
@@ -61,7 +61,7 @@ class ContextVariableModule:
             AgentStore,
             StoreProviderHints(
                 call_site="app",
-                origin=self._application_context.get_origin(),
+                origin=self._request_context.get_origin(),
             ),
         )
 
@@ -71,7 +71,7 @@ class ContextVariableModule:
             TagStore,
             StoreProviderHints(
                 call_site="app",
-                origin=self._application_context.get_origin(),
+                origin=self._request_context.get_origin(),
             ),
         )
 

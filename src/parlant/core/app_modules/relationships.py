@@ -3,7 +3,7 @@ from itertools import chain
 from typing import Sequence, cast
 
 from parlant.core.agents import AgentId, AgentStore
-from parlant.core.app_modules.application_context import ApplicationContext
+from parlant.core.app_modules.request_context import RequestContext
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
 from parlant.core.journeys import JourneyId, JourneyNodeId, JourneyStore
 from parlant.core.loggers import Logger
@@ -37,11 +37,11 @@ class RelationshipModel:
 class RelationshipModule:
     def __init__(
         self,
-        application_context: ApplicationContext,
+        request_context: RequestContext,
         logger: Logger,
         store_provider: StoreProvider,
     ):
-        self._application_context = application_context
+        self._request_context = request_context
         self._logger = logger
         self._store_provider = store_provider
 
@@ -51,7 +51,7 @@ class RelationshipModule:
             RelationshipStore,
             StoreProviderHints(
                 call_site="app",
-                origin=self._application_context.get_origin(),
+                origin=self._request_context.get_origin(),
             ),
         )
 
@@ -61,7 +61,7 @@ class RelationshipModule:
             TagStore,
             StoreProviderHints(
                 call_site="app",
-                origin=self._application_context.get_origin(),
+                origin=self._request_context.get_origin(),
             ),
         )
 
@@ -71,7 +71,7 @@ class RelationshipModule:
             GuidelineStore,
             StoreProviderHints(
                 call_site="app",
-                origin=self._application_context.get_origin(),
+                origin=self._request_context.get_origin(),
             ),
         )
 
@@ -81,7 +81,7 @@ class RelationshipModule:
             ServiceRegistry,
             StoreProviderHints(
                 call_site="app",
-                origin=self._application_context.get_origin(),
+                origin=self._request_context.get_origin(),
             ),
         )
 
@@ -91,7 +91,7 @@ class RelationshipModule:
             AgentStore,
             StoreProviderHints(
                 call_site="app",
-                origin=self._application_context.get_origin(),
+                origin=self._request_context.get_origin(),
             ),
         )
 
@@ -101,7 +101,7 @@ class RelationshipModule:
             JourneyStore,
             StoreProviderHints(
                 call_site="app",
-                origin=self._application_context.get_origin(),
+                origin=self._request_context.get_origin(),
             ),
         )
 

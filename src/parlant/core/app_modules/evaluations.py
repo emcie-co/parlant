@@ -1,6 +1,6 @@
 from typing import Sequence
 
-from parlant.core.app_modules.application_context import ApplicationContext
+from parlant.core.app_modules.request_context import RequestContext
 from parlant.core.async_utils import Timeout
 from parlant.core.loggers import Logger
 from parlant.core.evaluations import (
@@ -19,12 +19,12 @@ from parlant.core.store_provider import StoreProviderHints
 class EvaluationModule:
     def __init__(
         self,
-        application_context: ApplicationContext,
+        request_context: RequestContext,
         logger: Logger,
         evaluation_service: EvaluationService,
         evaluation_listener: EvaluationListener,
     ):
-        self._application_context = application_context
+        self._request_context = request_context
         self._logger = logger
         self._evaluation_service = evaluation_service
         self._evaluation_listener = evaluation_listener
@@ -32,7 +32,7 @@ class EvaluationModule:
     def _hints(self) -> StoreProviderHints:
         return StoreProviderHints(
             call_site="app",
-            origin=self._application_context.get_origin(),
+            origin=self._request_context.get_origin(),
         )
 
     async def create(self, payloads: Sequence[Payload]) -> Evaluation:

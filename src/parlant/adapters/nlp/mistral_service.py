@@ -450,12 +450,12 @@ Please set MISTRAL_API_KEY in your environment before running Parlant.
             or t == DisambiguationGuidelineMatchesSchema
             or t == CannedResponseSelectionSchema
         ):
-            return Mistral_Large_2411[t](
+            return Mistral_Large_2411[t](  # type: ignore
                 self._logger, self._tracer, self._meter, self._health_reporter
-            )  # type: ignore
-        return Mistral_Medium_2508[t](
+            )
+        return Mistral_Medium_2508[t](  # type: ignore
             self._logger, self._tracer, self._meter, self._health_reporter
-        )  # type: ignore
+        )
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:

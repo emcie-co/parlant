@@ -876,63 +876,63 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
                     CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
                     JourneyNextStepSelectionSchema: GPT_4_1[JourneyNextStepSelectionSchema],
                     JourneyBacktrackCheckSchema: GPT_4_1_Mini[JourneyBacktrackCheckSchema],
-                }.get(t, GPT_4o_24_08_06[t])(
+                }.get(t, GPT_4o_24_08_06[t])(  # type: ignore
                     self._logger, self._tracer, self._meter, self._health_reporter
-                )  # type: ignore
+                )
             case ModelSize.NANO:
                 match hints.get("model_generation", "auto"):
                     case "auto" | "stable":
                         match hints.get("model_type", "auto"):
                             case "auto" | "standard":
-                                return GPT_4_1_Nano[t](
+                                return GPT_4_1_Nano[t](  # type: ignore
                                     self._logger, self._tracer, self._meter, self._health_reporter
-                                )  # type: ignore
+                                )
                             case "reasoning":
-                                return GPT_5_Nano[t](
+                                return GPT_5_Nano[t](  # type: ignore
                                     self._logger, self._tracer, self._meter, self._health_reporter
-                                )  # type: ignore
+                                )
                     case "latest":
                         match hints.get("model_type", "auto"):
                             case "standard":
-                                return GPT_4_1_Nano[t](
+                                return GPT_4_1_Nano[t](  # type: ignore
                                     self._logger, self._tracer, self._meter, self._health_reporter
-                                )  # type: ignore
+                                )
                             case "auto" | "reasoning":
-                                return GPT_5_Nano[t](
+                                return GPT_5_Nano[t](  # type: ignore
                                     self._logger, self._tracer, self._meter, self._health_reporter
-                                )  # type: ignore
+                                )
             case ModelSize.MINI:
                 match hints.get("model_generation", "auto"):
                     case "auto" | "stable":
                         match hints.get("model_type", "auto"):
                             case "auto" | "standard":
-                                return GPT_4_1_Mini[t](
+                                return GPT_4_1_Mini[t](  # type: ignore
                                     self._logger, self._tracer, self._meter, self._health_reporter
-                                )  # type: ignore
+                                )
                             case "reasoning":
-                                return GPT_5_Mini[t](
+                                return GPT_5_Mini[t](  # type: ignore
                                     self._logger, self._tracer, self._meter, self._health_reporter
-                                )  # type: ignore
+                                )
                     case "latest":
                         match hints.get("model_type", "auto"):
                             case "standard":
-                                return GPT_4_1_Mini[t](
+                                return GPT_4_1_Mini[t](  # type: ignore
                                     self._logger, self._tracer, self._meter, self._health_reporter
-                                )  # type: ignore
+                                )
                             case "auto" | "reasoning":
-                                return GPT_5_Mini[t](
+                                return GPT_5_Mini[t](  # type: ignore
                                     self._logger, self._tracer, self._meter, self._health_reporter
-                                )  # type: ignore
+                                )
             case _:
                 match hints.get("model_type", "auto"):
                     case "reasoning":
-                        return GPT_5_1[t](
+                        return GPT_5_1[t](  # type: ignore
                             self._logger, self._tracer, self._meter, self._health_reporter
-                        )  # type: ignore
+                        )
                     case _:
-                        return GPT_4o_24_08_06[t](
+                        return GPT_4o_24_08_06[t](  # type: ignore
                             self._logger, self._tracer, self._meter, self._health_reporter
-                        )  # type: ignore
+                        )
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:

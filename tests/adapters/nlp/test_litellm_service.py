@@ -22,6 +22,7 @@ from parlant.adapters.nlp.litellm_service import (
     LiteLLMEmbedder,
     LiteLLMService,
 )
+from parlant.core.application_context import ApplicationContext
 from parlant.core.health import HealthReporter, NullHealthReporter
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
@@ -44,7 +45,9 @@ def container() -> Container:
     container[Logger] = logger
     container[Tracer] = tracer
     container[Meter] = meter
-    container[HealthReporter] = NullHealthReporter()
+    container[HealthReporter] = NullHealthReporter(
+        application_context=ApplicationContext(instance_id="test")
+    )
 
     return container
 

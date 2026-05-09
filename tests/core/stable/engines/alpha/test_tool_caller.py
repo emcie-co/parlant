@@ -723,9 +723,13 @@ async def test_that_a_tool_from_a_plugin_with_missing_parameters_returns_the_mis
 
     assert len(tool_calls) == 0
     # Check missing parameters by name
-    missing_parameters = set(
-        map(lambda x: x.parameter, inference_tool_calls_result.insights.missing_data)
-    )
+    flat_missing = [
+        item
+        for tc_dict in inference_tool_calls_result.insights.missing_data.values()
+        for items in tc_dict.values()
+        for item in items
+    ]
+    missing_parameters = set(map(lambda x: x.parameter, flat_missing))
     assert missing_parameters == {"full_name", "city", "street", "house_number"}
 
 
@@ -780,8 +784,20 @@ async def test_that_a_tool_with_an_invalid_choice_provider_parameter_and_a_missi
     tool_calls = list(chain.from_iterable(inference_tool_calls_result.batches))
     assert len(tool_calls) == 0 or tool_calls[0] == []
     insights = inference_tool_calls_result.insights
-    assert len(insights.missing_data) == 1 and insights.missing_data[0].parameter == "passenger_id"
-    assert len(insights.invalid_data) == 1 and insights.invalid_data[0].parameter == "destination"
+    flat_missing = [
+        item
+        for tc_dict in insights.missing_data.values()
+        for items in tc_dict.values()
+        for item in items
+    ]
+    flat_invalid = [
+        item
+        for tc_dict in insights.invalid_data.values()
+        for items in tc_dict.values()
+        for item in items
+    ]
+    assert len(flat_missing) == 1 and flat_missing[0].parameter == "passenger_id"
+    assert len(flat_invalid) == 1 and flat_invalid[0].parameter == "destination"
 
 
 async def test_that_a_tool_with_an_invalid_enum_parameter_and_a_missing_parameter_interacts_correctly(
@@ -840,11 +856,21 @@ async def test_that_a_tool_with_an_invalid_enum_parameter_and_a_missing_paramete
     tool_calls = list(chain.from_iterable(inference_tool_calls_result.batches))
     insights = inference_tool_calls_result.insights
     assert len(tool_calls) == 0 or tool_calls[0] == []
-    assert len(insights.missing_data) == 1 and insights.missing_data[0].parameter == "passenger_id"
-    assert len(insights.invalid_data) == 1 and insights.invalid_data[0].parameter == "destination"
-    assert (
-        insights.invalid_data[0].choices is not None and len(insights.invalid_data[0].choices) > 0
-    )
+    flat_missing = [
+        item
+        for tc_dict in insights.missing_data.values()
+        for items in tc_dict.values()
+        for item in items
+    ]
+    flat_invalid = [
+        item
+        for tc_dict in insights.invalid_data.values()
+        for items in tc_dict.values()
+        for item in items
+    ]
+    assert len(flat_missing) == 1 and flat_missing[0].parameter == "passenger_id"
+    assert len(flat_invalid) == 1 and flat_invalid[0].parameter == "destination"
+    assert flat_invalid[0].choices is not None and len(flat_invalid[0].choices) > 0
 
 
 async def test_that_mcp_tool_with_uuid_path_timedelta_and_datetime_parameters_interacts_correctly(
@@ -1024,7 +1050,7 @@ async def test_that_tool_calling_batchers_can_be_overridden(
                     ),
                 ),
                 insights=ToolInsights(
-                    missing_data=[],
+                    missing_data={},
                 ),
             )
 
@@ -1047,7 +1073,7 @@ async def test_that_tool_calling_batchers_can_be_overridden(
                     ),
                 ),
                 insights=ToolInsights(
-                    missing_data=[],
+                    missing_data={},
                 ),
             )
 
@@ -1560,7 +1586,6 @@ async def test_that_a_tool_call_is_deferred_when_an_ordinary_guideline_requires_
         create_guideline_match(
             condition="the user wants to transfer money",
             action="run transfer_money with the requested amount and accounts",
-            score=9,
             rationale="customer asked to transfer $500 to John's account",
             tags=[Tag.for_agent_id(agent.id).id],
         ): [ToolId(service_name="local", tool_name=tool.name)]
@@ -1570,7 +1595,6 @@ async def test_that_a_tool_call_is_deferred_when_an_ordinary_guideline_requires_
         create_guideline_match(
             condition="you are about to transfer money",
             action="first get the user's clear and explicit confirmation before continuing",
-            score=10,
             rationale="confirmation must be obtained before any money transfer",
             tags=[Tag.for_agent_id(agent.id).id],
         )

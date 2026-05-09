@@ -27,6 +27,7 @@ from parlant.core.engines.alpha.prompt_builder import (
     PromptSection,
     SectionStatus,
 )
+from parlant.core.application_context import ApplicationContext
 from parlant.core.loggers import Logger
 from parlant.core.health import HealthReporter, NullHealthReporter
 from parlant.core.meter import Meter
@@ -511,7 +512,9 @@ class TestableBaseStreamingTextGenerator(BaseStreamingTextGenerator):
             tracer=tracer,
             meter=meter,
             model_name="test-model",
-            health_reporter=NullHealthReporter(),
+            health_reporter=NullHealthReporter(
+                application_context=ApplicationContext(instance_id="test")
+            ),
         )
         self._chunks = chunks
         self._should_fail = should_fail
@@ -593,7 +596,7 @@ async def test_that_streaming_text_generator_reports_time_to_first_token_as_late
         ReportRetention,
     )
 
-    reporter = HealthReporter()
+    reporter = HealthReporter(application_context=ApplicationContext(instance_id="test"))
     reporter.configure_retention(
         NLP_REQUEST_KIND, ReportRetention(window=timedelta(minutes=10), max_count=1000)
     )

@@ -53,7 +53,7 @@ from parlant.core.relationships import (
 )
 from parlant.core.guidelines import Guideline, GuidelineId
 from parlant.core.store_provider import StoreProvider, StoreProviderHints
-from parlant.core.tags import TagId, Tag
+from parlant.core.tags import TagId, Tag, TagStore
 from parlant.core.tools import ToolId
 from parlant.core.tracer import Tracer
 
@@ -257,6 +257,8 @@ class RelationalResolver:
         self._relationship_store = store_provider.get_store(
             RelationshipStore, StoreProviderHints(call_site="engine")
         )
+        self._tag_store = store_provider.get_store(TagStore, StoreProviderHints(call_site="engine"))
+
         self._logger = logger
         self._tracer = tracer
 

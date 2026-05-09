@@ -17,7 +17,12 @@ from lagom import Container
 
 from parlant.core.agents import Agent, AgentStore
 from parlant.core.capabilities import CapabilityStore
-from parlant.core.engines.alpha.tool_calling.tool_caller import ToolCallEvaluation, ToolInsights
+from parlant.core.common import generate_id
+from parlant.core.engines.alpha.tool_calling.tool_caller import (
+    ToolCallEvaluation,
+    ToolCallId,
+    ToolInsights,
+)
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.glossary import GlossaryStore
 from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
@@ -641,7 +646,7 @@ async def test_that_find_guidelines_that_need_reevaluation_finds_guidelines_by_t
     )
 
     tool_insights = ToolInsights(
-        evaluations=[(tool_id, ToolCallEvaluation.NEEDS_TO_RUN)],
+        evaluations={tool_id: {ToolCallId(generate_id()): ToolCallEvaluation.NEEDS_TO_RUN}},
     )
 
     # Re-read the guideline after tags were upserted

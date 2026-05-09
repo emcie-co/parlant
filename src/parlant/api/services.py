@@ -84,10 +84,9 @@ class SDKServiceParamsDTO(
 ServiceOpenAPIParamsSourceField: TypeAlias = Annotated[
     str,
     Field(
-        description="""URL or filesystem path to the OpenAPI specification.
-        For URLs, must be publicly accessible.
-        For filesystem paths, the server must have read permissions.""",
-        examples=["https://api.example.com/openapi.json", "/etc/parlant/specs/example-api.yaml"],
+        description="""URL of the OpenAPI specification (http:// or https://).
+        The URL must be reachable from the server.""",
+        examples=["https://api.example.com/openapi.json"],
     ),
 ]
 
@@ -372,6 +371,20 @@ def create_router(
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="Service URL is missing schema (http:// or https://)",
+                )
+            if not (
+                params.openapi.source.startswith("http://")
+                or params.openapi.source.startswith("https://")
+            ):
+                # Reject local-filesystem OpenAPI sources at the API boundary
+                # to prevent arbitrary local file reads via this field
+                # (CWE-22). Operators that need to load specs from disk must
+                # set PARLANT_ALLOW_OPENAPI_FILE_SOURCE=true on the server.
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=(
+                        "OpenAPI 'source' must be an http:// or https:// URL"
+                    ),
                 )
         elif params.kind == ToolServiceKindDTO.MCP:
             if not params.mcp:

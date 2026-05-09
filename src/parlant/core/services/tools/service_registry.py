@@ -17,6 +17,7 @@ from contextlib import AsyncExitStack
 from datetime import datetime, timezone
 from types import TracebackType
 from typing import Callable, Mapping, Optional, Sequence, cast
+import os
 import warnings
 from typing_extensions import override, TypedDict, Self
 
@@ -240,9 +241,26 @@ class ServiceDocumentRegistry(ServiceRegistry):
                 response = await client.get(source)
                 response.raise_for_status()
                 return response.text
-        else:
-            async with aiofiles.open(source, "r") as f:
-                return await f.read()
+
+        # Local-filesystem sources are gated behind an explicit opt-in so a
+        # caller able to reach the services API cannot use the OpenAPI source
+        # field to read arbitrary files (CWE-22). Operators that intentionally
+        # serve OpenAPI specs from disk can opt in by setting
+        # PARLANT_ALLOW_OPENAPI_FILE_SOURCE=true; persisted sources from
+        # earlier installs continue to load when this is enabled.
+        if os.environ.get("PARLANT_ALLOW_OPENAPI_FILE_SOURCE", "").lower() not in (
+            "1",
+            "true",
+            "yes",
+        ):
+            raise ValueError(
+                "OpenAPI 'source' must be an http:// or https:// URL. "
+                "Local file paths are disabled by default; set "
+                "PARLANT_ALLOW_OPENAPI_FILE_SOURCE=true to allow them."
+            )
+
+        async with aiofiles.open(source, "r") as f:
+            return await f.read()
 
     def _serialize_tool_service(
         self,

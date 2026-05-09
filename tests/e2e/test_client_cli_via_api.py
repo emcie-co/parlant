@@ -1011,9 +1011,11 @@ async def test_that_a_variable_value_can_be_deleted(
         assert len(variable["key_value_pairs"]) == 0
 
 
-async def test_that_an_openapi_service_can_be_added_via_file(
+async def test_that_an_openapi_service_added_via_file_is_rejected(
     context: ContextOfTest,
 ) -> None:
+    """Local-filesystem OpenAPI sources are rejected at the API boundary
+    (CWE-22)."""
     service_name = "test_openapi_service"
     service_kind = "openapi"
 
@@ -1030,6 +1032,8 @@ async def test_that_an_openapi_service_can_be_added_via_file(
                 temp_file.flush()
                 source = temp_file.name
 
+                # CLI should fail (non-zero exit) because the API now rejects
+                # filesystem paths in 'source'.
                 assert (
                     await run_cli_and_get_exit_status(
                         "service",
@@ -1044,14 +1048,14 @@ async def test_that_an_openapi_service_can_be_added_via_file(
                         url,
                         address=context.api.server_address,
                     )
-                    == os.EX_OK
+                    != os.EX_OK
                 )
 
                 async with context.api.make_client() as client:
                     response = await client.get("/services/")
                     response.raise_for_status()
                     services = response.json()
-                    assert any(
+                    assert not any(
                         s["name"] == service_name and s["kind"] == service_kind for s in services
                     )
 

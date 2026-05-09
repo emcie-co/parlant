@@ -98,49 +98,35 @@ async def test_that_openapi_service_is_created_with_url_source(
         assert content["url"] == url
 
 
-async def test_that_openapi_service_is_created_with_file_source(
+async def test_that_openapi_service_with_file_source_is_rejected(
     async_client: httpx.AsyncClient,
 ) -> None:
+    """Local-filesystem OpenAPI sources are blocked at the API boundary to
+    prevent arbitrary local file reads (CWE-22)."""
     openapi_json = {
         "openapi": "3.0.0",
         "info": {"title": "TestAPI", "version": "1.0.0"},
-        "paths": {
-            "/hello": {
-                "get": {
-                    "summary": "Say Hello",
-                    "operationId": "print_hello__get",
-                    "responses": {
-                        "200": {
-                            "description": "Successful Response",
-                            "content": {"application/json": {"schema": {"type": "string"}}},
-                        }
-                    },
-                }
-            }
-        },
+        "paths": {},
     }
     with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json") as tmp_file:
         json.dump(openapi_json, tmp_file)
         source = tmp_file.name
 
-    response = await async_client.put(
-        "/services/my_openapi_file_service",
-        json={
-            "kind": "openapi",
-            "openapi": {
-                "url": SERVER_BASE_URL,
-                "source": source,
+    try:
+        response = await async_client.put(
+            "/services/my_openapi_file_service",
+            json={
+                "kind": "openapi",
+                "openapi": {
+                    "url": SERVER_BASE_URL,
+                    "source": source,
+                },
             },
-        },
-    )
-    response.raise_for_status()
-    content = response.json()
-
-    assert content["name"] == "my_openapi_file_service"
-    assert content["kind"] == "openapi"
-    assert content["url"] == SERVER_BASE_URL
-
-    os.remove(source)
+        )
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert "http://" in response.json()["detail"]
+    finally:
+        os.remove(source)
 
 
 async def test_that_sdk_service_is_created_and_deleted(

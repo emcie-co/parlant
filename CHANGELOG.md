@@ -4,6 +4,10 @@ All notable changes to Parlant will be documented here.
 
 ## [Unreleased]
 
+### Security
+
+- Reject local filesystem paths in the OpenAPI tool service `source` field at the API boundary, and require operators to opt in via `PARLANT_ALLOW_OPENAPI_FILE_SOURCE=true` to load OpenAPI specs from disk in the registry. Prevents arbitrary local file reads via `PUT /services/{name}` (CWE-22).
+
 ### Added
 
 - Add `AnyOf(tag)` and `AllOf(tag)` modifiers for explicit control over tag dependency semantics in `depend_on()` — `AnyOf` requires at least one tagged member to be active, `AllOf` requires all of them (bare `Tag` defaults to `AllOf`)

@@ -205,7 +205,14 @@ class AlphaEngine(Engine):
         start = async_utils.Stopwatch.start()
 
         try:
-            with self._tracer.span("process", {"session_id": context.session_id}):
+            with self._tracer.span(
+                "process",
+                {
+                    "session_id": context.session_id,
+                    "agent_id": context.agent_id,
+                    "agent_last_modified": loaded_context.agent.last_modified_utc.isoformat(),
+                },
+            ):
                 async with self._hist_engine_process_duration.measure():
                     await self._do_process(loaded_context)
             self._report_turn_health(start.elapsed, success=True, error=None)
@@ -265,7 +272,14 @@ class AlphaEngine(Engine):
             async with self._hist_engine_utter_duration.measure(
                 {"session_id": context.session_id},
             ):
-                with self._tracer.span("utter", {"session_id": context.session_id}):
+                with self._tracer.span(
+                    "utter",
+                    {
+                        "session_id": context.session_id,
+                        "agent_id": context.agent_id,
+                        "agent_last_modified": loaded_context.agent.last_modified_utc.isoformat(),
+                    },
+                ):
                     await self._do_utter(loaded_context, requests)
             return True
 

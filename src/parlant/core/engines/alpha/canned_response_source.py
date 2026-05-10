@@ -22,8 +22,11 @@ list lets the engine record *why* a particular canned response was
 available and, ultimately, why it was selected.
 """
 
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import NamedTuple
+from typing import Mapping, NamedTuple, Sequence
+
+from parlant.core.canned_responses import CannedResponse, CannedResponseId
 
 
 class CannedResponseSourceKind(str, Enum):
@@ -47,3 +50,16 @@ GLOBAL_CANNED_RESPONSE_SOURCE = CannedResponseSource(
     kind=CannedResponseSourceKind.GLOBAL,
     id="global",
 )
+
+
+@dataclass(frozen=True)
+class CannedResponseLookup:
+    """Result of resolving canned responses for a request, with attribution.
+
+    A canned response can be surfaced by more than one trigger
+    (e.g. tagged for the agent AND for a specific guideline); ``sources``
+    holds every trigger that contributed it.
+    """
+
+    canned_responses: Sequence[CannedResponse]
+    sources: Mapping[CannedResponseId, Sequence[CannedResponseSource]] = field(default_factory=dict)

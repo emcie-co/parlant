@@ -223,13 +223,13 @@ async def test_that_find_canned_responses_for_agent_returns_global_canned_respon
         fields=[],
     )
 
-    results = await entity_queries.find_canned_responses_for_context(
+    lookup = await entity_queries.find_canned_responses_for_context(
         agent=agent,
         journeys=[],
         guidelines=[],
     )
-    assert len(results) == 1
-    assert results[0].id == untagged_canrep.id
+    assert len(lookup.canned_responses) == 1
+    assert lookup.canned_responses[0].id == untagged_canrep.id
 
 
 async def test_that_find_canned_responses_for_agent_returns_none_for_non_matching_tag(
@@ -247,12 +247,12 @@ async def test_that_find_canned_responses_for_agent_returns_none_for_non_matchin
 
     await container[AgentStore].upsert_tag(agent_id=agent.id, tag_id=TagId("non_matching_tag"))
 
-    results = await entity_queries.find_canned_responses_for_context(
+    lookup = await entity_queries.find_canned_responses_for_context(
         agent=agent,
         journeys=[],
         guidelines=[],
     )
-    assert len(results) == 0
+    assert len(lookup.canned_responses) == 0
 
 
 async def test_that_find_canned_responses_for_agent_and_journey_returns_journey_canned_responses(
@@ -275,13 +275,13 @@ async def test_that_find_canned_responses_for_agent_and_journey_returns_journey_
         tags=[journey_tag],
     )
 
-    results = await entity_queries.find_canned_responses_for_context(
+    lookup = await entity_queries.find_canned_responses_for_context(
         agent=agent,
         journeys=[journey],
         guidelines=[],
     )
-    assert len(results) == 1
-    assert results[0].id == journey_canrep.id
+    assert len(lookup.canned_responses) == 1
+    assert lookup.canned_responses[0].id == journey_canrep.id
 
 
 async def test_that_find_glossary_terms_for_agent_returns_all_when_no_tags(

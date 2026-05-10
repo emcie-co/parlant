@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections import defaultdict
 from itertools import chain
 from typing import Mapping, Optional, Sequence, cast
 
@@ -30,6 +31,12 @@ from parlant.core.context_variables import (
     ContextVariableValue,
 )
 from parlant.core.customers import Customer, CustomerId, CustomerStore
+from parlant.core.engines.alpha.canned_response_source import (
+    GLOBAL_CANNED_RESPONSE_SOURCE,
+    CannedResponseLookup,
+    CannedResponseSource,
+    CannedResponseSourceKind,
+)
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolCallEvaluation, ToolInsights
 from parlant.core.journey_guideline_projection import (
     JourneyGuidelineProjection,
@@ -59,9 +66,9 @@ from parlant.core.sessions import (
     Event,
 )
 from parlant.core.services.tools.service_registry import ServiceRegistry
-from parlant.core.tags import Tag
+from parlant.core.tags import Tag, TagId
 from parlant.core.tools import ToolId, ToolService
-from parlant.core.canned_responses import CannedResponse, CannedResponseStore
+from parlant.core.canned_responses import CannedResponse, CannedResponseId, CannedResponseStore
 from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
@@ -393,7 +400,7 @@ class EntityQueries:
         agent: Agent,
         journeys: Sequence[Journey],
         guidelines: Sequence[Guideline],
-    ) -> Sequence[CannedResponse]:
+    ) -> CannedResponseLookup:
         agent_canreps = await self._canned_response_store.list_canned_responses(
             tags=[Tag.for_agent_id(agent.id).id],
         )
@@ -409,6 +416,52 @@ class EntityQueries:
 
         guideline_canreps = await self.find_canned_responses_for_guidelines(guidelines)
 
+        sources: dict[CannedResponseId, set[CannedResponseSource]] = defaultdict(set)
+
+        agent_source = CannedResponseSource(kind=CannedResponseSourceKind.AGENT, id=agent.id)
+        for c in agent_canreps:
+            sources[c.id].add(agent_source)
+
+        for c in global_canreps:
+            sources[c.id].add(GLOBAL_CANNED_RESPONSE_SOURCE)
+
+        agent_tag_set = set(agent.tags)
+        for c in canreps_for_agent_tags:
+            for t in c.tags:
+                if t in agent_tag_set:
+                    sources[c.id].add(
+                        CannedResponseSource(kind=CannedResponseSourceKind.AGENT_TAG, id=t)
+                    )
+
+        journey_tag_to_journey_id = {Tag.for_journey_id(j.id).id: j.id for j in journeys}
+        for c in journey_canreps:
+            for t in c.tags:
+                if t in journey_tag_to_journey_id:
+                    sources[c.id].add(
+                        CannedResponseSource(
+                            kind=CannedResponseSourceKind.JOURNEY,
+                            id=journey_tag_to_journey_id[t],
+                        )
+                    )
+
+        guideline_tag_to_source: dict[TagId, CannedResponseSource] = {}
+        for g in guidelines:
+            if g.id.startswith("journey_node:"):
+                node_id = extract_node_id_from_journey_node_guideline_id(g.id)
+                guideline_tag_to_source[Tag.for_journey_node_id(node_id).id] = CannedResponseSource(
+                    kind=CannedResponseSourceKind.JOURNEY_NODE,
+                    id=node_id,
+                )
+            else:
+                guideline_tag_to_source[Tag.for_guideline_id(g.id).id] = CannedResponseSource(
+                    kind=CannedResponseSourceKind.GUIDELINE,
+                    id=g.id,
+                )
+        for c in guideline_canreps:
+            for t in c.tags:
+                if t in guideline_tag_to_source:
+                    sources[c.id].add(guideline_tag_to_source[t])
+
         all_canreps = set(
             chain(
                 agent_canreps,
@@ -419,7 +472,10 @@ class EntityQueries:
             )
         )
 
-        return list(all_canreps)
+        return CannedResponseLookup(
+            canned_responses=list(all_canreps),
+            sources={cid: list(s) for cid, s in sources.items()},
+        )
 
     async def find_canned_responses_for_guidelines(
         self,

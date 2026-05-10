@@ -33,6 +33,7 @@ from parlant.core.engines.alpha.relational_resolver import (
     ResolutionKind,
     ResolvedEntity,
 )
+from parlant.core.engines.alpha.canned_response_source import CannedResponseSource
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolCallEvaluation, ToolInsights
 from parlant.core.glossary import Term
 from parlant.core.guidelines import Guideline, GuidelineId
@@ -43,7 +44,7 @@ from parlant.core.journey_guideline_projection import (
 )
 from parlant.core.journeys import Journey, JourneyId
 from parlant.core.sessions import ToolEventData
-from parlant.core.tracer import Tracer
+from parlant.core.tracer import AttributeValue, Tracer
 
 
 class MatchReason(str, Enum):
@@ -208,15 +209,17 @@ class EngineTracer:
         canned_response_id: str,
         rendered: Optional[str],
         is_fallback: bool = False,
+        sources: Sequence[CannedResponseSource] = (),
     ) -> None:
-        self._tracer.add_event(
-            "canrep.selected",
-            attributes={
-                "canned_response_id": canned_response_id,
-                "rendered": rendered or "",
-                "is_fallback": is_fallback,
-            },
-        )
+        attributes: dict[str, AttributeValue] = {
+            "canned_response_id": canned_response_id,
+            "rendered": rendered or "",
+            "is_fallback": is_fallback,
+        }
+        if sources:
+            attributes["trigger_kinds"] = [s.kind.value for s in sources]
+            attributes["trigger_ids"] = [s.id for s in sources]
+        self._tracer.add_event("canrep.selected", attributes=attributes)
 
     def matches(
         self,

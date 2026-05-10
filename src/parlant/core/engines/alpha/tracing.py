@@ -33,7 +33,7 @@ from parlant.core.engines.alpha.relational_resolver import (
     ResolutionKind,
     ResolvedEntity,
 )
-from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
+from parlant.core.engines.alpha.tool_calling.tool_caller import ToolCallEvaluation, ToolInsights
 from parlant.core.glossary import Term
 from parlant.core.guidelines import Guideline, GuidelineId
 from parlant.core.tags import Tag
@@ -73,6 +73,30 @@ def _resolution_kind_to_match_reason(kind: ResolutionKind) -> MatchReason:
             return MatchReason.DEPRIORITIZED
         case ResolutionKind.ENTAILED:
             return MatchReason.ENTAILED
+
+
+class ToolEvaluation(str, Enum):
+    """Trace-side label for a tool-call evaluation outcome.
+
+    Mirrors :class:`ToolCallEvaluation` for tracing — decoupled so the
+    trace label can evolve independently of the engine's internal enum
+    value (e.g. ``ToolCallEvaluation.NEEDS_TO_RUN.value`` is ``"success"``,
+    which is misleading on a ``tc.failure`` event).
+    """
+
+    NEEDS_TO_RUN = "needs_to_run"
+    DATA_ALREADY_IN_CONTEXT = "data_already_in_context"
+    CANNOT_RUN = "cannot_run"
+
+
+def _tool_call_evaluation_to_tool_evaluation(e: ToolCallEvaluation) -> ToolEvaluation:
+    match e:
+        case ToolCallEvaluation.NEEDS_TO_RUN:
+            return ToolEvaluation.NEEDS_TO_RUN
+        case ToolCallEvaluation.DATA_ALREADY_IN_CONTEXT:
+            return ToolEvaluation.DATA_ALREADY_IN_CONTEXT
+        case ToolCallEvaluation.CANNOT_RUN:
+            return ToolEvaluation.CANNOT_RUN
 
 
 class EngineTracer:
@@ -116,6 +140,7 @@ class EngineTracer:
                         "rationale": tool_call["rationale"],
                         "arguments": json.dumps(tool_call["arguments"]),
                         "result": json.dumps(tool_call["result"]),
+                        "evaluation": ToolEvaluation.NEEDS_TO_RUN.value,
                     },
                 )
 
@@ -129,6 +154,7 @@ class EngineTracer:
                             "tool_id": tool_id.to_string(),
                             "tool_call_id": missing_tc_id,
                             "parameter": missing_item.parameter,
+                            "evaluation": ToolEvaluation.CANNOT_RUN.value,
                         },
                     )
 
@@ -142,6 +168,21 @@ class EngineTracer:
                             "tool_call_id": invalid_tc_id,
                             "parameter": invalid_item.parameter,
                             "invalid_value": invalid_item.invalid_value,
+                            "evaluation": ToolEvaluation.CANNOT_RUN.value,
+                        },
+                    )
+
+        for tool_id, tc_evals in tool_insights.evaluations.items():
+            for skipped_tc_id, evaluation in tc_evals.items():
+                if evaluation == ToolCallEvaluation.DATA_ALREADY_IN_CONTEXT:
+                    self._tracer.add_event(
+                        "tc.skipped",
+                        attributes={
+                            "tool_id": tool_id.to_string(),
+                            "tool_call_id": skipped_tc_id,
+                            "evaluation": _tool_call_evaluation_to_tool_evaluation(
+                                evaluation
+                            ).value,
                         },
                     )
 

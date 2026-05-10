@@ -835,13 +835,14 @@ You will now be given the current state of the interaction to which you must gen
                 },
             )
         else:
+            preamble_lookup = await self._entity_queries.find_canned_responses_for_context(
+                agent=agent,
+                journeys=canrep_context.journeys,
+                guidelines=[m.guideline for m in canrep_context.guideline_matches],
+            )
             preamble_responses = [
                 canrep
-                for canrep in await self._entity_queries.find_canned_responses_for_context(
-                    agent=agent,
-                    journeys=canrep_context.journeys,
-                    guidelines=[m.guideline for m in canrep_context.guideline_matches],
-                )
+                for canrep in preamble_lookup.canned_responses
                 if Tag.preamble().id in canrep.tags
             ]
 
@@ -962,13 +963,14 @@ You will now be given the current state of the interaction to which you must gen
         self,
         context: CannedResponseContext,
     ) -> list[CannedResponse]:
+        stored_lookup = await self._entity_queries.find_canned_responses_for_context(
+            agent=context.agent,
+            journeys=context.journeys,
+            guidelines=[m.guideline for m in context.guideline_matches],
+        )
         stored_responses = [
             canrep
-            for canrep in await self._entity_queries.find_canned_responses_for_context(
-                agent=context.agent,
-                journeys=context.journeys,
-                guidelines=[m.guideline for m in context.guideline_matches],
-            )
+            for canrep in stored_lookup.canned_responses
             if Tag.preamble().id not in canrep.tags
         ]
 

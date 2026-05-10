@@ -52,6 +52,7 @@ from parlant.core.engines.alpha.perceived_performance_policy import (
     PerceivedPerformancePolicyProvider,
 )
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
+from parlant.core.engines.alpha.tracing import EngineTracer
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.guidelines import GuidelineId
 from parlant.core.journeys import Journey
@@ -540,6 +541,7 @@ class CannedResponseGenerator(MessageEventComposer):
         self._logger = logger
         self._store_provider = store_provider
         self._tracer = tracer
+        self._engine_tracer = EngineTracer(tracer)
         self._meter = meter
 
         self._hooks = hooks
@@ -931,7 +933,7 @@ You will now be given the current state of the interaction to which you must gen
                 ),
             )
 
-            self._tracer.add_event("canrep.preamble_generated")
+            self._engine_tracer.canrep_preamble_generated()
 
             return [
                 MessageEventComposition(
@@ -1121,7 +1123,7 @@ You will now be given the current state of the interaction to which you must gen
                         if not first_message_already_emitted:
                             ttfm_ms = context.start_of_processing.elapsed * 1000
                             await self._hist_ttfm_duration.record(ttfm_ms)
-                            self._tracer.add_event("canrep.ttfm")
+                            self._engine_tracer.canrep_ttfm()
                             self._health_reporter.report(
                                 ENGINE_TTFM_KIND,
                                 {EngineHealthView.ATTR_TTFM_MS: ttfm_ms},
@@ -2065,7 +2067,7 @@ QUICK RECAP (for reference before responding):
                     # Record time to first message
                     ttfm_ms = context.start_of_processing.elapsed * 1000
                     await self._hist_ttfm_duration.record(ttfm_ms)
-                    self._tracer.add_event("canrep.streaming.ttfm")
+                    self._engine_tracer.canrep_streaming_ttfm()
                     self._health_reporter.report(
                         ENGINE_TTFM_KIND, {EngineHealthView.ATTR_TTFM_MS: ttfm_ms}
                     )
@@ -2236,6 +2238,12 @@ Output a JSON object with three properties:
         elif not canned_responses and composition_mode == CompositionMode.CANNED_STRICT:
             no_match_canrep = await self._no_match_provider.get_response(loaded_context, None)
 
+            self._engine_tracer.canrep_selected(
+                canned_response_id=no_match_canrep.id,
+                rendered=no_match_canrep.value,
+                is_fallback=True,
+            )
+
             return {}, _CannedResponseSelectionResult(
                 message=no_match_canrep.value,
                 draft=None,
@@ -2257,12 +2265,7 @@ Output a JSON object with three properties:
                 hints={"temperature": temperature},
             )
 
-            self._tracer.add_event(
-                "canrep.draft",
-                attributes={
-                    "insights": draft_response.content.insights or "N/A",
-                },
-            )
+            self._engine_tracer.canrep_draft(draft_response.content.insights)
 
         self._logger.trace(
             f"Canned Response Draft Completion:\n{draft_response.content.model_dump_json(indent=2)}"
@@ -2406,6 +2409,12 @@ Output a JSON object with three properties:
                     loaded_context, draft_message
                 )
 
+                self._engine_tracer.canrep_selected(
+                    canned_response_id=no_match_canrep.id,
+                    rendered=no_match_canrep.value,
+                    is_fallback=True,
+                )
+
                 return {
                     "draft": draft_response.info,
                     "selection": selection_response.info,
@@ -2459,6 +2468,12 @@ Output a JSON object with three properties:
                 loaded_context, draft_message
             )
 
+            self._engine_tracer.canrep_selected(
+                canned_response_id=no_match_canrep.id,
+                rendered=no_match_canrep.value,
+                is_fallback=True,
+            )
+
             return {
                 "draft": draft_response.info,
                 "selection": selection_response.info,
@@ -2469,12 +2484,9 @@ Output a JSON object with three properties:
                 chosen_canned_responses=[(no_match_canrep.id, no_match_canrep.value)],
             )
 
-        self._tracer.add_event(
-            "canrep.selected",
-            attributes={
-                "canned_response_id": selected_canrep_id,
-                "rendered": rendered_canned_response or "",
-            },
+        self._engine_tracer.canrep_selected(
+            canned_response_id=selected_canrep_id,
+            rendered=rendered_canned_response,
         )
 
         return {

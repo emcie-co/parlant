@@ -186,6 +186,38 @@ class EngineTracer:
                         },
                     )
 
+    def canrep_preamble_generated(self) -> None:
+        self._tracer.add_event("canrep.preamble_generated")
+
+    def canrep_ttfm(self) -> None:
+        """Time-to-first-message landmark for canned-response generation."""
+        self._tracer.add_event("canrep.ttfm")
+
+    def canrep_streaming_ttfm(self) -> None:
+        """Time-to-first-message landmark for streaming canned-response generation."""
+        self._tracer.add_event("canrep.streaming.ttfm")
+
+    def canrep_draft(self, insights: Optional[Sequence[str]]) -> None:
+        self._tracer.add_event(
+            "canrep.draft",
+            attributes={"insights": list(insights) if insights else ["N/A"]},
+        )
+
+    def canrep_selected(
+        self,
+        canned_response_id: str,
+        rendered: Optional[str],
+        is_fallback: bool = False,
+    ) -> None:
+        self._tracer.add_event(
+            "canrep.selected",
+            attributes={
+                "canned_response_id": canned_response_id,
+                "rendered": rendered or "",
+                "is_fallback": is_fallback,
+            },
+        )
+
     def matches(
         self,
         matcher_matched: Sequence[GuidelineMatch],

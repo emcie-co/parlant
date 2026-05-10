@@ -78,6 +78,7 @@ class Agent:
     name: str
     description: Optional[str]
     creation_utc: datetime
+    last_modified_utc: datetime
     max_engine_iterations: int
     tags: Sequence[TagId]
     composition_mode: CompositionMode = CompositionMode.FLUID
@@ -138,10 +139,22 @@ class AgentStore(ABC):
     ) -> None: ...
 
 
+class _AgentDocument_v0_5_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    name: str
+    description: Optional[str]
+    max_engine_iterations: int
+    composition_mode: str
+    message_output_mode: str
+
+
 class _AgentDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
+    last_modified: str
     name: str
     description: Optional[str]
     max_engine_iterations: int
@@ -158,7 +171,7 @@ class _AgentTagAssociationDocument(TypedDict, total=False):
 
 
 class AgentDocumentStore(AgentStore):
-    VERSION = Version.from_string("0.5.0")
+    VERSION = Version.from_string("0.6.0")
 
     def __init__(
         self,
@@ -219,10 +232,10 @@ class AgentDocumentStore(AgentStore):
             return None
 
         async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
-            doc = cast(_AgentDocument, doc)
+            doc = cast(_AgentDocument_v0_5_0, doc)
 
             if doc["version"] == "0.4.0":
-                return _AgentDocument(
+                return _AgentDocument_v0_5_0(
                     id=ObjectId(doc["id"]),
                     version=Version.String("0.5.0"),
                     creation_utc=doc["creation_utc"],
@@ -238,6 +251,20 @@ class AgentDocumentStore(AgentStore):
 
             return None
 
+        async def v0_5_0_to_v0_6_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(_AgentDocument_v0_5_0, doc)
+            return _AgentDocument(
+                id=d["id"],
+                version=Version.String("0.6.0"),
+                creation_utc=d["creation_utc"],
+                last_modified=d["creation_utc"],
+                name=d["name"],
+                description=d.get("description"),
+                max_engine_iterations=d["max_engine_iterations"],
+                composition_mode=d.get("composition_mode", CompositionMode.FLUID.value),
+                message_output_mode=d.get("message_output_mode", MessageOutputMode.BLOCK.value),
+            )
+
         return await DocumentMigrationHelper[_AgentDocument](
             self,
             {
@@ -245,6 +272,7 @@ class AgentDocumentStore(AgentStore):
                 "0.2.0": v0_2_0_to_v0_3_0,
                 "0.3.0": v0_3_0_to_v0_4_0,
                 "0.4.0": v0_4_0_to_v0_5_0,
+                "0.5.0": v0_5_0_to_v0_6_0,
             },
         ).migrate(doc)
 
@@ -312,6 +340,7 @@ class AgentDocumentStore(AgentStore):
             id=ObjectId(agent.id),
             version=self.VERSION.to_string(),
             creation_utc=agent.creation_utc.isoformat(),
+            last_modified=agent.last_modified_utc.isoformat(),
             name=agent.name,
             description=agent.description,
             max_engine_iterations=agent.max_engine_iterations,
@@ -330,6 +359,7 @@ class AgentDocumentStore(AgentStore):
         return Agent(
             id=AgentId(agent_document["id"]),
             creation_utc=datetime.fromisoformat(agent_document["creation_utc"]),
+            last_modified_utc=datetime.fromisoformat(agent_document["last_modified"]),
             name=agent_document["name"],
             description=agent_document["description"],
             max_engine_iterations=agent_document["max_engine_iterations"],
@@ -373,6 +403,7 @@ class AgentDocumentStore(AgentStore):
                 name=name,
                 description=description,
                 creation_utc=creation_utc,
+                last_modified_utc=creation_utc,
                 max_engine_iterations=max_engine_iterations,
                 tags=tags or [],
                 composition_mode=composition_mode or CompositionMode.FLUID,
@@ -436,9 +467,12 @@ class AgentDocumentStore(AgentStore):
             if not agent_document:
                 raise ItemNotFoundError(item_id=UniqueId(agent_id))
 
+            update_payload = cast(_AgentDocument, to_json_dict(params))
+            update_payload["last_modified"] = datetime.now(timezone.utc).isoformat()
+
             result = await self._agents_collection.update_one(
                 filters={"id": {"$eq": agent_id}},
-                params=cast(_AgentDocument, to_json_dict(params)),
+                params=update_payload,
             )
 
         assert result.updated_document
@@ -494,6 +528,12 @@ class AgentDocumentStore(AgentStore):
 
             agent_document = await self._agents_collection.find_one({"id": {"$eq": agent_id}})
 
+            if agent_document:
+                await self._agents_collection.update_one(
+                    filters={"id": {"$eq": agent_id}},
+                    params={"last_modified": datetime.now(timezone.utc).isoformat()},
+                )
+
         if not agent_document:
             raise ItemNotFoundError(item_id=UniqueId(agent_id))
 
@@ -517,6 +557,12 @@ class AgentDocumentStore(AgentStore):
                 raise ItemNotFoundError(item_id=UniqueId(tag_id))
 
             agent_document = await self._agents_collection.find_one({"id": {"$eq": agent_id}})
+
+            if agent_document:
+                await self._agents_collection.update_one(
+                    filters={"id": {"$eq": agent_id}},
+                    params={"last_modified": datetime.now(timezone.utc).isoformat()},
+                )
 
         if not agent_document:
             raise ItemNotFoundError(item_id=UniqueId(agent_id))

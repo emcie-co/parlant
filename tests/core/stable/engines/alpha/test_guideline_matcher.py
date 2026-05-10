@@ -869,6 +869,7 @@ async def test_that_guidelines_are_matched_based_on_agent_description(
     agent = Agent(
         id=AgentId("123"),
         creation_utc=datetime.now(timezone.utc),
+        last_modified_utc=datetime.now(timezone.utc),
         name="skateboard-sales-agent",
         description="You are an agent working for a skateboarding manufacturer. You help customers by discussing and recommending our products."
         "Your role is only to consult customers, and not to actually sell anything, as we sell our products in-store.",

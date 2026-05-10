@@ -117,7 +117,7 @@ class RelationshipModule:
                 id=tag_id,
                 name=agent.name,
                 creation_utc=agent.creation_utc,
-                last_modified_utc=agent.creation_utc,
+                last_modified_utc=agent.last_modified_utc,
             )
         elif journey_id := Tag.extract_journey_id(tag_id):
             journey = await self._journey_store.read_journey(journey_id=cast(JourneyId, journey_id))

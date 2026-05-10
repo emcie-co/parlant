@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import asyncio
+from collections import defaultdict
 from dataclasses import dataclass, field as dataclass_field
 from itertools import chain
 from random import shuffle
@@ -58,6 +59,11 @@ from parlant.core.guidelines import GuidelineId
 from parlant.core.journeys import Journey
 from parlant.core.tags import Tag
 from parlant.core.canned_responses import CannedResponse, CannedResponseId, CannedResponseStore
+from parlant.core.engines.alpha.canned_response_source import (
+    CannedResponseLookup,
+    CannedResponseSource,
+    CannedResponseSourceKind,
+)
 from parlant.core.nlp.generation import SchematicGenerator, StreamingTextGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
@@ -962,7 +968,7 @@ You will now be given the current state of the interaction to which you must gen
     async def _get_relevant_canned_responses(
         self,
         context: CannedResponseContext,
-    ) -> list[CannedResponse]:
+    ) -> CannedResponseLookup:
         stored_lookup = await self._entity_queries.find_canned_responses_for_context(
             agent=context.agent,
             journeys=context.journeys,
@@ -974,6 +980,11 @@ You will now be given the current state of the interaction to which you must gen
             if Tag.preamble().id not in canrep.tags
         ]
 
+        # Build the unified source map: stored + per-tool TOOL sources.
+        sources: dict[CannedResponseId, list[CannedResponseSource]] = defaultdict(list)
+        for cid, src_list in stored_lookup.sources.items():
+            sources[cid].extend(src_list)
+
         # Add responses from staged tool events (transient)
         responses_by_staged_event: list[CannedResponse] = []
         for event in context.staged_tool_events:
@@ -981,10 +992,19 @@ You will now be given the current state of the interaction to which you must gen
                 event_data: dict[str, Any] = cast(dict[str, Any], event.data)
                 tool_calls: list[Any] = cast(list[Any], event_data.get("tool_calls", []))
                 for tool_call in tool_calls:
-                    responses_by_staged_event.extend(
+                    tool_id = tool_call.get("tool_id", "")
+                    transient_canreps = [
                         CannedResponse.create_transient(r)
                         for r in tool_call["result"].get("canned_responses", [])
-                    )
+                    ]
+                    for c in transient_canreps:
+                        sources[c.id].append(
+                            CannedResponseSource(
+                                kind=CannedResponseSourceKind.TOOL,
+                                id=tool_id,
+                            )
+                        )
+                    responses_by_staged_event.extend(transient_canreps)
 
         all_candidates = [*stored_responses, *responses_by_staged_event]
 
@@ -1037,7 +1057,10 @@ You will now be given the current state of the interaction to which you must gen
             ):
                 relevant_responses.append(canrep)
 
-        return relevant_responses
+        return CannedResponseLookup(
+            canned_responses=relevant_responses,
+            sources={cid: list(s) for cid, s in sources.items()},
+        )
 
     async def _do_generate_events(
         self,
@@ -1222,7 +1245,7 @@ You will now be given the current state of the interaction to which you must gen
             self._logger.info("Skipping response; interaction is empty and there are no guidelines")
             return []
 
-        canreps = await self._get_relevant_canned_responses(context)
+        canrep_lookup = await self._get_relevant_canned_responses(context)
 
         attempt_temperatures = self._optimization_policy.get_message_generation_retry_temperatures(
             hints={"type": "canned-response-generation"}
@@ -1238,7 +1261,8 @@ You will now be given the current state of the interaction to which you must gen
                 generation_info, generation_result = await self._generate_response(
                     loaded_context,
                     context,
-                    canreps,
+                    canrep_lookup.canned_responses,
+                    canrep_lookup.sources,
                     composition_mode,
                     attempt_temperatures[generation_attempt],
                 )
@@ -2203,6 +2227,7 @@ Output a JSON object with three properties:
         loaded_context: EngineContext,
         context: CannedResponseContext,
         canned_responses: Sequence[CannedResponse],
+        canned_response_sources: Mapping[CannedResponseId, Sequence[CannedResponseSource]],
         composition_mode: CompositionMode,
         temperature: float,
     ) -> tuple[Mapping[str, GenerationInfo], Optional[_CannedResponseSelectionResult]]:
@@ -2489,6 +2514,7 @@ Output a JSON object with three properties:
         self._engine_tracer.canrep_selected(
             canned_response_id=selected_canrep_id,
             rendered=rendered_canned_response,
+            sources=canned_response_sources.get(selected_canrep_id, []),
         )
 
         return {

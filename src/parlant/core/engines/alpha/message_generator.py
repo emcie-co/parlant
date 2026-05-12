@@ -556,7 +556,10 @@ If you inform of missing data that contains choices then present all of of the c
                             )
                         )
                     ),
-                    "missing_data": tool_insights.missing_data,
+                    "missing_data": {
+                        tid.to_string(): tool_insights.missing_data[tid]
+                        for tid in tool_insights.missing_data
+                    },
                 },
             )
 
@@ -583,7 +586,7 @@ You should inform the user about this invalid data and if it includes choices th
                             )
                         )
                     ),
-                    "invalid_data": tool_insights.invalid_data,
+                    "invalid_data": json.dumps(tool_insights.invalid_data),
                 },
             )
 

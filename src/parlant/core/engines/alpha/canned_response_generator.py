@@ -1659,7 +1659,10 @@ If it makes sense in the current state of the interaction, inform the user about
                             )
                         ]
                     ),
-                    "missing_data": tool_insights.missing_data,
+                    "missing_data": {
+                        tid.to_string(): tool_insights.missing_data[tid]
+                        for tid in tool_insights.missing_data
+                    },
                 },
             )
 
@@ -1691,7 +1694,10 @@ You should inform the user about this invalid data: ###
                             )
                         ]
                     ),
-                    "invalid_data": tool_insights.invalid_data,
+                    "invalid_data": {
+                        tid.to_string(): tool_insights.invalid_data[tid]
+                        for tid in tool_insights.invalid_data
+                    },
                 },
             )
 
@@ -1913,7 +1919,10 @@ in order to run tools. If it makes sense in the current state of the interaction
                             )
                         ]
                     ),
-                    "missing_data": tool_insights.missing_data,
+                    "missing_data": {
+                        tid.to_string(): tool_insights.missing_data[tid]
+                        for tid in tool_insights.missing_data
+                    },
                 },
             )
 
@@ -1944,7 +1953,10 @@ in order to run tools. You should inform the user about this invalid data: ###
                             )
                         ]
                     ),
-                    "invalid_data": tool_insights.invalid_data,
+                    "invalid_data": {
+                        tid.to_string(): tool_insights.invalid_data[tid]
+                        for tid in tool_insights.invalid_data
+                    },
                 },
             )
 

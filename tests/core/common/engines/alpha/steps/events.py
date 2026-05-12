@@ -570,9 +570,14 @@ def then_the_number_of_missing_is_exactly(
     )
     missing_data = latest_context.state.tool_insights.missing_data
 
-    assert len(missing_data) == number_of_missing, (
-        f"Expected {number_of_missing} missing parameters, but found {len(missing_data)}"
-    )
+    assert (
+        sum(
+            len(missing_tool_data_list)
+            for tool_calls in missing_data.values()
+            for missing_tool_data_list in tool_calls.values()
+        )
+        == number_of_missing
+    ), f"Expected {number_of_missing} missing parameters, but found {len(missing_data)}"
 
 
 @step(then, parsers.parse("the number of invalid parameters is exactly {number_of_invalid:d}"))
@@ -585,9 +590,14 @@ def then_the_number_of_invalid_is_exactly(
     )
     invalid_data = latest_context.state.tool_insights.invalid_data
 
-    assert len(invalid_data) == number_of_invalid, (
-        f"Expected {number_of_invalid} missing parameters, but found {len(invalid_data)}"
-    )
+    assert (
+        sum(
+            len(invalid_tool_data_list)
+            for tool_calls in invalid_data.values()
+            for invalid_tool_data_list in tool_calls.values()
+        )
+        == number_of_invalid
+    ), f"Expected {number_of_invalid} invalid parameters, but found {len(invalid_data)}"
 
 
 def _get_staged_events(context: ContextOfTest) -> list[EmittedEvent]:

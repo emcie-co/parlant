@@ -284,6 +284,11 @@ class RelationalResolver:
                 guidelines_by_id: dict[GuidelineId, Guideline] = {
                     g.id: g for g in usable_guidelines
                 }
+                # Transient (tool-returned) guidelines arrive via ``matches``
+                # but aren't in ``usable_guidelines``; include them so that
+                # every downstream guideline_by_id lookup is satisfiable.
+                for m in matches:
+                    guidelines_by_id.setdefault(m.guideline.id, m.guideline)
                 journeys_by_id: dict[JourneyId, Journey] = {j.id: j for j in journeys}
                 tags_by_id: dict[TagId, Tag] = {t.id: t for t in await self._tag_store.list_tags()}
 

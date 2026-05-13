@@ -2278,7 +2278,7 @@ Output a JSON object with three properties:
             no_match_canrep = await self._no_match_provider.get_response(loaded_context, None)
 
             self._engine_tracer.canrep_selected(
-                canned_response_id=no_match_canrep.id,
+                canned_response=no_match_canrep,
                 rendered=no_match_canrep.value,
                 is_fallback=True,
             )
@@ -2449,7 +2449,7 @@ Output a JSON object with three properties:
                 )
 
                 self._engine_tracer.canrep_selected(
-                    canned_response_id=no_match_canrep.id,
+                    canned_response=no_match_canrep,
                     rendered=no_match_canrep.value,
                     is_fallback=True,
                 )
@@ -2508,7 +2508,7 @@ Output a JSON object with three properties:
             )
 
             self._engine_tracer.canrep_selected(
-                canned_response_id=no_match_canrep.id,
+                canned_response=no_match_canrep,
                 rendered=no_match_canrep.value,
                 is_fallback=True,
             )
@@ -2523,8 +2523,12 @@ Output a JSON object with three properties:
                 chosen_canned_responses=[(no_match_canrep.id, no_match_canrep.value)],
             )
 
+        selected_canrep = next(
+            canrep for canrep, _ in rendered_canreps if canrep.id == selected_canrep_id
+        )
+
         self._engine_tracer.canrep_selected(
-            canned_response_id=selected_canrep_id,
+            canned_response=selected_canrep,
             rendered=rendered_canned_response,
             sources=canned_response_sources.get(selected_canrep_id, []),
         )

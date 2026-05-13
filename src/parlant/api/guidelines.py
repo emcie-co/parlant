@@ -408,10 +408,14 @@ def _guideline_relationship_kind_to_dto(
             return RelationshipKindDTO.PRIORITY
         case RelationshipKind.DEPENDENCY:
             return RelationshipKindDTO.DEPENDENCY
+        case RelationshipKind.DEPENDENCY_ANY:
+            return RelationshipKindDTO.DEPENDENCY_ANY
         case RelationshipKind.DISAMBIGUATION:
             return RelationshipKindDTO.DISAMBIGUATION
         case RelationshipKind.REEVALUATION:
             return RelationshipKindDTO.REEVALUATION
+        case RelationshipKind.OVERLAP:
+            return RelationshipKindDTO.OVERLAP
         case _:
             raise ValueError(f"Invalid guideline relationship kind: {kind.value}")
 
@@ -492,6 +496,7 @@ def _guideline_relationship_to_dto(
         else None,
         indirect=indirect,
         kind=_guideline_relationship_kind_to_dto(relationship.kind),
+        group_id=relationship.group_id,
     )
 
 

@@ -598,6 +598,7 @@ class RelationshipKindDTO(Enum):
     ENTAILMENT = "entailment"
     PRIORITY = "priority"
     DEPENDENCY = "dependency"
+    DEPENDENCY_ANY = "dependency_any"
     DISAMBIGUATION = "disambiguation"
     OVERLAP = "overlap"
     REEVALUATION = "reevaluation"
@@ -641,3 +642,4 @@ class RelationshipDTO(
     source_tool: ToolDTO | None = None
     target_tool: ToolDTO | None = None
     kind: RelationshipKindDTO
+    group_id: str | None = None

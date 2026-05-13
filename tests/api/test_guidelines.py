@@ -806,6 +806,48 @@ async def test_that_guideline_relationships_can_be_read(
     assert relationships[0]["kind"] == "entailment"
 
 
+async def test_that_guideline_dependency_any_relationships_can_be_read(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+    relationship_store = container[RelationshipStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="source condition",
+        action="source action",
+    )
+
+    target_guideline = await guideline_store.create_guideline(
+        condition="target condition",
+        action="target action",
+    )
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(
+            id=guideline.id,
+            kind=RelationshipEntityKind.GUIDELINE,
+        ),
+        target=RelationshipEntity(
+            id=target_guideline.id,
+            kind=RelationshipEntityKind.GUIDELINE,
+        ),
+        kind=RelationshipKind.DEPENDENCY_ANY,
+        group_id="group-abc",
+    )
+
+    response = await async_client.get(f"/guidelines/{guideline.id}")
+
+    assert response.status_code == status.HTTP_200_OK
+    relationships = response.json()["relationships"]
+
+    assert len(relationships) == 1
+    assert relationships[0]["source_guideline"]["id"] == guideline.id
+    assert relationships[0]["target_guideline"]["id"] == target_guideline.id
+    assert relationships[0]["kind"] == "dependency_any"
+    assert relationships[0]["group_id"] == "group-abc"
+
+
 async def test_that_guideline_with_relationships_can_be_deleted(
     async_client: httpx.AsyncClient,
     container: Container,

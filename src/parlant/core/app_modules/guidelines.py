@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from itertools import chain
-from typing import Mapping, Sequence, Set, cast
+from typing import Mapping, Optional, Sequence, Set, cast
 
 from parlant.core.agents import AgentId, AgentStore, CompositionMode
 from parlant.core.common import Criticality, ItemNotFoundError, JSONSerializable, UniqueId
@@ -56,6 +56,7 @@ class GuidelineRelationship:
     target: Guideline | Tag | Tool
     target_type: RelationshipEntityKind
     kind: RelationshipKind
+    group_id: Optional[str] = None
 
 
 class GuidelineModule:
@@ -422,6 +423,7 @@ class GuidelineModule:
                     target=await _get_entity(cast(GuidelineId | TagId, r.target.id), r.target.kind),
                     target_type=r.target.kind,
                     kind=r.kind,
+                    group_id=r.group_id,
                 )
             )
 

@@ -78,6 +78,7 @@ class RelationshipCreationParamsDTO(
     target_tag: TagIdField | None = None
     target_tool: ToolIdDTO | None = None
     kind: RelationshipKindDTO
+    group_id: str | None = None
 
 
 GuidelineIdQuery: TypeAlias = Annotated[
@@ -131,6 +132,8 @@ def _relationship_kind_to_dto(
             return RelationshipKindDTO.PRIORITY
         case RelationshipKind.DEPENDENCY:
             return RelationshipKindDTO.DEPENDENCY
+        case RelationshipKind.DEPENDENCY_ANY:
+            return RelationshipKindDTO.DEPENDENCY_ANY
         case RelationshipKind.DISAMBIGUATION:
             return RelationshipKindDTO.DISAMBIGUATION
         case RelationshipKind.REEVALUATION:
@@ -151,6 +154,8 @@ def _relationship_kind_dto_to_kind(
             return RelationshipKind.PRIORITY
         case RelationshipKindDTO.DEPENDENCY:
             return RelationshipKind.DEPENDENCY
+        case RelationshipKindDTO.DEPENDENCY_ANY:
+            return RelationshipKind.DEPENDENCY_ANY
         case RelationshipKindDTO.DISAMBIGUATION:
             return RelationshipKind.DISAMBIGUATION
         case RelationshipKindDTO.REEVALUATION:
@@ -209,6 +214,7 @@ def create_router(
             source_tool=tool_to_dto(model.source_tool) if model.source_tool else None,
             target_tool=tool_to_dto(model.target_tool) if model.target_tool else None,
             kind=_relationship_kind_to_dto(model.kind),
+            group_id=model.group_id,
         )
 
     router = APIRouter()
@@ -275,6 +281,7 @@ def create_router(
             if params.target_tool
             else None,
             kind=_relationship_kind_dto_to_kind(params.kind),
+            group_id=params.group_id,
         )
 
         return model_to_dto(model=model)

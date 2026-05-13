@@ -396,6 +396,67 @@ async def test_that_dependency_relationship_can_be_deleted(
         await relationship_store.read_relationship(relationship_id=relationship.id)
 
 
+async def test_that_dependency_any_relationship_can_be_created_with_group_id(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    source_guideline = await guideline_store.create_guideline(
+        condition="source condition",
+        action="source action",
+    )
+
+    target_guideline = await guideline_store.create_guideline(
+        condition="target condition",
+        action="target action",
+    )
+
+    response = await async_client.post(
+        "/relationships",
+        json={
+            "source_guideline": source_guideline.id,
+            "target_guideline": target_guideline.id,
+            "kind": "dependency_any",
+            "group_id": "group-1",
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    relationship = response.json()
+    assert relationship["source_guideline"]["id"] == source_guideline.id
+    assert relationship["target_guideline"]["id"] == target_guideline.id
+    assert relationship["kind"] == "dependency_any"
+    assert relationship["group_id"] == "group-1"
+
+
+async def test_that_dependency_any_relationships_can_be_listed_by_kind(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+    relationship_store = container[RelationshipStore]
+
+    g1 = await guideline_store.create_guideline(condition="A", action="B")
+    g2 = await guideline_store.create_guideline(condition="C", action="D")
+
+    relationship = await relationship_store.create_relationship(
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        kind=RelationshipKind.DEPENDENCY_ANY,
+        group_id="group-xyz",
+    )
+
+    response = await async_client.get("/relationships?kind=dependency_any")
+    assert response.status_code == status.HTTP_200_OK
+
+    relationships = response.json()
+    assert len(relationships) == 1
+    assert relationships[0]["id"] == relationship.id
+    assert relationships[0]["kind"] == "dependency_any"
+    assert relationships[0]["group_id"] == "group-xyz"
+
+
 async def test_that_priority_relationship_can_be_created(
     async_client: httpx.AsyncClient,
     container: Container,

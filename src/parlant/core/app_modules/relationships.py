@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from itertools import chain
-from typing import Sequence, cast
+from typing import Optional, Sequence, cast
 
 from parlant.core.agents import AgentId, AgentStore
 from parlant.core.app_modules.request_context import RequestContext
@@ -32,6 +32,7 @@ class RelationshipModel:
     source_tool: Tool | None
     target_tool: Tool | None
     kind: RelationshipKind
+    group_id: Optional[str] = None
 
 
 class RelationshipModule:
@@ -213,6 +214,7 @@ class RelationshipModule:
             if relationship.target.kind == RelationshipEntityKind.TOOL
             else None,
             kind=relationship.kind,
+            group_id=relationship.group_id,
         )
 
     def _get_relationship_entity(
@@ -239,6 +241,7 @@ class RelationshipModule:
         target_tag: TagId | None,
         target_tool: ToolId | None,
         kind: RelationshipKind,
+        group_id: Optional[str] = None,
     ) -> RelationshipModel:
         source: RelationshipEntity
         target: RelationshipEntity
@@ -273,6 +276,7 @@ class RelationshipModule:
             source=source,
             target=target,
             kind=kind,
+            group_id=group_id,
         )
 
         return await self._relationship_to_model(relationship=relationship)

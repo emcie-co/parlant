@@ -12,8 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from datetime import datetime, timezone
+
 from lagom import Container
 
+from parlant.core.common import Criticality
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.relational_resolver import (
     RelationalResolver,
@@ -30,7 +33,7 @@ from parlant.core.relationships import (
     RelationshipEntity,
     RelationshipStore,
 )
-from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
+from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
 from parlant.core.journeys import Journey, JourneyId
 from parlant.core.tags import TagStore, Tag
 
@@ -6136,3 +6139,36 @@ async def test_that_entailed_guideline_satisfies_dependency_of_matched_guideline
     assert_resolutions(result, g1.id, [ResolutionKind.NONE])
     assert_resolutions(result, g2.id, [ResolutionKind.ENTAILED])
     assert_resolutions(result, g3.id, [ResolutionKind.NONE])
+
+
+async def test_that_resolver_does_not_crash_on_transient_tool_returned_guideline(
+    container: Container,
+) -> None:
+    """Tool calls can inject guidelines that don't exist in the store.
+
+    Such guidelines arrive only via ``matches``, never via
+    ``usable_guidelines``. The resolver must include them in its internal
+    guideline-by-id map so downstream lookups don't KeyError.
+    """
+    resolver = container[RelationalResolver]
+
+    transient_guideline = Guideline(
+        id=GuidelineId("<tool-guideline-1>"),
+        creation_utc=datetime.now(timezone.utc),
+        last_modified_utc=datetime.now(timezone.utc),
+        content=GuidelineContent(condition="x", action="y"),
+        enabled=True,
+        tags=[],
+        metadata={},
+        criticality=Criticality.MEDIUM,
+    )
+
+    # usable_guidelines is empty: the transient guideline isn't stored.
+    result = await resolver.resolve(
+        usable_guidelines=[],
+        matches=[GuidelineMatch(guideline=transient_guideline, rationale="")],
+        journeys=[],
+    )
+
+    assert result.matches == [GuidelineMatch(guideline=transient_guideline, rationale="")]
+    assert_resolutions(result, transient_guideline.id, [ResolutionKind.NONE])

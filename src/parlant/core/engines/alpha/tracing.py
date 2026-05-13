@@ -33,6 +33,7 @@ from parlant.core.engines.alpha.relational_resolver import (
     ResolutionKind,
     ResolvedEntity,
 )
+from parlant.core.canned_responses import CannedResponse
 from parlant.core.engines.alpha.canned_response_source import CannedResponseSource
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolCallEvaluation, ToolInsights
 from parlant.core.glossary import Term
@@ -206,13 +207,14 @@ class EngineTracer:
 
     def canrep_selected(
         self,
-        canned_response_id: str,
+        canned_response: CannedResponse,
         rendered: Optional[str],
         is_fallback: bool = False,
         sources: Sequence[CannedResponseSource] = (),
     ) -> None:
         attributes: dict[str, AttributeValue] = {
-            "canned_response_id": canned_response_id,
+            "canned_response_id": canned_response.id,
+            "last_modified": canned_response.last_modified_utc.isoformat(),
             "rendered": rendered or "",
             "is_fallback": is_fallback,
         }

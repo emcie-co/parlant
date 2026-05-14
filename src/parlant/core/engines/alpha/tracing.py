@@ -129,9 +129,6 @@ class EngineTracer:
         self._tracer.add_event(name, attributes=attributes)
 
     def engine_ready(self, stage: Optional[str] = None) -> None:
-        """Marks the engine reaching a ready state (mirrors the session
-        ``status: ready`` status event emitted at the same moment).
-        """
         attributes: dict[str, AttributeValue] = {}
         if stage:
             attributes["stage"] = stage
@@ -313,30 +310,13 @@ class EngineTracer:
             ]
             return {"resolutions": json.dumps(items)} if items else {}
 
-        def _sub_journey_attrs(match: GuidelineMatch) -> Mapping[str, str]:
-            journey_node = cast(
-                dict[str, JSONSerializable],
-                match.guideline.metadata["journey_node"],
-            )
-            if "sub_journey_id" not in journey_node:
-                return {}
-
-            attrs: dict[str, str] = {
-                "sub_journey_id": cast(str, journey_node["sub_journey_id"]),
-            }
-            if "sub_journey_last_modified" in journey_node:
-                attrs["sub_journey_last_modified"] = cast(
-                    str, journey_node["sub_journey_last_modified"]
-                )
-            elif "sub_journey_last_modified_utc" in journey_node:
-                attrs["sub_journey_last_modified"] = cast(
-                    str, journey_node["sub_journey_last_modified_utc"]
-                )
-            return attrs
-
         def _emit_selected(match: GuidelineMatch, rationale: str) -> None:
             gid = match.guideline.id
-            if match.guideline.metadata.get("journey_node"):
+            journey_node = cast(
+                dict[str, JSONSerializable],
+                match.guideline.metadata.get("journey_node") or {},
+            )
+            if journey_node:
                 edge_id = extract_edge_id_from_journey_node_guideline_id(gid)
                 journey_id = cast(str, match.metadata.get("step_selection_journey_id"))
                 journey_last_modified_utc = ""
@@ -360,7 +340,16 @@ class EngineTracer:
                             if journey_last_modified_utc
                             else {}
                         ),
-                        **_sub_journey_attrs(match),
+                        **(
+                            {
+                                "sub_journey_id": cast(str, journey_node["sub_journey_id"]),
+                                "sub_journey_last_modified": cast(
+                                    str, journey_node["sub_journey_last_modified"]
+                                ),
+                            }
+                            if "sub_journey_id" in journey_node
+                            else {}
+                        ),
                         **_resolutions_attr(gid),
                     },
                 )
@@ -377,7 +366,11 @@ class EngineTracer:
 
         def _emit_ruled_out(match: GuidelineMatch, rationale: str) -> None:
             gid = match.guideline.id
-            if match.guideline.metadata.get("journey_node"):
+            journey_node = cast(
+                dict[str, JSONSerializable],
+                match.guideline.metadata.get("journey_node") or {},
+            )
+            if journey_node:
                 edge_id = extract_edge_id_from_journey_node_guideline_id(gid)
                 journey_id = cast(str, match.metadata.get("step_selection_journey_id"))
                 journey_last_modified_utc = ""
@@ -401,7 +394,16 @@ class EngineTracer:
                             if journey_last_modified_utc
                             else {}
                         ),
-                        **_sub_journey_attrs(match),
+                        **(
+                            {
+                                "sub_journey_id": cast(str, journey_node["sub_journey_id"]),
+                                "sub_journey_last_modified": cast(
+                                    str, journey_node["sub_journey_last_modified"]
+                                ),
+                            }
+                            if "sub_journey_id" in journey_node
+                            else {}
+                        ),
                         **_resolutions_attr(gid),
                     },
                 )

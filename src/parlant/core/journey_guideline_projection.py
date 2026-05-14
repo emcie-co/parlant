@@ -1,7 +1,7 @@
 from collections import defaultdict, deque
 from dataclasses import replace
 from datetime import datetime, timezone
-from typing import Optional, Sequence, cast
+from typing import Mapping, Optional, Sequence, cast
 from parlant.core.common import Criticality, JSONSerializable
 from parlant.core.guidelines import Guideline, GuidelineStore, GuidelineContent, GuidelineId
 from parlant.core.journeys import (
@@ -149,7 +149,7 @@ class JourneyGuidelineProjection:
             # so both the link condition and branch conditions are preserved.
             root_node = sub_nodes[sub_journey.root_id]
             namespaced_root = scoped_node_id(sub_journey.root_id)
-            self._inject_sub_node(nodes, root_node, parent_journey_id, link.sub_journey_id, link.id)
+            self._inject_sub_node(nodes, root_node, parent_journey_id, link_metadata)
             injected = nodes[namespaced_root]
             nodes[namespaced_root] = replace(injected, kind=JourneyNodeKind.FORK)
 
@@ -191,9 +191,7 @@ class JourneyGuidelineProjection:
 
                 namespaced_target = scoped_node_id(root_edge.target)
                 if namespaced_target not in nodes:
-                    self._inject_sub_node(
-                        nodes, target_node, parent_journey_id, link.sub_journey_id, link.id
-                    )
+                    self._inject_sub_node(nodes, target_node, parent_journey_id, link_metadata)
 
                 virtual_edge = JourneyEdge(
                     id=scoped_edge_id(root_edge.id),
@@ -255,9 +253,7 @@ class JourneyGuidelineProjection:
 
                 namespaced_target = scoped_node_id(sub_edge.target)
                 if namespaced_target not in nodes:
-                    self._inject_sub_node(
-                        nodes, target_node, parent_journey_id, link.sub_journey_id, link.id
-                    )
+                    self._inject_sub_node(nodes, target_node, parent_journey_id, link_metadata)
 
                 virtual_edge = JourneyEdge(
                     id=scoped_edge_id(sub_edge.id),
@@ -277,8 +273,7 @@ class JourneyGuidelineProjection:
         nodes: dict[JourneyNodeId, JourneyNode],
         original: JourneyNode,
         parent_journey_id: JourneyId,
-        sub_journey_id: JourneyId,
-        link_id: JourneyLinkId,
+        link_metadata: Mapping[str, JSONSerializable],
     ) -> None:
         original_journey_node = cast(
             dict[str, JSONSerializable], original.metadata.get("journey_node", {}) or {}
@@ -287,12 +282,12 @@ class JourneyGuidelineProjection:
         metadata = dict(original.metadata)
         metadata["journey_node"] = {
             **original_journey_node,
+            **link_metadata,
             "journey_id": parent_journey_id,
-            "sub_journey_id": sub_journey_id,
-            "link_id": link_id,
             "original_node_id": original.id,
         }
 
+        link_id = cast(JourneyLinkId, link_metadata["link_id"])
         namespaced_id = JourneyNodeId(f"{link_id}~{original.id}")
         nodes[namespaced_id] = replace(
             original,

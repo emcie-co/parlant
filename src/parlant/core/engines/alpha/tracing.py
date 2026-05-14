@@ -106,6 +106,34 @@ class EngineTracer:
 
     def __init__(self, tracer: Tracer) -> None:
         self._tracer = tracer
+        # Dedup cache for match-flavored events: the engine calls
+        # ``matches(...)`` once per preparation iteration, so a guideline
+        # that survives unchanged across iterations would otherwise
+        # produce identical events each time. The cache is scoped per
+        # trace — it resets when ``_tracer.trace_id`` changes.
+        self._match_event_seen: set[str] = set()
+        self._match_event_trace_id: Optional[str] = None
+
+    def _add_match_event_if_new(
+        self,
+        name: str,
+        attributes: Mapping[str, AttributeValue],
+    ) -> None:
+        """Emit a match-flavored event unless an identical one already
+        fired in the current trace.
+
+        The dedup cache is keyed by ``(name, sorted-attributes-json)`` and
+        resets whenever the underlying tracer's ``trace_id`` changes.
+        """
+        current_trace_id = str(self._tracer.trace_id)
+        if current_trace_id != self._match_event_trace_id:
+            self._match_event_seen.clear()
+            self._match_event_trace_id = current_trace_id
+        fingerprint = name + "|" + json.dumps(attributes, sort_keys=True, default=str)
+        if fingerprint in self._match_event_seen:
+            return
+        self._match_event_seen.add(fingerprint)
+        self._tracer.add_event(name, attributes=attributes)
 
     def context_variable_loaded(
         self,
@@ -315,7 +343,7 @@ class EngineTracer:
                     if j:
                         journey_last_modified_utc = j.last_modified_utc.isoformat()
 
-                self._tracer.add_event(
+                self._add_match_event_if_new(
                     "journey.state.selected",
                     attributes={
                         **({"edge_id": edge_id} if edge_id else {}),
@@ -335,7 +363,7 @@ class EngineTracer:
                     },
                 )
             else:
-                self._tracer.add_event(
+                self._add_match_event_if_new(
                     "gm.selected",
                     attributes={
                         "guideline_id": gid,
@@ -356,7 +384,7 @@ class EngineTracer:
                     if j:
                         journey_last_modified_utc = j.last_modified_utc.isoformat()
 
-                self._tracer.add_event(
+                self._add_match_event_if_new(
                     "journey.state.ruled_out",
                     attributes={
                         **({"edge_id": edge_id} if edge_id else {}),
@@ -376,7 +404,7 @@ class EngineTracer:
                     },
                 )
             else:
-                self._tracer.add_event(
+                self._add_match_event_if_new(
                     "gm.ruled_out",
                     attributes={
                         "guideline_id": gid,

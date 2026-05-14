@@ -50,13 +50,6 @@ from parlant.core.tracer import AttributeValue, Tracer
 
 
 class MatchReason(str, Enum):
-    """The reason a guideline appears in a match-tracer event.
-
-    Mirrors :class:`ResolutionKind` for tracing — ``NONE`` is renamed to
-    ``COMPLETION`` since "no relational changes" reads, from the trace
-    consumer's perspective, as "selected via matcher completion".
-    """
-
     COMPLETION = "completion"
     UNMET_DEPENDENCY_ALL = "unmet_dependency_all"
     UNMET_DEPENDENCY_ANY = "unmet_dependency_any"
@@ -79,14 +72,6 @@ def _resolution_kind_to_match_reason(kind: ResolutionKind) -> MatchReason:
 
 
 class ToolEvaluation(str, Enum):
-    """Trace-side label for a tool-call evaluation outcome.
-
-    Mirrors :class:`ToolCallEvaluation` for tracing — decoupled so the
-    trace label can evolve independently of the engine's internal enum
-    value (e.g. ``ToolCallEvaluation.NEEDS_TO_RUN.value`` is ``"success"``,
-    which is misleading on a ``tc.failure`` event).
-    """
-
     NEEDS_TO_RUN = "needs_to_run"
     DATA_ALREADY_IN_CONTEXT = "data_already_in_context"
     CANNOT_RUN = "cannot_run"
@@ -142,6 +127,15 @@ class EngineTracer:
             return
         seen.add(fingerprint)
         self._tracer.add_event(name, attributes=attributes)
+
+    def engine_ready(self, stage: Optional[str] = None) -> None:
+        """Marks the engine reaching a ready state (mirrors the session
+        ``status: ready`` status event emitted at the same moment).
+        """
+        attributes: dict[str, AttributeValue] = {}
+        if stage:
+            attributes["stage"] = stage
+        self._tracer.add_event("engine.ready", attributes=attributes)
 
     def context_variable_loaded(
         self,

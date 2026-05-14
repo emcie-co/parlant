@@ -1096,6 +1096,8 @@ class AlphaEngine(Engine):
             await self._entity_commands.upsert_session_labels(context.session.id, labels_to_add)
 
     async def _emit_ready_event(self, context: EngineContext, stage: Optional[str] = None) -> None:
+        self._engine_tracer.engine_ready(stage)
+
         event_data: dict[str, Any] = {"stage": stage} if stage else {}
 
         # Include match data when completing successfully

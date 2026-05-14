@@ -19,7 +19,7 @@ event the alpha engine emits, so call sites stay short and the event
 schema lives in one place.
 """
 
-from contextvars import ContextVar
+import contextvars
 from enum import Enum
 import json
 from typing import Mapping, Optional, Sequence, cast
@@ -107,20 +107,22 @@ class EngineTracer:
 
     def __init__(self, tracer: Tracer) -> None:
         self._tracer = tracer
-        # Per-task dedup cache for match-flavored events. The engine calls
-        # ``matches(...)`` once per preparation iteration; a guideline
-        # that survives unchanged across iterations would otherwise
-        # produce identical events each time. Stored in ContextVars so
-        # concurrent requests (each a separate asyncio task with its own
-        # tracer trace_id) don't trample each other's cache. Defaults
-        # are ``None`` — the set is lazily allocated and ``.set()`` so
-        # each task gets its own object instead of sharing a mutable
-        # default.
-        self._match_event_seen: ContextVar[Optional[set[str]]] = ContextVar(
-            "engine_tracer_match_event_seen", default=None
+        # Per-task dedup cache for match-flavored events. The engine
+        # calls ``matches(...)`` once per preparation iteration; a
+        # guideline that survives unchanged across iterations would
+        # otherwise produce identical events each time. Held in
+        # ContextVars so concurrent requests (each its own asyncio task
+        # with its own tracer trace_id) don't trample each other's
+        # cache. The default ``set()`` is never mutated — each task
+        # allocates a fresh set and calls ``.set()`` on its first hit
+        # for a given trace_id.
+        self._match_event_seen = contextvars.ContextVar[set[str]](
+            "engine_tracer_match_event_seen",
+            default=set(),
         )
-        self._match_event_trace_id: ContextVar[Optional[str]] = ContextVar(
-            "engine_tracer_match_event_trace_id", default=None
+        self._match_event_trace_id = contextvars.ContextVar[str](
+            "engine_tracer_match_event_trace_id",
+            default="",
         )
 
     def _add_match_event_if_new(
@@ -128,18 +130,13 @@ class EngineTracer:
         name: str,
         attributes: Mapping[str, AttributeValue],
     ) -> None:
-        """Emit a match-flavored event unless an identical one already
-        fired in the current trace.
-
-        The dedup cache is keyed by ``(name, sorted-attributes-json)`` and
-        resets whenever the underlying tracer's ``trace_id`` changes.
-        """
         current_trace_id = str(self._tracer.trace_id)
-        seen = self._match_event_seen.get()
-        if seen is None or self._match_event_trace_id.get() != current_trace_id:
-            seen = set()
+        if self._match_event_trace_id.get() != current_trace_id:
+            seen: set[str] = set()
             self._match_event_seen.set(seen)
             self._match_event_trace_id.set(current_trace_id)
+        else:
+            seen = self._match_event_seen.get()
         fingerprint = name + "|" + json.dumps(attributes, sort_keys=True, default=str)
         if fingerprint in seen:
             return

@@ -19,6 +19,7 @@ event the alpha engine emits, so call sites stay short and the event
 schema lives in one place.
 """
 
+from contextvars import ContextVar
 from enum import Enum
 import json
 from typing import Mapping, Optional, Sequence, cast
@@ -106,13 +107,21 @@ class EngineTracer:
 
     def __init__(self, tracer: Tracer) -> None:
         self._tracer = tracer
-        # Dedup cache for match-flavored events: the engine calls
-        # ``matches(...)`` once per preparation iteration, so a guideline
+        # Per-task dedup cache for match-flavored events. The engine calls
+        # ``matches(...)`` once per preparation iteration; a guideline
         # that survives unchanged across iterations would otherwise
-        # produce identical events each time. The cache is scoped per
-        # trace — it resets when ``_tracer.trace_id`` changes.
-        self._match_event_seen: set[str] = set()
-        self._match_event_trace_id: Optional[str] = None
+        # produce identical events each time. Stored in ContextVars so
+        # concurrent requests (each a separate asyncio task with its own
+        # tracer trace_id) don't trample each other's cache. Defaults
+        # are ``None`` — the set is lazily allocated and ``.set()`` so
+        # each task gets its own object instead of sharing a mutable
+        # default.
+        self._match_event_seen: ContextVar[Optional[set[str]]] = ContextVar(
+            "engine_tracer_match_event_seen", default=None
+        )
+        self._match_event_trace_id: ContextVar[Optional[str]] = ContextVar(
+            "engine_tracer_match_event_trace_id", default=None
+        )
 
     def _add_match_event_if_new(
         self,
@@ -126,13 +135,15 @@ class EngineTracer:
         resets whenever the underlying tracer's ``trace_id`` changes.
         """
         current_trace_id = str(self._tracer.trace_id)
-        if current_trace_id != self._match_event_trace_id:
-            self._match_event_seen.clear()
-            self._match_event_trace_id = current_trace_id
+        seen = self._match_event_seen.get()
+        if seen is None or self._match_event_trace_id.get() != current_trace_id:
+            seen = set()
+            self._match_event_seen.set(seen)
+            self._match_event_trace_id.set(current_trace_id)
         fingerprint = name + "|" + json.dumps(attributes, sort_keys=True, default=str)
-        if fingerprint in self._match_event_seen:
+        if fingerprint in seen:
             return
-        self._match_event_seen.add(fingerprint)
+        seen.add(fingerprint)
         self._tracer.add_event(name, attributes=attributes)
 
     def context_variable_loaded(

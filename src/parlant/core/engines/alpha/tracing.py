@@ -246,19 +246,19 @@ class EngineTracer:
                 return {
                     "entity_type": "guideline",
                     "id": str(re.entity.id),
-                    "last_modified_utc": re.entity.last_modified_utc.isoformat(),
+                    "last_modified": re.entity.last_modified_utc.isoformat(),
                 }
             if isinstance(re.entity, Journey):
                 return {
                     "entity_type": "journey",
                     "id": str(re.entity.id),
-                    "last_modified_utc": re.entity.last_modified_utc.isoformat(),
+                    "last_modified": re.entity.last_modified_utc.isoformat(),
                 }
             if isinstance(re.entity, Tag):
                 return {
                     "entity_type": "tag",
                     "id": str(re.entity.id),
-                    "last_modified_utc": re.entity.last_modified_utc.isoformat(),
+                    "last_modified": re.entity.last_modified_utc.isoformat(),
                 }
             raise ValueError(f"Unknown ResolvedEntity entity type: {type(re.entity).__name__}")
 
@@ -272,7 +272,7 @@ class EngineTracer:
                         {
                             "relationship": {
                                 "id": str(r.details.relationship.id),
-                                "last_modified_utc": r.details.relationship.last_modified_utc.isoformat(),
+                                "last_modified": r.details.relationship.last_modified_utc.isoformat(),
                             }
                         }
                         if r.details.relationship
@@ -294,8 +294,12 @@ class EngineTracer:
             attrs: dict[str, str] = {
                 "sub_journey_id": cast(str, journey_node["sub_journey_id"]),
             }
-            if "sub_journey_last_modified_utc" in journey_node:
-                attrs["sub_journey_last_modified_utc"] = cast(
+            if "sub_journey_last_modified" in journey_node:
+                attrs["sub_journey_last_modified"] = cast(
+                    str, journey_node["sub_journey_last_modified"]
+                )
+            elif "sub_journey_last_modified_utc" in journey_node:
+                attrs["sub_journey_last_modified"] = cast(
                     str, journey_node["sub_journey_last_modified_utc"]
                 )
             return attrs

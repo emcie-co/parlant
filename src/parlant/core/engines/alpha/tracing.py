@@ -325,6 +325,14 @@ class EngineTracer:
                     if j:
                         journey_last_modified_utc = j.last_modified_utc.isoformat()
 
+                sub_journey_attrs: dict[str, str] = {}
+                if "sub_journey_id" in journey_node:
+                    sub_journey_attrs["sub_journey_id"] = cast(str, journey_node["sub_journey_id"])
+                    if "sub_journey_last_modified" in journey_node:
+                        sub_journey_attrs["sub_journey_last_modified"] = cast(
+                            str, journey_node["sub_journey_last_modified"]
+                        )
+
                 self._add_match_event_if_new(
                     "journey.state.selected",
                     attributes={
@@ -340,16 +348,7 @@ class EngineTracer:
                             if journey_last_modified_utc
                             else {}
                         ),
-                        **(
-                            {
-                                "sub_journey_id": cast(str, journey_node["sub_journey_id"]),
-                                "sub_journey_last_modified": cast(
-                                    str, journey_node["sub_journey_last_modified"]
-                                ),
-                            }
-                            if "sub_journey_id" in journey_node
-                            else {}
-                        ),
+                        **sub_journey_attrs,
                         **_resolutions_attr(gid),
                     },
                 )
@@ -379,6 +378,14 @@ class EngineTracer:
                     if j:
                         journey_last_modified_utc = j.last_modified_utc.isoformat()
 
+                sub_journey_attrs: dict[str, str] = {}
+                if "sub_journey_id" in journey_node:
+                    sub_journey_attrs["sub_journey_id"] = cast(str, journey_node["sub_journey_id"])
+                    if "sub_journey_last_modified" in journey_node:
+                        sub_journey_attrs["sub_journey_last_modified"] = cast(
+                            str, journey_node["sub_journey_last_modified"]
+                        )
+
                 self._add_match_event_if_new(
                     "journey.state.ruled_out",
                     attributes={
@@ -394,16 +401,7 @@ class EngineTracer:
                             if journey_last_modified_utc
                             else {}
                         ),
-                        **(
-                            {
-                                "sub_journey_id": cast(str, journey_node["sub_journey_id"]),
-                                "sub_journey_last_modified": cast(
-                                    str, journey_node["sub_journey_last_modified"]
-                                ),
-                            }
-                            if "sub_journey_id" in journey_node
-                            else {}
-                        ),
+                        **sub_journey_attrs,
                         **_resolutions_attr(gid),
                     },
                 )

@@ -1683,6 +1683,15 @@ class AlphaEngine(Engine):
             if j.id in journeys_with_paths_ids and journey_paths[j.id] != [None]
         ]
 
+        # Relevance-based selection only considers journeys that can
+        # self-activate (i.e. have triggers). Trigger-less journeys are
+        # sub-journeys, reachable only via a parent journey's link — they
+        # must never be picked as high-probability on their own. They
+        # still count as high-probability when they appear in
+        # ``journey_paths`` (entered via their link and active), which the
+        # ``journeys_with_paths`` branch handles independently.
+        triggerable_journeys = [j for j in available_journeys if j.triggers]
+
         # Decide which journeys are "high probability"
         if journeys_with_paths:
             # There *are* journeys with paths:
@@ -1692,7 +1701,7 @@ class AlphaEngine(Engine):
                 high_prob_journeys = journeys_with_paths
             else:
                 sorted_journeys_by_relevance = await self._sort_journeys_by_relevance(
-                    context, available_journeys
+                    context, triggerable_journeys
                 )
 
                 supplemental_journeys: list[Journey] = []
@@ -1708,7 +1717,7 @@ class AlphaEngine(Engine):
             # No journeys were active/finished (no journey paths):
             # fall back to semantic relevance and take the top_k journeys.
             sorted_journeys_by_relevance = await self._sort_journeys_by_relevance(
-                context, available_journeys
+                context, triggerable_journeys
             )
             high_prob_journeys = sorted_journeys_by_relevance[:top_k]
 

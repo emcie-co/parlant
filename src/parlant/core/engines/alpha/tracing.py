@@ -19,7 +19,6 @@ event the alpha engine emits, so call sites stay short and the event
 schema lives in one place.
 """
 
-import contextvars
 from enum import Enum
 import json
 from typing import Mapping, Optional, Sequence, cast
@@ -92,41 +91,6 @@ class EngineTracer:
 
     def __init__(self, tracer: Tracer) -> None:
         self._tracer = tracer
-        # Per-task dedup cache for match-flavored events. The engine
-        # calls ``matches(...)`` once per preparation iteration; a
-        # guideline that survives unchanged across iterations would
-        # otherwise produce identical events each time. Held in
-        # ContextVars so concurrent requests (each its own asyncio task
-        # with its own tracer trace_id) don't trample each other's
-        # cache. The default ``set()`` is never mutated — each task
-        # allocates a fresh set and calls ``.set()`` on its first hit
-        # for a given trace_id.
-        self._match_event_seen = contextvars.ContextVar[set[str]](
-            "engine_tracer_match_event_seen",
-            default=set(),
-        )
-        self._match_event_trace_id = contextvars.ContextVar[str](
-            "engine_tracer_match_event_trace_id",
-            default="",
-        )
-
-    def _add_match_event_if_new(
-        self,
-        name: str,
-        attributes: Mapping[str, AttributeValue],
-    ) -> None:
-        current_trace_id = str(self._tracer.trace_id)
-        if self._match_event_trace_id.get() != current_trace_id:
-            seen: set[str] = set()
-            self._match_event_seen.set(seen)
-            self._match_event_trace_id.set(current_trace_id)
-        else:
-            seen = self._match_event_seen.get()
-        fingerprint = name + "|" + json.dumps(attributes, sort_keys=True, default=str)
-        if fingerprint in seen:
-            return
-        seen.add(fingerprint)
-        self._tracer.add_event(name, attributes=attributes)
 
     def engine_ready(self, stage: Optional[str] = None) -> None:
         attributes: dict[str, AttributeValue] = {}
@@ -325,7 +289,7 @@ class EngineTracer:
                     if j:
                         journey_last_modified_utc = j.last_modified_utc.isoformat()
 
-                self._add_match_event_if_new(
+                self._tracer.add_event(
                     "journey.state.selected",
                     attributes={
                         **({"edge_id": edge_id} if edge_id else {}),
@@ -354,7 +318,7 @@ class EngineTracer:
                     },
                 )
             else:
-                self._add_match_event_if_new(
+                self._tracer.add_event(
                     "gm.selected",
                     attributes={
                         "guideline_id": gid,
@@ -379,7 +343,7 @@ class EngineTracer:
                     if j:
                         journey_last_modified_utc = j.last_modified_utc.isoformat()
 
-                self._add_match_event_if_new(
+                self._tracer.add_event(
                     "journey.state.ruled_out",
                     attributes={
                         **({"edge_id": edge_id} if edge_id else {}),
@@ -408,7 +372,7 @@ class EngineTracer:
                     },
                 )
             else:
-                self._add_match_event_if_new(
+                self._tracer.add_event(
                     "gm.ruled_out",
                     attributes={
                         "guideline_id": gid,

@@ -86,17 +86,13 @@ class OpenAIEstimatingTokenizer(EstimatingTokenizer):
     def __init__(self, model_name: str) -> None:
         self.model_name = model_name
 
-        if "5.1" in model_name:
-            model_name_query = model_name.replace("5.1", "5")
-        if "5.2" in model_name:
-            model_name_query = model_name.replace("5.2", "5")
-        if "5.4" in model_name:
-            model_name_query = model_name.replace("5.4", "5")
+        # All gpt 5.x token estimations are done using the gpt 5 tokenizer
+        model_name_query = re.sub(r"5\.\d+", "5", model_name)
 
-        else:
-            model_name_query = model_name
-
-        self.encoding = tiktoken.encoding_for_model(model_name_query)
+        try:
+            self.encoding = tiktoken.encoding_for_model(model_name_query)
+        except KeyError:
+            self.encoding = tiktoken.get_encoding("o200k_base")
 
     @override
     async def estimate_token_count(self, prompt: str) -> int:

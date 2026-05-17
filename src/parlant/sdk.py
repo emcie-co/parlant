@@ -3993,22 +3993,20 @@ async def _setup_parlant_cloud_observability(
     logger = container[Logger]
 
     api_url = os.environ.get("PARLANT_CLOUD_OTEL_URL", "https://api.parlant.cloud")
-    project_id = os.environ.get("PARLANT_PROJECT_ID", "")
-
-    if not project_id:
-        logger.warning(
-            "PARLANT_CLOUD_API_KEY is set but PARLANT_PROJECT_ID is missing; "
-            "observability disabled. Set PARLANT_PROJECT_ID to enable telemetry."
-        )
-        return
 
     auth_url = f"{api_url}/v1/auth/api-key"
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(auth_url, headers={"Authorization": f"Bearer {api_key}"})
             resp.raise_for_status()
+            auth_data = resp.json()
+            project_id = auth_data.get("project_id", "")
     except Exception:
         logger.warning("Parlant Cloud API key validation failed; observability disabled")
+        return
+
+    if not project_id:
+        logger.warning("Parlant Cloud auth response missing project_id; observability disabled")
         return
 
     from parlant.adapters.observability import (

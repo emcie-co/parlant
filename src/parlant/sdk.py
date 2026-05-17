@@ -115,7 +115,7 @@ from parlant.core.emission.event_publisher import EventPublisherFactory
 from parlant.core.health import HealthReporter
 from parlant.core.journey_guideline_projection import format_journey_node_guideline_id
 from parlant.core.meter import Meter
-from parlant.core.tracer import Tracer
+from parlant.core.tracer import CompositeTracer, Tracer
 from parlant.core.customers import (
     Customer as _Customer,
     CustomerDocumentStore,
@@ -225,7 +225,7 @@ from parlant.core.journeys import (
     JourneyNodeKind,
 )
 
-from parlant.core.loggers import LogLevel, Logger
+from parlant.core.loggers import CompositeLogger, LogLevel, Logger
 from parlant.core.nlp.service import (
     EmbedderHints,
     ModelGeneration,
@@ -3981,6 +3981,65 @@ def _die_nlp_config_error(error: NLPServiceConfigurationError) -> NoReturn:
     sys.exit(1)
 
 
+async def _setup_parlant_cloud_observability(
+    container: Container,
+    exit_stack: AsyncExitStack,
+) -> None:
+    """Auto-enable Parlant Cloud observability when PARLANT_CLOUD_API_KEY is set."""
+    api_key = os.environ.get("PARLANT_CLOUD_API_KEY")
+    if not api_key:
+        return
+
+    logger = container[Logger]
+
+    api_url = os.environ.get("PARLANT_CLOUD_OTEL_URL", "https://api.parlant.cloud")
+    project_id = os.environ.get("PARLANT_PROJECT_ID", "")
+
+    if not project_id:
+        logger.warning(
+            "PARLANT_CLOUD_API_KEY is set but PARLANT_PROJECT_ID is missing; "
+            "observability disabled. Set PARLANT_PROJECT_ID to enable telemetry."
+        )
+        return
+
+    auth_url = f"{api_url}/v1/auth/api-key"
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(auth_url, headers={"Authorization": f"Bearer {api_key}"})
+            resp.raise_for_status()
+    except Exception:
+        logger.warning("Parlant Cloud API key validation failed; observability disabled")
+        return
+
+    from parlant.adapters.observability import (
+        ParlantCloudTracer,
+        ParlantCloudLogger,
+        ParlantCloudMeter,
+    )
+
+    tracer = container[Tracer]
+    cloud_tracer = await exit_stack.enter_async_context(ParlantCloudTracer(project_id=project_id))
+    if isinstance(tracer, CompositeTracer):
+        tracer.append(cloud_tracer)
+    else:
+        container.define(Tracer, CompositeTracer([tracer, cloud_tracer]))
+
+    existing_logger = container[Logger]
+    cloud_logger = await exit_stack.enter_async_context(
+        ParlantCloudLogger(tracer=tracer, project_id=project_id)
+    )
+    if isinstance(existing_logger, CompositeLogger):
+        existing_logger.append(cloud_logger)
+    else:
+        container.define(Logger, CompositeLogger([existing_logger, cloud_logger]))
+
+    try:
+        _ = container[Meter]
+    except Exception:
+        cloud_meter = await exit_stack.enter_async_context(ParlantCloudMeter(project_id=project_id))
+        container[Meter] = cloud_meter
+
+
 class Server:
     """The main server class that manages the agent, journeys, tools, and other components.
 
@@ -5568,6 +5627,8 @@ class Server:
             if env_based_module := get_env_based_module():
                 if module_func := getattr(env_based_module, "configure_container", None):
                     latest_container = await module_func(latest_container.clone())
+
+            await _setup_parlant_cloud_observability(latest_container, self._exit_stack)
 
             return latest_container
 

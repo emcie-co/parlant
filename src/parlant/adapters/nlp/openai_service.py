@@ -893,7 +893,7 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
     ) -> OpenAISchematicGenerator[T]:
         match hints.get("model_size", ModelSize.AUTO):
             case ModelSize.AUTO:
-                return GPT_5_4[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
+                return GPT_5_2[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
             case ModelSize.NANO:
                 match hints.get("model_generation", "auto"):
                     case "auto" | "stable":

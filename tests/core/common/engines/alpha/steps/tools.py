@@ -138,6 +138,18 @@ TOOLS: dict[str, dict[str, Any]] = {
         },
         "required": ["account_name"],
     },
+    "get_latest_order": {
+        "name": "get_latest_order",
+        "description": "Look up the customer's most recent order by the name on their account",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "account_name": {
+                "type": "string",
+                "description": "The name on the customer's account",
+            }
+        },
+        "required": ["account_name"],
+    },
     "transfer_money": {
         "name": "transfer_money",
         "description": "Transfer money from one account to another",

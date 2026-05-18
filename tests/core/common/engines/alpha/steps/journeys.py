@@ -2828,7 +2828,354 @@ def given_the_journey_called(
 
         return journey
 
+    def create_order_status_journey() -> Journey:
+        conditions = [
+            "the customer wants to check on their order",
+        ]
+
+        condition_guidelines: Sequence[Guideline] = [
+            context.sync_await(
+                guideline_store.create_guideline(
+                    condition=condition,
+                    action=None,
+                    metadata={},
+                )
+            )
+            for condition in conditions
+        ]
+
+        journey = context.sync_await(
+            journey_store.create_journey(
+                title="Order Status Journey",
+                description="Help the customer check on their most recent order.",
+                triggers=[c.id for c in condition_guidelines],
+                tags=[],
+            )
+        )
+
+        for c in condition_guidelines:
+            context.sync_await(
+                guideline_store.upsert_tag(
+                    guideline_id=c.id,
+                    tag_id=Tag.for_journey_id(journey_id=journey.id).id,
+                )
+            )
+
+        # Node 1: Ask for the name on the account
+        node1 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Ask the customer for the name on their account",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node1.id,
+                "customer_dependent_action_data",
+                {
+                    "is_customer_dependent": True,
+                    "customer_action": "The customer provided the name on their account",
+                    "agent_action": "",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node1.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node1.metadata.get("journey_node", {})),
+                    "kind": "chat",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=journey.root_id,
+                target=node1.id,
+                condition=None,
+            )
+        )
+
+        # Node 2: Look up the latest order (tool step)
+        tool = context.sync_await(local_tool_service.create_tool(**TOOLS["get_latest_order"]))
+        node2 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Use the get_latest_order tool to look up the customer's most recent order",
+                tools=[ToolId("local", tool.name)],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node2.id,
+                "tool_running_only",
+                True,
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node2.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node2.metadata.get("journey_node", {})),
+                    "kind": "tool",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node1.id,
+                target=node2.id,
+                condition=None,
+            )
+        )
+
+        # Node 3: Direct the customer to the office
+        node3 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Tell the customer that they must call the office to get further information",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node3.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node3.metadata.get("journey_node", {})),
+                    "kind": "chat",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node2.id,
+                target=node3.id,
+                condition=None,
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node3.id,
+                target=journey_store.END_NODE_ID,
+                condition=None,
+            )
+        )
+
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
+
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
+                )
+
+        return journey
+
+    def create_order_status_branching_journey() -> Journey:
+        conditions = [
+            "the customer wants to check on their order",
+        ]
+
+        condition_guidelines: Sequence[Guideline] = [
+            context.sync_await(
+                guideline_store.create_guideline(
+                    condition=condition,
+                    action=None,
+                    metadata={},
+                )
+            )
+            for condition in conditions
+        ]
+
+        journey = context.sync_await(
+            journey_store.create_journey(
+                title="Order Status Fork Journey",
+                description="Help the customer check on their most recent order.",
+                triggers=[c.id for c in condition_guidelines],
+                tags=[],
+            )
+        )
+
+        for c in condition_guidelines:
+            context.sync_await(
+                guideline_store.upsert_tag(
+                    guideline_id=c.id,
+                    tag_id=Tag.for_journey_id(journey_id=journey.id).id,
+                )
+            )
+
+        # Node 1: Ask for the name on the account
+        node1 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Ask the customer for the name on their account",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node1.id,
+                "customer_dependent_action_data",
+                {
+                    "is_customer_dependent": True,
+                    "customer_action": "The customer provided the name on their account",
+                    "agent_action": "",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node1.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node1.metadata.get("journey_node", {})),
+                    "kind": "chat",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=journey.root_id,
+                target=node1.id,
+                condition=None,
+            )
+        )
+
+        # Node 2: Look up the latest order (tool step)
+        tool = context.sync_await(local_tool_service.create_tool(**TOOLS["get_latest_order"]))
+        node2 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Use the get_latest_order tool to look up the customer's most recent order",
+                tools=[ToolId("local", tool.name)],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node2.id,
+                "tool_running_only",
+                True,
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node2.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node2.metadata.get("journey_node", {})),
+                    "kind": "tool",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node1.id,
+                target=node2.id,
+                condition=None,
+            )
+        )
+
+        # Node 3a: In-transit branch - direct the customer to the office
+        node3a = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Tell the customer that they must call the office to get further information",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node3a.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node3a.metadata.get("journey_node", {})),
+                    "kind": "chat",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node2.id,
+                target=node3a.id,
+                condition="The order is in transit",
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node3a.id,
+                target=journey_store.END_NODE_ID,
+                condition=None,
+            )
+        )
+
+        # Node 3b: Delivered branch - direct the customer to a branch
+        node3b = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Tell the customer to visit their nearest branch in person",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node3b.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node3b.metadata.get("journey_node", {})),
+                    "kind": "chat",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node2.id,
+                target=node3b.id,
+                condition="The order has been delivered",
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node3b.id,
+                target=journey_store.END_NODE_ID,
+                condition=None,
+            )
+        )
+
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
+
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
+                )
+
+        return journey
+
     JOURNEYS = {
+        "Order Status Journey": create_order_status_journey,
+        "Order Status Fork Journey": create_order_status_branching_journey,
         "Reset Password Journey": create_reset_password_journey,
         "Book Flight": create_book_flight_journey,
         "Book Taxi Ride": create_book_taxi_journey,

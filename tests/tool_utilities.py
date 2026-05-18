@@ -108,6 +108,14 @@ def get_account_loans(account_name: str) -> ToolResult:
     return ToolResult(portfolios[account_name])
 
 
+def get_latest_order(account_name: str) -> ToolResult:
+    orders = {
+        "Jerry Seinfeld": {"order_id": "W5R1K3", "status": "delivered"},
+        "Larry David": {"order_id": "W2J4X8", "status": "in transit"},
+    }
+    return ToolResult(orders.get(account_name, {"order_id": "UNKNOWN", "status": "unknown"}))
+
+
 def transfer_money(amount: int, from_account: str, to_account: str) -> ToolResult:
     return ToolResult(
         data=f"Transferred {amount} coins from {from_account} to {to_account} successfully."

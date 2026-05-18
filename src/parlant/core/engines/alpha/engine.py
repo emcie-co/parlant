@@ -1383,6 +1383,37 @@ class AlphaEngine(Engine):
         else:
             guidelines_for_matching = guidelines_to_reevaluate
 
+        # Reevaluate any journey that is currently parked on a tool node, so it
+        # can advance once the tool's result is available -- even when no
+        # explicit REEVALUATION relationship is defined and the tool produced no
+        # evaluation entry (e.g. a non-consequential tool that was skipped
+        # because its result is already in the interaction history).
+        stalled_journey_guidelines: list[Guideline] = []
+        reprojected_journey_ids: set[JourneyId] = set()
+        for match in context.state.tool_enabled_guideline_matches:
+            journey_node = match.guideline.metadata.get("journey_node")
+            if not journey_node:
+                continue
+
+            journey_id = cast(
+                JourneyId,
+                cast(Mapping[str, JSONSerializable], journey_node).get("journey_id"),
+            )
+            if journey_id in reprojected_journey_ids:
+                continue
+
+            reprojected_journey_ids.add(journey_id)
+            stalled_journey_guidelines.extend(
+                await self._entity_queries.project_journey_to_guidelines(journey_id)
+            )
+
+        if stalled_journey_guidelines:
+            guidelines_for_matching = list(
+                {
+                    g.id: g for g in chain(guidelines_for_matching, stalled_journey_guidelines)
+                }.values()
+            )
+
         # Step 4: Reevaluate those guidelines using the latest context.
         with self._tracer.span(_GUIDELINE_MATCHER_SPAN_NAME, attributes={"phase": "reevaluation"}):
             matching_result = await self._guideline_matcher.match_guidelines(

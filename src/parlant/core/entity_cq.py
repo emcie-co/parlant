@@ -252,6 +252,12 @@ class EntityQueries:
     ) -> Sequence[ToolId]:
         return (await self._journey_store.read_node(node_id=node_id)).tools
 
+    async def project_journey_to_guidelines(
+        self,
+        journey_id: JourneyId,
+    ) -> Sequence[Guideline]:
+        return await self._journey_guideline_projection.project_journey_to_guidelines(journey_id)
+
     async def find_capabilities_for_agent(
         self,
         agent_id: AgentId,

@@ -1,0 +1,675 @@
+# Copyright 2026 Parlant (Emcie Co Ltd.)
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Parlant Cloud module.
+
+Auto-loaded by the Server when PARLANT_CLOUD_API_KEY is set.
+Validates the API key, resolves project context, and sets up
+ParlantCloudTracer / ParlantCloudLogger / ParlantCloudMeter.
+"""
+
+import asyncio
+import contextvars
+import logging
+import os
+from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
+from types import TracebackType
+from typing import Any, AsyncGenerator, Iterator, Mapping, MutableMapping
+
+import httpx
+import structlog
+from lagom import Container
+from opentelemetry import context, trace
+from opentelemetry.exporter.otlp.proto.http._log_exporter import (
+    OTLPLogExporter,
+)
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+    OTLPMetricExporter,
+)
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+    OTLPSpanExporter as HTTPOTLPSpanExporter,
+)
+from opentelemetry.metrics import Counter as OTELCounter
+from opentelemetry.metrics import Histogram as OTELHistogram
+from opentelemetry.metrics import Meter as OTELMeter
+from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import Span, set_tracer_provider
+from typing_extensions import Self, override
+
+from parlant.core.loggers import CompositeLogger, LogLevel, Logger, TracingLogger
+from parlant.core.meter import Counter, DurationHistogram, Histogram, Meter
+from parlant.core.tracer import AttributeValue, CompositeTracer, Tracer
+
+_logger = logging.getLogger(__name__)
+
+_exit_stack = AsyncExitStack()
+
+
+# ---------------------------------------------------------------------------
+# ParlantCloudTracer
+# ---------------------------------------------------------------------------
+
+
+class ParlantCloudTracer(Tracer):
+    def __init__(self, project_id: str = "") -> None:
+        self._project_id = project_id
+
+        self._endpoint = os.getenv(
+            "PARLANT_CLOUD_OTEL_ENDPOINT",
+            f"{os.getenv('PARLANT_CLOUD_OTEL_URL', 'https://api.parlant.cloud')}/v1/traces",
+        )
+
+        self._api_key = os.getenv("PARLANT_CLOUD_API_KEY", "")
+
+        self._spans = contextvars.ContextVar[str](
+            "tracer_spans",
+            default="",
+        )
+
+        self._attributes = contextvars.ContextVar[Mapping[str, AttributeValue]](
+            "tracer_attributes",
+            default={},
+        )
+
+        self._trace_id = contextvars.ContextVar[str](
+            "tracer_trace_id",
+            default="",
+        )
+
+        self._current_span = contextvars.ContextVar[Span | None](
+            "tracer_current_span",
+            default=None,
+        )
+
+        self._otel_context = contextvars.ContextVar[context.Context | None](
+            "parlant_cloud_tracer_otel_context",
+            default=None,
+        )
+
+    async def __aenter__(self) -> Self:
+        headers = {}
+        if self._api_key:
+            headers["authorization"] = f"Bearer {self._api_key}"
+        else:
+            _logger.info(
+                "Parlant Cloud tracing is not configured. Learn more at https://parlant.io/cloud"
+            )
+
+        span_exporter = HTTPOTLPSpanExporter(
+            endpoint=self._endpoint,
+            headers=headers,
+        )
+
+        processor = BatchSpanProcessor(
+            span_exporter=span_exporter,
+            schedule_delay_millis=1000,
+            max_queue_size=1000,
+            max_export_batch_size=100,
+        )
+
+        original_on_end = processor.on_end
+
+        def filtered_on_end(span: ReadableSpan) -> None:
+            attributes = dict(span.attributes) if span.attributes else {}
+            if attributes.get("http.request.operation") == "create_event":
+                original_on_end(span)
+
+        setattr(processor, "on_end", filtered_on_end)
+
+        resource_attributes: dict[str, str] = {
+            "service.name": "parlant-cloud-tracer",
+            "api_key": self._api_key,
+        }
+        if self._project_id:
+            resource_attributes["project_id"] = self._project_id
+
+        resource = Resource.create(resource_attributes)
+        provider = TracerProvider(resource=resource)
+        provider.add_span_processor(processor)
+        set_tracer_provider(provider)
+        self._tracer_provider = provider
+        self._otel_tracer = provider.get_tracer(__name__)
+        self._processor = processor
+        self._initialized = True
+
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool:
+        if self._processor:
+            try:
+                self._processor.force_flush()
+                self._processor.shutdown()  # type: ignore[no-untyped-call]
+            except Exception as e:
+                _logger.warning(f"Error during ParlantCloudTracer shutdown: {e}")
+
+        return False
+
+    @contextmanager
+    @override
+    def span(
+        self,
+        span_id: str,
+        attributes: Mapping[str, AttributeValue] = {},
+    ) -> Iterator[None]:
+        current_span_chain = self._spans.get()
+        current_attributes = self._attributes.get()
+        new_attributes = {**current_attributes, **attributes}
+
+        if not current_span_chain:
+            new_span_chain = span_id
+            custom_trace_id = self._generate_trace_id()
+            trace_id_reset_token = self._trace_id.set(custom_trace_id)
+            isolated_ctx = context.Context()
+            otel_context_reset_token = self._otel_context.set(isolated_ctx)
+        else:
+            new_span_chain = current_span_chain + f"::{span_id}"
+            trace_id_reset_token = None
+            stored_ctx = self._otel_context.get()
+            if stored_ctx is None:
+                isolated_ctx = context.Context()
+            else:
+                isolated_ctx = stored_ctx
+            otel_context_reset_token = None
+
+        spans_reset_token = self._spans.set(new_span_chain)
+        attributes_reset_token = self._attributes.set(new_attributes)
+
+        otel_tracer = self._otel_tracer
+
+        otel_span = otel_tracer.start_span(
+            name=span_id,
+            context=isolated_ctx,
+            attributes=dict(new_attributes),
+        )
+
+        new_ctx = trace.set_span_in_context(otel_span, isolated_ctx)
+        ctx_token = self._otel_context.set(new_ctx)
+
+        span_reset_token = self._current_span.set(otel_span)
+
+        try:
+            with trace.use_span(otel_span, end_on_exit=True):
+                yield
+        except Exception as e:
+            otel_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+            otel_span.record_exception(e)
+            raise
+        finally:
+            self._spans.reset(spans_reset_token)
+            self._attributes.reset(attributes_reset_token)
+            self._current_span.reset(span_reset_token)
+            self._otel_context.reset(ctx_token)
+            if trace_id_reset_token is not None:
+                self._trace_id.reset(trace_id_reset_token)
+            if otel_context_reset_token is not None:
+                self._otel_context.reset(otel_context_reset_token)
+
+    @contextmanager
+    @override
+    def attributes(
+        self,
+        attributes: Mapping[str, AttributeValue],
+    ) -> Iterator[None]:
+        current_attributes = self._attributes.get()
+        new_attributes = {**current_attributes, **attributes}
+
+        attributes_reset_token = self._attributes.set(new_attributes)
+
+        current_span = self._current_span.get()
+        if current_span and current_span.is_recording():
+            for key, value in attributes.items():
+                current_span.set_attribute(key, value)
+
+        try:
+            yield
+        finally:
+            self._attributes.reset(attributes_reset_token)
+
+    @property
+    @override
+    def trace_id(self) -> str:
+        if trace_id := self._trace_id.get():
+            return trace_id
+        return "<main>"
+
+    @property
+    @override
+    def span_id(self) -> str:
+        if spans := self._spans.get():
+            return spans
+        return "<main>"
+
+    @override
+    def get_attribute(
+        self,
+        name: str,
+    ) -> AttributeValue | None:
+        attributes = self._attributes.get()
+        return attributes.get(name, None)
+
+    @override
+    def set_attribute(
+        self,
+        name: str,
+        value: AttributeValue,
+    ) -> None:
+        current_attributes = self._attributes.get()
+        new_attributes = {**current_attributes, name: value}
+        self._attributes.set(new_attributes)
+
+        current_span = self._current_span.get()
+        if current_span and current_span.is_recording():
+            current_span.set_attribute(name, value)
+
+    @override
+    def add_event(
+        self,
+        name: str,
+        attributes: Mapping[str, AttributeValue] = {},
+    ) -> None:
+        transformed_attributes = dict(attributes)
+
+        current_span = self._current_span.get()
+        if current_span and current_span.is_recording():
+            current_span.add_event(name, transformed_attributes)
+
+    @override
+    def flush(self) -> None:
+        if hasattr(self, "_processor") and self._processor:
+            try:
+                self._processor.force_flush()
+            except Exception as e:
+                _logger.warning(f"Failed to flush spans: {e}")
+
+
+# ---------------------------------------------------------------------------
+# ParlantCloudLogger
+# ---------------------------------------------------------------------------
+
+
+class ParlantCloudLogger(TracingLogger):
+    """A logger that sends logs to Parlant Cloud backend using OpenTelemetry OTLP."""
+
+    def __init__(
+        self,
+        tracer: Tracer,
+        project_id: str = "",
+        log_level: LogLevel = LogLevel.DEBUG,
+        logger_id: str | None = None,
+    ) -> None:
+        super().__init__(tracer=tracer, log_level=LogLevel.TRACE, logger_id=logger_id)
+
+        self._project_id = project_id
+        self._endpoint = (
+            f"{os.getenv('PARLANT_CLOUD_OTEL_URL', 'https://api.parlant.cloud')}/v1/logs"
+        )
+        self._api_key = os.getenv("PARLANT_CLOUD_API_KEY", "")
+
+        self._logger_provider: LoggerProvider | None = None
+        self._log_exporter: OTLPLogExporter | None = None
+        self._log_processor: BatchLogRecordProcessor | None = None
+        self._logging_handler: LoggingHandler | None = None
+
+    async def __aenter__(self) -> Self:
+        resource_attributes: dict[str, str] = {
+            "service.name": "parlant-cloud-logger",
+            "api_key": self._api_key,
+        }
+        if self._project_id:
+            resource_attributes["project_id"] = self._project_id
+
+        resource = Resource.create(resource_attributes)
+
+        headers = {}
+        if self._api_key:
+            headers["authorization"] = f"Bearer {self._api_key}"
+
+        self._log_exporter = OTLPLogExporter(
+            endpoint=self._endpoint,
+            headers=headers,
+        )
+
+        self._logger_provider = LoggerProvider(resource=resource)
+        self._log_processor = BatchLogRecordProcessor(
+            exporter=self._log_exporter,
+            schedule_delay_millis=1000,
+        )
+        self._logger_provider.add_log_record_processor(self._log_processor)
+
+        self._logging_handler = LoggingHandler(
+            level=self.log_level.to_logging_level(),
+            logger_provider=self._logger_provider,
+        )
+
+        self.raw_logger.addHandler(self._logging_handler)
+
+        self._inject_structlog_processors()
+
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool:
+        if self._log_processor:
+            try:
+                self._log_processor.force_flush()
+                self._log_processor.shutdown()  # type: ignore[no-untyped-call]
+            except Exception as e:
+                _logger.warning(f"Error during ParlantCloudLogger shutdown: {e}")
+
+        if self._logging_handler:
+            self.raw_logger.removeHandler(self._logging_handler)
+
+        return False
+
+    @override
+    def set_level(self, log_level: LogLevel) -> None:
+        super().set_level(LogLevel.TRACE)
+        if self._logging_handler is not None:
+            self._logging_handler.setLevel(LogLevel.TRACE.to_logging_level())
+
+    def _inject_structlog_processors(self) -> None:
+        def _add_attributes(
+            _: Any,
+            method: str,
+            event_dict: MutableMapping[str, Any],
+        ) -> MutableMapping[str, Any]:
+            level = event_dict.get("actual_level", event_dict.get("level", method))
+            event_dict.pop("actual_level", None)
+            event_dict.pop("level", None)
+
+            event_dict["severity_text"] = str(level).upper()
+            event_dict["trace_id"] = self._tracer.trace_id
+            event_dict["span_id"] = self._tracer.span_id
+
+            if self._project_id:
+                event_dict["project_id"] = self._project_id
+
+            if scope := self.current_scope:
+                event_dict["scope"] = scope
+
+            return event_dict
+
+        self._logger = structlog.wrap_logger(
+            self.raw_logger,
+            processors=[
+                structlog.stdlib.add_log_level,
+                _add_attributes,
+                structlog.stdlib.PositionalArgumentsFormatter(),
+                structlog.processors.StackInfoRenderer(),
+                structlog.processors.format_exc_info,
+                structlog.stdlib.render_to_log_kwargs,
+            ],
+            wrapper_class=structlog.make_filtering_bound_logger(0),
+        )
+
+    @override
+    def trace(self, message: str) -> None:
+        self._logger.debug(message, actual_level="trace")
+
+    @override
+    def debug(self, message: str) -> None:
+        self._logger.debug(message)
+
+    @override
+    def info(self, message: str) -> None:
+        self._logger.info(message)
+
+    @override
+    def warning(self, message: str) -> None:
+        self._logger.warning(message)
+
+    @override
+    def error(self, message: str) -> None:
+        self._logger.error(message)
+
+    @override
+    def critical(self, message: str) -> None:
+        self._logger.critical(message)
+
+
+# ---------------------------------------------------------------------------
+# ParlantCloudMeter (Counter, Histogram, DurationHistogram)
+# ---------------------------------------------------------------------------
+
+
+class ParlantCloudCounter(Counter):
+    def __init__(self, otel_counter: OTELCounter) -> None:
+        self._otel_counter = otel_counter
+
+    @override
+    async def increment(
+        self,
+        value: int,
+        attributes: Mapping[str, str] | None = None,
+    ) -> None:
+        self._otel_counter.add(value, attributes or {})
+
+
+class ParlantCloudHistogram(Histogram):
+    def __init__(self, otel_histogram: OTELHistogram) -> None:
+        self._otel_histogram = otel_histogram
+
+    @override
+    async def record(
+        self,
+        value: float,
+        attributes: Mapping[str, str] | None = None,
+    ) -> None:
+        self._otel_histogram.record(value, attributes or {})
+
+
+class ParlantCloudDurationHistogram(DurationHistogram):
+    def __init__(self, otel_histogram: OTELHistogram) -> None:
+        self._otel_histogram = otel_histogram
+
+    @override
+    async def record(
+        self,
+        value: float,
+        attributes: Mapping[str, str] | None = None,
+    ) -> None:
+        self._otel_histogram.record(value, attributes or {})
+
+    @override
+    @asynccontextmanager
+    async def measure(
+        self,
+        attributes: Mapping[str, str] | None = None,
+    ) -> AsyncGenerator[None, None]:
+        start_time = asyncio.get_running_loop().time()
+        try:
+            yield
+        finally:
+            duration = asyncio.get_running_loop().time() - start_time
+            await self.record(duration, attributes)
+
+
+class ParlantCloudMeter(Meter):
+    def __init__(self, project_id: str = "") -> None:
+        self._project_id = project_id
+        self._endpoint = (
+            f"{os.getenv('PARLANT_CLOUD_OTEL_URL', 'https://api.parlant.cloud')}/v1/metrics"
+        )
+        self._api_key = os.getenv("PARLANT_CLOUD_API_KEY", "")
+
+        self._meter_provider: MeterProvider | None = None
+        self._metric_exporter: OTLPMetricExporter | None = None
+        self._metric_reader: PeriodicExportingMetricReader | None = None
+        self._otel_meter: OTELMeter | None = None
+
+    async def __aenter__(self) -> Self:
+        resource_attributes: dict[str, str] = {
+            "service.name": "parlant-cloud-meter",
+            "api_key": self._api_key,
+        }
+        if self._project_id:
+            resource_attributes["project_id"] = self._project_id
+
+        resource = Resource.create(resource_attributes)
+
+        headers = {}
+        if self._api_key:
+            headers["authorization"] = f"Bearer {self._api_key}"
+
+        self._metric_exporter = OTLPMetricExporter(
+            endpoint=self._endpoint,
+            headers=headers,
+        )
+
+        self._metric_reader = PeriodicExportingMetricReader(
+            exporter=self._metric_exporter,
+            export_interval_millis=1000,
+        )
+
+        self._meter_provider = MeterProvider(
+            resource=resource,
+            metric_readers=[self._metric_reader],
+        )
+
+        self._otel_meter = self._meter_provider.get_meter(__name__)
+
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool:
+        if self._metric_reader:
+            try:
+                self._metric_reader.force_flush()
+                self._metric_reader.shutdown()  # type: ignore[no-untyped-call]
+            except Exception as e:
+                _logger.warning(f"Error during ParlantCloudMeter shutdown: {e}")
+
+        return False
+
+    @override
+    def create_counter(
+        self,
+        name: str,
+        description: str,
+    ) -> Counter:
+        if not self._otel_meter:
+            raise RuntimeError("ParlantCloudMeter must be used as an async context manager")
+
+        otel_counter = self._otel_meter.create_counter(
+            name=name,
+            description=description,
+        )
+        return ParlantCloudCounter(otel_counter)
+
+    @override
+    def create_custom_histogram(
+        self,
+        name: str,
+        description: str,
+        unit: str,
+    ) -> Histogram:
+        if not self._otel_meter:
+            raise RuntimeError("ParlantCloudMeter must be used as an async context manager")
+
+        otel_histogram = self._otel_meter.create_histogram(
+            name=name,
+            description=description,
+            unit=unit,
+        )
+        return ParlantCloudHistogram(otel_histogram)
+
+    @override
+    def create_duration_histogram(
+        self,
+        name: str,
+        description: str,
+    ) -> DurationHistogram:
+        if not self._otel_meter:
+            raise RuntimeError("ParlantCloudMeter must be used as an async context manager")
+
+        otel_histogram = self._otel_meter.create_histogram(
+            name=name,
+            description=description,
+            unit="s",
+        )
+        return ParlantCloudDurationHistogram(otel_histogram)
+
+
+# ---------------------------------------------------------------------------
+# Module entry point — configure_container
+# ---------------------------------------------------------------------------
+
+
+async def configure_container(container: Container) -> Container:
+    api_key = os.environ.get("PARLANT_CLOUD_API_KEY", "")
+    if not api_key:
+        return container
+
+    logger = container[Logger]
+    api_url = os.environ.get("PARLANT_CLOUD_OTEL_URL", "https://api.parlant.cloud")
+
+    auth_url = f"{api_url}/v1/auth/api-key"
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(auth_url, headers={"Authorization": f"Bearer {api_key}"})
+            resp.raise_for_status()
+            auth_data = resp.json()
+            project_id: str = auth_data.get("project_id", "")
+    except Exception:
+        logger.warning("Parlant Cloud API key validation failed; observability disabled")
+        return container
+
+    if not project_id:
+        logger.warning("Parlant Cloud auth response missing project_id; observability disabled")
+        return container
+
+    tracer = container[Tracer]
+    cloud_tracer = await _exit_stack.enter_async_context(ParlantCloudTracer(project_id=project_id))
+    if isinstance(tracer, CompositeTracer):
+        tracer.append(cloud_tracer)
+    else:
+        container.define(Tracer, CompositeTracer([tracer, cloud_tracer]))
+
+    existing_logger = container[Logger]
+    cloud_logger = await _exit_stack.enter_async_context(
+        ParlantCloudLogger(tracer=tracer, project_id=project_id)
+    )
+    if isinstance(existing_logger, CompositeLogger):
+        existing_logger.append(cloud_logger)
+    else:
+        container.define(Logger, CompositeLogger([existing_logger, cloud_logger]))
+
+    try:
+        _ = container[Meter]
+    except Exception:
+        cloud_meter = await _exit_stack.enter_async_context(
+            ParlantCloudMeter(project_id=project_id)
+        )
+        container[Meter] = cloud_meter
+
+    return container

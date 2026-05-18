@@ -3001,7 +3001,7 @@ def given_the_journey_called(
 
         journey = context.sync_await(
             journey_store.create_journey(
-                title="Order Status Fork Journey",
+                title="Order Status Branching Journey",
                 description="Help the customer check on their most recent order.",
                 triggers=[c.id for c in condition_guidelines],
                 tags=[],

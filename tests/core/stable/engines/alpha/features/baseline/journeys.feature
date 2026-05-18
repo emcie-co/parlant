@@ -373,25 +373,25 @@ Feature: Journeys
         And the message contains that the requested results are not available yet
 
     Scenario: Journey advances past a single-follow-up tool step whose tool already ran
-        Given an agent with max iteration of 10
+        Given an agent
         And the journey called "Order Status Journey"
         And a customer message, "Hi, I'd like to check on my recent order."
+        And a tool event with data, {"tool_calls": [{"tool_id": "local:get_latest_order", "arguments": {"account_name": "Larry David"}, "result": {"data": {"order_id": "W2J4X8", "status": "in transit"}, "metadata": {}}}]}
         And an agent message, "Sure - what's the name on your account?"
         And a customer message, "It's Larry David."
-        And a tool event with data, {"tool_calls": [{"tool_id": "local:get_latest_order", "arguments": {"account_name": "Larry David"}, "result": {"data": {"order_id": "W2J4X8", "status": "in transit"}, "metadata": {}}}]}
         And a journey path "[2]" for the journey "Order Status Journey"
         When processing is triggered
         Then a single message event is emitted
         And the message contains that the customer must call the office to get further information
 
     Scenario: Journey advances past a two-follow-up tool step whose tool already ran
-        Given an agent with max iteration of 10
-        And the journey called "Order Status Fork Journey"
+        Given an agent
+        And the journey called "Order Status Branching Journey"
+        And a tool event with data, {"tool_calls": [{"tool_id": "local:get_latest_order", "arguments": {"account_name": "Larry David"}, "result": {"data": {"order_id": "W2J4X8", "status": "in transit"}, "metadata": {}}}]}
         And a customer message, "Hi, I'd like to check on my recent order."
         And an agent message, "Sure - what's the name on your account?"
         And a customer message, "It's Larry David."
-        And a tool event with data, {"tool_calls": [{"tool_id": "local:get_latest_order", "arguments": {"account_name": "Larry David"}, "result": {"data": {"order_id": "W2J4X8", "status": "in transit"}, "metadata": {}}}]}
-        And a journey path "[2]" for the journey "Order Status Fork Journey"
+        And a journey path "[2]" for the journey "Order Status Branching Journey"
         When processing is triggered
         Then a single message event is emitted
         And the message contains that the customer must call the office to get further information

@@ -173,6 +173,8 @@ class MistralSchematicGenerator(BaseSchematicGenerator[T]):
                 f"output_tokens={response.usage.completion_tokens}"
             )
 
+        if not response.choices or response.choices[0].message is None:
+            raise ValueError("LLM returned empty or filtered response")
         raw_content = response.choices[0].message.content or "{}"
 
         try:

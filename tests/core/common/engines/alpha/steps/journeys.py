@@ -3175,7 +3175,7 @@ def given_the_journey_called(
 
     JOURNEYS = {
         "Order Status Journey": create_order_status_journey,
-        "Order Status Fork Journey": create_order_status_branching_journey,
+        "Order Status Branching Journey": create_order_status_branching_journey,
         "Reset Password Journey": create_reset_password_journey,
         "Book Flight": create_book_flight_journey,
         "Book Taxi Ride": create_book_taxi_journey,

@@ -21,6 +21,7 @@ ParlantCloudTracer / ParlantCloudLogger / ParlantCloudMeter.
 
 import asyncio
 import contextvars
+import hmac
 import logging
 import os
 from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
@@ -29,6 +30,8 @@ from typing import Any, AsyncGenerator, Iterator, Mapping, MutableMapping
 
 import httpx
 import structlog
+from fastapi import FastAPI, Request, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 from lagom import Container
 from opentelemetry import context, trace
 from opentelemetry.exporter.otlp.proto.http._log_exporter import (
@@ -53,6 +56,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import Span, set_tracer_provider
 from typing_extensions import Self, override
 
+from parlant.api.authorization import AuthorizationPolicy, Operation, ProductionAuthorizationPolicy
 from parlant.core.loggers import CompositeLogger, LogLevel, Logger, TracingLogger
 from parlant.core.meter import Counter, DurationHistogram, Histogram, Meter
 from parlant.core.tracer import AttributeValue, CompositeTracer, Tracer
@@ -60,6 +64,57 @@ from parlant.core.tracer import AttributeValue, CompositeTracer, Tracer
 _logger = logging.getLogger(__name__)
 
 _exit_stack = AsyncExitStack()
+
+PLATFORM_SECRET_HEADER = "X-Parlant-Cloud-Platform-Secret"
+
+
+class ParlantCloudAuthorizationPolicy(AuthorizationPolicy):
+    def __init__(self, platform_secret: str) -> None:
+        self._platform_secret = platform_secret
+        self._production_policy = ProductionAuthorizationPolicy()
+
+    @property
+    @override
+    def name(self) -> str:
+        return "parlant-cloud"
+
+    @override
+    async def configure_app(self, app: FastAPI) -> FastAPI:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+        return app
+
+    def _is_trusted(self, headers: Mapping[str, str]) -> bool:
+        secret = headers.get(PLATFORM_SECRET_HEADER, "")
+        return bool(secret) and hmac.compare_digest(secret, self._platform_secret)
+
+    @override
+    async def check_permission(self, request: Request, operation: Operation) -> bool:
+        if self._is_trusted(request.headers):
+            return True
+        return await self._production_policy.check_permission(request, operation)
+
+    @override
+    async def check_rate_limit(self, request: Request, operation: Operation) -> bool:
+        if self._is_trusted(request.headers):
+            return True
+        return await self._production_policy.check_rate_limit(request, operation)
+
+    @override
+    async def check_websocket_permission(
+        self,
+        websocket: WebSocket,
+        operation: Operation,
+    ) -> bool:
+        if self._is_trusted(websocket.headers):
+            return True
+        return await self._production_policy.check_websocket_permission(websocket, operation)
 
 
 # ---------------------------------------------------------------------------
@@ -626,6 +681,10 @@ class ParlantCloudMeter(Meter):
 
 
 async def configure_container(container: Container) -> Container:
+    platform_secret = os.environ.get("PARLANT_CLOUD_PLATFORM_SECRET", "")
+    if platform_secret:
+        container[AuthorizationPolicy] = ParlantCloudAuthorizationPolicy(platform_secret)
+
     api_key = os.environ.get("PARLANT_CLOUD_API_KEY", "")
     if not api_key:
         return container

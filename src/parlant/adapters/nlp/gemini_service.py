@@ -374,6 +374,35 @@ class Gemini_2_5_Pro(GeminiSchematicGenerator[T]):
         return 1024 * 1024
 
 
+class Gemini_3_5_Flash(GeminiSchematicGenerator[T]):
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
+        super().__init__(
+            model_name="gemini-3.5-flash",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+        )
+
+    @override
+    async def generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[T]:
+        return await super().generate(
+            prompt,
+            {"thinking_config": {"thinking_level": "low"}, **hints},
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 1024 * 1024
+
+
 class Gemini_3_1_Pro(GeminiSchematicGenerator[T]):
     def __init__(
         self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
@@ -533,13 +562,13 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
     ) -> GeminiSchematicGenerator[T]:
         match hints.get("model_size", ModelSize.AUTO):
             case ModelSize.NANO:
-                return Gemini_2_5_Flash_Lite[t](self.logger, self._tracer, self._meter)  # type: ignore
+                return Gemini_2_5_Flash_Lite[t](self.logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
             case ModelSize.MINI:
-                return Gemini_2_5_Flash[t](self.logger, self._tracer, self._meter)  # type: ignore
+                return Gemini_2_5_Flash[t](self.logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
             case ModelSize.LARGE:
-                return Gemini_2_5_Pro[t](self.logger, self._tracer, self._meter)  # type: ignore
+                return Gemini_2_5_Pro[t](self.logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
             case _:
-                return Gemini_3_1_Pro[t](self.logger, self._tracer, self._meter)  # type: ignore
+                return Gemini_3_5_Flash[t](self.logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:

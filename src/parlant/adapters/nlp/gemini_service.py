@@ -44,7 +44,6 @@ from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
     BaseSchematicGenerator,
-    FallbackSchematicGenerator,
     SchematicGenerationResult,
     StreamingTextGenerator,
 )
@@ -375,6 +374,24 @@ class Gemini_2_5_Pro(GeminiSchematicGenerator[T]):
         return 1024 * 1024
 
 
+class Gemini_3_1_Pro(GeminiSchematicGenerator[T]):
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
+        super().__init__(
+            model_name="gemini-3.1-pro",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 1024 * 1024
+
+
 class GoogleEmbedder(BaseEmbedder):
     supported_hints = ["title", "task_type"]
 
@@ -522,11 +539,7 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
             case ModelSize.LARGE:
                 return Gemini_2_5_Pro[t](self.logger, self._tracer, self._meter)  # type: ignore
             case _:
-                return FallbackSchematicGenerator[t](  # type: ignore
-                    Gemini_2_5_Flash[t](self.logger, self._tracer, self._meter),  # type: ignore
-                    Gemini_2_5_Pro[t](self.logger, self._tracer, self._meter),  # type: ignore
-                    logger=self.logger,
-                )
+                return Gemini_3_1_Pro[t](self.logger, self._tracer, self._meter)  # type: ignore
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:

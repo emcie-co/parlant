@@ -150,6 +150,22 @@ TOOLS: dict[str, dict[str, Any]] = {
         },
         "required": ["account_name"],
     },
+    "find_customer_id": {
+        "name": "find_customer_id",
+        "description": "Find the customer's account ID by their full name and zip code",
+        "module_path": "tests.tool_utilities",
+        "parameters": {
+            "customer_name": {
+                "type": "string",
+                "description": "The customer's full name",
+            },
+            "zip_code": {
+                "type": "string",
+                "description": "The customer's zip code",
+            },
+        },
+        "required": ["customer_name", "zip_code"],
+    },
     "transfer_money": {
         "name": "transfer_money",
         "description": "Transfer money from one account to another",

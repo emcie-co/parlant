@@ -116,6 +116,13 @@ def get_latest_order(account_name: str) -> ToolResult:
     return ToolResult(orders.get(account_name, {"order_id": "UNKNOWN", "status": "unknown"}))
 
 
+def find_customer_id(customer_name: str, zip_code: str) -> ToolResult:
+    customers = {
+        ("Larry David", "90210"): "larry_david_2024",
+    }
+    return ToolResult(customers.get((customer_name, zip_code), "unknown"))
+
+
 def transfer_money(amount: int, from_account: str, to_account: str) -> ToolResult:
     return ToolResult(
         data=f"Transferred {amount} coins from {from_account} to {to_account} successfully."

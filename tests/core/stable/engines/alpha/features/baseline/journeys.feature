@@ -395,4 +395,16 @@ Feature: Journeys
         When processing is triggered
         Then a single message event is emitted
         And the message contains that the customer must call the office to get further information
+
+    Scenario: Journey stays on a tool node when a required argument is missing
+        Given an agent
+        And the journey called "Customer Lookup Journey"
+        And a customer message, "Hi, I need help with my account."
+        And an agent message, "Sure - what's your full name?"
+        And a customer message, "It's Larry David."
+        And a journey path "[2]" for the journey "Customer Lookup Journey"
+        When processing is triggered
+        Then no tool calls event is emitted
+        And a single message event is emitted
+        And the message contains asking the customer for their zip code
     

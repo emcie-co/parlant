@@ -3173,9 +3173,167 @@ def given_the_journey_called(
 
         return journey
 
+    def create_customer_lookup_journey() -> Journey:
+        conditions = [
+            "the customer wants help with their account",
+        ]
+
+        condition_guidelines: Sequence[Guideline] = [
+            context.sync_await(
+                guideline_store.create_guideline(
+                    condition=condition,
+                    action=None,
+                    metadata={},
+                )
+            )
+            for condition in conditions
+        ]
+
+        journey = context.sync_await(
+            journey_store.create_journey(
+                title="Customer Lookup Journey",
+                description="Locate the customer's account.",
+                triggers=[c.id for c in condition_guidelines],
+                tags=[],
+            )
+        )
+
+        for c in condition_guidelines:
+            context.sync_await(
+                guideline_store.upsert_tag(
+                    guideline_id=c.id,
+                    tag_id=Tag.for_journey_id(journey_id=journey.id).id,
+                )
+            )
+
+        # Node 1: Ask for the customer's full name
+        node1 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Ask the customer for their full name",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node1.id,
+                "customer_dependent_action_data",
+                {
+                    "is_customer_dependent": True,
+                    "customer_action": "The customer provided their full name",
+                    "agent_action": "",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node1.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node1.metadata.get("journey_node", {})),
+                    "kind": "chat",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=journey.root_id,
+                target=node1.id,
+                condition=None,
+            )
+        )
+
+        # Node 2: Look up the customer's account ID (tool step).
+        # find_customer_id requires customer_name AND zip_code; only the name
+        # is collected before this node, so the tool cannot run.
+        tool = context.sync_await(local_tool_service.create_tool(**TOOLS["find_customer_id"]))
+        node2 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Use the find_customer_id tool to look up the customer's account ID",
+                tools=[ToolId("local", tool.name)],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node2.id,
+                "tool_running_only",
+                True,
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node2.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node2.metadata.get("journey_node", {})),
+                    "kind": "tool",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node1.id,
+                target=node2.id,
+                condition=None,
+            )
+        )
+
+        # Node 3: Confirm the account was located
+        node3 = context.sync_await(
+            journey_store.create_node(
+                journey_id=journey.id,
+                action="Tell the customer that their account has been located",
+                tools=[],
+            )
+        )
+        context.sync_await(
+            journey_store.set_node_metadata(
+                node3.id,
+                "journey_node",
+                {
+                    **cast(Mapping[str, str], node3.metadata.get("journey_node", {})),
+                    "kind": "chat",
+                },
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node2.id,
+                target=node3.id,
+                condition=None,
+            )
+        )
+        context.sync_await(
+            journey_store.create_edge(
+                journey_id=journey.id,
+                source=node3.id,
+                target=journey_store.END_NODE_ID,
+                condition=None,
+            )
+        )
+
+        nodes_metadata = get_journey_properties(context=context, journey_id=journey.id)
+
+        for index, metadata in nodes_metadata.items():
+            for key, val in metadata.items():
+                context.sync_await(
+                    journey_store.set_node_metadata(
+                        index,
+                        key,
+                        val,
+                    )
+                )
+
+        return journey
+
     JOURNEYS = {
         "Order Status Journey": create_order_status_journey,
         "Order Status Branching Journey": create_order_status_branching_journey,
+        "Customer Lookup Journey": create_customer_lookup_journey,
         "Reset Password Journey": create_reset_password_journey,
         "Book Flight": create_book_flight_journey,
         "Book Taxi Ride": create_book_taxi_journey,

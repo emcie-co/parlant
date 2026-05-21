@@ -562,13 +562,21 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
     ) -> GeminiSchematicGenerator[T]:
         match hints.get("model_size", ModelSize.AUTO):
             case ModelSize.NANO:
-                return Gemini_2_5_Flash_Lite[t](self.logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
+                return Gemini_2_5_Flash_Lite[t](
+                    self.logger, self._tracer, self._meter, self._health_reporter
+                )  # type: ignore
             case ModelSize.MINI:
-                return Gemini_2_5_Flash[t](self.logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
+                return Gemini_2_5_Flash[t](
+                    self.logger, self._tracer, self._meter, self._health_reporter
+                )  # type: ignore
             case ModelSize.LARGE:
-                return Gemini_2_5_Pro[t](self.logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
+                return Gemini_2_5_Pro[t](
+                    self.logger, self._tracer, self._meter, self._health_reporter
+                )  # type: ignore
             case _:
-                return Gemini_3_5_Flash[t](self.logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
+                return Gemini_3_1_Pro[t](
+                    self.logger, self._tracer, self._meter, self._health_reporter
+                )  # type: ignore
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:

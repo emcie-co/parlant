@@ -20,6 +20,7 @@ from typing import Any, Mapping, Optional, Sequence, cast
 from typing_extensions import override
 from parlant.core.async_utils import CancellationSuppressionLatch, Stopwatch
 from parlant.core.capabilities import Capability
+from parlant.core.health import ENGINE_TTFM_KIND, EngineHealthView, HealthReporter
 from parlant.core.meter import Meter
 from parlant.core.tracer import Tracer
 from parlant.core.agents import Agent
@@ -136,6 +137,7 @@ class MessageGenerator(MessageEventComposer):
         tracer: Tracer,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[MessageSchema],
+        health_reporter: HealthReporter,
     ) -> None:
         self._logger = logger
         self._meter = meter
@@ -143,6 +145,7 @@ class MessageGenerator(MessageEventComposer):
         self._tracer = tracer
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
+        self._health_reporter = health_reporter
 
         self._hist_message_generation_duration = self._meter.create_duration_histogram(
             "message_generation",
@@ -281,8 +284,12 @@ class MessageGenerator(MessageEventComposer):
                         data=response_message,
                     )
 
-                    await self._hist_ttfm_duration.record(start_of_processing.elapsed * 1000)
+                    ttfm_ms = start_of_processing.elapsed * 1000
+                    await self._hist_ttfm_duration.record(ttfm_ms)
                     self._tracer.add_event("mg.ttfm")
+                    self._health_reporter.report(
+                        ENGINE_TTFM_KIND, {EngineHealthView.ATTR_TTFM_MS: ttfm_ms}
+                    )
 
                     return [
                         MessageEventComposition(

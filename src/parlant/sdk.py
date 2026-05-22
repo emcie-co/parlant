@@ -15,6 +15,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import uuid
 from collections import defaultdict, deque
 from contextlib import AsyncExitStack
 import contextvars
@@ -22,7 +24,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import enum
 from functools import partial
-from hashlib import md5
+import xxhash
 import importlib.util
 from itertools import chain
 from pathlib import Path
@@ -42,7 +44,7 @@ from rich.progress import (
 )
 from rich.live import Live
 from rich.text import Text
-from types import TracebackType
+from types import ModuleType, TracebackType
 from typing import (
     Any,
     Awaitable,
@@ -62,7 +64,7 @@ from typing import (
     TypedDict,
     cast,
 )
-from typing_extensions import overload
+from typing_extensions import deprecated, overload
 from fastapi import FastAPI
 import httpx
 from lagom import Container
@@ -110,6 +112,7 @@ from parlant.core.context_variables import (
     ContextVariableStore,
 )
 from parlant.core.emission.event_publisher import EventPublisherFactory
+from parlant.core.health import HealthReporter
 from parlant.core.engines.alpha.guideline_matching.generic.common import (
     format_journey_node_guideline_id,
 )
@@ -130,7 +133,6 @@ from parlant.core.engines.alpha.prompt_builder import PromptBuilder, PromptSecti
 from parlant.core.engines.alpha.hooks import EngineHook, EngineHookResult, EngineHooks
 from parlant.core.engines.alpha.engine_context import (
     EngineContext,
-    LoadedContext,  # type: ignore
     Interaction,
     InteractionMessage,
 )
@@ -176,6 +178,7 @@ from parlant.core.relationships import (
     RelationshipStore,
 )
 from parlant.core.services.indexing.behavioral_change_evaluation import BehavioralChangeEvaluator
+from parlant.core.services.indexing.indexer import Indexer
 from parlant.core.services.tools.service_registry import ServiceDocumentRegistry, ServiceRegistry
 from parlant.core.sessions import (
     Event,
@@ -288,7 +291,25 @@ OutputMode = _MessageOutputMode
 
 INTEGRATED_TOOL_SERVICE_NAME = "built-in"
 
+ToolRef: TypeAlias = ToolEntry | ToolId
+"""A reference to a tool: either a ``ToolEntry`` (hosted on the integrated
+plugin server) or a ``ToolId`` (hosted on an external tool service)."""
+
 T = TypeVar("T")
+
+
+def _tool_ref_to_id(ref: ToolRef) -> ToolId:
+    """Convert a ToolRef to a ToolId."""
+    if isinstance(ref, ToolId):
+        return ref
+    return ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=ref.tool.name)
+
+
+async def _enable_tool_refs(plugin_server: PluginServer, refs: Iterable[ToolRef]) -> None:
+    """Enable only ToolEntry refs on the plugin server; skip ToolId refs."""
+    for ref in refs:
+        if isinstance(ref, ToolEntry):
+            await plugin_server.enable_tool(ref)
 
 
 JourneyStateId: TypeAlias = JourneyNodeId
@@ -313,17 +334,40 @@ class NLPServices:
     """A collection of static methods to create built-in NLPService instances for the SDK."""
 
     @staticmethod
+    def parlant_cloud(container: Container) -> NLPService:
+        """Creates a Parlant Cloud NLPService instance using the provided container."""
+        from parlant.adapters.nlp.parlant_cloud_service import (
+            ParlantCloudService,
+            ParlantCloudIndexer,
+        )
+
+        if error := ParlantCloudService.verify_environment():
+            raise NLPServiceConfigurationError(error)
+
+        container[Indexer] = ParlantCloudIndexer
+
+        return ParlantCloudService(
+            container[Logger],
+            container[Tracer],
+            container[Meter],
+            container[HealthReporter],
+        )
+
+    @staticmethod
     def emcie(container: Container) -> NLPService:
-        """Creates an Azure NLPService instance using the provided container."""
-        from parlant.adapters.nlp.emcie_service import EmcieService
+        """Creates an Emcie NLPService instance using the provided container."""
+        from parlant.adapters.nlp.emcie_service import EmcieService, EmcieIndexer
 
         if error := EmcieService.verify_environment():
             raise NLPServiceConfigurationError(error)
+
+        container[Indexer] = EmcieIndexer
 
         return EmcieService(
             container[Logger],
             container[Tracer],
             container[Meter],
+            container[HealthReporter],
         )
 
     @staticmethod
@@ -334,7 +378,9 @@ class NLPServices:
         if error := AzureService.verify_environment():
             raise NLPServiceConfigurationError(error)
 
-        return AzureService(container[Logger], container[Tracer], container[Meter])
+        return AzureService(
+            container[Logger], container[Tracer], container[Meter], container[HealthReporter]
+        )
 
     @staticmethod
     def openai(container: Container) -> NLPService:
@@ -344,7 +390,9 @@ class NLPServices:
         if error := OpenAIService.verify_environment():
             raise NLPServiceConfigurationError(error)
 
-        return OpenAIService(container[Logger], container[Tracer], container[Meter])
+        return OpenAIService(
+            container[Logger], container[Tracer], container[Meter], container[HealthReporter]
+        )
 
     @staticmethod
     def anthropic(container: Container) -> NLPService:
@@ -354,7 +402,9 @@ class NLPServices:
         if error := AnthropicService.verify_environment():
             raise NLPServiceConfigurationError(error)
 
-        return AnthropicService(container[Logger], container[Tracer], container[Meter])
+        return AnthropicService(
+            container[Logger], container[Tracer], container[Meter], container[HealthReporter]
+        )
 
     @staticmethod
     def cerebras(container: Container) -> NLPService:
@@ -364,7 +414,9 @@ class NLPServices:
         if error := CerebrasService.verify_environment():
             raise NLPServiceConfigurationError(error)
 
-        return CerebrasService(container[Logger], container[Tracer], container[Meter])
+        return CerebrasService(
+            container[Logger], container[Tracer], container[Meter], container[HealthReporter]
+        )
 
     @staticmethod
     def together(container: Container) -> NLPService:
@@ -374,7 +426,9 @@ class NLPServices:
         if error := TogetherService.verify_environment():
             raise NLPServiceConfigurationError(error)
 
-        return TogetherService(container[Logger], container[Tracer], container[Meter])
+        return TogetherService(
+            container[Logger], container[Tracer], container[Meter], container[HealthReporter]
+        )
 
     @staticmethod
     def gemini(container: Container) -> NLPService:
@@ -384,7 +438,9 @@ class NLPServices:
         if error := GeminiService.verify_environment():
             raise NLPServiceConfigurationError(error)
 
-        return GeminiService(container[Logger], container[Tracer], container[Meter])
+        return GeminiService(
+            container[Logger], container[Tracer], container[Meter], container[HealthReporter]
+        )
 
     @staticmethod
     def litellm(container: Container) -> NLPService:
@@ -394,7 +450,9 @@ class NLPServices:
         if error := LiteLLMService.verify_environment():
             raise NLPServiceConfigurationError(error)
 
-        service = LiteLLMService(container[Logger], container[Tracer], container[Meter])
+        service = LiteLLMService(
+            container[Logger], container[Tracer], container[Meter], container[HealthReporter]
+        )
 
         # LiteLLMEmbedder takes a model_name: str parameter that lagom cannot
         # auto-resolve. We pre-register the embedder instance in the container
@@ -412,7 +470,9 @@ class NLPServices:
         if error := ModelScopeService.verify_environment():
             raise NLPServiceConfigurationError(error)
 
-        return ModelScopeService(container[Logger], container[Tracer], container[Meter])
+        return ModelScopeService(
+            container[Logger], container[Tracer], container[Meter], container[HealthReporter]
+        )
 
     @staticmethod
     def vertex(container: Container) -> NLPService:
@@ -425,7 +485,9 @@ class NLPServices:
         if err := VertexAIService.validate_adc():
             raise NLPServiceConfigurationError(err)
 
-        return VertexAIService(container[Logger], container[Tracer], container[Meter])
+        return VertexAIService(
+            container[Logger], container[Tracer], container[Meter], container[HealthReporter]
+        )
 
     @staticmethod
     def mistral(container: Container) -> NLPService:
@@ -435,7 +497,9 @@ class NLPServices:
         if error := MistralService.verify_environment():
             raise NLPServiceConfigurationError(error)
 
-        return MistralService(container[Logger], container[Tracer], container[Meter])
+        return MistralService(
+            container[Logger], container[Tracer], container[Meter], container[HealthReporter]
+        )
 
     @staticmethod
     def ollama(container: Container) -> NLPService:
@@ -448,17 +512,9 @@ class NLPServices:
         if err := OllamaService.verify_models():
             raise NLPServiceConfigurationError(err)
 
-        return OllamaService(container[Logger], container[Tracer], container[Meter])
-
-    @staticmethod
-    def glm(container: Container) -> NLPService:
-        """Creates a GLM NLPService instance using the provided container."""
-        from parlant.adapters.nlp.glm_service import GLMService
-
-        if error := GLMService.verify_environment():
-            raise NLPServiceConfigurationError(error)
-
-        return GLMService(container[Logger], container[Tracer], container[Meter])
+        return OllamaService(
+            container[Logger], container[Tracer], container[Meter], container[HealthReporter]
+        )
 
     @staticmethod
     def qwen(container: Container) -> NLPService:
@@ -468,7 +524,9 @@ class NLPServices:
         if error := QwenService.verify_environment():
             raise NLPServiceConfigurationError(error)
 
-        return QwenService(container[Logger], container[Tracer], container[Meter])
+        return QwenService(
+            container[Logger], container[Tracer], container[Meter], container[HealthReporter]
+        )
 
     @staticmethod
     def deepseek(container: Container) -> NLPService:
@@ -478,7 +536,21 @@ class NLPServices:
         if error := DeepSeekService.verify_environment():
             raise NLPServiceConfigurationError(error)
 
-        return DeepSeekService(container[Logger], container[Tracer], container[Meter])
+        return DeepSeekService(
+            container[Logger], container[Tracer], container[Meter], container[HealthReporter]
+        )
+
+    @staticmethod
+    def novita(container: Container) -> NLPService:
+        """Creates a Novita AI NLPService instance using the provided container."""
+        from parlant.adapters.nlp.novita_service import NovitaService
+
+        if error := NovitaService.verify_environment():
+            raise NLPServiceConfigurationError(error)
+
+        return NovitaService(
+            container[Logger], container[Tracer], container[Meter], container[HealthReporter]
+        )
 
     @staticmethod
     def snowflake(container: Container) -> NLPService:
@@ -488,7 +560,9 @@ class NLPServices:
         if error := SnowflakeCortexService.verify_environment():
             raise NLPServiceConfigurationError(error)
 
-        return SnowflakeCortexService(container[Logger], container[Tracer], container[Meter])
+        return SnowflakeCortexService(
+            container[Logger], container[Tracer], container[Meter], container[HealthReporter]
+        )
 
     # @staticmethod
     # def fireworks(container: Container) -> NLPService:
@@ -520,6 +594,7 @@ class NLPServices:
                 c[Logger],
                 c[Tracer],
                 c[Meter],
+                c[HealthReporter],
             )
 
         if container is not None:
@@ -535,7 +610,9 @@ class NLPServices:
         if error := ZhipuService.verify_environment():
             raise NLPServiceConfigurationError(error)
 
-        return ZhipuService(container[Logger], container[Tracer], container[Meter])
+        return ZhipuService(
+            container[Logger], container[Tracer], container[Meter], container[HealthReporter]
+        )
 
 
 class _CachedGuidelineEvaluation(TypedDict, total=False):
@@ -619,9 +696,9 @@ class _CachedEvaluator:
         """Generate a hash for the guideline evaluation request."""
         tool_ids_str = ",".join(str(tool_id) for tool_id in tool_ids) if tool_ids else ""
 
-        return md5(
+        return xxhash.xxh3_128_hexdigest(
             f"{g.condition or ''}:{g.action or ''}:{tool_ids_str}:{journey_state_propositions}:{properties_proposition}".encode()
-        ).hexdigest()
+        )
 
     def _hash_journey_evaluation_request(
         self,
@@ -633,7 +710,7 @@ class _CachedEvaluator:
             ",".join(str(edge.id) for edge in journey.transitions) if journey.transitions else ""
         )
 
-        return md5(f"{journey.id}:{node_ids_str}:{edge_ids_str}".encode()).hexdigest()
+        return xxhash.xxh3_128_hexdigest(f"{journey.id}:{node_ids_str}:{edge_ids_str}".encode())
 
     async def evaluate_guideline(
         self,
@@ -835,7 +912,7 @@ class Tag:
     name: str
     _server: Optional[Server] = field(default=None, repr=False)
 
-    async def reevaluate_after(self, *tools: ToolEntry) -> Sequence[Relationship]:
+    async def reevaluate_after(self, *tools: ToolRef) -> Sequence[Relationship]:
         """Creates reevaluation relationships between this tag and one or more tools.
 
         When any of the tools is called, all guidelines tagged with this tag
@@ -853,10 +930,10 @@ class Tag:
             relationship = await self._server._container[RelationshipStore].create_relationship(
                 source=RelationshipEntity(
                     id=self.id,
-                    kind=RelationshipEntityKind.TAG,
+                    kind=RelationshipEntityKind.TAG_ALL,
                 ),
                 target=RelationshipEntity(
-                    id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
+                    id=_tool_ref_to_id(t),
                     kind=RelationshipEntityKind.TOOL,
                 ),
                 kind=RelationshipKind.REEVALUATION,
@@ -875,28 +952,38 @@ class Tag:
 
     async def _create_relationship(
         self,
-        target: Guideline | Journey | Tag,
+        target: Guideline | Journey | Tag | AnyOf | AllOf,
         kind: RelationshipKind,
+        group_id: str | None = None,
     ) -> Relationship:
         server = self._server
         if server is None:
             raise SDKError("Tag relationships can only be created during the server startup scope.")
 
-        entity_source = RelationshipEntity(id=self.id, kind=RelationshipEntityKind.TAG)
+        entity_source = RelationshipEntity(id=self.id, kind=RelationshipEntityKind.TAG_ALL)
 
         if isinstance(target, Guideline):
             entity_target = RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE)
+        elif isinstance(target, AnyOf):
+            entity_target = RelationshipEntity(
+                id=target.tag.id, kind=RelationshipEntityKind.TAG_ANY
+            )
+        elif isinstance(target, AllOf):
+            entity_target = RelationshipEntity(
+                id=target.tag.id, kind=RelationshipEntityKind.TAG_ALL
+            )
         elif isinstance(target, Tag):
-            entity_target = RelationshipEntity(id=target.id, kind=RelationshipEntityKind.TAG)
+            entity_target = RelationshipEntity(id=target.id, kind=RelationshipEntityKind.TAG_ALL)
         else:
             entity_target = RelationshipEntity(
-                id=_Tag.for_journey_id(target.id).id, kind=RelationshipEntityKind.TAG
+                id=_Tag.for_journey_id(target.id).id, kind=RelationshipEntityKind.TAG_ALL
             )
 
         relationship = await server._container[RelationshipStore].create_relationship(
             source=entity_source,
             target=entity_target,
             kind=kind,
+            group_id=group_id,
         )
 
         return Relationship(
@@ -906,28 +993,96 @@ class Tag:
             target=relationship.target.id,
         )
 
-    async def prioritize_over(self, *targets: Guideline | Journey | Tag) -> Sequence[Relationship]:
+    async def prioritize_over(
+        self, *targets: Guideline | Journey | Tag | AllOf
+    ) -> Sequence[Relationship]:
         """Creates priority relationships with other guidelines, journeys, or tags."""
         if not targets:
             raise SDKError("At least one target must be provided for prioritization.")
 
         return [await self._create_relationship(t, RelationshipKind.PRIORITY) for t in targets]
 
-    async def exclude(self, *targets: Guideline | Journey | Tag) -> Sequence[Relationship]:
+    async def exclude(self, *targets: Guideline | Journey | Tag | AllOf) -> Sequence[Relationship]:
         """Alias for prioritize_over. Creates priority relationships with other guidelines, journeys, or tags."""
         return await self.prioritize_over(*targets)
 
-    async def depend_on(self, *targets: Guideline | Journey | Tag) -> Sequence[Relationship]:
+    async def depend_on(
+        self, *targets: Guideline | Journey | Tag | AnyOf | AllOf
+    ) -> Sequence[Relationship]:
         """Creates dependency relationships with other guidelines, journeys, or tags."""
         if not targets:
             raise SDKError("At least one target must be provided for dependency.")
 
         return [await self._create_relationship(t, RelationshipKind.DEPENDENCY) for t in targets]
 
+    async def depend_on_any(
+        self, *targets: Guideline | Journey | Tag | AnyOf | AllOf
+    ) -> Sequence[Relationship]:
+        """Creates OR dependency relationships. At least one target must be active."""
+        if not targets:
+            raise SDKError("At least one target must be provided for dependency.")
+
+        group_id = str(uuid.uuid4())
+        return [
+            await self._create_relationship(t, RelationshipKind.DEPENDENCY_ANY, group_id=group_id)
+            for t in targets
+        ]
+
+
+@dataclass(frozen=True)
+class AnyOf:
+    """Wraps a Tag to indicate ANY semantics in a dependency relationship.
+
+    When used as a target in ``depend_on()``, the dependency is satisfied if
+    at least one entity tagged with the given tag is active.
+    """
+
+    tag: Tag
+
+
+@dataclass(frozen=True)
+class AllOf:
+    """Wraps a Tag to indicate ALL semantics in a dependency relationship.
+
+    When used as a target in ``depend_on()``, ``prioritize_over()``, or ``exclude()``,
+    the dependency/priority is evaluated against all entities tagged with the given tag.
+    This is also the default when a bare ``Tag`` is passed.
+    """
+
+    tag: Tag
+
 
 def _tags_from_ids(tag_ids: Sequence[TagId]) -> list[Tag]:
     """Convert a sequence of TagIds to a list of Tag objects, using the ID as the name."""
     return [Tag(id=tag_id, name=str(tag_id)) for tag_id in tag_ids]
+
+
+def _resolve_journey_triggers_kwarg(
+    triggers: list[str | Guideline] | None,
+    conditions: list[str | Guideline] | None,
+) -> list[str | Guideline]:
+    """Resolve the journey ``triggers`` argument with back-compat for the
+    deprecated ``conditions`` alias.
+
+    Emits a ``DeprecationWarning`` if ``conditions`` was used and raises if
+    both are provided.
+    """
+    if conditions is not None:
+        if triggers is not None:
+            raise SDKError(
+                "Pass either 'triggers' (preferred) or 'conditions' (deprecated), not both."
+            )
+        import warnings
+
+        warnings.warn(
+            "The 'conditions' parameter on create_journey is deprecated. Use 'triggers' instead.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return list(conditions)
+    if triggers is None:
+        raise SDKError("create_journey requires 'triggers' to be provided.")
+    return list(triggers)
 
 
 @dataclass(frozen=True)
@@ -1103,7 +1258,9 @@ class Guideline:
             direction="source",
         )
 
-    async def prioritize_over(self, *targets: Guideline | Journey | Tag) -> Sequence[Relationship]:
+    async def prioritize_over(
+        self, *targets: Guideline | Journey | Tag | AllOf
+    ) -> Sequence[Relationship]:
         """Creates priority relationships with other guidelines, journeys, or tags."""
         if not targets:
             raise SDKError("At least one target must be provided for prioritization.")
@@ -1117,11 +1274,13 @@ class Guideline:
             for t in targets
         ]
 
-    async def exclude(self, *targets: Guideline | Journey | Tag) -> Sequence[Relationship]:
+    async def exclude(self, *targets: Guideline | Journey | Tag | AllOf) -> Sequence[Relationship]:
         """Alias for prioritize_over. Creates priority relationships with other guidelines, journeys, or tags."""
         return await self.prioritize_over(*targets)
 
-    async def depend_on(self, *targets: Guideline | Journey | Tag) -> Sequence[Relationship]:
+    async def depend_on(
+        self, *targets: Guideline | Journey | Tag | AnyOf | AllOf
+    ) -> Sequence[Relationship]:
         """Creates dependency relationships with other guidelines, journeys, or tags."""
         if not targets:
             raise SDKError("At least one target must be provided for dependency.")
@@ -1131,6 +1290,24 @@ class Guideline:
                 target=t,
                 kind=RelationshipKind.DEPENDENCY,
                 direction="source",
+            )
+            for t in targets
+        ]
+
+    async def depend_on_any(
+        self, *targets: Guideline | Journey | Tag | AnyOf | AllOf
+    ) -> Sequence[Relationship]:
+        """Creates OR dependency relationships. At least one target must be active."""
+        if not targets:
+            raise SDKError("At least one target must be provided for dependency.")
+
+        group_id = str(uuid.uuid4())
+        return [
+            await self._create_relationship(
+                target=t,
+                kind=RelationshipKind.DEPENDENCY_ANY,
+                direction="source",
+                group_id=group_id,
             )
             for t in targets
         ]
@@ -1145,8 +1322,8 @@ class Guideline:
             )
 
         guideline_targets = [t for t in targets if isinstance(t, Guideline)]
-        journey_conditions = list(
-            chain.from_iterable([t.conditions for t in targets if isinstance(t, Journey)])
+        journey_triggers = list(
+            chain.from_iterable([t.triggers for t in targets if isinstance(t, Journey)])
         )
 
         return [
@@ -1155,10 +1332,10 @@ class Guideline:
                 kind=RelationshipKind.DISAMBIGUATION,
                 direction="source",
             )
-            for t in guideline_targets + journey_conditions
+            for t in guideline_targets + journey_triggers
         ]
 
-    async def reevaluate_after(self, *tools: ToolEntry) -> Sequence[Relationship]:
+    async def reevaluate_after(self, *tools: ToolRef) -> Sequence[Relationship]:
         """Creates reevaluation relationships with one or more tools."""
         if not tools:
             raise SDKError("At least one tool must be provided for reevaluation.")
@@ -1171,7 +1348,7 @@ class Guideline:
                     kind=RelationshipEntityKind.GUIDELINE,
                 ),
                 target=RelationshipEntity(
-                    id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
+                    id=_tool_ref_to_id(t),
                     kind=RelationshipEntityKind.TOOL,
                 ),
                 kind=RelationshipKind.REEVALUATION,
@@ -1208,17 +1385,22 @@ class Guideline:
 
     async def _create_relationship(
         self,
-        target: Guideline | Journey | Tag,
+        target: Guideline | Journey | Tag | AnyOf | AllOf,
         kind: RelationshipKind,
         direction: Literal["source", "target"],
+        group_id: str | None = None,
     ) -> Relationship:
         if isinstance(target, Guideline):
             other_entity = RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE)
+        elif isinstance(target, AnyOf):
+            other_entity = RelationshipEntity(id=target.tag.id, kind=RelationshipEntityKind.TAG_ANY)
+        elif isinstance(target, AllOf):
+            other_entity = RelationshipEntity(id=target.tag.id, kind=RelationshipEntityKind.TAG_ALL)
         elif isinstance(target, Tag):
-            other_entity = RelationshipEntity(id=target.id, kind=RelationshipEntityKind.TAG)
+            other_entity = RelationshipEntity(id=target.id, kind=RelationshipEntityKind.TAG_ALL)
         else:
             other_entity = RelationshipEntity(
-                id=_Tag.for_journey_id(target.id).id, kind=RelationshipEntityKind.TAG
+                id=_Tag.for_journey_id(target.id).id, kind=RelationshipEntityKind.TAG_ALL
             )
 
         self_entity = RelationshipEntity(id=self.id, kind=RelationshipEntityKind.GUIDELINE)
@@ -1234,6 +1416,7 @@ class Guideline:
             source=entity_source,
             target=entity_target,
             kind=kind,
+            group_id=group_id,
         )
 
         return Relationship(
@@ -1264,7 +1447,7 @@ class JourneyState:
 
     id: JourneyStateId
     action: str | None
-    tools: Sequence[ToolEntry]
+    tools: Sequence[ToolRef]
     metadata: Mapping[str, JSONSerializable]
     description: str | None
 
@@ -1293,13 +1476,13 @@ class JourneyState:
         state: TState | None = None,
         action: str | None = None,
         description: str | None = None,
-        tools: Sequence[ToolEntry] = [],
+        tools: Sequence[ToolRef] = [],
         journey: Journey | None = None,
         fork: bool = False,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         composition_mode: CompositionMode | None = None,
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -1336,10 +1519,10 @@ class JourneyState:
                 await self._journey._container[RelationshipStore].create_relationship(
                     source=RelationshipEntity(
                         id=_Tag.for_journey_node_id(actual_state.id).id,
-                        kind=RelationshipEntityKind.TAG,
+                        kind=RelationshipEntityKind.TAG_ALL,
                     ),
                     target=RelationshipEntity(
-                        id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
+                        id=_tool_ref_to_id(t),
                         kind=RelationshipEntityKind.TOOL,
                     ),
                     kind=RelationshipKind.REEVALUATION,
@@ -1382,7 +1565,7 @@ class JourneyState:
             condition=condition,
             source=self,
             target=actual_state or END_JOURNEY,
-            on_match=on_match,
+            on_selected=on_selected,
             on_message=on_message,
             canned_response_field_provider=canned_response_field_provider,
         )
@@ -1450,12 +1633,10 @@ class JourneyState:
                     await self._journey._container[RelationshipStore].create_relationship(
                         source=RelationshipEntity(
                             id=_Tag.for_journey_node_id(new_state.id).id,
-                            kind=RelationshipEntityKind.TAG,
+                            kind=RelationshipEntityKind.TAG_ALL,
                         ),
                         target=RelationshipEntity(
-                            id=ToolId(
-                                service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name
-                            ),
+                            id=_tool_ref_to_id(t),
                             kind=RelationshipEntityKind.TOOL,
                         ),
                         kind=RelationshipKind.REEVALUATION,
@@ -1728,7 +1909,7 @@ def _validate_transition_parameters(
     journey: Any = None,
     canned_responses: Sequence[CannedResponseId] = [],
     metadata: Mapping[str, JSONSerializable] = {},
-    on_match: Any = None,
+    on_selected: Any = None,
     is_fork_state: bool = False,
 ) -> None:
     """Validate transition parameters against overload signatures."""
@@ -1736,7 +1917,7 @@ def _validate_transition_parameters(
     # Determine which target parameter is being used
     target_param = None
     has_tool_state = tool_state and (
-        isinstance(tool_state, ToolEntry)
+        isinstance(tool_state, (ToolEntry, ToolId))
         or (isinstance(tool_state, Sequence) and len(tool_state) > 0)
     )
 
@@ -1787,8 +1968,8 @@ def _validate_transition_parameters(
             invalid_params.append("canned_responses")
         if metadata:
             invalid_params.append("metadata")
-        if on_match is not None:
-            invalid_params.append("on_match")
+        if on_selected is not None:
+            invalid_params.append("on_selected")
         if tool_instruction is not None:
             invalid_params.append("tool_instruction")
 
@@ -1803,7 +1984,7 @@ def _validate_transition_parameters(
         if tool_instruction is not None:
             # This is valid - tool_instruction + tool_state combination
             pass
-        # canned_responses, metadata, on_match are all allowed for tool_state transitions
+        # canned_responses, metadata, on_selected are all allowed for tool_state transitions
 
     elif target_param in ["state", "chat_state"]:
         # State and chat_state overloads: tool_instruction not allowed
@@ -1812,7 +1993,7 @@ def _validate_transition_parameters(
                 f"tool_instruction cannot be used with {target_param}. "
                 "tool_instruction is only valid when using tool_state."
             )
-        # canned_responses, metadata, on_match are all allowed
+        # canned_responses, metadata, on_selected are all allowed
 
     # Special validation for ForkJourneyState
     if is_fork_state and target_param != "journey":
@@ -1834,7 +2015,7 @@ class InitialJourneyState(JourneyState):
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
@@ -1851,7 +2032,7 @@ class InitialJourneyState(JourneyState):
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -1865,10 +2046,10 @@ class InitialJourneyState(JourneyState):
         *,
         condition: str | None = None,
         tool_instruction: str | None = None,
-        tool_state: ToolEntry,
+        tool_state: ToolRef,
         description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -1882,10 +2063,10 @@ class InitialJourneyState(JourneyState):
         *,
         condition: str | None = None,
         tool_instruction: str | None = None,
-        tool_state: Sequence[ToolEntry],
+        tool_state: Sequence[ToolRef],
         description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -1908,12 +2089,12 @@ class InitialJourneyState(JourneyState):
         chat_state: str | None = None,
         tool_instruction: str | None = None,
         state: TState | None = None,
-        tool_state: ToolEntry | Sequence[ToolEntry] = [],
+        tool_state: ToolRef | Sequence[ToolRef] = [],
         journey: Journey | None = None,
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
@@ -1931,7 +2112,7 @@ class InitialJourneyState(JourneyState):
             journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
-            on_match=on_match,
+            on_selected=on_selected,
             is_fork_state=False,
         )
 
@@ -1940,11 +2121,11 @@ class InitialJourneyState(JourneyState):
             state=state,
             action=chat_state or tool_instruction,
             description=description,
-            tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
+            tools=[tool_state] if isinstance(tool_state, (ToolEntry, ToolId)) else tool_state,
             journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
-            on_match=on_match,
+            on_selected=on_selected,
             on_message=on_message,
             composition_mode=composition_mode,
             canned_response_field_provider=canned_response_field_provider,
@@ -1965,7 +2146,7 @@ class ToolJourneyState(JourneyState):
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
@@ -1982,7 +2163,7 @@ class ToolJourneyState(JourneyState):
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -1996,10 +2177,10 @@ class ToolJourneyState(JourneyState):
         *,
         condition: str | None = None,
         tool_instruction: str | None = None,
-        tool_state: ToolEntry,
+        tool_state: ToolRef,
         description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2013,10 +2194,10 @@ class ToolJourneyState(JourneyState):
         *,
         condition: str | None = None,
         tool_instruction: str | None = None,
-        tool_state: Sequence[ToolEntry],
+        tool_state: Sequence[ToolRef],
         description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2039,12 +2220,12 @@ class ToolJourneyState(JourneyState):
         chat_state: str | None = None,
         tool_instruction: str | None = None,
         state: TState | None = None,
-        tool_state: ToolEntry | Sequence[ToolEntry] = [],
+        tool_state: ToolRef | Sequence[ToolRef] = [],
         journey: Journey | None = None,
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
@@ -2062,7 +2243,7 @@ class ToolJourneyState(JourneyState):
             journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
-            on_match=on_match,
+            on_selected=on_selected,
             is_fork_state=False,
         )
 
@@ -2071,11 +2252,11 @@ class ToolJourneyState(JourneyState):
             state=state,
             action=chat_state,
             description=description,
-            tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
+            tools=[tool_state] if isinstance(tool_state, (ToolEntry, ToolId)) else tool_state,
             journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
-            on_match=on_match,
+            on_selected=on_selected,
             on_message=on_message,
             composition_mode=composition_mode,
             canned_response_field_provider=canned_response_field_provider,
@@ -2099,7 +2280,7 @@ class ChatJourneyState(JourneyState):
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
@@ -2116,7 +2297,7 @@ class ChatJourneyState(JourneyState):
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2130,10 +2311,10 @@ class ChatJourneyState(JourneyState):
         *,
         condition: str | None = None,
         tool_instruction: str | None = None,
-        tool_state: ToolEntry,
+        tool_state: ToolRef,
         description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2147,10 +2328,10 @@ class ChatJourneyState(JourneyState):
         *,
         condition: str | None = None,
         tool_instruction: str | None = None,
-        tool_state: Sequence[ToolEntry],
+        tool_state: Sequence[ToolRef],
         description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2173,12 +2354,12 @@ class ChatJourneyState(JourneyState):
         chat_state: str | None = None,
         tool_instruction: str | None = None,
         state: TState | None = None,
-        tool_state: ToolEntry | Sequence[ToolEntry] = [],
+        tool_state: ToolRef | Sequence[ToolRef] = [],
         journey: Journey | None = None,
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
@@ -2196,7 +2377,7 @@ class ChatJourneyState(JourneyState):
             journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
-            on_match=on_match,
+            on_selected=on_selected,
             is_fork_state=False,
         )
 
@@ -2205,11 +2386,11 @@ class ChatJourneyState(JourneyState):
             state=state,
             action=chat_state or tool_instruction,
             description=description,
-            tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
+            tools=[tool_state] if isinstance(tool_state, (ToolEntry, ToolId)) else tool_state,
             journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
-            on_match=on_match,
+            on_selected=on_selected,
             on_message=on_message,
             composition_mode=composition_mode,
             canned_response_field_provider=canned_response_field_provider,
@@ -2233,7 +2414,7 @@ class ForkJourneyState(JourneyState):
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2249,7 +2430,7 @@ class ForkJourneyState(JourneyState):
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2263,10 +2444,10 @@ class ForkJourneyState(JourneyState):
         *,
         condition: str,
         tool_instruction: str | None = None,
-        tool_state: ToolEntry,
+        tool_state: ToolRef,
         description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2280,10 +2461,10 @@ class ForkJourneyState(JourneyState):
         *,
         condition: str,
         tool_instruction: str | None = None,
-        tool_state: Sequence[ToolEntry],
+        tool_state: Sequence[ToolRef],
         description: str | None = None,
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2306,12 +2487,12 @@ class ForkJourneyState(JourneyState):
         chat_state: str | None = None,
         tool_instruction: str | None = None,
         state: TState | None = None,
-        tool_state: ToolEntry | Sequence[ToolEntry] = [],
+        tool_state: ToolRef | Sequence[ToolRef] = [],
         journey: Journey | None = None,
         description: str | None = None,
         canned_responses: Sequence[CannedResponseId] = [],
         metadata: Mapping[str, JSONSerializable] = {},
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         composition_mode: CompositionMode | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
@@ -2329,7 +2510,7 @@ class ForkJourneyState(JourneyState):
             journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
-            on_match=on_match,
+            on_selected=on_selected,
             is_fork_state=True,
         )
 
@@ -2338,11 +2519,11 @@ class ForkJourneyState(JourneyState):
             state=state,
             action=chat_state or tool_instruction,
             description=description,
-            tools=[tool_state] if isinstance(tool_state, ToolEntry) else tool_state,
+            tools=[tool_state] if isinstance(tool_state, (ToolEntry, ToolId)) else tool_state,
             journey=journey,
             canned_responses=canned_responses,
             metadata=metadata,
-            on_match=on_match,
+            on_selected=on_selected,
             on_message=on_message,
             composition_mode=composition_mode,
             canned_response_field_provider=canned_response_field_provider,
@@ -2358,7 +2539,7 @@ class Journey:
     id: JourneyId
     title: str
     description: str
-    conditions: list[Guideline]
+    triggers: list[Guideline]
     states: Sequence[JourneyState]
     transitions: Sequence[JourneyTransition[JourneyState]]
     tags: Sequence[Tag]
@@ -2372,6 +2553,12 @@ class Journey:
     priority: int = 0
 
     @property
+    @deprecated("Use 'triggers' instead of 'conditions'")
+    def conditions(self) -> list[Guideline]:
+        """Deprecated alias for ``triggers``."""
+        return self.triggers
+
+    @property
     def initial_state(self) -> InitialJourneyState:
         """Returns the initial state of the journey."""
         return cast(
@@ -2383,7 +2570,7 @@ class Journey:
         state_type: type[TState],
         action: str | None = None,
         description: str | None = None,
-        tools: Sequence[ToolEntry] = [],
+        tools: Sequence[ToolRef] = [],
         metadata: Mapping[str, JSONSerializable] = {},
         composition_mode: CompositionMode | None = None,
         id: JourneyStateId | None = None,
@@ -2395,11 +2582,12 @@ class Journey:
             ChatJourneyState: "chat",
         }[state_type]
 
-        for t in list(tools):
-            await self._server._plugin_server.enable_tool(t)
+        await _enable_tool_refs(self._server._plugin_server, tools)
 
         if len(tools) == 1 and not action:
-            action = f"Use the tool {tools[0].tool.name}"
+            first = tools[0]
+            tool_name = first.tool.name if isinstance(first, ToolEntry) else first.tool_name
+            action = f"Use the tool {tool_name}"
 
         # Node-level composition_mode overrides journey-level
         # If no node-level composition_mode provided, inherit from journey
@@ -2410,10 +2598,7 @@ class Journey:
         node = await self._container[JourneyStore].create_node(
             journey_id=self.id,
             action=action,
-            tools=[
-                ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name)
-                for t in tools
-            ],
+            tools=[_tool_ref_to_id(t) for t in tools],
             description=description,
             composition_mode=CompositionMode._to_core_composition_mode(effective_composition_mode),
             id=id,
@@ -2464,7 +2649,7 @@ class Journey:
         condition: str | None,
         source: JourneyState,
         target: TState,
-        on_match: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyStateMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
@@ -2483,21 +2668,21 @@ class Journey:
         # Register handlers if provided
         if target is not None:
             if (
-                on_match is not None
+                on_selected is not None
                 or on_message is not None
                 or canned_response_field_provider is not None
             ):
                 guideline_id = format_journey_node_guideline_id(target.id, transition.id)
                 engine_hooks = self._container[EngineHooks]
 
-                if on_match is not None:
+                if on_selected is not None:
                     shim = partial(
                         Journey._create_journey_state_handler_shim,
-                        on_match,
+                        on_selected,
                         target.id,
                         transition.id,
                     )
-                    engine_hooks.on_guideline_match_handlers[guideline_id].append(shim)
+                    engine_hooks.on_guideline_selected_handlers[guideline_id].append(shim)
 
                 if on_message is not None:
                     shim = partial(
@@ -2513,7 +2698,7 @@ class Journey:
                         Server._create_field_provider_shim,
                         canned_response_field_provider,
                     )
-                    engine_hooks.on_guideline_match_handlers[guideline_id].append(shim)
+                    engine_hooks.on_guideline_selected_handlers[guideline_id].append(shim)
 
         return JourneyTransition[TState](
             id=transition.id,
@@ -2528,19 +2713,20 @@ class Journey:
         condition: str | None = None,
         action: str | None = None,
         description: str | None = None,
-        tools: Iterable[ToolEntry] = [],
+        tools: Iterable[ToolRef] = [],
         metadata: dict[str, JSONSerializable] = {},
         canned_responses: Sequence[CannedResponseId] = [],
         criticality: Criticality = Criticality.MEDIUM,
         composition_mode: CompositionMode | None = None,
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
         | None = None,
-        on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         tags: Sequence[Tag] = [],
         id: GuidelineId | None = None,
+        title: str | None = None,
         track: bool = True,
         labels: Iterable[str] = (),
         dependencies: Sequence[Guideline | Journey] = [],
@@ -2551,13 +2737,14 @@ class Journey:
             condition=condition,
             action=action,
             description=description,
+            title=title,
             tools=tools,
             metadata=metadata,
             canned_responses=canned_responses,
             criticality=criticality,
             composition_mode=composition_mode,
             matcher=matcher,
-            on_match=on_match,
+            on_selected=on_selected,
             on_message=on_message,
             canned_response_field_provider=canned_response_field_provider,
             tags=[t.id for t in tags] if tags else None,
@@ -2577,15 +2764,17 @@ class Journey:
         self,
         condition: str | None = None,
         description: str | None = None,
-        tools: Iterable[ToolEntry] = [],
+        tools: Iterable[ToolRef] = [],
         canned_responses: Sequence[CannedResponseId] = [],
         composition_mode: CompositionMode | None = None,
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
         | None = None,
-        on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         tags: Sequence[Tag] = [],
+        id: GuidelineId | None = None,
+        title: str | None = None,
         labels: Iterable[str] = (),
         dependencies: Sequence[Guideline | Journey] = [],
         priority: int = 0,
@@ -2595,11 +2784,13 @@ class Journey:
         return await self.create_guideline(
             condition=condition,
             description=description,
+            id=id,
+            title=title,
             tools=tools,
             canned_responses=canned_responses,
             composition_mode=composition_mode,
             matcher=matcher,
-            on_match=on_match,
+            on_selected=on_selected,
             canned_response_field_provider=canned_response_field_provider,
             tags=tags,
             labels=labels,
@@ -2609,7 +2800,7 @@ class Journey:
 
     async def attach_tool(
         self,
-        tool: ToolEntry,
+        tool: ToolRef,
         condition: str,
     ) -> GuidelineId:
         """Attaches a tool to the journey, to be usable by the agent under the specified condition.
@@ -2623,7 +2814,9 @@ class Journey:
             stacklevel=2,
         )
 
-        await self._server._plugin_server.enable_tool(tool)
+        await _enable_tool_refs(self._server._plugin_server, [tool])
+
+        tool_id = _tool_ref_to_id(tool)
 
         guideline = await self._container[GuidelineStore].create_guideline(
             condition=condition,
@@ -2633,7 +2826,7 @@ class Journey:
         self._server._add_guideline_evaluation(
             guideline.id,
             GuidelineContent(condition=condition, action=None),
-            [ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=tool.tool.name)],
+            [tool_id],
         )
 
         await self._container[RelationshipStore].create_relationship(
@@ -2643,14 +2836,14 @@ class Journey:
             ),
             target=RelationshipEntity(
                 id=_Tag.for_journey_id(self.id).id,
-                kind=RelationshipEntityKind.TAG,
+                kind=RelationshipEntityKind.TAG_ALL,
             ),
             kind=RelationshipKind.DEPENDENCY,
         )
 
         await self._container[GuidelineToolAssociationStore].create_association(
             guideline_id=guideline.id,
-            tool_id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=tool.tool.name),
+            tool_id=tool_id,
         )
 
         return guideline.id
@@ -2694,8 +2887,10 @@ class Journey:
 
         return canrep.id
 
-    async def prioritize_over(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
-        """Creates priority relationships with other guidelines or journeys."""
+    async def prioritize_over(
+        self, *targets: Guideline | Journey | Tag | AllOf
+    ) -> Sequence[Relationship]:
+        """Creates priority relationships with other guidelines, journeys, or tags."""
         if not targets:
             raise SDKError("At least one target must be provided for prioritization.")
 
@@ -2708,12 +2903,14 @@ class Journey:
             for t in targets
         ]
 
-    async def exclude(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
-        """Alias for prioritize_over. Creates priority relationships with other guidelines or journeys."""
+    async def exclude(self, *targets: Guideline | Journey | Tag | AllOf) -> Sequence[Relationship]:
+        """Alias for prioritize_over. Creates priority relationships with other guidelines, journeys, or tags."""
         return await self.prioritize_over(*targets)
 
-    async def depend_on(self, *targets: Guideline | Journey) -> Sequence[Relationship]:
-        """Creates dependency relationships with other guidelines or journeys."""
+    async def depend_on(
+        self, *targets: Guideline | Journey | Tag | AnyOf | AllOf
+    ) -> Sequence[Relationship]:
+        """Creates dependency relationships with other guidelines, journeys, or tags."""
         if not targets:
             raise SDKError("At least one target must be provided for dependency.")
 
@@ -2726,39 +2923,61 @@ class Journey:
             for t in targets
         ]
 
+    async def depend_on_any(
+        self, *targets: Guideline | Journey | Tag | AnyOf | AllOf
+    ) -> Sequence[Relationship]:
+        """Creates OR dependency relationships. At least one target must be active."""
+        if not targets:
+            raise SDKError("At least one target must be provided for dependency.")
+
+        group_id = str(uuid.uuid4())
+        return [
+            await self._create_relationship(
+                target=t,
+                kind=RelationshipKind.DEPENDENCY_ANY,
+                direction="source",
+                group_id=group_id,
+            )
+            for t in targets
+        ]
+
     async def _create_relationship(
         self,
-        target: Guideline | Journey,
+        target: Guideline | Journey | Tag | AnyOf | AllOf,
         kind: RelationshipKind,
         direction: Literal["source", "target"],
+        group_id: str | None = None,
     ) -> Relationship:
-        if direction == "source":
-            entity_source = RelationshipEntity(
-                id=_Tag.for_journey_id(self.id).id, kind=RelationshipEntityKind.TAG
-            )
-            entity_target = (
-                RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE)
-                if isinstance(target, Guideline)
-                else RelationshipEntity(
-                    id=_Tag.for_journey_id(target.id).id, kind=RelationshipEntityKind.TAG
-                )
-            )
+        if isinstance(target, Guideline):
+            other_entity = RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE)
+        elif isinstance(target, AnyOf):
+            other_entity = RelationshipEntity(id=target.tag.id, kind=RelationshipEntityKind.TAG_ANY)
+        elif isinstance(target, AllOf):
+            other_entity = RelationshipEntity(id=target.tag.id, kind=RelationshipEntityKind.TAG_ALL)
+        elif isinstance(target, Tag):
+            other_entity = RelationshipEntity(id=target.id, kind=RelationshipEntityKind.TAG_ALL)
         else:
-            entity_source = (
-                RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE)
-                if isinstance(target, Guideline)
-                else RelationshipEntity(
-                    id=_Tag.for_journey_id(target.id).id, kind=RelationshipEntityKind.TAG
-                )
+            # Journey
+            other_entity = RelationshipEntity(
+                id=_Tag.for_journey_id(target.id).id, kind=RelationshipEntityKind.TAG_ALL
             )
-            entity_target = RelationshipEntity(
-                id=_Tag.for_journey_id(self.id).id, kind=RelationshipEntityKind.TAG
-            )
+
+        self_entity = RelationshipEntity(
+            id=_Tag.for_journey_id(self.id).id, kind=RelationshipEntityKind.TAG_ALL
+        )
+
+        if direction == "source":
+            entity_source = self_entity
+            entity_target = other_entity
+        else:
+            entity_source = other_entity
+            entity_target = self_entity
 
         relationship = await self._container[RelationshipStore].create_relationship(
             source=entity_source,
             target=entity_target,
             kind=kind,
+            group_id=group_id,
         )
 
         return Relationship(
@@ -2798,7 +3017,7 @@ class Variable:
     id: ContextVariableId
     name: str
     description: str | None
-    tool: ToolEntry | None
+    tool: ToolRef | None
     freshness_rules: str | None
     tags: Sequence[Tag]
     _server: Server
@@ -2834,6 +3053,15 @@ class Variable:
             data=value,
         )
 
+    async def set_value_for_agent(self, agent: Agent, value: JSONSerializable) -> None:
+        """Sets the value of the variable for a specific agent."""
+
+        await self._container[ContextVariableStore].update_value(
+            variable_id=self.id,
+            key=_Tag.for_agent_id(agent.id).id,
+            data=value,
+        )
+
     async def get_value_for_customer(self, customer: Customer) -> JSONSerializable | None:
         """Retrieves the value of the variable for a specific customer."""
 
@@ -2859,6 +3087,16 @@ class Variable:
         value = await self._container[ContextVariableStore].read_value(
             variable_id=self.id,
             key=ContextVariableStore.GLOBAL_KEY,
+        )
+
+        return value.data if value else None
+
+    async def get_value_for_agent(self, agent: Agent) -> JSONSerializable | None:
+        """Retrieves the value of the variable for a specific agent."""
+
+        value = await self._container[ContextVariableStore].read_value(
+            variable_id=self.id,
+            key=_Tag.for_agent_id(agent.id).id,
         )
 
         return value.data if value else None
@@ -3168,28 +3406,31 @@ class Agent:
         self,
         title: str,
         description: str,
-        conditions: list[str | Guideline],
+        triggers: list[str | Guideline] | None = None,
         id: JourneyId | None = None,
         composition_mode: CompositionMode | None = None,
-        on_match: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
         tags: Sequence[Tag] = [],
         labels: Iterable[str] = (),
         dependencies: Sequence[Guideline | Journey] = [],
         priority: int = 0,
+        conditions: list[str | Guideline] | None = None,
     ) -> Journey:
-        """Creates a new journey with the specified title, description, and conditions."""
+        """Creates a new journey with the specified title, description, and triggers."""
+
+        triggers = _resolve_journey_triggers_kwarg(triggers, conditions)
 
         self._server._advance_creation_progress()
 
         journey = await self._server.create_journey(
             title,
             description,
-            conditions,
+            triggers,
             tags=[t.id for t in tags],
             id=id,
             composition_mode=composition_mode,
-            on_match=on_match,
+            on_selected=on_selected,
             on_message=on_message,
             labels=labels,
             priority=priority,
@@ -3207,7 +3448,7 @@ class Agent:
             id=journey.id,
             title=journey.title,
             description=description,
-            conditions=journey.conditions,
+            triggers=journey.triggers,
             tags=[*journey.tags, *tags],
             states=journey.states,
             transitions=journey.transitions,
@@ -3236,20 +3477,21 @@ class Agent:
         self,
         condition: str | None = None,
         action: str | None = None,
-        id: GuidelineId | None = None,
         description: str | None = None,
-        tools: Iterable[ToolEntry] = [],
+        tools: Iterable[ToolRef] = [],
         metadata: dict[str, JSONSerializable] = {},
         canned_responses: Sequence[CannedResponseId] = [],
         criticality: Criticality = Criticality.MEDIUM,
         composition_mode: CompositionMode | None = None,
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
         | None = None,
-        on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         tags: Sequence[Tag] = [],
+        id: GuidelineId | None = None,
+        title: str | None = None,
         track: bool = True,
         labels: Iterable[str] = (),
         dependencies: Sequence[Guideline | Journey] = [],
@@ -3260,13 +3502,14 @@ class Agent:
             condition=condition,
             action=action,
             description=description,
+            title=title,
             tools=tools,
             metadata=metadata,
             canned_responses=canned_responses,
             criticality=criticality,
             composition_mode=composition_mode,
             matcher=matcher,
-            on_match=on_match,
+            on_selected=on_selected,
             on_message=on_message,
             canned_response_field_provider=canned_response_field_provider,
             tags=[_Tag.for_agent_id(self.id).id, *[t.id for t in tags]],
@@ -3286,16 +3529,18 @@ class Agent:
         self,
         condition: str | None = None,
         description: str | None = None,
-        tools: Iterable[ToolEntry] = [],
+        tools: Iterable[ToolRef] = [],
         canned_responses: Sequence[CannedResponseId] = [],
         criticality: Criticality = Criticality.MEDIUM,
         composition_mode: CompositionMode | None = None,
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]]
         | None = None,
-        on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None = None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None = None,
         tags: Sequence[Tag] = [],
+        id: GuidelineId | None = None,
+        title: str | None = None,
         labels: Iterable[str] = (),
         dependencies: Sequence[Guideline | Journey] = [],
         priority: int = 0,
@@ -3305,11 +3550,13 @@ class Agent:
         return await self.create_guideline(
             condition=condition,
             description=description,
+            id=id,
+            title=title,
             tools=tools,
             canned_responses=canned_responses,
             composition_mode=composition_mode,
             matcher=matcher,
-            on_match=on_match,
+            on_selected=on_selected,
             criticality=criticality,
             canned_response_field_provider=canned_response_field_provider,
             tags=tags,
@@ -3320,7 +3567,7 @@ class Agent:
 
     async def attach_tool(
         self,
-        tool: ToolEntry,
+        tool: ToolRef,
         condition: str,
     ) -> GuidelineId:
         """Attaches a tool to the agent, to be usable under the specified condition.
@@ -3334,7 +3581,9 @@ class Agent:
             stacklevel=2,
         )
 
-        await self._server._plugin_server.enable_tool(tool)
+        await _enable_tool_refs(self._server._plugin_server, [tool])
+
+        tool_id = _tool_ref_to_id(tool)
 
         guideline = await self._container[GuidelineStore].create_guideline(
             condition=condition,
@@ -3344,12 +3593,12 @@ class Agent:
         self._server._add_guideline_evaluation(
             guideline.id,
             GuidelineContent(condition=condition, action=None),
-            [ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=tool.tool.name)],
+            [tool_id],
         )
 
         await self._container[GuidelineToolAssociationStore].create_association(
             guideline_id=guideline.id,
-            tool_id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=tool.tool.name),
+            tool_id=tool_id,
         )
 
         return guideline.id
@@ -3408,7 +3657,7 @@ class Agent:
         self,
         name: str,
         description: str | None = None,
-        tool: ToolEntry | None = None,
+        tool: ToolRef | None = None,
         freshness_rules: str | None = None,
     ) -> Variable:
         """Creates a variable with the specified name, description, tool, and freshness rules."""
@@ -3416,12 +3665,12 @@ class Agent:
         self._server._advance_creation_progress()
 
         if tool:
-            await self._server._plugin_server.enable_tool(tool)
+            await _enable_tool_refs(self._server._plugin_server, [tool])
 
         variable = await self._container[ContextVariableStore].create_variable(
             name=name,
             description=description,
-            tool_id=ToolId(INTEGRATED_TOOL_SERVICE_NAME, tool.tool.name) if tool else None,
+            tool_id=_tool_ref_to_id(tool) if tool else None,
             freshness_rules=freshness_rules,
             tags=[_Tag.for_agent_id(self.id).id],
         )
@@ -4075,6 +4324,12 @@ class Server:
         ):
             await self._process_evaluations()
 
+        with self._container[Tracer].span(
+            "startup.indexing",
+            attributes={"scope": "Indexing"},
+        ):
+            await self._process_indexing()
+
         await self._setup_retrievers()
 
         # Start health check polling to set ready event when the server is ready to receive requests
@@ -4159,13 +4414,14 @@ class Server:
         condition: str | None,
         action: str | None,
         description: str | None,
-        tools: Iterable[ToolEntry],
+        title: str | None,
+        tools: Iterable[ToolRef],
         metadata: dict[str, JSONSerializable],
         criticality: Criticality,
         composition_mode: CompositionMode | None,
         canned_responses: Sequence[CannedResponseId],
         matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch]] | None,
-        on_match: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None,
+        on_selected: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None,
         on_message: Callable[[EngineContext, GuidelineMatch], Awaitable[None]] | None,
         canned_response_field_provider: Callable[[EngineContext], Awaitable[Mapping[str, Any]]]
         | None,
@@ -4184,17 +4440,16 @@ class Server:
 
         self._advance_creation_progress()
 
-        tool_ids = [
-            ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name) for t in tools
-        ]
+        tools_list = list(tools)
+        tool_ids = [_tool_ref_to_id(t) for t in tools_list]
 
-        for t in list(tools):
-            await self._plugin_server.enable_tool(t)
+        await _enable_tool_refs(self._plugin_server, tools_list)
 
         guideline = await self.container[GuidelineStore].create_guideline(
             condition=condition or "",
             action=action,
             description=description,
+            title=title,
             criticality=criticality,
             metadata=metadata,
             composition_mode=CompositionMode._to_core_composition_mode(composition_mode),
@@ -4231,15 +4486,15 @@ class Server:
                 ),
                 target=RelationshipEntity(
                     id=relationship_target_tag_id,
-                    kind=RelationshipEntityKind.TAG,
+                    kind=RelationshipEntityKind.TAG_ALL,
                 ),
                 kind=RelationshipKind.DEPENDENCY,
             )
 
-        for t in list(tools):
+        for t in tools_list:
             await self.container[GuidelineToolAssociationStore].create_association(
                 guideline_id=guideline.id,
-                tool_id=ToolId(service_name=INTEGRATED_TOOL_SERVICE_NAME, tool_name=t.tool.name),
+                tool_id=_tool_ref_to_id(t),
             )
 
         result_guideline = Guideline(
@@ -4283,19 +4538,19 @@ class Server:
             ] = strategy
 
         if (
-            on_match is not None
+            on_selected is not None
             or on_message is not None
             or canned_response_field_provider is not None
         ):
             engine_hooks = self.container[EngineHooks]
 
-            if on_match is not None:
+            if on_selected is not None:
                 shim = partial(
                     Server._create_guideline_handler_shim,
-                    on_match,
+                    on_selected,
                     guideline.id,
                 )
-                engine_hooks.on_guideline_match_handlers[guideline.id].append(shim)
+                engine_hooks.on_guideline_selected_handlers[guideline.id].append(shim)
 
             if on_message is not None:
                 shim = partial(
@@ -4310,7 +4565,7 @@ class Server:
                     Server._create_field_provider_shim,
                     canned_response_field_provider,
                 )
-                engine_hooks.on_guideline_match_handlers[guideline.id].append(shim)
+                engine_hooks.on_guideline_selected_handlers[guideline.id].append(shim)
 
         return result_guideline
 
@@ -4552,58 +4807,127 @@ class Server:
                 overall_progress.update(overall, completed=100)
                 evaluation_results = await gather
 
+        total_results = len(evaluation_results)
+
+        if self.log_level == LogLevel.TRACE or total_results == 0:
+            await self._apply_evaluation_results(evaluation_results)
+        else:
+            applying_progress = Progress(
+                "[progress.description]{task.description}",
+                BarColumn(),
+                TaskProgressColumn(style="bold blue"),
+                TimeElapsedColumn(),
+            )
+
+            with applying_progress:
+                bar = applying_progress.add_task("Applying evaluations", total=total_results)
+
+                # For UX: Stretch the bar to ~1s total so it's visible even when
+                # processing is fast; pure no-op once natural work exceeds it.
+                per_item_budget = 1.0 / total_results
+
+                for i, (entity_type, entity_id, result) in enumerate(evaluation_results):
+                    item_started = asyncio.get_running_loop().time()
+                    await self._apply_single_evaluation(entity_type, entity_id, result)
+                    item_ended = asyncio.get_running_loop().time()
+
+                    applying_progress.update(bar, completed=i + 1)
+
+                    # If processing was very fast, wait a bit to meet the allotted budget
+                    if (remaining := per_item_budget - (item_ended - item_started)) > 0:
+                        await asyncio.sleep(remaining)
+
+    async def _process_indexing(self) -> None:
+        indexer = self._container[Indexer]
+
+        if self.log_level == LogLevel.TRACE:
+            await indexer.run()
+            return
+
+        indexing_progress = Progress(
+            "[progress.description]{task.description}",
+            BarColumn(),
+            TaskProgressColumn(style="bold blue"),
+            TimeElapsedColumn(),
+        )
+
+        with indexing_progress:
+            bar = indexing_progress.add_task("Indexing entities", total=100)
+
+            async def callback(pct: float) -> None:
+                indexing_progress.update(bar, completed=pct)
+
+            await indexer.run(progress_callback=callback)
+            indexing_progress.update(bar, completed=100)
+
+        print()
+
+    async def _apply_evaluation_results(
+        self,
+        evaluation_results: Sequence[
+            tuple[
+                Literal["guideline", "journey"],
+                GuidelineId | JourneyId,
+                _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation,
+            ]
+        ],
+    ) -> None:
         for entity_type, entity_id, result in evaluation_results:
-            if entity_type == "guideline":
-                guideline = await self._container[GuidelineStore].read_guideline(
-                    guideline_id=cast(GuidelineId, entity_id)
+            await self._apply_single_evaluation(entity_type, entity_id, result)
+
+    async def _apply_single_evaluation(
+        self,
+        entity_type: Literal["guideline", "journey"],
+        entity_id: GuidelineId | JourneyId,
+        result: _CachedEvaluator.GuidelineEvaluation | _CachedEvaluator.JourneyEvaluation,
+    ) -> None:
+        if entity_type == "guideline":
+            guideline = await self._container[GuidelineStore].read_guideline(
+                guideline_id=cast(GuidelineId, entity_id)
+            )
+
+            properties = cast(_CachedEvaluator.GuidelineEvaluation, result).properties
+
+            properties_to_add = {k: v for k, v in properties.items() if k not in guideline.metadata}
+
+            for key, value in properties_to_add.items():
+                await self._container[GuidelineStore].set_metadata(
+                    guideline_id=cast(GuidelineId, entity_id),
+                    key=key,
+                    value=value,
                 )
 
-                properties = cast(_CachedEvaluator.GuidelineEvaluation, result).properties
+        elif entity_type == "journey":
+            for node_id, properties in cast(
+                _CachedEvaluator.JourneyEvaluation, result
+            ).node_properties.items():
+                if node_id == END_JOURNEY.id:
+                    continue
 
+                node = await self._container[JourneyStore].read_node(node_id)
                 properties_to_add = {
-                    k: v for k, v in properties.items() if k not in guideline.metadata
+                    k: v
+                    for k, v in properties.items()
+                    if k not in node.metadata or node.metadata[k] is None
                 }
 
+                journey_node_properties = {
+                    **(
+                        cast(dict[str, JSONSerializable], properties.get("journey_node", {}))
+                        if properties
+                        else {}
+                    ),
+                    **cast(dict[str, JSONSerializable], node.metadata.get("journey_node", {})),
+                }
+                if journey_node_properties:
+                    properties_to_add["journey_node"] = journey_node_properties
+
                 for key, value in properties_to_add.items():
-                    await self._container[GuidelineStore].set_metadata(
-                        guideline_id=cast(GuidelineId, entity_id),
+                    await self._container[JourneyStore].set_node_metadata(
+                        node_id=node_id,
                         key=key,
                         value=value,
                     )
-
-            elif entity_type == "journey":
-                for node_id, properties in cast(
-                    _CachedEvaluator.JourneyEvaluation, result
-                ).node_properties.items():
-                    if node_id == END_JOURNEY.id:
-                        continue
-
-                    node = await self._container[JourneyStore].read_node(node_id)
-                    properties_to_add = {
-                        k: v
-                        for k, v in properties.items()
-                        if k not in node.metadata or node.metadata[k] is None
-                    }
-
-                    journey_node_properties = {
-                        **(
-                            cast(dict[str, JSONSerializable], properties.get("journey_node", {}))
-                            if properties
-                            else {}
-                        ),
-                        **cast(dict[str, JSONSerializable], node.metadata.get("journey_node", {})),
-                    }
-                    if journey_node_properties:
-                        properties_to_add["journey_node"] = journey_node_properties
-
-                    for key, value in properties_to_add.items():
-                        await self._container[JourneyStore].set_node_metadata(
-                            node_id=node_id,
-                            key=key,
-                            value=value,
-                        )
-
-        print()
 
     async def _setup_retrievers(self) -> None:
         async def setup_retriever(
@@ -5035,35 +5359,38 @@ class Server:
         self,
         title: str,
         description: str,
-        conditions: list[str | Guideline],
+        triggers: list[str | Guideline] | None = None,
         tags: Sequence[TagId] = [],
         id: JourneyId | None = None,
         composition_mode: CompositionMode | None = None,
-        on_match: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
+        on_selected: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
         on_message: Callable[[EngineContext, JourneyMatch], Awaitable[None]] | None = None,
         labels: Iterable[str] = (),
         priority: int = 0,
+        conditions: list[str | Guideline] | None = None,
     ) -> Journey:
-        """Creates a new journey with the specified title, description, and conditions."""
+        """Creates a new journey with the specified title, description, and triggers."""
+
+        triggers = _resolve_journey_triggers_kwarg(triggers, conditions)
 
         self._advance_creation_progress()
 
-        condition_guidelines = [c for c in conditions if isinstance(c, Guideline)]
+        trigger_guidelines = [c for c in triggers if isinstance(c, Guideline)]
 
-        str_conditions = [c for c in conditions if isinstance(c, str)]
+        str_triggers = [c for c in triggers if isinstance(c, str)]
 
-        for str_condition in str_conditions:
+        for str_trigger in str_triggers:
             guideline = await self._container[GuidelineStore].create_guideline(
-                condition=str_condition,
+                condition=str_trigger,
             )
 
             self._add_guideline_evaluation(
                 guideline.id,
-                GuidelineContent(condition=str_condition, action=None),
+                GuidelineContent(condition=str_trigger, action=None),
                 tool_ids=[],
             )
 
-            condition_guidelines.append(
+            trigger_guidelines.append(
                 Guideline(
                     id=guideline.id,
                     condition=guideline.content.condition,
@@ -5078,7 +5405,7 @@ class Server:
         stored_journey = await self._container[JourneyStore].create_journey(
             title=title,
             description=description,
-            conditions=[c.id for c in condition_guidelines],
+            triggers=[c.id for c in trigger_guidelines],
             tags=[],
             id=id,
             composition_mode=CompositionMode._to_core_composition_mode(composition_mode),
@@ -5090,7 +5417,7 @@ class Server:
             id=stored_journey.id,
             title=title,
             description=description,
-            conditions=condition_guidelines,
+            triggers=trigger_guidelines,
             states=[],
             transitions=[],
             tags=_tags_from_ids(tags),
@@ -5117,7 +5444,7 @@ class Server:
             )
         )
 
-        for c in condition_guidelines:
+        for c in trigger_guidelines:
             await self._container[GuidelineStore].upsert_tag(
                 guideline_id=c.id,
                 tag_id=_Tag.for_journey_id(journey_id=journey.id).id,
@@ -5125,14 +5452,14 @@ class Server:
 
         self._add_journey_evaluation(journey)
 
-        # Register journey-level on_match and on_message handlers
-        if on_match:
+        # Register journey-level on_selected and on_message handlers
+        if on_selected:
             engine_hooks = self._container[EngineHooks]
 
-            async def on_match_shim(ctx: EngineContext) -> None:
-                await on_match(ctx, JourneyMatch(journey_id=journey.id))
+            async def on_selected_shim(ctx: EngineContext) -> None:
+                await on_selected(ctx, JourneyMatch(journey_id=journey.id))
 
-            engine_hooks.on_journey_match_handlers[journey.id].append(on_match_shim)
+            engine_hooks.on_journey_selected_handlers[journey.id].append(on_selected_shim)
 
         if on_message:
             engine_hooks = self._container[EngineHooks]
@@ -5169,8 +5496,6 @@ class Server:
 
     def _get_startup_params(self) -> StartupParameters:
         async def override_stores_with_transient_versions(c: Callable[[], Container]) -> None:
-            c()[NLPService] = self._nlp_service_func(c())
-
             for interface, implementation in [
                 (AgentStore, AgentDocumentStore),
                 (TagStore, TagDocumentStore),
@@ -5178,9 +5503,10 @@ class Server:
                 (GuidelineToolAssociationStore, GuidelineToolAssociationDocumentStore),
                 (RelationshipStore, RelationshipDocumentStore),
             ]:
-                c()[interface] = await self._exit_stack.enter_async_context(
-                    implementation(c()[IdGenerator], TransientDocumentDatabase())  #  type: ignore
-                )
+                if interface not in c().defined_types:
+                    c()[interface] = await self._exit_stack.enter_async_context(
+                        implementation(c()[IdGenerator], TransientDocumentDatabase())  #  type: ignore
+                    )
 
             c()[EvaluationStore] = await self._exit_stack.enter_async_context(
                 EvaluationDocumentStore(TransientDocumentDatabase())
@@ -5268,14 +5594,14 @@ class Server:
 
             if isinstance(self._session_store, SessionStore):
                 c()[SessionStore] = self._session_store
-            else:
+            elif SessionStore not in c().defined_types:
                 c()[SessionStore] = await make_persistable_store(
                     SessionDocumentStore, self._session_store, "sessions"
                 )
 
             if isinstance(self._customer_store, CustomerStore):
                 c()[CustomerStore] = self._customer_store
-            else:
+            elif CustomerStore not in c().defined_types:
                 c()[CustomerStore] = await make_persistable_store(
                     CustomerDocumentStore,
                     self._customer_store,
@@ -5285,7 +5611,7 @@ class Server:
 
             if isinstance(self._context_variable_store, ContextVariableStore):
                 c()[ContextVariableStore] = self._context_variable_store
-            else:
+            elif ContextVariableStore not in c().defined_types:
                 c()[ContextVariableStore] = await make_persistable_store(
                     ContextVariableDocumentStore,
                     self._context_variable_store,
@@ -5298,16 +5624,17 @@ class Server:
                 session_store=c()[SessionStore],
             )
 
-            c()[ServiceRegistry] = await self._exit_stack.enter_async_context(
-                ServiceDocumentRegistry(
-                    database=TransientDocumentDatabase(),
-                    event_emitter_factory=c()[EventEmitterFactory],
-                    logger=c()[Logger],
-                    tracer=c()[Tracer],
-                    nlp_services_provider=lambda: {"__nlp__": c()[NLPService]},
-                    allow_migration=False,
+            if ServiceRegistry not in c().defined_types:
+                c()[ServiceRegistry] = await self._exit_stack.enter_async_context(
+                    ServiceDocumentRegistry(
+                        database=TransientDocumentDatabase(),
+                        event_emitter_factory=c()[EventEmitterFactory],
+                        logger=c()[Logger],
+                        tracer=c()[Tracer],
+                        nlp_services_provider=lambda: {"__nlp__": c()[NLPService]},
+                        allow_migration=False,
+                    )
                 )
-            )
 
             embedder_factory = EmbedderFactory(c())
 
@@ -5320,20 +5647,31 @@ class Server:
                 (CapabilityStore, CapabilityVectorStore),
                 (JourneyStore, JourneyVectorStore),
             ]:
-                c()[vector_store_interface] = await self._exit_stack.enter_async_context(
-                    vector_store_type(
-                        id_generator=c()[IdGenerator],
-                        vector_db=TransientVectorDatabase(
-                            c()[Logger],
-                            c()[Tracer],
-                            embedder_factory,
-                            lambda: c()[EmbeddingCache],
-                        ),
-                        document_db=TransientDocumentDatabase(),
-                        embedder_factory=embedder_factory,
-                        embedder_type_provider=get_embedder_type,
-                    )  # type: ignore
-                )
+                if vector_store_interface not in c().defined_types:
+                    c()[vector_store_interface] = await self._exit_stack.enter_async_context(
+                        vector_store_type(
+                            id_generator=c()[IdGenerator],
+                            vector_db=TransientVectorDatabase(
+                                c()[Logger],
+                                c()[Tracer],
+                                embedder_factory,
+                                lambda: c()[EmbeddingCache],
+                            ),
+                            document_db=TransientDocumentDatabase(),
+                            embedder_factory=embedder_factory,
+                            embedder_type_provider=get_embedder_type,
+                        )  # type: ignore
+                    )
+
+        def get_env_based_module() -> ModuleType | None:
+            if env_module_name := os.getenv("PARLANT_SDK_MODULE"):
+                try:
+                    return importlib.import_module(env_module_name)
+                except ImportError as e:
+                    raise SDKError(
+                        f"Failed to import module '{env_module_name}' specified in PARLANT_SDK_MODULE environment variable."
+                    ) from e
+            return None
 
         async def configure(c: Container) -> Container:
             latest_container = c
@@ -5341,14 +5679,20 @@ class Server:
             def get_latest_container() -> Container:
                 return latest_container
 
-            await override_stores_with_transient_versions(get_latest_container)
-
             if self._configure_container:
                 latest_container = await self._configure_container(latest_container.clone())
+
+            c[NLPService] = self._nlp_service_func(c)
+
+            await override_stores_with_transient_versions(get_latest_container)
 
             if self._configure_hooks:
                 hooks = await self._configure_hooks(c[EngineHooks])
                 latest_container[EngineHooks] = hooks
+
+            if env_based_module := get_env_based_module():
+                if module_func := getattr(env_based_module, "configure_container", None):
+                    latest_container = await module_func(latest_container.clone())
 
             return latest_container
 
@@ -5392,6 +5736,21 @@ class Server:
             if self._initialize:
                 await self._initialize(c)
 
+            if env_based_module := get_env_based_module():
+                if module_func := getattr(env_based_module, "initialize_container", None):
+                    await module_func(c.clone())
+
+        async def configure_api(app: FastAPI) -> FastAPI:
+            if self._configure_api:
+                await self._configure_api(app)
+
+            if env_based_module := get_env_based_module():
+                if module_func := getattr(env_based_module, "configure_api", None):
+                    if new_app := await module_func(app):
+                        app = new_app
+
+            return app
+
         return StartupParameters(
             host=self.host,
             port=self.port,
@@ -5401,7 +5760,7 @@ class Server:
             migrate=self._migrate,
             configure=configure,
             initialize=initialize,
-            configure_api=self._configure_api,
+            configure_api=configure_api,
             contextvar_propagation={
                 self._current_server_var: self,
             },
@@ -5426,6 +5785,8 @@ class Server:
 __all__ = [
     "Agent",
     "AgentId",
+    "AllOf",
+    "AnyOf",
     "AuthorizationException",
     "AuthorizationPolicy",
     "BasicNoMatchResponseProvider",
@@ -5479,7 +5840,6 @@ __all__ = [
     "JourneyTransition",
     "JourneyTransitionId",
     "Lifespan",
-    "LoadedContext",
     "LogLevel",
     "Logger",
     "MATCH_ALWAYS",
@@ -5543,6 +5903,7 @@ __all__ = [
     "ToolContextAccessor",
     "ToolEntry",
     "ToolEventData",
+    "ToolRef",
     "TransientGuideline",
     "ToolId",
     "ToolParameterDescriptor",

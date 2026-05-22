@@ -27,6 +27,15 @@ class GuidelineInternalRepresentation:
     description: Optional[str]
 
 
+def dump_guideline(g: Guideline) -> dict[str, str | None]:
+    return {
+        "id": g.id,
+        "condition": g.content.condition,
+        "action": g.content.action,
+        "description": g.content.description,
+    }
+
+
 def escape_json_string(s: str) -> str:
     return json.dumps(s)[1:-1]
 

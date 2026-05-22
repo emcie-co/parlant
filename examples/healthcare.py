@@ -71,7 +71,7 @@ async def create_scheduling_journey(server: p.Server, agent: p.Agent) -> p.Journ
     journey = await agent.create_journey(
         title="Schedule an Appointment",
         description="Helps the patient find a time for their appointment.",
-        conditions=["The patient wants to schedule an appointment"],
+        triggers=["The patient wants to schedule an appointment"],
     )
 
     # First, determine the reason for the appointment
@@ -131,7 +131,7 @@ async def create_lab_results_journey(server: p.Server, agent: p.Agent) -> p.Jour
     journey = await agent.create_journey(
         title="Lab Results",
         description="Retrieves the patient's lab results and explains them.",
-        conditions=["The patient wants to see their lab results"],
+        triggers=["The patient wants to see their lab results"],
     )
 
     t0 = await journey.initial_state.transition_to(tool_state=get_lab_results)

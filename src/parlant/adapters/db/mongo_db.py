@@ -64,7 +64,14 @@ class MongoDocumentDatabase(DocumentDatabase):
 
         self._collections[name] = MongoDocumentCollection(self, collection)
         await self._collections[name].ensure_indexes(
-            [CollectionIndex(fields=(("creation_utc", SortDirection.ASC),))]
+            [
+                CollectionIndex(
+                    fields=(
+                        ("creation_utc", SortDirection.ASC),
+                        ("id", SortDirection.ASC),
+                    )
+                )
+            ]
         )
         return self._collections[name]
 
@@ -122,7 +129,14 @@ class MongoDocumentDatabase(DocumentDatabase):
 
         self._collections[name] = MongoDocumentCollection(self, result_collection)
         await self._collections[name].ensure_indexes(
-            [CollectionIndex(fields=(("creation_utc", SortDirection.ASC),))]
+            [
+                CollectionIndex(
+                    fields=(
+                        ("creation_utc", SortDirection.ASC),
+                        ("id", SortDirection.ASC),
+                    )
+                )
+            ]
         )
         return self._collections[name]
 

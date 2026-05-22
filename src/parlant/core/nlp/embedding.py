@@ -26,6 +26,12 @@ from typing_extensions import override
 
 from parlant.core.async_utils import Stopwatch
 from parlant.core.common import Version
+from parlant.core.health import (
+    NLP_EMBED_KIND,
+    NLP_REQUESTS_COUNTER,
+    HealthReporter,
+    NLPHealthView,
+)
 from parlant.core.loggers import Logger
 from parlant.core.meter import DurationHistogram, Meter
 from parlant.core.nlp.tokenization import EstimatingTokenizer, ZeroEstimatingTokenizer
@@ -88,11 +94,19 @@ _EMBED_DURATION_HISTOGRAM: DurationHistogram | None = None
 
 
 class BaseEmbedder(Embedder):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, model_name: str) -> None:
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        model_name: str,
+        health_reporter: HealthReporter,
+    ) -> None:
         self.logger = logger
         self.tracer = tracer
         self.meter = meter
         self.model_name = model_name
+        self.health_reporter = health_reporter
 
         # LRU cache: checksum -> cache entry
         self._cache: OrderedDict[int, _EmbeddingCacheEntry] = OrderedDict()
@@ -217,7 +231,7 @@ class BaseEmbedder(Embedder):
                     [text for _, text in texts_to_embed],
                     hints,
                 )
-            except Exception:
+            except Exception as exc:
                 self.tracer.add_event(
                     "embed.request_failed",
                     attributes={
@@ -226,6 +240,7 @@ class BaseEmbedder(Embedder):
                         "duration": start.elapsed,
                     },
                 )
+                self._report_health(start.elapsed, success=False, error=exc)
                 raise
             else:
                 self.tracer.add_event(
@@ -236,6 +251,7 @@ class BaseEmbedder(Embedder):
                         "duration": start.elapsed,
                     },
                 )
+                self._report_health(start.elapsed, success=True, error=None)
 
             # Cache new results and merge with cached results
             for (orig_idx, text), vector in zip(texts_to_embed, result.vectors):
@@ -244,6 +260,25 @@ class BaseEmbedder(Embedder):
 
         # Reconstruct results in original order
         return EmbeddingResult(vectors=[cached_results[i] for i in range(len(texts))])
+
+    def _report_health(
+        self,
+        duration_seconds: float,
+        *,
+        success: bool,
+        error: BaseException | None,
+    ) -> None:
+        self.health_reporter.report(
+            NLP_EMBED_KIND,
+            {
+                NLPHealthView.ATTR_SCHEMA: self.__class__.__qualname__,
+                NLPHealthView.ATTR_MODEL: self.model_name,
+                NLPHealthView.ATTR_SUCCESS: success,
+                NLPHealthView.ATTR_LATENCY_MS: duration_seconds * 1000.0,
+                NLPHealthView.ATTR_ERROR_CLASS: type(error).__name__ if error is not None else None,
+            },
+        )
+        self.health_reporter.increment_counter(NLP_REQUESTS_COUNTER, 1)
 
 
 class EmbedderFactory:

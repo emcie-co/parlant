@@ -53,6 +53,7 @@ from parlant.core.nlp.generation import (
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.moderation import ModerationService, NoModeration
+from parlant.core.health import HealthReporter
 
 
 class AzureEstimatingTokenizer(EstimatingTokenizer):
@@ -72,15 +73,14 @@ class AzureSchematicGenerator(BaseSchematicGenerator[T]):
         "gpt-5": ["temperature"],
     }
 
-    def __init__(
-        self,
+    def __init__(self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
         client: AsyncAzureOpenAI,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
 
         self._client = client
         self._tokenizer = AzureEstimatingTokenizer(model_name=self.model_name)
@@ -329,14 +329,14 @@ def create_azure_client() -> AsyncAzureOpenAI:
 
 
 class CustomAzureSchematicGenerator(AzureSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
         _client = create_azure_client()
 
         super().__init__(
             model_name=os.environ["AZURE_GENERATIVE_MODEL_NAME"],
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
             client=_client,
         )
 
@@ -346,15 +346,14 @@ class CustomAzureSchematicGenerator(AzureSchematicGenerator[T]):
 
 
 class GPT_4o(AzureSchematicGenerator[T]):
-    def __init__(
-        self,
+    def __init__(self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
     ) -> None:
         _client = create_azure_client()
         super().__init__(
-            model_name="gpt-4o", logger=logger, tracer=tracer, meter=meter, client=_client
+            model_name="gpt-4o", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, client=_client
         )
 
     @property
@@ -363,15 +362,14 @@ class GPT_4o(AzureSchematicGenerator[T]):
 
 
 class GPT_4o_Mini(AzureSchematicGenerator[T]):
-    def __init__(
-        self,
+    def __init__(self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
     ) -> None:
         _client = create_azure_client()
         super().__init__(
-            model_name="gpt-4o-mini", logger=logger, tracer=tracer, meter=meter, client=_client
+            model_name="gpt-4o-mini", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, client=_client
         )
         self._token_estimator = AzureEstimatingTokenizer(model_name=self.model_name)
 
@@ -383,15 +381,14 @@ class GPT_4o_Mini(AzureSchematicGenerator[T]):
 class AzureEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
-    def __init__(
-        self,
+    def __init__(self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
         client: AsyncAzureOpenAI,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
 
         self._client = client
         self._tokenizer = AzureEstimatingTokenizer(model_name=self.model_name)
@@ -439,18 +436,17 @@ class AzureEmbedder(BaseEmbedder):
 
 
 class CustomAzureEmbedder(AzureEmbedder):
-    def __init__(
-        self,
+    def __init__(self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
     ) -> None:
         _client = create_azure_client()
         super().__init__(
             model_name=os.environ["AZURE_EMBEDDING_MODEL_NAME"],
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
             client=_client,
         )
 
@@ -465,18 +461,17 @@ class CustomAzureEmbedder(AzureEmbedder):
 
 
 class AzureTextEmbedding3Large(AzureEmbedder):
-    def __init__(
-        self,
+    def __init__(self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
     ) -> None:
         _client = create_azure_client()
         super().__init__(
             model_name="text-embedding-3-large",
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
             client=_client,
         )
 
@@ -491,18 +486,17 @@ class AzureTextEmbedding3Large(AzureEmbedder):
 
 
 class AzureTextEmbedding3Small(AzureEmbedder):
-    def __init__(
-        self,
+    def __init__(self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
     ) -> None:
         _client = create_azure_client()
         super().__init__(
             model_name="text-embedding-3-small",
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
             client=_client,
         )
 
@@ -635,15 +629,16 @@ For more details on Azure AD authentication options, see:
 https://docs.microsoft.com/en-us/python/api/overview/azure/identity-readme
 """
 
-    def __init__(
-        self,
+    def __init__(self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
     ) -> None:
         self.logger = logger
         self._tracer = tracer
         self._meter = meter
+
+        self._health_reporter = health_reporter
 
     @property
     @override
@@ -661,14 +656,17 @@ https://docs.microsoft.com/en-us/python/api/overview/azure/identity-readme
     ) -> AzureSchematicGenerator[T]:
         if os.environ.get("AZURE_GENERATIVE_MODEL_NAME"):
             return CustomAzureSchematicGenerator[t](  # type: ignore
-                logger=self.logger, tracer=self._tracer, meter=self._meter
+                logger=self.logger,
+                tracer=self._tracer,
+                meter=self._meter,
+                health_reporter=self._health_reporter,
             )
-        return GPT_4o[t](self.logger, self._tracer, self._meter)  # type: ignore
+        return GPT_4o[t](self.logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
 
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         if os.environ.get("AZURE_EMBEDDING_MODEL_NAME"):
-            return CustomAzureEmbedder(self.logger, self._tracer, self._meter)
-        return AzureTextEmbedding3Large(self.logger, self._tracer, self._meter)
+            return CustomAzureEmbedder(self.logger, self._tracer, self._meter, self._health_reporter)
+        return AzureTextEmbedding3Large(self.logger, self._tracer, self._meter, self._health_reporter)
 
     async def get_moderation_service(self) -> ModerationService:
         return NoModeration()

@@ -17,6 +17,7 @@ import os
 from typing_extensions import override
 import httpx
 
+from parlant.core.health import HealthReporter
 from parlant.core.loggers import Logger
 from parlant.core.nlp.moderation import (
     CustomerModerationContext,
@@ -28,8 +29,8 @@ from parlant.core.meter import Meter
 
 
 class LakeraGuard(BaseModerationService):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(logger, meter)
+    def __init__(self, logger: Logger, meter: Meter, health_reporter: HealthReporter) -> None:
+        super().__init__(logger, meter, health_reporter)
 
     @override
     async def do_moderate(self, context: CustomerModerationContext) -> ModerationCheck:

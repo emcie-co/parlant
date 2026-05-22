@@ -28,6 +28,7 @@ from parlant.adapters.nlp.zhipu_service import (
     Embedding_3,
 )
 from parlant.core.loggers import Logger
+from parlant.core.health import HealthReporter
 from parlant.core.meter import Meter
 from parlant.core.tracer import Tracer
 from parlant.core.common import DefaultBaseModel
@@ -78,7 +79,8 @@ def test_that_zhipu_schematic_generator_initializes_correctly(
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
         generator: GLM_4_Plus[TestSchema] = GLM_4_Plus(
-            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter],
+            health_reporter=container[HealthReporter],
         )
 
         assert generator.model_name == "glm-4-plus"
@@ -98,7 +100,8 @@ def test_that_zhipu_schematic_generator_supports_correct_parameters(
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
         generator: GLM_4_Plus[TestSchema] = GLM_4_Plus(
-            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter],
+            health_reporter=container[HealthReporter],
         )
 
         expected_params = ["temperature", "max_tokens", "top_p"]
@@ -118,7 +121,8 @@ def test_that_glm_4_plus_initializes_correctly(
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
         generator: GLM_4_Plus[TestSchema] = GLM_4_Plus(
-            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter],
+            health_reporter=container[HealthReporter],
         )
 
         assert generator.model_name == "glm-4-plus"
@@ -138,7 +142,8 @@ def test_that_glm_4_flash_initializes_correctly(
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
         generator: GLM_4_Flash[TestSchema] = GLM_4_Flash(
-            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter],
+            health_reporter=container[HealthReporter],
         )
 
         assert generator.model_name == "glm-4-flash"
@@ -158,7 +163,8 @@ def test_that_glm_4_air_initializes_correctly(
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
         generator: GLM_4_Air[TestSchema] = GLM_4_Air(
-            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter],
+            health_reporter=container[HealthReporter],
         )
 
         assert generator.model_name == "glm-4-air"
@@ -177,7 +183,8 @@ def test_that_zhipu_embedder_initializes_correctly(
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
         embedder: Embedding_3 = Embedding_3(
-            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter],
+            health_reporter=container[HealthReporter],
         )
 
         assert embedder.model_name == "embedding-3"
@@ -202,6 +209,7 @@ def test_that_zhipu_moderation_service_initializes_correctly(
             model_name="moderation",
             logger=container[Logger],
             meter=container[Meter],
+            health_reporter=container[HealthReporter],
         )
 
         assert moderation_service.model_name == "moderation"
@@ -220,7 +228,8 @@ def test_that_zhipu_service_returns_correct_schematic_generator(
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
         service = ZhipuService(
-            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter],
+            health_reporter=container[HealthReporter],
         )
 
         # Test with TestSchema
@@ -245,7 +254,8 @@ def test_that_zhipu_service_returns_correct_embedder(
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
         service = ZhipuService(
-            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter],
+            health_reporter=container[HealthReporter],
         )
 
         # Get embedder
@@ -269,7 +279,8 @@ def test_that_zhipu_service_returns_correct_moderation_service(
 
     with patch.dict(os.environ, {"ZHIPUAI_API_KEY": "test-api-key"}, clear=True):
         service = ZhipuService(
-            logger=container[Logger], tracer=container[Tracer], meter=container[Meter]
+            logger=container[Logger], tracer=container[Tracer], meter=container[Meter],
+            health_reporter=container[HealthReporter],
         )
 
         # Get moderation service

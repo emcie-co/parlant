@@ -243,6 +243,7 @@ class GuidelineCreationParamsDTO(
     condition: GuidelineConditionField
     action: GuidelineActionField | None = None
     description: common.GuidelineDescriptionField | None = None
+    title: common.GuidelineTitleField | None = None
     criticality: common.CriticalityDTO | None = None
     metadata: GuidelineMetadataField | None = None
     enabled: GuidelineEnabledField | None = None
@@ -315,6 +316,7 @@ class GuidelineUpdateParamsDTO(
     condition: GuidelineConditionField | None = None
     action: GuidelineActionField | None = None
     description: common.GuidelineDescriptionField | None = None
+    title: common.GuidelineTitleField | None = None
     criticality: common.CriticalityDTO | None = None
     tool_associations: GuidelineToolAssociationUpdateParamsDTO | None = None
     enabled: GuidelineEnabledField | None = None
@@ -435,6 +437,7 @@ def _guideline_relationship_to_dto(
             condition=rel_source_guideline.content.condition,
             action=rel_source_guideline.content.action,
             description=rel_source_guideline.content.description,
+            title=rel_source_guideline.title,
             criticality=_criticality_to_dto(rel_source_guideline.criticality),
             enabled=rel_source_guideline.enabled,
             tags=rel_source_guideline.tags,
@@ -455,7 +458,7 @@ def _guideline_relationship_to_dto(
             creation_utc=rel_source_tag.creation_utc,
             name=rel_source_tag.name,
         )
-        if relationship.source_type == RelationshipEntityKind.TAG
+        if relationship.source_type.is_tag
         else None,
         target_guideline=GuidelineDTO(
             id=cast(Guideline | Tag, relationship.target).id,
@@ -463,6 +466,7 @@ def _guideline_relationship_to_dto(
             condition=rel_target_guideline.content.condition,
             action=rel_target_guideline.content.action,
             description=rel_target_guideline.content.description,
+            title=rel_target_guideline.title,
             criticality=_criticality_to_dto(rel_target_guideline.criticality),
             enabled=rel_target_guideline.enabled,
             tags=rel_target_guideline.tags,
@@ -482,7 +486,7 @@ def _guideline_relationship_to_dto(
             id=rel_target_tag.id,
             name=rel_target_tag.name,
         )
-        if relationship.target_type == RelationshipEntityKind.TAG
+        if relationship.target_type.is_tag
         else None,
         indirect=indirect,
         kind=_guideline_relationship_kind_to_dto(relationship.kind),
@@ -531,6 +535,7 @@ def create_router(
                 condition=params.condition,
                 action=params.action or None,
                 description=params.description or None,
+                title=params.title or None,
                 criticality=_criticality_from_dto(params.criticality)
                 if params.criticality
                 else None,
@@ -556,6 +561,7 @@ def create_router(
             condition=guideline.content.condition,
             action=guideline.content.action,
             description=guideline.content.description,
+            title=guideline.title,
             criticality=_criticality_to_dto(guideline.criticality),
             metadata=guideline.metadata,
             enabled=guideline.enabled,
@@ -601,6 +607,7 @@ def create_router(
                 condition=guideline.content.condition,
                 action=guideline.content.action,
                 description=guideline.content.description,
+                title=guideline.title,
                 criticality=_criticality_to_dto(guideline.criticality),
                 metadata=guideline.metadata,
                 enabled=guideline.enabled,
@@ -665,6 +672,7 @@ def create_router(
                 condition=guideline.content.condition,
                 action=guideline.content.action,
                 description=guideline.content.description,
+                title=guideline.title,
                 criticality=_criticality_to_dto(guideline.criticality),
                 metadata=guideline.metadata,
                 enabled=guideline.enabled,
@@ -737,6 +745,7 @@ def create_router(
             condition=params.condition,
             action=params.action,
             description=params.description,
+            title=params.title,
             criticality=_criticality_from_dto(params.criticality) if params.criticality else None,
             tool_associations=GuidelineToolAssociationUpdateParams(
                 add=[
@@ -787,6 +796,7 @@ def create_router(
                 condition=updated_guideline.content.condition,
                 action=updated_guideline.content.action,
                 description=updated_guideline.content.description,
+                title=updated_guideline.title,
                 criticality=_criticality_to_dto(updated_guideline.criticality),
                 metadata=updated_guideline.metadata,
                 enabled=updated_guideline.enabled,

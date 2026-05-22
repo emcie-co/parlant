@@ -21,6 +21,13 @@ from typing_extensions import override
 from parlant.core.async_utils import Stopwatch
 from parlant.core.common import DefaultBaseModel
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.health import (
+    NLP_REQUEST_KIND,
+    NLP_REQUESTS_COUNTER,
+    NLP_TOKENS_COUNTER,
+    HealthReporter,
+    NLPHealthView,
+)
 from parlant.core.loggers import Logger
 from parlant.core.meter import DurationHistogram, Meter
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -104,11 +111,19 @@ _STREAMING_REQUEST_DURATION_HISTOGRAM: DurationHistogram | None = None
 class BaseStreamingTextGenerator(StreamingTextGenerator):
     """Base class for streaming text generators with tracing and metrics."""
 
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, model_name: str) -> None:
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        model_name: str,
+        health_reporter: HealthReporter,
+    ) -> None:
         self.logger = logger
         self.tracer = tracer
         self.meter = meter
         self.model_name = model_name
+        self.health_reporter = health_reporter
 
         global _STREAMING_REQUEST_DURATION_HISTOGRAM
         if _STREAMING_REQUEST_DURATION_HISTOGRAM is None:
@@ -147,6 +162,7 @@ class BaseStreamingTextGenerator(StreamingTextGenerator):
 
         async def wrapped_stream() -> AsyncIterator[str | None]:
             nonlocal stream_complete, duration, usage_getter
+            ttft_seconds: float | None = None
 
             try:
                 self.tracer.add_event(
@@ -159,6 +175,8 @@ class BaseStreamingTextGenerator(StreamingTextGenerator):
                 inner_stream, usage_getter = await self.do_generate(prompt, hints)
 
                 async for chunk in inner_stream:
+                    if ttft_seconds is None and chunk is not None:
+                        ttft_seconds = start.elapsed
                     yield chunk
 
                 duration = start.elapsed
@@ -171,7 +189,21 @@ class BaseStreamingTextGenerator(StreamingTextGenerator):
                         "duration": duration,
                     },
                 )
-            except Exception:
+                stream_usage: UsageInfo | None = None
+                try:
+                    stream_usage = usage_getter() if usage_getter is not None else None
+                except Exception:
+                    stream_usage = None
+                # Health latency tracks time-to-first-token rather than end-to-end:
+                # for streaming, TTFT is the user-perceived latency that matters.
+                # Fall back to total duration if no chunk was ever produced.
+                self._report_health(
+                    ttft_seconds if ttft_seconds is not None else duration,
+                    success=True,
+                    error=None,
+                    usage=stream_usage,
+                )
+            except Exception as exc:
                 duration = start.elapsed
                 self.tracer.add_event(
                     "stream.request_failed",
@@ -180,6 +212,7 @@ class BaseStreamingTextGenerator(StreamingTextGenerator):
                         "duration": duration,
                     },
                 )
+                self._report_health(duration, success=False, error=exc, usage=None)
                 raise
 
         def info_getter() -> GenerationInfo:
@@ -197,6 +230,30 @@ class BaseStreamingTextGenerator(StreamingTextGenerator):
             stream=wrapped_stream(),
             info_getter=info_getter,
         )
+
+    def _report_health(
+        self,
+        duration_seconds: float,
+        *,
+        success: bool,
+        error: BaseException | None,
+        usage: UsageInfo | None = None,
+    ) -> None:
+        self.health_reporter.report(
+            NLP_REQUEST_KIND,
+            {
+                NLPHealthView.ATTR_SCHEMA: "StreamingText",
+                NLPHealthView.ATTR_MODEL: self.model_name,
+                NLPHealthView.ATTR_SUCCESS: success,
+                NLPHealthView.ATTR_LATENCY_MS: duration_seconds * 1000.0,
+                NLPHealthView.ATTR_ERROR_CLASS: type(error).__name__ if error is not None else None,
+            },
+        )
+        self.health_reporter.increment_counter(NLP_REQUESTS_COUNTER, 1)
+        if usage is not None:
+            self.health_reporter.increment_counter(
+                NLP_TOKENS_COUNTER, usage.input_tokens + usage.output_tokens
+            )
 
 
 # ============================================================================
@@ -255,11 +312,19 @@ _REQUEST_DURATION_HISTOGRAM: DurationHistogram | None = None
 
 
 class BaseSchematicGenerator(SchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, model_name: str) -> None:
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        model_name: str,
+        health_reporter: HealthReporter,
+    ) -> None:
         self.logger = logger
         self.tracer = tracer
         self.meter = meter
         self.model_name = model_name
+        self.health_reporter = health_reporter
 
         global _REQUEST_DURATION_HISTOGRAM
         if _REQUEST_DURATION_HISTOGRAM is None:
@@ -294,7 +359,7 @@ class BaseSchematicGenerator(SchematicGenerator[T]):
 
             try:
                 result = await self.do_generate(prompt, hints)
-            except Exception:
+            except Exception as exc:
                 self.tracer.add_event(
                     "gen.request_failed",
                     attributes={
@@ -303,6 +368,7 @@ class BaseSchematicGenerator(SchematicGenerator[T]):
                         "duration": start.elapsed,
                     },
                 )
+                self._report_health(start.elapsed, success=False, error=exc)
                 raise
             else:
                 self.tracer.add_event(
@@ -313,8 +379,35 @@ class BaseSchematicGenerator(SchematicGenerator[T]):
                         "duration": start.elapsed,
                     },
                 )
+                self._report_health(
+                    start.elapsed, success=True, error=None, usage=result.info.usage
+                )
 
             return result
+
+    def _report_health(
+        self,
+        duration_seconds: float,
+        *,
+        success: bool,
+        error: BaseException | None,
+        usage: UsageInfo | None = None,
+    ) -> None:
+        self.health_reporter.report(
+            NLP_REQUEST_KIND,
+            {
+                NLPHealthView.ATTR_SCHEMA: self.schema.__name__,
+                NLPHealthView.ATTR_MODEL: self.model_name,
+                NLPHealthView.ATTR_SUCCESS: success,
+                NLPHealthView.ATTR_LATENCY_MS: duration_seconds * 1000.0,
+                NLPHealthView.ATTR_ERROR_CLASS: type(error).__name__ if error is not None else None,
+            },
+        )
+        self.health_reporter.increment_counter(NLP_REQUESTS_COUNTER, 1)
+        if usage is not None:
+            self.health_reporter.increment_counter(
+                NLP_TOKENS_COUNTER, usage.input_tokens + usage.output_tokens
+            )
 
 
 class FallbackSchematicGenerator(SchematicGenerator[T]):

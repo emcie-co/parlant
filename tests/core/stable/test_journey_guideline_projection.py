@@ -19,7 +19,7 @@ async def test_that_projection_yields_followup_for_existing_guideline(container:
     journey = await journey_store.create_journey(
         title="Broken Follow-up Journey",
         description="Test bug with dangling follow_up",
-        conditions=[],
+        triggers=[],
     )
 
     node_a = await journey_store.create_node(

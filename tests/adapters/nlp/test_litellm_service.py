@@ -22,6 +22,7 @@ from parlant.adapters.nlp.litellm_service import (
     LiteLLMEmbedder,
     LiteLLMService,
 )
+from parlant.core.health import HealthReporter, NullHealthReporter
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.tracer import Tracer
@@ -43,6 +44,7 @@ def container() -> Container:
     container[Logger] = logger
     container[Tracer] = tracer
     container[Meter] = meter
+    container[HealthReporter] = NullHealthReporter()
 
     return container
 
@@ -77,6 +79,7 @@ def test_that_service_reads_base_url_from_env(container: Container) -> None:
             logger=container[Logger],
             tracer=container[Tracer],
             meter=container[Meter],
+            health_reporter=container[HealthReporter],
         )
         assert service._base_url == "http://localhost:8000"
 
@@ -94,6 +97,7 @@ def test_that_service_reads_embedding_model_name_from_env(container: Container) 
             logger=container[Logger],
             tracer=container[Tracer],
             meter=container[Meter],
+            health_reporter=container[HealthReporter],
         )
         assert service._embedding_model_name == "text-embedding-3-small"
 
@@ -113,6 +117,7 @@ def test_that_get_embedder_returns_litellm_embedder_when_embedding_model_configu
             logger=container[Logger],
             tracer=container[Tracer],
             meter=container[Meter],
+            health_reporter=container[HealthReporter],
         )
         embedder = asyncio.run(service.get_embedder())
 
@@ -135,6 +140,7 @@ def test_that_get_embedder_falls_back_to_jina_when_embedding_model_not_configure
             logger=container[Logger],
             tracer=container[Tracer],
             meter=container[Meter],
+            health_reporter=container[HealthReporter],
         )
         embedder = asyncio.run(service.get_embedder())
 
@@ -150,6 +156,7 @@ def test_that_embedder_max_tokens_defaults_to_8192(container: Container) -> None
             logger=container[Logger],
             tracer=container[Tracer],
             meter=container[Meter],
+            health_reporter=container[HealthReporter],
         )
         assert embedder.max_tokens == 8192
 
@@ -165,6 +172,7 @@ def test_that_embedder_max_tokens_reads_from_env(container: Container) -> None:
             logger=container[Logger],
             tracer=container[Tracer],
             meter=container[Meter],
+            health_reporter=container[HealthReporter],
         )
         assert embedder.max_tokens == 4096
 
@@ -177,6 +185,7 @@ def test_that_embedder_dimensions_defaults_to_1536(container: Container) -> None
             logger=container[Logger],
             tracer=container[Tracer],
             meter=container[Meter],
+            health_reporter=container[HealthReporter],
         )
         assert embedder.dimensions == 1536
 
@@ -192,6 +201,7 @@ def test_that_embedder_dimensions_reads_from_env(container: Container) -> None:
             logger=container[Logger],
             tracer=container[Tracer],
             meter=container[Meter],
+            health_reporter=container[HealthReporter],
         )
         assert embedder.dimensions == 768
 

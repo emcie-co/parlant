@@ -394,6 +394,68 @@ async def test_that_consumption_offsets_can_be_updated(
     assert session_dto["consumption_offsets"][consumer_id] == 1
 
 
+async def test_that_consumption_offsets_can_be_updated_to_zero(
+    async_client: httpx.AsyncClient,
+    long_session_id: SessionId,
+) -> None:
+    (
+        await async_client.patch(
+            f"/sessions/{long_session_id}",
+            json={
+                "consumption_offsets": {
+                    "client": 1,
+                }
+            },
+        )
+    ).raise_for_status()
+
+    session_dto = (
+        (
+            await async_client.patch(
+                f"/sessions/{long_session_id}",
+                json={
+                    "consumption_offsets": {
+                        "client": 0,
+                    }
+                },
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert session_dto["consumption_offsets"]["client"] == 0
+
+
+async def test_that_omitting_consumption_offsets_does_not_reset_them(
+    async_client: httpx.AsyncClient,
+    long_session_id: SessionId,
+) -> None:
+    (
+        await async_client.patch(
+            f"/sessions/{long_session_id}",
+            json={
+                "consumption_offsets": {
+                    "client": 1,
+                }
+            },
+        )
+    ).raise_for_status()
+
+    session_dto = (
+        (
+            await async_client.patch(
+                f"/sessions/{long_session_id}",
+                json={"title": "updated title"},
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert session_dto["consumption_offsets"]["client"] == 1
+
+
 async def test_that_title_can_be_updated(
     async_client: httpx.AsyncClient,
     session_id: SessionId,
@@ -410,6 +472,24 @@ async def test_that_title_can_be_updated(
     )
 
     assert session_dto["title"] == "new session title"
+
+
+async def test_that_title_can_be_updated_to_an_empty_string(
+    async_client: httpx.AsyncClient,
+    session_id: SessionId,
+) -> None:
+    session_dto = (
+        (
+            await async_client.patch(
+                f"/sessions/{session_id}",
+                json={"title": ""},
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert session_dto["title"] == ""
 
 
 async def test_that_mode_can_be_updated(
@@ -1295,8 +1375,7 @@ async def test_that_agent_state_is_deleted_when_deleting_events(
     initial_events = (
         (await async_client.get(f"/sessions/{session_id}/events")).raise_for_status().json()
     )
-
-    event_to_delete = initial_events[2]
+    event_to_delete = next(e for e in initial_events if e["trace_id"] == second_event_trace_id)
 
     (
         await async_client.delete(
@@ -1307,6 +1386,95 @@ async def test_that_agent_state_is_deleted_when_deleting_events(
     session = await session_store.read_session(session_id)
 
     assert len(session.agent_states) == 1
+
+
+async def test_that_deleting_events_from_a_non_agent_trace_keeps_agent_state(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    session_id: SessionId,
+) -> None:
+    session_store = container[SessionStore]
+
+    first_event_trace_id = generate_id()
+    human_event_trace_id = generate_id()
+    third_event_trace_id = generate_id()
+
+    session_events = [
+        make_event_params(
+            EventSource.CUSTOMER,
+            kind=EventKind.MESSAGE,
+            data={"message": "Hello"},
+            trace_id=first_event_trace_id,
+        ),
+        make_event_params(
+            EventSource.AI_AGENT,
+            kind=EventKind.MESSAGE,
+            data={"message": "Hi, how can I assist you?"},
+            trace_id=first_event_trace_id,
+        ),
+        make_event_params(
+            EventSource.HUMAN_AGENT,
+            kind=EventKind.MESSAGE,
+            data={"message": "I'll take it from here."},
+            trace_id=human_event_trace_id,
+        ),
+        make_event_params(
+            EventSource.CUSTOMER,
+            kind=EventKind.MESSAGE,
+            data={"message": "Thanks"},
+            trace_id=third_event_trace_id,
+        ),
+        make_event_params(
+            EventSource.AI_AGENT,
+            kind=EventKind.MESSAGE,
+            data={"message": "You're welcome!"},
+            trace_id=third_event_trace_id,
+        ),
+    ]
+
+    await populate_session_id(container, session_id, session_events)
+    await session_store.update_session(
+        session_id=session_id,
+        params={
+            "agent_states": [
+                AgentState(
+                    trace_id=first_event_trace_id,
+                    journey_paths={},
+                    applied_guideline_ids=[],
+                ),
+                AgentState(
+                    trace_id=third_event_trace_id,
+                    journey_paths={},
+                    applied_guideline_ids=[],
+                ),
+            ]
+        },
+    )
+
+    initial_events = (
+        (await async_client.get(f"/sessions/{session_id}/events")).raise_for_status().json()
+    )
+    human_trace_event = next(e for e in initial_events if e["trace_id"] == human_event_trace_id)
+
+    (
+        await async_client.delete(
+            f"/sessions/{session_id}/events?min_offset={human_trace_event['offset']}"
+        )
+    ).raise_for_status()
+
+    session = await session_store.read_session(session_id)
+    remaining_events = (
+        (await async_client.get(f"/sessions/{session_id}/events")).raise_for_status().json()
+    )
+
+    assert [state.trace_id for state in session.agent_states] == [
+        first_event_trace_id,
+        third_event_trace_id,
+    ]
+    assert [event["trace_id"] for event in remaining_events] == [
+        first_event_trace_id,
+        first_event_trace_id,
+    ]
 
 
 async def test_that_a_custom_event_can_be_read(

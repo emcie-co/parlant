@@ -624,6 +624,10 @@ class PluginServer:
                     detail=f"Tool: '{name}' does not exists",
                 )
 
+            # Restore context vars for same-process hosted mode
+            for var, value in self.context_vars.items():
+                var.set(value)
+
             tool = await _recompute_and_marshal_tool(
                 spec.tool,
                 self.plugin_data,
@@ -786,7 +790,7 @@ class PluginClient(ToolService):
     async def __aenter__(self) -> PluginClient:
         self._http_client = await httpx.AsyncClient(
             follow_redirects=True,
-            timeout=httpx.Timeout(120),
+            timeout=httpx.Timeout(int(os.environ.get("PARLANT_TOOL_TIMEOUT", 120))),
         ).__aenter__()
         return self
 

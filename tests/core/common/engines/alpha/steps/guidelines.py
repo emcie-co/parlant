@@ -677,7 +677,7 @@ def given_an_dependency_between_guideline_and_a_journey(
             ),
             target=RelationshipEntity(
                 id=Tag.for_journey_id(journey.id).id,
-                kind=RelationshipEntityKind.TAG,
+                kind=RelationshipEntityKind.TAG_ALL,
             ),
             kind=RelationshipKind.DEPENDENCY,
         )

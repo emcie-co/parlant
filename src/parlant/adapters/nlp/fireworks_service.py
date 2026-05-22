@@ -45,6 +45,7 @@ from parlant.core.nlp.service import (
     StreamingTextGeneratorHints,
 )
 from parlant.core.nlp.tokenization import EstimatingTokenizer
+from parlant.core.health import HealthReporter
 
 
 RATE_LIMIT_ERROR_MESSAGE = (
@@ -74,14 +75,13 @@ class FireworksEstimatingTokenizer(EstimatingTokenizer):
 class FireworksSchematicGenerator(BaseSchematicGenerator[T]):
     supported_hints = ["temperature", "max_tokens"]
 
-    def __init__(
-        self,
+    def __init__(self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
 
         self._client = AsyncFireworks(api_key=os.environ.get("FIREWORKS_API_KEY"))
         self._tokenizer = FireworksEstimatingTokenizer(model_name=self.model_name)
@@ -192,12 +192,12 @@ class FireworksSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class FireworksLlama3_1_8B(FireworksSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
         super().__init__(
             model_name="accounts/fireworks/models/llama-v3p1-8b-instruct",
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
         )
 
     @property
@@ -212,12 +212,12 @@ class FireworksLlama3_1_8B(FireworksSchematicGenerator[T]):
 
 
 class FireworksLlama3_1_70B(FireworksSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
         super().__init__(
             model_name="accounts/fireworks/models/llama-v3p1-70b-instruct",
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
         )
 
     @property
@@ -237,12 +237,12 @@ class FireworksLlama3_1_405B(FireworksSchematicGenerator[T]):
     Only suitable for high-performance workloads with significant budget considerations.
     """
 
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
         super().__init__(
             model_name="accounts/fireworks/models/llama-v3p1-405b-instruct",
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
         )
 
     @property
@@ -257,12 +257,12 @@ class FireworksLlama3_1_405B(FireworksSchematicGenerator[T]):
 
 
 class FireworksMythoMax(FireworksSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
         super().__init__(
             model_name="accounts/fireworks/models/mythomax-l2-13b",
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
         )
 
     @property
@@ -277,12 +277,12 @@ class FireworksMythoMax(FireworksSchematicGenerator[T]):
 
 
 class FireworksGemma2_9B(FireworksSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
         super().__init__(
             model_name="accounts/fireworks/models/gemma2-9b-it",
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
         )
 
     @property
@@ -299,12 +299,12 @@ class FireworksGemma2_9B(FireworksSchematicGenerator[T]):
 class CustomFireworksSchematicGenerator(FireworksSchematicGenerator[T]):
     """Generic Fireworks generator that accepts any model name."""
 
-    def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+    def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
         super().__init__(
             model_name=model_name,
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
         )
 
     @property
@@ -351,11 +351,10 @@ You can get your API key from: https://app.fireworks.ai/settings/users/api-keys
 
         return None
 
-    def __init__(
-        self,
+    def __init__(self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
     ) -> None:
         self._model_name = os.environ.get(
             "FIREWORKS_MODEL", "accounts/fireworks/models/llama-v3p1-8b-instruct"
@@ -366,6 +365,8 @@ You can get your API key from: https://app.fireworks.ai/settings/users/api-keys
         self._logger = logger
         self._tracer = tracer
         self._meter = meter
+
+        self._health_reporter = health_reporter
         self._logger.info(f"Initialized FireworksService with {self._model_name}")
 
     @property
@@ -420,6 +421,7 @@ You can get your API key from: https://app.fireworks.ai/settings/users/api-keys
                 logger=self._logger,
                 tracer=self._tracer,
                 meter=self._meter,
+                    health_reporter=self._health_reporter,
             )
         else:
             self._logger.debug(f"Using custom generator for model: {self._model_name}")
@@ -428,11 +430,12 @@ You can get your API key from: https://app.fireworks.ai/settings/users/api-keys
                 logger=self._logger,
                 tracer=self._tracer,
                 meter=self._meter,
+                    health_reporter=self._health_reporter,
             )
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return JinaAIEmbedder(self._logger, self._tracer, self._meter)
+        return JinaAIEmbedder(self._logger, self._tracer, self._meter, self._health_reporter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

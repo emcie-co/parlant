@@ -25,6 +25,7 @@ from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.common import measure_response_analysis_batch
 from parlant.core.engines.alpha.guideline_matching.generic.common import (
     GuidelineInternalRepresentation,
+    dump_guideline,
     internal_representation,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.guideline_actionable_batch import (
@@ -189,7 +190,7 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
                                 )
                             )
                         else:
-                            self._logger.debug(f"Not applied:\n{check.model_dump_json(indent=2)}")
+                            self._logger.debug(f"Unapplied:\n{check.model_dump_json(indent=2)}")
                             analyzed_guidelines.append(
                                 AnalyzedGuideline(
                                     guideline=guidelines[GuidelineId(check.guideline_id)],
@@ -273,6 +274,11 @@ class GenericResponseAnalysisBatch(ResponseAnalysisBatch):
     ) -> str:
         guidelines_text = "\n".join(
             f"{i}) Condition: {guideline_representations[g.id].condition}. Action: {guideline_representations[g.id].action}"
+            + (
+                f" Description: {guideline_representations[g.id].description}"
+                if guideline_representations[g.id].description
+                else ""
+            )
             for i, g in guidelines.items()
         )
 
@@ -379,7 +385,9 @@ Examples of ...:
         builder.add_section(
             name=BuiltInSection.GUIDELINE_DESCRIPTIONS,
             template=self._add_guideline_matches_section(guidelines, guideline_representations),
-            props={},
+            props={
+                "guidelines": [dump_guideline(g) for g in guidelines.values()],
+            },
         )
 
         builder.add_section(

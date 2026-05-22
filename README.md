@@ -5,7 +5,7 @@
   <img alt="Parlant" src="https://github.com/emcie-co/parlant/blob/develop/docs/LogoTransparentDark.png?raw=true" width=400 />
 </picture>
 
-### The conversational control layer for customer-facing AI agents
+### The interaction control harness for customer-facing AI agents
 
 <p>
   <a href="https://pypi.org/project/parlant/"><img alt="PyPI" src="https://img.shields.io/pypi/v/parlant?color=blue"></a>
@@ -41,7 +41,9 @@
 
 &nbsp;
 
-**Parlant streamlines conversational context engineering for enterprise-grade B2C (business to consumer) and sensitive B2B interactions that need to be consistent, compliant, and on-brand.**
+> **Looking for an open-source alternative to Ada, Decagon, or Sierra?**
+
+**Parlant is production-ready. It streamlines the development and maintenance of enterprise-grade B2C (business-to-consumer) and sensitive B2B interactions that need to be consistent, compliant, on-brand, and comprehensively traceable.**
 
 ## Why Parlant?
 
@@ -53,9 +55,28 @@ Conversational context engineering is hard because real-world interactions are d
 **Routed graphs** solve the prompt-overload problem, but the more routing you add, the more fragile it becomes when faced with the chaos of natural interactions.
 
 ### 🔑 The Solution: Context engineering, optimized for conversational control
-Parlant solves this with [context engineering](https://www.gartner.com/en/articles/context-engineering): getting the right context, no more and no less, into the prompt at the right time. You define your rules, knowledge, and tools once; the engine narrows the context in real-time to what's immediately relevant to the current turn.
+Parlant is an agentic harness offering optimized [context engineering](https://www.gartner.com/en/articles/context-engineering) for conversational use cases: getting the right context, no more and no less, into the prompt at the right time. You define rules, knowledge, and tools once, while the engine narrows the context down in real-time to what's immediately relevant to each turn of the conversation.
 
 <img alt="Parlant Demo" src="https://github.com/emcie-co/parlant/blob/develop/docs/demo.gif?raw=true" width="100%" />
+
+### How is Parlant different from LangGraph or DSPy?
+Parlant focuses on conversational governance and behavioral control and consistency, while LangGraph is ideal for workflow automation, and DSPy is ideal for low-level prompt optimization.
+
+## Design goals
+
+Parlant is built around three goals that shape every decision in the framework:
+
+### 1. Maximum control over the conversation experience
+
+Parlant was designed around a simple idea: developers should be able to control the agent's behavior with precision. In customer-facing conversations, small details matter, like tone, timing, edge cases, policy constraints, and brand voice. So we chose a design that makes these aspects easily configurable and manageable. That approach adds complexity, but it gives teams tighter control over how the agent behaves in real conversations.
+
+### 2. Maximum prevention of unwanted behaviors
+
+Parlant treats misalignment as a core design problem. It builds on [research into model accuracy and consistency](https://arxiv.org/abs/2503.03669#:~:text=We%20present%20Attentive%20Reasoning%20Queries%20%28ARQs%29%2C%20a%20novel,in%20Large%20Language%20Models%20through%20domain-specialized%20reasoning%20blueprints.) so that it is structurally harder for the agent to behave outside its intended boundaries, and easier to detect and correct when it does. Rather than bolting guardrails onto the output, Parlant applies constraints and control points into how your LLMs are used in the first place to produce safe and correct output.
+
+### 3. Fastest path from product feedback to implementation
+
+Parlant seeks to allow those responsible for the agent's conversational experience  to shape its behavior in an intuitive manner, enabling a rapid feedback cycle that engineers can accomodate. Parlant is designed to allow you to incorporate ongoing product feedback as quickly as possible, without manual rewiring of graphs or fine-tuning of models, ensuring that valuable engineering time is only needed for deeper changes, not minor adjustments.
 
 ## Getting started
 
@@ -392,7 +413,7 @@ Drop-in chat component to get a frontend running immediately.
 - **[Parlant vs LangGraph](https://www.parlant.io/blog/parlant-vs-langgraph)** — when to use which
 - **[Parlant vs DSPy](https://www.parlant.io/blog/parlant-vs-dspy)** — different tools for different problems
 
-## Community
+## Community - Get Help with Parlant
 
 - **[Discord](https://discord.gg/duxWqxKk6J)** — ask questions, share what you're building
 - **[GitHub Issues](https://github.com/emcie-co/parlant/issues)** — bug reports and feature requests

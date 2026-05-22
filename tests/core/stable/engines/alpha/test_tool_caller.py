@@ -157,6 +157,7 @@ async def _inference_tool_calls_result(
     tool_enabled_guideline_matches: Mapping[GuidelineMatch, Sequence[ToolId]],
     tool_context_obj: ToolContext | None = None,
     staged_events: Sequence[EmittedEvent] | None = None,
+    ordinary_guideline_matches: Sequence[GuidelineMatch] | None = None,
 ) -> ToolCallInferenceResult:
     tool_caller = container[ToolCaller]
 
@@ -169,7 +170,7 @@ async def _inference_tool_calls_result(
         context_variables=[],
         interaction_history=interaction_history,
         terms=[],
-        ordinary_guideline_matches=[],
+        ordinary_guideline_matches=list(ordinary_guideline_matches or []),
         tool_enabled_guideline_matches=tool_enabled_guideline_matches,
         journeys=[],
         staged_events=staged_events or [],
@@ -1554,3 +1555,58 @@ async def test_that_consequential_tool_with_parameters_uses_full_mode(
     assert len(inference_tool_calls_result.batch_generations) == 1
     assert "Simple" not in inference_tool_calls_result.batch_generations[0].schema_name
     assert "SingleToolBatchSchema" in inference_tool_calls_result.batch_generations[0].schema_name
+
+
+async def test_that_a_tool_call_is_deferred_when_an_ordinary_guideline_requires_user_confirmation_first(
+    container: Container,
+    local_tool_service: LocalToolService,
+    agent: Agent,
+) -> None:
+    tool = await create_local_tool(
+        local_tool_service,
+        name="transfer_money",
+        parameters={
+            "amount": {"type": "integer"},
+            "from_account": {"type": "string"},
+            "to_account": {"type": "string"},
+        },
+        required=["amount", "from_account", "to_account"],
+    )
+
+    conversation_context = [
+        (EventSource.CUSTOMER, "Please transfer $500 from my checking to John's account."),
+    ]
+    interaction_history = create_interaction_history(conversation_context)
+
+    tool_enabled_guideline_matches = {
+        create_guideline_match(
+            condition="the user wants to transfer money",
+            action="run transfer_money with the requested amount and accounts",
+            score=9,
+            rationale="customer asked to transfer $500 to John's account",
+            tags=[Tag.for_agent_id(agent.id).id],
+        ): [ToolId(service_name="local", tool_name=tool.name)]
+    }
+
+    ordinary_guideline_matches = [
+        create_guideline_match(
+            condition="you are about to transfer money",
+            action="first get the user's clear and explicit confirmation before continuing",
+            score=10,
+            rationale="confirmation must be obtained before any money transfer",
+            tags=[Tag.for_agent_id(agent.id).id],
+        )
+    ]
+
+    inference_tool_calls_result = await _inference_tool_calls_result(
+        container=container,
+        agent=agent,
+        interaction_history=interaction_history,
+        tool_enabled_guideline_matches=tool_enabled_guideline_matches,
+        ordinary_guideline_matches=ordinary_guideline_matches,
+    )
+
+    tool_calls = list(chain.from_iterable(inference_tool_calls_result.batches))
+    assert len(tool_calls) == 0, (
+        f"Expected transfer_money to be deferred until confirmation, got {tool_calls}"
+    )

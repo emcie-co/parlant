@@ -440,7 +440,7 @@ async def test_that_journey_tags_can_be_added_to_a_canned_response(
     journey = await journey_store.create_journey(
         title="Customer Support Journey",
         description="A journey for customer support interactions.",
-        conditions=[],
+        triggers=[],
     )
     journey_tag = Tag.for_journey_id(journey.id).id
 
@@ -475,7 +475,7 @@ async def test_that_journey_tags_can_be_removed_from_a_canned_response(
     journey = await journey_store.create_journey(
         title="Customer Support Journey",
         description="A journey for customer support interactions.",
-        conditions=[],
+        triggers=[],
     )
     journey_tag = Tag.for_journey_id(journey.id).id
 

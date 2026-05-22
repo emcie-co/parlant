@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 
 from typing_extensions import override
 
+from parlant.core.health import HealthReporter
 from parlant.core.nlp.embedding import (
     BaseEmbedder,
     EmbeddingResult,
@@ -35,7 +36,13 @@ class FakeEmbedder(BaseEmbedder):
         tracer = MagicMock()
         meter = MagicMock()
         meter.create_duration_histogram = MagicMock(return_value=MagicMock())
-        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name="fake")
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            model_name="fake",
+            health_reporter=HealthReporter(),
+        )
         self._tokenizer = ZeroEstimatingTokenizer()
         self.do_embed_call_count = 0
 

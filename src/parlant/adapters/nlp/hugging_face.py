@@ -35,6 +35,7 @@ from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.embedding import BaseEmbedder, EmbeddingResult
+from parlant.core.health import HealthReporter
 
 
 _TOKENIZER_MODELS: dict[str, PreTrainedTokenizerBase] = {}
@@ -114,8 +115,8 @@ class HuggingFaceEstimatingTokenizer(EstimatingTokenizer):
 
 
 class HuggingFaceEmbedder(BaseEmbedder):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, model_name: str) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter, model_name: str) -> None:
+        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
 
         self._model = _create_auto_model(model_name)
         self._tokenizer = HuggingFaceEstimatingTokenizer(model_name=model_name)
@@ -166,10 +167,10 @@ class HuggingFaceEmbedder(BaseEmbedder):
 
 
 class JinaAIEmbedder(HuggingFaceEmbedder):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
         super().__init__(
             logger=logger,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
             tracer=tracer,
             model_name="jinaai/jina-embeddings-v2-base-en",
         )

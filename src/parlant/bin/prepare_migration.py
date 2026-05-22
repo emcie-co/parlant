@@ -79,7 +79,7 @@ from parlant.core.capabilities import (
     CapabilityVectorDocument,
     CapabilityVectorStore,
 )
-from parlant.core.common import generate_id, md5_checksum, Version
+from parlant.core.common import generate_id, xxh3_checksum, Version
 from parlant.core.context_variables import (
     ContextVariableDocument_v0_1_0,
     ContextVariableTagAssociationDocument,
@@ -105,7 +105,7 @@ from parlant.core.glossary import (
 from parlant.core.persistence.vector_database import VectorDatabase
 from parlant.core.persistence.vector_database_helper import VectorDocumentStoreMigrationHelper
 from parlant.core.journeys import (
-    JourneyConditionAssociationDocument,
+    JourneyConditionAssociationDocument_v0_6_0,
     JourneyDocument,
     JourneyDocument_v0_1_0,
     JourneyDocument_v0_2_0,
@@ -114,6 +114,7 @@ from parlant.core.journeys import (
     JourneyNodeAssociationDocument,
     JourneyNodeId,
     JourneyTagAssociationDocument,
+    JourneyTriggerAssociationDocument,
     JourneyVectorDocument,
     JourneyVectorStore,
 )
@@ -493,7 +494,7 @@ async def migrate_glossary_with_metadata() -> None:
 
                 new_doc = {
                     **all_items["metadatas"][i],
-                    "checksum": md5_checksum(all_items["documents"][i]),
+                    "checksum": xxh3_checksum(all_items["documents"][i]),
                 }
 
                 chroma_unembedded_collection.add(
@@ -824,7 +825,7 @@ async def migrate_glossary_0_1_0_to_0_2_0(
             new_doc = {
                 "id": doc["id"],
                 "version": Version.String("0.2.0"),
-                "checksum": md5_checksum(
+                "checksum": xxh3_checksum(
                     cast(str, doc["content"]) + datetime.now(timezone.utc).isoformat()
                 ),
                 "content": doc["content"],
@@ -941,7 +942,7 @@ async def migrate_utterances_0_1_0_to_0_2_0(
                 "id": doc["id"],
                 "version": Version.String("0.2.0"),
                 "content": content,
-                "checksum": md5_checksum(content),
+                "checksum": xxh3_checksum(content),
                 "creation_utc": doc["creation_utc"],
                 "value": doc["value"],
                 "fields": json.dumps(doc["fields"]),
@@ -996,8 +997,8 @@ async def migrate_journeys_0_1_0_to_0_2_0(
 
     async def _condition_association_document_loader(
         doc: BaseDocument,
-    ) -> Optional[JourneyConditionAssociationDocument]:
-        return cast(JourneyConditionAssociationDocument, doc)
+    ) -> Optional[JourneyConditionAssociationDocument_v0_6_0]:
+        return cast(JourneyConditionAssociationDocument_v0_6_0, doc)
 
     journeys_json_file = PARLANT_HOME_DIR / "journeys.json"
 
@@ -1024,7 +1025,7 @@ async def migrate_journeys_0_1_0_to_0_2_0(
 
     journey_conditions_collection = await journeys_db.get_or_create_collection(
         "journey_condition_associations",
-        JourneyConditionAssociationDocument,
+        JourneyConditionAssociationDocument_v0_6_0,
         _condition_association_document_loader,
     )
 
@@ -1059,7 +1060,7 @@ async def migrate_journeys_0_1_0_to_0_2_0(
 
     new_journey_conditions_collection = await journey_associations_db.get_or_create_collection(
         "journey_conditions",
-        JourneyConditionAssociationDocument,
+        JourneyConditionAssociationDocument_v0_6_0,
         _condition_association_document_loader,
     )
 
@@ -1079,7 +1080,7 @@ async def migrate_journeys_0_1_0_to_0_2_0(
                 id=doc["id"],
                 version=Version.String("0.2.0"),
                 content=content,
-                checksum=md5_checksum(content),
+                checksum=xxh3_checksum(content),
                 creation_utc=doc["creation_utc"],
                 title=doc["title"],
                 description=doc["description"],
@@ -1383,8 +1384,8 @@ async def migrate_journeys_0_2_0_to_0_3_0(
 
     async def _condition_association_document_loader(
         doc: BaseDocument,
-    ) -> Optional[JourneyConditionAssociationDocument]:
-        return cast(JourneyConditionAssociationDocument, doc)
+    ) -> Optional[JourneyConditionAssociationDocument_v0_6_0]:
+        return cast(JourneyConditionAssociationDocument_v0_6_0, doc)
 
     async def _node_association_document_loader(
         doc: BaseDocument,
@@ -1439,7 +1440,7 @@ async def migrate_journeys_0_2_0_to_0_3_0(
 
     journey_conditions_collection = await journey_associations_db.get_or_create_collection(
         "journey_conditions",
-        JourneyConditionAssociationDocument,
+        JourneyConditionAssociationDocument_v0_6_0,
         _condition_association_document_loader,
     )
 
@@ -1470,7 +1471,7 @@ async def migrate_journeys_0_2_0_to_0_3_0(
                 journey_id=JourneyId(cast(str, doc["id"])),
                 version=Version.String("0.3.0"),
                 content=content,
-                checksum=md5_checksum(content),
+                checksum=xxh3_checksum(content),
             )
 
             chroma_unembedded_collection.delete(
@@ -1542,6 +1543,87 @@ async def migrate_journeys_0_2_0_to_0_3_0(
     await upgrade_document_database_metadata(journey_associations_db, Version.String("0.3.0"))
 
     rich.print("[green]Successfully migrated journeys from 0.2.0 to 0.3.0")
+
+
+@register_migration("journeys", "0.6.0", "0.7.0")
+async def migrate_journeys_0_6_0_to_0_7_0(
+    document_database_type: type[DocumentDatabase],
+    vector_database_type: type[VectorDatabase],
+) -> None:
+    """Rename the journey activation field from ``conditions`` to ``triggers``.
+
+    Concretely: copy every record from the old ``journey_conditions`` collection
+    into a new ``journey_triggers`` collection, renaming the ``condition`` field
+    to ``trigger`` and bumping the version. Bump the journey-associations DB
+    metadata and the JourneyVectorStore version marker. The main ``journeys``
+    document collection's shape is unchanged; its identity v0.6.0 → v0.7.0
+    migration runs at startup via the loader.
+    """
+    rich.print("[green]Starting migration for journeys 0.6.0 -> 0.7.0")
+
+    async def _legacy_condition_loader(
+        doc: BaseDocument,
+    ) -> Optional[JourneyConditionAssociationDocument_v0_6_0]:
+        return cast(JourneyConditionAssociationDocument_v0_6_0, doc)
+
+    async def _trigger_loader(
+        doc: BaseDocument,
+    ) -> Optional[JourneyTriggerAssociationDocument]:
+        return cast(JourneyTriggerAssociationDocument, doc)
+
+    embedder_factory = EmbedderFactory(Container())
+
+    chroma_db = await EXIT_STACK.enter_async_context(
+        ChromaDatabase(
+            LOGGER,
+            TRACER,
+            PARLANT_HOME_DIR,
+            embedder_factory,
+            embedding_cache_provider=NullEmbeddingCache,
+        )
+    )
+
+    journey_associations_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "journey_associations.json")
+    )
+
+    legacy_conditions_collection = await journey_associations_db.get_or_create_collection(
+        "journey_conditions",
+        JourneyConditionAssociationDocument_v0_6_0,
+        _legacy_condition_loader,
+    )
+
+    new_triggers_collection = await journey_associations_db.get_or_create_collection(
+        "journey_triggers",
+        JourneyTriggerAssociationDocument,
+        _trigger_loader,
+    )
+
+    migrated_count = 0
+    for doc in await legacy_conditions_collection.find(filters={}):
+        await new_triggers_collection.insert_one(
+            {
+                "id": doc["id"],
+                "version": Version.String("0.7.0"),
+                "creation_utc": doc["creation_utc"],
+                "journey_id": doc["journey_id"],
+                "trigger": doc["condition"],
+            }
+        )
+        await legacy_conditions_collection.delete_one(filters={"id": {"$eq": doc["id"]}})
+        migrated_count += 1
+
+    await chroma_db.upsert_metadata(
+        VectorDocumentStoreMigrationHelper.get_store_version_key(JourneyVectorStore.__name__),
+        Version.String("0.7.0"),
+    )
+
+    await upgrade_document_database_metadata(journey_associations_db, Version.String("0.7.0"))
+
+    rich.print(
+        f"[green]Successfully migrated journeys from 0.6.0 to 0.7.0 "
+        f"({migrated_count} trigger associations renamed)"
+    )
 
 
 @register_migration("utterances", "0.2.0", "0.4.0")
@@ -1640,7 +1722,7 @@ async def migrate_canned_responses_0_2_0_to_0_4_0(
                             id=ObjectId(generate_id()),
                             canned_response_id=u2_doc["id"],
                             version=Version.String("0.3.0"),
-                            checksum=md5_checksum(u2_doc["content"]),
+                            checksum=xxh3_checksum(u2_doc["content"]),
                             content=u2_doc["content"],
                         )
                     ]
@@ -1669,7 +1751,7 @@ async def migrate_canned_responses_0_2_0_to_0_4_0(
                                 id=ObjectId(generate_id()),
                                 canned_response_id=u3_doc["utterance_id"],
                                 version=Version.String("0.4.0"),
-                                checksum=md5_checksum(c),
+                                checksum=xxh3_checksum(c),
                                 content=c,
                             )
                             for c in [u3_doc["value"], *json.loads(u3_doc["queries"])]
@@ -1821,7 +1903,7 @@ async def migrate_capabilities_0_1_0_to_0_2_0(
                             id=ObjectId(generate_id()),
                             canned_response_id=old_doc["capability_id"],
                             version=Version.String("0.2.0"),
-                            checksum=md5_checksum(c),
+                            checksum=xxh3_checksum(c),
                             content=c,
                         )
                         for c in [

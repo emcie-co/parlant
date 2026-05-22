@@ -54,7 +54,8 @@ from parlant.api.authorization import (
 )
 
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
-from parlant.core.common import IdGenerator
+from parlant.core.application_context import ApplicationContext
+from parlant.core.common import IdGenerator, generate_id
 from parlant.core.engines.alpha import message_generator
 from parlant.core.engines.alpha.guideline_matching.generic import (
     guideline_actionable_batch,
@@ -124,6 +125,8 @@ from parlant.core.engines.alpha.perceived_performance_policy import (
 )
 from parlant.core.engines.alpha.planners import NullPlanner, PlannerProvider
 from parlant.core.engines.alpha.relational_resolver import RelationalResolver
+from parlant.core.event_loop_monitor import EventLoopMonitor
+from parlant.core.health import HealthReporter
 from parlant.core.engines.alpha.tool_calling.overlapping_tools_batch import (
     OverlappingToolsBatchSchema,
 )
@@ -239,6 +242,7 @@ from parlant.core.engines.alpha.message_generator import (
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
 from parlant.core.engines.types import Engine
 from parlant.core.services.indexing.behavioral_change_evaluation import BehavioralChangeEvaluator
+from parlant.core.services.indexing.indexer import Indexer, NullIndexer
 from parlant.core.loggers import CompositeLogger, FileLogger, LogLevel, Logger
 from parlant.core.application import Application
 from parlant.core.version import VERSION
@@ -282,6 +286,7 @@ NLPServiceName = Literal[
     "together",
     "litellm",
     "modelscope",
+    "novita",
 ]
 
 
@@ -295,7 +300,7 @@ class StartupParameters:
     migrate: bool
     configure: Callable[[Container], Awaitable[Container]] | None = None
     initialize: Callable[[Container], Awaitable[None]] | None = None
-    configure_api: Callable[[FastAPI], Awaitable[None]] | None = None
+    configure_api: Callable[[FastAPI], Awaitable[FastAPI | None]] | None = None
     contextvar_propagation: Mapping[ContextVar[Any], Any] = field(default_factory=dict)
 
 
@@ -309,7 +314,10 @@ def load_nlp_service(
     try:
         module = importlib.import_module(module_path)
         service = getattr(module, class_name)
-        return cast(NLPService, service(LOGGER, container[Tracer], container[Meter]))
+        return cast(
+            NLPService,
+            service(LOGGER, container[Tracer], container[Meter], container[HealthReporter]),
+        )
     except ModuleNotFoundError as exc:
         LOGGER.error(f"Failed to import module: {exc.name}")
         LOGGER.critical(
@@ -337,7 +345,7 @@ def load_aws(container: Container) -> NLPService:
 def load_azure(container: Container) -> NLPService:
     from parlant.adapters.nlp.azure_service import AzureService
 
-    return AzureService(LOGGER, container[Tracer], container[Meter])
+    return AzureService(LOGGER, container[Tracer], container[Meter], container[HealthReporter])
 
 
 def load_cerebras(container: Container) -> NLPService:
@@ -379,7 +387,7 @@ def load_gemini(container: Container) -> NLPService:
 def load_openai(container: Container) -> NLPService:
     from parlant.adapters.nlp.openai_service import OpenAIService
 
-    return OpenAIService(LOGGER, container[Tracer], container[Meter])
+    return OpenAIService(LOGGER, container[Tracer], container[Meter], container[HealthReporter])
 
 
 def load_together(container: Container) -> NLPService:
@@ -389,6 +397,16 @@ def load_together(container: Container) -> NLPService:
         "together",
         "TogetherService",
         "parlant.adapters.nlp.together_service",
+    )
+
+
+def load_novita(container: Container) -> NLPService:
+    return load_nlp_service(
+        container,
+        "Novita AI",
+        "novita",
+        "NovitaService",
+        "parlant.adapters.nlp.novita_service",
     )
 
 
@@ -424,6 +442,7 @@ NLP_SERVICE_INITIALIZERS: dict[NLPServiceName, Callable[[Container], NLPService]
     "together": load_together,
     "litellm": load_litellm,
     "modelscope": load_modelscope,
+    "novita": load_novita,
 }
 
 
@@ -615,6 +634,7 @@ async def setup_container() -> AsyncIterator[Container]:
 
     _define_singleton(c, BehavioralChangeEvaluator, BehavioralChangeEvaluator)
     _define_singleton(c, EvaluationListener, PollingEvaluationListener)
+    _define_singleton(c, Indexer, NullIndexer)
 
     _define_singleton(c, ResponseAnalysisBatch, GenericResponseAnalysisBatch)
     _define_singleton(c, ObservationalGuidelineMatching, ObservationalGuidelineMatching)
@@ -644,7 +664,7 @@ async def setup_container() -> AsyncIterator[Container]:
     _define_singleton(c, ToolCaller, ToolCaller)
 
     _define_singleton(c, RelationalResolver, RelationalResolver)
-    c[PlannerProvider] = PlannerProvider(default_planner=NullPlanner())
+    _define_singleton_value(c, PlannerProvider, PlannerProvider(default_planner=NullPlanner()))
 
     _define_singleton(
         c,
@@ -657,6 +677,12 @@ async def setup_container() -> AsyncIterator[Container]:
     )
 
     _define_singleton(c, Engine, AlphaEngine)
+
+    _define_singleton_value(
+        c, ApplicationContext, ApplicationContext(instance_id=generate_id())
+    )
+    _define_singleton(c, EventLoopMonitor, EventLoopMonitor)
+    _define_singleton(c, HealthReporter, HealthReporter)
 
     _define_singleton(c, Application, Application)
 
@@ -744,6 +770,7 @@ async def initialize_container(
             c[store_interface] = lambda _c: c[store_implementation]
 
     await EXIT_STACK.enter_async_context(c[BackgroundTaskService])
+    await EXIT_STACK.enter_async_context(c[EventLoopMonitor])
 
     c[Logger].set_level(
         log_level
@@ -1208,6 +1235,12 @@ def main() -> None:
         default=False,
     )
     @click.option(
+        "--novita",
+        is_flag=True,
+        help="Run with Novita AI. The environment variable NOVITA_API_KEY must be set.",
+        default=False,
+    )
+    @click.option(
         "--litellm",
         is_flag=True,
         help="""Run with LiteLLM. The following environment variables must be set:
@@ -1266,6 +1299,7 @@ def main() -> None:
         anthropic: bool,
         cerebras: bool,
         together: bool,
+        novita: bool,
         litellm: bool,
         modelscope: bool,
         log_level: str,
@@ -1288,6 +1322,7 @@ def main() -> None:
                     anthropic,
                     cerebras,
                     together,
+                    novita,
                     litellm,
                     modelscope,
                 ]
@@ -1298,7 +1333,18 @@ def main() -> None:
             sys.exit(1)
 
         non_default_service_selected = any(
-            (aws, azure, deepseek, gemini, anthropic, cerebras, together, litellm, modelscope)
+            (
+                aws,
+                azure,
+                deepseek,
+                gemini,
+                anthropic,
+                cerebras,
+                together,
+                novita,
+                litellm,
+                modelscope,
+            )
         )
 
         if not non_default_service_selected:
@@ -1328,6 +1374,9 @@ def main() -> None:
         elif together:
             nlp_service = "together"
             require_env_keys(["TOGETHER_API_KEY"])
+        elif novita:
+            nlp_service = "novita"
+            require_env_keys(["NOVITA_API_KEY"])
         elif litellm:
             nlp_service = "litellm"
             require_env_keys(["LITELLM_PROVIDER_MODEL_NAME"])

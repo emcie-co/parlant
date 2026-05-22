@@ -58,6 +58,7 @@ from parlant.core.nlp.moderation import (
     NoModeration,
 )
 from parlant.core.tracer import Tracer
+from parlant.core.health import HealthReporter
 
 RATE_LIMIT_ERROR_MESSAGE = """\
 Qwen API rate limit exceeded. Possible reasons:
@@ -109,8 +110,8 @@ class QwenEstimatingTokenizer(EstimatingTokenizer):
 class QwenEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
-    def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+    def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
 
         self._client = AsyncClient(
             base_url=get_qwen_base_url(),
@@ -164,8 +165,8 @@ class QwenEmbedder(BaseEmbedder):
 
 
 class QwenTextEmbedding_V4(QwenEmbedder):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(model_name="text-embedding-v4", logger=logger, tracer=tracer, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+        super().__init__(model_name="text-embedding-v4", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
 
     @property
     @override
@@ -180,14 +181,13 @@ class QwenTextEmbedding_V4(QwenEmbedder):
 class QwenSchematicGenerator(BaseSchematicGenerator[T]):
     supported_qwen_params = ["temperature", "max_tokens"]
 
-    def __init__(
-        self,
+    def __init__(self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
 
         self._client = AsyncClient(
             base_url=get_qwen_base_url(),
@@ -304,8 +304,8 @@ class QwenSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class Qwen_MAX(QwenSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(model_name="qwen-max", logger=logger, tracer=tracer, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+        super().__init__(model_name="qwen-max", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
 
     @property
     @override
@@ -314,8 +314,8 @@ class Qwen_MAX(QwenSchematicGenerator[T]):
 
 
 class Qwen_Plus(QwenSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(model_name="qwen-plus", logger=logger, tracer=tracer, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+        super().__init__(model_name="qwen-plus", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
 
     @property
     @override
@@ -324,9 +324,9 @@ class Qwen_Plus(QwenSchematicGenerator[T]):
 
 
 class Qwen_2_5_72b(QwenSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
         super().__init__(
-            model_name="qwen2.5-72b-instruct", logger=logger, tracer=tracer, meter=meter
+            model_name="qwen2.5-72b-instruct", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter
         )
 
     @property
@@ -355,15 +355,16 @@ Must be one of: {", ".join(QWEN_REGION_BASE_URLS.keys())}
 
         return None
 
-    def __init__(
-        self,
+    def __init__(self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
     ) -> None:
         self.logger = logger
         self._tracer = tracer
         self._meter = meter
+
+        self._health_reporter = health_reporter
         self.model_name = os.environ.get("QWEN_MODEL", "qwen-plus")
 
         self.logger.info(f"Initialized QwenService with model: {self.model_name}")
@@ -404,11 +405,16 @@ Must be one of: {", ".join(QWEN_REGION_BASE_URLS.keys())}
     ) -> QwenSchematicGenerator[T]:
         qwen_generator = self._get_specialized_generator_class(self.model_name, t)
         assert qwen_generator is not None, f"Unsupported Qwen model: {self.model_name}"
-        return qwen_generator(self.logger, self._tracer, self._meter)
+        return qwen_generator(self.logger, self._tracer, self._meter, self._health_reporter)
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return QwenTextEmbedding_V4(logger=self.logger, tracer=self._tracer, meter=self._meter)
+        return QwenTextEmbedding_V4(
+            logger=self.logger,
+            tracer=self._tracer,
+            meter=self._meter,
+            health_reporter=self._health_reporter,
+        )
 
     @override
     async def get_moderation_service(self) -> ModerationService:

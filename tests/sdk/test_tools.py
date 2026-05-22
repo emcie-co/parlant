@@ -15,12 +15,14 @@
 import asyncio
 from parlant.core.async_utils import default_done_callback
 from parlant.core.customers import CustomerStore
+from parlant.core.services.tools.plugins import PluginServer, tool as plugin_tool
+from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import SessionStore
-from parlant.core.tools import ToolContext, ToolResult
+from parlant.core.tools import ToolContext, ToolId, ToolResult
 import parlant.sdk as p
 
 from tests.sdk.utils import Context, SDKTest, get_message
-from tests.test_utilities import nlp_test
+from tests.test_utilities import get_random_port, nlp_test
 
 
 class Test_that_a_tool_is_called_when_triggered_by_user_message(SDKTest):
@@ -394,3 +396,95 @@ class Test_that_staged_tool_calls_are_accessible_in_custom_matcher_context(SDKTe
             f"Expected 'pepsi' in response (matcher should match via staged_tool_calls) "
             f"but got: {response}"
         )
+
+
+class Test_that_external_tool_referenced_by_tool_id_is_called(SDKTest):
+    """An external PluginServer hosts a tool. The SDK guideline references it
+    by ToolId (not ToolEntry). The engine should call the external tool and
+    incorporate its result into the response."""
+
+    tool_was_called = False
+
+    async def configure_container(self, container: p.Container) -> p.Container:
+        import threading
+
+        self.external_port = get_random_port()
+
+        outer = self
+
+        @plugin_tool
+        async def lookup_balance(context: ToolContext, account_id: str) -> ToolResult:
+            outer.tool_was_called = True
+            return ToolResult(data={"account_id": account_id, "balance": "$4,200.00"})
+
+        # Start the external plugin server in a separate thread so it
+        # doesn't compete with the main event loop.
+        self._external_server = PluginServer(
+            tools=[lookup_balance],
+            port=self.external_port,
+            host="127.0.0.1",
+        )
+
+        ready = threading.Event()
+
+        def run_external() -> None:
+            loop = asyncio.new_event_loop()
+            self._external_loop = loop
+
+            async def _start() -> None:
+                await self._external_server.__aenter__()
+                ready.set()
+                # Keep running until cancelled
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    pass
+                finally:
+                    await self._external_server.__aexit__(None, None, None)
+
+            self._external_task = loop.create_task(_start())
+            try:
+                loop.run_until_complete(self._external_task)
+            except asyncio.CancelledError:
+                pass
+            finally:
+                loop.close()
+
+        self._external_thread = threading.Thread(target=run_external, daemon=True)
+        self._external_thread.start()
+        ready.wait(timeout=10)
+
+        await container[ServiceRegistry].update_tool_service(
+            name="external-test",
+            kind="sdk",
+            url=f"http://127.0.0.1:{self.external_port}",
+            transient=True,
+        )
+
+        return container
+
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="External Tool Agent",
+            description="Agent that uses an external tool service",
+        )
+
+        await self.agent.create_observation(
+            condition="the customer asks about their account balance",
+            tools=[ToolId(service_name="external-test", tool_name="lookup_balance")],
+        )
+
+    async def run(self, ctx: Context) -> None:
+        try:
+            response = await ctx.send_and_receive_message(
+                customer_message="What is the balance on account 12345?",
+                recipient=self.agent,
+            )
+
+            assert self.tool_was_called, "Expected external tool to be called but it was not"
+            assert "4,200" in response or "4200" in response, (
+                f"Expected balance '$4,200.00' in response but got: {response}"
+            )
+        finally:
+            self._external_task.cancel()
+            self._external_thread.join(timeout=5)

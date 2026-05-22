@@ -63,14 +63,14 @@ class Test_that_matched_journey_labels_are_added_to_session(SDKTest):
         await self.agent.create_journey(
             title="Support Journey",
             description="A support journey with labels",
-            conditions=["Customer needs support"],
+            triggers=["Customer needs support"],
             labels=["support", "help"],
         )
 
         await self.agent.create_journey(
             title="Greeting Journey",
             description="A greeting journey with labels",
-            conditions=["Customer says hello"],
+            triggers=["Customer says hello"],
             labels=["greeting"],
         )
 
@@ -102,7 +102,7 @@ class Test_that_matched_journey_state_labels_are_added_to_session(SDKTest):
         self.journey = await self.agent.create_journey(
             title="Checkout Journey",
             description="A checkout journey",
-            conditions=["Customer wants to checkout"],
+            triggers=["Customer wants to checkout"],
         )
 
         step_1 = await self.journey.initial_state.transition_to(

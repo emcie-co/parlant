@@ -32,6 +32,8 @@ from parlant.api.authorization import AuthorizationPolicy, DevelopmentAuthorizat
 
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
+from parlant.core.application_context import ApplicationContext
+from parlant.core.health import HealthReporter, NullHealthReporter
 from parlant.core.common import IdGenerator
 from parlant.core.engines.alpha.guideline_matching.generic.guideline_low_criticality_batch import (
     GenericLowCriticalityGuidelineMatchesSchema,
@@ -109,6 +111,7 @@ from parlant.core.engines.alpha import message_generator
 from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.alpha.planners import NullPlanner, PlannerProvider
 from parlant.core.engines.alpha.relational_resolver import RelationalResolver
+from parlant.core.event_loop_monitor import EventLoopMonitor
 from parlant.core.engines.alpha.tool_calling.default_tool_call_batcher import DefaultToolCallBatcher
 from parlant.core.engines.alpha.canned_response_generator import (
     CannedResponseDraftSchema,
@@ -349,6 +352,11 @@ async def container(
             container[WebSocketLogger].start(), tag="websocket-logger"
         )
 
+        container[EventLoopMonitor] = await stack.enter_async_context(EventLoopMonitor())
+
+        container[ApplicationContext] = ApplicationContext(instance_id="test-instance")
+        container[HealthReporter] = NullHealthReporter(container[ApplicationContext])
+
         container[AgentStore] = await stack.enter_async_context(
             AgentDocumentStore(container[IdGenerator], TransientDocumentDatabase())
         )
@@ -393,6 +401,7 @@ async def container(
                         container[Logger],
                         container[Tracer],
                         container[Meter],
+                        container[HealthReporter],
                         model_tier=os.environ.get("EMCIE_MODEL_TIER", "jackal"),  # type: ignore
                         model_role=os.environ.get("EMCIE_MODEL_ROLE", "teacher"),  # type: ignore
                     )

@@ -28,6 +28,7 @@ from parlant.core.engines.alpha.prompt_builder import (
     SectionStatus,
 )
 from parlant.core.loggers import Logger
+from parlant.core.health import HealthReporter, NullHealthReporter
 from parlant.core.meter import Meter
 from parlant.core.nlp.embedding import EmbeddingResult
 from parlant.core.nlp.generation import (
@@ -505,7 +506,13 @@ class TestableBaseStreamingTextGenerator(BaseStreamingTextGenerator):
         chunks: list[str],
         should_fail: bool = False,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name="test-model")
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            model_name="test-model",
+            health_reporter=NullHealthReporter(),
+        )
         self._chunks = chunks
         self._should_fail = should_fail
 
@@ -572,3 +579,78 @@ async def test_that_base_streaming_text_generator_propagates_exceptions(
     with raises(Exception, match="Generation failed mid-stream"):
         async for _ in result.stream:
             pass
+
+
+async def test_that_streaming_text_generator_reports_time_to_first_token_as_latency(
+    container: Container,
+) -> None:
+    from datetime import timedelta
+
+    from parlant.core.health import (
+        NLP_REQUEST_KIND,
+        NLP_REQUESTS_COUNTER,
+        NLP_TOKENS_COUNTER,
+        ReportRetention,
+    )
+
+    reporter = HealthReporter()
+    reporter.configure_retention(
+        NLP_REQUEST_KIND, ReportRetention(window=timedelta(minutes=10), max_count=1000)
+    )
+    reporter.configure_counter(NLP_REQUESTS_COUNTER, retention=timedelta(days=1))
+    reporter.configure_counter(NLP_TOKENS_COUNTER, retention=timedelta(days=1))
+
+    inter_chunk_delay_seconds = 0.5
+
+    class SlowFollowupStreamGenerator(BaseStreamingTextGenerator):
+        def __init__(self) -> None:
+            super().__init__(
+                logger=container[Logger],
+                tracer=container[Tracer],
+                meter=container[Meter],
+                model_name="test-slow",
+                health_reporter=reporter,
+            )
+
+        @override
+        async def do_generate(
+            self,
+            prompt: str | PromptBuilder,
+            hints: Mapping[str, Any] = {},
+        ) -> tuple[AsyncIterator[str | None], Callable[[], UsageInfo]]:
+            async def stream() -> AsyncIterator[str | None]:
+                yield "first"
+                await asyncio.sleep(inter_chunk_delay_seconds)
+                yield "second"
+                yield None
+
+            def get_usage() -> UsageInfo:
+                return UsageInfo(input_tokens=1, output_tokens=2)
+
+            return stream(), get_usage
+
+        @property
+        @override
+        def id(self) -> str:
+            return "slow"
+
+        @property
+        @override
+        def tokenizer(self) -> EstimatingTokenizer:
+            return ZeroEstimatingTokenizer()
+
+    generator = SlowFollowupStreamGenerator()
+    result = generator.generate("hi")
+    async for _ in result.stream:
+        pass
+
+    captured = list(reporter._buffers[NLP_REQUEST_KIND])  # type: ignore[attr-defined]
+    assert len(captured) == 1
+    latency_ms = float(captured[0].attributes["latency_ms"])
+
+    # End-to-end would be > 500ms because of the sleep between chunks.
+    # TTFT is the time to the first chunk, which yields immediately.
+    assert latency_ms < inter_chunk_delay_seconds * 1000.0 / 2, (
+        f"Expected TTFT-style latency well under {inter_chunk_delay_seconds * 1000}ms,"
+        f" got {latency_ms}ms"
+    )

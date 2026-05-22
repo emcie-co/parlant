@@ -338,9 +338,7 @@ def _payload_descriptor_to_dto(descriptor: PayloadDescriptor) -> PayloadDTO:
                 ],
                 operation=_operation_to_operation_dto(descriptor.payload.operation),
                 updated_id=cast(GuidelinePayload, descriptor.payload).updated_id,
-                action_proposition=cast(
-                    GuidelinePayload, descriptor.payload
-                ).properties_proposition,
+                action_proposition=cast(GuidelinePayload, descriptor.payload).action_proposition,
                 properties_proposition=cast(
                     GuidelinePayload, descriptor.payload
                 ).properties_proposition,
@@ -361,11 +359,14 @@ def _invoice_data_to_dto(
     invoice_data: InvoiceData,
 ) -> InvoiceDataDTO:
     if kind == PayloadKind.GUIDELINE:
+        guideline_data = cast(InvoiceGuidelineData, invoice_data)
+        properties = guideline_data.properties_proposition or {}
+        action_proposition = cast(str | None, properties.get("internal_action"))
+
         return InvoiceDataDTO(
             guideline=GuidelineInvoiceDataDTO(
-                properties_proposition=cast(
-                    InvoiceGuidelineData, invoice_data
-                ).properties_proposition,
+                action_proposition=action_proposition,
+                properties_proposition=guideline_data.properties_proposition,
             ),
         )
 

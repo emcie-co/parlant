@@ -14,6 +14,7 @@
 
 import asyncio
 from dataclasses import dataclass
+from datetime import timedelta
 import os
 import time
 from typing import Callable, cast
@@ -21,7 +22,12 @@ from typing import Callable, cast
 from parlant.client import AsyncParlantClient as Client
 from parlant.client.types.event import Event as ClientEvent
 
+from fastapi import FastAPI
+import httpx
+
 from parlant.adapters.nlp.emcie_service import EmcieService
+from parlant.core.application_context import ApplicationContext
+from parlant.core.health import HealthReporter
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.sessions import Session
@@ -196,6 +202,7 @@ class Context:
 
 class SDKTest:
     STARTUP_TIMEOUT = 60
+    INSTANCE_ID = "sdk-test-instance"
 
     async def test_run(self) -> None:
         port = get_random_port()
@@ -204,7 +211,7 @@ class SDKTest:
         client = Client(base_url=f"http://localhost:{port}")
 
         try:
-            await self._wait_for_startup(client)
+            await self._wait_for_startup(port)
             await self.run(Context(self.server, client, self.get_container()))
         finally:
             server_task.cancel()
@@ -227,14 +234,21 @@ class SDKTest:
         task = asyncio.create_task(server_task(), name="SDK Server Task")
         return task
 
-    async def _wait_for_startup(self, client: Client) -> None:
+    async def _wait_for_startup(self, port: int) -> None:
         start_time = time.time()
+        url = f"http://localhost:{port}/healthz"
 
-        while True:
-            try:
-                await client.agents.list()
-                return
-            except Exception:
+        async with httpx.AsyncClient() as http:
+            while True:
+                try:
+                    response = await http.get(url, timeout=5.0)
+                    if response.status_code == 200:
+                        data = response.json()
+                        assert data["instance_id"] == self.INSTANCE_ID
+                        return
+                except (httpx.RequestError, httpx.TimeoutException):
+                    pass
+
                 if time.time() >= (start_time + self.STARTUP_TIMEOUT):
                     raise RuntimeError("Server did not start in time")
 
@@ -243,25 +257,47 @@ class SDKTest:
     async def configure_hooks(self, hooks: p.EngineHooks) -> p.EngineHooks:
         return hooks
 
+    async def configure_api(self, app: FastAPI) -> None:
+        """Override to customize the FastAPI app (add routes/middleware)."""
+
+    async def configure_container(self, container: p.Container) -> p.Container:
+        """Override to bind/replace dependencies in the test container.
+
+        May return the same container (most cases) or a different one.
+        """
+        return container
+
     async def create_server(self, port: int) -> tuple[p.Server, Callable[[], p.Container]]:
         test_container: p.Container = p.Container()
 
-        async def configure_container(container: p.Container) -> p.Container:
+        async def _configure(container: p.Container) -> p.Container:
             nonlocal test_container
             test_container = container.clone()
-            test_container[PerceivedPerformancePolicy] = NullPerceivedPerformancePolicy()
+
+            # Apply test defaults
+            container[ApplicationContext] = ApplicationContext(instance_id=self.INSTANCE_ID)
+            container[PerceivedPerformancePolicy] = NullPerceivedPerformancePolicy()
+            # Tests need to observe newly reported health data immediately rather
+            # than waiting for the production cache TTL to elapse.
+            container[HealthReporter]._snapshot_cache_ttl = timedelta(0)
+
+            # Apply test-specific overrides
+            test_container = await self.configure_container(test_container)
+
             return test_container
 
         return p.Server(
             port=port,
             tool_service_port=get_random_port(),
             log_level=p.LogLevel.TRACE,
-            configure_container=configure_container,
+            configure_container=_configure,
             configure_hooks=self.configure_hooks,
+            configure_api=self.configure_api,
             nlp_service=lambda c: EmcieService(
                 c[Logger],
                 c[Tracer],
                 c[Meter],
+                c[HealthReporter],
                 model_tier=os.environ.get("EMCIE_MODEL_TIER", "jackal"),  # type: ignore
                 model_role=os.environ.get("EMCIE_MODEL_ROLE", "teacher"),  # type: ignore
             ),

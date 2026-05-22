@@ -21,7 +21,7 @@ from typing_extensions import override, Self, Required
 
 from parlant.core import async_utils
 from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, Version, IdGenerator, UniqueId, md5_checksum
+from parlant.core.common import ItemNotFoundError, Version, IdGenerator, UniqueId, xxh3_checksum
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.vector_database import (
@@ -289,14 +289,14 @@ class CapabilityVectorStore(CapabilityStore):
         insertion_tasks = []
 
         for content in self._list_capability_contents(capability):
-            doc_id = self._id_generator.generate(md5_checksum(content))
+            doc_id = self._id_generator.generate(xxh3_checksum(content))
 
             vec_doc = CapabilityVectorDocument(
                 id=ObjectId(doc_id),
                 capability_id=ObjectId(capability.id),
                 version=self.VERSION.to_string(),
                 content=content,
-                checksum=md5_checksum(content),
+                checksum=xxh3_checksum(content),
             )
 
             insertion_tasks.append(self._vector_collection.insert_one(document=vec_doc))
@@ -335,7 +335,7 @@ class CapabilityVectorStore(CapabilityStore):
             signals = list(signals) if signals else []
             tags = list(tags) if tags else []
 
-            capability_checksum = md5_checksum(f"{title}{description}{signals}{tags}")
+            capability_checksum = xxh3_checksum(f"{title}{description}{signals}{tags}")
 
             capability_id = CapabilityId(self._id_generator.generate(capability_checksum))
             capability = Capability(
@@ -350,7 +350,7 @@ class CapabilityVectorStore(CapabilityStore):
             await self._insert_capability(capability)
 
             for tag_id in tags:
-                tag_checksum = md5_checksum(f"{capability_id}{tag_id}")
+                tag_checksum = xxh3_checksum(f"{capability_id}{tag_id}")
 
                 await self._tag_association_collection.insert_one(
                     document={
@@ -557,7 +557,7 @@ class CapabilityVectorStore(CapabilityStore):
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            tag_checksum = md5_checksum(f"{capability_id}{tag_id}")
+            tag_checksum = xxh3_checksum(f"{capability_id}{tag_id}")
 
             assoc_doc: CapabilityTagAssociationDocument = {
                 "id": ObjectId(self._id_generator.generate(tag_checksum)),

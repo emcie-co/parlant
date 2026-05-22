@@ -67,6 +67,7 @@ from parlant.core.nlp.generation import (
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.loggers import Logger
+from parlant.core.health import HealthReporter
 
 
 class ModelProvider(Enum):
@@ -128,16 +129,15 @@ class VertexAIClaudeSchematicGenerator(BaseSchematicGenerator[T]):
 
     supported_hints = ["temperature", "max_tokens", "top_p", "top_k"]
 
-    def __init__(
-        self,
+    def __init__(self,
         project_id: str,
         region: str,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
 
         self.project_id = project_id
         self.region = region
@@ -280,16 +280,15 @@ class VertexAIGeminiSchematicGenerator(BaseSchematicGenerator[T]):
 
     supported_hints = ["temperature", "thinking_config"]
 
-    def __init__(
-        self,
+    def __init__(self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
         project_id: str,
         region: str,
         model_name: str,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
 
         self.project_id = project_id
         self.region = region
@@ -437,8 +436,7 @@ class VertexAIGeminiSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class VertexClaudeOpus4(VertexAIClaudeSchematicGenerator[T]):
-    def __init__(
-        self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter
+    def __init__(self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
     ) -> None:
         super().__init__(
             project_id=project_id,
@@ -446,13 +444,12 @@ class VertexClaudeOpus4(VertexAIClaudeSchematicGenerator[T]):
             model_name="claude-opus-4@20250514",
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
         )
 
 
 class VertexClaudeSonnet4(VertexAIClaudeSchematicGenerator[T]):
-    def __init__(
-        self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter
+    def __init__(self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
     ) -> None:
         super().__init__(
             project_id=project_id,
@@ -460,13 +457,12 @@ class VertexClaudeSonnet4(VertexAIClaudeSchematicGenerator[T]):
             model_name="claude-sonnet-4@20250514",
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
         )
 
 
 class VertexClaudeSonnet35(VertexAIClaudeSchematicGenerator[T]):
-    def __init__(
-        self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter
+    def __init__(self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
     ) -> None:
         super().__init__(
             project_id=project_id,
@@ -474,13 +470,12 @@ class VertexClaudeSonnet35(VertexAIClaudeSchematicGenerator[T]):
             model_name="claude-3-5-sonnet-v2@20241022",
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
         )
 
 
 class VertexClaudeHaiku35(VertexAIClaudeSchematicGenerator[T]):
-    def __init__(
-        self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter
+    def __init__(self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
     ) -> None:
         super().__init__(
             project_id=project_id,
@@ -488,13 +483,12 @@ class VertexClaudeHaiku35(VertexAIClaudeSchematicGenerator[T]):
             model_name="claude-3-5-haiku@20241022",
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
         )
 
 
 class VertexGemini15Flash(VertexAIGeminiSchematicGenerator[T]):
-    def __init__(
-        self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter
+    def __init__(self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
     ) -> None:
         super().__init__(
             project_id=project_id,
@@ -502,13 +496,12 @@ class VertexGemini15Flash(VertexAIGeminiSchematicGenerator[T]):
             model_name="gemini-1.5-flash",
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
         )
 
 
 class VertexGemini15Pro(VertexAIGeminiSchematicGenerator[T]):
-    def __init__(
-        self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter
+    def __init__(self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
     ) -> None:
         super().__init__(
             project_id=project_id,
@@ -516,13 +509,12 @@ class VertexGemini15Pro(VertexAIGeminiSchematicGenerator[T]):
             model_name="gemini-1.5-pro",
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
         )
 
 
 class VertexGemini20Flash(VertexAIGeminiSchematicGenerator[T]):
-    def __init__(
-        self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter
+    def __init__(self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
     ) -> None:
         super().__init__(
             project_id=project_id,
@@ -530,13 +522,12 @@ class VertexGemini20Flash(VertexAIGeminiSchematicGenerator[T]):
             model_name="gemini-2.0-flash",
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
         )
 
 
 class VertexGemini25Flash(VertexAIGeminiSchematicGenerator[T]):
-    def __init__(
-        self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter
+    def __init__(self, project_id: str, region: str, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
     ) -> None:
         super().__init__(
             project_id=project_id,
@@ -544,7 +535,7 @@ class VertexGemini25Flash(VertexAIGeminiSchematicGenerator[T]):
             model_name="gemini-2.5-flash",
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
         )
 
     @override
@@ -560,18 +551,17 @@ class VertexGemini25Flash(VertexAIGeminiSchematicGenerator[T]):
 
 
 class VertexGemini25Pro(VertexAIGeminiSchematicGenerator[T]):
-    def __init__(
-        self,
+    def __init__(self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
         project_id: str,
         region: str,
     ) -> None:
         super().__init__(
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
             project_id=project_id,
             region=region,
             model_name="gemini-2.5-pro",
@@ -589,6 +579,7 @@ class VertexAIEmbedder(BaseEmbedder):
         tracer: Tracer,
         meter: Meter,
         model_name: str,
+        health_reporter: HealthReporter,
     ):
         self.project_id = os.environ.get("VERTEX_AI_PROJECT_ID")
 
@@ -598,7 +589,7 @@ class VertexAIEmbedder(BaseEmbedder):
                 "Set this to your Google Cloud Project ID."
             )
 
-        super().__init__(logger, tracer, meter, model_name)
+        super().__init__(logger, tracer, meter, model_name, health_reporter)
 
         self.region = os.environ.get("VERTEX_AI_REGION", "us-central1")
         self._client = google.genai.Client(
@@ -677,8 +668,8 @@ class VertexAIEmbedder(BaseEmbedder):
 
 
 class VertexTextEmbedding004(VertexAIEmbedder):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(model_name="text-embedding-004", logger=logger, tracer=tracer, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+        super().__init__(model_name="text-embedding-004", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
 
     @property
     @override
@@ -747,11 +738,10 @@ class VertexAIService(NLPService):
 
         return None
 
-    def __init__(
-        self,
+    def __init__(self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
     ) -> None:
         self.project_id = os.environ.get("VERTEX_AI_PROJECT_ID", "project_id")
         self.region = os.environ.get("VERTEX_AI_REGION", "us-central1")
@@ -762,6 +752,8 @@ class VertexAIService(NLPService):
         self.logger = logger
         self._tracer = tracer
         self._meter = meter
+
+        self._health_reporter = health_reporter
 
         self.logger.info(
             f"Initialized VertexAIService with model {self.model_name} "
@@ -804,6 +796,7 @@ class VertexAIService(NLPService):
                     logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
+                    health_reporter=self._health_reporter,
                 )
                 fallback = VertexClaudeSonnet4[t](  # type: ignore
                     project_id=self.project_id,
@@ -811,6 +804,7 @@ class VertexAIService(NLPService):
                     logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
+                    health_reporter=self._health_reporter,
                 )
                 return FallbackSchematicGenerator[t](  # type: ignore
                     primary, fallback, logger=self.logger
@@ -822,6 +816,7 @@ class VertexAIService(NLPService):
                     logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
+                    health_reporter=self._health_reporter,
                 )
             elif "claude-3-5" in self.model_name:
                 return VertexClaudeSonnet35[t](  # type: ignore
@@ -830,6 +825,7 @@ class VertexAIService(NLPService):
                     logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
+                    health_reporter=self._health_reporter,
                 )
             elif "haiku" in self.model_name:
                 return VertexClaudeHaiku35[t](  # type: ignore
@@ -838,6 +834,7 @@ class VertexAIService(NLPService):
                     logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
+                    health_reporter=self._health_reporter,
                 )
             else:
                 # Default to Sonnet 3.5
@@ -847,6 +844,7 @@ class VertexAIService(NLPService):
                     logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
+                    health_reporter=self._health_reporter,
                 )
 
         elif provider == ModelProvider.GOOGLE:
@@ -857,6 +855,7 @@ class VertexAIService(NLPService):
                     logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
+                    health_reporter=self._health_reporter,
                 )
             elif "1.5-pro" in self.model_name:
                 return VertexGemini15Pro[t](  # type: ignore
@@ -865,6 +864,7 @@ class VertexAIService(NLPService):
                     logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
+                    health_reporter=self._health_reporter,
                 )
             elif "2.0-flash" in self.model_name:
                 return VertexGemini20Flash[t](  # type: ignore
@@ -873,6 +873,7 @@ class VertexAIService(NLPService):
                     logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
+                    health_reporter=self._health_reporter,
                 )
             elif "2.5-flash" in self.model_name:
                 return VertexGemini25Flash[t](  # type: ignore
@@ -881,6 +882,7 @@ class VertexAIService(NLPService):
                     logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
+                    health_reporter=self._health_reporter,
                 )
             elif "2.5-pro" in self.model_name:
                 return VertexGemini25Pro[t](  # type: ignore
@@ -889,6 +891,7 @@ class VertexAIService(NLPService):
                     logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
+                    health_reporter=self._health_reporter,
                 )
             else:
                 # Default to Gemini 2.5-flash
@@ -898,6 +901,7 @@ class VertexAIService(NLPService):
                     logger=self.logger,
                     tracer=self._tracer,
                     meter=self._meter,
+                    health_reporter=self._health_reporter,
                 )
 
         else:
@@ -906,7 +910,12 @@ class VertexAIService(NLPService):
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         """Get an embedder for text embeddings using Google Gen AI."""
-        return VertexTextEmbedding004(logger=self.logger, tracer=self._tracer, meter=self._meter)
+        return VertexTextEmbedding004(
+            logger=self.logger,
+            tracer=self._tracer,
+            meter=self._meter,
+            health_reporter=self._health_reporter,
+        )
 
     @override
     async def get_moderation_service(self) -> ModerationService:  # @Todo - add moderation service

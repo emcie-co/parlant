@@ -7,7 +7,10 @@ from typing import Sequence
 from typing_extensions import override
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.common import measure_guideline_matching_batch
-from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
+from parlant.core.engines.alpha.guideline_matching.generic.common import (
+    dump_guideline,
+    internal_representation,
+)
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingBatch,
@@ -88,7 +91,7 @@ class GenericLowCriticalityGuidelineMatchingBatch(GuidelineMatchingBatch):
 
                     if not inference.content.applies:
                         self._logger.warning(
-                            "Completion:\nNo applies generated! This shouldn't happen."
+                            "Completion:\nNo checks generated! This shouldn't happen."
                         )
                     else:
                         self._logger.trace(
@@ -98,10 +101,9 @@ class GenericLowCriticalityGuidelineMatchingBatch(GuidelineMatchingBatch):
                     matches = []
 
                     for id, match in inference.content.applies.items():
+                        per_item = json.dumps({"guideline_id": id, "applies": match}, indent=2)
                         if match:
-                            self._logger.debug(
-                                f"Activated:\n{inference.content.model_dump_json(indent=2)}"
-                            )
+                            self._logger.debug(f"Matched:\n{per_item}")
 
                             matches.append(
                                 GuidelineMatch(
@@ -111,9 +113,7 @@ class GenericLowCriticalityGuidelineMatchingBatch(GuidelineMatchingBatch):
                                 )
                             )
                         else:
-                            self._logger.debug(
-                                f"Skipped:\n{inference.content.model_dump_json(indent=2)}"
-                            )
+                            self._logger.debug(f"Not matched:\n{per_item}")
 
                     return GuidelineMatchingBatchResult(
                         matches=matches,
@@ -191,6 +191,11 @@ class GenericLowCriticalityGuidelineMatchingBatch(GuidelineMatchingBatch):
 
         guidelines_text = "\n".join(
             f"{i}) Condition: {guideline_representations[g.id].condition}. Action: {guideline_representations[g.id].action}"
+            + (
+                f" Description: {guideline_representations[g.id].description}"
+                if guideline_representations[g.id].description
+                else ""
+            )
             for i, g in self._guidelines.items()
         )
 
@@ -267,7 +272,10 @@ Examples of Guideline Match Evaluations:
 {guidelines_text}
 ###
 """,
-            props={"guidelines_text": guidelines_text},
+            props={
+                "guidelines_text": guidelines_text,
+                "guidelines": [dump_guideline(g) for g in self._guidelines.values()],
+            },
             status=SectionStatus.ACTIVE,
         )
 

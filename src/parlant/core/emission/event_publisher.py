@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from dataclasses import replace
-from typing import Any, Mapping, cast
+from typing import Mapping, cast
 from typing_extensions import override
 
 from parlant.core.common import JSONSerializable
@@ -23,7 +23,6 @@ from parlant.core.emissions import (
     EventEmitter,
     EventEmitterFactory,
     MessageEventHandle,
-    ensure_new_usage_params_and_get_trace_id,
 )
 from parlant.core.sessions import (
     Event,
@@ -80,13 +79,10 @@ class EventPublisher(EventEmitter):
     @override
     async def emit_status_event(
         self,
-        trace_id: str | None = None,
-        data: StatusEventData | None = None,
+        trace_id: str,
+        data: StatusEventData,
         metadata: Mapping[str, JSONSerializable] | None = None,
-        **kwargs: Any,
     ) -> EmittedEvent:
-        trace_id = ensure_new_usage_params_and_get_trace_id(trace_id, data, **kwargs)
-
         event = EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.STATUS,
@@ -102,13 +98,10 @@ class EventPublisher(EventEmitter):
     @override
     async def emit_message_event(
         self,
-        trace_id: str | None = None,
-        data: str | MessageEventData | None = None,
+        trace_id: str,
+        data: str | MessageEventData,
         metadata: Mapping[str, JSONSerializable] | None = None,
-        **kwargs: Any,
     ) -> MessageEventHandle:
-        trace_id = ensure_new_usage_params_and_get_trace_id(trace_id, data, **kwargs)
-
         if isinstance(data, str):
             message_data = cast(
                 JSONSerializable,
@@ -145,13 +138,10 @@ class EventPublisher(EventEmitter):
     @override
     async def emit_tool_event(
         self,
-        trace_id: str | None = None,
-        data: ToolEventData | None = None,
+        trace_id: str,
+        data: ToolEventData,
         metadata: Mapping[str, JSONSerializable] | None = None,
-        **kwargs: Any,
     ) -> EmittedEvent:
-        trace_id = ensure_new_usage_params_and_get_trace_id(trace_id, data, **kwargs)
-
         event = EmittedEvent(
             source=EventSource.SYSTEM,
             kind=EventKind.TOOL,
@@ -167,13 +157,10 @@ class EventPublisher(EventEmitter):
     @override
     async def emit_custom_event(
         self,
-        trace_id: str | None = None,
-        data: JSONSerializable | None = None,
+        trace_id: str,
+        data: JSONSerializable,
         metadata: Mapping[str, JSONSerializable] | None = None,
-        **kwargs: Any,
     ) -> EmittedEvent:
-        trace_id = ensure_new_usage_params_and_get_trace_id(trace_id, data, **kwargs)
-
         event = EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.CUSTOM,

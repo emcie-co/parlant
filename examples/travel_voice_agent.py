@@ -101,7 +101,7 @@ async def create_flight_booking_journey(server: p.Server, agent: p.Agent) -> p.J
     journey = await agent.create_journey(
         title="Book a Flight",
         description="Helps the customer find and book a flight to their desired destination.",
-        conditions=["The customer wants to book a flight"],
+        triggers=["The customer wants to book a flight"],
     )
 
     # First, determine the destination
@@ -169,7 +169,7 @@ async def create_booking_status_journey(server: p.Server, agent: p.Agent) -> p.J
     journey = await agent.create_journey(
         title="Check Booking Status",
         description="Retrieves the customer's booking status and provides relevant information.",
-        conditions=["The customer wants to check their booking status"],
+        triggers=["The customer wants to check their booking status"],
     )
 
     t0 = await journey.initial_state.transition_to(

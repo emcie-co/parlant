@@ -16,7 +16,7 @@ from __future__ import annotations
 import base64
 from collections import defaultdict
 from enum import Enum
-import hashlib
+import xxhash
 
 from typing import (
     Any,
@@ -155,7 +155,7 @@ class IdGenerator:
         self._unique_checksums: dict[str, int] = defaultdict(int)
 
     def _generate_deterministic_id(self, unique_str: str, size: int = 10) -> str:
-        h = hashlib.md5(unique_str.encode("utf-8")).digest()
+        h = xxhash.xxh3_128(unique_str.encode("utf-8")).digest()
         b64 = base64.urlsafe_b64encode(h).decode()
         id = "".join([c for c in b64 if c in id_generation_alphabet])[:size]
 
@@ -187,11 +187,8 @@ def generate_id(hints: Optional[Mapping[str, Any]] = None) -> UniqueId:
         return UniqueId(nanoid.generate(size=10, alphabet=id_generation_alphabet))
 
 
-def md5_checksum(input: str) -> str:
-    md5_hash = hashlib.md5()
-    md5_hash.update(input.encode("utf-8"))
-
-    return md5_hash.hexdigest()
+def xxh3_checksum(input: str) -> str:
+    return xxhash.xxh3_64_hexdigest(input.encode("utf-8"))
 
 
 def to_json_dict(d: Mapping[str, Any]) -> Mapping[str, Any]:

@@ -7,6 +7,7 @@ from parlant.core.agents import AgentId, AgentStore
 from parlant.core.async_utils import Timeout
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.common import JSONSerializable
+from parlant.core.health import HealthReporter
 from parlant.core.meter import Meter
 from parlant.core.persistence.common import Cursor, SortDirection
 from parlant.core.tracer import Tracer
@@ -89,10 +90,14 @@ class Moderation(Enum):
     NONE = "none"
 
 
-def _get_jailbreak_moderation_service(logger: Logger, meter: Meter) -> ModerationService:
+def _get_jailbreak_moderation_service(
+    logger: Logger,
+    meter: Meter,
+    health_reporter: HealthReporter,
+) -> ModerationService:
     from parlant.adapters.nlp.lakera import LakeraGuard
 
-    return LakeraGuard(logger, meter)
+    return LakeraGuard(logger, meter, health_reporter)
 
 
 class SessionModule:
@@ -109,6 +114,7 @@ class SessionModule:
         engine: Engine,
         event_emitter_factory: EventEmitterFactory,
         background_task_service: BackgroundTaskService,
+        health_reporter: HealthReporter,
     ):
         self._logger = logger
         self._meter = meter
@@ -119,6 +125,7 @@ class SessionModule:
         self._customer_store = customer_store
         self._session_listener = session_listener
         self._nlp_service = nlp_service
+        self._health_reporter = health_reporter
 
         self._engine = engine
         self._event_emitter_factory = event_emitter_factory
@@ -327,7 +334,7 @@ class SessionModule:
 
         if moderation == Moderation.PARANOID:
             check = await _get_jailbreak_moderation_service(
-                self._logger, self._meter
+                self._logger, self._meter, self._health_reporter
             ).moderate_customer(context)
             if "jailbreak" in check.tags:
                 flagged = True
@@ -517,10 +524,13 @@ class SessionModule:
     ) -> None:
         session = await self._session_store.read_session(session_id)
 
-        events = await self._session_store.list_events(
-            session_id=session_id,
-            min_offset=0,
-            exclude_deleted=True,
+        events = sorted(
+            await self._session_store.list_events(
+                session_id=session_id,
+                min_offset=0,
+                exclude_deleted=True,
+            ),
+            key=lambda event: event.offset,
         )
 
         events_starting_from_min_offset = [e for e in events if e.offset >= min_offset]
@@ -546,10 +556,16 @@ class SessionModule:
             return
 
         state_index_offset = next(
-            i
-            for i, s in enumerate(session.agent_states, start=0)
-            if s.trace_id.startswith(event_at_min_offset.trace_id)
+            (
+                i
+                for i, s in enumerate(session.agent_states, start=0)
+                if s.trace_id.startswith(event_at_min_offset.trace_id)
+            ),
+            None,
         )
+
+        if state_index_offset is None:
+            return
 
         agent_states = session.agent_states[:state_index_offset]
 

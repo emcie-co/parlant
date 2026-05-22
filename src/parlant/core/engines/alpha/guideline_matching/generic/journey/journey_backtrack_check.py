@@ -49,7 +49,7 @@ class JourneyBacktrackCheckShot(Shot):
     journey_nodes: dict[str, _JourneyNode] | None
     previous_path: Sequence[str | None]
     expected_result: JourneyBacktrackCheckSchema
-    conditions: Sequence[str]
+    triggers: Sequence[str]
 
 
 class BacktrackCheckResult(DefaultBaseModel):
@@ -69,7 +69,7 @@ class JourneyBacktrackCheck:
         context: GuidelineMatchingContext,
         node_guidelines: Sequence[Guideline] = [],
         journey_path: Sequence[str | None] = [],
-        journey_conditions: Sequence[Guideline] = [],
+        journey_triggers: Sequence[Guideline] = [],
     ) -> None:
         self._logger = logger
 
@@ -81,7 +81,7 @@ class JourneyBacktrackCheck:
         self._context = context
         self._examined_journey = examined_journey
         self._previous_path: Sequence[str | None] = journey_path
-        self._journey_conditions = journey_conditions
+        self._journey_triggers = journey_triggers
 
     def _build_node_wrappers(self, guidelines: Sequence[Guideline]) -> dict[str, _JourneyNode]:
         def _get_guideline_node_index(guideline: Guideline) -> str:
@@ -175,7 +175,7 @@ class JourneyBacktrackCheck:
         nodes: dict[str, _JourneyNode],
         journey_title: str,
         journey_description: str = "",
-        journey_conditions: Sequence[Guideline] = [],
+        journey_triggers: Sequence[Guideline] = [],
         previous_path: Sequence[str | None] = [],
         print_customer_action_description: bool = False,
         to_prune: bool = False,
@@ -245,13 +245,13 @@ class JourneyBacktrackCheck:
             journey_description_str = f"\nJourney Description: {journey_description}"
         else:
             journey_description_str = ""
-        if journey_conditions:
-            journey_conditions_str = " OR ".join(
-                f'"{g.content.condition}"' for g in journey_conditions
+        if journey_triggers:
+            journey_triggers_str = " OR ".join(
+                f'"{g.content.condition}"' for g in journey_triggers
             )
-            journey_conditions_str = f"\nJourney activation condition: {journey_conditions_str}"
+            journey_triggers_str = f"\nJourney activation condition: {journey_triggers_str}"
         else:
-            journey_conditions_str = ""
+            journey_triggers_str = ""
         if previous_path[-1]:
             journey_status = (
                 "This journey is active now. We may need to backtrack to previous executed steps"
@@ -311,7 +311,7 @@ This journey is not currently active. We may need to:
     """
         return f"""
     Journey: {journey_title}
-    {journey_conditions_str}{journey_description_str}
+    {journey_triggers_str}{journey_description_str}
 
     Steps:
     {nodes_str}
@@ -342,12 +342,18 @@ This journey is not currently active. We may need to:
                 )
 
                 if not inference.content.requires_backtracking:
+                    self._logger.debug(
+                        f"Journey '{self._examined_journey.title}': no backtrack required"
+                    )
                     return BacktrackCheckResult(
                         requires_backtracking=inference.content.requires_backtracking,
                         backtrack_to_same_journey_process=False,
                         generation_info=inference.info,
                     )
                 else:
+                    self._logger.debug(
+                        f"Journey '{self._examined_journey.title}': backtrack required"
+                    )
                     return BacktrackCheckResult(
                         requires_backtracking=inference.content.requires_backtracking,
                         backtrack_to_same_journey_process=inference.content.backtrack_to_same_journey_process,
@@ -444,7 +450,7 @@ Example section is over. The following is the real data you need to use for your
                 nodes=self._node_wrappers,
                 journey_title=self._examined_journey.title,
                 previous_path=self._previous_path,
-                journey_conditions=self._journey_conditions,
+                journey_triggers=self._journey_triggers,
                 journey_description=self._examined_journey.description,
                 print_customer_action_description=True,
                 to_prune=True,
@@ -513,7 +519,7 @@ OUTPUT FORMAT
                 shot.journey_nodes,
                 previous_path=shot.previous_path,
                 journey_title=shot.journey_title,
-                journey_conditions=[
+                journey_triggers=[
                     Guideline(
                         id=GuidelineId(f"c-{i}"),
                         creation_utc=datetime.now(timezone.utc),
@@ -526,7 +532,7 @@ OUTPUT FORMAT
                         criticality=Criticality.HIGH,
                         tags=[],
                     )
-                    for i, c in enumerate(shot.conditions)
+                    for i, c in enumerate(shot.triggers)
                 ],
                 print_customer_action_description=True,
             )
@@ -906,7 +912,7 @@ _baseline_shots: Sequence[JourneyBacktrackCheckShot] = [
         journey_nodes=book_taxi_shot_journey_nodes,
         previous_path=["1", "2", "4", "2", "3", "5"],
         expected_result=expected_output_1,
-        conditions=[],
+        triggers=[],
     ),
     JourneyBacktrackCheckShot(
         description="Example 2 - No backtracking",
@@ -915,7 +921,7 @@ _baseline_shots: Sequence[JourneyBacktrackCheckShot] = [
         journey_nodes=book_taxi_shot_journey_nodes,
         previous_path=["1", "2", "4", "2", "3", "5"],
         expected_result=expected_output_2,
-        conditions=[],
+        triggers=[],
     ),
     JourneyBacktrackCheckShot(
         description="Example 3 - Backtrack to a new journey process",
@@ -924,7 +930,7 @@ _baseline_shots: Sequence[JourneyBacktrackCheckShot] = [
         journey_nodes=book_taxi_shot_journey_nodes,
         previous_path=["1", "2", "3", "5", "7", "8", "None"],
         expected_result=expected_output_3,
-        conditions=[],
+        triggers=[],
     ),
     JourneyBacktrackCheckShot(
         description="Example 4 - Exiting the journey",
@@ -933,7 +939,7 @@ _baseline_shots: Sequence[JourneyBacktrackCheckShot] = [
         journey_nodes=book_taxi_shot_journey_nodes,
         previous_path=["1", "2"],
         expected_result=expected_output_4,
-        conditions=[],
+        triggers=[],
     ),
 ]
 

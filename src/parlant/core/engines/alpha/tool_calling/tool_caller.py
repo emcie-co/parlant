@@ -215,15 +215,15 @@ class ToolCaller:
 
                 tools[(tool_id, tool)].append(guideline_match)
 
-            batches = await self.batcher.create_batches(
-                tools=tools,
-                context=context,
-            )
+        batches = await self.batcher.create_batches(
+            tools=tools,
+            context=context,
+        )
 
-            batch_tasks = [batch.process() for batch in batches]
-            batch_results = await async_utils.safe_gather(*batch_tasks)
+        batch_tasks = [batch.process() for batch in batches]
+        batch_results = await async_utils.safe_gather(*batch_tasks)
 
-            t_end = time.time()
+        t_end = time.time()
 
         # Aggregate insights from all batch results (e.g., missing data across batches)
         aggregated_evaluations: list[tuple[ToolId, ToolCallEvaluation]] = []

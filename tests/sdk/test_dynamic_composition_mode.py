@@ -57,7 +57,7 @@ class Test_that_journey_level_composition_mode_affects_all_states(SDKTest):
         self.journey = await self.agent.create_journey(
             title="Support Journey",
             description="A journey for customer support",
-            conditions=["Customer seeks support"],
+            triggers=["Customer seeks support"],
             composition_mode=p.CompositionMode.COMPOSITED,
         )
 
@@ -92,7 +92,7 @@ class Test_that_journey_node_composition_mode_overrides_journey_level(SDKTest):
         self.journey = await self.agent.create_journey(
             title="Food order",
             description="Journey for ordering food",
-            conditions=["Customer wants to order food"],
+            triggers=["Customer wants to order food"],
             composition_mode=p.CompositionMode.FLUID,
         )
 

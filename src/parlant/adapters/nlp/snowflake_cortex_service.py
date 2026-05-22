@@ -49,6 +49,7 @@ from parlant.core.nlp.generation import (
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.moderation import ModerationService, NoModeration
 from parlant.core.tracer import Tracer
+from parlant.core.health import HealthReporter
 
 HTTPX_TIMEOUT = httpx.Timeout(timeout=60.0, connect=5.0, read=60.0, write=60.0)
 
@@ -75,13 +76,13 @@ class CortexSchematicGenerator(BaseSchematicGenerator[T]):
     _provider_params = ["temperature", "top_p", "top_k", "max_tokens", "stop"]
     supported_hints = _provider_params + ["strict"]
 
-    def __init__(self, *, schema: type[T], logger: Logger, tracer: Tracer, meter: Meter) -> None:
+    def __init__(self, *, schema: type[T], logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
         self.schema = schema
         self._base_url = os.environ["SNOWFLAKE_CORTEX_BASE_URL"].rstrip("/")
         self._token = os.environ["SNOWFLAKE_AUTH_TOKEN"]
         model_name = os.environ["SNOWFLAKE_CORTEX_CHAT_MODEL"]
 
-        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
 
         self._tokenizer = CortexEstimatingTokenizer(self.model_name)
         self._client = httpx.AsyncClient(timeout=HTTPX_TIMEOUT)
@@ -245,9 +246,9 @@ class CortexEmbedder(BaseEmbedder):
 
     supported_arguments = ["dimensions"]
 
-    def __init__(self, *, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+    def __init__(self, *, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
         model_name = os.environ["SNOWFLAKE_CORTEX_EMBED_MODEL"]
-        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
 
         self._base_url = os.environ["SNOWFLAKE_CORTEX_BASE_URL"].rstrip("/")
         self._token = os.environ["SNOWFLAKE_AUTH_TOKEN"]
@@ -366,10 +367,12 @@ class SnowflakeCortexService(NLPService):
             return "Missing Snowflake Cortex settings:\n  - " + "\n  - ".join(missing)
         return None
 
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
         self.logger = logger
         self._tracer = tracer
         self._meter = meter
+
+        self._health_reporter = health_reporter
 
         self._base_url = os.environ["SNOWFLAKE_CORTEX_BASE_URL"].rstrip("/")
         self._token = os.environ["SNOWFLAKE_AUTH_TOKEN"]
@@ -396,12 +399,21 @@ class SnowflakeCortexService(NLPService):
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> SchematicGenerator[T]:
         return CortexSchematicGenerator[t](  # type: ignore[valid-type,misc]
-            schema=t, logger=self.logger, tracer=self._tracer, meter=self._meter
+            schema=t,
+            logger=self.logger,
+            tracer=self._tracer,
+            meter=self._meter,
+            health_reporter=self._health_reporter,
         )
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return CortexEmbedder(logger=self.logger, tracer=self._tracer, meter=self._meter)
+        return CortexEmbedder(
+            logger=self.logger,
+            tracer=self._tracer,
+            meter=self._meter,
+            health_reporter=self._health_reporter,
+        )
 
     @override
     async def get_moderation_service(self) -> ModerationService:

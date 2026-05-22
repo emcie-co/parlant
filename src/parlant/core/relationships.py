@@ -50,7 +50,13 @@ class RelationshipKind(Enum):
     """When both SOURCE and TARGET are activated, only SOURCE should be activated."""
 
     DEPENDENCY = "dependency"
-    """When SOURCE is activated, deactivate it unless T is also activated."""
+    """When SOURCE is activated, deactivate it unless TARGET is also activated.
+    All DEPENDENCY targets must be met (AND semantics across targets)."""
+
+    DEPENDENCY_ANY = "dependency_any"
+    """When SOURCE is activated, deactivate it unless at least one TARGET in the
+    same group is also activated (OR semantics within a group).
+    Groups are identified by group_id on the Relationship."""
 
     DISAMBIGUATION = "disambiguation"
     """When SOURCE is activated and two or more of the targets T ∈ {T₁, T₂, ...} are activated, ask the customer to clarify which action they want to take."""
@@ -71,11 +77,19 @@ class RelationshipEntityKind(Enum):
     GUIDELINE = "guideline"
     """A guideline entity."""
 
-    TAG = "tag"
-    """A tag entity."""
+    TAG_ALL = "tag_all"
+    """A tag entity with ALL semantics: all tagged members must be active."""
+
+    TAG_ANY = "tag_any"
+    """A tag entity with ANY semantics: at least one tagged member must be active."""
 
     TOOL = "tool"
     """A tool entity."""
+
+    @property
+    def is_tag(self) -> bool:
+        """Returns True if this entity kind is any tag variant (TAG_ALL or TAG_ANY)."""
+        return self in (RelationshipEntityKind.TAG_ALL, RelationshipEntityKind.TAG_ANY)
 
 
 @dataclass(frozen=True)
@@ -98,6 +112,7 @@ class Relationship:
     source: RelationshipEntity
     target: RelationshipEntity
     kind: RelationshipKind
+    group_id: Optional[str] = None
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -110,6 +125,7 @@ class RelationshipStore(ABC):
         source: RelationshipEntity,
         target: RelationshipEntity,
         kind: RelationshipKind,
+        group_id: Optional[str] = None,
     ) -> Relationship: ...
 
     @abstractmethod
@@ -160,6 +176,7 @@ class RelationshipDocument(TypedDict, total=False):
     target: str
     target_type: str
     kind: str
+    group_id: str
 
 
 class RelationshipDocumentStore(RelationshipStore):
@@ -229,6 +246,7 @@ class RelationshipDocumentStore(RelationshipStore):
             target=relationship.target.id_to_string(),
             target_type=relationship.target.kind.value,
             kind=relationship.kind.value,
+            group_id=relationship.group_id or "",
         )
 
     def _deserialize(
@@ -239,12 +257,16 @@ class RelationshipDocumentStore(RelationshipStore):
             id: str,
             entity_type_str: str,
         ) -> RelationshipEntity:
+            # Backwards compat: legacy "tag" maps to TAG_ALL
+            if entity_type_str == "tag":
+                entity_type_str = RelationshipEntityKind.TAG_ALL.value
+
             entity_type = RelationshipEntityKind(entity_type_str)
 
             if entity_type == RelationshipEntityKind.GUIDELINE:
                 return RelationshipEntity(id=GuidelineId(id), kind=RelationshipEntityKind.GUIDELINE)
-            elif entity_type == RelationshipEntityKind.TAG:
-                return RelationshipEntity(id=TagId(id), kind=RelationshipEntityKind.TAG)
+            elif entity_type in (RelationshipEntityKind.TAG_ALL, RelationshipEntityKind.TAG_ANY):
+                return RelationshipEntity(id=TagId(id), kind=entity_type)
             elif entity_type == RelationshipEntityKind.TOOL:
                 return RelationshipEntity(
                     id=ToolId.from_string(id), kind=RelationshipEntityKind.TOOL
@@ -263,7 +285,12 @@ class RelationshipDocumentStore(RelationshipStore):
 
         kind = (
             RelationshipKind(relationship_document["kind"])
-            if source.kind in {RelationshipEntityKind.GUIDELINE, RelationshipEntityKind.TAG}
+            if source.kind
+            in {
+                RelationshipEntityKind.GUIDELINE,
+                RelationshipEntityKind.TAG_ALL,
+                RelationshipEntityKind.TAG_ANY,
+            }
             else RelationshipKind(relationship_document["kind"])
         )
 
@@ -273,6 +300,7 @@ class RelationshipDocumentStore(RelationshipStore):
             source=source,
             target=target,
             kind=kind,
+            group_id=relationship_document.get("group_id") or None,
         )
 
     async def _get_relationships_graph(self, kind: RelationshipKind) -> networkx.DiGraph:
@@ -313,6 +341,7 @@ class RelationshipDocumentStore(RelationshipStore):
         source: RelationshipEntity,
         target: RelationshipEntity,
         kind: RelationshipKind,
+        group_id: Optional[str] = None,
         creation_utc: Optional[datetime] = None,
     ) -> Relationship:
         async with self._lock.writer_lock:
@@ -326,6 +355,7 @@ class RelationshipDocumentStore(RelationshipStore):
                 source=source,
                 target=target,
                 kind=kind,
+                group_id=group_id,
             )
 
             result = await self._collection.update_one(
@@ -350,6 +380,40 @@ class RelationshipDocumentStore(RelationshipStore):
                 target.id,
                 id=relationship.id,
             )
+
+            # For dependency kinds, also check the other dependency graph for
+            # cross-kind reachability (a cycle through DEPENDENCY + DEPENDENCY_ANY
+            # should be rejected)
+            has_cycle = False
+            if source.id != target.id:
+                if not networkx.is_directed_acyclic_graph(graph):
+                    has_cycle = True
+                elif kind in (RelationshipKind.DEPENDENCY, RelationshipKind.DEPENDENCY_ANY):
+                    other_kind = (
+                        RelationshipKind.DEPENDENCY_ANY
+                        if kind == RelationshipKind.DEPENDENCY
+                        else RelationshipKind.DEPENDENCY
+                    )
+                    other_graph = await self._get_relationships_graph(other_kind)
+                    if other_graph.has_node(target.id) and other_graph.has_node(source.id):
+                        if networkx.has_path(other_graph, target.id, source.id):
+                            has_cycle = True
+
+            if has_cycle:
+                graph.remove_edge(source.id, target.id)
+
+                await self._collection.delete_one(
+                    filters={
+                        "source": {"$eq": source.id_to_string()},
+                        "target": {"$eq": target.id_to_string()},
+                        "kind": {"$eq": kind.value},
+                    },
+                )
+
+                raise ValueError(
+                    f"Circular dependency detected: adding {source.id} → {target.id} "
+                    f"would create a cycle in {kind.value} relationships"
+                )
 
         return relationship
 
@@ -456,32 +520,36 @@ class RelationshipDocumentStore(RelationshipStore):
                 return relationships
             else:
                 if source_id:
+                    source_filters = {
+                        "source": {
+                            "$eq": source_id.to_string()
+                            if isinstance(source_id, ToolId)
+                            else str(source_id)
+                        },
+                        **({"kind": {"$eq": kind.value}} if kind else {}),
+                    }
                     relationships.extend(
                         [
                             self._deserialize(d)
                             for d in await self._collection.find(
-                                filters={
-                                    "source": {
-                                        "$eq": source_id.to_string()
-                                        if isinstance(source_id, ToolId)
-                                        else str(source_id)
-                                    }
-                                }
+                                filters=cast(Where, source_filters)
                             )
                         ]
                     )
                 if target_id:
+                    target_filters = {
+                        "target": {
+                            "$eq": target_id.to_string()
+                            if isinstance(target_id, ToolId)
+                            else str(target_id)
+                        },
+                        **({"kind": {"$eq": kind.value}} if kind else {}),
+                    }
                     relationships.extend(
                         [
                             self._deserialize(d)
                             for d in await self._collection.find(
-                                filters={
-                                    "target": {
-                                        "$eq": target_id.to_string()
-                                        if isinstance(target_id, ToolId)
-                                        else str(target_id)
-                                    }
-                                }
+                                filters=cast(Where, target_filters)
                             )
                         ]
                     )

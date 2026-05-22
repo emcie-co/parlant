@@ -102,6 +102,10 @@ class WebSocketLogger(TracingLogger):
                     await self._messages_in_queue.acquire()
                     payload = self._message_queue.popleft()
 
+                    if not self._socket_subscriptions:
+                        await asyncio.sleep(0)
+                        continue
+
                     async with self._lock:
                         socket_subscriptions = dict(self._socket_subscriptions)
 

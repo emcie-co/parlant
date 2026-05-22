@@ -55,7 +55,7 @@ async def test_that_a_capability_can_be_created_with_tags(
     journey = await journey_store.create_journey(
         title="Customer Support Journey",
         description="A journey for customer support interactions.",
-        conditions=[],
+        triggers=[],
     )
 
     tag1 = await tag_store.create_tag("tag1")
@@ -328,7 +328,7 @@ async def test_that_journey_tags_can_be_added_to_a_capability(
     journey = await journey_store.create_journey(
         title="Customer Support Journey",
         description="A journey for customer support interactions.",
-        conditions=[],
+        triggers=[],
     )
     journey_tag = Tag.for_journey_id(journey.id).id
 
@@ -372,7 +372,7 @@ async def test_that_journey_tags_can_be_removed_from_a_capability(
     journey = await journey_store.create_journey(
         title="Customer Support Journey",
         description="A journey for customer support interactions.",
-        conditions=[],
+        triggers=[],
     )
     journey_tag = Tag.for_journey_id(journey.id).id
 

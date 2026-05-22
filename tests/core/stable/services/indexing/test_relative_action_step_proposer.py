@@ -38,7 +38,7 @@ class _StepData:
 class _JourneyData:
     title: str
     steps: list[_StepData]
-    conditions: Sequence[str] = field(default_factory=list)
+    triggers: Sequence[str] = field(default_factory=list)
 
 
 @fixture
@@ -57,24 +57,24 @@ def context(
 def create_journey(
     title: str,
     steps: list[_StepData],
-    conditions: Sequence[str],
+    triggers: Sequence[str],
 ) -> tuple[Journey, Sequence[Guideline], Sequence[Guideline]]:
-    # 1. Create conditions, get IDs
+    # 1. Create trigger guidelines, get IDs
     # 2. Create guidelines from step data
-    # 3. Return journey, guidelines, conditions
+    # 3. Return journey, step guidelines, trigger guidelines
     journey_id = JourneyId("j1")
 
-    condition_guidelines: Sequence[Guideline] = [
+    trigger_guidelines: Sequence[Guideline] = [
         Guideline(
             id=GuidelineId(f"c-{i}"),
             creation_utc=datetime.now(timezone.utc),
-            content=GuidelineContent(condition=condition, action=None),
+            content=GuidelineContent(condition=trigger, action=None),
             criticality=Criticality.MEDIUM,
             enabled=False,
             tags=[],
             metadata={},
         )
-        for i, condition in enumerate(conditions)
+        for i, trigger in enumerate(triggers)
     ]
 
     root_guideline = Guideline(
@@ -128,12 +128,12 @@ def create_journey(
         root_id=JourneyNodeId(root_guideline.id),
         creation_utc=datetime.now(timezone.utc),
         description="",
-        conditions=[g.id for g in condition_guidelines],
+        triggers=[g.id for g in trigger_guidelines],
         title=title,
         tags=[],
     )
 
-    return journey, [root_guideline] + list(step_guidelines), condition_guidelines
+    return journey, [root_guideline] + list(step_guidelines), trigger_guidelines
 
 
 async def base_test_that_related_action_step_proposed(
@@ -143,15 +143,15 @@ async def base_test_that_related_action_step_proposed(
 ) -> None:
     relative_action_proposer = context.container[RelativeActionProposer]
 
-    examined_journey, step_guidelines, condition_guidelines = create_journey(
+    examined_journey, step_guidelines, trigger_guidelines = create_journey(
         title=journey.title,
         steps=journey.steps,
-        conditions=journey.conditions,
+        triggers=journey.triggers,
     )
     result = await relative_action_proposer.propose_relative_action(
         examined_journey,
         step_guidelines,
-        condition_guidelines,
+        trigger_guidelines,
     )
     proposed_actions = {a.index: a.rewritten_actions for a in result.actions}
 
@@ -170,7 +170,7 @@ async def test_action_is_proposed_when_needed(
     context: ContextOfTest,
 ) -> None:
     journey = _JourneyData(
-        conditions=["the customer wants to apply for a personal loan"],
+        triggers=["the customer wants to apply for a personal loan"],
         title="Personal Loan Application",
         steps=[
             _StepData(
@@ -238,7 +238,7 @@ async def test_action_is_proposed_when_needed(
     to_propose_action = {
         "2": "Ask what they need the loan for",
         "5": "The loan application process looks good or the initial eligibility check looks good",
-        "8": "Submit the loan application for review",
+        "8": "Submit the loan application (along with the documents, potentially) for review",
     }
     await base_test_that_related_action_step_proposed(
         context,
@@ -251,7 +251,7 @@ async def test_action_is_not_proposed_when_not_needed(
     context: ContextOfTest,
 ) -> None:
     journey = _JourneyData(
-        conditions=["the customer wants to order a calzone"],
+        triggers=["the customer wants to order a calzone"],
         title="Deliver Calzone Journey",
         steps=[
             _StepData(
@@ -352,7 +352,7 @@ async def test_action_is_proposed_when_needed_2(
     context: ContextOfTest,
 ) -> None:
     journey = _JourneyData(
-        conditions=["the customer wants to order a calzone"],
+        triggers=["the customer wants to order a calzone"],
         title="Deliver Calzone Journey",
         steps=[
             _StepData(

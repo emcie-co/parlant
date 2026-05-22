@@ -29,10 +29,10 @@ from parlant.api.common import (
     example_json_content,
 )
 from parlant.core.app_modules.journeys import (
-    JourneyConditionUpdateParams,
     JourneyGraph,
     JourneyLabelsUpdateParams,
     JourneyTagUpdateParams,
+    JourneyTriggerUpdateParams,
 )
 from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel, JSONSerializable
@@ -80,7 +80,7 @@ JourneyDescriptionField: TypeAlias = Annotated[
     ),
 ]
 
-JourneyConditionField: TypeAlias = Annotated[
+JourneyTriggerField: TypeAlias = Annotated[
     str,
     Field(
         description="The condition that triggers this journey",
@@ -111,7 +111,7 @@ journey_example: ExampleJson = {
     "description": """1. Customer wants to lock their card
 2. Customer reports that their card doesn't work
 3. Customer suspects their card has been stolen""",
-    "conditions": [
+    "triggers": [
         "customer needs unlocking their card",
         "customer needs help with card",
     ],
@@ -144,13 +144,13 @@ class JourneyDTO(
     """
     A journey represents a guided interaction path for specific user scenarios.
 
-    Each journey is triggered by a condition and contains steps to guide the interaction.
+    Each journey is activated by one or more triggers and contains steps to guide the interaction.
     """
 
     id: JourneyIdPath
     title: JourneyTitleField
     description: str
-    conditions: Sequence[GuidelineId]
+    triggers: Sequence[GuidelineId]
     tags: JourneyTagsField = []
     composition_mode: CompositionModeDTO | None = None
     labels: JourneyLabelsField = set()
@@ -167,7 +167,7 @@ class JourneyCreationParamsDTO(
 
     title: JourneyTitleField
     description: str
-    conditions: Sequence[JourneyConditionField]
+    triggers: Sequence[JourneyTriggerField]
     id: JourneyIdPath | None = None
     tags: JourneyTagsField | None = None
     composition_mode: CompositionModeDTO | None = None
@@ -175,7 +175,7 @@ class JourneyCreationParamsDTO(
     priority: int = 0
 
 
-JourneyConditionUpdateAddField: TypeAlias = Annotated[
+JourneyTriggerUpdateAddField: TypeAlias = Annotated[
     list[GuidelineId],
     Field(
         description="List of guideline IDs to add to the journey",
@@ -183,7 +183,7 @@ JourneyConditionUpdateAddField: TypeAlias = Annotated[
     ),
 ]
 
-JourneyConditionUpdateRemoveField: TypeAlias = Annotated[
+JourneyTriggerUpdateRemoveField: TypeAlias = Annotated[
     list[GuidelineId],
     Field(
         description="List of guideline IDs to remove from the journey",
@@ -191,7 +191,7 @@ JourneyConditionUpdateRemoveField: TypeAlias = Annotated[
     ),
 ]
 
-journey_condition_update_params_example: ExampleJson = {
+journey_trigger_update_params_example: ExampleJson = {
     "add": [
         "guid_123xz",
         "guid_456abc",
@@ -203,16 +203,16 @@ journey_condition_update_params_example: ExampleJson = {
 }
 
 
-class JourneyConditionUpdateParamsDTO(
+class JourneyTriggerUpdateParamsDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": journey_condition_update_params_example},
+    json_schema_extra={"example": journey_trigger_update_params_example},
 ):
     """
-    Parameters for updating an existing journey's conditions.
+    Parameters for updating an existing journey's triggers.
     """
 
-    add: JourneyConditionUpdateAddField | None = None
-    remove: JourneyConditionUpdateRemoveField | None = None
+    add: JourneyTriggerUpdateAddField | None = None
+    remove: JourneyTriggerUpdateRemoveField | None = None
 
 
 JourneyTagUpdateAddField: TypeAlias = Annotated[
@@ -284,7 +284,7 @@ class JourneyUpdateParamsDTO(
 
     title: JourneyTitleField | None = None
     description: str | None = None
-    conditions: JourneyConditionUpdateParamsDTO | None = None
+    triggers: JourneyTriggerUpdateParamsDTO | None = None
     tags: JourneyTagUpdateParamsDTO | None = None
     composition_mode: CompositionModeDTO | None = None
     labels: JourneyLabelsUpdateParamsDTO | None = None
@@ -459,7 +459,7 @@ def create_router(
         """
         Creates a new journey in the system.
 
-        The journey will be initialized with the provided title, description, and conditions.
+        The journey will be initialized with the provided title, description, and triggers.
         A unique identifier will be automatically generated unless a custom ID is provided.
         """
         await authorization_policy.authorize(request=request, operation=Operation.CREATE_JOURNEY)
@@ -467,7 +467,7 @@ def create_router(
         journey, guidelines = await app.journeys.create(
             title=params.title,
             description=params.description,
-            conditions=params.conditions,
+            triggers=params.triggers,
             tags=params.tags,
             id=params.id,
             composition_mode=composition_mode_dto_to_composition_mode(params.composition_mode)
@@ -481,7 +481,7 @@ def create_router(
             id=journey.id,
             title=journey.title,
             description=journey.description,
-            conditions=[g.id for g in guidelines],
+            triggers=[g.id for g in guidelines],
             tags=journey.tags,
             composition_mode=composition_mode_to_composition_mode_dto(journey.composition_mode)
             if journey.composition_mode
@@ -520,7 +520,7 @@ def create_router(
                     id=journey.id,
                     title=journey.title,
                     description=journey.description,
-                    conditions=journey.conditions,
+                    triggers=journey.triggers,
                     tags=journey.tags,
                     composition_mode=composition_mode_to_composition_mode_dto(
                         journey.composition_mode
@@ -564,7 +564,7 @@ def create_router(
             id=model.journey.id,
             title=model.journey.title,
             description=model.journey.description,
-            conditions=model.journey.conditions,
+            triggers=model.journey.triggers,
             tags=model.journey.tags,
             composition_mode=composition_mode_to_composition_mode_dto(
                 model.journey.composition_mode
@@ -637,10 +637,10 @@ def create_router(
             journey_id=journey_id,
             title=params.title,
             description=params.description,
-            conditions=JourneyConditionUpdateParams(
-                add=params.conditions.add, remove=params.conditions.remove
+            triggers=JourneyTriggerUpdateParams(
+                add=params.triggers.add, remove=params.triggers.remove
             )
-            if params.conditions
+            if params.triggers
             else None,
             tags=JourneyTagUpdateParams(add=params.tags.add, remove=params.tags.remove)
             if params.tags
@@ -660,7 +660,7 @@ def create_router(
             id=journey.id,
             title=journey.title,
             description=journey.description,
-            conditions=journey.conditions,
+            triggers=journey.triggers,
             tags=journey.tags,
             composition_mode=composition_mode_to_composition_mode_dto(journey.composition_mode)
             if journey.composition_mode

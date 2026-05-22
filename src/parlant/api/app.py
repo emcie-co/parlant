@@ -31,6 +31,8 @@ from starlette.routing import Match
 from lagom import Container
 
 from parlant.adapters.loggers.websocket import WebSocketLogger
+from parlant.api.health import configure_healthz
+from parlant.core.health import HealthReporter
 from parlant.api import agents, capabilities
 from parlant.api import evaluations
 from parlant.api import journeys
@@ -105,7 +107,7 @@ def _resolve_operation_id(request: Request) -> str | None:
 
 async def create_api_app(
     container: Container,
-    configure: Callable[[FastAPI], Awaitable[None]] | None = None,
+    configure: Callable[[FastAPI], Awaitable[FastAPI | None]] | None = None,
     contextvar_propagation: Mapping[ContextVar[Any], Any] = {},
 ) -> ASGIApplication:
     logger = container[Logger]
@@ -119,6 +121,9 @@ async def create_api_app(
         name="httpreq",
         description="HTTP Request Duration",
     )
+
+    configure_healthz(container)
+    health_reporter = container[HealthReporter]
 
     api_app = FastAPI(
         title="Parlant API",
@@ -245,8 +250,8 @@ async def create_api_app(
         return RedirectResponse("/chat")
 
     @api_app.get("/healthz")
-    async def health_check() -> dict[str, str]:
-        return {"status": "ok"}
+    async def health_check() -> dict[str, Any]:
+        return health_reporter.snapshot()
 
     agent_router = APIRouter(prefix="/agents")
 
@@ -366,7 +371,8 @@ async def create_api_app(
 
     # Call configure_api hook if provided
     if configure:
-        await configure(api_app)
+        if new_app := await configure(api_app):
+            api_app = new_app
 
     # Store FastAPI app in container for access via Server.api property
     container[FastAPI] = api_app

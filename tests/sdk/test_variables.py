@@ -214,3 +214,106 @@ class Test_that_variable_get_value_returns_correct_value_when_called_from_retrie
             "Variable.get_value() returned None inside retriever"
         )
         assert self.retrieved_value == "premium"
+
+
+class Test_that_a_variable_value_can_be_set_for_an_agent(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Var Agent",
+            description="Agent for variable per-agent value test",
+        )
+
+        self.variable = await self.agent.create_variable(
+            name="subscription_plan",
+            description="The current subscription plan of the user.",
+        )
+
+        await self.variable.set_value_for_agent(self.agent, "premium")
+
+    async def run(self, ctx: Context) -> None:
+        assert "premium" == await self.variable.get_value_for_agent(self.agent)
+
+
+class Test_that_variable_value_for_agent_is_used_when_no_customer_or_tag_value_exists(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Var Agent",
+            description="Agent for variable per-agent engine resolution test",
+        )
+
+        self.customer = await server.create_customer("Jane Doe")
+
+        self.variable = await self.agent.create_variable(
+            name="subscription_plan",
+            description="The current subscription plan of the user.",
+        )
+
+        await self.variable.set_global_value("free")
+        await self.variable.set_value_for_agent(self.agent, "premium")
+
+        self.retrieved_value: p.JSONSerializable | None = None
+
+        variable = self.variable
+
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            self.retrieved_value = await variable.get_value()
+            return p.RetrieverResult(data={"plan": self.retrieved_value})
+
+        await self.agent.attach_retriever(custom_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="What is my subscription plan?",
+            recipient=self.agent,
+            sender=self.customer,
+        )
+
+        assert self.retrieved_value == "premium", (
+            f"Expected agent-tier value 'premium', got {self.retrieved_value!r}"
+        )
+
+
+class Test_that_customer_tag_value_takes_precedence_over_agent_value(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Var Agent",
+            description="Agent for precedence regression test",
+        )
+
+        self.tag = await server.create_tag("premium_users")
+
+        self.customer = await server.create_customer(
+            "Jane Doe",
+            tags=[self.tag.id],
+        )
+
+        self.variable = await self.agent.create_variable(
+            name="subscription_plan",
+            description="The current subscription plan of the user.",
+        )
+
+        await self.variable.set_global_value("free")
+        await self.variable.set_value_for_agent(self.agent, "agent_default")
+        await self.variable.set_value_for_tag(self.tag.id, "tag_value")
+
+        self.retrieved_value: p.JSONSerializable | None = None
+
+        variable = self.variable
+
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            self.retrieved_value = await variable.get_value()
+            return p.RetrieverResult(data={"plan": self.retrieved_value})
+
+        await self.agent.attach_retriever(custom_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        await ctx.send_and_receive_message(
+            customer_message="What is my plan?",
+            recipient=self.agent,
+            sender=self.customer,
+        )
+
+        assert self.retrieved_value == "tag_value", (
+            f"Expected customer-tag value 'tag_value' (must beat agent tier), "
+            f"got {self.retrieved_value!r}"
+        )

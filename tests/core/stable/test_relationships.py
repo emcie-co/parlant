@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from typing import AsyncIterator, Sequence
+import pytest
 from pytest import fixture
 
 from parlant.core.common import IdGenerator
@@ -477,3 +478,87 @@ async def test_that_relationships_can_be_listed_with_both_source_and_target_filt
     unique_pairs = {(rel.source.id, rel.target.id) for rel in relationships}
 
     assert unique_pairs == {(a_id, b_id), (c_id, a_id)}
+
+
+async def test_that_creating_a_direct_circular_dependency_raises_an_error(
+    relationship_store: RelationshipStore,
+) -> None:
+    """G1 depends on G2, then G2 depends on G1 → should raise."""
+    a_id = GuidelineId("a")
+    b_id = GuidelineId("b")
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
+        target=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.GUIDELINE),
+        kind=RelationshipKind.DEPENDENCY,
+    )
+
+    with pytest.raises(ValueError, match="[Cc]ircular"):
+        await relationship_store.create_relationship(
+            source=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.GUIDELINE),
+            target=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
+            kind=RelationshipKind.DEPENDENCY,
+        )
+
+
+async def test_that_creating_an_indirect_circular_dependency_raises_an_error(
+    relationship_store: RelationshipStore,
+) -> None:
+    """G1 depends on G2, G2 depends on G3, then G3 depends on G1 → should raise."""
+    a_id = GuidelineId("a")
+    b_id = GuidelineId("b")
+    c_id = GuidelineId("c")
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
+        target=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.GUIDELINE),
+        kind=RelationshipKind.DEPENDENCY,
+    )
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.GUIDELINE),
+        target=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.GUIDELINE),
+        kind=RelationshipKind.DEPENDENCY,
+    )
+
+    with pytest.raises(ValueError, match="[Cc]ircular"):
+        await relationship_store.create_relationship(
+            source=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.GUIDELINE),
+            target=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
+            kind=RelationshipKind.DEPENDENCY,
+        )
+
+
+async def test_that_creating_a_self_dependency_is_allowed(
+    relationship_store: RelationshipStore,
+) -> None:
+    """G1 depends on G1 → harmless self-loop, should not raise."""
+    a_id = GuidelineId("a")
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
+        target=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
+        kind=RelationshipKind.DEPENDENCY,
+    )
+
+
+async def test_that_creating_a_cycle_across_dependency_and_dependency_any_raises_an_error(
+    relationship_store: RelationshipStore,
+) -> None:
+    """G1 →(DEPENDENCY)→ G2 →(DEPENDENCY_ANY)→ G1 should raise."""
+    a_id = GuidelineId("a")
+    b_id = GuidelineId("b")
+
+    await relationship_store.create_relationship(
+        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
+        target=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.GUIDELINE),
+        kind=RelationshipKind.DEPENDENCY,
+    )
+
+    with pytest.raises(ValueError, match="[Cc]ircular"):
+        await relationship_store.create_relationship(
+            source=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.GUIDELINE),
+            target=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
+            kind=RelationshipKind.DEPENDENCY_ANY,
+            group_id="test-group",
+        )

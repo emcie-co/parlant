@@ -172,6 +172,14 @@ GuidelineDescriptionField: TypeAlias = Annotated[
     ),
 ]
 
+GuidelineTitleField: TypeAlias = Annotated[
+    str,
+    Field(
+        description="Optional short title for display purposes only",
+        examples=["Pricing inquiries"],
+    ),
+]
+
 
 class CriticalityDTO(Enum):
     """
@@ -337,6 +345,7 @@ class GuidelineDTO(
     condition: GuidelineConditionField
     action: GuidelineActionField | None = None
     description: GuidelineDescriptionField | None = None
+    title: GuidelineTitleField | None = None
     criticality: GuidelineCriticalityField = CriticalityDTO.MEDIUM
     enabled: GuidelineEnabledField = True
     tags: GuidelineTagsField

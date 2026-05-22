@@ -64,6 +64,12 @@ from parlant.core.engines.alpha.message_event_composer import (
 )
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineContent
 from parlant.core.glossary import Term
+from parlant.core.health import (
+    ENGINE_TURN_KIND,
+    ENGINE_TURNS_COUNTER,
+    EngineHealthView,
+    HealthReporter,
+)
 from parlant.core.journey_guideline_projection import (
     extract_node_id_from_journey_node_guideline_id,
 )
@@ -91,6 +97,7 @@ from parlant.core.engines.alpha.tool_event_generator import (
 from parlant.core.engines.alpha.utils import context_variables_to_json
 from parlant.core.engines.types import Context, Engine, UtteranceRationale, UtteranceRequest
 from parlant.core.emissions import EventEmitter, EmittedEvent
+from parlant.core.tags import Tag
 from parlant.core.tracer import Tracer
 from parlant.core.loggers import Logger
 from parlant.core.entity_cq import EntityQueries, EntityCommands
@@ -140,6 +147,7 @@ class AlphaEngine(Engine):
         logger: Logger,
         tracer: Tracer,
         meter: Meter,
+        health_reporter: HealthReporter,
         entity_queries: EntityQueries,
         entity_commands: EntityCommands,
         guideline_matcher: GuidelineMatcher,
@@ -154,6 +162,7 @@ class AlphaEngine(Engine):
         self._logger = logger
         self._tracer = tracer
         self._meter = meter
+        self._health_reporter = health_reporter
 
         self._entity_queries = entity_queries
         self._entity_commands = entity_commands
@@ -191,10 +200,13 @@ class AlphaEngine(Engine):
         if loaded_context.session.mode == "manual":
             return True
 
+        start = async_utils.Stopwatch.start()
+
         try:
             with self._tracer.span("process", {"session_id": context.session_id}):
                 async with self._hist_engine_process_duration.measure():
                     await self._do_process(loaded_context)
+            self._report_turn_health(start.elapsed, success=True, error=None)
             return True
         except asyncio.CancelledError:
             return False
@@ -206,10 +218,30 @@ class AlphaEngine(Engine):
             if await self._hooks.call_on_error(loaded_context, exc):
                 await self._emit_error_event(loaded_context, formatted_exception)
 
+            self._report_turn_health(start.elapsed, success=False, error=exc)
             return False
         except BaseException as exc:
             self._logger.critical(f"Critical processing error: {traceback.format_exception(exc)}")
             raise
+
+    def _report_turn_health(
+        self,
+        duration_seconds: float,
+        *,
+        success: bool,
+        error: BaseException | None,
+    ) -> None:
+        self._health_reporter.report(
+            ENGINE_TURN_KIND,
+            {
+                EngineHealthView.ATTR_SUCCESS: success,
+                EngineHealthView.ATTR_LATENCY_MS: duration_seconds * 1000.0,
+                EngineHealthView.ATTR_ERROR_CLASS: (
+                    type(error).__name__ if error is not None else None
+                ),
+            },
+        )
+        self._health_reporter.increment_counter(ENGINE_TURNS_COUNTER, 1)
 
     @override
     async def utter(
@@ -323,16 +355,16 @@ class AlphaEngine(Engine):
 
                 # Inject tool-returned guidelines (including those emitted by
                 # retrievers during on_generating_messages) and re-apply
-                # priority filtering.
-                self._inject_transient_guidelines(context)
+                # relational resolution.
+                await self._inject_transient_guidelines(context)
 
-                # Call on_match handlers for all matched guidelines (before generating messages)
+                # Call on_selected handlers for all selected guidelines (before generating messages)
                 await self._call_guideline_handlers(
-                    context, self._hooks.on_guideline_match_handlers
+                    context, self._hooks.on_guideline_selected_handlers
                 )
 
-                # Call on_match handlers for all active journeys (before generating messages)
-                await self._call_journey_handlers(context, self._hooks.on_journey_match_handlers)
+                # Call on_selected handlers for all active journeys (before generating messages)
+                await self._call_journey_handlers(context, self._hooks.on_journey_selected_handlers)
 
                 # Update session labels from matched entities
                 await self._update_session_labels(context)
@@ -1101,6 +1133,7 @@ class AlphaEngine(Engine):
         keys_to_check_in_order_of_importance = (
             [context.customer.id]  # Customer-specific value
             + [f"tag:{tag_id}" for tag_id in context.customer.tags]  # Tag-specific value
+            + [Tag.for_agent_id(context.agent.id).id]  # Agent-specific value
             + [ContextVariableStore.GLOBAL_KEY]  # Global value
         )
 
@@ -1222,6 +1255,10 @@ class AlphaEngine(Engine):
             if g.enabled
         }
 
+        # Cache usable guidelines on the context so they're available for
+        # later resolution passes (e.g. _inject_transient_guidelines).
+        context.state.usable_guidelines = list(all_stored_guidelines.values())
+
         # Step 3: Exclude guidelines whose prerequisite journeys are less likely to be activated
         # (everything beyond the first `top_k` journeys), and also remove all journey graph guidelines.
         # Removing these guidelines
@@ -1316,15 +1353,9 @@ class AlphaEngine(Engine):
             agent_id=context.agent.id,
         )
 
-        # Step 2 : Retrieve all the guidelines for this agent the journeys that are enabled
-        all_stored_guidelines = {
-            g.id: g
-            for g in await self._entity_queries.find_guidelines_for_context(
-                agent_id=context.agent.id,
-                journeys=all_journeys,
-            )
-            if g.enabled
-        }
+        # Step 2: Reuse the usable guidelines cached during the initial iteration.
+        # Tools do not create or modify stored guidelines, so the set is stable.
+        all_stored_guidelines = {g.id: g for g in context.state.usable_guidelines}
 
         # Step 3: Retrieve guidelines that need reevaluation based on tool calls made
         # in case no guidelines need reevaluation, we can skip the rest of the steps.
@@ -1430,7 +1461,7 @@ class AlphaEngine(Engine):
     ) -> list[Journey]:
         # We consider a journey to be activated if either:
         # 1. Journey was activated before and match return a journey path with a step that is not None.
-        # 2. The journey’s conditions match any of the currently matched guideline IDs.
+        # 2. The journey’s triggers match any of the currently matched guideline IDs.
         journeys_with_paths: set[JourneyId] = {
             id
             for id, j in context.state.journey_paths.items()
@@ -1445,15 +1476,15 @@ class AlphaEngine(Engine):
             and m.metadata.get("step_selection_journey_id") in journeys_with_paths
         }
 
-        active_journeys_by_conditions = [
+        active_journeys_by_triggers = [
             j
             for j in all_journeys
-            if set(j.conditions).intersection({m.guideline.id for m in matches})
+            if set(j.triggers).intersection({m.guideline.id for m in matches})
         ]
 
         active_journeys = list(
             set(
-                active_journeys_by_conditions
+                active_journeys_by_triggers
                 + [j for j in all_journeys if j.id in active_journey_ids_by_path]
             )
         )
@@ -1467,11 +1498,11 @@ class AlphaEngine(Engine):
     ) -> list[Journey]:
         # We consider a journey to be activated if either:
         # 1. Match return a journey path with a step that is not None for journey that .
-        # 2. The journey’s conditions match any of the currently matched guideline IDs.
-        active_journeys_by_conditions = [
+        # 2. The journey’s triggers match any of the currently matched guideline IDs.
+        active_journeys_by_triggers = [
             j
             for j in all_journeys
-            if set(j.conditions).intersection({m.guideline.id for m in matches})
+            if set(j.triggers).intersection({m.guideline.id for m in matches})
         ]
 
         active_journey_ids_by_path = {
@@ -1483,7 +1514,7 @@ class AlphaEngine(Engine):
 
         active_journeys = list(
             set(
-                active_journeys_by_conditions
+                active_journeys_by_triggers
                 + [j for j in all_journeys if j.id in active_journey_ids_by_path]
             )
         )
@@ -1752,14 +1783,14 @@ class AlphaEngine(Engine):
         )
 
         if activated_low_prob_related_ids:
-            journey_conditions = list(
-                chain.from_iterable([j.conditions for j in activated_journeys if j.conditions])
+            journey_triggers = list(
+                chain.from_iterable([j.triggers for j in activated_journeys if j.triggers])
             )
 
             additional_matching_guidelines = [
                 g
                 for id, g in all_stored_guidelines.items()
-                if id in activated_low_prob_related_ids or id in journey_conditions
+                if id in activated_low_prob_related_ids or id in journey_triggers
             ]
 
             with self._tracer.span(
@@ -1945,27 +1976,26 @@ class AlphaEngine(Engine):
             utterance_request_to_match(i, request) for i, request in enumerate(requests, start=1)
         ]
 
-    def _inject_transient_guidelines(self, context: EngineContext) -> None:
+    async def _inject_transient_guidelines(self, context: EngineContext) -> None:
         """Extract transient guidelines from tool results, inject them as ordinary
-        guideline matches, and re-apply priority filtering on the combined set."""
+        guideline matches, and re-apply relational resolution on the combined set."""
         tool_guideline_matches = self._extract_guidelines_from_tool_results(
             context.state.tool_events
         )
         context.state.ordinary_guideline_matches.extend(tool_guideline_matches)
 
-        # Re-apply priority filtering now that tool guidelines (which may carry
-        # their own priority) have been injected into the combined match set.
+        # Re-apply full relational resolution now that tool guidelines (which may
+        # carry their own priority) have been injected into the combined match set.
+        # Use the full usable_guidelines cached during preparation for correct
+        # tag indexing (TAG_ALL needs to see all members, not just matched ones).
         if tool_guideline_matches:
-            deactivation_reasons: dict[GuidelineId, str] = {}
-            filtered_matches, filtered_journeys = (
-                self._relational_resolver.find_highest_priority_entities(
-                    context.state.ordinary_guideline_matches,
-                    context.state.journeys,
-                    deactivation_reasons,
-                )
+            resolver_result = await self._relational_resolver.resolve(
+                usable_guidelines=context.state.usable_guidelines,
+                matches=context.state.ordinary_guideline_matches,
+                journeys=context.state.journeys,
             )
-            context.state.ordinary_guideline_matches = filtered_matches
-            context.state.journeys = filtered_journeys
+            context.state.ordinary_guideline_matches = list(resolver_result.matches)
+            context.state.journeys = list(resolver_result.journeys)
 
     async def _inject_tool_insights(self, context: EngineContext) -> None:
         """Filter missing and invalid tool parameters jointly by precedence."""

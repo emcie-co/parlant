@@ -87,6 +87,48 @@ async def test_that_a_guideline_can_be_created(
     assert guideline["metadata"] == {"key1": "value1", "key2": "value2"}
 
 
+async def test_that_a_guideline_can_be_created_with_a_title(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/guidelines",
+        json={
+            "condition": "the customer asks about pricing",
+            "action": "provide current pricing information",
+            "title": "Pricing inquiries",
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+    guideline = response.json()
+    assert guideline["title"] == "Pricing inquiries"
+
+
+async def test_that_a_guideline_title_can_be_updated(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    guideline_store = container[GuidelineStore]
+
+    guideline = await guideline_store.create_guideline(
+        condition="the customer asks about the weather",
+        action="provide the current weather update",
+        title="Old title",
+    )
+
+    response = await async_client.patch(
+        f"/guidelines/{guideline.id}",
+        json={"title": "Weather inquiries"},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    updated_guideline = response.json()["guideline"]
+
+    assert updated_guideline["id"] == guideline.id
+    assert updated_guideline["title"] == "Weather inquiries"
+
+
 async def test_that_a_guideline_can_be_created_without_an_action(
     async_client: httpx.AsyncClient,
 ) -> None:
@@ -176,7 +218,7 @@ async def test_that_a_guideline_can_be_created_with_tags(
     journey = await journey_store.create_journey(
         title="Customer Support Journey",
         description="A journey for customer support interactions.",
-        conditions=[],
+        triggers=[],
     )
     journey_tag = Tag.for_journey_id(journey.id).id
 
@@ -478,7 +520,7 @@ async def test_that_a_journey_tag_can_be_added_to_guideline(
     journey = await journey_store.create_journey(
         title="test_journey",
         description="test_description",
-        conditions=[],
+        triggers=[],
     )
     journey_tag = Tag.for_journey_id(journey.id).id
 
@@ -712,14 +754,14 @@ async def test_that_condition_association_is_deleted_when_a_guideline_is_deleted
     journey = await journey_store.create_journey(
         title="test_journey",
         description="test_description",
-        conditions=[guideline.id],
+        triggers=[guideline.id],
     )
 
     response = await async_client.delete(f"/guidelines/{guideline.id}")
     assert response.status_code == status.HTTP_204_NO_CONTENT
 
     updated_journey = await journey_store.read_journey(journey.id)
-    assert updated_journey.conditions == []
+    assert updated_journey.triggers == []
 
 
 async def test_that_guideline_relationships_can_be_read(

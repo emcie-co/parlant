@@ -31,12 +31,15 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matching_context im
     GuidelineMatchingContext,
 )
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
+from parlant.core.emissions import EmittedEvent
 from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
+from parlant.core.sessions import EventKind, ToolEventData
+from parlant.core.tools import ToolId
 
 
 PRE_ROOT_INDEX = "0"
@@ -135,6 +138,24 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
             cast(dict[str, Any], guideline.metadata.get("journey_node", {})).get("kind", "NA")
         )
 
+    @staticmethod
+    def _get_tool_ids(guideline: Guideline) -> Sequence[ToolId]:
+        return cast(
+            dict[str, Sequence[ToolId]],
+            guideline.metadata.get("journey_node", {}),
+        ).get("tool_ids", [])
+
+    @staticmethod
+    def _extract_tool_ids_from_staged_events(
+        staged_events: Sequence[EmittedEvent],
+    ) -> set[ToolId]:
+        return {
+            ToolId.from_string(tc["tool_id"])
+            for e in staged_events
+            if e.kind == EventKind.TOOL
+            for tc in cast(ToolEventData, e.data)["tool_calls"]
+        }
+
     def auto_return_match(self) -> GuidelineMatchingBatchResult | None:
         node_index_to_guideline: dict[str, Guideline] = {
             self._get_guideline_node_index(g): g for g in self._node_guidelines
@@ -155,7 +176,14 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
             kind = self._get_kind(last_visited_guideline)
             outgoing_edges = self._get_follow_ups(last_visited_guideline)
 
-            if kind == JourneyNodeKind.TOOL and len(outgoing_edges) == 1:
+            if (
+                kind == JourneyNodeKind.TOOL
+                and len(outgoing_edges) == 1
+                and (
+                    set(self._get_tool_ids(last_visited_guideline))
+                    & self._extract_tool_ids_from_staged_events(self._context.staged_events)
+                )
+            ):
                 current_node: GuidelineId = outgoing_edges[0]
                 journey_path = list(self._previous_path) + [
                     self._get_guideline_node_index(guideline_id_to_guideline[current_node])
@@ -173,6 +201,9 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                     journey_path.append(guideline_id_to_node_index[current_node])
 
                 if guideline_id_to_guideline[current_node]:
+                    self._logger.debug(
+                        f"Journey '{self._examined_journey.title}': auto-advanced to node {guideline_id_to_node_index[current_node]}"
+                    )
                     return GuidelineMatchingBatchResult(
                         matches=[
                             GuidelineMatch(
@@ -188,6 +219,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                         generation_info=EMPTY_GENERATION_INFO,
                     )
                 else:
+                    self._logger.debug(f"Journey '{self._examined_journey.title}': auto-exited")
                     return GuidelineMatchingBatchResult(
                         matches=[
                             GuidelineMatch(
@@ -207,6 +239,9 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
             and self._first_executable_node
             and self._get_kind(self._first_executable_node) == JourneyNodeKind.TOOL
         ):
+            self._logger.debug(
+                f"Journey '{self._examined_journey.title}': auto-advanced to node {self._get_guideline_node_index(self._first_executable_node)}"
+            )
             return GuidelineMatchingBatchResult(
                 matches=[
                     GuidelineMatch(
@@ -239,11 +274,11 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
         if automatic_match := self.auto_return_match():
             return automatic_match
 
-        journey_conditions = list(
+        journey_triggers = list(
             await async_utils.safe_gather(
                 *[
                     self._guideline_store.read_guideline(c)
-                    for c in self._examined_journey.conditions
+                    for c in self._examined_journey.triggers
                 ]
             )
         )
@@ -259,7 +294,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                     context=self._context,
                     node_guidelines=self._node_guidelines,
                     journey_path=[],
-                    journey_conditions=journey_conditions,
+                    journey_triggers=journey_triggers,
                 )
                 return await next_step_selector.process()
             elif (
@@ -276,7 +311,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                     context=self._context,
                     node_guidelines=self._node_guidelines,
                     journey_path=self._previous_path,
-                    journey_conditions=journey_conditions,
+                    journey_triggers=journey_triggers,
                 )
                 next_step_task = asyncio.create_task(next_step_selector.process())
 
@@ -293,7 +328,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                         context=self._context,
                         node_guidelines=self._node_guidelines,
                         journey_path=self._previous_path,
-                        journey_conditions=journey_conditions,
+                        journey_triggers=journey_triggers,
                     )
                     backtrack_task = asyncio.create_task(backtrack_checker.process())
 
@@ -317,7 +352,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                         context=self._context,
                         node_guidelines=self._node_guidelines,
                         journey_path=self._previous_path,
-                        journey_conditions=journey_conditions,
+                        journey_triggers=journey_triggers,
                     )
                     return await node_selector.process()
                 else:
@@ -333,7 +368,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                     context=self._context,
                     node_guidelines=self._node_guidelines,
                     journey_path=self._previous_path,
-                    journey_conditions=journey_conditions,
+                    journey_triggers=journey_triggers,
                 )
 
                 backtrack_result = await backtrack_checker.process()
@@ -353,7 +388,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                             context=self._context,
                             node_guidelines=self._node_guidelines,
                             journey_path=self._previous_path,
-                            journey_conditions=journey_conditions,
+                            journey_triggers=journey_triggers,
                         )
                         return await node_selector.process()
                     else:
@@ -388,6 +423,6 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                             context=self._context,
                             node_guidelines=self._node_guidelines,
                             journey_path=self._previous_path,
-                            journey_conditions=journey_conditions,
+                            journey_triggers=journey_triggers,
                         )
                         return await next_step_selector.process()

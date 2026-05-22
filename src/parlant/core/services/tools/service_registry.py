@@ -259,7 +259,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
             url = service.url
         elif isinstance(service, MCPToolClient):
             kind = "mcp"
-            url = service.url
+            url = service.endpoint_url
         else:
             raise ValueError("Unsupported ToolService class.")
 

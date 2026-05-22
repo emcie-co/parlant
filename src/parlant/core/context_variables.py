@@ -26,7 +26,7 @@ from parlant.core.common import (
     UniqueId,
     Version,
     IdGenerator,
-    md5_checksum,
+    xxh3_checksum,
 )
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
@@ -454,7 +454,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
     ) -> ContextVariable:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
-            context_variable_checksum = md5_checksum(
+            context_variable_checksum = xxh3_checksum(
                 f"{name}{description}{tool_id}{freshness_rules}{tags}"
             )
 
@@ -473,7 +473,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
             )
 
             for tag_id in tags or []:
-                tag_checksum = md5_checksum(f"{context_variable.id}{tag_id}")
+                tag_checksum = xxh3_checksum(f"{context_variable.id}{tag_id}")
 
                 await self._variable_tag_association_collection.insert_one(
                     document={
@@ -630,7 +630,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
         async with self._lock.writer_lock:
             last_modified = datetime.now(timezone.utc)
 
-            value_checksum = md5_checksum(f"{variable_id}{key}{data}")
+            value_checksum = xxh3_checksum(f"{variable_id}{key}{data}")
 
             value = ContextVariableValue(
                 id=ContextVariableValueId(self._id_generator.generate(value_checksum)),
@@ -718,7 +718,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            association_checksum = md5_checksum(f"{variable_id}{tag_id}")
+            association_checksum = xxh3_checksum(f"{variable_id}{tag_id}")
 
             association_document: ContextVariableTagAssociationDocument = {
                 "id": ObjectId(self._id_generator.generate(association_checksum)),

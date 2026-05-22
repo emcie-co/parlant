@@ -84,7 +84,7 @@ class _NodeData:
 class _JourneyData:
     title: str
     nodes: list[_NodeData]
-    conditions: Sequence[str] = field(default_factory=list)
+    triggers: Sequence[str] = field(default_factory=list)
     description: str = ""
 
 
@@ -114,7 +114,7 @@ def context(
 
 JOURNEYS_DICT: dict[str, _JourneyData] = {
     "compliment_customer_journey": _JourneyData(
-        conditions=["the customer wishes to reset their password"],
+        triggers=["the customer wishes to reset their password"],
         title="Compliment Customer Journey",
         nodes=[
             _NodeData(
@@ -256,7 +256,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
         description="A journey that aids the customer in resetting their password, including verifying their identity.",
     ),
     "forgot_keys_journey": _JourneyData(
-        conditions=["the customer doesn't know where their keys are"],
+        triggers=["the customer doesn't know where their keys are"],
         title="Help Customer Find Their Keys",
         nodes=[
             _NodeData(
@@ -302,7 +302,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
         description="A journey that helps the customer locate their lost keys by asking clarifying questions and providing guidance.",
     ),
     "reset_password_journey": _JourneyData(
-        conditions=[
+        triggers=[
             "the customer wants to reset their password",
             "the customer can't remember their password",
         ],
@@ -437,7 +437,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
         description="A journey that assists the customer in resetting their password. The resetting process is only performed if the customer is polite and wishes the agent a good day. Otherwise - the agent should not reset the password.",
     ),
     "calzone_journey": _JourneyData(
-        conditions=["the customer wants to order a calzone"],
+        triggers=["the customer wants to order a calzone"],
         title="Deliver Calzone Journey",
         nodes=[
             _NodeData(
@@ -742,7 +742,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
         description="A journey for ordering calzones, guiding the customer through quantity, type, size, drinks, and delivery details, including stock checks and order confirmation.",
     ),
     "tech_experience_journey": _JourneyData(
-        conditions=["the customer needs technical help"],
+        triggers=["the customer needs technical help"],
         title="Technical Experience Journey",
         nodes=[
             _NodeData(
@@ -815,7 +815,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
         description="A journey to assess the customer's technical experience and guide them through troubleshooting steps tailored to their expertise and issue type. Specific instructions regarding troubleshooting steps will be provided at a later time and should not concern the node selection process.",
     ),
     "investment_advice_journey": _JourneyData(
-        conditions=[
+        triggers=[
             "the customer wants investment advice",
             "the customer is asking about investing",
         ],
@@ -896,7 +896,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
         description="A journey that provides investment advice based on the customer's age, financial situation, risk tolerance, and investment timeline.",
     ),
     "book_flight": _JourneyData(
-        conditions=["the customer wants to book a flight"],
+        triggers=["the customer wants to book a flight"],
         title="Book flight journey",
         nodes=[
             _NodeData(
@@ -1000,20 +1000,20 @@ async def create_journey(
     context: ContextOfTest,
     title: str,
     nodes: Sequence[_NodeData],
-    conditions: Sequence[str],
+    triggers: Sequence[str],
     description: str = "",
 ) -> tuple[Journey, Sequence[Guideline]]:
     journey_id = JourneyId("j1")
     guideline_store = context.container[GuidelineStore]
-    condition_ids: list[GuidelineId] = []
+    trigger_ids: list[GuidelineId] = []
 
-    for c in conditions:
+    for c in triggers:
         g = await guideline_store.create_guideline(condition=c, action=None)
         await guideline_store.upsert_tag(
             guideline_id=g.id,
             tag_id=Tag.for_journey_id(journey_id=journey_id).id,
         )
-        condition_ids.append(g.id)
+        trigger_ids.append(g.id)
 
     root_guideline = Guideline(
         id=GuidelineId("root"),
@@ -1074,7 +1074,7 @@ async def create_journey(
         root_id=JourneyNodeId(root_guideline.id),
         creation_utc=datetime.now(timezone.utc),
         description=description,
-        conditions=condition_ids,
+        triggers=trigger_ids,
         title=title,
         tags=[],
     )
@@ -1124,7 +1124,7 @@ async def base_test_that_correct_node_is_selected(
         context=context,
         title=JOURNEYS_DICT[journey_name].title,
         nodes=JOURNEYS_DICT[journey_name].nodes,
-        conditions=JOURNEYS_DICT[journey_name].conditions,
+        triggers=JOURNEYS_DICT[journey_name].triggers,
         description=JOURNEYS_DICT[journey_name].description,
     )
 

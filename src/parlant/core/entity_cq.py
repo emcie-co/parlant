@@ -137,7 +137,7 @@ class EntityQueries:
         tasks = [
             self._journey_guideline_projection.project_journey_to_guidelines(journey.id)
             for journey in journeys
-            if journey.conditions  # If a journey has no conditions, it indicates that the journey cannot be activated.
+            if journey.triggers  # If a journey has no triggers, it indicates that the journey cannot be activated.
         ]
         projected_journey_guidelines = await async_utils.safe_gather(*tasks)
 
@@ -432,7 +432,7 @@ class EntityQueries:
             # For TAG sources that didn't match by ID prefix, check by tag
             # membership so that custom tags can trigger reevaluation for all
             # guidelines that carry that tag.
-            if not by_id and relationship.source.kind == RelationshipEntityKind.TAG:
+            if not by_id and relationship.source.kind.is_tag:
                 by_tag = [
                     g for g in available_guidelines.values() if relationship.source.id in g.tags
                 ]

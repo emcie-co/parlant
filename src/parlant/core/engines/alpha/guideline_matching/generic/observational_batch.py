@@ -24,6 +24,7 @@ from typing_extensions import override
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.common import measure_guideline_matching_batch
 from parlant.core.engines.alpha.guideline_matching.generic.common import (
+    dump_guideline,
     internal_representation,
 )
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
@@ -130,17 +131,17 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
 
                     for match in inference.content.checks:
                         if self._match_applies(match):
-                            self._logger.debug(f"Activated:\n{match.model_dump_json(indent=2)}")
+                            self._logger.debug(f"Matched:\n{match.model_dump_json(indent=2)}")
 
                             matches.append(
                                 GuidelineMatch(
                                     guideline=self._guidelines[match.guideline_id],
                                     score=10 if match.applies else 1,
-                                    rationale=f'''Condition Application Rationale: "{match.rationale}"''',
+                                    rationale=match.rationale,
                                 )
                             )
                         else:
-                            self._logger.debug(f"Skipped:\n{match.model_dump_json(indent=2)}")
+                            self._logger.debug(f"Not matched:\n{match.model_dump_json(indent=2)}")
 
                     return GuidelineMatchingBatchResult(
                         matches=matches,
@@ -298,7 +299,10 @@ Examples of Condition Evaluations:
 {guidelines_text}
 ###
 """,
-            props={"guidelines_text": conditions_text},
+            props={
+                "guidelines_text": conditions_text,
+                "guidelines": [dump_guideline(g) for g in self._guidelines.values()],
+            },
             status=SectionStatus.ACTIVE,
         )
 

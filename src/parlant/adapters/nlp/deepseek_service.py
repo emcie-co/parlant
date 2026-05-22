@@ -58,6 +58,7 @@ from parlant.core.nlp.moderation import (
     ModerationService,
     NoModeration,
 )
+from parlant.core.health import HealthReporter
 
 
 class DeepSeekEstimatingTokenizer(EstimatingTokenizer):
@@ -75,14 +76,13 @@ class DeepSeekSchematicGenerator(BaseSchematicGenerator[T]):
     supported_deepseek_params = ["temperature", "logit_bias", "max_tokens"]
     supported_hints = supported_deepseek_params + ["strict"]
 
-    def __init__(
-        self,
+    def __init__(self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
 
         self._client = AsyncClient(
             base_url="https://api.deepseek.com",
@@ -203,8 +203,8 @@ class DeepSeekSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class DeepSeek_Chat(DeepSeekSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(model_name="deepseek-chat", logger=logger, tracer=tracer, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+        super().__init__(model_name="deepseek-chat", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
 
     @property
     @override
@@ -225,15 +225,16 @@ Please set DEEPSEEK_API_KEY in your environment before running Parlant.
 
         return None
 
-    def __init__(
-        self,
+    def __init__(self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
     ) -> None:
         self._logger = logger
         self._tracer = tracer
         self._meter = meter
+
+        self._health_reporter = health_reporter
         self._logger.info("Initialized DeepSeekService")
 
     @property
@@ -251,11 +252,11 @@ Please set DEEPSEEK_API_KEY in your environment before running Parlant.
     async def get_schematic_generator(
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> DeepSeekSchematicGenerator[T]:
-        return DeepSeek_Chat[t](self._logger, self._tracer, self._meter)  # type: ignore
+        return DeepSeek_Chat[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
-        return JinaAIEmbedder(self._logger, self._tracer, self._meter)
+        return JinaAIEmbedder(self._logger, self._tracer, self._meter, self._health_reporter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:

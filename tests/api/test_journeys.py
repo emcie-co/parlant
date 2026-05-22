@@ -34,7 +34,7 @@ async def test_that_a_journey_can_be_created(
     payload = {
         "title": "Customer Onboarding",
         "description": "Guide new customers through onboarding steps",
-        "conditions": ["Customer asks for onboarding help"],
+        "triggers": ["Customer asks for onboarding help"],
     }
     response = await async_client.post("/journeys", json=payload)
 
@@ -46,15 +46,15 @@ async def test_that_a_journey_can_be_created(
     assert journey["description"] == payload["description"]
     assert journey["tags"] == []
 
-    assert len(journey["conditions"]) == 1
-    guideline = await guideline_store.read_guideline(guideline_id=journey["conditions"][0])
-    assert guideline.id == journey["conditions"][0]
+    assert len(journey["triggers"]) == 1
+    guideline = await guideline_store.read_guideline(guideline_id=journey["triggers"][0])
+    assert guideline.id == journey["triggers"][0]
 
     guideline_after_update = await guideline_store.read_guideline(guideline.id)
     assert guideline_after_update.tags == [Tag.for_journey_id(journey["id"]).id]
 
 
-async def test_that_a_journey_can_be_created_with_multiple_conditions(
+async def test_that_a_journey_can_be_created_with_multiple_triggers(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
@@ -63,7 +63,7 @@ async def test_that_a_journey_can_be_created_with_multiple_conditions(
     payload = {
         "title": "Customer Onboarding",
         "description": "Guide new customers through onboarding steps",
-        "conditions": ["Customer asks for onboarding help", "Customer wants to signup"],
+        "triggers": ["Customer asks for onboarding help", "Customer wants to signup"],
     }
     response = await async_client.post("/journeys", json=payload)
 
@@ -75,11 +75,11 @@ async def test_that_a_journey_can_be_created_with_multiple_conditions(
     assert journey["description"] == payload["description"]
     assert journey["tags"] == []
 
-    assert len(journey["conditions"]) == 2
-    first_guideline = await guideline_store.read_guideline(guideline_id=journey["conditions"][0])
-    second_guideline = await guideline_store.read_guideline(guideline_id=journey["conditions"][1])
-    assert first_guideline.id == journey["conditions"][0]
-    assert second_guideline.id == journey["conditions"][1]
+    assert len(journey["triggers"]) == 2
+    first_guideline = await guideline_store.read_guideline(guideline_id=journey["triggers"][0])
+    second_guideline = await guideline_store.read_guideline(guideline_id=journey["triggers"][1])
+    assert first_guideline.id == journey["triggers"][0]
+    assert second_guideline.id == journey["triggers"][1]
 
 
 async def test_that_a_journey_can_be_created_with_tags(
@@ -96,7 +96,7 @@ async def test_that_a_journey_can_be_created_with_tags(
         json={
             "title": "Product Support",
             "description": "Assist customers with product issues",
-            "conditions": ["Customer reports an issue"],
+            "triggers": ["Customer reports an issue"],
             "tags": [tag1.id, tag2.id],
         },
     )
@@ -123,7 +123,7 @@ async def test_that_a_journey_can_be_created_with_custom_id(
         "id": custom_id,
         "title": "Custom ID Journey",
         "description": "Journey with a custom identifier",
-        "conditions": ["Custom ID condition"],
+        "triggers": ["Custom ID condition"],
     }
     response = await async_client.post("/journeys", json=payload)
 
@@ -137,9 +137,9 @@ async def test_that_a_journey_can_be_created_with_custom_id(
     assert journey["description"] == payload["description"]
     assert journey["tags"] == []
 
-    assert len(journey["conditions"]) == 1
-    guideline = await guideline_store.read_guideline(guideline_id=journey["conditions"][0])
-    assert guideline.id == journey["conditions"][0]
+    assert len(journey["triggers"]) == 1
+    guideline = await guideline_store.read_guideline(guideline_id=journey["triggers"][0])
+    assert guideline.id == journey["triggers"][0]
 
 
 async def test_that_creating_journey_with_duplicate_id_fails(
@@ -151,7 +151,7 @@ async def test_that_creating_journey_with_duplicate_id_fails(
         "id": "duplicate-id-test",
         "title": "First Journey",
         "description": "First journey with this ID",
-        "conditions": ["First condition"],
+        "triggers": ["First condition"],
     }
 
     # Create first journey
@@ -182,7 +182,7 @@ async def test_that_journeys_can_be_listed(
                 json={
                     "title": "Customer Onboarding",
                     "description": "Guide new customers",
-                    "conditions": ["Customer asks for onboarding help"],
+                    "triggers": ["Customer asks for onboarding help"],
                 },
             )
         )
@@ -196,9 +196,9 @@ async def test_that_journeys_can_be_listed(
     first_journey = journeys[0]
     assert first_journey["title"] == "Customer Onboarding"
 
-    assert len(first_journey["conditions"]) == 1
-    guideline = await guideline_store.read_guideline(guideline_id=first_journey["conditions"][0])
-    assert guideline.id == first_journey["conditions"][0]
+    assert len(first_journey["triggers"]) == 1
+    guideline = await guideline_store.read_guideline(guideline_id=first_journey["triggers"][0])
+    assert guideline.id == first_journey["triggers"][0]
 
 
 async def test_that_a_journey_can_be_read(
@@ -214,7 +214,7 @@ async def test_that_a_journey_can_be_read(
                 json={
                     "title": "Customer Onboarding",
                     "description": "Guide new customers",
-                    "conditions": ["Customer asks for onboarding help"],
+                    "triggers": ["Customer asks for onboarding help"],
                 },
             )
         )
@@ -227,9 +227,9 @@ async def test_that_a_journey_can_be_read(
     assert journey_dto["title"] == "Customer Onboarding"
     assert journey_dto["description"] == "Guide new customers"
 
-    assert len(journey_dto["conditions"]) == 1
-    guideline = await guideline_store.read_guideline(guideline_id=journey_dto["conditions"][0])
-    assert guideline.id == journey_dto["conditions"][0]
+    assert len(journey_dto["triggers"]) == 1
+    guideline = await guideline_store.read_guideline(guideline_id=journey_dto["triggers"][0])
+    assert guideline.id == journey_dto["triggers"][0]
 
 
 @mark.parametrize(
@@ -264,7 +264,7 @@ async def test_that_a_journey_can_be_updated(
                 json={
                     "title": "Customer Onboarding",
                     "description": "Guide new customers",
-                    "conditions": ["Customer asks for onboarding help"],
+                    "triggers": ["Customer asks for onboarding help"],
                 },
             )
         )
@@ -297,7 +297,7 @@ async def test_that_tags_can_be_added_to_a_journey(
                 json={
                     "title": "Customer Onboarding",
                     "description": "Guide new customers",
-                    "conditions": ["Customer asks for onboarding help"],
+                    "triggers": ["Customer asks for onboarding help"],
                     "tags": [tag1.id],
                 },
             )
@@ -329,7 +329,7 @@ async def test_that_tags_can_be_removed_from_a_journey(
     journey = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
-        conditions=[],
+        triggers=[],
         tags=[tag2.id, tag3.id],
     )
 
@@ -359,7 +359,7 @@ async def test_that_a_journey_can_be_deleted(
     journey = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
-        conditions=[guideline.id],
+        triggers=[guideline.id],
     )
 
     delete_response = await async_client.delete(f"/journeys/{journey.id}")
@@ -384,7 +384,7 @@ async def test_that_a_guideline_is_deleted_when_it_is_removed_from_all_journeys(
     journey = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
-        conditions=[guideline.id],
+        triggers=[guideline.id],
     )
 
     delete_response = await async_client.delete(f"/journeys/{journey.id}")
@@ -409,13 +409,13 @@ async def test_that_a_guideline_is_not_deleted_when_it_is_used_in_multiple_journ
     journey_to_delete = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
-        conditions=[guideline.id],
+        triggers=[guideline.id],
     )
 
     journey_to_keep = await journey_store.create_journey(
         title="Customer Signup",
         description="Guide new customers to signup",
-        conditions=[guideline.id],
+        triggers=[guideline.id],
     )
 
     await guideline_store.upsert_tag(
@@ -445,7 +445,7 @@ async def test_that_a_tag_can_be_added_to_a_journey(
     journey = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
-        conditions=[],
+        triggers=[],
     )
 
     response = await async_client.patch(
@@ -469,7 +469,7 @@ async def test_that_a_tag_can_be_removed_from_a_journey(
     journey = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
-        conditions=[],
+        triggers=[],
         tags=[tag.id],
     )
 
@@ -483,7 +483,7 @@ async def test_that_a_tag_can_be_removed_from_a_journey(
     assert tag.id not in updated_journey["tags"]
 
 
-async def test_that_conditions_can_be_added_to_a_journey(
+async def test_that_triggers_can_be_added_to_a_journey(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
@@ -497,23 +497,23 @@ async def test_that_conditions_can_be_added_to_a_journey(
     journey = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
-        conditions=[],
+        triggers=[],
     )
 
     response = await async_client.patch(
         f"/journeys/{journey.id}",
-        json={"conditions": {"add": [guideline.id]}},
+        json={"triggers": {"add": [guideline.id]}},
     )
     response.raise_for_status()
     updated_journey = response.json()
 
-    assert guideline.id in updated_journey["conditions"]
+    assert guideline.id in updated_journey["triggers"]
 
     guideline_after_update = await guideline_store.read_guideline(guideline.id)
     assert guideline_after_update.tags == [Tag.for_journey_id(journey.id).id]
 
 
-async def test_that_conditions_can_be_removed_from_a_journey(
+async def test_that_triggers_can_be_removed_from_a_journey(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
@@ -528,13 +528,13 @@ async def test_that_conditions_can_be_removed_from_a_journey(
     journey_to_delete = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
-        conditions=[guideline.id],
+        triggers=[guideline.id],
     )
 
     journey_to_keep = await journey_store.create_journey(
         title="Customer Signup",
         description="Guide new customers to signup",
-        conditions=[guideline.id],
+        triggers=[guideline.id],
     )
 
     await guideline_store.upsert_tag(
@@ -547,18 +547,18 @@ async def test_that_conditions_can_be_removed_from_a_journey(
 
     response = await async_client.patch(
         f"/journeys/{journey_to_delete.id}",
-        json={"conditions": {"remove": [guideline.id]}},
+        json={"triggers": {"remove": [guideline.id]}},
     )
     response.raise_for_status()
     updated_journey = response.json()
 
-    assert guideline.id not in updated_journey["conditions"]
+    assert guideline.id not in updated_journey["triggers"]
 
     guideline_after_update = await guideline_store.read_guideline(guideline.id)
     assert guideline_after_update.tags == [Tag.for_journey_id(journey_to_keep.id).id]
 
 
-async def test_that_a_guideline_is_deleted_when_conditions_are_removed_from_all_journeys(
+async def test_that_a_guideline_is_deleted_when_triggers_are_removed_from_all_journeys(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
@@ -573,13 +573,13 @@ async def test_that_a_guideline_is_deleted_when_conditions_are_removed_from_all_
     journey = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
-        conditions=[guideline.id],
+        triggers=[guideline.id],
     )
 
     await journey_store.create_journey(
         title="Customer Signup",
         description="Guide new customers to signup",
-        conditions=[guideline.id],
+        triggers=[guideline.id],
     )
 
     await guideline_store.upsert_tag(
@@ -588,7 +588,7 @@ async def test_that_a_guideline_is_deleted_when_conditions_are_removed_from_all_
 
     response = await async_client.patch(
         f"/journeys/{journey.id}",
-        json={"conditions": {"remove": [guideline.id]}},
+        json={"triggers": {"remove": [guideline.id]}},
     )
     response.raise_for_status()
 
@@ -607,14 +607,14 @@ async def test_that_journeys_can_be_filtered_by_tag(
     journey = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
-        conditions=[],
+        triggers=[],
         tags=[tag.id],
     )
 
     _ = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
-        conditions=[],
+        triggers=[],
     )
 
     response = await async_client.get(f"/journeys?tag_id={tag.id}")
@@ -634,7 +634,7 @@ async def test_that_journey_composition_mode_can_be_set_and_updated(
         json={
             "title": "Customer Onboarding",
             "description": "Guide new customers through onboarding",
-            "conditions": ["User asks about onboarding"],
+            "triggers": ["User asks about onboarding"],
             "composition_mode": "composited_canned",
         },
     )
@@ -686,7 +686,7 @@ async def test_that_a_journey_can_be_created_with_labels(
         json={
             "title": "Labeled Journey",
             "description": "A journey with labels",
-            "conditions": ["Customer asks about something"],
+            "triggers": ["Customer asks about something"],
             "labels": ["premium", "support"],
         },
     )
@@ -706,7 +706,7 @@ async def test_that_a_journey_is_created_with_empty_labels_by_default(
         json={
             "title": "Journey without labels",
             "description": "A journey",
-            "conditions": ["Customer asks about something"],
+            "triggers": ["Customer asks about something"],
         },
     )
 
@@ -725,7 +725,7 @@ async def test_that_labels_can_be_added_to_a_journey(
     journey = await journey_store.create_journey(
         title="Test Journey",
         description="A test journey",
-        conditions=[],
+        triggers=[],
         labels={"initial"},
     )
 
@@ -749,7 +749,7 @@ async def test_that_labels_can_be_removed_from_a_journey(
     journey = await journey_store.create_journey(
         title="Test Journey",
         description="A test journey",
-        conditions=[],
+        triggers=[],
         labels={"label1", "label2", "label3"},
     )
 

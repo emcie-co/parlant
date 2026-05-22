@@ -16,7 +16,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional, Sequence, cast
-from typing_extensions import deprecated
 
 from parlant.core.agents import Agent
 from parlant.core.async_utils import Stopwatch
@@ -134,12 +133,6 @@ class Interaction:
     events: Sequence[Event]
     """An sequenced event-by-event representation of the interaction"""
 
-    @property
-    @deprecated("Use the events property instead")
-    def history(self) -> Sequence[Event]:
-        """Returns a string representation of the interaction history"""
-        return self.events
-
 
 @dataclass(frozen=False)
 class ResponseState:
@@ -157,6 +150,7 @@ class ResponseState:
     tool_insights: ToolInsights
     prepared_to_respond: bool
     message_events: list[EmittedEvent]
+    usable_guidelines: list[Guideline] = field(default_factory=list)
     additional_canned_response_fields: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -188,11 +182,6 @@ class EngineContext:
 
     tracer: Tracer
     """The tracer used to track the trace ID and properties in the current context"""
-
-    @property
-    @deprecated("Use the tracer property instead")
-    def correlator(self) -> Tracer:
-        return self.tracer
 
     agent: Agent
     """The agent which is currently requested to respond"""
@@ -252,8 +241,3 @@ class EngineContext:
                 metadata=None,
             )
         )
-
-
-@deprecated("Please use the EngineContext class instead of LoadedContext")
-class LoadedContext(EngineContext):
-    pass

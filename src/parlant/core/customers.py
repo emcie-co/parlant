@@ -21,7 +21,7 @@ from typing_extensions import override, TypedDict, Self
 from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
 from parlant.core.tags import TagId
-from parlant.core.common import ItemNotFoundError, UniqueId, Version, IdGenerator, md5_checksum
+from parlant.core.common import ItemNotFoundError, UniqueId, Version, IdGenerator, xxh3_checksum
 from parlant.core.persistence.common import Cursor, ObjectId, SortDirection, Where
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -281,7 +281,7 @@ class CustomerDocumentStore(CustomerStore):
                 if existing:
                     raise ValueError(f"Customer with id '{customer_id}' already exists")
             else:
-                customer_checksum = md5_checksum(f"{name}{extra}{tags}")
+                customer_checksum = xxh3_checksum(f"{name}{extra}{tags}")
                 customer_id = CustomerId(self._id_generator.generate(customer_checksum))
 
             customer = Customer(
@@ -297,7 +297,7 @@ class CustomerDocumentStore(CustomerStore):
             )
 
             for tag_id in tags or []:
-                tag_checksum = md5_checksum(f"{customer.id}{tag_id}")
+                tag_checksum = xxh3_checksum(f"{customer.id}{tag_id}")
 
                 await self._tag_association_collection.insert_one(
                     document={
@@ -461,7 +461,7 @@ class CustomerDocumentStore(CustomerStore):
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            association_checksum = md5_checksum(f"{customer_id}{tag_id}")
+            association_checksum = xxh3_checksum(f"{customer_id}{tag_id}")
 
             association_document: _CustomerTagAssociationDocument = {
                 "id": ObjectId(self._id_generator.generate(association_checksum)),

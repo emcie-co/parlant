@@ -71,11 +71,11 @@ class CustomGuidelineMatchingBatch(GuidelineMatchingBatch):
         is_matched = match is not None and match.score == 10
 
         if is_matched:
-            self._logger.debug(f"Activated:\n{data}")
+            self._logger.debug(f"Matched:\n{data}")
             assert match is not None
             matches = [match]
         else:
-            self._logger.debug(f"Skipped:\n{data}")
+            self._logger.debug(f"Not matched:\n{data}")
             matches = []
 
         return GuidelineMatchingBatchResult(

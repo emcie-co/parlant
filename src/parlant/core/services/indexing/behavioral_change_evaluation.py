@@ -20,7 +20,7 @@ from typing import Optional, Sequence, cast
 from parlant.core import async_utils
 from parlant.core.agents import AgentStore
 from parlant.core.background_tasks import BackgroundTaskService
-from parlant.core.common import JSONSerializable, md5_checksum
+from parlant.core.common import JSONSerializable, xxh3_checksum
 from parlant.core.evaluations import (
     Evaluation,
     EvaluationStatus,
@@ -454,19 +454,19 @@ class JourneyEvaluator:
             )
         }
 
-        journey_conditions = [
+        journey_triggers = [
             await async_utils.safe_gather(
                 *[
-                    self._guideline_store.read_guideline(guideline_id=condition)
-                    for condition in journey.conditions
+                    self._guideline_store.read_guideline(guideline_id=trigger)
+                    for trigger in journey.triggers
                 ]
             )
             for journey in journeys.values()
         ]
 
         journey_projections = {
-            payload.journey_id: (journeys[payload.journey_id], projection, conditions)
-            for payload, projection, conditions in zip(
+            payload.journey_id: (journeys[payload.journey_id], projection, triggers)
+            for payload, projection, triggers in zip(
                 payloads,
                 await async_utils.safe_gather(
                     *[
@@ -476,7 +476,7 @@ class JourneyEvaluator:
                         for payload in payloads
                     ]
                 ),
-                journey_conditions,
+                journey_triggers,
             )
         }
 
@@ -516,7 +516,7 @@ class JourneyEvaluator:
         for journey_id, (
             journey,
             step_guidelines,
-            journey_conditions,
+            journey_triggers,
         ) in journey_projections.items():
             journey_to_node_guidelines[journey_id] = {}
             for guideline in step_guidelines:
@@ -565,7 +565,7 @@ class JourneyEvaluator:
         for journey_id, (
             journey,
             step_guidelines,
-            journey_conditions,
+            journey_triggers,
         ) in journey_projections.items():
             updated_step_guidelines: list[Guideline] = []
             node_guidelines = journey_to_node_guidelines[journey_id]
@@ -599,7 +599,7 @@ class JourneyEvaluator:
                 else:
                     updated_step_guidelines.append(guideline)
 
-            updated_projections[journey_id] = (journey, updated_step_guidelines, journey_conditions)
+            updated_projections[journey_id] = (journey, updated_step_guidelines, journey_triggers)
 
         return updated_projections
 
@@ -613,7 +613,7 @@ class JourneyEvaluator:
         for journey_id, (
             journey,
             step_guidelines,
-            journey_conditions,
+            journey_triggers,
         ) in journey_projections.items():
             if not step_guidelines:
                 continue
@@ -623,7 +623,7 @@ class JourneyEvaluator:
                     self._relative_action_proposer.propose_relative_action(
                         examined_journey=journey,
                         step_guidelines=step_guidelines,
-                        journey_conditions=journey_conditions,
+                        journey_triggers=journey_triggers,
                         progress_report=progress_report,
                     )
                 )
@@ -643,7 +643,7 @@ class JourneyEvaluator:
         for journey_id, (
             journey,
             step_guidelines,
-            journey_conditions,
+            journey_triggers,
         ) in journey_projections.items():
             if not step_guidelines:
                 continue
@@ -778,7 +778,7 @@ class BehavioralChangeEvaluator:
 
             invoices: list[Invoice] = []
             for i, result in enumerate(evaluation_data):
-                invoice_checksum = md5_checksum(str(evaluation.invoices[i].payload))
+                invoice_checksum = xxh3_checksum(str(evaluation.invoices[i].payload))
                 state_version = str(hash("Temporarily"))
 
                 invoices.append(

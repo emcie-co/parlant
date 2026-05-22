@@ -99,7 +99,7 @@ class RelationshipModule:
             await self._entity_id_to_tag(
                 relationship.source.id,
             )
-            if relationship.source.kind == RelationshipEntityKind.TAG
+            if relationship.source.kind.is_tag
             else None
         )
 
@@ -115,7 +115,7 @@ class RelationshipModule:
             await self._entity_id_to_tag(
                 relationship.target.id,
             )
-            if relationship.target.kind == RelationshipEntityKind.TAG
+            if relationship.target.kind.is_tag
             else None
         )
 
@@ -144,15 +144,11 @@ class RelationshipModule:
             source_guideline=source_guideline
             if relationship.source.kind == RelationshipEntityKind.GUIDELINE
             else None,
-            source_tag=source_tag
-            if relationship.source.kind == RelationshipEntityKind.TAG
-            else None,
+            source_tag=source_tag if relationship.source.kind.is_tag else None,
             target_guideline=target_guideline
             if relationship.target.kind == RelationshipEntityKind.GUIDELINE
             else None,
-            target_tag=target_tag
-            if relationship.target.kind == RelationshipEntityKind.TAG
-            else None,
+            target_tag=target_tag if relationship.target.kind.is_tag else None,
             source_tool=source_tool
             if relationship.source.kind == RelationshipEntityKind.TOOL
             else None,
@@ -171,7 +167,7 @@ class RelationshipModule:
         if guideline_id:
             return RelationshipEntity(id=guideline_id, kind=RelationshipEntityKind.GUIDELINE)
         elif tag_id:
-            return RelationshipEntity(id=tag_id, kind=RelationshipEntityKind.TAG)
+            return RelationshipEntity(id=tag_id, kind=RelationshipEntityKind.TAG_ALL)
         elif tool_id:
             return RelationshipEntity(id=tool_id, kind=RelationshipEntityKind.TOOL)
         else:
@@ -197,7 +193,7 @@ class RelationshipModule:
             await self._entity_id_to_tag(
                 source_tag,
             )
-            source = RelationshipEntity(id=source_tag, kind=RelationshipEntityKind.TAG)
+            source = RelationshipEntity(id=source_tag, kind=RelationshipEntityKind.TAG_ALL)
         elif source_tool:
             service = await self._service_registry.read_tool_service(name=source_tool.service_name)
             _ = await service.read_tool(name=source_tool.tool_name)
@@ -210,7 +206,7 @@ class RelationshipModule:
             await self._entity_id_to_tag(
                 target_tag,
             )
-            target = RelationshipEntity(id=target_tag, kind=RelationshipEntityKind.TAG)
+            target = RelationshipEntity(id=target_tag, kind=RelationshipEntityKind.TAG_ALL)
         elif target_tool:
             service = await self._service_registry.read_tool_service(name=target_tool.service_name)
             _ = await service.read_tool(name=target_tool.tool_name)

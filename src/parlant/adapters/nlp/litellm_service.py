@@ -50,6 +50,7 @@ from parlant.core.nlp.moderation import (
     ModerationService,
     NoModeration,
 )
+from parlant.core.health import HealthReporter
 
 RATE_LIMIT_ERROR_MESSAGE = (
     "LiteLLM to provider API rate limit exceeded. Possible reasons:\n"
@@ -85,15 +86,14 @@ class LiteLLMSchematicGenerator(BaseSchematicGenerator[T]):
     ]
     supported_hints = supported_litellm_params + ["strict"]
 
-    def __init__(
-        self,
+    def __init__(self,
         base_url: str | None,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
 
         self.base_url = base_url
         self._client = litellm
@@ -199,15 +199,14 @@ class LiteLLMSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class LiteLLM_Default(LiteLLMSchematicGenerator[T]):
-    def __init__(
-        self, logger: Logger, tracer: Tracer, meter: Meter, base_url: str | None, model_name: str
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter, base_url: str | None, model_name: str
     ) -> None:
         super().__init__(
             base_url=base_url,
             model_name=model_name,
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
         )
 
     @property
@@ -221,15 +220,14 @@ class LiteLLM_Default(LiteLLMSchematicGenerator[T]):
 class LiteLLMEmbedder(BaseEmbedder):
     """Embedder that uses LiteLLM to access various embedding providers."""
 
-    def __init__(
-        self,
+    def __init__(self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
         base_url: str | None = None,
     ) -> None:
-        super().__init__(logger, tracer, meter, model_name)
+        super().__init__(logger, tracer, meter, model_name, health_reporter)
         self._base_url = base_url
         self._client = litellm
         self._tokenizer = LiteLLMEstimatingTokenizer(model_name=model_name)
@@ -288,13 +286,15 @@ Please set LITELLM_PROVIDER_MODEL_NAME in your environment before running Parlan
 
         return None
 
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
         self._base_url = os.environ.get("LITELLM_PROVIDER_BASE_URL")
         self._model_name = os.environ["LITELLM_PROVIDER_MODEL_NAME"]
         self._embedding_model_name = os.environ.get("LITELLM_EMBEDDING_MODEL_NAME")
         self.logger = logger
         self._tracer = tracer
         self._meter = meter
+
+        self._health_reporter = health_reporter
 
         log_msg = f"Initialized LiteLLMService with {self._model_name}"
         if self._embedding_model_name:
@@ -319,7 +319,12 @@ Please set LITELLM_PROVIDER_MODEL_NAME in your environment before running Parlan
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> LiteLLMSchematicGenerator[T]:
         return LiteLLM_Default[t](  # type: ignore
-            self.logger, self._tracer, self._meter, self._base_url, self._model_name
+            self.logger,
+            self._tracer,
+            self._meter,
+            self._health_reporter,
+            self._base_url,
+            self._model_name,
         )
 
     def create_embedder(self) -> Embedder:
@@ -329,9 +334,10 @@ Please set LITELLM_PROVIDER_MODEL_NAME in your environment before running Parlan
                 logger=self.logger,
                 tracer=self._tracer,
                 meter=self._meter,
+                health_reporter=self._health_reporter,
                 base_url=self._base_url,
             )
-        return JinaAIEmbedder(self.logger, self._tracer, self._meter)
+        return JinaAIEmbedder(self.logger, self._tracer, self._meter, self._health_reporter)
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:

@@ -90,6 +90,7 @@ class GuidelineModule:
         condition: str,
         action: str | None,
         description: str | None,
+        title: str | None,
         criticality: Criticality | None,
         metadata: Mapping[str, JSONSerializable] | None,
         enabled: bool | None,
@@ -110,6 +111,7 @@ class GuidelineModule:
             condition=condition,
             action=action,
             description=description,
+            title=title,
             criticality=criticality,
             metadata=metadata or {},
             enabled=enabled or True,
@@ -146,6 +148,7 @@ class GuidelineModule:
         condition: str | None,
         action: str | None,
         description: str | None,
+        title: str | None,
         criticality: Criticality | None,
         tool_associations: GuidelineToolAssociationUpdateParams | None,
         enabled: bool | None,
@@ -161,6 +164,7 @@ class GuidelineModule:
             condition
             or action
             or description is not None
+            or title is not None
             or criticality is not None
             or enabled is not None
             or composition_mode is not None
@@ -173,6 +177,8 @@ class GuidelineModule:
                 update_params["action"] = action
             if description is not None:
                 update_params["description"] = description
+            if title is not None:
+                update_params["title"] = title
             if criticality is not None:
                 update_params["criticality"] = criticality
             if enabled is not None:
@@ -300,11 +306,11 @@ class GuidelineModule:
 
         journeys = await self._journey_store.list_journeys()
         for journey in journeys:
-            for condition in journey.conditions:
-                if condition == guideline_id:
-                    await self._journey_store.remove_condition(
+            for trigger in journey.triggers:
+                if trigger == guideline_id:
+                    await self._journey_store.remove_trigger(
                         journey_id=journey.id,
-                        condition=condition,
+                        trigger=trigger,
                     )
 
         await self._guideline_store.delete_guideline(guideline_id=guideline_id)
@@ -323,7 +329,7 @@ class GuidelineModule:
                 return await self._guideline_store.read_guideline(
                     guideline_id=cast(GuidelineId, entity_id)
                 )
-            elif entity_type == RelationshipEntityKind.TAG:
+            elif entity_type.is_tag:
                 return await self._tag_store.read_tag(tag_id=cast(TagId, entity_id))
             else:
                 raise ValueError(f"Unsupported entity type: {entity_type}")
@@ -342,8 +348,8 @@ class GuidelineModule:
                 target_id=entity_id,
             ),
         ):
-            assert r.source.kind in (RelationshipEntityKind.GUIDELINE, RelationshipEntityKind.TAG)
-            assert r.target.kind in (RelationshipEntityKind.GUIDELINE, RelationshipEntityKind.TAG)
+            assert r.source.kind == RelationshipEntityKind.GUIDELINE or r.source.kind.is_tag
+            assert r.target.kind == RelationshipEntityKind.GUIDELINE or r.target.kind.is_tag
             assert type(r.kind) is RelationshipKind
 
             relationships.append(

@@ -25,7 +25,7 @@ from parlant.core.common import (
     UniqueId,
     Version,
     IdGenerator,
-    md5_checksum,
+    xxh3_checksum,
     to_json_dict,
 )
 from parlant.core.persistence.common import (
@@ -356,7 +356,7 @@ class AgentDocumentStore(AgentStore):
                 if existing:
                     raise ValueError(f"Agent with id '{agent_id}' already exists")
             else:
-                agent_checksum = md5_checksum(f"{name}{description}{max_engine_iterations}{tags}")
+                agent_checksum = xxh3_checksum(f"{name}{description}{max_engine_iterations}{tags}")
                 agent_id = AgentId(self._id_generator.generate(agent_checksum))
 
             agent = Agent(
@@ -373,7 +373,7 @@ class AgentDocumentStore(AgentStore):
             await self._agents_collection.insert_one(document=self._serialize_agent(agent=agent))
 
             for tag_id in tags or []:
-                tag_checksum = md5_checksum(f"{agent.id}{tag_id}")
+                tag_checksum = xxh3_checksum(f"{agent.id}{tag_id}")
 
                 await self._tag_association_collection.insert_one(
                     document={
@@ -471,7 +471,7 @@ class AgentDocumentStore(AgentStore):
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            association_checksum = md5_checksum(f"{agent_id}{tag_id}")
+            association_checksum = xxh3_checksum(f"{agent_id}{tag_id}")
 
             association_document: _AgentTagAssociationDocument = {
                 "id": ObjectId(self._id_generator.generate(association_checksum)),

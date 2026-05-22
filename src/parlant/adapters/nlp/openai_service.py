@@ -82,6 +82,7 @@ from parlant.core.nlp.moderation import (
     ModerationTag,
 )
 from parlant.core.tracer import Tracer
+from parlant.core.health import HealthReporter
 
 
 RATE_LIMIT_ERROR_MESSAGE = (
@@ -121,15 +122,14 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
         "gpt-5": ["temperature"],
     }
 
-    def __init__(
-        self,
+    def __init__(self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
         tokenizer_model_name: str | None = None,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
 
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
 
@@ -310,8 +310,8 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class GPT_4o(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(model_name="gpt-4o-2024-11-20", logger=logger, tracer=tracer, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+        super().__init__(model_name="gpt-4o-2024-11-20", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
 
     @property
     @override
@@ -320,8 +320,8 @@ class GPT_4o(OpenAISchematicGenerator[T]):
 
 
 class GPT_4o_24_08_06(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(model_name="gpt-4o-2024-08-06", logger=logger, tracer=tracer, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+        super().__init__(model_name="gpt-4o-2024-08-06", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
 
     @property
     @override
@@ -330,12 +330,12 @@ class GPT_4o_24_08_06(OpenAISchematicGenerator[T]):
 
 
 class GPT_4_1(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
         super().__init__(
             model_name="gpt-4.1",
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
             tokenizer_model_name="gpt-4o-2024-11-20",
         )
 
@@ -346,8 +346,8 @@ class GPT_4_1(OpenAISchematicGenerator[T]):
 
 
 class GPT_4o_Mini(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(model_name="gpt-4o-mini", logger=logger, tracer=tracer, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+        super().__init__(model_name="gpt-4o-mini", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -357,8 +357,8 @@ class GPT_4o_Mini(OpenAISchematicGenerator[T]):
 
 
 class GPT_4_1_Mini(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(model_name="gpt-4.1-mini", logger=logger, tracer=tracer, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+        super().__init__(model_name="gpt-4.1-mini", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -368,8 +368,8 @@ class GPT_4_1_Mini(OpenAISchematicGenerator[T]):
 
 
 class GPT_4_1_Nano(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(model_name="gpt-4.1-nano", logger=logger, tracer=tracer, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+        super().__init__(model_name="gpt-4.1-nano", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -379,8 +379,8 @@ class GPT_4_1_Nano(OpenAISchematicGenerator[T]):
 
 
 class GPT_5_1(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(model_name="gpt-5.1", logger=logger, tracer=tracer, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+        super().__init__(model_name="gpt-5.1", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -390,8 +390,8 @@ class GPT_5_1(OpenAISchematicGenerator[T]):
 
 
 class GPT_5_Mini(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(model_name="gpt-5-mini", logger=logger, tracer=tracer, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+        super().__init__(model_name="gpt-5-mini", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -401,8 +401,8 @@ class GPT_5_Mini(OpenAISchematicGenerator[T]):
 
 
 class GPT_5_Nano(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(model_name="gpt-5-nano", logger=logger, tracer=tracer, meter=meter)
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+        super().__init__(model_name="gpt-5-nano", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -431,15 +431,14 @@ class OpenAIStreamingTextGenerator(BaseStreamingTextGenerator):
 
     supported_openai_params = ["temperature", "max_tokens"]
 
-    def __init__(
-        self,
+    def __init__(self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
         tokenizer_model_name: str | None = None,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name)
+        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
 
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
         self._tokenizer = OpenAIEstimatingTokenizer(
@@ -549,12 +548,12 @@ class OpenAIStreamingTextGenerator(BaseStreamingTextGenerator):
 
 
 class GPT_4_1_Streaming(OpenAIStreamingTextGenerator):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
         super().__init__(
             model_name="gpt-4.1",
             logger=logger,
             tracer=tracer,
-            meter=meter,
+            meter=meter, health_reporter=health_reporter,
             tokenizer_model_name="gpt-4o-2024-11-20",
         )
 
@@ -567,8 +566,8 @@ class GPT_4_1_Streaming(OpenAIStreamingTextGenerator):
 class OpenAIEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
-    def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(logger, tracer, meter, model_name)
+    def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+        super().__init__(logger, tracer, meter, model_name, health_reporter)
 
         self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
         self._tokenizer = OpenAIEstimatingTokenizer(model_name=self.model_name)
@@ -619,9 +618,9 @@ class OpenAIEmbedder(BaseEmbedder):
 
 
 class OpenAITextEmbedding3Large(OpenAIEmbedder):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
         super().__init__(
-            model_name="text-embedding-3-large", logger=logger, tracer=tracer, meter=meter
+            model_name="text-embedding-3-large", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter
         )
 
     @property
@@ -635,9 +634,9 @@ class OpenAITextEmbedding3Large(OpenAIEmbedder):
 
 
 class OpenAITextEmbedding3Small(OpenAIEmbedder):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
+    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
         super().__init__(
-            model_name="text-embedding-3-small", logger=logger, tracer=tracer, meter=meter
+            model_name="text-embedding-3-small", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter
         )
 
     @property
@@ -651,8 +650,8 @@ class OpenAITextEmbedding3Small(OpenAIEmbedder):
 
 
 class OpenAIModerationService(BaseModerationService):
-    def __init__(self, model_name: str, logger: Logger, meter: Meter) -> None:
-        super().__init__(logger, meter)
+    def __init__(self, model_name: str, logger: Logger, meter: Meter, health_reporter: HealthReporter) -> None:
+        super().__init__(logger, meter, health_reporter)
 
         self.model_name = model_name
 
@@ -706,8 +705,8 @@ class OpenAIModerationService(BaseModerationService):
 
 
 class OmniModeration(OpenAIModerationService):
-    def __init__(self, logger: Logger, meter: Meter) -> None:
-        super().__init__(model_name="omni-moderation-latest", logger=logger, meter=meter)
+    def __init__(self, logger: Logger, meter: Meter, health_reporter: HealthReporter) -> None:
+        super().__init__(model_name="omni-moderation-latest", logger=logger, meter=meter, health_reporter=health_reporter)
 
 
 class OpenAIService(NLPService):
@@ -723,15 +722,16 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
 
         return None
 
-    def __init__(
-        self,
+    def __init__(self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter,
+        meter: Meter, health_reporter: HealthReporter,
     ) -> None:
         self._logger = logger
         self._tracer = tracer
         self._meter = meter
+
+        self._health_reporter = health_reporter
 
         self._logger.info("Initialized OpenAIService")
 
@@ -744,7 +744,7 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
     async def get_streaming_text_generator(
         self, hints: StreamingTextGeneratorHints = {}
     ) -> StreamingTextGenerator:
-        return GPT_4_1_Streaming(self._logger, self._tracer, self._meter)
+        return GPT_4_1_Streaming(self._logger, self._tracer, self._meter, self._health_reporter)
 
     @override
     async def get_schematic_generator(
@@ -762,50 +762,50 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
                     CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
                     JourneyNextStepSelectionSchema: GPT_4_1[JourneyNextStepSelectionSchema],
                     JourneyBacktrackCheckSchema: GPT_4_1_Mini[JourneyBacktrackCheckSchema],
-                }.get(t, GPT_4o_24_08_06[t])(self._logger, self._tracer, self._meter)  # type: ignore
+                }.get(t, GPT_4o_24_08_06[t])(self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
             case ModelSize.NANO:
                 match hints.get("model_generation", "auto"):
                     case "auto" | "stable":
                         match hints.get("model_type", "auto"):
                             case "auto" | "standard":
-                                return GPT_4_1_Nano[t](self._logger, self._tracer, self._meter)  # type: ignore
+                                return GPT_4_1_Nano[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
                             case "reasoning":
-                                return GPT_5_Nano[t](self._logger, self._tracer, self._meter)  # type: ignore
+                                return GPT_5_Nano[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
                     case "latest":
                         match hints.get("model_type", "auto"):
                             case "standard":
-                                return GPT_4_1_Nano[t](self._logger, self._tracer, self._meter)  # type: ignore
+                                return GPT_4_1_Nano[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
                             case "auto" | "reasoning":
-                                return GPT_5_Nano[t](self._logger, self._tracer, self._meter)  # type: ignore
+                                return GPT_5_Nano[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
             case ModelSize.MINI:
                 match hints.get("model_generation", "auto"):
                     case "auto" | "stable":
                         match hints.get("model_type", "auto"):
                             case "auto" | "standard":
-                                return GPT_4_1_Mini[t](self._logger, self._tracer, self._meter)  # type: ignore
+                                return GPT_4_1_Mini[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
                             case "reasoning":
-                                return GPT_5_Mini[t](self._logger, self._tracer, self._meter)  # type: ignore
+                                return GPT_5_Mini[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
                     case "latest":
                         match hints.get("model_type", "auto"):
                             case "standard":
-                                return GPT_4_1_Mini[t](self._logger, self._tracer, self._meter)  # type: ignore
+                                return GPT_4_1_Mini[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
                             case "auto" | "reasoning":
-                                return GPT_5_Mini[t](self._logger, self._tracer, self._meter)  # type: ignore
+                                return GPT_5_Mini[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
             case _:
                 match hints.get("model_type", "auto"):
                     case "reasoning":
-                        return GPT_5_1[t](self._logger, self._tracer, self._meter)  # type: ignore
+                        return GPT_5_1[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
                     case _:
-                        return GPT_4o_24_08_06[t](self._logger, self._tracer, self._meter)  # type: ignore
+                        return GPT_4o_24_08_06[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         match hints.get("model_size", ModelSize.AUTO):
             case ModelSize.AUTO | ModelSize.LARGE:
-                return OpenAITextEmbedding3Large(self._logger, self._tracer, self._meter)
+                return OpenAITextEmbedding3Large(self._logger, self._tracer, self._meter, self._health_reporter)
             case _:
-                return OpenAITextEmbedding3Small(self._logger, self._tracer, self._meter)
+                return OpenAITextEmbedding3Small(self._logger, self._tracer, self._meter, self._health_reporter)
 
     @override
     async def get_moderation_service(self) -> ModerationService:
-        return OmniModeration(self._logger, self._meter)
+        return OmniModeration(self._logger, self._meter, self._health_reporter)

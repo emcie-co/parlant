@@ -200,7 +200,7 @@ class Test_that_guideline_can_take_priority_over_journey(SDKTest):
         # Journey that also matches when customer asks about drinks
         self.journey = await self.agent.create_journey(
             title="Drink Recommendation Journey",
-            conditions=["Customer asks about drinks"],
+            triggers=["Customer asks about drinks"],
             description="Recommend Coca-Cola to the customer",
         )
 
@@ -239,7 +239,7 @@ class Test_that_guideline_can_depend_on_journey(SDKTest):
 
         self.journey = await self.agent.create_journey(
             title="VIP Journey",
-            conditions=["Customer is a VIP"],
+            triggers=["Customer is a VIP"],
             description="Assist the customer in a premium flow",
         )
 
@@ -522,7 +522,7 @@ class Test_that_guideline_match_handler_is_called_when_guideline_matches(SDKTest
         self.guideline = await self.agent.create_guideline(
             condition="Customer says hello",
             action="Greet the customer warmly",
-            on_match=match_handler,
+            on_selected=match_handler,
         )
 
     async def run(self, ctx: Context) -> None:
@@ -555,7 +555,7 @@ class Test_that_multiple_match_handlers_can_be_registered_for_same_guideline(SDK
         self.guideline = await self.agent.create_guideline(
             condition="Customer asks for help",
             action="Offer assistance",
-            on_match=handler1,
+            on_selected=handler1,
         )
 
         async def shim_handler2(
@@ -569,7 +569,7 @@ class Test_that_multiple_match_handlers_can_be_registered_for_same_guideline(SDK
             )
             await handler2(core_ctx, sdk_match)
 
-        server.container[EngineHooks].on_guideline_match_handlers[self.guideline.id].append(
+        server.container[EngineHooks].on_guideline_selected_handlers[self.guideline.id].append(
             shim_handler2
         )
 
@@ -602,13 +602,13 @@ class Test_that_match_handlers_for_different_guidelines_are_independent(SDKTest)
         self.guideline1 = await self.agent.create_guideline(
             condition="Customer mentions pizza",
             action="Recommend pizza toppings",
-            on_match=handler1,
+            on_selected=handler1,
         )
 
         self.guideline2 = await self.agent.create_guideline(
             condition="Customer mentions pasta",
             action="Recommend pasta dishes",
-            on_match=handler2,
+            on_selected=handler2,
         )
 
     async def run(self, ctx: Context) -> None:
@@ -631,7 +631,7 @@ class Test_that_journey_scoped_guideline_can_use_custom_matcher(SDKTest):
         self.journey = await self.agent.create_journey(
             title="Order Something",
             description="Journey to handle orders",
-            conditions=["Customer wants to order something"],
+            triggers=["Customer wants to order something"],
         )
 
         self.guideline = await self.journey.create_guideline(
@@ -659,7 +659,7 @@ class Test_that_match_handler_on_journey_scoped_guideline_works(SDKTest):
         self.journey = await self.agent.create_journey(
             title="Order Something",
             description="Journey to handle orders",
-            conditions=["Customer wants to order something"],
+            triggers=["Customer wants to order something"],
         )
 
         self.handler_called = False
@@ -670,7 +670,7 @@ class Test_that_match_handler_on_journey_scoped_guideline_works(SDKTest):
         self.guideline = await self.journey.create_guideline(
             condition="Customer wants to order a banana",
             action="Tell them it's an excellent choice",
-            on_match=match_handler,
+            on_selected=match_handler,
         )
 
     async def run(self, ctx: Context) -> None:
@@ -761,14 +761,14 @@ class Test_that_only_prioritized_guideline_handler_is_called_when_both_match(SDK
         self.general_guideline = await self.agent.create_guideline(
             condition="Customer asks for help",
             action="Provide general help information",
-            on_match=general_handler,
+            on_selected=general_handler,
         )
 
         # Create more specific guideline that should take priority
         self.specific_guideline = await self.agent.create_guideline(
             condition="Customer asks for help with billing",
             action="Provide billing-specific help",
-            on_match=specific_handler,
+            on_selected=specific_handler,
         )
 
         # Make specific guideline prioritize over general guideline
@@ -1238,13 +1238,11 @@ class Test_that_guideline_depend_on_tag_deactivates_guideline_when_tagged_depend
         )
 
 
-class Test_that_guideline_depend_on_tag_activates_when_at_least_one_tagged_member_is_matched(
-    SDKTest
-):
+class Test_that_guideline_depend_on_tag_deactivates_when_not_all_tagged_members_matched(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
-            name="Tag ANY Dependency Agent",
-            description="Agent for testing ANY semantics on tag dependency",
+            name="Tag ALL Dependency Agent",
+            description="Agent for testing ALL semantics on tag dependency (default)",
         )
 
         t1 = await server.create_tag("drink-group")
@@ -1267,7 +1265,7 @@ class Test_that_guideline_depend_on_tag_activates_when_at_least_one_tagged_membe
             tags=[t1],
         )
 
-        # g1 depends on tag t1 — ANY tagged member matched should activate g1
+        # g1 depends on tag t1 — bare Tag maps to TAG_ALL (all members must match)
         await g1.depend_on(t1)
 
     async def run(self, ctx: Context) -> None:
@@ -1276,6 +1274,105 @@ class Test_that_guideline_depend_on_tag_activates_when_at_least_one_tagged_membe
             recipient=self.agent,
         )
 
-        assert "pepsi" in response.lower(), (
-            f"Expected 'pepsi' in response (at least one t1 member matched) but got: {response}"
+        assert "pepsi" not in response.lower(), (
+            f"Expected 'pepsi' NOT in response (TAG_ALL: not all t1 members matched) "
+            f"but got: {response}"
         )
+
+
+class Test_that_guideline_depend_on_any_of_tag_activates_when_at_least_one_tagged_member_matched(
+    SDKTest,
+):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Tag AnyOf Dependency Agent",
+            description="Agent for testing AnyOf semantics on tag dependency",
+        )
+
+        t1 = await server.create_tag("drink-group")
+
+        g1 = await self.agent.create_guideline(
+            matcher=p.MATCH_ALWAYS,
+            action="Offer a Pepsi",
+        )
+
+        # Two guidelines tagged with t1; only one will match
+        await self.agent.create_guideline(
+            matcher=p.MATCH_ALWAYS,
+            action="Offer Coke",
+            tags=[t1],
+        )
+
+        await self.agent.create_guideline(
+            condition="the customer has explicitly said the word 'banana'",
+            action="Offer Sprite",
+            tags=[t1],
+        )
+
+        # g1 depends on AnyOf(t1) — at least one tagged member matched should activate g1
+        await g1.depend_on(p.AnyOf(tag=t1))
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="Hello",
+            recipient=self.agent,
+        )
+
+        assert "pepsi" in response.lower(), (
+            f"Expected 'pepsi' in response (AnyOf: at least one t1 member matched) "
+            f"but got: {response}"
+        )
+
+
+class Test_that_guideline_depend_on_any_activates_when_one_of_two_guidelines_matched(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Depend On Any Agent",
+            description="Agent for testing depend_on_any with guidelines",
+        )
+
+        self.g1 = await self.agent.create_guideline(
+            matcher=p.MATCH_ALWAYS,
+            action="Offer a Pepsi",
+        )
+
+        self.g2 = await self.agent.create_guideline(
+            matcher=p.MATCH_ALWAYS,
+            action="Offer Coke",
+        )
+
+        self.g3 = await self.agent.create_guideline(
+            condition="the customer has explicitly said the word 'banana'",
+            action="Offer Sprite",
+        )
+
+        # g1 activates if EITHER g2 or g3 is active (g2 will match, g3 won't)
+        await self.g1.depend_on_any(self.g2, self.g3)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="Hello",
+            recipient=self.agent,
+        )
+
+        assert "pepsi" in response.lower(), (
+            f"Expected 'pepsi' in response (depend_on_any: g2 matched) but got: {response}"
+        )
+
+
+class Test_that_observation_can_be_created_with_a_title(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Title Agent",
+            description="Agent for testing guideline titles",
+        )
+
+        self.observation = await self.agent.create_observation(
+            condition="the customer asks about the weather",
+            title="Weather inquiries",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        store = ctx.container[GuidelineStore]
+        stored = await store.read_guideline(self.observation.id)
+        assert stored.title == "Weather inquiries"

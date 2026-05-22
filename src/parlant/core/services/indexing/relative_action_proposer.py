@@ -69,7 +69,7 @@ class RelativeActionProposer:
         self,
         examined_journey: Journey,
         step_guidelines: Sequence[Guideline] = [],
-        journey_conditions: Sequence[Guideline] = [],
+        journey_triggers: Sequence[Guideline] = [],
         progress_report: Optional[ProgressReport] = None,
     ) -> RelativeActionProposition:
         if progress_report:
@@ -94,7 +94,7 @@ class RelativeActionProposer:
                     result = await self._generate_relative_action_step_proposer(
                         examined_journey,
                         step_guidelines,
-                        journey_conditions,
+                        journey_triggers,
                         temperature=generation_attempt_temperatures[generation_attempt],
                     )
 
@@ -125,20 +125,20 @@ class RelativeActionProposer:
         self,
         examined_journey: Journey,
         step_guidelines: Sequence[Guideline],
-        journey_conditions: Sequence[Guideline],
+        journey_triggers: Sequence[Guideline],
     ) -> str:
         node_wrappers: dict[str, _JourneyNode] = build_node_wrappers(step_guidelines)
         return get_journey_transition_map_text(
             nodes=node_wrappers,
             journey_title=examined_journey.title,
-            journey_conditions=journey_conditions,
+            journey_triggers=journey_triggers,
         )
 
     async def _build_prompt(
         self,
         examined_journey: Journey,
         step_guidelines: Sequence[Guideline],
-        journey_conditions: Sequence[Guideline],
+        journey_triggers: Sequence[Guideline],
         shots: Sequence[RelativeActionShot],
     ) -> PromptBuilder:
         builder = PromptBuilder()
@@ -205,7 +205,7 @@ EXAMPLES
             template=self.get_journey_text(
                 examined_journey,
                 step_guidelines,
-                journey_conditions,
+                journey_triggers,
             ),
         )
 
@@ -251,13 +251,13 @@ Expected output (JSON):
         self,
         examined_journey: Journey,
         step_guidelines: Sequence[Guideline],
-        journey_conditions: Sequence[Guideline],
+        journey_triggers: Sequence[Guideline],
         temperature: float,
     ) -> RelativeActionSchema:
         prompt = await self._build_prompt(
             examined_journey,
             step_guidelines,
-            journey_conditions,
+            journey_triggers,
             _baseline_shots,
         )
 

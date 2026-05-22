@@ -139,7 +139,7 @@ async def test_that_guideline_matches_are_not_filtered_by_enabled_journeys(
     journey = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
-        conditions=[journey_guideline.id],
+        triggers=[journey_guideline.id],
     )
 
     guideline = await guideline_store.create_guideline(
@@ -181,7 +181,7 @@ async def test_that_guideline_tagged_with_disabled_journey_is_filtered_out_when_
     journey = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
-        conditions=[journey_guideline.id],
+        triggers=[journey_guideline.id],
     )
 
     guideline = await guideline_store.create_guideline(
@@ -260,7 +260,7 @@ async def test_that_find_canned_responses_for_agent_and_journey_returns_journey_
     journey = await journey_store.create_journey(
         title="Test Journey",
         description="A test journey",
-        conditions=[],
+        triggers=[],
     )
 
     journey_tag = Tag.for_journey_id(journey.id).id
@@ -379,13 +379,13 @@ async def test_find_relevant_journeys_for_agent_returns_most_relevant(
         3. Wish them a good day and only proceed if they wish one back to you. Otherwise abort.
         4. use the tool reset_password with the provided information
         5. report the result to the customer""",
-        conditions=[condition.id],
+        triggers=[condition.id],
     )
 
     support_journey = await journey_store.create_journey(
         title="Change Credit Limits",
         description="Remember that credit limits can be decreased through this chat, using the decrease_limits tool, but that to increase credit limits you must visit a physical branch",
-        conditions=[],
+        triggers=[],
     )
 
     results = await entity_queries.sort_journeys_by_contextual_relevance(
@@ -408,7 +408,7 @@ async def test_list_guidelines_dependent_directly_on_journey(
     journey = await journey_store.create_journey(
         title="Test Journey",
         description="A journey for testing dependencies",
-        conditions=[],
+        triggers=[],
     )
 
     guideline1 = await guideline_store.create_guideline(
@@ -423,7 +423,7 @@ async def test_list_guidelines_dependent_directly_on_journey(
     await relationship_store.create_relationship(
         source=RelationshipEntity(id=guideline1.id, kind=RelationshipEntityKind.GUIDELINE),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(journey.id).id, kind=RelationshipEntityKind.TAG
+            id=Tag.for_journey_id(journey.id).id, kind=RelationshipEntityKind.TAG_ALL
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -447,7 +447,7 @@ async def test_list_guidelines_dependent_indirectly_on_journey(
     journey = await journey_store.create_journey(
         title="Test Journey",
         description="A journey for testing dependencies",
-        conditions=[],
+        triggers=[],
     )
 
     guideline1 = await guideline_store.create_guideline(
@@ -467,7 +467,7 @@ async def test_list_guidelines_dependent_indirectly_on_journey(
     await relationship_store.create_relationship(
         source=RelationshipEntity(id=guideline1.id, kind=RelationshipEntityKind.GUIDELINE),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(journey.id).id, kind=RelationshipEntityKind.TAG
+            id=Tag.for_journey_id(journey.id).id, kind=RelationshipEntityKind.TAG_ALL
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -480,13 +480,13 @@ async def test_list_guidelines_dependent_indirectly_on_journey(
 
     await relationship_store.create_relationship(
         source=RelationshipEntity(id=guideline3.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=tag.id, kind=RelationshipEntityKind.TAG),
+        target=RelationshipEntity(id=tag.id, kind=RelationshipEntityKind.TAG_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=tag.id, kind=RelationshipEntityKind.TAG),
+        source=RelationshipEntity(id=tag.id, kind=RelationshipEntityKind.TAG_ALL),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(journey.id).id, kind=RelationshipEntityKind.TAG
+            id=Tag.for_journey_id(journey.id).id, kind=RelationshipEntityKind.TAG_ALL
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -522,7 +522,7 @@ async def test_that_canned_responses_can_be_found_for_a_guideline(
     journey = await journey_store.create_journey(
         title="Test Journey",
         description="A journey for testing canned responses",
-        conditions=[],
+        triggers=[],
     )
 
     node = await journey_store.create_node(
@@ -630,7 +630,7 @@ async def test_that_find_guidelines_that_need_reevaluation_finds_guidelines_by_t
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=custom_tag_id,
-            kind=RelationshipEntityKind.TAG,
+            kind=RelationshipEntityKind.TAG_ALL,
         ),
         target=RelationshipEntity(
             id=tool_id,

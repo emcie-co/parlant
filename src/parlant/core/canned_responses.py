@@ -48,7 +48,7 @@ from parlant.core.common import (
     UniqueId,
     Version,
     IdGenerator,
-    md5_checksum,
+    xxh3_checksum,
 )
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
@@ -547,7 +547,7 @@ class CannedResponseVectorStore(CannedResponseStore):
                 canned_response_id=ObjectId(canned_response.id),
                 version=self.VERSION.to_string(),
                 content=content,
-                checksum=md5_checksum(content),
+                checksum=xxh3_checksum(content),
             )
 
             insertion_tasks.append(self._canreps_vector_collection.insert_one(document=vec_doc))
@@ -575,7 +575,7 @@ class CannedResponseVectorStore(CannedResponseStore):
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            canrep_checksum = md5_checksum(f"{value}{fields}")
+            canrep_checksum = xxh3_checksum(f"{value}{fields}")
             canrep_id = CannedResponseId(self._id_generator.generate(canrep_checksum))
 
             canrep = CannedResponse(
@@ -592,7 +592,7 @@ class CannedResponseVectorStore(CannedResponseStore):
             await self._insert_canned_response(canrep)
 
             for tag_id in tags or []:
-                tag_checksum = md5_checksum(f"{canrep.id}{tag_id}")
+                tag_checksum = xxh3_checksum(f"{canrep.id}{tag_id}")
 
                 await self._canrep_tag_association_collection.insert_one(
                     document={
@@ -753,7 +753,7 @@ class CannedResponseVectorStore(CannedResponseStore):
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            association_checksum = md5_checksum(f"{canned_response_id}{tag_id}")
+            association_checksum = xxh3_checksum(f"{canned_response_id}{tag_id}")
 
             association_document: CannedResponseTagAssociationDocument = {
                 "id": ObjectId(self._id_generator.generate(association_checksum)),

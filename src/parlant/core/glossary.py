@@ -21,7 +21,7 @@ from typing_extensions import override, Self, Required
 
 from parlant.core import async_utils
 from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, Version, IdGenerator, UniqueId, md5_checksum
+from parlant.core.common import ItemNotFoundError, Version, IdGenerator, UniqueId, xxh3_checksum
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.vector_database import (
@@ -304,7 +304,7 @@ class GlossaryVectorStore(GlossaryStore):
                     raise ValueError(f"Term with ID '{id}' already exists")
                 term_id = id
             else:
-                term_checksum = md5_checksum(f"{name}{description}{synonyms}")
+                term_checksum = xxh3_checksum(f"{name}{description}{synonyms}")
                 term_id = TermId(self._id_generator.generate(term_checksum))
 
             term = Term(
@@ -320,12 +320,12 @@ class GlossaryVectorStore(GlossaryStore):
                 document=self._serialize(
                     term=term,
                     content=content,
-                    checksum=md5_checksum(content),
+                    checksum=xxh3_checksum(content),
                 )
             )
 
             for tag_id in tags or []:
-                tag_checksum = md5_checksum(f"{term.id}{tag_id}")
+                tag_checksum = xxh3_checksum(f"{term.id}{tag_id}")
 
                 await self._association_collection.insert_one(
                     document={
@@ -384,7 +384,7 @@ class GlossaryVectorStore(GlossaryStore):
                     "name": name,
                     "description": description,
                     "synonyms": ", ".join(synonyms) if synonyms else "",
-                    "checksum": md5_checksum(content),
+                    "checksum": xxh3_checksum(content),
                 },
             )
 
@@ -510,7 +510,7 @@ class GlossaryVectorStore(GlossaryStore):
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            association_checksum = md5_checksum(f"{term_id}{tag_id}")
+            association_checksum = xxh3_checksum(f"{term_id}{tag_id}")
 
             association_document: TermTagAssociationDocument = {
                 "id": ObjectId(self._id_generator.generate(association_checksum)),

@@ -25,7 +25,7 @@ from parlant.adapters.nlp.openai_service import OpenAITextEmbedding3Large
 from parlant.adapters.db.transient import TransientDocumentDatabase
 from parlant.adapters.vector_db.chroma import ChromaCollection, ChromaDatabase
 from parlant.core.agents import AgentStore, AgentId
-from parlant.core.common import IdGenerator, Version, md5_checksum
+from parlant.core.common import IdGenerator, Version, xxh3_checksum
 from parlant.core.glossary import GlossaryVectorStore
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory, NullEmbedder, NullEmbeddingCache
 from parlant.core.loggers import Logger
@@ -160,7 +160,7 @@ async def test_that_update_one_without_upsert_updates_existing_document(
         version=doc_version,
         content="test content",
         name="test name",
-        checksum=md5_checksum("test content"),
+        checksum=xxh3_checksum("test content"),
     )
 
     await chroma_collection.insert_one(document)
@@ -170,7 +170,7 @@ async def test_that_update_one_without_upsert_updates_existing_document(
         version=doc_version,
         content="test content",
         name="new name",
-        checksum=md5_checksum("test content"),
+        checksum=xxh3_checksum("test content"),
     )
 
     await chroma_collection.update_one(
@@ -196,7 +196,7 @@ async def test_that_update_one_without_upsert_and_no_preexisting_document_with_s
         version=doc_version,
         content="test content",
         name="test name",
-        checksum=md5_checksum("test content"),
+        checksum=xxh3_checksum("test content"),
     )
 
     result = await chroma_collection.update_one(
@@ -218,7 +218,7 @@ async def test_that_update_one_with_upsert_and_no_preexisting_document_with_same
         version=doc_version,
         content="test content",
         name="test name",
-        checksum=md5_checksum("test content"),
+        checksum=xxh3_checksum("test content"),
     )
 
     await chroma_collection.update_one(
@@ -242,7 +242,7 @@ async def test_delete_one(
         version=doc_version,
         content="test content",
         name="test name",
-        checksum=md5_checksum("test content"),
+        checksum=xxh3_checksum("test content"),
     )
 
     await chroma_collection.insert_one(document)
@@ -270,7 +270,7 @@ async def test_find_similar_documents(
         version=doc_version,
         content="apple",
         name="Apple",
-        checksum=md5_checksum("apple"),
+        checksum=xxh3_checksum("apple"),
     )
 
     banana_document = _TestDocument(
@@ -278,7 +278,7 @@ async def test_find_similar_documents(
         version=doc_version,
         content="banana",
         name="Banana",
-        checksum=md5_checksum("banana"),
+        checksum=xxh3_checksum("banana"),
     )
 
     cherry_document = _TestDocument(
@@ -286,7 +286,7 @@ async def test_find_similar_documents(
         version=doc_version,
         content="cherry",
         name="Cherry",
-        checksum=md5_checksum("cherry"),
+        checksum=xxh3_checksum("cherry"),
     )
 
     await chroma_collection.insert_one(apple_document)
@@ -298,7 +298,7 @@ async def test_find_similar_documents(
             version=doc_version,
             content="date",
             name="Date",
-            checksum=md5_checksum("date"),
+            checksum=xxh3_checksum("date"),
         )
     )
     await chroma_collection.insert_one(
@@ -307,7 +307,7 @@ async def test_find_similar_documents(
             version=doc_version,
             content="elderberry",
             name="Elderberry",
-            checksum=md5_checksum("elderberry"),
+            checksum=xxh3_checksum("elderberry"),
         )
     )
 
@@ -339,7 +339,7 @@ async def test_loading_collections(
             version=doc_version,
             content="test content",
             name="test name",
-            checksum=md5_checksum("test content"),
+            checksum=xxh3_checksum("test content"),
         )
 
         await created_collection.insert_one(document)
@@ -449,7 +449,7 @@ async def test_that_document_loader_updates_documents_in_current_chroma_collecti
                 id=doc_1["id"],
                 version=Version.String("2.0.0"),
                 content=doc_1["content"],
-                checksum=md5_checksum(doc_1["content"] + doc_1["name"]),
+                checksum=xxh3_checksum(doc_1["content"] + doc_1["name"]),
                 new_name=doc_1["name"],
             )
 
@@ -472,21 +472,21 @@ async def test_that_document_loader_updates_documents_in_current_chroma_collecti
                 version=Version.String("1.0.0"),
                 content="strawberry",
                 name="Document 1",
-                checksum=md5_checksum("strawberry"),
+                checksum=xxh3_checksum("strawberry"),
             ),
             _TestDocument(
                 id=ObjectId("2"),
                 version=Version.String("1.0.0"),
                 content="apple",
                 name="Document 2",
-                checksum=md5_checksum("apple"),
+                checksum=xxh3_checksum("apple"),
             ),
             _TestDocument(
                 id=ObjectId("3"),
                 version=Version.String("1.0.0"),
                 content="cherry",
                 name="Document 3",
-                checksum=md5_checksum("cherry"),
+                checksum=xxh3_checksum("cherry"),
             ),
         ]
 
@@ -507,7 +507,7 @@ async def test_that_document_loader_updates_documents_in_current_chroma_collecti
         assert new_documents[0]["content"] == "strawberry"
         assert new_documents[0]["new_name"] == "Document 1"
         assert new_documents[0]["version"] == Version.String("2.0.0")
-        assert new_documents[0]["checksum"] == md5_checksum("strawberryDocument 1")
+        assert new_documents[0]["checksum"] == xxh3_checksum("strawberryDocument 1")
 
 
 async def test_that_failed_migrations_are_stored_in_failed_migrations_collection(
@@ -527,21 +527,21 @@ async def test_that_failed_migrations_are_stored_in_failed_migrations_collection
                 version=Version.String("1.0.0"),
                 content="valid content",
                 name="Valid Document",
-                checksum=md5_checksum("valid content"),
+                checksum=xxh3_checksum("valid content"),
             ),
             _TestDocument(
                 id=ObjectId("2"),
                 version=Version.String("1.0.0"),
                 content="invalid",
                 name="Invalid Document",
-                checksum=md5_checksum("invalid"),
+                checksum=xxh3_checksum("invalid"),
             ),
             _TestDocument(
                 id=ObjectId("3"),
                 version=Version.String("1.0.0"),
                 content="another valid content",
                 name="Another Valid Document",
-                checksum=md5_checksum("another valid content"),
+                checksum=xxh3_checksum("another valid content"),
             ),
         ]
 
@@ -559,7 +559,7 @@ async def test_that_failed_migrations_are_stored_in_failed_migrations_collection
                 version=Version.String("2.0.0"),
                 content=doc_1["content"],
                 new_name=doc_1["name"],
-                checksum=md5_checksum(doc_1["content"] + doc_1["name"]),
+                checksum=xxh3_checksum(doc_1["content"] + doc_1["name"]),
             )
 
         collection_with_loader = await chroma_database.get_or_create_collection(
@@ -702,7 +702,7 @@ async def test_that_documents_are_migrated_and_reindexed_for_new_embedder_type(
             version=Version.String("2.0.0"),
             content=doc_1["content"],
             new_name=doc_1["name"],
-            checksum=md5_checksum(doc_1["content"] + doc_1["name"]),
+            checksum=xxh3_checksum(doc_1["content"] + doc_1["name"]),
         )
 
     async with create_database(context) as chroma_database:
@@ -719,14 +719,14 @@ async def test_that_documents_are_migrated_and_reindexed_for_new_embedder_type(
                 version=Version.String("1.0.0"),
                 content="test content 1",
                 name="Document 1",
-                checksum=md5_checksum("test content 1"),
+                checksum=xxh3_checksum("test content 1"),
             ),
             _TestDocument(
                 id=ObjectId("2"),
                 version=Version.String("1.0.0"),
                 content="test content 2",
                 name="Document 2",
-                checksum=md5_checksum("test content 2"),
+                checksum=xxh3_checksum("test content 2"),
             ),
         ]
         for doc in documents:

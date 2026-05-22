@@ -23,6 +23,7 @@ from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.common import measure_guideline_matching_batch
 from parlant.core.engines.alpha.guideline_matching.generic.common import (
     GuidelineInternalRepresentation,
+    dump_guideline,
     internal_representation,
 )
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
@@ -128,7 +129,7 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
 
                     for match in inference.content.checks:
                         if match.should_reapply:
-                            self._logger.debug(f"Activated:\n{match.model_dump_json(indent=2)}")
+                            self._logger.debug(f"Matched:\n{match.model_dump_json(indent=2)}")
 
                             matches.append(
                                 GuidelineMatch(
@@ -138,7 +139,7 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
                                 )
                             )
                         else:
-                            self._logger.debug(f"Skipped:\n{match.model_dump_json(indent=2)}")
+                            self._logger.debug(f"Not matched:\n{match.model_dump_json(indent=2)}")
 
                     return GuidelineMatchingBatchResult(
                         matches=matches,
@@ -221,6 +222,11 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
 
         guidelines_text = "\n".join(
             f"{i}) Condition: {guideline_representations[g.id].condition}. Action: {guideline_representations[g.id].action}"
+            + (
+                f" Description: {guideline_representations[g.id].description}"
+                if guideline_representations[g.id].description
+                else ""
+            )
             for i, g in self._guidelines.items()
         )
 
@@ -301,10 +307,7 @@ Examples of Guideline Match Evaluations:
 """,
             props={
                 "guidelines_text": guidelines_text,
-                "guidelines": [
-                    {"condition": g.content.condition, "action": g.content.action}
-                    for g in self._guidelines.values()
-                ],
+                "guidelines": [dump_guideline(g) for g in self._guidelines.values()],
             },
             status=SectionStatus.ACTIVE,
         )

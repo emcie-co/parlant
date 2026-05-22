@@ -21,6 +21,7 @@ from lagom import Container
 
 from parlant.adapters.nlp.emcie_service import EmcieAPIError, Jackal
 from parlant.core.common import DefaultBaseModel
+from parlant.core.health import HealthReporter
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.tracer import Tracer
@@ -51,6 +52,7 @@ async def test_that_emcie_generator_handles_500_without_json_body(
             logger=container[Logger],
             tracer=container[Tracer],
             meter=container[Meter],
+            health_reporter=container[HealthReporter],
             model_role="auto",
         )
 

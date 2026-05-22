@@ -31,8 +31,6 @@ from parlant.adapters.nlp.common import normalize_json_output, record_llm_metric
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
-from parlant.core.services.indexing.common import ProgressReport
-from parlant.core.services.indexing.indexer import IndexRequest, Indexer
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import (
@@ -58,6 +56,8 @@ from parlant.core.nlp.moderation import (
 from parlant.core.tracer import Tracer
 from parlant.core.version import VERSION
 from parlant.core.health import HealthReporter
+from parlant.core.services.indexing.common import ProgressReport
+from parlant.core.services.indexing.indexer import IndexRequest, Indexer
 
 
 RATE_LIMIT_ERROR_MESSAGE = (
@@ -131,16 +131,16 @@ def _get_error_detail(response: httpx.Response) -> tuple[str, str]:
 class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
     supported_emcie_params = ["temperature"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         model_role: ModelRole,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(
-            logger=logger, tracer=tracer, meter=meter, model_name=model_name
-        )
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name, health_reporter=health_reporter)
 
         self._model_role = model_role
         self._tokenizer = EmcieEstimatingTokenizer()
@@ -204,9 +204,7 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
                         "prompt": prompt,
                         "schema_name": self.schema.__name__,
                         "hints": {
-                            k: v
-                            for k, v in hints.items()
-                            if k in self.supported_emcie_params
+                            k: v for k, v in hints.items() if k in self.supported_emcie_params
                         },
                         "payload": props,
                     },
@@ -286,13 +284,9 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
         try:
             json_content = json.loads(normalize_json_output(raw_content))
         except json.JSONDecodeError:
-            self.logger.warning(
-                f"Invalid JSON returned by {self.model_name}:\n{raw_content})"
-            )
+            self.logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
             json_content = jsonfinder.only_json(raw_content)[2]
-            self.logger.warning(
-                "Found JSON content within model response; continuing..."
-            )
+            self.logger.warning("Found JSON content within model response; continuing...")
 
         try:
             content = self.schema.model_validate(json_content)
@@ -328,17 +322,20 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class Jackal(EmcieSchematicGenerator[T]):
-    def __init__(self,
+    def __init__(
+        self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
         model_role: ModelRole,
     ) -> None:
         super().__init__(
             model_name="jackal",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
             model_role=model_role,
         )
 
@@ -349,17 +346,20 @@ class Jackal(EmcieSchematicGenerator[T]):
 
 
 class Bison(EmcieSchematicGenerator[T]):
-    def __init__(self,
+    def __init__(
+        self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
         model_role: ModelRole,
     ) -> None:
         super().__init__(
             model_name="bison",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
             model_role=model_role,
         )
 
@@ -382,16 +382,16 @@ class EmcieStreamingTextGenerator(BaseStreamingTextGenerator):
 
     supported_emcie_params = ["temperature"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         model_role: ModelRole,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(
-            logger=logger, tracer=tracer, meter=meter, model_name=model_name
-        )
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name, health_reporter=health_reporter)
         self._model_role = model_role
         self._tokenizer = EmcieEstimatingTokenizer()
 
@@ -444,9 +444,7 @@ class EmcieStreamingTextGenerator(BaseStreamingTextGenerator):
                         "prompt": prompt,
                         "stream": True,
                         "hints": {
-                            k: v
-                            for k, v in hints.items()
-                            if k in self.supported_emcie_params
+                            k: v for k, v in hints.items() if k in self.supported_emcie_params
                         },
                     },
                 ) as response:
@@ -491,9 +489,7 @@ class EmcieStreamingTextGenerator(BaseStreamingTextGenerator):
                                     buffer += text
 
                                     # Count word boundaries in buffer
-                                    boundaries = list(
-                                        _WORD_BOUNDARY_PATTERN.finditer(buffer)
-                                    )
+                                    boundaries = list(_WORD_BOUNDARY_PATTERN.finditer(buffer))
                                     if len(boundaries) >= _WORDS_PER_CHUNK:
                                         # Yield up to the last complete word boundary
                                         last_boundary = boundaries[_WORDS_PER_CHUNK - 1]
@@ -509,9 +505,7 @@ class EmcieStreamingTextGenerator(BaseStreamingTextGenerator):
                                     extra={},
                                 )
 
-                                self.logger.trace(
-                                    f"Emcie streaming usage data:\n{pformat(data)}"
-                                )
+                                self.logger.trace(f"Emcie streaming usage data:\n{pformat(data)}")
 
                                 # Yield any remaining content in the buffer
                                 if buffer:
@@ -519,12 +513,8 @@ class EmcieStreamingTextGenerator(BaseStreamingTextGenerator):
                                     buffer = ""
 
                             elif event_type == "error":
-                                error_msg = data.get("error", {}).get(
-                                    "message", "Unknown error"
-                                )
-                                raise EmcieAPIError(
-                                    f"Emcie streaming error: {error_msg}"
-                                )
+                                error_msg = data.get("error", {}).get("message", "Unknown error")
+                                raise EmcieAPIError(f"Emcie streaming error: {error_msg}")
 
             # Record metrics if we have usage info
             if usage_info is not None:
@@ -549,34 +539,40 @@ class EmcieStreamingTextGenerator(BaseStreamingTextGenerator):
 
 
 class JackalStreaming(EmcieStreamingTextGenerator):
-    def __init__(self,
+    def __init__(
+        self,
         model_role: ModelRole,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
         super().__init__(
             model_name="jackal",
             model_role=model_role,
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
 
 class BisonStreaming(EmcieStreamingTextGenerator):
-    def __init__(self,
+    def __init__(
+        self,
         model_role: ModelRole,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
         super().__init__(
             model_name="bison",
             model_role=model_role,
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
 
@@ -588,11 +584,13 @@ class BisonStreaming(EmcieStreamingTextGenerator):
 class EmcieEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
         super().__init__(logger, tracer, meter, model_name, health_reporter)
         self._tokenizer = EmcieEstimatingTokenizer()
@@ -637,11 +635,7 @@ class EmcieEmbedder(BaseEmbedder):
                     json={
                         "model_tier": self.model_name,
                         "inputs": texts,
-                        "hints": {
-                            k: v
-                            for k, v in hints.items()
-                            if k in self.supported_arguments
-                        },
+                        "hints": {k: v for k, v in hints.items() if k in self.supported_arguments},
                     },
                 )
 
@@ -684,7 +678,8 @@ class BisonEmbedding(EmcieEmbedder):
             model_name="bison-embedding",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -703,7 +698,8 @@ class JackalEmbedding(EmcieEmbedder):
             model_name="jackal-embedding",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -742,10 +738,12 @@ Get an API key for Emcie by signing up at https://www.emcie.co."""
 
         return None
 
-    def __init__(self,
+    def __init__(
+        self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
         model_tier: GenerationModelTier | None = None,
         model_role: ModelRole | None = None,
     ) -> None:
@@ -759,11 +757,7 @@ Get an API key for Emcie by signing up at https://www.emcie.co."""
         self._model_role = model_role or os.environ.get("EMCIE_MODEL_ROLE", "auto")
 
         assert self._model_tier in ("jackal", "bison"), "Invalid EMCIE_MODEL_TIER"
-        assert self._model_role in (
-            "teacher",
-            "student",
-            "auto",
-        ), "Invalid EMCIE_MODEL_ROLE"
+        assert self._model_role in ("teacher", "student", "auto"), "Invalid EMCIE_MODEL_ROLE"
 
         self._logger.info("Initialized EmcieService")
 

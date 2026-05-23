@@ -243,12 +243,15 @@ class ParlantCloudTracer(Tracer):
             trace_id_reset_token = self._trace_id.set(custom_trace_id)
 
             # Inject Parlant trace_id into the OTEL context so the SDK uses
-            # the same ID (UUID hex → 128-bit int).
+            # the same ID (UUID hex → 128-bit int). Must use is_remote=True
+            # and a valid span_id so the SDK treats it as a real parent.
+            import random
+
             otel_trace_id = int(custom_trace_id.replace("-", ""), 16)
             span_ctx = trace.SpanContext(
                 trace_id=otel_trace_id,
-                span_id=trace.INVALID_SPAN_ID,
-                is_remote=False,
+                span_id=random.getrandbits(64),
+                is_remote=True,
                 trace_flags=trace.TraceFlags(trace.TraceFlags.SAMPLED),
             )
             seeded_span = trace.NonRecordingSpan(span_ctx)

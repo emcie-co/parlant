@@ -234,9 +234,25 @@ class ParlantCloudTracer(Tracer):
 
         if not current_span_chain:
             new_span_chain = span_id
-            custom_trace_id = self._generate_trace_id()
+            # Use existing trace_id if set by CompositeTracer, otherwise generate
+            existing = self._trace_id.get()
+            if existing:
+                custom_trace_id = existing
+            else:
+                custom_trace_id = self._generate_trace_id()
             trace_id_reset_token = self._trace_id.set(custom_trace_id)
-            isolated_ctx = context.Context()
+
+            # Inject Parlant trace_id into the OTEL context so the SDK uses
+            # the same ID (UUID hex → 128-bit int).
+            otel_trace_id = int(custom_trace_id.replace("-", ""), 16)
+            span_ctx = trace.SpanContext(
+                trace_id=otel_trace_id,
+                span_id=trace.INVALID_SPAN_ID,
+                is_remote=False,
+                trace_flags=trace.TraceFlags(trace.TraceFlags.SAMPLED),
+            )
+            seeded_span = trace.NonRecordingSpan(span_ctx)
+            isolated_ctx = trace.set_span_in_context(seeded_span, context.Context())
             otel_context_reset_token = self._otel_context.set(isolated_ctx)
         else:
             new_span_chain = current_span_chain + f"::{span_id}"

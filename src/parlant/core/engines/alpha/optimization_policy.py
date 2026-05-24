@@ -148,7 +148,7 @@ class BasicOptimizationPolicy(OptimizationPolicy):
         hints: Mapping[str, Any] = {},
     ) -> Sequence[float]:
         return [
-            0.15,
+            0.0,
             0.3,
             0.1,
         ]

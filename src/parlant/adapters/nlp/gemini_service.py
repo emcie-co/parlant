@@ -12,21 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import enum
-import inspect
 import os
 import time
-import types
+from functools import cached_property
 from google.api_core.exceptions import NotFound, TooManyRequests, ResourceExhausted, ServerError
 import google.genai  # type: ignore
 import google.genai.types  # type: ignore
-from collections.abc import Mapping as MappingABC, Sequence as SequenceABC
-from typing import Any, Literal, Mapping, Sequence, Union, cast
-from typing_extensions import get_args, get_origin, override
-from pydantic import BaseModel, Field, ValidationError
-from pydantic.fields import FieldInfo
+from typing import Any, Mapping, NoReturn, cast
+from typing_extensions import override
+from pydantic_ai import Agent
+from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.models.google import GoogleModel, GoogleModelSettings
+from pydantic_ai.providers.google import GoogleProvider
 
-from parlant.core.common import DefaultBaseModel
 from parlant.adapters.nlp.common import record_llm_metrics
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.meter import Meter
@@ -108,6 +106,20 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
 
         self._tokenizer = GoogleEstimatingTokenizer(client=self._client, model_name=self.model_name)
 
+        self._model = GoogleModel(
+            self.model_name,
+            provider=GoogleProvider(client=self._client),
+        )
+
+    @cached_property
+    def _agent(self) -> Agent[None, T]:
+        # The schema is only available once the generator has been parameterized
+        # (i.e. after __init__, via __orig_class__), so the agent is built lazily.
+        #
+        # retries=0 disables pydantic-ai's internal re-prompting on output/tool
+        # validation failures; retries are handled solely by the @policy decorator.
+        return Agent(self._model, output_type=self.schema, retries=0)
+
     @property
     @override
     def id(self) -> str:
@@ -147,119 +159,70 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
         if isinstance(prompt, PromptBuilder):
             prompt = prompt.build()
 
-        gemini_api_arguments = {k: v for k, v in hints.items() if k in self.supported_hints}
-
-        fd = self._get_schema_function_declaration()
-
-        config = google.genai.types.GenerateContentConfig(
-            tools=[google.genai.types.Tool(function_declarations=[fd])],
-            tool_config=google.genai.types.ToolConfig(
-                function_calling_config=google.genai.types.FunctionCallingConfig(
-                    mode=google.genai.types.FunctionCallingConfigMode.ANY,
-                    allowed_function_names=[fd.name],
-                )
-            ),
-            **gemini_api_arguments,  # type: ignore
-        )
+        model_settings = self._build_model_settings(hints)
 
         t_start = time.time()
         try:
-            response = await self._client.aio.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-                config=config,
-            )
-        except TooManyRequests:
-            self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
-            raise
+            result = await self._agent.run(prompt, model_settings=model_settings)
+        except ModelHTTPError as error:
+            self._raise_mapped_error(error)
 
         t_end = time.time()
 
-        assert response.candidates
-        assert response.candidates[0].content
-        assert response.candidates[0].content.parts
-        assert response.candidates[0].content.parts[0].function_call
-        assert response.candidates[0].content.parts[0].function_call.args
+        usage = result.usage()
+        input_tokens = usage.input_tokens or 0
+        output_tokens = usage.output_tokens or 0
+        cached_input_tokens = usage.cache_read_tokens or 0
 
-        json_result = (
-            response.candidates[0].content.parts[0].function_call.args.get("log_data", {}) or {}
+        await record_llm_metrics(
+            self.meter,
+            self.model_name,
+            schema_name=self.schema.__name__,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cached_input_tokens=cached_input_tokens,
         )
 
-        if response.usage_metadata:
-            self.logger.trace(response.usage_metadata.model_dump_json(indent=2))
-
-        try:
-            model_content = self.schema.model_validate(json_result)
-
-            await record_llm_metrics(
-                self.meter,
-                self.model_name,
+        return SchematicGenerationResult(
+            content=result.output,
+            info=GenerationInfo(
                 schema_name=self.schema.__name__,
-                input_tokens=response.usage_metadata.prompt_token_count or 0
-                if response.usage_metadata
-                else 0,
-                output_tokens=response.usage_metadata.candidates_token_count or 0
-                if response.usage_metadata
-                else 0,
-                cached_input_tokens=response.usage_metadata.cached_content_token_count or 0
-                if response.usage_metadata
-                else 0,
-            )
-
-            return SchematicGenerationResult(
-                content=model_content,
-                info=GenerationInfo(
-                    schema_name=self.schema.__name__,
-                    model=self.id,
-                    duration=(t_end - t_start),
-                    usage=UsageInfo(
-                        input_tokens=response.usage_metadata.prompt_token_count or 0,
-                        output_tokens=response.usage_metadata.candidates_token_count or 0,
-                        extra={
-                            "cached_input_tokens": (
-                                response.usage_metadata.cached_content_token_count or 0
-                                if response.usage_metadata
-                                else 0
-                            )
-                            or 0
-                        },
-                    )
-                    if response.usage_metadata
-                    else UsageInfo(input_tokens=0, output_tokens=0, extra={}),
+                model=self.id,
+                duration=(t_end - t_start),
+                usage=UsageInfo(
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    extra={"cached_input_tokens": cached_input_tokens},
                 ),
-            )
-        except ValidationError:
-            self.logger.error(
-                f"JSON content returned by {self.model_name} does not match expected schema:\n{json_result}"
-            )
-            raise
-
-    def _get_schema_function_declaration(self) -> google.genai.types.FunctionDeclaration:
-        # Create a signature from parameters
-        sig = inspect.Signature(
-            parameters=[
-                inspect.Parameter(
-                    name="log_data",
-                    kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                    annotation=convert_model_to_gemini_compatible_schema(self.schema),
-                )
-            ],
-            return_annotation=bool,
+            ),
         )
 
-        # Create a fake callable
-        def log_data() -> None:
-            pass
+    def _build_model_settings(self, hints: Mapping[str, Any]) -> GoogleModelSettings:
+        settings: GoogleModelSettings = {}
 
-        # Attach the signature
-        log_data.__signature__ = sig  # type: ignore
+        if "temperature" in hints:
+            settings["temperature"] = hints["temperature"]
 
-        fd = google.genai.types.FunctionDeclaration.from_callable(
-            callable=log_data,
-            client=self._client,  # type: ignore
-        )
+        if "thinking_config" in hints:
+            settings["google_thinking_config"] = hints["thinking_config"]
 
-        return fd
+        return settings
+
+    def _raise_mapped_error(self, error: ModelHTTPError) -> NoReturn:
+        # pydantic-ai collapses Gemini's API errors into ModelHTTPError. We remap them
+        # back to the google.api_core exceptions that the retry policy is keyed on, so
+        # rate-limit and server errors keep retrying while other 4xx errors propagate.
+        if error.status_code == 429:
+            self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
+            raise TooManyRequests(str(error)) from error  # type: ignore[no-untyped-call]
+
+        if error.status_code == 404:
+            raise NotFound(str(error)) from error  # type: ignore[no-untyped-call]
+
+        if error.status_code >= 500:
+            raise ServerError(str(error)) from error  # type: ignore[no-untyped-call]
+
+        raise error
 
 
 class Gemini_2_0_Flash(GeminiSchematicGenerator[T]):
@@ -394,7 +357,7 @@ class Gemini_3_5_Flash(GeminiSchematicGenerator[T]):
     ) -> SchematicGenerationResult[T]:
         return await super().generate(
             prompt,
-            {"thinking_config": {"thinking_level": "low"}, **hints},
+            {"thinking_config": {"thinking_level": "medium"}, **hints},
         )
 
     @property
@@ -408,7 +371,7 @@ class Gemini_3_1_Pro(GeminiSchematicGenerator[T]):
         self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
     ) -> None:
         super().__init__(
-            model_name="gemini-3.1-pro",
+            model_name="gemini-3.1-pro-preview",
             logger=logger,
             tracer=tracer,
             meter=meter,
@@ -574,7 +537,7 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
                     self.logger, self._tracer, self._meter, self._health_reporter
                 )  # type: ignore
             case _:
-                return Gemini_3_1_Pro[t](
+                return Gemini_3_5_Flash[t](
                     self.logger, self._tracer, self._meter, self._health_reporter
                 )  # type: ignore
 
@@ -587,103 +550,3 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
     @override
     async def get_moderation_service(self) -> ModerationService:
         return NoModeration()
-
-
-def convert_type_annotation_to_gemini_compatible_schema(annotation: Any) -> Any:
-    origin = get_origin(annotation)
-
-    # If not a generic type, check if it's a BaseModel or Enum
-    if origin is None:
-        # If it's an Enum class, convert to Literal of its values
-        if inspect.isclass(annotation) and issubclass(annotation, enum.Enum):
-            enum_values = tuple(member.value for member in annotation)
-            if len(enum_values) == 1:
-                return Literal[enum_values[0]]
-            return Literal.__getitem__(enum_values)
-
-        # If it's a BaseModel class, recursively convert it
-        if inspect.isclass(annotation) and issubclass(annotation, DefaultBaseModel):
-            return convert_model_to_gemini_compatible_schema(annotation)
-
-        return annotation
-
-    # Get the type arguments
-    args = get_args(annotation)
-
-    # Convert nested types recursively
-    converted_args = tuple(convert_type_annotation_to_gemini_compatible_schema(arg) for arg in args)
-
-    # Check if origin is Mapping or Sequence
-    if origin is Mapping or origin is MappingABC:
-        return dict[converted_args] if converted_args else dict  # type: ignore
-
-    if origin is Sequence or origin is SequenceABC:
-        return list[converted_args] if converted_args else list  # type: ignore
-
-    # Handle UnionType (X | Y syntax) - not subscriptable!
-    if origin is types.UnionType:
-        return Union[converted_args]
-
-    # For other generic types, preserve the origin with converted args
-    if converted_args:
-        return origin[converted_args]
-
-    return annotation
-
-
-def convert_model_to_gemini_compatible_schema(model_cls: type[DefaultBaseModel]) -> type[BaseModel]:
-    """
-    Create a new BaseModel class with converted annotations.
-    Returns a new class without modifying the original.
-    """
-    # Avoid infinite recursion - check if already converted
-    if hasattr(model_cls, "_conversion_cache"):
-        return cast(type[BaseModel], model_cls._conversion_cache)
-
-    # Build new annotations
-    new_annotations = {}
-    new_fields = {}
-
-    for field_name, field_info in model_cls.model_fields.items():
-        # Convert the annotation
-        converted_annotation = convert_type_annotation_to_gemini_compatible_schema(
-            field_info.annotation
-        )
-        new_annotations[field_name] = converted_annotation
-
-        # Preserve field metadata (default, description, etc.)
-        # We need to recreate the field with the new annotation
-        field_kwargs = {}
-
-        if field_info.default is not None and field_info.default is not FieldInfo:
-            field_kwargs["default"] = field_info.default
-        elif field_info.default_factory is not None:
-            field_kwargs["default_factory"] = field_info.default_factory
-
-        if field_info.description is not None:
-            field_kwargs["description"] = field_info.description
-
-        if field_info.title is not None:
-            field_kwargs["title"] = field_info.title
-
-        if field_info.examples is not None:
-            field_kwargs["examples"] = field_info.examples
-
-        # Add other field properties as needed
-        if field_kwargs:
-            new_fields[field_name] = Field(**field_kwargs)
-
-    # Create new model class
-    new_model_attrs = {"__annotations__": new_annotations, **new_fields}
-
-    # Preserve model config if present
-    if hasattr(model_cls, "model_config"):
-        new_model_attrs["model_config"] = model_cls.model_config
-
-    # Create the new class
-    converted_model = type(f"{model_cls.__name__}Converted", (DefaultBaseModel,), new_model_attrs)
-
-    # Cache the conversion to avoid infinite recursion
-    setattr(model_cls, "_conversion_cache", converted_model)
-
-    return converted_model

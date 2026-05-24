@@ -83,7 +83,12 @@ cerebras = ["cerebras-cloud-sdk>=1.25.0", "torch>=2.8.0", "transformers>=4.53.0"
 
 deepseek = ["torch>=2.8.0", "transformers>=4.53.0"]
 
-gemini = ["google-genai>=1.36.0", "google-api-core>=2.24.2", "torch>=2.8.0"]
+gemini = [
+    "google-genai>=1.36.0",
+    "google-api-core>=2.24.2",
+    "pydantic-ai-slim[google]>=1.0.0",
+    "torch>=2.8.0",
+]
 
 vertex = [
     "google-genai>=1.36.0",

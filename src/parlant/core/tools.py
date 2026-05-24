@@ -580,9 +580,15 @@ def split_arg_list(argument: str | list[Any], item_type: Any) -> list[str]:
         # literal_eval is used for protection against nesting of single/double quotes of str (and our enums are always strings)
         return list(literal_eval(argument))
     if item_type in VALID_TOOL_BASE_TYPES:
-        # Split list is used for most types so we won't have to rely on the LLM to provide pythonic syntax
-        list_str = argument.strip()
-        if list_str.startswith("[") and list_str.endswith("]"):
-            return list_str[1:-1].split(",")
-        raise ValueError(f"Invalid list format for argument '{argument}'")
+        # Prefer pythonic parsing: it correctly handles quoted elements (e.g.
+        # "['4.5', '8.2']" produced by stringification) as well as bare numbers.
+        # Fall back to a naive split for non-pythonic input so we don't over-rely
+        # on the LLM emitting valid Python syntax.
+        try:
+            return list(literal_eval(argument))
+        except (ValueError, SyntaxError):
+            list_str = argument.strip()
+            if list_str.startswith("[") and list_str.endswith("]"):
+                return list_str[1:-1].split(",")
+            raise ValueError(f"Invalid list format for argument '{argument}'")
     raise TypeError(f"Unsupported list item type '{item_type}' for parameter '{argument}'.")

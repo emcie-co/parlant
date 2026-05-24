@@ -62,7 +62,7 @@ class ValidationStatus(Enum):
 
 
 class NonConsequentialToolCallEvaluation(DefaultBaseModel):
-    args: Optional[dict[str, str | None]] = None
+    args: Optional[dict[str, str | list[str] | None]] = None
 
     @field_validator("args", mode="before")
     @classmethod

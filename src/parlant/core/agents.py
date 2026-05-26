@@ -64,12 +64,24 @@ class MessageOutputMode(Enum):
     """Message is streamed token by token."""
 
 
+class Effort(Enum):
+    """Defines how much effort the agent invests in processing."""
+
+    MIN = "min"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    MAX = "max"
+
+
 class AgentUpdateParams(TypedDict, total=False):
     name: str
     description: Optional[str]
     max_engine_iterations: int
     composition_mode: CompositionMode
     message_output_mode: MessageOutputMode
+    engine: str
+    effort: Effort
 
 
 @dataclass(frozen=True)
@@ -81,8 +93,10 @@ class Agent:
     last_modified_utc: datetime
     max_engine_iterations: int
     tags: Sequence[TagId]
+    engine: str
     composition_mode: CompositionMode = CompositionMode.FLUID
     message_output_mode: MessageOutputMode = MessageOutputMode.BLOCK
+    effort: Effort = Effort.MEDIUM
 
 
 class AgentStore(ABC):
@@ -95,6 +109,8 @@ class AgentStore(ABC):
         max_engine_iterations: Optional[int] = None,
         composition_mode: Optional[CompositionMode] = None,
         message_output_mode: Optional[MessageOutputMode] = None,
+        engine: Optional[str] = None,
+        effort: Optional[Effort] = None,
         tags: Optional[Sequence[TagId]] = None,
         id: Optional[AgentId] = None,
     ) -> Agent: ...
@@ -160,6 +176,8 @@ class _AgentDocument(TypedDict, total=False):
     max_engine_iterations: int
     composition_mode: str
     message_output_mode: str
+    engine: str
+    effort: str
 
 
 class _AgentTagAssociationDocument(TypedDict, total=False):
@@ -263,6 +281,8 @@ class AgentDocumentStore(AgentStore):
                 max_engine_iterations=d["max_engine_iterations"],
                 composition_mode=d.get("composition_mode", CompositionMode.FLUID.value),
                 message_output_mode=d.get("message_output_mode", MessageOutputMode.BLOCK.value),
+                engine="alpha",
+                effort=Effort.MEDIUM.value,
             )
 
         return await DocumentMigrationHelper[_AgentDocument](
@@ -281,25 +301,16 @@ class AgentDocumentStore(AgentStore):
     ) -> Optional[_AgentTagAssociationDocument]:
         doc = cast(_AgentTagAssociationDocument, doc)
 
-        if doc["version"] == "0.3.0":
+        if doc["version"] in ("0.3.0", "0.4.0", "0.5.0"):
             return _AgentTagAssociationDocument(
                 id=ObjectId(doc["id"]),
-                version=Version.String("0.5.0"),
+                version=Version.String("0.6.0"),
                 creation_utc=doc["creation_utc"],
                 agent_id=AgentId(doc["agent_id"]),
                 tag_id=TagId(doc["tag_id"]),
             )
 
-        if doc["version"] == "0.4.0":
-            return _AgentTagAssociationDocument(
-                id=ObjectId(doc["id"]),
-                version=Version.String("0.5.0"),
-                creation_utc=doc["creation_utc"],
-                agent_id=AgentId(doc["agent_id"]),
-                tag_id=TagId(doc["tag_id"]),
-            )
-
-        if doc["version"] == "0.5.0":
+        if doc["version"] == "0.6.0":
             return doc
 
         return None
@@ -346,6 +357,8 @@ class AgentDocumentStore(AgentStore):
             max_engine_iterations=agent.max_engine_iterations,
             composition_mode=agent.composition_mode.value,
             message_output_mode=agent.message_output_mode.value,
+            engine=agent.engine,
+            effort=agent.effort.value,
         )
 
     async def _deserialize_agent(self, agent_document: _AgentDocument) -> Agent:
@@ -368,6 +381,8 @@ class AgentDocumentStore(AgentStore):
             message_output_mode=MessageOutputMode(
                 agent_document.get("message_output_mode", "block")
             ),
+            engine=agent_document.get("engine", "alpha"),
+            effort=Effort(agent_document.get("effort", Effort.MEDIUM.value)),
         )
 
     @override
@@ -379,6 +394,8 @@ class AgentDocumentStore(AgentStore):
         max_engine_iterations: Optional[int] = None,
         composition_mode: Optional[CompositionMode] = None,
         message_output_mode: Optional[MessageOutputMode] = None,
+        engine: Optional[str] = None,
+        effort: Optional[Effort] = None,
         tags: Optional[Sequence[TagId]] = None,
         id: Optional[AgentId] = None,
     ) -> Agent:
@@ -408,6 +425,8 @@ class AgentDocumentStore(AgentStore):
                 tags=tags or [],
                 composition_mode=composition_mode or CompositionMode.FLUID,
                 message_output_mode=message_output_mode or MessageOutputMode.BLOCK,
+                engine=engine or "alpha",
+                effort=effort or Effort.MEDIUM,
             )
 
             await self._agents_collection.insert_one(document=self._serialize_agent(agent=agent))

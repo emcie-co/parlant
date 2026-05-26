@@ -92,6 +92,7 @@ from parlant.core.agents import (
     AgentId,
     AgentStore,
     CompositionMode as _CompositionMode,
+    Effort,
     MessageOutputMode as _MessageOutputMode,
 )
 from parlant.core.async_utils import Timeout, default_done_callback
@@ -4973,6 +4974,8 @@ class Server:
         perceived_performance_policy: PerceivedPerformancePolicy | None = None,
         planner: Planner | None = None,
         preamble_config: PreambleConfiguration | None = None,
+        engine: Literal["alpha", "sigma"] = "sigma",
+        effort: Effort = Effort.MEDIUM,
     ) -> Agent:
         """Creates a new agent with the specified name, description, and composition mode.
 
@@ -5000,6 +5003,8 @@ class Server:
                 use the default planner (NullPlanner).
             preamble_config: Optional preamble configuration for this agent.
                 Allows customizing the preamble examples and adding additional instructions.
+            engine: Which engine this agent runs on. Defaults to "sigma".
+            effort: How much effort the agent invests in processing. Defaults to MEDIUM.
 
         Returns:
             The created Agent instance.
@@ -5020,6 +5025,8 @@ class Server:
             max_engine_iterations=max_engine_iterations or 3,
             composition_mode=composition_mode.value,
             message_output_mode=output_mode,
+            engine=engine,
+            effort=effort,
             id=AgentId(id) if id is not None else None,
         )
 

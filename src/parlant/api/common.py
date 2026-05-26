@@ -17,7 +17,7 @@ from enum import Enum
 from pydantic import Field
 from typing import Annotated, Any, Mapping, Sequence, TypeAlias
 
-from parlant.core.agents import CompositionMode, MessageOutputMode
+from parlant.core.agents import CompositionMode, Effort, MessageOutputMode
 from parlant.core.common import DefaultBaseModel
 from parlant.core.evaluations import PayloadOperation
 from parlant.core.persistence.common import SortDirection
@@ -105,6 +105,55 @@ def message_output_mode_to_message_output_mode_dto(
             return MessageOutputModeDTO.BLOCK
         case MessageOutputMode.STREAM:
             return MessageOutputModeDTO.STREAM
+
+
+class EffortDTO(Enum):
+    """
+    Defines how much effort the agent invests in processing.
+
+    Available options:
+    - min
+    - low
+    - medium
+    - high
+    - max
+    """
+
+    MIN = "min"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    MAX = "max"
+
+
+def effort_dto_to_effort(dto: EffortDTO) -> Effort:
+    """Convert EffortDTO to core Effort."""
+    match dto:
+        case EffortDTO.MIN:
+            return Effort.MIN
+        case EffortDTO.LOW:
+            return Effort.LOW
+        case EffortDTO.MEDIUM:
+            return Effort.MEDIUM
+        case EffortDTO.HIGH:
+            return Effort.HIGH
+        case EffortDTO.MAX:
+            return Effort.MAX
+
+
+def effort_to_effort_dto(effort: Effort) -> EffortDTO:
+    """Convert core Effort to EffortDTO."""
+    match effort:
+        case Effort.MIN:
+            return EffortDTO.MIN
+        case Effort.LOW:
+            return EffortDTO.LOW
+        case Effort.MEDIUM:
+            return EffortDTO.MEDIUM
+        case Effort.HIGH:
+            return EffortDTO.HIGH
+        case Effort.MAX:
+            return EffortDTO.MAX
 
 
 def apigen_config(group_name: str, method_name: str) -> Mapping[str, Any]:

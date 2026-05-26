@@ -19,11 +19,14 @@ from typing import Annotated, Sequence, TypeAlias
 from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import (
     CompositionModeDTO,
+    EffortDTO,
     ExampleJson,
     MessageOutputModeDTO,
     apigen_config,
     composition_mode_dto_to_composition_mode,
     composition_mode_to_composition_mode_dto,
+    effort_dto_to_effort,
+    effort_to_effort_dto,
     example_json_content,
     message_output_mode_dto_to_message_output_mode,
     message_output_mode_to_message_output_mode_dto,
@@ -103,6 +106,7 @@ agent_example: ExampleJson = {
     "max_engine_iterations": 3,
     "composition_mode": "fluid",
     "message_output_mode": "block",
+    "effort": "medium",
     "tags": ["tag1", "tag2"],
 }
 
@@ -126,6 +130,7 @@ class AgentDTO(
     max_engine_iterations: AgentMaxEngineIterationsField = 1
     composition_mode: CompositionModeDTO
     message_output_mode: MessageOutputModeDTO
+    effort: EffortDTO
     tags: AgentTagsField = []
 
 
@@ -135,6 +140,7 @@ agent_creation_params_example: ExampleJson = {
     "max_engine_iterations": 3,
     "composition_mode": "fluid",
     "message_output_mode": "block",
+    "effort": "medium",
     "tags": ["tag1", "tag2"],
 }
 
@@ -154,6 +160,7 @@ class AgentCreationParamsDTO(
     - `max_engine_iterations`: Processing limit per request
     - `composition_mode`: How the agent composes responses
     - `message_output_mode`: How the agent outputs messages (block or streaming)
+    - `effort`: How much effort the agent invests in processing
     - `tags`: List of tag IDs to associate with the agent
 
     Note: Agents must be created via the API before they can be used.
@@ -165,6 +172,7 @@ class AgentCreationParamsDTO(
     max_engine_iterations: AgentMaxEngineIterationsField | None = None
     composition_mode: CompositionModeDTO | None = None
     message_output_mode: MessageOutputModeDTO | None = None
+    effort: EffortDTO | None = None
     tags: AgentTagsField | None = None
 
 
@@ -174,6 +182,7 @@ agent_update_params_example: ExampleJson = {
     "max_engine_iterations": 3,
     "composition_mode": "fluid",
     "message_output_mode": "block",
+    "effort": "medium",
 }
 
 
@@ -217,6 +226,7 @@ class AgentUpdateParamsDTO(
     max_engine_iterations: AgentMaxEngineIterationsField | None = None
     composition_mode: CompositionModeDTO | None = None
     message_output_mode: MessageOutputModeDTO | None = None
+    effort: EffortDTO | None = None
     tags: AgentTagUpdateParamsDTO | None = None
 
 
@@ -275,6 +285,7 @@ def create_router(
             )
             if params and params.message_output_mode
             else None,
+            effort=effort_dto_to_effort(params.effort) if params and params.effort else None,
             tags=params.tags,
             id=params.id if params else None,
         )
@@ -289,6 +300,7 @@ def create_router(
             message_output_mode=message_output_mode_to_message_output_mode_dto(
                 agent.message_output_mode
             ),
+            effort=effort_to_effort_dto(agent.effort),
             tags=agent.tags,
         )
 
@@ -329,6 +341,7 @@ def create_router(
                 message_output_mode=message_output_mode_to_message_output_mode_dto(
                     a.message_output_mode
                 ),
+                effort=effort_to_effort_dto(a.effort),
                 tags=a.tags,
             )
             for a in agents
@@ -378,6 +391,7 @@ def create_router(
             message_output_mode=message_output_mode_to_message_output_mode_dto(
                 agent.message_output_mode
             ),
+            effort=effort_to_effort_dto(agent.effort),
             tags=agent.tags,
         )
 
@@ -428,6 +442,7 @@ def create_router(
             )
             if params.message_output_mode
             else None,
+            effort=effort_dto_to_effort(params.effort) if params.effort else None,
             tags=AgentTagUpdateParamsModel(add=params.tags.add, remove=params.tags.remove)
             if params.tags
             else None,
@@ -443,6 +458,7 @@ def create_router(
             message_output_mode=message_output_mode_to_message_output_mode_dto(
                 agent.message_output_mode
             ),
+            effort=effort_to_effort_dto(agent.effort),
             tags=agent.tags,
         )
 

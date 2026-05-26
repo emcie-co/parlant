@@ -9,6 +9,7 @@ from parlant.core.agents import (
     Agent,
     AgentUpdateParams,
     CompositionMode,
+    Effort,
     MessageOutputMode,
 )
 from parlant.core.tags import TagId, TagStore
@@ -62,6 +63,7 @@ class AgentModule:
         max_engine_iterations: int | None,
         composition_mode: CompositionMode | None,
         message_output_mode: MessageOutputMode | None,
+        effort: Effort | None,
         tags: list[TagId] | None,
         id: AgentId | None = None,
     ) -> Agent:
@@ -77,6 +79,7 @@ class AgentModule:
             max_engine_iterations=max_engine_iterations,
             composition_mode=composition_mode,
             message_output_mode=message_output_mode,
+            effort=effort,
             tags=tags,
             id=id,
         )
@@ -98,6 +101,7 @@ class AgentModule:
         max_engine_iterations: int | None,
         composition_mode: CompositionMode | None,
         message_output_mode: MessageOutputMode | None,
+        effort: Effort | None,
         tags: AgentTagUpdateParamsModel | None,
     ) -> Agent:
         update_params: AgentUpdateParams = {}
@@ -116,6 +120,9 @@ class AgentModule:
 
         if message_output_mode:
             update_params["message_output_mode"] = message_output_mode
+
+        if effort:
+            update_params["effort"] = effort
 
         await self._agent_store.update_agent(agent_id=agent_id, params=update_params)
 

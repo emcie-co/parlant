@@ -875,6 +875,7 @@ async def test_that_guidelines_are_matched_based_on_agent_description(
         "Your role is only to consult customers, and not to actually sell anything, as we sell our products in-store.",
         max_engine_iterations=3,
         tags=[],
+        engine="alpha",
     )
 
     session = await context.container[SessionStore].create_session(

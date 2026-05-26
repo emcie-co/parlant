@@ -188,6 +188,7 @@ from parlant.core.sessions import (
     SessionStore,
 )
 from parlant.core.engines.alpha.engine import AlphaEngine
+from parlant.core.engines.sigma.engine import SigmaEngine
 from parlant.core.glossary import GlossaryStore, GlossaryVectorStore
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatcher,
@@ -210,7 +211,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
     ToolCaller,
 )
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
-from parlant.core.engines.types import Engine
+from parlant.core.engines.types import Engine, EngineRegistry
 from parlant.core.services.indexing.evaluation_service import (
     GuidelineEvaluator,
     JourneyEvaluator,
@@ -609,6 +610,14 @@ async def container(
         container[AuthorizationPolicy] = Singleton(DevelopmentAuthorizationPolicy)
 
         container[Engine] = Singleton(AlphaEngine)
+        container[AlphaEngine] = Singleton(AlphaEngine)
+        container[SigmaEngine] = Singleton(SigmaEngine)
+        container[EngineRegistry] = EngineRegistry(
+            {
+                "alpha": lambda: container[AlphaEngine],
+                "sigma": lambda: container[SigmaEngine],
+            }
+        )
 
         container[Application] = Singleton(Application)
         container[RequestContext] = Singleton(RequestContext)

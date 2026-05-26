@@ -14,7 +14,7 @@ from parlant.core.persistence.common import Cursor, SortDirection
 from parlant.core.tracer import Tracer
 from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.emissions import EventEmitterFactory
-from parlant.core.engines.types import Context, Engine, UtteranceRequest
+from parlant.core.engines.types import Context, Engine, EngineRegistry, UtteranceRequest
 from parlant.core.loggers import Logger
 from parlant.core.nlp.moderation import CustomerModerationContext, ModerationService
 from parlant.core.nlp.service import NLPService
@@ -111,7 +111,7 @@ class SessionModule:
         tracer: Tracer,
         session_listener: SessionListener,
         nlp_service: NLPService,
-        engine: Engine,
+        engine_registry: EngineRegistry,
         event_emitter_factory: EventEmitterFactory,
         background_task_service: BackgroundTaskService,
         health_reporter: HealthReporter,
@@ -126,7 +126,7 @@ class SessionModule:
         self._nlp_service = nlp_service
         self._health_reporter = health_reporter
 
-        self._engine = engine
+        self._engine_registry = engine_registry
         self._event_emitter_factory = event_emitter_factory
         self._background_task_service = background_task_service
 
@@ -461,13 +461,20 @@ class SessionModule:
 
         return self._tracer.trace_id
 
+    async def _engine_for_agent(self, agent_id: AgentId) -> Engine:
+        agent = await self._agent_store.read_agent(agent_id)
+
+        return self._engine_registry.get_engine(agent.engine)
+
     async def _process_session(self, session: Session) -> None:
         event_emitter = await self._event_emitter_factory.create_event_emitter(
             emitting_agent_id=session.agent_id,
             session_id=session.id,
         )
 
-        await self._engine.process(
+        engine = await self._engine_for_agent(session.agent_id)
+
+        await engine.process(
             Context(
                 session_id=session.id,
                 agent_id=session.agent_id,
@@ -514,7 +521,9 @@ class SessionModule:
                 session_id=session.id,
             )
 
-            await self._engine.utter(
+            engine = await self._engine_for_agent(session.agent_id)
+
+            await engine.utter(
                 context=Context(session_id=session.id, agent_id=session.agent_id),
                 event_emitter=event_emitter,
                 requests=requests,

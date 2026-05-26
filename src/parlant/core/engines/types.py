@@ -15,7 +15,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Sequence
+from typing import Callable, Mapping, Sequence
 
 from parlant.core.agents import AgentId
 from parlant.core.sessions import SessionId
@@ -55,3 +55,13 @@ class Engine(ABC):
         event_emitter: EventEmitter,
         requests: Sequence[UtteranceRequest],
     ) -> bool: ...
+
+
+class EngineRegistry:
+    """Maps engine names to their providers, keeping concrete engines out of consumers."""
+
+    def __init__(self, providers: Mapping[str, Callable[[], Engine]]) -> None:
+        self._providers = providers
+
+    def get_engine(self, name: str) -> Engine:
+        return self._providers[name]()

@@ -4974,7 +4974,7 @@ class Server:
         perceived_performance_policy: PerceivedPerformancePolicy | None = None,
         planner: Planner | None = None,
         preamble_config: PreambleConfiguration | None = None,
-        engine: Literal["alpha", "sigma"] = "sigma",
+        engine: Literal["alpha", "sigma"] = "alpha",
         effort: Effort = Effort.MEDIUM,
     ) -> Agent:
         """Creates a new agent with the specified name, description, and composition mode.

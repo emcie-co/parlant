@@ -223,6 +223,7 @@ from parlant.core.sessions import (
 )
 from parlant.core.glossary import GlossaryStore, GlossaryVectorStore
 from parlant.core.engines.alpha.engine import AlphaEngine
+from parlant.core.engines.sigma.engine import SigmaEngine
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
     GuidelineToolAssociationStore,
@@ -243,7 +244,7 @@ from parlant.core.engines.alpha.message_generator import (
     MessageSchema,
 )
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
-from parlant.core.engines.types import Engine
+from parlant.core.engines.types import Engine, EngineRegistry
 from parlant.core.services.indexing.indexer import Indexer, NullIndexer
 from parlant.core.services.indexing.evaluation_service import EvaluationService
 from parlant.core.loggers import CompositeLogger, FileLogger, LogLevel, Logger
@@ -708,6 +709,7 @@ async def setup_container() -> AsyncIterator[Container]:
     )
 
     _define_singleton(c, Engine, AlphaEngine)
+    _define_singleton(c, SigmaEngine, SigmaEngine)
 
     _define_singleton_value(c, ApplicationContext, ApplicationContext(instance_id=generate_id()))
     _define_singleton(c, EventLoopMonitor, EventLoopMonitor)
@@ -800,6 +802,13 @@ async def initialize_container(
                 )
             )
             c[store_interface] = lambda _c: c[store_implementation]
+
+    c[EngineRegistry] = EngineRegistry(
+        {
+            "alpha": lambda: c[AlphaEngine],
+            "sigma": lambda: c[SigmaEngine],
+        }
+    )
 
     await EXIT_STACK.enter_async_context(c[BackgroundTaskService])
     await EXIT_STACK.enter_async_context(c[EventLoopMonitor])

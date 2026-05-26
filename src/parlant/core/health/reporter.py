@@ -210,6 +210,22 @@ class HealthReporter:
         with self._lock:
             self._views.append(view)
 
+    def read_reports(self, kind: str) -> list[HealthReport]:
+        """Return a snapshot of the current buffer for ``kind``, pruned by age.
+
+        Returns a fresh list so callers can iterate / sort without lock
+        contention. Raises ``KeyError`` if no retention has been configured
+        for ``kind``, matching the strictness of ``report()``.
+        """
+        with self._lock:
+            if kind not in self._retention:
+                raise KeyError(f"No retention configured for health report kind '{kind}'")
+            buffer = self._buffers.get(kind)
+            if buffer is None:
+                return []
+            self._prune(kind, buffer)
+            return list(buffer)
+
     def report(self, kind: str, attributes: Mapping[str, Any]) -> None:
         """Record an observation of ``kind``.
 

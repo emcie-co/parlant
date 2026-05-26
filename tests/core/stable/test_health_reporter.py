@@ -29,7 +29,7 @@ from parlant.core.health import (
     ReportRetention,
     ViewSnapshot,
 )
-from parlant.core.health.nlp_view import SchemaThresholds
+from parlant.core.health.nlp_view import PercentileResult, SchemaThresholds
 from parlant.core.health.reporter import RollingCounter
 
 _TEST_APP_CONTEXT = ApplicationContext(instance_id="test-instance")
@@ -443,3 +443,365 @@ def test_that_nlp_view_falls_back_to_default_thresholds_for_unconfigured_schemas
     snapshot = view.render({NLP_REQUEST_KIND: reports, NLP_EMBED_KIND: []})
 
     assert snapshot.body["schemas"]["UnconfiguredSchema"]["status"] == "healthy"
+
+
+# ── percentiles_for_schema ────────────────────────────────────────────────
+
+_PS = (0.5, 0.95, 0.99)
+
+
+def _make_nlp_setup(
+    retention_seconds: float = 60.0,
+    max_count: int = 10_000,
+) -> tuple[HealthReporter, NLPHealthView]:
+    reporter = HealthReporter(_TEST_APP_CONTEXT)
+    reporter.configure_retention(
+        NLP_REQUEST_KIND,
+        ReportRetention(window=timedelta(seconds=retention_seconds), max_count=max_count),
+    )
+    view = NLPHealthView(health_reporter=reporter)
+    return reporter, view
+
+
+def _record_nlp(
+    reporter: HealthReporter,
+    schema: str,
+    latency_ms: float = 10.0,
+    *,
+    success: bool = True,
+    error_class: str | None = None,
+    extra: Mapping[str, Any] | None = None,
+) -> None:
+    attrs: dict[str, Any] = {
+        NLPHealthView.ATTR_SCHEMA: schema,
+        NLPHealthView.ATTR_MODEL: "test",
+        NLPHealthView.ATTR_SUCCESS: success,
+        NLPHealthView.ATTR_LATENCY_MS: latency_ms,
+        NLPHealthView.ATTR_ERROR_CLASS: error_class,
+    }
+    if extra:
+        attrs.update(extra)
+    reporter.report(NLP_REQUEST_KIND, attrs)
+
+
+def test_that_percentiles_for_schema_returns_live_values_when_buffer_has_matching_entries() -> None:
+    reporter, view = _make_nlp_setup()
+    for ms in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]:
+        _record_nlp(reporter, "S", latency_ms=float(ms))
+
+    result = view.percentiles_for_schema("S")
+
+    # Tight bounds: p50 is somewhere in mid-range, p95 near the top.
+    assert 40.0 <= result.values[0.5] <= 60.0
+    assert 80.0 <= result.values[0.95] <= 100.0
+    assert 90.0 <= result.values[0.99] <= 100.0
+
+
+def test_that_live_result_is_not_marked_stale() -> None:
+    reporter, view = _make_nlp_setup()
+    _record_nlp(reporter, "S", latency_ms=10.0)
+
+    result = view.percentiles_for_schema("S")
+
+    assert result.is_stale is False
+
+
+def test_that_live_result_sample_count_matches_contributing_entries() -> None:
+    reporter, view = _make_nlp_setup()
+    for _ in range(7):
+        _record_nlp(reporter, "S", latency_ms=10.0)
+
+    result = view.percentiles_for_schema("S")
+
+    assert result.sample_count == 7
+
+
+def test_that_live_result_captured_at_is_set_to_query_time() -> None:
+    reporter, view = _make_nlp_setup()
+    _record_nlp(reporter, "S", latency_ms=10.0)
+
+    before = datetime.now(timezone.utc)
+    result = view.percentiles_for_schema("S")
+    after = datetime.now(timezone.utc)
+
+    assert before <= result.captured_at <= after
+
+
+def test_that_default_percentiles_are_p50_p95_p99() -> None:
+    reporter, view = _make_nlp_setup()
+    _record_nlp(reporter, "S", latency_ms=10.0)
+
+    result = view.percentiles_for_schema("S")
+
+    assert set(result.values.keys()) == {0.5, 0.95, 0.99}
+
+
+def test_that_custom_percentile_list_is_respected() -> None:
+    reporter, view = _make_nlp_setup()
+    _record_nlp(reporter, "S", latency_ms=10.0)
+
+    result = view.percentiles_for_schema("S", ps=(0.25, 0.75))
+
+    assert set(result.values.keys()) == {0.25, 0.75}
+
+
+def test_that_custom_value_attribute_is_respected() -> None:
+    reporter, view = _make_nlp_setup()
+    _record_nlp(
+        reporter,
+        "S",
+        latency_ms=10.0,
+        extra={"ttfm_ms": 500.0},
+    )
+    _record_nlp(
+        reporter,
+        "S",
+        latency_ms=20.0,
+        extra={"ttfm_ms": 700.0},
+    )
+
+    result = view.percentiles_for_schema("S", value_attribute="ttfm_ms")
+
+    # Values should be drawn from ttfm_ms, not latency_ms.
+    for v in result.values.values():
+        assert v in (500.0, 700.0)
+
+
+def test_that_query_for_one_schema_ignores_entries_from_other_schemas() -> None:
+    reporter, view = _make_nlp_setup()
+    # Schema A has tiny latencies; B has huge ones.
+    for _ in range(20):
+        _record_nlp(reporter, "A", latency_ms=10.0)
+    for _ in range(20):
+        _record_nlp(reporter, "B", latency_ms=10_000.0)
+
+    result_a = view.percentiles_for_schema("A")
+    result_b = view.percentiles_for_schema("B")
+
+    assert all(v == 10.0 for v in result_a.values.values())
+    assert all(v == 10_000.0 for v in result_b.values.values())
+
+
+def test_that_frozen_snapshots_are_independent_across_schemas() -> None:
+    reporter, view = _make_nlp_setup(retention_seconds=0.1)
+    _record_nlp(reporter, "A", latency_ms=10.0)
+    _record_nlp(reporter, "B", latency_ms=1000.0)
+    # Populate frozen snapshots for both schemas while live data exists.
+    view.percentiles_for_schema("A")
+    view.percentiles_for_schema("B")
+
+    # Wait until reports age out.
+    import time
+
+    time.sleep(0.15)
+
+    result_a = view.percentiles_for_schema("A")
+    result_b = view.percentiles_for_schema("B")
+
+    assert result_a.is_stale is True and result_b.is_stale is True
+    assert all(v == 10.0 for v in result_a.values.values())
+    assert all(v == 1000.0 for v in result_b.values.values())
+
+
+def test_that_aging_out_one_schemas_data_does_not_affect_another() -> None:
+    reporter, view = _make_nlp_setup(retention_seconds=60.0)
+    _record_nlp(reporter, "A", latency_ms=10.0)
+
+    result_a = view.percentiles_for_schema("A")
+    result_b = view.percentiles_for_schema("B")
+
+    assert result_a.is_stale is False
+    assert result_b.is_stale is True
+    assert result_b.sample_count == 0
+
+
+def test_that_percentiles_returns_frozen_snapshot_after_live_buffer_empties() -> None:
+    reporter, view = _make_nlp_setup(retention_seconds=0.1)
+    for ms in [10, 20, 30, 40, 50]:
+        _record_nlp(reporter, "S", latency_ms=float(ms))
+
+    # Populate the frozen snapshot via a live query.
+    live = view.percentiles_for_schema("S")
+    assert live.is_stale is False
+    assert live.sample_count == 5
+
+    import time
+
+    time.sleep(0.15)
+
+    stale = view.percentiles_for_schema("S")
+
+    assert stale.is_stale is True
+    assert stale.values == live.values
+    assert stale.sample_count == live.sample_count
+
+
+def test_that_frozen_result_is_marked_stale() -> None:
+    reporter, view = _make_nlp_setup(retention_seconds=0.1)
+    _record_nlp(reporter, "S", latency_ms=10.0)
+    view.percentiles_for_schema("S")
+
+    import time
+
+    time.sleep(0.15)
+
+    result = view.percentiles_for_schema("S")
+
+    assert result.is_stale is True
+
+
+def test_that_frozen_result_captured_at_is_preserved_across_repeated_stale_reads() -> None:
+    reporter, view = _make_nlp_setup(retention_seconds=0.1)
+    _record_nlp(reporter, "S", latency_ms=10.0)
+    live = view.percentiles_for_schema("S")
+    live_captured_at = live.captured_at
+
+    import time
+
+    time.sleep(0.15)
+
+    first_stale = view.percentiles_for_schema("S")
+    time.sleep(0.05)
+    second_stale = view.percentiles_for_schema("S")
+
+    assert first_stale.captured_at == live_captured_at
+    assert second_stale.captured_at == live_captured_at
+
+
+def test_that_frozen_snapshot_is_refreshed_when_live_data_reappears() -> None:
+    reporter, view = _make_nlp_setup(retention_seconds=0.1)
+    _record_nlp(reporter, "S", latency_ms=10.0)
+    first_live = view.percentiles_for_schema("S")
+
+    import time
+
+    time.sleep(0.15)
+    stale = view.percentiles_for_schema("S")
+    assert stale.is_stale is True
+    assert all(v == 10.0 for v in stale.values.values())
+
+    # New traffic arrives with very different latencies.
+    for _ in range(5):
+        _record_nlp(reporter, "S", latency_ms=999.0)
+    refreshed = view.percentiles_for_schema("S")
+
+    assert refreshed.is_stale is False
+    assert all(v == 999.0 for v in refreshed.values.values())
+    assert refreshed.captured_at > first_live.captured_at
+
+
+def test_that_repeated_stale_reads_return_consistent_values() -> None:
+    reporter, view = _make_nlp_setup(retention_seconds=0.1)
+    for ms in [10, 20, 30]:
+        _record_nlp(reporter, "S", latency_ms=float(ms))
+    view.percentiles_for_schema("S")
+
+    import time
+
+    time.sleep(0.15)
+
+    r1 = view.percentiles_for_schema("S")
+    r2 = view.percentiles_for_schema("S")
+    r3 = view.percentiles_for_schema("S")
+
+    assert r1.values == r2.values == r3.values
+    assert r1.sample_count == r2.sample_count == r3.sample_count
+
+
+def test_that_query_for_never_seen_schema_returns_zero_filled_stale_result() -> None:
+    reporter, view = _make_nlp_setup()
+    _record_nlp(reporter, "OtherSchema", latency_ms=10.0)
+
+    result = view.percentiles_for_schema("NeverSeen")
+
+    assert result.is_stale is True
+    assert result.sample_count == 0
+    assert result.values == {0.5: 0.0, 0.95: 0.0, 0.99: 0.0}
+
+
+def test_that_query_with_empty_buffer_and_no_frozen_returns_zero_filled_stale_result() -> None:
+    reporter, view = _make_nlp_setup()
+
+    result = view.percentiles_for_schema("S")
+
+    assert result.is_stale is True
+    assert result.sample_count == 0
+    assert all(v == 0.0 for v in result.values.values())
+
+
+def test_that_entries_with_missing_value_attribute_are_excluded() -> None:
+    reporter, view = _make_nlp_setup()
+    # One valid entry, one with the value attribute missing.
+    _record_nlp(reporter, "S", latency_ms=42.0)
+    reporter.report(
+        NLP_REQUEST_KIND,
+        {
+            NLPHealthView.ATTR_SCHEMA: "S",
+            NLPHealthView.ATTR_MODEL: "test",
+            NLPHealthView.ATTR_SUCCESS: True,
+            NLPHealthView.ATTR_ERROR_CLASS: None,
+            # latency_ms intentionally omitted
+        },
+    )
+
+    result = view.percentiles_for_schema("S")
+
+    assert result.sample_count == 1
+    assert all(v == 42.0 for v in result.values.values())
+
+
+def test_that_entries_with_none_value_attribute_are_excluded() -> None:
+    reporter, view = _make_nlp_setup()
+    _record_nlp(reporter, "S", latency_ms=42.0)
+    reporter.report(
+        NLP_REQUEST_KIND,
+        {
+            NLPHealthView.ATTR_SCHEMA: "S",
+            NLPHealthView.ATTR_MODEL: "test",
+            NLPHealthView.ATTR_SUCCESS: True,
+            NLPHealthView.ATTR_LATENCY_MS: None,
+            NLPHealthView.ATTR_ERROR_CLASS: None,
+        },
+    )
+
+    result = view.percentiles_for_schema("S")
+
+    assert result.sample_count == 1
+
+
+def test_that_entries_with_missing_schema_attribute_are_treated_as_unknown_schema() -> None:
+    reporter, view = _make_nlp_setup()
+    reporter.report(
+        NLP_REQUEST_KIND,
+        {
+            # ATTR_SCHEMA intentionally omitted
+            NLPHealthView.ATTR_MODEL: "test",
+            NLPHealthView.ATTR_SUCCESS: True,
+            NLPHealthView.ATTR_LATENCY_MS: 10.0,
+            NLPHealthView.ATTR_ERROR_CLASS: None,
+        },
+    )
+
+    # Querying for any known schema should not see this entry.
+    result = view.percentiles_for_schema("S")
+
+    assert result.sample_count == 0
+    assert result.is_stale is True
+
+
+def test_that_age_pruned_entries_do_not_contribute_to_live_percentiles() -> None:
+    reporter, view = _make_nlp_setup(retention_seconds=0.1)
+    _record_nlp(reporter, "S", latency_ms=1.0)
+
+    import time
+
+    time.sleep(0.15)
+
+    # New traffic arrives — the old 1.0ms entry must NOT be pooled in.
+    for _ in range(5):
+        _record_nlp(reporter, "S", latency_ms=999.0)
+
+    result = view.percentiles_for_schema("S")
+
+    assert result.is_stale is False
+    assert all(v == 999.0 for v in result.values.values())

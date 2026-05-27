@@ -484,7 +484,7 @@ class AnthropicReactGenerator(ReactGenerator):
             "input_schema": self._to_anthropic_schema(spec.json_schema()),
         }
 
-    def _to_anthropic_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
+    def _to_anthropic_schema(self, schema: Mapping[str, Any]) -> dict[str, Any]:
         """Anthropic's input_schema is JSON Schema and (like OpenAI) ignores
         OpenAPI's ``"nullable": true``; nullability must be a ``"null"`` member
         of ``type``. Translate recursively."""

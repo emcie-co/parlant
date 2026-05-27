@@ -174,11 +174,11 @@ class Message:
         return "".join(p.text for p in self.parts if isinstance(p, ReasoningPart))
 
     @property
-    def tool_calls(self) -> list[ToolCallPart]:
+    def tool_calls(self) -> Sequence[ToolCallPart]:
         return [p for p in self.parts if isinstance(p, ToolCallPart)]
 
     @property
-    def tool_results(self) -> list[ToolResultPart]:
+    def tool_results(self) -> Sequence[ToolResultPart]:
         return [p for p in self.parts if isinstance(p, ToolResultPart)]
 
 
@@ -204,13 +204,13 @@ class ParameterSpec:
     type: JSONSchemaType = "string"
     description: str = ""
     required: bool = True
-    enum: Optional[list[Any]] = None
+    enum: Optional[Sequence[Any]] = None
     nullable: bool = False
     default: Any = _UNSET  # leave as _UNSET to omit; pass any value (incl. None) to set
     items: Optional["ParameterSpec"] = None  # element type when type == "array"
-    properties: Optional[list["ParameterSpec"]] = None  # fields when type == "object"
+    properties: Optional[Sequence["ParameterSpec"]] = None  # fields when type == "object"
 
-    def value_schema(self) -> dict[str, Any]:
+    def value_schema(self) -> Mapping[str, Any]:
         """JSON Schema for this parameter's *value* (excludes its name)."""
         schema: dict[str, Any] = {"type": self.type}
 
@@ -244,7 +244,7 @@ class ToolSpec:
     description: str
     parameters: Sequence[ParameterSpec] = ()
 
-    def json_schema(self) -> dict[str, Any]:
+    def json_schema(self) -> Mapping[str, Any]:
         """The tool's argument object rendered as JSON Schema."""
         schema: dict[str, Any] = {
             "type": "object",
@@ -299,7 +299,7 @@ class CacheConfig:
 
     enabled: bool = True
     ttl: Optional[timedelta] = None
-    provider_options: dict[str, Any] = field(default_factory=dict)
+    provider_options: Mapping[str, Any] = field(default_factory=dict)
 
 
 # ───────────────────────────── results & events ────────────────────────────
@@ -339,7 +339,7 @@ class StepResult:
     usage: Usage
 
     @property
-    def tool_calls(self) -> list[ToolCallPart]:
+    def tool_calls(self) -> Sequence[ToolCallPart]:
         return self.message.tool_calls
 
     @property
@@ -406,7 +406,7 @@ class TurnBuilder:
         self.finish_reason = FinishReason.STOP
         self.usage = Usage()
 
-    def text_delta(self, s: str, *, provider_data: Optional[dict[str, Any]] = None) -> None:
+    def text_delta(self, s: str, *, provider_data: Optional[Mapping[str, Any]] = None) -> None:
         if self._text is None:
             self._text = TextPart(text="")
             self._order.append(self._text)
@@ -420,7 +420,7 @@ class TurnBuilder:
         *,
         signature: Union[str, bytes, None] = None,
         visibility: Literal["full", "summary"] = "summary",
-        provider_data: Optional[dict[str, Any]] = None,
+        provider_data: Optional[Mapping[str, Any]] = None,
     ) -> None:
         if self._reasoning is None:
             self._reasoning = ReasoningPart(text="", visibility=visibility)
@@ -437,8 +437,8 @@ class TurnBuilder:
         *,
         name: Optional[str] = None,
         args_delta: str = "",
-        args: Optional[dict[str, Any]] = None,
-        provider_data: Optional[dict[str, Any]] = None,
+        args: Optional[dict[str, Any]] = None,  # becomes the mutable ToolCallPart.args
+        provider_data: Optional[Mapping[str, Any]] = None,
     ) -> ToolCallPart:
         call = self._calls.get(id)
         if call is None:

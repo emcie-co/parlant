@@ -980,7 +980,7 @@ class OpenAIReactGenerator(ReactGenerator):
             "parameters": self._to_openai_schema(spec.json_schema()),
         }
 
-    def _to_openai_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
+    def _to_openai_schema(self, schema: Mapping[str, Any]) -> dict[str, Any]:
         """Translate ToolSpec.json_schema()'s OpenAPI-flavored output into the
         JSON Schema dialect the Responses API honors: nullability is a ``"null"``
         member of ``type``, not an OpenAPI ``nullable`` flag (which OpenAI

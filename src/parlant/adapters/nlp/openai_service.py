@@ -25,7 +25,7 @@ from openai import (
     InternalServerError,
     RateLimitError,
 )
-from typing import Any, AsyncIterator, Callable, Mapping
+from typing import Any, AsyncIterator, Callable, Mapping, Optional
 from typing_extensions import override
 import json
 import jsonfinder  # type: ignore
@@ -80,6 +80,25 @@ from parlant.core.nlp.moderation import (
     ModerationCheck,
     ModerationService,
     ModerationTag,
+)
+from parlant.core.nlp.react import (
+    CacheConfig,
+    FinishReason,
+    Message,
+    ReactGenerator,
+    ReasoningConfig,
+    Role,
+    StreamEvent,
+    TextDelta,
+    TextPart,
+    ReasoningDelta,
+    ToolCallPart,
+    ToolCallStarted,
+    ToolChoice,
+    ToolResultPart,
+    ToolSpec,
+    TurnBuilder,
+    Usage,
 )
 from parlant.core.tracer import Tracer
 from parlant.core.health import HealthReporter
@@ -819,6 +838,266 @@ class OmniModeration(OpenAIModerationService):
             meter=meter,
             health_reporter=health_reporter,
         )
+
+
+# The key under which an OpenAI Responses output item (reasoning / function_call)
+# is preserved verbatim on a canonical Part's provider_data so it can be replayed
+# in a later stateless (store=False) request.
+OPENAI_ITEM_KEY = "openai_item"
+
+
+class OpenAIReactGenerator(ReactGenerator):
+    """A ReAct generator backed by the OpenAI Responses API (google-genai's peer).
+
+    Implements the ``ReactGenerator`` provider seam against the streaming
+    Responses API. Runs statelessly (``store=False``): the caller fully owns the
+    history, and reasoning / function-call output items round-trip verbatim via
+    each Part's ``provider_data`` (under :data:`OPENAI_ITEM_KEY`), with
+    ``include=["reasoning.encrypted_content"]`` so reasoning replays correctly.
+
+    Caching is automatic prefix caching: a :attr:`Message.cache_key` is passed as
+    ``prompt_cache_key`` (a routing hint). There is no explicit cache resource to
+    manage, so :class:`CacheConfig` ``ttl`` / ``provider_options`` are unused.
+    """
+
+    def __init__(
+        self,
+        *,
+        model: str = "gpt-5.4-nano",
+        logger: Logger,
+        cache: Optional[CacheConfig] = None,
+        client: Optional[AsyncClient] = None,
+        api_key: Optional[str] = None,
+    ) -> None:
+        super().__init__(model=model, cache=cache)
+        self._logger = logger
+        self._client = client or AsyncClient(api_key=api_key or os.environ.get("OPENAI_API_KEY"))
+
+    @property
+    def id(self) -> str:
+        return f"openai/{self.model}"
+
+    # ---- provider seam -----------------------------------------------------
+
+    @override
+    def _encode(
+        self,
+        history: list[Message],
+        tools: list[ToolSpec],
+        tool_choice: ToolChoice,
+        *,
+        system: Optional[str],
+        reasoning: ReasoningConfig,
+    ) -> dict[str, Any]:
+        instruction_chunks: list[str] = [system] if system else []
+        input_items: list[dict[str, Any]] = []
+        cache_key: Optional[str] = None
+
+        for message in history:
+            if message.role == Role.SYSTEM:
+                if message.text:
+                    instruction_chunks.append(message.text)
+                continue
+            if self.cache.enabled and message.cache_key is not None:
+                cache_key = message.cache_key
+            input_items.extend(self._encode_message(message))
+
+        request: dict[str, Any] = {
+            "model": self.model,
+            "input": input_items,
+            "instructions": "\n\n".join(chunk for chunk in instruction_chunks if chunk) or None,
+        }
+
+        if tools:
+            request["tools"] = [self._encode_tool(spec) for spec in tools]
+            request["tool_choice"] = self._encode_tool_choice(tool_choice)
+
+        if reasoning.enabled:
+            request["reasoning"] = self._encode_reasoning(reasoning)
+            # Needed so reasoning items can be replayed in a stateless request.
+            request["include"] = ["reasoning.encrypted_content"]
+
+        if cache_key is not None:
+            # OpenAI's prefix caching is automatic; the key is only a routing hint.
+            request["prompt_cache_key"] = cache_key
+
+        return request
+
+    def _encode_message(self, message: Message) -> list[dict[str, Any]]:
+        if message.role == Role.TOOL:
+            return [
+                self._encode_tool_result(part)
+                for part in message.parts
+                if isinstance(part, ToolResultPart)
+            ]
+
+        if message.role == Role.USER:
+            content = [
+                {"type": "input_text", "text": part.text}
+                for part in message.parts
+                if isinstance(part, TextPart)
+            ]
+            return [{"role": "user", "content": content}] if content else []
+
+        # ASSISTANT: emit items in part order, replaying raw items verbatim.
+        items: list[dict[str, Any]] = []
+        for part in message.parts:
+            raw_item = part.provider_data.get(OPENAI_ITEM_KEY)
+            if raw_item is not None:
+                items.append(dict(raw_item))
+                continue
+            if isinstance(part, TextPart) and part.text:
+                items.append(
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": part.text}],
+                    }
+                )
+            elif isinstance(part, ToolCallPart):
+                items.append(
+                    {
+                        "type": "function_call",
+                        "call_id": part.id,
+                        "name": part.name,
+                        "arguments": json.dumps(part.args),
+                    }
+                )
+            # A ReasoningPart without its raw item cannot be reconstructed
+            # (encrypted_content is opaque); dropping a reasoning part is safe.
+        return items
+
+    def _encode_tool_result(self, part: ToolResultPart) -> dict[str, Any]:
+        output = part.content if isinstance(part.content, str) else json.dumps(part.content)
+        return {"type": "function_call_output", "call_id": part.call_id, "output": output}
+
+    def _encode_tool(self, spec: ToolSpec) -> dict[str, Any]:
+        return {
+            "type": "function",
+            "name": spec.name,
+            "description": spec.description,
+            "parameters": self._to_openai_schema(spec.json_schema()),
+        }
+
+    def _to_openai_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
+        """Translate ToolSpec.json_schema()'s OpenAPI-flavored output into the
+        JSON Schema dialect the Responses API honors: nullability is a ``"null"``
+        member of ``type``, not an OpenAPI ``nullable`` flag (which OpenAI
+        silently ignores). Applied recursively to properties and array items."""
+        result = {key: value for key, value in schema.items() if key != "nullable"}
+
+        if schema.get("nullable"):
+            current = result.get("type")
+            if isinstance(current, str):
+                result["type"] = [current, "null"]
+            elif isinstance(current, list) and "null" not in current:
+                result["type"] = [*current, "null"]
+
+        if isinstance(result.get("properties"), dict):
+            result["properties"] = {
+                name: self._to_openai_schema(sub) for name, sub in result["properties"].items()
+            }
+        if isinstance(result.get("items"), dict):
+            result["items"] = self._to_openai_schema(result["items"])
+
+        return result
+
+    def _encode_tool_choice(self, tool_choice: ToolChoice) -> Any:
+        if isinstance(tool_choice, Mapping):
+            return {"type": "function", "name": tool_choice.get("name")}
+        return tool_choice  # "auto" | "none" | "required"
+
+    def _encode_reasoning(self, reasoning: ReasoningConfig) -> dict[str, Any]:
+        # NOTE: ReasoningConfig.budget_tokens has no effect here. The Responses
+        # API controls reasoning depth via `effort` tiers, not a token budget
+        # (only Gemini honors budget_tokens). It is intentionally ignored, the
+        # same way CacheConfig.ttl is a no-op for OpenAI's automatic caching.
+        config: dict[str, Any] = {"effort": reasoning.effort}
+        summary = {"none": None, "summary": "auto", "full": "detailed"}[reasoning.visibility]
+        if summary is not None:
+            config["summary"] = summary
+        return config
+
+    @override
+    async def _raw_stream(self, request: Any) -> AsyncIterator[Any]:
+        kwargs = {key: value for key, value in request.items() if value is not None}
+        try:
+            stream = await self._client.responses.create(stream=True, store=False, **kwargs)
+            async for event in stream:
+                yield event
+        except RateLimitError:
+            self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+            raise
+
+    @override
+    def _decode(self, raw_event: Any, builder: TurnBuilder) -> list[StreamEvent]:
+        event_type = raw_event.type
+
+        if event_type == "response.output_text.delta":
+            builder.text_delta(raw_event.delta)
+            return [TextDelta(text=raw_event.delta)]
+
+        if event_type == "response.reasoning_summary_text.delta":
+            builder.reasoning_delta(raw_event.delta)
+            return [ReasoningDelta(text=raw_event.delta)]
+
+        if event_type == "response.output_item.added":
+            item = raw_event.item
+            if item.type == "function_call":
+                builder.tool_call(item.call_id, name=item.name)
+                return [ToolCallStarted(id=item.call_id, name=item.name)]
+            return []
+
+        if event_type == "response.output_item.done":
+            item = raw_event.item
+            if item.type == "function_call":
+                builder.tool_call(
+                    item.call_id,
+                    name=item.name,
+                    args=json.loads(item.arguments or "{}"),
+                    provider_data={OPENAI_ITEM_KEY: item.model_dump(exclude_none=True)},
+                )
+            elif item.type == "reasoning":
+                # Attach the raw reasoning item (with encrypted_content) for replay,
+                # even when no visible summary text was streamed.
+                builder.reasoning_delta(
+                    "", provider_data={OPENAI_ITEM_KEY: item.model_dump(exclude_none=True)}
+                )
+            return []
+
+        if event_type == "response.completed":
+            response = raw_event.response
+            builder.usage = self._decode_usage(response.usage)
+            builder.finish_reason = self._map_finish_reason(response)
+            return []
+
+        return []
+
+    def _decode_usage(self, usage: Any) -> Usage:
+        if usage is None:
+            return Usage()
+        output_details = usage.output_tokens_details
+        input_details = usage.input_tokens_details
+        return Usage(
+            input_tokens=usage.input_tokens or 0,
+            # OpenAI's output_tokens already includes reasoning tokens.
+            output_tokens=usage.output_tokens or 0,
+            cached_input_tokens=(input_details.cached_tokens if input_details else 0) or 0,
+            reasoning_tokens=(output_details.reasoning_tokens if output_details else 0) or 0,
+        )
+
+    def _map_finish_reason(self, response: Any) -> FinishReason:
+        if response.status == "completed":
+            return FinishReason.STOP
+        if response.status == "failed":
+            return FinishReason.ERROR
+        if response.status == "incomplete":
+            reason = response.incomplete_details.reason if response.incomplete_details else None
+            if reason == "max_output_tokens":
+                return FinishReason.MAX_TOKENS
+            if reason == "content_filter":
+                return FinishReason.CONTENT_FILTER
+        return FinishReason.STOP
 
 
 class OpenAIService(NLPService):

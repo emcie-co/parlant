@@ -1023,8 +1023,11 @@ class OpenAIReactGenerator(ReactGenerator):
         kwargs = {key: value for key, value in request.items() if value is not None}
         try:
             stream = await self._client.responses.create(stream=True, store=False, **kwargs)
-            async for event in stream:
-                yield event
+            # `async with` guarantees the stream (and its HTTP response) is closed
+            # on cancellation or any early exit, rather than leaked.
+            async with stream:
+                async for event in stream:
+                    yield event
         except RateLimitError:
             self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise

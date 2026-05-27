@@ -655,8 +655,15 @@ class GeminiReactGenerator(ReactGenerator):
                 contents=contents,
                 config=config,
             )
-            async for chunk in stream:
-                yield chunk
+            try:
+                async for chunk in stream:
+                    yield chunk
+            finally:
+                # On cancellation (or any early exit) close the underlying stream
+                # so the HTTP response/connection is released rather than leaked.
+                aclose = getattr(stream, "aclose", None)
+                if aclose is not None:
+                    await aclose()
         except TooManyRequests:
             self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise

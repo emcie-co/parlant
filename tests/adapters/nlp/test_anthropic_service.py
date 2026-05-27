@@ -793,3 +793,50 @@ async def test_that_live_anthropic_step_can_be_cancelled(logger: Logger) -> None
 
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+@LIVE
+async def test_that_cancelling_mid_stream_closes_the_provider_stream(logger: Logger) -> None:
+    """Cancel while consuming a live stream and confirm the underlying Anthropic
+    message stream's async context is exited (closed), not leaked."""
+    generator = _live_generator(logger)
+    stream_closed = asyncio.Event()
+    real_stream = generator._client.messages.stream
+
+    class _ManagerProxy:
+        def __init__(self, manager: Any) -> None:
+            self._manager = manager
+
+        async def __aenter__(self) -> Any:
+            return await self._manager.__aenter__()
+
+        async def __aexit__(self, *args: Any) -> Any:
+            stream_closed.set()
+            return await self._manager.__aexit__(*args)
+
+    def spy_stream(**kwargs: Any) -> Any:
+        return _ManagerProxy(real_stream(**kwargs))
+
+    generator._client.messages.stream = spy_stream  # type: ignore[method-assign]
+
+    first_event = asyncio.Event()
+
+    async def consume() -> None:
+        async for _ in generator.stream_step(
+            [
+                Message(
+                    role=Role.USER, parts=[TextPart(text="Write a 1500-word essay about the sea.")]
+                )
+            ],
+            system="Write a long, detailed essay.",
+        ):
+            first_event.set()
+
+    task = asyncio.ensure_future(consume())
+    await asyncio.wait_for(first_event.wait(), timeout=30)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    await asyncio.wait_for(stream_closed.wait(), timeout=5)

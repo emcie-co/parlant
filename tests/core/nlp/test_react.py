@@ -572,3 +572,75 @@ async def test_that_cancelling_a_step_propagates_and_tears_down_the_stream() -> 
         await task
 
     assert generator.cancelled
+
+
+class _StreamingProvider(ReactGenerator):
+    """A fake provider that opens a 'connection', streams forever, and closes it
+    in a finally — mirroring how real adapters close the provider stream. The
+    ``stream_closed`` flag lets tests assert cancellation tears the stream down."""
+
+    def __init__(self) -> None:
+        super().__init__(model="fake")
+        self.started = asyncio.Event()
+        self.stream_closed = False
+
+    def _encode(
+        self,
+        history: list[Message],
+        tools: list[ToolSpec],
+        tool_choice: Any,
+        *,
+        system: Any = None,
+        reasoning: Any = None,
+    ) -> Any:
+        return {}
+
+    async def _raw_stream(self, request: Any) -> Any:
+        self.started.set()
+        try:
+            while True:
+                await asyncio.sleep(0.005)
+                yield _text_event("tick")
+        finally:
+            self.stream_closed = True
+
+    def _decode(self, raw_event: Any, builder: TurnBuilder) -> list[StreamEvent]:
+        return cast(list[StreamEvent], raw_event(builder))
+
+
+async def test_that_cancelling_mid_step_closes_the_provider_stream() -> None:
+    generator = _StreamingProvider()
+    task = asyncio.ensure_future(
+        generator.step([Message(role=Role.USER, parts=[TextPart(text="q")])])
+    )
+    await generator.started.wait()
+    await asyncio.sleep(0.02)  # let it stream a bit
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # The _raw_stream finally ran — a real adapter closes the HTTP stream here.
+    assert generator.stream_closed
+
+
+async def test_that_cancelling_mid_stream_closes_the_provider_stream() -> None:
+    generator = _StreamingProvider()
+    received: list[StreamEvent] = []
+
+    async def consume() -> None:
+        async for event in generator.stream_step(
+            [Message(role=Role.USER, parts=[TextPart(text="q")])]
+        ):
+            received.append(event)
+
+    task = asyncio.ensure_future(consume())
+    await generator.started.wait()
+    await asyncio.sleep(0.02)  # receive several events mid-stream
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert received  # events were delivered before cancellation
+    assert generator.stream_closed  # ...and the stream was still torn down

@@ -718,6 +718,55 @@ async def test_that_live_gemini_step_can_be_cancelled(logger: Logger) -> None:
 
 
 @LIVE
+async def test_that_cancelling_mid_stream_closes_the_provider_stream(logger: Logger) -> None:
+    """Cancel while consuming a live stream and confirm the underlying google-genai
+    stream is actually closed (aclose'd), not leaked."""
+    generator = _live_generator(logger)
+    stream_closed = asyncio.Event()
+    real_create = generator._client.aio.models.generate_content_stream
+
+    class _StreamProxy:
+        def __init__(self, real: Any) -> None:
+            self._real = real
+
+        def __aiter__(self) -> Any:
+            return self._real.__aiter__()
+
+        async def aclose(self) -> None:
+            stream_closed.set()
+            aclose = getattr(self._real, "aclose", None)
+            if aclose is not None:
+                await aclose()
+
+    async def spy_create(**kwargs: Any) -> Any:
+        return _StreamProxy(await real_create(**kwargs))
+
+    generator._client.aio.models.generate_content_stream = spy_create  # type: ignore[method-assign]
+
+    first_event = asyncio.Event()
+
+    async def consume() -> None:
+        async for _ in generator.stream_step(
+            [
+                Message(
+                    role=Role.USER, parts=[TextPart(text="Write a 1500-word essay about the sea.")]
+                )
+            ],
+            system="Write a long, detailed essay.",
+        ):
+            first_event.set()
+
+    task = asyncio.ensure_future(consume())
+    await asyncio.wait_for(first_event.wait(), timeout=30)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    await asyncio.wait_for(stream_closed.wait(), timeout=5)
+
+
+@LIVE
 async def test_that_live_managed_cache_is_created_reused_and_deleted(logger: Logger) -> None:
     """End-to-end explicit caching: a cache_key-marked prefix is turned into a
     real Gemini CachedContent, produces a cache hit, is reused across calls

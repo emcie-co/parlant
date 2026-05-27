@@ -729,3 +729,55 @@ async def test_that_live_openai_step_can_be_cancelled(logger: Logger) -> None:
 
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+@LIVE
+async def test_that_cancelling_mid_stream_closes_the_provider_stream(logger: Logger) -> None:
+    """Cancel while consuming a live stream and confirm the underlying Responses
+    stream (and its HTTP connection) is actually closed, not leaked."""
+    generator = _live_generator(logger)
+    stream_closed = asyncio.Event()
+    real_create = generator._client.responses.create
+
+    class _StreamProxy:
+        def __init__(self, real: Any) -> None:
+            self._real = real
+
+        async def __aenter__(self) -> "_StreamProxy":
+            await self._real.__aenter__()
+            return self
+
+        async def __aexit__(self, *args: Any) -> Any:
+            stream_closed.set()
+            return await self._real.__aexit__(*args)
+
+        def __aiter__(self) -> Any:
+            return self._real.__aiter__()
+
+    async def spy_create(**kwargs: Any) -> Any:
+        return _StreamProxy(await real_create(**kwargs))
+
+    generator._client.responses.create = spy_create  # type: ignore[method-assign]
+
+    first_event = asyncio.Event()
+
+    async def consume() -> None:
+        async for _ in generator.stream_step(
+            [
+                Message(
+                    role=Role.USER, parts=[TextPart(text="Write a 1500-word essay about the sea.")]
+                )
+            ],
+            system="Write a long, detailed essay.",
+        ):
+            first_event.set()
+
+    task = asyncio.ensure_future(consume())
+    await asyncio.wait_for(first_event.wait(), timeout=30)  # we're mid-stream
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # The provider stream was torn down (its async context exited).
+    await asyncio.wait_for(stream_closed.wait(), timeout=5)

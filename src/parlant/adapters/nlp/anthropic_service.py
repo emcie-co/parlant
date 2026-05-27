@@ -372,11 +372,14 @@ class AnthropicReactGenerator(ReactGenerator):
         system_chunks: list[str] = [system] if system else []
 
         cache_split = -1
+        system_marked = False
         non_system: list[Message] = []
         for message in history:
             if message.role == Role.SYSTEM:
                 if message.text:
                     system_chunks.append(message.text)
+                if self.cache.enabled and message.cache_key is not None:
+                    system_marked = True
                 continue
             if self.cache.enabled and message.cache_key is not None:
                 cache_split = len(non_system)
@@ -396,7 +399,14 @@ class AnthropicReactGenerator(ReactGenerator):
 
         system_text = "\n\n".join(chunk for chunk in system_chunks if chunk)
         if system_text:
-            request["system"] = system_text
+            if system_marked:
+                # A marked system message caches the system prefix; Anthropic
+                # caches system via cache_control on a system text block.
+                request["system"] = [
+                    {"type": "text", "text": system_text, "cache_control": self._cache_control()}
+                ]
+            else:
+                request["system"] = system_text
 
         if tools:
             request["tools"] = [self._encode_tool(spec) for spec in tools]

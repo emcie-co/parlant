@@ -279,6 +279,22 @@ def test_that_cache_key_becomes_prompt_cache_key(openai: OpenAIReactGenerator) -
     assert request["prompt_cache_key"] == "agent-7"
 
 
+def test_that_prompt_cache_key_uses_the_first_marked_message(openai: OpenAIReactGenerator) -> None:
+    # OpenAI takes a single prompt_cache_key; the FIRST marker wins (the most
+    # stable prefix boundary), and a marked system message counts.
+    history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text="big stable system")], cache_key="sys-v1"),
+        Message(role=Role.USER, parts=[TextPart(text="ctx")], cache_key="later"),
+        Message(role=Role.USER, parts=[TextPart(text="q")]),
+    ]
+    request = openai._encode(history, [], "auto", system=None, reasoning=ReasoningConfig())
+
+    # The system message's text still folds into instructions...
+    assert "big stable system" in request["instructions"]
+    # ...and its key is used (first-wins), not the later message's.
+    assert request["prompt_cache_key"] == "sys-v1"
+
+
 def test_that_caching_disabled_omits_prompt_cache_key(logger: Logger) -> None:
     generator = OpenAIReactGenerator(
         logger=logger,

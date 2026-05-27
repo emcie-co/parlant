@@ -299,6 +299,28 @@ def test_that_cache_key_marks_the_prefix_with_cache_control(
     assert "cache_control" not in messages[1]["content"][-1]
 
 
+def test_that_a_marked_system_message_caches_the_system(
+    anthropic: AnthropicReactGenerator,
+) -> None:
+    history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text="big stable system")], cache_key="sys-v1"),
+        Message(role=Role.USER, parts=[TextPart(text="q")]),
+    ]
+
+    request = anthropic._encode(history, [], "auto", system="extra", reasoning=ReasoningConfig())
+
+    # System is emitted as a cache_control'd text block (not a plain string).
+    assert request["system"] == [
+        {
+            "type": "text",
+            "text": "extra\n\nbig stable system",
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+    # The user message is not itself a cache breakpoint.
+    assert "cache_control" not in request["messages"][0]["content"][-1]
+
+
 def test_that_cache_control_ttl_is_derived_from_config(logger: Logger) -> None:
     from datetime import timedelta
 
@@ -776,6 +798,25 @@ async def test_that_live_anthropic_caches_a_marked_prefix(logger: Logger) -> Non
     assert second.finish_reason == FinishReason.STOP
     assert second.usage.cached_input_tokens > 0
     assert second.usage.input_tokens >= second.usage.cached_input_tokens
+
+
+@LIVE
+async def test_that_live_anthropic_caches_a_marked_system_message(logger: Logger) -> None:
+    """A cache_key on a system-role message caches the system prefix; a repeat
+    call reads it from cache."""
+    generator = _live_generator(logger, cache=CacheConfig(enabled=True))
+
+    big_system = "Reference policy.\n" + ("Be precise and cite the policy. " * 700)
+    history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text=big_system)], cache_key="policy-v1"),
+        Message(role=Role.USER, parts=[TextPart(text="In one word, what should you cite?")]),
+    ]
+
+    await generator.step(history)  # creates the system cache
+    second = await generator.step(history)  # reads it
+
+    assert second.finish_reason == FinishReason.STOP
+    assert second.usage.cached_input_tokens > 0
 
 
 @LIVE

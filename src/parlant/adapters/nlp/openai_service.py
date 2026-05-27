@@ -895,12 +895,16 @@ class OpenAIReactGenerator(ReactGenerator):
         cache_key: Optional[str] = None
 
         for message in history:
+            # OpenAI accepts a single prompt_cache_key (a routing hint). Use the
+            # FIRST marked message's key — including a marked system message —
+            # since the earliest breakpoint is the most stable prefix boundary
+            # and does not shift as the conversation grows.
+            if self.cache.enabled and cache_key is None and message.cache_key is not None:
+                cache_key = message.cache_key
             if message.role == Role.SYSTEM:
                 if message.text:
                     instruction_chunks.append(message.text)
                 continue
-            if self.cache.enabled and message.cache_key is not None:
-                cache_key = message.cache_key
             input_items.extend(self._encode_message(message))
 
         request: dict[str, Any] = {

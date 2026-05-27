@@ -226,6 +226,23 @@ def test_that_a_cache_marker_splits_history_into_prefix_and_suffix(logger: Logge
     assert request["cache_key"] == "doc-v1"
 
 
+def test_that_a_marked_system_message_caches_the_system_alone(logger: Logger) -> None:
+    generator = _offline_generator(logger, CacheConfig(enabled=True))
+    history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text="big stable system")], cache_key="sys-v1"),
+        Message(role=Role.USER, parts=[TextPart(text="the live question")]),
+    ]
+
+    request = generator._encode(history, [], "auto", system=None, reasoning=ReasoningConfig())
+
+    # System goes to system_instruction; the cache covers it with an empty prefix.
+    assert request["system_instruction"] == "big stable system"
+    assert request["prefix_contents"] == []
+    assert request["cache_key"] == "sys-v1"
+    # The whole conversation is sent as the suffix referencing the cache.
+    assert [c.parts[0].text for c in request["suffix_contents"]] == ["the live question"]
+
+
 def test_that_caching_disabled_ignores_cache_markers(logger: Logger) -> None:
     generator = _offline_generator(logger, CacheConfig(enabled=False))
     history = [
@@ -796,6 +813,33 @@ async def test_that_live_managed_cache_is_created_reused_and_deleted(logger: Log
         await generator.aclose()
 
     # aclose() deleted the managed cache.
+    assert generator._managed_caches == {}
+
+
+@LIVE
+async def test_that_live_gemini_caches_a_marked_system_message(logger: Logger) -> None:
+    """A cache_key on a system-role message caches the system instruction alone
+    as a CachedContent; a repeat call reads it from cache."""
+    generator = _live_generator(logger, cache=CacheConfig(enabled=True, ttl=timedelta(seconds=120)))
+
+    big_system = "Reference policy.\n" + ("Be precise and cite the policy. " * 700)
+    history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text=big_system)], cache_key="policy-v1"),
+        Message(role=Role.USER, parts=[TextPart(text="In one word, what should you cite?")]),
+    ]
+
+    try:
+        first = await generator.step(history)
+        assert first.finish_reason == FinishReason.STOP
+        assert first.usage.cached_input_tokens > 0
+        assert len(generator._managed_caches) == 1
+
+        second = await generator.step(history)
+        assert second.usage.cached_input_tokens > 0
+        assert len(generator._managed_caches) == 1
+    finally:
+        await generator.aclose()
+
     assert generator._managed_caches == {}
 
 

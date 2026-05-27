@@ -401,6 +401,42 @@ class Gemini_2_5_Pro(GeminiSchematicGenerator[T]):
         return 1024 * 1024
 
 
+class Gemini_3_1_Flash_Lite(GeminiSchematicGenerator[T]):
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
+        super().__init__(
+            model_name="gemini-3.1-flash-lite",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 1024 * 1024
+
+
+class Gemini_3_5_Flash(GeminiSchematicGenerator[T]):
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
+        super().__init__(
+            model_name="gemini-3.5-flash",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 1024 * 1024
+
+
 # The key under which Gemini's per-part ``thought_signature`` is preserved in a
 # canonical Part's ``provider_data``. It MUST round-trip verbatim, or replaying
 # tool-calling history triggers a 400 "missing thought_signature".
@@ -482,11 +518,14 @@ class GeminiReactGenerator(ReactGenerator):
         # suffix sent on each call. The key names the cache for reuse.
         cache_split = -1
         cache_key: Optional[str] = None
+        system_cache_key: Optional[str] = None
         non_system: list[Message] = []
         for message in history:
             if message.role == Role.SYSTEM:
                 if message.text:
                     system_chunks.append(message.text)
+                if self.cache.enabled and message.cache_key is not None:
+                    system_cache_key = message.cache_key
                 continue
             if self.cache.enabled and message.cache_key is not None:
                 cache_split = len(non_system)
@@ -513,6 +552,11 @@ class GeminiReactGenerator(ReactGenerator):
         if cache_split >= 0:
             prefix_contents = contents[: cache_split + 1]
             suffix_contents = contents[cache_split + 1 :]
+        elif system_cache_key is not None:
+            # Only the system is marked: cache the system instruction alone, and
+            # send the whole conversation as the suffix referencing it.
+            prefix_contents = []
+            cache_key = system_cache_key
 
         explicit_cache = self.cache.provider_options.get("gemini_cached_content")
 
@@ -713,10 +757,9 @@ class GeminiReactGenerator(ReactGenerator):
                 if expiry - datetime.now(timezone.utc) > self._CACHE_REUSE_MARGIN:
                     return name
 
-            config_kwargs: dict[str, Any] = {
-                "display_name": cache_key,
-                "contents": prefix_contents,
-            }
+            config_kwargs: dict[str, Any] = {"display_name": cache_key}
+            if prefix_contents:
+                config_kwargs["contents"] = prefix_contents
             if system_instruction is not None:
                 config_kwargs["system_instruction"] = system_instruction
             if self.cache.ttl is not None:
@@ -993,15 +1036,25 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
     ) -> GeminiSchematicGenerator[T]:
         match hints.get("model_size", ModelSize.AUTO):
             case ModelSize.NANO:
-                return Gemini_2_5_Flash_Lite[t](self.logger, self._tracer, self._meter)  # type: ignore
+                return Gemini_3_1_Flash_Lite[t](  # type: ignore
+                    self.logger, self._tracer, self._meter, self._health_reporter
+                )
             case ModelSize.MINI:
-                return Gemini_2_5_Flash[t](self.logger, self._tracer, self._meter)  # type: ignore
+                return Gemini_3_1_Flash_Lite[t](  # type: ignore
+                    self.logger, self._tracer, self._meter, self._health_reporter
+                )
             case ModelSize.LARGE:
-                return Gemini_2_5_Pro[t](self.logger, self._tracer, self._meter)  # type: ignore
+                return Gemini_3_5_Flash[t](  # type: ignore
+                    self.logger, self._tracer, self._meter, self._health_reporter
+                )
             case _:
                 return FallbackSchematicGenerator[t](  # type: ignore
-                    Gemini_2_5_Flash[t](self.logger, self._tracer, self._meter),  # type: ignore
-                    Gemini_2_5_Pro[t](self.logger, self._tracer, self._meter),  # type: ignore
+                    Gemini_3_1_Flash_Lite[t](  # type: ignore
+                        self.logger, self._tracer, self._meter, self._health_reporter
+                    ),
+                    Gemini_3_5_Flash[t](  # type: ignore
+                        self.logger, self._tracer, self._meter, self._health_reporter
+                    ),
                     logger=self.logger,
                 )
 

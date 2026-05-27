@@ -323,6 +323,10 @@ class AnthropicReactGenerator(ReactGenerator):
       Use ``"auto"`` with reasoning enabled.
     - ``ReasoningConfig.effort`` has no effect: Anthropic controls thinking via
       ``budget_tokens`` (the mirror of OpenAI ignoring ``budget_tokens``).
+    - Claude 4 returns only a SUMMARY of its thinking (never verbatim, though it
+      bills the full thinking tokens). ``visibility`` maps to the ``display``
+      knob: ``"none"`` -> ``"omitted"`` (reason internally, return nothing);
+      ``"summary"``/``"full"`` -> ``"summarized"`` (no verbatim option exists).
     - Anthropic does not report a separate thinking-token count, so
       :attr:`Usage.reasoning_tokens` is always 0 for this provider.
     """
@@ -398,7 +402,17 @@ class AnthropicReactGenerator(ReactGenerator):
 
         if reasoning.enabled:
             budget = reasoning.budget_tokens or self._DEFAULT_THINKING_BUDGET
-            request["thinking"] = {"type": "enabled", "budget_tokens": budget}
+            # Claude 4 only ever returns a SUMMARY of its thinking (it is billed
+            # the full thinking tokens). `display` is the one visibility knob:
+            # "omitted" reasons internally without returning the block;
+            # "summarized" returns the summary. There is no verbatim option, so
+            # "full" maps to "summarized" (the closest Anthropic offers).
+            display = "omitted" if reasoning.visibility == "none" else "summarized"
+            request["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": budget,
+                "display": display,
+            }
             # Anthropic requires max_tokens > budget_tokens; leave headroom for
             # the visible answer after the thinking budget.
             request["max_tokens"] = max(max_tokens, budget + 2048)
@@ -536,7 +550,7 @@ class AnthropicReactGenerator(ReactGenerator):
                 builder.reasoning_delta(
                     block.thinking,
                     signature=block.signature,
-                    visibility="full",
+                    visibility="summary",  # Claude 4 returns a summary, not verbatim
                     provider_data={ANTHROPIC_BLOCK_KEY: raw_block},
                 )
             elif block.type == "redacted_thinking":

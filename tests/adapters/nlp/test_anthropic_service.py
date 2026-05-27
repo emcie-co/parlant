@@ -222,9 +222,32 @@ def test_that_encode_emits_thinking_only_when_enabled(anthropic: AnthropicReactG
         system=None,
         reasoning=ReasoningConfig(enabled=True, budget_tokens=4096),
     )
-    assert enabled["thinking"] == {"type": "enabled", "budget_tokens": 4096}
+    # Default visibility ("summary") -> display "summarized".
+    assert enabled["thinking"] == {
+        "type": "enabled",
+        "budget_tokens": 4096,
+        "display": "summarized",
+    }
     # max_tokens must exceed the thinking budget.
     assert enabled["max_tokens"] > 4096
+
+
+def test_that_visibility_maps_to_the_display_knob(anthropic: AnthropicReactGenerator) -> None:
+    # Claude 4 has no verbatim option: "none" omits the thinking block, while
+    # "summary" and "full" both request the summary ("full" has no equivalent).
+    def display_for(visibility: str) -> Any:
+        request = anthropic._encode(
+            [],
+            [],
+            "auto",
+            system=None,
+            reasoning=ReasoningConfig(enabled=True, visibility=visibility),  # type: ignore[arg-type]
+        )
+        return request["thinking"]["display"]
+
+    assert display_for("none") == "omitted"
+    assert display_for("summary") == "summarized"
+    assert display_for("full") == "summarized"
 
 
 def test_that_encode_uses_a_default_thinking_budget(anthropic: AnthropicReactGenerator) -> None:
@@ -442,10 +465,10 @@ async def test_that_live_anthropic_makes_parallel_tool_calls(logger: Logger) -> 
 
 
 @LIVE
-async def test_that_live_anthropic_reports_full_thinking_when_enabled(logger: Logger) -> None:
-    """Anthropic returns the FULL thinking text (not a summary), so the assistant
-    message carries visible reasoning. It does not report thinking tokens
-    separately, so reasoning_tokens is 0."""
+async def test_that_live_anthropic_reports_a_thinking_summary_when_enabled(logger: Logger) -> None:
+    """Claude 4 returns a SUMMARY of its thinking (never verbatim), so the
+    assistant message carries visible reasoning text. Anthropic does not report
+    thinking tokens separately, so reasoning_tokens is 0."""
     generator = _live_generator(logger)
 
     result = await generator.step(
@@ -460,12 +483,36 @@ async def test_that_live_anthropic_reports_full_thinking_when_enabled(logger: Lo
                 ],
             )
         ],
-        reasoning=ReasoningConfig(enabled=True, budget_tokens=2048, visibility="full"),
+        reasoning=ReasoningConfig(enabled=True, budget_tokens=2048, visibility="summary"),
     )
 
     assert "20" in result.message.text  # Bob = 20
-    assert result.message.reasoning.strip()  # full thinking text is present
+    assert result.message.reasoning.strip()  # summarized thinking text is present
     assert result.usage.reasoning_tokens == 0  # not separately reported by Anthropic
+
+
+@LIVE
+async def test_that_visibility_none_omits_the_thinking_summary_but_still_reasons(
+    logger: Logger,
+) -> None:
+    """visibility="none" maps to display="omitted": Claude still reasons (and is
+    billed for it) but returns no thinking text."""
+    generator = _live_generator(logger)
+
+    result = await generator.step(
+        [
+            Message(
+                role=Role.USER,
+                parts=[TextPart(text="Is 91 prime? Reason it out, then answer yes or no.")],
+            )
+        ],
+        reasoning=ReasoningConfig(enabled=True, budget_tokens=2048, visibility="none"),
+    )
+
+    # No thinking summary surfaced...
+    assert result.message.reasoning == ""
+    # ...but the final answer is still correct (91 = 7 x 13, not prime).
+    assert "no" in result.message.text.lower()
 
 
 @LIVE

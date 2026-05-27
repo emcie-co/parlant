@@ -468,8 +468,8 @@ class GeminiReactGenerator(ReactGenerator):
     @override
     def _encode(
         self,
-        history: list[Message],
-        tools: list[ToolSpec],
+        history: Sequence[Message],
+        tools: Sequence[ToolSpec],
         tool_choice: ToolChoice,
         *,
         system: Optional[str],

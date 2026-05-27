@@ -22,7 +22,7 @@ from anthropic import (
     InternalServerError,
     RateLimitError,
 )  # type: ignore
-from typing import Any, AsyncIterator, Mapping, Optional
+from typing import Any, AsyncIterator, Mapping, Optional, Sequence
 from typing_extensions import override
 import jsonfinder  # type: ignore
 import json
@@ -362,8 +362,8 @@ class AnthropicReactGenerator(ReactGenerator):
     @override
     def _encode(
         self,
-        history: list[Message],
-        tools: list[ToolSpec],
+        history: Sequence[Message],
+        tools: Sequence[ToolSpec],
         tool_choice: ToolChoice,
         *,
         system: Optional[str],

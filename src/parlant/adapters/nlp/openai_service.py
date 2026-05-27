@@ -25,7 +25,7 @@ from openai import (
     InternalServerError,
     RateLimitError,
 )
-from typing import Any, AsyncIterator, Callable, Mapping, Optional
+from typing import Any, AsyncIterator, Callable, Mapping, Optional, Sequence
 from typing_extensions import override
 import json
 import jsonfinder  # type: ignore
@@ -883,8 +883,8 @@ class OpenAIReactGenerator(ReactGenerator):
     @override
     def _encode(
         self,
-        history: list[Message],
-        tools: list[ToolSpec],
+        history: Sequence[Message],
+        tools: Sequence[ToolSpec],
         tool_choice: ToolChoice,
         *,
         system: Optional[str],

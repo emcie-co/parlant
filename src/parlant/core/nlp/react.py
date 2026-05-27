@@ -27,9 +27,9 @@ Core contract
   assistant turn (text + reasoning + pending tool calls); the caller decides
   whether and how to run them. This per-step seam is what gives callers full
   control over the loop.
-* History is a plain ``list[Message]`` the caller fully owns and may mutate,
+* History is a ``Sequence[Message]`` the caller fully owns and may mutate,
   splice, or rebuild between steps (see :meth:`ReactGenerator.run` and
-  ``StepHook``).
+  ``StepHook``). The generator only reads it.
 * Every :class:`Part` carries an opaque ``provider_data`` blob. Anthropic
   thinking signatures, Gemini ``thought_signature`` values, and OpenAI
   reasoning-item ids / encrypted content round-trip through it. PRESERVE IT
@@ -507,8 +507,8 @@ class ReactGenerator(abc.ABC):
     @abc.abstractmethod
     def _encode(
         self,
-        history: list[Message],
-        tools: list[ToolSpec],
+        history: Sequence[Message],
+        tools: Sequence[ToolSpec],
         tool_choice: ToolChoice,
         *,
         system: Optional[str],
@@ -529,7 +529,7 @@ class ReactGenerator(abc.ABC):
         """
 
     @abc.abstractmethod
-    def _decode(self, raw_event: Any, builder: TurnBuilder) -> list[StreamEvent]:
+    def _decode(self, raw_event: Any, builder: TurnBuilder) -> Sequence[StreamEvent]:
         """Map ONE native event to zero or more normalized ``StreamEvent``s and
         fold its content into ``builder`` (capturing signatures, usage, and the
         finish reason)."""
@@ -538,8 +538,8 @@ class ReactGenerator(abc.ABC):
 
     async def stream_step(
         self,
-        history: list[Message],
-        tools: Union[list[ToolSpec], tuple[ToolSpec, ...]] = (),
+        history: Sequence[Message],
+        tools: Sequence[ToolSpec] = (),
         *,
         tool_choice: ToolChoice = "auto",
         system: Optional[str] = None,
@@ -552,8 +552,8 @@ class ReactGenerator(abc.ABC):
         many agents/turns with different prompts and thinking settings.
         """
         request = self._encode(
-            list(history),
-            list(tools),
+            history,
+            tools,
             tool_choice,
             system=system,
             reasoning=reasoning or ReasoningConfig(),
@@ -566,8 +566,8 @@ class ReactGenerator(abc.ABC):
 
     async def step(
         self,
-        history: list[Message],
-        tools: Union[list[ToolSpec], tuple[ToolSpec, ...]] = (),
+        history: Sequence[Message],
+        tools: Sequence[ToolSpec] = (),
         *,
         tool_choice: ToolChoice = "auto",
         system: Optional[str] = None,
@@ -585,8 +585,8 @@ class ReactGenerator(abc.ABC):
 
     async def run(
         self,
-        history: list[Message],
-        tools: list[ToolSpec],
+        history: Sequence[Message],
+        tools: Sequence[ToolSpec],
         dispatch: ToolDispatcher,
         *,
         max_steps: int = 20,
@@ -594,27 +594,32 @@ class ReactGenerator(abc.ABC):
         system: Optional[str] = None,
         reasoning: Optional[ReasoningConfig] = None,
         on_step: Optional[StepHook] = None,
-    ) -> list[Message]:
-        """Convenience ReAct loop. Mutates and returns ``history``.
+    ) -> Sequence[Message]:
+        """Convenience ReAct loop.
 
-        ``dispatch`` runs a single tool call; the tool calls within one turn run
-        concurrently. ``on_step`` may inspect or EDIT ``history`` in place and
-        return ``False`` to stop early. ``system`` and ``reasoning`` apply to
-        every step. Cancellation is via asyncio (cancel the awaiting task).
+        Works on a private copy of ``history`` and returns the full conversation
+        (the input followed by the turns produced); the caller's ``history`` is
+        not mutated. ``dispatch`` runs a single tool call; the tool calls within
+        one turn run concurrently. ``on_step`` receives the working conversation
+        (a mutable list it may EDIT in place) and may return ``False`` to stop
+        early. ``system`` and ``reasoning`` apply to every step. Cancellation is
+        via asyncio (cancel the awaiting task).
         """
+        conversation: list[Message] = list(history)
+
         for _ in range(max_steps):
             result = await self.step(
-                history, tools, tool_choice=tool_choice, system=system, reasoning=reasoning
+                conversation, tools, tool_choice=tool_choice, system=system, reasoning=reasoning
             )
-            history.append(result.message)
+            conversation.append(result.message)
 
-            if on_step is not None and (await on_step(result, history)) is False:
-                return history
+            if on_step is not None and (await on_step(result, conversation)) is False:
+                return conversation
 
             if not result.needs_tools:
-                return history
+                return conversation
 
             results = await asyncio.gather(*(dispatch(call) for call in result.tool_calls))
-            history.append(Message(role=Role.TOOL, parts=list(results)))
+            conversation.append(Message(role=Role.TOOL, parts=list(results)))
 
-        return history
+        return conversation

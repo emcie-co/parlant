@@ -22,7 +22,7 @@ provider adapters (Gemini, OpenAI, ...) are tested in tests/adapters/nlp/.
 """
 
 import asyncio
-from typing import Any, Callable, cast
+from typing import Any, Callable, Sequence, cast
 
 import pytest
 
@@ -74,8 +74,8 @@ class _FakeReactGenerator(ReactGenerator):
 
     def _encode(
         self,
-        history: list[Message],
-        tools: list[ToolSpec],
+        history: Sequence[Message],
+        tools: Sequence[ToolSpec],
         tool_choice: Any,
         *,
         system: Any = None,
@@ -491,8 +491,8 @@ async def test_that_provider_errors_propagate_out_of_step() -> None:
 
         def _encode(
             self,
-            history: list[Message],
-            tools: list[ToolSpec],
+            history: Sequence[Message],
+            tools: Sequence[ToolSpec],
             tool_choice: Any,
             *,
             system: Any = None,
@@ -540,8 +540,8 @@ async def test_that_cancelling_a_step_propagates_and_tears_down_the_stream() -> 
 
         def _encode(
             self,
-            history: list[Message],
-            tools: list[ToolSpec],
+            history: Sequence[Message],
+            tools: Sequence[ToolSpec],
             tool_choice: Any,
             *,
             system: Any = None,
@@ -586,8 +586,8 @@ class _StreamingProvider(ReactGenerator):
 
     def _encode(
         self,
-        history: list[Message],
-        tools: list[ToolSpec],
+        history: Sequence[Message],
+        tools: Sequence[ToolSpec],
         tool_choice: Any,
         *,
         system: Any = None,

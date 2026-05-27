@@ -22,9 +22,10 @@ from anthropic import (
     InternalServerError,
     RateLimitError,
 )  # type: ignore
-from typing import Any, Mapping
+from typing import Any, AsyncIterator, Mapping, Optional
 from typing_extensions import override
 import jsonfinder  # type: ignore
+import json
 import os
 
 from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
@@ -58,6 +59,26 @@ from parlant.core.nlp.service import (
 )
 from parlant.core.nlp.generation import StreamingTextGenerator
 from parlant.core.nlp.tokenization import EstimatingTokenizer
+from parlant.core.nlp.react import (
+    CacheConfig,
+    FinishReason,
+    Message,
+    ReactGenerator,
+    ReasoningConfig,
+    ReasoningPart,
+    Role,
+    StreamEvent,
+    TextDelta,
+    TextPart,
+    ReasoningDelta,
+    ToolCallPart,
+    ToolCallStarted,
+    ToolChoice,
+    ToolResultPart,
+    ToolSpec,
+    TurnBuilder,
+    Usage,
+)
 from parlant.core.health import HealthReporter
 
 
@@ -262,6 +283,297 @@ class Claude_Opus_4_1(AnthropicAISchematicGenerator[T]):
     @override
     def max_tokens(self) -> int:
         return 200 * 1024
+
+
+# The key under which an Anthropic content block (thinking / tool_use) is
+# preserved verbatim on a canonical Part's provider_data so it can be replayed.
+# The thinking block's signature MUST round-trip, or replaying a turn that had
+# thinking before a tool_use errors with 400.
+ANTHROPIC_BLOCK_KEY = "anthropic_block"
+
+ANTHROPIC_RATE_LIMIT_ERROR_MESSAGE = (
+    "Anthropic API rate limit exceeded. Check your plan and billing, and review "
+    "https://docs.anthropic.com/en/api/rate-limits"
+)
+
+
+class _AnthropicFinal:
+    """Sentinel wrapping the fully-accumulated message, yielded after the raw
+    stream so _decode can build the authoritative turn from complete blocks."""
+
+    def __init__(self, message: Any) -> None:
+        self.message = message
+
+
+class AnthropicReactGenerator(ReactGenerator):
+    """A ReAct generator backed by the Anthropic Messages API.
+
+    Implements the ``ReactGenerator`` provider seam against the streaming
+    Messages API. Thinking blocks (with their signature) and tool_use blocks
+    round-trip verbatim via each Part's ``provider_data`` (under
+    :data:`ANTHROPIC_BLOCK_KEY`) — Anthropic rejects a replayed turn whose
+    thinking block before a tool_use is missing or altered.
+
+    Caching is positional: a :attr:`Message.cache_key` marks the prefix whose
+    last block gets ``cache_control={"type": "ephemeral"}``.
+
+    Provider constraints honored by callers (not worked around silently):
+    - Extended thinking is incompatible with a forced ``tool_choice``
+      (``"required"`` / ``{"name": ...}``); Anthropic 400s on that combination.
+      Use ``"auto"`` with reasoning enabled.
+    - ``ReasoningConfig.effort`` has no effect: Anthropic controls thinking via
+      ``budget_tokens`` (the mirror of OpenAI ignoring ``budget_tokens``).
+    - Anthropic does not report a separate thinking-token count, so
+      :attr:`Usage.reasoning_tokens` is always 0 for this provider.
+    """
+
+    _ROLE = {Role.USER: "user", Role.ASSISTANT: "assistant", Role.TOOL: "user"}
+    _DEFAULT_THINKING_BUDGET = 1024
+
+    def __init__(
+        self,
+        *,
+        model: str = "claude-haiku-4-5-20251001",
+        logger: Logger,
+        cache: Optional[CacheConfig] = None,
+        client: Optional[AsyncAnthropic] = None,
+        api_key: Optional[str] = None,
+        max_tokens: int = 8192,
+    ) -> None:
+        super().__init__(model=model, cache=cache)
+        self._logger = logger
+        self._client = client or AsyncAnthropic(
+            api_key=api_key or os.environ.get("ANTHROPIC_API_KEY")
+        )
+        self._max_tokens = max_tokens
+
+    @property
+    def id(self) -> str:
+        return f"anthropic/{self.model}"
+
+    # ---- provider seam -----------------------------------------------------
+
+    @override
+    def _encode(
+        self,
+        history: list[Message],
+        tools: list[ToolSpec],
+        tool_choice: ToolChoice,
+        *,
+        system: Optional[str],
+        reasoning: ReasoningConfig,
+    ) -> dict[str, Any]:
+        system_chunks: list[str] = [system] if system else []
+
+        cache_split = -1
+        non_system: list[Message] = []
+        for message in history:
+            if message.role == Role.SYSTEM:
+                if message.text:
+                    system_chunks.append(message.text)
+                continue
+            if self.cache.enabled and message.cache_key is not None:
+                cache_split = len(non_system)
+            non_system.append(message)
+
+        messages = [
+            self._encode_message(message, cache=(index == cache_split))
+            for index, message in enumerate(non_system)
+        ]
+
+        max_tokens = self._max_tokens
+        request: dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": max_tokens,
+            "messages": messages,
+        }
+
+        system_text = "\n\n".join(chunk for chunk in system_chunks if chunk)
+        if system_text:
+            request["system"] = system_text
+
+        if tools:
+            request["tools"] = [self._encode_tool(spec) for spec in tools]
+            request["tool_choice"] = self._encode_tool_choice(tool_choice)
+
+        if reasoning.enabled:
+            budget = reasoning.budget_tokens or self._DEFAULT_THINKING_BUDGET
+            request["thinking"] = {"type": "enabled", "budget_tokens": budget}
+            # Anthropic requires max_tokens > budget_tokens; leave headroom for
+            # the visible answer after the thinking budget.
+            request["max_tokens"] = max(max_tokens, budget + 2048)
+            # NOTE: thinking is rejected by Anthropic alongside a forced
+            # tool_choice ("any"/"tool"); callers must use "auto" with reasoning.
+
+        return request
+
+    def _encode_message(self, message: Message, *, cache: bool) -> dict[str, Any]:
+        blocks = self._encode_blocks(message)
+        if cache and blocks:
+            blocks[-1] = {**blocks[-1], "cache_control": self._cache_control()}
+        return {"role": self._ROLE[message.role], "content": blocks}
+
+    def _encode_blocks(self, message: Message) -> list[dict[str, Any]]:
+        if message.role == Role.TOOL:
+            return [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": part.call_id,
+                    "content": part.content
+                    if isinstance(part.content, str)
+                    else json.dumps(part.content),
+                    "is_error": part.is_error,
+                }
+                for part in message.parts
+                if isinstance(part, ToolResultPart)
+            ]
+
+        if message.role == Role.USER:
+            return [
+                {"type": "text", "text": part.text}
+                for part in message.parts
+                if isinstance(part, TextPart)
+            ]
+
+        # ASSISTANT: replay raw blocks verbatim (preserving thinking signatures),
+        # reconstruct where a raw block is absent.
+        blocks: list[dict[str, Any]] = []
+        for part in message.parts:
+            raw_block = part.provider_data.get(ANTHROPIC_BLOCK_KEY)
+            if raw_block is not None:
+                blocks.append(dict(raw_block))
+                continue
+            if isinstance(part, TextPart) and part.text:
+                blocks.append({"type": "text", "text": part.text})
+            elif isinstance(part, ToolCallPart):
+                blocks.append(
+                    {"type": "tool_use", "id": part.id, "name": part.name, "input": part.args}
+                )
+            elif isinstance(part, ReasoningPart) and part.signature is not None:
+                blocks.append(
+                    {"type": "thinking", "thinking": part.text, "signature": part.signature}
+                )
+        return blocks
+
+    def _cache_control(self) -> dict[str, Any]:
+        control: dict[str, Any] = {"type": "ephemeral"}
+        if self.cache.ttl is not None:
+            control["ttl"] = "1h" if self.cache.ttl.total_seconds() > 300 else "5m"
+        return control
+
+    def _encode_tool(self, spec: ToolSpec) -> dict[str, Any]:
+        return {
+            "name": spec.name,
+            "description": spec.description,
+            "input_schema": self._to_anthropic_schema(spec.json_schema()),
+        }
+
+    def _to_anthropic_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
+        """Anthropic's input_schema is JSON Schema and (like OpenAI) ignores
+        OpenAPI's ``"nullable": true``; nullability must be a ``"null"`` member
+        of ``type``. Translate recursively."""
+        result = {key: value for key, value in schema.items() if key != "nullable"}
+        if schema.get("nullable"):
+            current = result.get("type")
+            if isinstance(current, str):
+                result["type"] = [current, "null"]
+            elif isinstance(current, list) and "null" not in current:
+                result["type"] = [*current, "null"]
+        if isinstance(result.get("properties"), dict):
+            result["properties"] = {
+                name: self._to_anthropic_schema(sub) for name, sub in result["properties"].items()
+            }
+        if isinstance(result.get("items"), dict):
+            result["items"] = self._to_anthropic_schema(result["items"])
+        return result
+
+    def _encode_tool_choice(self, tool_choice: ToolChoice) -> dict[str, Any]:
+        if isinstance(tool_choice, Mapping):
+            return {"type": "tool", "name": tool_choice.get("name")}
+        return {
+            "auto": {"type": "auto"},
+            "none": {"type": "none"},
+            "required": {"type": "any"},
+        }[tool_choice]
+
+    @override
+    async def _raw_stream(self, request: Any) -> AsyncIterator[Any]:
+        try:
+            async with self._client.messages.stream(**request) as stream:
+                async for event in stream:
+                    yield event
+                yield _AnthropicFinal(await stream.get_final_message())
+        except RateLimitError:
+            self._logger.error(ANTHROPIC_RATE_LIMIT_ERROR_MESSAGE)
+            raise
+
+    @override
+    def _decode(self, raw_event: Any, builder: TurnBuilder) -> list[StreamEvent]:
+        if isinstance(raw_event, _AnthropicFinal):
+            return self._decode_final(raw_event.message, builder)
+
+        event_type = raw_event.type
+
+        if event_type == "content_block_start" and raw_event.content_block.type == "tool_use":
+            block = raw_event.content_block
+            return [ToolCallStarted(id=block.id, name=block.name)]
+
+        if event_type == "content_block_delta":
+            delta = raw_event.delta
+            if delta.type == "text_delta":
+                return [TextDelta(text=delta.text)]
+            if delta.type == "thinking_delta":
+                return [ReasoningDelta(text=delta.thinking)]
+
+        return []
+
+    def _decode_final(self, message: Any, builder: TurnBuilder) -> list[StreamEvent]:
+        for block in message.content:
+            raw_block = block.model_dump(exclude_none=True)
+            if block.type == "text":
+                builder.text_delta(block.text)
+            elif block.type == "thinking":
+                builder.reasoning_delta(
+                    block.thinking,
+                    signature=block.signature,
+                    visibility="full",
+                    provider_data={ANTHROPIC_BLOCK_KEY: raw_block},
+                )
+            elif block.type == "redacted_thinking":
+                builder.reasoning_delta("", provider_data={ANTHROPIC_BLOCK_KEY: raw_block})
+            elif block.type == "tool_use":
+                builder.tool_call(
+                    block.id,
+                    name=block.name,
+                    args=dict(block.input or {}),
+                    provider_data={ANTHROPIC_BLOCK_KEY: raw_block},
+                )
+
+        builder.usage = self._decode_usage(message.usage)
+        builder.finish_reason = self._map_finish_reason(message.stop_reason)
+        return []
+
+    def _decode_usage(self, usage: Any) -> Usage:
+        cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+        cache_creation = getattr(usage, "cache_creation_input_tokens", 0) or 0
+        return Usage(
+            # input_tokens excludes cached/created prompt tokens; fold them back
+            # in so cached_input_tokens is a subset of input_tokens.
+            input_tokens=(usage.input_tokens or 0) + cache_read + cache_creation,
+            output_tokens=usage.output_tokens or 0,  # includes thinking tokens
+            cached_input_tokens=cache_read,
+            reasoning_tokens=0,  # Anthropic does not report thinking tokens separately
+        )
+
+    def _map_finish_reason(self, stop_reason: Optional[str]) -> FinishReason:
+        if stop_reason == "max_tokens":
+            return FinishReason.MAX_TOKENS
+        if stop_reason == "refusal":
+            return FinishReason.CONTENT_FILTER
+        if stop_reason == "pause_turn":
+            return FinishReason.PAUSE
+        # end_turn, stop_sequence, tool_use (builder derives TOOL_CALLS) -> STOP
+        return FinishReason.STOP
 
 
 class AnthropicService(NLPService):

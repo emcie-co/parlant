@@ -369,12 +369,6 @@ class ToolCallStarted(StreamEvent):
 
 
 @dataclass(kw_only=True)
-class ToolCallArgsDelta(StreamEvent):
-    id: str
-    delta: str  # partial JSON for the tool's arguments
-
-
-@dataclass(kw_only=True)
 class StepCompleted(StreamEvent):
     result: StepResult
 

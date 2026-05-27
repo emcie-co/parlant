@@ -12,16 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import enum
+import hashlib
 import inspect
 import os
 import time
 import types
+import uuid
+from datetime import datetime, timedelta, timezone
 from google.api_core.exceptions import NotFound, TooManyRequests, ResourceExhausted, ServerError
+from google.genai.errors import ClientError
 import google.genai  # type: ignore
 import google.genai.types  # type: ignore
 from collections.abc import Mapping as MappingABC, Sequence as SequenceABC
-from typing import Any, Literal, Mapping, Sequence, Union, cast
+from typing import Any, AsyncIterator, Literal, Mapping, Optional, Sequence, Union, cast
 from typing_extensions import get_args, get_origin, override
 from pydantic import BaseModel, Field, ValidationError
 from pydantic.fields import FieldInfo
@@ -49,6 +54,26 @@ from parlant.core.nlp.generation import (
     StreamingTextGenerator,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
+from parlant.core.nlp.react import (
+    CacheConfig,
+    FinishReason,
+    Message,
+    ReactGenerator,
+    ReasoningConfig,
+    ReasoningPart,
+    Role,
+    StreamEvent,
+    TextDelta,
+    TextPart,
+    ReasoningDelta,
+    ToolCallPart,
+    ToolCallStarted,
+    ToolChoice,
+    ToolResultPart,
+    ToolSpec,
+    TurnBuilder,
+    Usage,
+)
 from parlant.core.loggers import Logger
 from parlant.core.tracer import Tracer
 from parlant.core.health import HealthReporter
@@ -373,6 +398,436 @@ class Gemini_2_5_Pro(GeminiSchematicGenerator[T]):
     @override
     def max_tokens(self) -> int:
         return 1024 * 1024
+
+
+# The key under which Gemini's per-part ``thought_signature`` is preserved in a
+# canonical Part's ``provider_data``. It MUST round-trip verbatim, or replaying
+# tool-calling history triggers a 400 "missing thought_signature".
+GEMINI_THOUGHT_SIGNATURE_KEY = "gemini_thought_signature"
+
+
+def _signature_to_bytes(signature: Union[str, bytes, None]) -> Optional[bytes]:
+    if signature is None:
+        return None
+    if isinstance(signature, bytes):
+        return signature
+    return signature.encode("utf-8")
+
+
+class GeminiReactGenerator(ReactGenerator):
+    """A ReAct generator backed by Google Gemini (google-genai).
+
+    Implements the ``ReactGenerator`` provider seam: ``_encode`` builds the
+    google-genai request, ``_raw_stream`` opens the streaming call, and
+    ``_decode`` folds each native chunk into the shared ``TurnBuilder``.
+
+    Gemini ``thought_signature`` values are preserved verbatim on each Part's
+    ``provider_data`` (under :data:`GEMINI_THOUGHT_SIGNATURE_KEY`) so that
+    multi-step tool-calling history replays without 400 errors.
+
+    Caching (:class:`CacheConfig` + :attr:`Message.cache`): a marked prefix is
+    turned into an explicit Gemini ``CachedContent`` resource, created lazily and
+    reused across calls that share the same prefix. Cached resources auto-expire
+    at their TTL (Google's default is ~1h), so cleanup is not required for
+    correctness; call :meth:`aclose` to delete the ones this generator created
+    early (e.g. on shutdown) for cost control.
+    """
+
+    _ROLE_MAP = {Role.USER: "user", Role.ASSISTANT: "model", Role.TOOL: "tool"}
+    # Don't reuse a cached prefix that's about to expire mid-request.
+    _CACHE_REUSE_MARGIN = timedelta(seconds=30)
+
+    def __init__(
+        self,
+        *,
+        model: str = "gemini-3.1-flash-lite",
+        logger: Logger,
+        cache: Optional[CacheConfig] = None,
+        client: Optional[google.genai.Client] = None,
+        api_key: Optional[str] = None,
+    ) -> None:
+        super().__init__(model=model, cache=cache)
+        self._logger = logger
+        self._client = client or google.genai.Client(
+            api_key=api_key or os.environ.get("GEMINI_API_KEY")
+        )
+        # Caches this generator created and may reuse: key -> (resource name, expiry).
+        self._managed_caches: dict[str, tuple[str, datetime]] = {}
+        # Prefix keys we know can't be cached (e.g. below the provider minimum),
+        # so we don't re-attempt creation on every call.
+        self._uncacheable_keys: set[str] = set()
+        self._cache_lock = asyncio.Lock()
+
+    @property
+    def id(self) -> str:
+        return f"google/{self.model}"
+
+    # ---- provider seam -----------------------------------------------------
+
+    @override
+    def _encode(
+        self,
+        history: list[Message],
+        tools: list[ToolSpec],
+        tool_choice: ToolChoice,
+        *,
+        system: Optional[str],
+        reasoning: ReasoningConfig,
+    ) -> dict[str, Any]:
+        system_chunks: list[str] = [system] if system else []
+
+        # Caching is positional: everything up to and including the last message
+        # with a cache_key is the stable prefix to cache; the rest is the live
+        # suffix sent on each call. The key names the cache for reuse.
+        cache_split = -1
+        cache_key: Optional[str] = None
+        non_system: list[Message] = []
+        for message in history:
+            if message.role == Role.SYSTEM:
+                if message.text:
+                    system_chunks.append(message.text)
+                continue
+            if self.cache.enabled and message.cache_key is not None:
+                cache_split = len(non_system)
+                cache_key = message.cache_key
+            non_system.append(message)
+
+        contents = [self._encode_message(message) for message in non_system]
+        system_instruction = "\n\n".join(chunk for chunk in system_chunks if chunk) or None
+
+        tool_block: Optional[list[google.genai.types.Tool]] = None
+        tool_config: Optional[google.genai.types.ToolConfig] = None
+        if tools:
+            tool_block = [
+                google.genai.types.Tool(
+                    function_declarations=[self._encode_tool(spec) for spec in tools]
+                )
+            ]
+            tool_config = self._encode_tool_choice(tool_choice)
+
+        thinking_config = self._encode_thinking(reasoning) if reasoning.enabled else None
+
+        prefix_contents: Optional[list[google.genai.types.Content]] = None
+        suffix_contents = contents
+        if cache_split >= 0:
+            prefix_contents = contents[: cache_split + 1]
+            suffix_contents = contents[cache_split + 1 :]
+
+        explicit_cache = self.cache.provider_options.get("gemini_cached_content")
+
+        return {
+            "model": self.model,
+            "system_instruction": system_instruction,
+            "tools": tool_block,
+            "tool_config": tool_config,
+            "thinking_config": thinking_config,
+            "all_contents": contents,
+            "prefix_contents": prefix_contents,  # cache this (None => no managed cache)
+            "suffix_contents": suffix_contents,  # send this when a cache is used
+            "cache_key": cache_key,  # caller-provided reuse identity for the prefix
+            "explicit_cache_name": explicit_cache,
+        }
+
+    def _encode_message(self, message: Message) -> google.genai.types.Content:
+        parts = [self._encode_part(part) for part in message.parts]
+        return google.genai.types.Content(
+            role=self._ROLE_MAP[message.role],
+            parts=[p for p in parts if p is not None],
+        )
+
+    def _encode_part(self, part: Any) -> Optional[google.genai.types.Part]:
+        signature = part.provider_data.get(GEMINI_THOUGHT_SIGNATURE_KEY)
+
+        if isinstance(part, TextPart):
+            return google.genai.types.Part(text=part.text, thought_signature=signature)
+
+        if isinstance(part, ReasoningPart):
+            return google.genai.types.Part(
+                text=part.text,
+                thought=True,
+                thought_signature=_signature_to_bytes(part.signature) or signature,
+            )
+
+        if isinstance(part, ToolCallPart):
+            return google.genai.types.Part(
+                function_call=google.genai.types.FunctionCall(
+                    id=part.id or None,
+                    name=part.name,
+                    args=part.args,
+                ),
+                thought_signature=signature,
+            )
+
+        if isinstance(part, ToolResultPart):
+            return google.genai.types.Part(
+                function_response=google.genai.types.FunctionResponse(
+                    id=part.call_id or None,
+                    name=part.name,
+                    response=self._encode_tool_response(part.content),
+                )
+            )
+
+        return None
+
+    def _encode_tool_response(self, content: Any) -> dict[str, Any]:
+        # Gemini requires the function response to be a JSON object.
+        if isinstance(content, MappingABC):
+            return dict(content)
+        return {"result": content}
+
+    def _encode_tool(self, spec: ToolSpec) -> google.genai.types.FunctionDeclaration:
+        return google.genai.types.FunctionDeclaration(
+            name=spec.name,
+            description=spec.description,
+            # The JSON Schema dict is coerced to a google-genai Schema.
+            parameters=spec.json_schema() if spec.parameters else None,
+        )
+
+    def _encode_tool_choice(self, tool_choice: ToolChoice) -> google.genai.types.ToolConfig:
+        mode_enum = google.genai.types.FunctionCallingConfigMode
+
+        if isinstance(tool_choice, MappingABC):
+            name = tool_choice.get("name")
+            function_calling_config = google.genai.types.FunctionCallingConfig(
+                mode=mode_enum.ANY,
+                allowed_function_names=[name] if name else None,
+            )
+        else:
+            mode = {
+                "auto": mode_enum.AUTO,
+                "none": mode_enum.NONE,
+                "required": mode_enum.ANY,
+            }[tool_choice]
+            function_calling_config = google.genai.types.FunctionCallingConfig(mode=mode)
+
+        return google.genai.types.ToolConfig(function_calling_config=function_calling_config)
+
+    def _encode_thinking(self, reasoning: ReasoningConfig) -> google.genai.types.ThinkingConfig:
+        thinking_kwargs: dict[str, Any] = {
+            "include_thoughts": reasoning.visibility != "none",
+        }
+        if reasoning.budget_tokens is not None:
+            thinking_kwargs["thinking_budget"] = reasoning.budget_tokens
+        return google.genai.types.ThinkingConfig(**thinking_kwargs)
+
+    @override
+    async def _raw_stream(self, request: Any) -> AsyncIterator[Any]:
+        config_kwargs: dict[str, Any] = {}
+        if request["tool_config"] is not None:
+            config_kwargs["tool_config"] = request["tool_config"]
+        if request["thinking_config"] is not None:
+            config_kwargs["thinking_config"] = request["thinking_config"]
+        if request["tools"] is not None:
+            config_kwargs["tools"] = request["tools"]
+
+        cached_content_name: Optional[str] = request["explicit_cache_name"]
+        contents = request["all_contents"]
+
+        if cached_content_name is not None:
+            # Reuse a caller-provided cache: assume it holds the system prompt.
+            contents = request["all_contents"]
+        elif request["prefix_contents"] is not None:
+            # Managed cache: cache the marked prefix (system + prefix contents),
+            # then send only the live suffix referencing it.
+            cached_content_name = await self._get_or_create_cache(
+                model=request["model"],
+                system_instruction=request["system_instruction"],
+                prefix_contents=request["prefix_contents"],
+                cache_key=request["cache_key"],
+            )
+            if cached_content_name is not None:
+                contents = request["suffix_contents"]
+            elif request["system_instruction"] is not None:
+                # Caching unavailable (e.g. prefix below the provider minimum):
+                # fall back to sending the full content inline, uncached.
+                config_kwargs["system_instruction"] = request["system_instruction"]
+        elif request["system_instruction"] is not None:
+            config_kwargs["system_instruction"] = request["system_instruction"]
+
+        if cached_content_name is not None:
+            config_kwargs["cached_content"] = cached_content_name
+
+        config = google.genai.types.GenerateContentConfig(**config_kwargs)
+
+        try:
+            stream = await self._client.aio.models.generate_content_stream(
+                model=request["model"],
+                contents=contents,
+                config=config,
+            )
+            async for chunk in stream:
+                yield chunk
+        except TooManyRequests:
+            self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+            raise
+
+    # ---- explicit caching --------------------------------------------------
+
+    def _cache_key(
+        self,
+        cache_key: str,
+        model: str,
+        system_instruction: Optional[str],
+        prefix_contents: list[google.genai.types.Content],
+    ) -> str:
+        # Fold the caller's key together with the actual content: the key gives
+        # intentional identity, the content hash guarantees a key reused after an
+        # edited prefix never serves stale content.
+        hasher = hashlib.sha256()
+        hasher.update(cache_key.encode("utf-8"))
+        hasher.update(model.encode("utf-8"))
+        hasher.update((system_instruction or "").encode("utf-8"))
+        for content in prefix_contents:
+            hasher.update(content.model_dump_json(exclude_none=True).encode("utf-8"))
+        return hasher.hexdigest()
+
+    async def _get_or_create_cache(
+        self,
+        *,
+        model: str,
+        system_instruction: Optional[str],
+        prefix_contents: list[google.genai.types.Content],
+        cache_key: str,
+    ) -> Optional[str]:
+        """Return a usable cache resource name, or ``None`` if caching is
+        unavailable for this prefix. Caching is an optimization, so this never
+        raises for cache problems — the caller falls back to an inline request."""
+        key = self._cache_key(cache_key, model, system_instruction, prefix_contents)
+
+        async with self._cache_lock:
+            if key in self._uncacheable_keys:
+                return None
+
+            existing = self._managed_caches.get(key)
+            if existing is not None:
+                name, expiry = existing
+                # Reuse only while comfortably within the resource's lifetime.
+                if expiry - datetime.now(timezone.utc) > self._CACHE_REUSE_MARGIN:
+                    return name
+
+            config_kwargs: dict[str, Any] = {
+                "display_name": cache_key,
+                "contents": prefix_contents,
+            }
+            if system_instruction is not None:
+                config_kwargs["system_instruction"] = system_instruction
+            if self.cache.ttl is not None:
+                config_kwargs["ttl"] = f"{int(self.cache.ttl.total_seconds())}s"
+
+            try:
+                cached = await self._client.aio.caches.create(
+                    model=model,
+                    config=google.genai.types.CreateCachedContentConfig(**config_kwargs),
+                )
+            except ClientError as exc:
+                # Deterministic rejection (e.g. prefix below the minimum token
+                # count): this prefix will never cache, so stop retrying it.
+                self._logger.warning(
+                    f"Gemini rejected caching for key '{cache_key}' "
+                    f"({exc}); proceeding without caching."
+                )
+                self._uncacheable_keys.add(key)
+                return None
+            except Exception as exc:  # noqa: BLE001 - transient: degrade, retry later
+                self._logger.warning(
+                    f"Gemini cache creation failed for key '{cache_key}' "
+                    f"({exc}); proceeding without caching."
+                )
+                return None
+
+            assert cached.name and cached.expire_time
+            self._managed_caches[key] = (cached.name, cached.expire_time)
+            return cached.name
+
+    async def aclose(self) -> None:
+        """Delete every cache this generator created. Optional: cached content
+        auto-expires at its TTL, but deleting early frees the resource (and cost)
+        sooner. Best-effort; failures are logged and swallowed."""
+        async with self._cache_lock:
+            for name, _ in self._managed_caches.values():
+                try:
+                    await self._client.aio.caches.delete(name=name)
+                except Exception as exc:  # noqa: BLE001 - cleanup must not raise
+                    self._logger.warning(f"Failed to delete Gemini cache {name}: {exc}")
+            self._managed_caches.clear()
+
+    @override
+    def _decode(self, raw_event: Any, builder: TurnBuilder) -> list[StreamEvent]:
+        events: list[StreamEvent] = []
+
+        candidate = raw_event.candidates[0] if raw_event.candidates else None
+        if candidate is not None:
+            if candidate.finish_reason is not None:
+                builder.finish_reason = self._map_finish_reason(candidate.finish_reason)
+
+            content = candidate.content
+            for part in content.parts if content and content.parts else []:
+                events.extend(self._decode_part(part, builder))
+
+        if raw_event.usage_metadata is not None:
+            builder.usage = self._decode_usage(raw_event.usage_metadata)
+
+        return events
+
+    def _decode_part(self, part: Any, builder: TurnBuilder) -> list[StreamEvent]:
+        signature = part.thought_signature
+        provider_data = {GEMINI_THOUGHT_SIGNATURE_KEY: signature} if signature else None
+
+        if part.function_call is not None:
+            function_call = part.function_call
+            call_id = function_call.id or uuid.uuid4().hex
+            name = function_call.name or ""
+            builder.tool_call(
+                call_id,
+                name=name,
+                args=dict(function_call.args or {}),
+                provider_data=provider_data,
+            )
+            return [ToolCallStarted(id=call_id, name=name)]
+
+        if part.text is not None:
+            if part.thought:
+                builder.reasoning_delta(
+                    part.text,
+                    visibility="summary",
+                    provider_data=provider_data,
+                )
+                return [ReasoningDelta(text=part.text)] if part.text else []
+
+            builder.text_delta(part.text, provider_data=provider_data)
+            return [TextDelta(text=part.text)] if part.text else []
+
+        return []
+
+    def _map_finish_reason(self, finish_reason: Any) -> FinishReason:
+        name = getattr(finish_reason, "name", str(finish_reason))
+        if name == "STOP":
+            return FinishReason.STOP
+        if name == "MAX_TOKENS":
+            return FinishReason.MAX_TOKENS
+        if name in {
+            "SAFETY",
+            "PROHIBITED_CONTENT",
+            "BLOCKLIST",
+            "SPII",
+            "IMAGE_SAFETY",
+            "IMAGE_PROHIBITED_CONTENT",
+        }:
+            return FinishReason.CONTENT_FILTER
+        if name == "MALFORMED_FUNCTION_CALL":
+            return FinishReason.ERROR
+        return FinishReason.STOP
+
+    def _decode_usage(self, usage_metadata: Any) -> Usage:
+        candidates_tokens = usage_metadata.candidates_token_count or 0
+        reasoning_tokens = usage_metadata.thoughts_token_count or 0
+        return Usage(
+            input_tokens=usage_metadata.prompt_token_count or 0,
+            # Keep reasoning_tokens a subset of output_tokens.
+            output_tokens=candidates_tokens + reasoning_tokens,
+            cached_input_tokens=usage_metadata.cached_content_token_count or 0,
+            reasoning_tokens=reasoning_tokens,
+        )
 
 
 class GoogleEmbedder(BaseEmbedder):

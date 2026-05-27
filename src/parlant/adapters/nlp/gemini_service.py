@@ -42,6 +42,7 @@ from parlant.core.nlp.service import (
     EmbedderHints,
     ModelSize,
     NLPService,
+    ReactGeneratorHints,
     SchematicGeneratorHints,
     StreamingTextGeneratorHints,
 )
@@ -971,6 +972,20 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
         self, hints: StreamingTextGeneratorHints = {}
     ) -> StreamingTextGenerator:
         raise NotImplementedError("Streaming is not supported. Check supports_streaming first.")
+
+    @property
+    @override
+    def supports_react(self) -> bool:
+        return True
+
+    @override
+    async def get_react_generator(self, hints: ReactGeneratorHints = {}) -> ReactGenerator:
+        model = {
+            ModelSize.NANO: "gemini-3.1-flash-lite",
+            ModelSize.MINI: "gemini-2.5-flash",
+            ModelSize.LARGE: "gemini-2.5-pro",
+        }.get(hints.get("model_size", ModelSize.AUTO), "gemini-3.1-flash-lite")
+        return GeminiReactGenerator(model=model, logger=self.logger)
 
     @override
     async def get_schematic_generator(

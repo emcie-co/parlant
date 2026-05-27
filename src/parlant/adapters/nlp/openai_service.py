@@ -62,6 +62,7 @@ from parlant.core.nlp.service import (
     EmbedderHints,
     ModelSize,
     NLPService,
+    ReactGeneratorHints,
     SchematicGeneratorHints,
     StreamingTextGeneratorHints,
 )
@@ -1141,6 +1142,20 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
         self, hints: StreamingTextGeneratorHints = {}
     ) -> StreamingTextGenerator:
         return GPT_4_1_Streaming(self._logger, self._tracer, self._meter, self._health_reporter)
+
+    @property
+    @override
+    def supports_react(self) -> bool:
+        return True
+
+    @override
+    async def get_react_generator(self, hints: ReactGeneratorHints = {}) -> ReactGenerator:
+        model = {
+            ModelSize.NANO: "gpt-5.4-nano",
+            ModelSize.MINI: "gpt-5.4-mini",
+            ModelSize.LARGE: "gpt-5.4",
+        }.get(hints.get("model_size", ModelSize.AUTO), "gpt-5.4-nano")
+        return OpenAIReactGenerator(model=model, logger=self._logger)
 
     @override
     async def get_schematic_generator(

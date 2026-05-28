@@ -87,6 +87,7 @@ def anthropic(logger: Logger) -> AnthropicReactGenerator:
 
 def test_that_encode_maps_roles_and_system(anthropic: AnthropicReactGenerator) -> None:
     history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text="You are a test agent.")]),
         Message(role=Role.SYSTEM, parts=[TextPart(text="Extra system rule.")]),
         Message(role=Role.USER, parts=[TextPart(text="hi")]),
         Message(role=Role.ASSISTANT, parts=[TextPart(text="hello")]),
@@ -96,11 +97,9 @@ def test_that_encode_maps_roles_and_system(anthropic: AnthropicReactGenerator) -
         ),
     ]
 
-    request = anthropic._encode(
-        history, [], "auto", system="You are a test agent.", reasoning=ReasoningConfig()
-    )
+    request = anthropic._encode(history, [], "auto", reasoning=ReasoningConfig())
 
-    # System is a top-level parameter (not a message).
+    # System messages fold into the top-level system parameter.
     assert "You are a test agent." in request["system"]
     assert "Extra system rule." in request["system"]
 
@@ -139,9 +138,9 @@ def test_that_encode_replays_raw_blocks_verbatim(anthropic: AnthropicReactGenera
         )
     ]
 
-    blocks = anthropic._encode(
-        history, [WEATHER_TOOL], "auto", system=None, reasoning=ReasoningConfig()
-    )["messages"][0]["content"]
+    blocks = anthropic._encode(history, [WEATHER_TOOL], "auto", reasoning=ReasoningConfig())[
+        "messages"
+    ][0]["content"]
 
     # Both blocks replay exactly — preserving the thinking signature.
     assert blocks[0] == raw_thinking
@@ -158,9 +157,9 @@ def test_that_encode_reconstructs_tool_calls_without_a_raw_block(
         )
     ]
 
-    block = anthropic._encode(
-        history, [WEATHER_TOOL], "auto", system=None, reasoning=ReasoningConfig()
-    )["messages"][0]["content"][0]
+    block = anthropic._encode(history, [WEATHER_TOOL], "auto", reasoning=ReasoningConfig())[
+        "messages"
+    ][0]["content"][0]
 
     assert block == {
         "type": "tool_use",
@@ -184,9 +183,9 @@ def test_that_encode_serializes_tool_results_and_flags_errors(
         )
     ]
 
-    blocks = anthropic._encode(history, [], "auto", system=None, reasoning=ReasoningConfig())[
-        "messages"
-    ][0]["content"]
+    blocks = anthropic._encode(history, [], "auto", reasoning=ReasoningConfig())["messages"][0][
+        "content"
+    ]
 
     assert blocks[0]["content"] == "plain string"
     assert blocks[1]["content"] == '{"temp": 18}'  # JSON-encoded
@@ -205,21 +204,18 @@ def test_that_encode_serializes_tool_results_and_flags_errors(
 def test_that_encode_maps_tool_choice(
     anthropic: AnthropicReactGenerator, tool_choice: Any, expected: Any
 ) -> None:
-    request = anthropic._encode(
-        [], [WEATHER_TOOL], tool_choice, system=None, reasoning=ReasoningConfig()
-    )
+    request = anthropic._encode([], [WEATHER_TOOL], tool_choice, reasoning=ReasoningConfig())
     assert request["tool_choice"] == expected
 
 
 def test_that_encode_emits_thinking_only_when_enabled(anthropic: AnthropicReactGenerator) -> None:
-    disabled = anthropic._encode([], [], "auto", system=None, reasoning=ReasoningConfig())
+    disabled = anthropic._encode([], [], "auto", reasoning=ReasoningConfig())
     assert "thinking" not in disabled
 
     enabled = anthropic._encode(
         [],
         [],
         "auto",
-        system=None,
         reasoning=ReasoningConfig(enabled=True, budget_tokens=4096),
     )
     # Default visibility ("summary") -> display "summarized".
@@ -240,7 +236,6 @@ def test_that_visibility_maps_to_the_display_knob(anthropic: AnthropicReactGener
             [],
             [],
             "auto",
-            system=None,
             reasoning=ReasoningConfig(enabled=True, visibility=visibility),  # type: ignore[arg-type]
         )
         return request["thinking"]["display"]
@@ -251,9 +246,7 @@ def test_that_visibility_maps_to_the_display_knob(anthropic: AnthropicReactGener
 
 
 def test_that_encode_uses_a_default_thinking_budget(anthropic: AnthropicReactGenerator) -> None:
-    request = anthropic._encode(
-        [], [], "auto", system=None, reasoning=ReasoningConfig(enabled=True)
-    )
+    request = anthropic._encode([], [], "auto", reasoning=ReasoningConfig(enabled=True))
     assert request["thinking"]["budget_tokens"] == anthropic._DEFAULT_THINKING_BUDGET
 
 
@@ -289,9 +282,7 @@ def test_that_cache_key_marks_the_prefix_with_cache_control(
         Message(role=Role.USER, parts=[TextPart(text="the live question")]),
     ]
 
-    messages = anthropic._encode(history, [], "auto", system=None, reasoning=ReasoningConfig())[
-        "messages"
-    ]
+    messages = anthropic._encode(history, [], "auto", reasoning=ReasoningConfig())["messages"]
 
     # The breakpoint message's last block carries cache_control...
     assert messages[0]["content"][-1]["cache_control"] == {"type": "ephemeral"}
@@ -307,13 +298,13 @@ def test_that_a_marked_system_message_caches_the_system(
         Message(role=Role.USER, parts=[TextPart(text="q")]),
     ]
 
-    request = anthropic._encode(history, [], "auto", system="extra", reasoning=ReasoningConfig())
+    request = anthropic._encode(history, [], "auto", reasoning=ReasoningConfig())
 
     # System is emitted as a cache_control'd text block (not a plain string).
     assert request["system"] == [
         {
             "type": "text",
-            "text": "extra\n\nbig stable system",
+            "text": "big stable system",
             "cache_control": {"type": "ephemeral"},
         }
     ]
@@ -330,9 +321,9 @@ def test_that_cache_control_ttl_is_derived_from_config(logger: Logger) -> None:
         client=AsyncAnthropic(api_key="offline"),
     )
     history = [Message(role=Role.USER, parts=[TextPart(text="doc")], cache_key="k")]
-    block = generator._encode(history, [], "auto", system=None, reasoning=ReasoningConfig())[
-        "messages"
-    ][0]["content"][-1]
+    block = generator._encode(history, [], "auto", reasoning=ReasoningConfig())["messages"][0][
+        "content"
+    ][-1]
     assert block["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
 
 
@@ -341,9 +332,9 @@ def test_that_caching_disabled_omits_cache_control(logger: Logger) -> None:
         logger=logger, cache=CacheConfig(enabled=False), client=AsyncAnthropic(api_key="offline")
     )
     history = [Message(role=Role.USER, parts=[TextPart(text="doc")], cache_key="k")]
-    block = generator._encode(history, [], "auto", system=None, reasoning=ReasoningConfig())[
-        "messages"
-    ][0]["content"][-1]
+    block = generator._encode(history, [], "auto", reasoning=ReasoningConfig())["messages"][0][
+        "content"
+    ][-1]
     assert "cache_control" not in block
 
 
@@ -379,8 +370,12 @@ async def test_that_live_anthropic_generates_text(logger: Logger) -> None:
     generator = _live_generator(logger)
 
     result = await generator.step(
-        [Message(role=Role.USER, parts=[TextPart(text="What is the capital of France?")])],
-        system="Answer in exactly one short sentence.",
+        [
+            Message(
+                role=Role.SYSTEM, parts=[TextPart(text="Answer in exactly one short sentence.")]
+            ),
+            Message(role=Role.USER, parts=[TextPart(text="What is the capital of France?")]),
+        ]
     )
 
     assert result.finish_reason == FinishReason.STOP
@@ -396,8 +391,10 @@ async def test_that_live_anthropic_streams_text_deltas(logger: Logger) -> None:
     text_deltas: list[str] = []
     completed: StepResult | None = None
     async for event in generator.stream_step(
-        [Message(role=Role.USER, parts=[TextPart(text="List three primary colors.")])],
-        system="Be concise.",
+        [
+            Message(role=Role.SYSTEM, parts=[TextPart(text="Be concise.")]),
+            Message(role=Role.USER, parts=[TextPart(text="List three primary colors.")]),
+        ]
     ):
         if isinstance(event, TextDelta):
             text_deltas.append(event.text)
@@ -448,7 +445,8 @@ async def test_that_live_anthropic_runs_a_full_react_loop(logger: Logger) -> Non
         step_usages.append(result.usage)
 
     history: list[Message] = [
-        Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris right now?")])
+        Message(role=Role.SYSTEM, parts=[TextPart(text="Use tools when needed, then answer.")]),
+        Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris right now?")]),
     ]
     final_history = await generator.run(
         history,
@@ -456,7 +454,6 @@ async def test_that_live_anthropic_runs_a_full_react_loop(logger: Logger) -> Non
         dispatch,
         on_step=on_step,
         max_steps=5,
-        system="Use tools when needed, then answer the user.",
     )
 
     assert any(m.role == Role.TOOL for m in final_history)
@@ -584,9 +581,7 @@ async def test_that_live_thinking_and_tool_blocks_round_trip_through_a_second_ca
     assert reasoning_parts and reasoning_parts[0].signature
 
     # Re-encoding replays the thinking block verbatim, before the tool_use.
-    re_encoded = generator._encode(
-        history, [WEATHER_TOOL], "auto", system=None, reasoning=reasoning
-    )
+    re_encoded = generator._encode(history, [WEATHER_TOOL], "auto", reasoning=reasoning)
     assistant_blocks = re_encoded["messages"][1]["content"]
     assert assistant_blocks[0]["type"] == "thinking"
     assert assistant_blocks[0]["signature"]
@@ -613,11 +608,10 @@ async def test_that_system_prompt_can_change_between_steps_around_a_tool_call(
     base_system = "You are a weather assistant. Use the get_weather tool when asked about weather."
 
     history: list[Message] = [
-        Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris?")])
+        Message(role=Role.SYSTEM, parts=[TextPart(text=base_system)]),
+        Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris?")]),
     ]
-    first = await generator.step(
-        history, [WEATHER_TOOL], tool_choice="required", system=base_system
-    )
+    first = await generator.step(history, [WEATHER_TOOL], tool_choice="required")
     assert first.needs_tools
     history.append(first.message)
 
@@ -635,12 +629,12 @@ async def test_that_system_prompt_can_change_between_steps_around_a_tool_call(
         )
     )
 
+    # Change the system prompt by editing the leading system message in history.
     modified_system = (
         base_system + ' When you give your final answer, end it with the exact word "PINEAPPLE".'
     )
-    second = await generator.step(
-        history, [WEATHER_TOOL], tool_choice="auto", system=modified_system
-    )
+    history[0] = Message(role=Role.SYSTEM, parts=[TextPart(text=modified_system)])
+    second = await generator.step(history, [WEATHER_TOOL], tool_choice="auto")
 
     assert not second.needs_tools
     assert second.finish_reason == FinishReason.STOP
@@ -651,12 +645,12 @@ async def test_that_system_prompt_can_change_between_steps_around_a_tool_call(
 @LIVE
 async def test_that_live_history_can_be_edited_between_manual_steps(logger: Logger) -> None:
     generator = _live_generator(logger)
-    system = "Use the tool, then answer the user."
 
     history: list[Message] = [
-        Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris?")])
+        Message(role=Role.SYSTEM, parts=[TextPart(text="Use the tool, then answer the user.")]),
+        Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris?")]),
     ]
-    first = await generator.step(history, [WEATHER_TOOL], tool_choice="required", system=system)
+    first = await generator.step(history, [WEATHER_TOOL], tool_choice="required")
     history.append(first.message)
 
     call = first.tool_calls[0]
@@ -679,7 +673,7 @@ async def test_that_live_history_can_be_edited_between_manual_steps(logger: Logg
         parts=[TextPart(text="What's the weather in Paris? Reminder: answer in Celsius.")],
     )
 
-    second = await generator.step(history, [WEATHER_TOOL], tool_choice="auto", system=system)
+    second = await generator.step(history, [WEATHER_TOOL], tool_choice="auto")
     assert not second.needs_tools
     assert "21" in second.message.text
 
@@ -689,7 +683,6 @@ async def test_that_live_e2e_streams_thoughts_and_runs_tools_to_a_final_answer(
     logger: Logger,
 ) -> None:
     generator = _live_generator(logger)
-    system = "Use the tool to look things up, reason about the result, then answer the user."
     reasoning = ReasoningConfig(enabled=True, budget_tokens=1024, visibility="full")
 
     async def dispatch(call: ToolCallPart) -> ToolResultPart:
@@ -702,6 +695,14 @@ async def test_that_live_e2e_streams_thoughts_and_runs_tools_to_a_final_answer(
 
     history: list[Message] = [
         Message(
+            role=Role.SYSTEM,
+            parts=[
+                TextPart(
+                    text="Use the tool to look things up, reason about the result, then answer."
+                )
+            ],
+        ),
+        Message(
             role=Role.USER,
             parts=[
                 TextPart(
@@ -709,18 +710,20 @@ async def test_that_live_e2e_streams_thoughts_and_runs_tools_to_a_final_answer(
                     "Use the tool, then reason about the result."
                 )
             ],
-        )
+        ),
     ]
 
     tool_calls_seen: list[str] = []
     dispatched: list[str] = []
     saw_reasoning = False
+    final_answer = ""  # text streamed by the terminal (no-tools) step
+    reached_final_answer = False
 
     for _ in range(5):
         text_buf: list[str] = []
         completed: StepResult | None = None
         async for event in generator.stream_step(
-            history, [WEATHER_TOOL], tool_choice="auto", system=system, reasoning=reasoning
+            history, [WEATHER_TOOL], tool_choice="auto", reasoning=reasoning
         ):
             if isinstance(event, TextDelta):
                 text_buf.append(event.text)
@@ -736,17 +739,28 @@ async def test_that_live_e2e_streams_thoughts_and_runs_tools_to_a_final_answer(
         history.append(completed.message)
 
         if not completed.needs_tools:
+            final_answer = "".join(text_buf)
+            reached_final_answer = True
             break
 
         for call in completed.tool_calls:
             dispatched.append(call.args.get("city", ""))
             history.append(Message(role=Role.TOOL, parts=[await dispatch(call)]))
 
+    # A tool ran in an earlier step...
     assert "get_weather" in tool_calls_seen
     assert any("paris" in city.lower() for city in dispatched)
+
+    # ...and the loop went ALL THE WAY to a final assistant message generated
+    # AFTER the tool result (no tool calls), streamed token-by-token.
+    assert reached_final_answer, "loop never reached a tool-free final message"
+    assert history[-1].role == Role.ASSISTANT
+    assert not history[-1].tool_calls
+    assert final_answer.strip(), "the final message was empty"
+    assert final_answer == history[-1].text
+    grounded = final_answer.lower()
+    assert "15" in grounded or "umbrella" in grounded or "rain" in grounded
     assert saw_reasoning  # full thinking was streamed
-    final_text = history[-1].text.lower()
-    assert "15" in final_text or "umbrella" in final_text or "rain" in final_text
 
 
 @LIVE
@@ -787,13 +801,16 @@ async def test_that_live_anthropic_caches_a_marked_prefix(logger: Logger) -> Non
 
     reference = "Reference material.\n" + ("Parlant is an agent framework. " * 700)
     history = [
+        Message(
+            role=Role.SYSTEM,
+            parts=[TextPart(text="Answer strictly from the provided reference material.")],
+        ),
         Message(role=Role.USER, parts=[TextPart(text=reference)], cache_key="parlant-doc-v1"),
         Message(role=Role.USER, parts=[TextPart(text="In one word, what is Parlant?")]),
     ]
-    system = "Answer strictly from the provided reference material."
 
-    await generator.step(history, system=system)  # creates the cache
-    second = await generator.step(history, system=system)  # reads from cache
+    await generator.step(history)  # creates the cache
+    second = await generator.step(history)  # reads from cache
 
     assert second.finish_reason == FinishReason.STOP
     assert second.usage.cached_input_tokens > 0
@@ -825,8 +842,10 @@ async def test_that_live_anthropic_step_can_be_cancelled(logger: Logger) -> None
 
     task = asyncio.ensure_future(
         generator.step(
-            [Message(role=Role.USER, parts=[TextPart(text="Write 2000 words about the sea.")])],
-            system="Write a very long essay.",
+            [
+                Message(role=Role.SYSTEM, parts=[TextPart(text="Write a very long essay.")]),
+                Message(role=Role.USER, parts=[TextPart(text="Write 2000 words about the sea.")]),
+            ]
         )
     )
     await asyncio.sleep(0.05)
@@ -865,11 +884,11 @@ async def test_that_cancelling_mid_stream_closes_the_provider_stream(logger: Log
     async def consume() -> None:
         async for _ in generator.stream_step(
             [
+                Message(role=Role.SYSTEM, parts=[TextPart(text="Write a long, detailed essay.")]),
                 Message(
                     role=Role.USER, parts=[TextPart(text="Write a 1500-word essay about the sea.")]
-                )
-            ],
-            system="Write a long, detailed essay.",
+                ),
+            ]
         ):
             first_event.set()
 

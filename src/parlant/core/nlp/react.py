@@ -128,7 +128,7 @@ class ReasoningPart(Part):
 class ToolCallPart(Part):
     id: str = ""  # echo this on the matching result
     name: str = ""
-    args: dict[str, Any] = field(default_factory=dict)
+    args: Mapping[str, Any] = field(default_factory=dict)
     type: Literal["tool_call"] = "tool_call"
     # NOTE (Gemini): the model's thought_signature rides on the FIRST tool_call
     # part of a turn and lives in provider_data. Keep it.
@@ -146,7 +146,7 @@ class ToolResultPart(Part):
 @dataclass(kw_only=True)
 class Message:
     role: Role
-    parts: list[Part] = field(default_factory=list)
+    parts: Sequence[Part] = field(default_factory=list)
     provider_data: dict[str, Any] = field(default_factory=dict)  # message-level passthrough
     cache_key: Optional[str] = None
     """Cache breakpoint + identity. ``None`` means this message is not a cache
@@ -505,13 +505,13 @@ class ReactGenerator(abc.ABC):
         tools: Sequence[ToolSpec],
         tool_choice: ToolChoice,
         *,
-        system: Optional[str],
         reasoning: ReasoningConfig,
     ) -> Any:
         """Translate canonical history + tools into the provider request
         payload. MUST preserve every ``Part.provider_data`` / signature and
-        emit the correct block/item type per part. ``system`` and ``reasoning``
-        are supplied per call."""
+        emit the correct block/item type per part. The system prompt, if any, is
+        a leading ``Role.SYSTEM`` message in ``history``; ``reasoning`` is per
+        call."""
 
     @abc.abstractmethod
     def _raw_stream(self, request: Any) -> AsyncIterator[Any]:
@@ -536,20 +536,19 @@ class ReactGenerator(abc.ABC):
         tools: Sequence[ToolSpec] = (),
         *,
         tool_choice: ToolChoice = "auto",
-        system: Optional[str] = None,
         reasoning: Optional[ReasoningConfig] = None,
     ) -> AsyncIterator[StreamEvent]:
         """Run one inference, yielding normalized events; ends with
         :class:`StepCompleted` carrying the assembled :class:`StepResult`.
 
-        ``system`` and ``reasoning`` are per call so a single generator can serve
-        many agents/turns with different prompts and thinking settings.
+        The system prompt, if any, is supplied as a leading ``Role.SYSTEM``
+        message in ``history`` (the caller owns it). ``reasoning`` is per call so
+        a single generator can serve many turns with different thinking settings.
         """
         request = self._encode(
             history,
             tools,
             tool_choice,
-            system=system,
             reasoning=reasoning or ReasoningConfig(),
         )
         builder = TurnBuilder()
@@ -564,13 +563,12 @@ class ReactGenerator(abc.ABC):
         tools: Sequence[ToolSpec] = (),
         *,
         tool_choice: ToolChoice = "auto",
-        system: Optional[str] = None,
         reasoning: Optional[ReasoningConfig] = None,
     ) -> StepResult:
         """Run one inference and return the assembled :class:`StepResult`."""
         result: Optional[StepResult] = None
         async for event in self.stream_step(
-            history, tools, tool_choice=tool_choice, system=system, reasoning=reasoning
+            history, tools, tool_choice=tool_choice, reasoning=reasoning
         ):
             if isinstance(event, StepCompleted):
                 result = event.result
@@ -585,7 +583,6 @@ class ReactGenerator(abc.ABC):
         *,
         max_steps: int = 20,
         tool_choice: ToolChoice = "auto",
-        system: Optional[str] = None,
         reasoning: Optional[ReasoningConfig] = None,
         on_step: Optional[StepHook] = None,
     ) -> Sequence[Message]:
@@ -593,17 +590,18 @@ class ReactGenerator(abc.ABC):
 
         Works on a private copy of ``history`` and returns the full conversation
         (the input followed by the turns produced); the caller's ``history`` is
-        not mutated. ``dispatch`` runs a single tool call; the tool calls within
-        one turn run concurrently. ``on_step`` receives the working conversation
-        (a mutable list it may EDIT in place) and may return ``False`` to stop
-        early. ``system`` and ``reasoning`` apply to every step. Cancellation is
-        via asyncio (cancel the awaiting task).
+        not mutated. The system prompt, if any, is a leading ``Role.SYSTEM``
+        message in ``history``. ``dispatch`` runs a single tool call; the tool
+        calls within one turn run concurrently. ``on_step`` receives the working
+        conversation (a mutable list it may EDIT in place) and may return
+        ``False`` to stop early. ``reasoning`` applies to every step.
+        Cancellation is via asyncio (cancel the awaiting task).
         """
         conversation: list[Message] = list(history)
 
         for _ in range(max_steps):
             result = await self.step(
-                conversation, tools, tool_choice=tool_choice, system=system, reasoning=reasoning
+                conversation, tools, tool_choice=tool_choice, reasoning=reasoning
             )
             conversation.append(result.message)
 

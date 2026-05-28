@@ -366,10 +366,9 @@ class AnthropicReactGenerator(ReactGenerator):
         tools: Sequence[ToolSpec],
         tool_choice: ToolChoice,
         *,
-        system: Optional[str],
         reasoning: ReasoningConfig,
     ) -> dict[str, Any]:
-        system_chunks: list[str] = [system] if system else []
+        system_chunks: list[str] = []
 
         cache_split = -1
         system_marked = False

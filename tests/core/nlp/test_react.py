@@ -78,14 +78,12 @@ class _FakeReactGenerator(ReactGenerator):
         tools: Sequence[ToolSpec],
         tool_choice: Any,
         *,
-        system: Any = None,
         reasoning: Any = None,
     ) -> Any:
         request = {
             "history": list(history),
             "tools": list(tools),
             "tool_choice": tool_choice,
-            "system": system,
             "reasoning": reasoning,
         }
         self.encoded_requests.append(request)
@@ -495,7 +493,6 @@ async def test_that_provider_errors_propagate_out_of_step() -> None:
             tools: Sequence[ToolSpec],
             tool_choice: Any,
             *,
-            system: Any = None,
             reasoning: Any = None,
         ) -> Any:
             return {}
@@ -519,14 +516,12 @@ async def test_that_call_options_are_threaded_through_to_encode() -> None:
         [Message(role=Role.USER, parts=[TextPart(text="q")])],
         [WEATHER_TOOL],
         tool_choice={"name": "get_weather"},
-        system="be helpful",
         reasoning=reasoning,
     )
 
     request = generator.encoded_requests[0]
     assert request["tool_choice"] == {"name": "get_weather"}
     assert request["tools"] == [WEATHER_TOOL]
-    assert request["system"] == "be helpful"
     assert request["reasoning"] is reasoning
 
 
@@ -544,7 +539,6 @@ async def test_that_cancelling_a_step_propagates_and_tears_down_the_stream() -> 
             tools: Sequence[ToolSpec],
             tool_choice: Any,
             *,
-            system: Any = None,
             reasoning: Any = None,
         ) -> Any:
             return {}
@@ -590,7 +584,6 @@ class _StreamingProvider(ReactGenerator):
         tools: Sequence[ToolSpec],
         tool_choice: Any,
         *,
-        system: Any = None,
         reasoning: Any = None,
     ) -> Any:
         return {}

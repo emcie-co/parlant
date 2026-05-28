@@ -887,10 +887,9 @@ class OpenAIReactGenerator(ReactGenerator):
         tools: Sequence[ToolSpec],
         tool_choice: ToolChoice,
         *,
-        system: Optional[str],
         reasoning: ReasoningConfig,
     ) -> dict[str, Any]:
-        instruction_chunks: list[str] = [system] if system else []
+        instruction_chunks: list[str] = []
         input_items: list[dict[str, Any]] = []
         cache_key: Optional[str] = None
 

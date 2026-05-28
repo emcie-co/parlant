@@ -508,10 +508,9 @@ class GeminiReactGenerator(ReactGenerator):
         tools: Sequence[ToolSpec],
         tool_choice: ToolChoice,
         *,
-        system: Optional[str],
         reasoning: ReasoningConfig,
     ) -> dict[str, Any]:
-        system_chunks: list[str] = [system] if system else []
+        system_chunks: list[str] = []
 
         # Caching is positional: everything up to and including the last message
         # with a cache_key is the stable prefix to cache; the rest is the live

@@ -19,6 +19,7 @@ from typing_extensions import TypedDict, NotRequired, TypeAlias, Literal
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.nlp.generation import T, SchematicGenerator, StreamingTextGenerator
 from parlant.core.nlp.moderation import ModerationService
+from parlant.core.nlp.react import ReactGenerator
 
 
 class ModelSize(IntEnum):
@@ -44,6 +45,12 @@ class StreamingTextGeneratorHints(TypedDict, total=False):
     model_generation: NotRequired[ModelGeneration]
 
 
+class ReactGeneratorHints(TypedDict, total=False):
+    model_size: NotRequired[ModelSize]
+    model_generation: NotRequired[ModelGeneration]
+    model_type: NotRequired[ModelType]
+
+
 class EmbedderHints(TypedDict, total=False):
     model_size: NotRequired[ModelSize]
 
@@ -54,6 +61,15 @@ class NLPService(ABC):
     def supports_streaming(self) -> bool:
         """Return whether this NLP service supports streaming text generation."""
         ...
+
+    @property
+    def supports_react(self) -> bool:
+        """Return whether this NLP service supports ReAct-style generation.
+
+        Defaults to ``False``; services that back a ReactGenerator override this
+        (and :meth:`get_react_generator`).
+        """
+        return False
 
     @abstractmethod
     async def get_schematic_generator(
@@ -71,6 +87,15 @@ class NLPService(ABC):
                 Callers should check supports_streaming before calling this method.
         """
         ...
+
+    async def get_react_generator(self, hints: ReactGeneratorHints = {}) -> ReactGenerator:
+        """Return a ReAct-style generator.
+
+        Raises:
+            NotImplementedError: If ReAct is not supported (supports_react is False).
+                Callers should check supports_react before calling this method.
+        """
+        raise NotImplementedError("ReAct is not supported. Check supports_react first.")
 
     @abstractmethod
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder: ...

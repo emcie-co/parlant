@@ -94,6 +94,7 @@ def test_that_encode_maps_roles_and_folds_system_into_instructions(
     openai: OpenAIReactGenerator,
 ) -> None:
     history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text="You are a test agent.")]),
         Message(role=Role.SYSTEM, parts=[TextPart(text="Extra system rule.")]),
         Message(role=Role.USER, parts=[TextPart(text="hi")]),
         Message(role=Role.ASSISTANT, parts=[TextPart(text="hello")]),
@@ -103,9 +104,7 @@ def test_that_encode_maps_roles_and_folds_system_into_instructions(
         ),
     ]
 
-    request = openai._encode(
-        history, [], "auto", system="You are a test agent.", reasoning=ReasoningConfig()
-    )
+    request = openai._encode(history, [], "auto", reasoning=ReasoningConfig())
 
     assert "You are a test agent." in request["instructions"]
     assert "Extra system rule." in request["instructions"]
@@ -149,9 +148,7 @@ def test_that_encode_replays_raw_output_items_verbatim(openai: OpenAIReactGenera
         )
     ]
 
-    items = openai._encode(
-        history, [WEATHER_TOOL], "auto", system=None, reasoning=ReasoningConfig()
-    )["input"]
+    items = openai._encode(history, [WEATHER_TOOL], "auto", reasoning=ReasoningConfig())["input"]
 
     # Both items are replayed exactly as received.
     assert items[0] == raw_reasoning
@@ -168,9 +165,7 @@ def test_that_encode_reconstructs_tool_calls_without_a_raw_item(
         )
     ]
 
-    item = openai._encode(
-        history, [WEATHER_TOOL], "auto", system=None, reasoning=ReasoningConfig()
-    )["input"][0]
+    item = openai._encode(history, [WEATHER_TOOL], "auto", reasoning=ReasoningConfig())["input"][0]
 
     assert item == {
         "type": "function_call",
@@ -191,7 +186,7 @@ def test_that_encode_serializes_non_string_tool_results(openai: OpenAIReactGener
         )
     ]
 
-    items = openai._encode(history, [], "auto", system=None, reasoning=ReasoningConfig())["input"]
+    items = openai._encode(history, [], "auto", reasoning=ReasoningConfig())["input"]
 
     assert items[0]["output"] == "plain string"
     assert items[1]["output"] == '{"temp": 18}'  # JSON-encoded
@@ -209,9 +204,7 @@ def test_that_encode_serializes_non_string_tool_results(openai: OpenAIReactGener
 def test_that_encode_maps_tool_choice(
     openai: OpenAIReactGenerator, tool_choice: Any, expected: Any
 ) -> None:
-    request = openai._encode(
-        [], [WEATHER_TOOL], tool_choice, system=None, reasoning=ReasoningConfig()
-    )
+    request = openai._encode([], [WEATHER_TOOL], tool_choice, reasoning=ReasoningConfig())
     assert request["tool_choice"] == expected
 
 
@@ -244,7 +237,7 @@ def test_that_encode_tool_translates_nullable_to_json_schema_null_type(
 
 
 def test_that_encode_emits_reasoning_only_when_enabled(openai: OpenAIReactGenerator) -> None:
-    disabled = openai._encode([], [], "auto", system=None, reasoning=ReasoningConfig())
+    disabled = openai._encode([], [], "auto", reasoning=ReasoningConfig())
     assert "reasoning" not in disabled
     assert "include" not in disabled
 
@@ -252,7 +245,6 @@ def test_that_encode_emits_reasoning_only_when_enabled(openai: OpenAIReactGenera
         [],
         [],
         "auto",
-        system=None,
         reasoning=ReasoningConfig(enabled=True, effort="high", visibility="full"),
     )
     assert enabled["reasoning"] == {"effort": "high", "summary": "detailed"}
@@ -264,7 +256,6 @@ def test_that_encode_omits_summary_when_visibility_is_none(openai: OpenAIReactGe
         [],
         [],
         "auto",
-        system=None,
         reasoning=ReasoningConfig(enabled=True, effort="low", visibility="none"),
     )
     assert request["reasoning"] == {"effort": "low"}
@@ -275,7 +266,7 @@ def test_that_cache_key_becomes_prompt_cache_key(openai: OpenAIReactGenerator) -
         Message(role=Role.USER, parts=[TextPart(text="ctx")], cache_key="agent-7"),
         Message(role=Role.USER, parts=[TextPart(text="q")]),
     ]
-    request = openai._encode(history, [], "auto", system=None, reasoning=ReasoningConfig())
+    request = openai._encode(history, [], "auto", reasoning=ReasoningConfig())
     assert request["prompt_cache_key"] == "agent-7"
 
 
@@ -287,7 +278,7 @@ def test_that_prompt_cache_key_uses_the_first_marked_message(openai: OpenAIReact
         Message(role=Role.USER, parts=[TextPart(text="ctx")], cache_key="later"),
         Message(role=Role.USER, parts=[TextPart(text="q")]),
     ]
-    request = openai._encode(history, [], "auto", system=None, reasoning=ReasoningConfig())
+    request = openai._encode(history, [], "auto", reasoning=ReasoningConfig())
 
     # The system message's text still folds into instructions...
     assert "big stable system" in request["instructions"]
@@ -302,7 +293,7 @@ def test_that_caching_disabled_omits_prompt_cache_key(logger: Logger) -> None:
         client=AsyncClient(api_key="offline"),
     )
     history = [Message(role=Role.USER, parts=[TextPart(text="q")], cache_key="k")]
-    request = generator._encode(history, [], "auto", system=None, reasoning=ReasoningConfig())
+    request = generator._encode(history, [], "auto", reasoning=ReasoningConfig())
     assert "prompt_cache_key" not in request
 
 
@@ -345,8 +336,12 @@ async def test_that_live_openai_generates_text(logger: Logger) -> None:
     generator = _live_generator(logger)
 
     result = await generator.step(
-        [Message(role=Role.USER, parts=[TextPart(text="What is the capital of France?")])],
-        system="Answer in exactly one short sentence.",
+        [
+            Message(
+                role=Role.SYSTEM, parts=[TextPart(text="Answer in exactly one short sentence.")]
+            ),
+            Message(role=Role.USER, parts=[TextPart(text="What is the capital of France?")]),
+        ]
     )
 
     assert result.finish_reason == FinishReason.STOP
@@ -362,8 +357,10 @@ async def test_that_live_openai_streams_text_deltas(logger: Logger) -> None:
     text_deltas: list[str] = []
     completed: StepResult | None = None
     async for event in generator.stream_step(
-        [Message(role=Role.USER, parts=[TextPart(text="List three primary colors.")])],
-        system="Be concise.",
+        [
+            Message(role=Role.SYSTEM, parts=[TextPart(text="Be concise.")]),
+            Message(role=Role.USER, parts=[TextPart(text="List three primary colors.")]),
+        ]
     ):
         if isinstance(event, TextDelta):
             text_deltas.append(event.text)
@@ -415,7 +412,8 @@ async def test_that_live_openai_runs_a_full_react_loop(logger: Logger) -> None:
         step_usages.append(result.usage)
 
     history: list[Message] = [
-        Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris right now?")])
+        Message(role=Role.SYSTEM, parts=[TextPart(text="Use tools when needed, then answer.")]),
+        Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris right now?")]),
     ]
     final_history = await generator.run(
         history,
@@ -423,7 +421,6 @@ async def test_that_live_openai_runs_a_full_react_loop(logger: Logger) -> None:
         dispatch,
         on_step=on_step,
         max_steps=5,
-        system="Use tools when needed, then answer the user.",
     )
 
     assert any(m.role == Role.TOOL for m in final_history)
@@ -530,9 +527,7 @@ async def test_that_live_reasoning_and_tool_items_round_trip_through_encode(
     )
     history.append(result.message)
 
-    re_encoded = generator._encode(
-        history, [WEATHER_TOOL], "auto", system=None, reasoning=reasoning
-    )
+    re_encoded = generator._encode(history, [WEATHER_TOOL], "auto", reasoning=reasoning)
     item_types = [item.get("type") for item in re_encoded["input"]]
     function_calls = [i for i in re_encoded["input"] if i.get("type") == "function_call"]
 
@@ -555,12 +550,11 @@ async def test_that_system_prompt_can_change_between_steps_around_a_tool_call(
     base_system = "You are a weather assistant. Use the get_weather tool when asked about weather."
 
     history: list[Message] = [
-        Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris?")])
+        Message(role=Role.SYSTEM, parts=[TextPart(text=base_system)]),
+        Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris?")]),
     ]
 
-    first = await generator.step(
-        history, [WEATHER_TOOL], tool_choice="required", system=base_system
-    )
+    first = await generator.step(history, [WEATHER_TOOL], tool_choice="required")
     assert first.needs_tools
     history.append(first.message)
 
@@ -578,12 +572,12 @@ async def test_that_system_prompt_can_change_between_steps_around_a_tool_call(
         )
     )
 
+    # Change the system prompt by editing the leading system message in history.
     modified_system = (
         base_system + ' When you give your final answer, end it with the exact word "PINEAPPLE".'
     )
-    second = await generator.step(
-        history, [WEATHER_TOOL], tool_choice="auto", system=modified_system
-    )
+    history[0] = Message(role=Role.SYSTEM, parts=[TextPart(text=modified_system)])
+    second = await generator.step(history, [WEATHER_TOOL], tool_choice="auto")
 
     assert not second.needs_tools
     assert second.finish_reason == FinishReason.STOP
@@ -594,12 +588,12 @@ async def test_that_system_prompt_can_change_between_steps_around_a_tool_call(
 @LIVE
 async def test_that_live_history_can_be_edited_between_manual_steps(logger: Logger) -> None:
     generator = _live_generator(logger)
-    system = "Use the tool, then answer the user."
 
     history: list[Message] = [
-        Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris?")])
+        Message(role=Role.SYSTEM, parts=[TextPart(text="Use the tool, then answer the user.")]),
+        Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris?")]),
     ]
-    first = await generator.step(history, [WEATHER_TOOL], tool_choice="required", system=system)
+    first = await generator.step(history, [WEATHER_TOOL], tool_choice="required")
     history.append(first.message)
 
     call = first.tool_calls[0]
@@ -620,7 +614,7 @@ async def test_that_live_history_can_be_edited_between_manual_steps(logger: Logg
         -1, Message(role=Role.USER, parts=[TextPart(text="(Reminder: answer in Celsius.)")])
     )
 
-    second = await generator.step(history, [WEATHER_TOOL], tool_choice="auto", system=system)
+    second = await generator.step(history, [WEATHER_TOOL], tool_choice="auto")
     assert not second.needs_tools
     assert "21" in second.message.text
 
@@ -630,7 +624,6 @@ async def test_that_live_e2e_streams_thoughts_and_runs_tools_to_a_final_answer(
     logger: Logger,
 ) -> None:
     generator = _live_generator(logger)
-    system = "Use the tool to look things up, reason about the result, then answer the user."
     reasoning = ReasoningConfig(enabled=True, effort="high", visibility="full")
 
     async def dispatch(call: ToolCallPart) -> ToolResultPart:
@@ -643,6 +636,14 @@ async def test_that_live_e2e_streams_thoughts_and_runs_tools_to_a_final_answer(
 
     history: list[Message] = [
         Message(
+            role=Role.SYSTEM,
+            parts=[
+                TextPart(
+                    text="Use the tool to look things up, reason about the result, then answer."
+                )
+            ],
+        ),
+        Message(
             role=Role.USER,
             parts=[
                 TextPart(
@@ -650,18 +651,20 @@ async def test_that_live_e2e_streams_thoughts_and_runs_tools_to_a_final_answer(
                     "Use the tool, then reason about the result."
                 )
             ],
-        )
+        ),
     ]
 
     tool_calls_seen: list[str] = []
     dispatched: list[str] = []
     total_reasoning_tokens = 0
+    final_answer = ""  # text streamed by the terminal (no-tools) step
+    reached_final_answer = False
 
     for _ in range(5):
         text_buf: list[str] = []
         completed: StepResult | None = None
         async for event in generator.stream_step(
-            history, [WEATHER_TOOL], tool_choice="auto", system=system, reasoning=reasoning
+            history, [WEATHER_TOOL], tool_choice="auto", reasoning=reasoning
         ):
             if isinstance(event, TextDelta):
                 text_buf.append(event.text)
@@ -676,17 +679,28 @@ async def test_that_live_e2e_streams_thoughts_and_runs_tools_to_a_final_answer(
         history.append(completed.message)
 
         if not completed.needs_tools:
+            final_answer = "".join(text_buf)
+            reached_final_answer = True
             break
 
         for call in completed.tool_calls:
             dispatched.append(call.args.get("city", ""))
             history.append(Message(role=Role.TOOL, parts=[await dispatch(call)]))
 
+    # A tool ran in an earlier step...
     assert "get_weather" in tool_calls_seen
     assert any("paris" in city.lower() for city in dispatched)
+
+    # ...and the loop went ALL THE WAY to a final assistant message generated
+    # AFTER the tool result (no tool calls), streamed token-by-token.
+    assert reached_final_answer, "loop never reached a tool-free final message"
+    assert history[-1].role == Role.ASSISTANT
+    assert not history[-1].tool_calls
+    assert final_answer.strip(), "the final message was empty"
+    assert final_answer == history[-1].text
+    grounded = final_answer.lower()
+    assert "15" in grounded or "umbrella" in grounded or "rain" in grounded
     assert total_reasoning_tokens > 0
-    final_text = history[-1].text.lower()
-    assert "15" in final_text or "umbrella" in final_text or "rain" in final_text
 
 
 @LIVE
@@ -721,10 +735,11 @@ async def test_that_prompt_cache_key_is_accepted_live(logger: Logger) -> None:
     generator = _live_generator(logger)
 
     history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text="Be terse.")]),
         Message(role=Role.USER, parts=[TextPart(text="Some stable context.")], cache_key="ctx-1"),
         Message(role=Role.USER, parts=[TextPart(text="What is 2 + 2? Answer with a number.")]),
     ]
-    result = await generator.step(history, system="Be terse.")
+    result = await generator.step(history)
 
     assert result.finish_reason == FinishReason.STOP
     assert "4" in result.message.text
@@ -736,8 +751,10 @@ async def test_that_live_openai_step_can_be_cancelled(logger: Logger) -> None:
 
     task = asyncio.ensure_future(
         generator.step(
-            [Message(role=Role.USER, parts=[TextPart(text="Write 2000 words about the sea.")])],
-            system="Write a very long essay.",
+            [
+                Message(role=Role.SYSTEM, parts=[TextPart(text="Write a very long essay.")]),
+                Message(role=Role.USER, parts=[TextPart(text="Write 2000 words about the sea.")]),
+            ]
         )
     )
     await asyncio.sleep(0.05)
@@ -780,11 +797,11 @@ async def test_that_cancelling_mid_stream_closes_the_provider_stream(logger: Log
     async def consume() -> None:
         async for _ in generator.stream_step(
             [
+                Message(role=Role.SYSTEM, parts=[TextPart(text="Write a long, detailed essay.")]),
                 Message(
                     role=Role.USER, parts=[TextPart(text="Write a 1500-word essay about the sea.")]
-                )
-            ],
-            system="Write a long, detailed essay.",
+                ),
+            ]
         ):
             first_event.set()
 

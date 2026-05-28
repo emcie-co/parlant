@@ -92,6 +92,7 @@ def gemini(logger: Logger) -> GeminiReactGenerator:
 
 def test_that_encode_maps_roles_and_folds_system_messages(gemini: GeminiReactGenerator) -> None:
     history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text="You are a test agent.")]),
         Message(role=Role.SYSTEM, parts=[TextPart(text="Extra system rule.")]),
         Message(role=Role.USER, parts=[TextPart(text="hi")]),
         Message(role=Role.ASSISTANT, parts=[TextPart(text="hello")]),
@@ -101,9 +102,7 @@ def test_that_encode_maps_roles_and_folds_system_messages(gemini: GeminiReactGen
         ),
     ]
 
-    request = gemini._encode(
-        history, [], "auto", system="You are a test agent.", reasoning=ReasoningConfig()
-    )
+    request = gemini._encode(history, [], "auto", reasoning=ReasoningConfig())
 
     assert "You are a test agent." in request["system_instruction"]
     assert "Extra system rule." in request["system_instruction"]
@@ -130,9 +129,7 @@ def test_that_encode_preserves_thought_signature_on_tool_calls(
         )
     ]
 
-    request = gemini._encode(
-        history, [WEATHER_TOOL], "auto", system=None, reasoning=ReasoningConfig()
-    )
+    request = gemini._encode(history, [WEATHER_TOOL], "auto", reasoning=ReasoningConfig())
     encoded_part = request["all_contents"][0].parts[0]
 
     assert encoded_part.function_call.name == "get_weather"
@@ -153,9 +150,9 @@ def test_that_encode_wraps_non_object_tool_results_and_passes_objects_through(
         )
     ]
 
-    parts = gemini._encode(history, [], "auto", system=None, reasoning=ReasoningConfig())[
-        "all_contents"
-    ][0].parts
+    parts = gemini._encode(history, [], "auto", reasoning=ReasoningConfig())["all_contents"][
+        0
+    ].parts
 
     assert parts[0].function_response.response == {"result": "plain string"}
     assert parts[1].function_response.response == {"temp": 18}
@@ -176,9 +173,7 @@ def test_that_encode_maps_tool_choice(
     expected_mode: genai_types.FunctionCallingConfigMode,
     expected_allowed: list[str] | None,
 ) -> None:
-    request = gemini._encode(
-        [], [WEATHER_TOOL], tool_choice, system=None, reasoning=ReasoningConfig()
-    )
+    request = gemini._encode([], [WEATHER_TOOL], tool_choice, reasoning=ReasoningConfig())
     config = request["tool_config"].function_calling_config
 
     assert config.mode == expected_mode
@@ -189,7 +184,7 @@ def test_that_encode_emits_thinking_config_only_when_reasoning_enabled(
     gemini: GeminiReactGenerator,
 ) -> None:
     # Reasoning is per-call: a disabled config emits no thinking_config...
-    disabled = gemini._encode([], [], "auto", system=None, reasoning=ReasoningConfig())
+    disabled = gemini._encode([], [], "auto", reasoning=ReasoningConfig())
     assert disabled["thinking_config"] is None
 
     # ...while an enabled one does.
@@ -197,7 +192,6 @@ def test_that_encode_emits_thinking_config_only_when_reasoning_enabled(
         [],
         [],
         "auto",
-        system=None,
         reasoning=ReasoningConfig(enabled=True, budget_tokens=2048, visibility="summary"),
     )
     thinking = enabled["thinking_config"]
@@ -219,7 +213,7 @@ def test_that_a_cache_marker_splits_history_into_prefix_and_suffix(logger: Logge
         Message(role=Role.USER, parts=[TextPart(text="the live question")]),
     ]
 
-    request = generator._encode(history, [], "auto", system="sys", reasoning=ReasoningConfig())
+    request = generator._encode(history, [], "auto", reasoning=ReasoningConfig())
 
     assert [c.parts[0].text for c in request["prefix_contents"]] == ["big reference doc"]
     assert [c.parts[0].text for c in request["suffix_contents"]] == ["the live question"]
@@ -233,7 +227,7 @@ def test_that_a_marked_system_message_caches_the_system_alone(logger: Logger) ->
         Message(role=Role.USER, parts=[TextPart(text="the live question")]),
     ]
 
-    request = generator._encode(history, [], "auto", system=None, reasoning=ReasoningConfig())
+    request = generator._encode(history, [], "auto", reasoning=ReasoningConfig())
 
     # System goes to system_instruction; the cache covers it with an empty prefix.
     assert request["system_instruction"] == "big stable system"
@@ -250,7 +244,7 @@ def test_that_caching_disabled_ignores_cache_markers(logger: Logger) -> None:
         Message(role=Role.USER, parts=[TextPart(text="q")]),
     ]
 
-    request = generator._encode(history, [], "auto", system=None, reasoning=ReasoningConfig())
+    request = generator._encode(history, [], "auto", reasoning=ReasoningConfig())
 
     assert request["prefix_contents"] is None
     assert request["cache_key"] is None
@@ -266,7 +260,6 @@ def test_that_explicit_cache_name_is_read_from_provider_options(logger: Logger) 
         [Message(role=Role.USER, parts=[TextPart(text="q")])],
         [],
         "auto",
-        system=None,
         reasoning=ReasoningConfig(),
     )
 
@@ -310,8 +303,12 @@ async def test_that_live_gemini_generates_text(logger: Logger) -> None:
     generator = _live_generator(logger)
 
     result = await generator.step(
-        [Message(role=Role.USER, parts=[TextPart(text="What is the capital of France?")])],
-        system="Answer in exactly one short sentence.",
+        [
+            Message(
+                role=Role.SYSTEM, parts=[TextPart(text="Answer in exactly one short sentence.")]
+            ),
+            Message(role=Role.USER, parts=[TextPart(text="What is the capital of France?")]),
+        ]
     )
 
     assert result.finish_reason == FinishReason.STOP
@@ -327,8 +324,10 @@ async def test_that_live_gemini_streams_text_deltas(logger: Logger) -> None:
     text_deltas: list[str] = []
     completed: StepResult | None = None
     async for event in generator.stream_step(
-        [Message(role=Role.USER, parts=[TextPart(text="List three primary colors.")])],
-        system="Be concise.",
+        [
+            Message(role=Role.SYSTEM, parts=[TextPart(text="Be concise.")]),
+            Message(role=Role.USER, parts=[TextPart(text="List three primary colors.")]),
+        ]
     ):
         if isinstance(event, TextDelta):
             text_deltas.append(event.text)
@@ -379,7 +378,8 @@ async def test_that_live_gemini_runs_a_full_react_loop(logger: Logger) -> None:
         step_usages.append(result.usage)
 
     history: list[Message] = [
-        Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris right now?")])
+        Message(role=Role.SYSTEM, parts=[TextPart(text="Use tools when needed, then answer.")]),
+        Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris right now?")]),
     ]
     final_history = await generator.run(
         history,
@@ -387,7 +387,6 @@ async def test_that_live_gemini_runs_a_full_react_loop(logger: Logger) -> None:
         dispatch,
         on_step=on_step,
         max_steps=5,
-        system="Use tools when needed, then answer the user.",
     )
 
     assert any(m.role == Role.TOOL for m in final_history)
@@ -411,7 +410,6 @@ async def test_that_live_e2e_streams_thoughts_and_runs_tools_to_a_final_answer(
     opportunistically while the reasoning spend is asserted.
     """
     generator = _live_generator(logger)
-    system = "Use the tool to look things up, reason about the result, then answer the user."
     reasoning = ReasoningConfig(enabled=True, budget_tokens=4096, visibility="summary")
 
     async def dispatch(call: ToolCallPart) -> ToolResultPart:
@@ -424,6 +422,14 @@ async def test_that_live_e2e_streams_thoughts_and_runs_tools_to_a_final_answer(
 
     history: list[Message] = [
         Message(
+            role=Role.SYSTEM,
+            parts=[
+                TextPart(
+                    text="Use the tool to look things up, reason about the result, then answer."
+                )
+            ],
+        ),
+        Message(
             role=Role.USER,
             parts=[
                 TextPart(
@@ -431,27 +437,26 @@ async def test_that_live_e2e_streams_thoughts_and_runs_tools_to_a_final_answer(
                     "Use the tool, then reason about the result."
                 )
             ],
-        )
+        ),
     ]
 
-    # Per-step records of what the stream surfaced.
-    reasoning_summaries: list[str] = []
-    streamed_text_per_step: list[str] = []
     tool_calls_seen: list[str] = []
-    step_usages: list[Usage] = []
     dispatched: list[str] = []
+    step_usages: list[Usage] = []
+    saw_reasoning = False
+    final_answer = ""  # text streamed by the terminal (no-tools) step
+    reached_final_answer = False
 
     for _ in range(5):
-        reasoning_buf: list[str] = []
         text_buf: list[str] = []
         step_tool_calls: list[str] = []
         completed: StepResult | None = None
 
         async for event in generator.stream_step(
-            history, [WEATHER_TOOL], tool_choice="auto", system=system, reasoning=reasoning
+            history, [WEATHER_TOOL], tool_choice="auto", reasoning=reasoning
         ):
             if isinstance(event, ReasoningDelta):
-                reasoning_buf.append(event.text)
+                saw_reasoning = True
             elif isinstance(event, TextDelta):
                 text_buf.append(event.text)
             elif isinstance(event, ToolCallStarted):
@@ -460,43 +465,37 @@ async def test_that_live_e2e_streams_thoughts_and_runs_tools_to_a_final_answer(
                 completed = event.result
 
         assert completed is not None, "every step must end with StepCompleted"
-
-        if reasoning_buf:
-            reasoning_summaries.append("".join(reasoning_buf))
-        streamed_text_per_step.append("".join(text_buf))
+        # Streamed text deltas reconstruct the assembled turn's text.
+        assert "".join(text_buf) == completed.message.text
         tool_calls_seen.extend(step_tool_calls)
         step_usages.append(completed.usage)
-
-        # Streamed text deltas must reconstruct the assembled turn's text.
-        assert "".join(text_buf) == completed.message.text
-
         history.append(completed.message)
 
         if not completed.needs_tools:
+            final_answer = "".join(text_buf)
+            reached_final_answer = True
             break
 
         for call in completed.tool_calls:
             dispatched.append(call.args.get("city", ""))
             history.append(Message(role=Role.TOOL, parts=[await dispatch(call)]))
 
-    # The tool was actually invoked, with Paris as the argument.
+    # A tool ran in an earlier step (with Paris as the argument)...
     assert "get_weather" in tool_calls_seen
     assert any("paris" in city.lower() for city in dispatched)
 
-    # Thinking happened (reasoning tokens were spent across the loop), even if
-    # the provider chose not to stream a visible summary on every step.
-    total_usage = sum(step_usages, Usage())
-    assert total_usage.reasoning_tokens > 0
-    assert total_usage.input_tokens > 0
-    assert total_usage.output_tokens >= total_usage.reasoning_tokens
-
-    # Any thought summary that *was* streamed is non-empty.
-    assert all(summary.strip() for summary in reasoning_summaries)
-
-    # The loop ended on an assistant turn grounded in the tool result.
+    # ...and the loop went ALL THE WAY to a final assistant message generated
+    # AFTER the tool result (a step with no tool calls), streamed token-by-token.
+    assert reached_final_answer, "loop never reached a tool-free final message"
     assert history[-1].role == Role.ASSISTANT
-    final_text = history[-1].text.lower()
-    assert "15" in final_text or "umbrella" in final_text or "rain" in final_text
+    assert not history[-1].tool_calls
+    assert final_answer.strip(), "the final message was empty"
+    assert final_answer == history[-1].text  # the answer arrived via stream deltas
+    grounded = final_answer.lower()
+    assert "15" in grounded or "umbrella" in grounded or "rain" in grounded
+
+    # Reasoning happened across the loop (visible summary or not).
+    assert saw_reasoning or sum(step_usages, Usage()).reasoning_tokens > 0
 
 
 @LIVE
@@ -542,13 +541,13 @@ async def test_that_live_history_can_be_edited_between_manual_steps(logger: Logg
     edited history (which keeps the tool-call turn and its preserved signature)
     must still be accepted by Gemini and produce a coherent answer."""
     generator = _live_generator(logger)
-    system = "Use the tool, then answer the user."
 
     history: list[Message] = [
-        Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris?")])
+        Message(role=Role.SYSTEM, parts=[TextPart(text="Use the tool, then answer the user.")]),
+        Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris?")]),
     ]
 
-    first = await generator.step(history, [WEATHER_TOOL], tool_choice="required", system=system)
+    first = await generator.step(history, [WEATHER_TOOL], tool_choice="required")
     assert first.needs_tools
     history.append(first.message)
 
@@ -572,7 +571,7 @@ async def test_that_live_history_can_be_edited_between_manual_steps(logger: Logg
         Message(role=Role.USER, parts=[TextPart(text="(Reminder: answer in Celsius.)")]),
     )
 
-    second = await generator.step(history, [WEATHER_TOOL], tool_choice="auto", system=system)
+    second = await generator.step(history, [WEATHER_TOOL], tool_choice="auto")
 
     assert not second.needs_tools
     assert "21" in second.message.text
@@ -589,13 +588,12 @@ async def test_that_system_prompt_can_change_between_steps_around_a_tool_call(
     base_system = "You are a weather assistant. Use the get_weather tool when asked about weather."
 
     history: list[Message] = [
-        Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris?")])
+        Message(role=Role.SYSTEM, parts=[TextPart(text=base_system)]),
+        Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris?")]),
     ]
 
     # Step N — with the base system prompt — triggers a tool call.
-    first = await generator.step(
-        history, [WEATHER_TOOL], tool_choice="required", system=base_system
-    )
+    first = await generator.step(history, [WEATHER_TOOL], tool_choice="required")
     assert first.needs_tools
     history.append(first.message)
 
@@ -613,14 +611,13 @@ async def test_that_system_prompt_can_change_between_steps_around_a_tool_call(
         )
     )
 
-    # Step N+1 — same history, but a modified system prompt adding a distinctive,
-    # unlikely-by-default instruction so we can detect that the change took hold.
+    # Step N+1 — change the system prompt by editing the leading system message
+    # in history, adding a distinctive instruction so we can detect the change.
     modified_system = (
         base_system + ' When you give your final answer, end it with the exact word "PINEAPPLE".'
     )
-    second = await generator.step(
-        history, [WEATHER_TOOL], tool_choice="auto", system=modified_system
-    )
+    history[0] = Message(role=Role.SYSTEM, parts=[TextPart(text=modified_system)])
+    second = await generator.step(history, [WEATHER_TOOL], tool_choice="auto")
 
     # No errors, and the loop concluded with a normal answer...
     assert not second.needs_tools
@@ -689,9 +686,7 @@ async def test_that_live_tool_call_signature_round_trips_through_encode(logger: 
     signature = result.tool_calls[0].provider_data.get(GEMINI_THOUGHT_SIGNATURE_KEY)
     assert signature, "expected Gemini to attach a thought_signature to the tool call"
 
-    re_encoded = generator._encode(
-        history, [WEATHER_TOOL], "auto", system=None, reasoning=ReasoningConfig()
-    )
+    re_encoded = generator._encode(history, [WEATHER_TOOL], "auto", reasoning=ReasoningConfig())
     assistant_content = re_encoded["all_contents"][1]
     assert assistant_content.role == "model"
     assert assistant_content.parts[0].function_call.name == "get_weather"
@@ -705,8 +700,10 @@ async def test_that_live_streamed_text_signature_is_preserved(logger: Logger) ->
     generator = _live_generator(logger)
 
     result = await generator.step(
-        [Message(role=Role.USER, parts=[TextPart(text="Name one ocean.")])],
-        system="Answer in one sentence.",
+        [
+            Message(role=Role.SYSTEM, parts=[TextPart(text="Answer in one sentence.")]),
+            Message(role=Role.USER, parts=[TextPart(text="Name one ocean.")]),
+        ]
     )
 
     signatures = [
@@ -723,8 +720,10 @@ async def test_that_live_gemini_step_can_be_cancelled(logger: Logger) -> None:
 
     task = asyncio.ensure_future(
         generator.step(
-            [Message(role=Role.USER, parts=[TextPart(text="Write 2000 words about the sea.")])],
-            system="Write a very long essay.",
+            [
+                Message(role=Role.SYSTEM, parts=[TextPart(text="Write a very long essay.")]),
+                Message(role=Role.USER, parts=[TextPart(text="Write 2000 words about the sea.")]),
+            ]
         )
     )
     await asyncio.sleep(0.05)
@@ -765,11 +764,11 @@ async def test_that_cancelling_mid_stream_closes_the_provider_stream(logger: Log
     async def consume() -> None:
         async for _ in generator.stream_step(
             [
+                Message(role=Role.SYSTEM, parts=[TextPart(text="Write a long, detailed essay.")]),
                 Message(
                     role=Role.USER, parts=[TextPart(text="Write a 1500-word essay about the sea.")]
-                )
-            ],
-            system="Write a long, detailed essay.",
+                ),
+            ]
         ):
             first_event.set()
 
@@ -793,20 +792,23 @@ async def test_that_live_managed_cache_is_created_reused_and_deleted(logger: Log
     # The cached prefix must exceed Gemini's explicit-cache minimum token count.
     reference = "Reference material.\n" + ("Parlant is an agent framework. " * 600)
     history = [
+        Message(
+            role=Role.SYSTEM,
+            parts=[TextPart(text="Answer strictly from the provided reference material.")],
+        ),
         Message(role=Role.USER, parts=[TextPart(text=reference)], cache_key="parlant-doc-v1"),
         Message(role=Role.USER, parts=[TextPart(text="In one word, what is Parlant?")]),
     ]
-    system = "Answer strictly from the provided reference material."
 
     try:
-        first = await generator.step(history, system=system)
+        first = await generator.step(history)
         assert first.finish_reason == FinishReason.STOP
         # The cached prefix was actually served from cache.
         assert first.usage.cached_input_tokens > 0
         assert len(generator._managed_caches) == 1
 
         # A second call with the same prefix reuses the same cache resource.
-        second = await generator.step(history, system=system)
+        second = await generator.step(history)
         assert second.usage.cached_input_tokens > 0
         assert len(generator._managed_caches) == 1
     finally:

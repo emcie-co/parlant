@@ -73,15 +73,15 @@ chroma = ["chromadb>=1.1.1"]
 qdrant = ["qdrant-client>=1.7.0"]
 mongo = ["pymongo>=4.11.1"]
 
-anthropic = ["anthropic>=0.60.0", "torch>=2.8.0", "transformers>=4.53.0"]
+anthropic = ["anthropic>=0.60.0", "torch>=2.8.0", "transformers>=4.53.0,<5.0"]
 
-aws = ["anthropic>=0.60.0", "transformers>=4.53.0", "torch>=2.8.0"]
+aws = ["anthropic>=0.60.0", "transformers>=4.53.0,<5.0", "torch>=2.8.0"]
 
-together = ["torch>=2.8.0", "together>=1.5.26", "transformers>=4.53.0"]
+together = ["torch>=2.8.0", "together>=1.5.26", "transformers>=4.53.0,<5.0"]
 
-cerebras = ["cerebras-cloud-sdk>=1.25.0", "torch>=2.8.0", "transformers>=4.53.0"]
+cerebras = ["cerebras-cloud-sdk>=1.25.0", "torch>=2.8.0", "transformers>=4.53.0,<5.0"]
 
-deepseek = ["torch>=2.8.0", "transformers>=4.53.0"]
+deepseek = ["torch>=2.8.0", "transformers>=4.53.0,<5.0"]
 
 gemini = ["google-genai>=1.36.0", "google-api-core>=2.24.2", "torch>=2.8.0"]
 
@@ -91,12 +91,12 @@ vertex = [
     "google-auth>=2.40.0",
     "torch>=2.8.0",
     "anthropic>=0.60.0",
-    "transformers>=4.53.0",
+    "transformers>=4.53.0,<5.0",
 ]
 
 ollama = ["ollama>=0.5.0"]
 
-litellm = ["litellm>=1.83.10", "torch>=2.8.0", "transformers>=4.53.0"]
+litellm = ["litellm>=1.83.10", "torch>=2.8.0", "transformers>=4.53.0,<5.0"]
 
 azure = ["azure-identity>=1.20.0"]
 

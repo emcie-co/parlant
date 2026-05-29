@@ -251,17 +251,8 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 									)}>
 									<div className={twMerge('markdown overflow-hidden relative min-w-[200px] max-w-[608px] [word-break:break-word] font-light text-[16px] pe-[38px]')}>
 										<span ref={markdownRef}>
-											{isRevealing ? (
-											<>
-												{/* During reveal: split into stable text and newly revealed text with fade */}
-												<span className={twJoin(!isOneLiner && 'leading-[26px]')}>{messageText.slice(0, animatedLength)}</span>
-												{revealedLength > animatedLength && (
-													<span key={animatedLength} className={twJoin(!isOneLiner && 'leading-[26px]', 'animate-fade-in-fast')}>{messageText.slice(animatedLength, revealedLength)}</span>
-												)}
-											</>
-										) : (
-											<Markdown className={twJoin(!isOneLiner && 'leading-[26px]')}>{messageText}</Markdown>
-										)}
+											{/* Streamdown renders partial markdown safely as the revealed prefix grows. */}
+											<Markdown className={twJoin(!isOneLiner && 'leading-[26px]')}>{isRevealing ? messageText.slice(0, revealedLength) : messageText}</Markdown>
 										{/* Blinking cursor for streaming messages */}
 											{isStreaming && (
 												<span className="inline-block w-[2px] h-[1em] bg-current align-text-bottom ml-[1px] animate-pulse" />

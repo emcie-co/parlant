@@ -322,6 +322,8 @@ class Test_that_an_agent_with_null_policy_sends_only_message(SDKTest):
             name="Null Policy Agent",
             description="Agent with null perceived performance policy",
             perceived_performance_policy=NullPerceivedPerformancePolicy(),
+            output_mode=p.OutputMode.STREAM,
+            engine="sigma",
         )
 
     async def run(self, ctx: Context) -> None:

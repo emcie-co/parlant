@@ -24,6 +24,7 @@ from parlant.core.emissions import (
     EventEmitter,
     EventEmitterFactory,
     MessageEventHandle,
+    StatusEventHandle,
 )
 from parlant.core.sessions import (
     Event,
@@ -66,6 +67,33 @@ class EventPublisherMessageUpdater:
         return MessageEventHandle(event=updated_event, update=self)
 
 
+class EventPublisherStatusUpdater:
+    """StatusEventUpdater implementation that updates events in the SessionStore."""
+
+    def __init__(
+        self,
+        session_store: SessionStore,
+        session_id: SessionId,
+        event: EmittedEvent,
+        persisted_event_id: EventId,
+    ) -> None:
+        self._store = session_store
+        self._session_id = session_id
+        self._event = event
+        self._event_id = persisted_event_id
+
+    async def __call__(self, data: StatusEventData) -> StatusEventHandle:
+        await self._store.update_event(
+            session_id=self._session_id,
+            event_id=self._event_id,
+            params=EventUpdateParams(data=cast(JSONSerializable, data)),
+        )
+
+        updated_event = replace(self._event, data=cast(JSONSerializable, data))
+
+        return StatusEventHandle(event=updated_event, update=self)
+
+
 class EventPublisher(EventEmitter):
     def __init__(
         self,
@@ -83,8 +111,8 @@ class EventPublisher(EventEmitter):
         trace_id: str,
         data: StatusEventData,
         metadata: Mapping[str, JSONSerializable] | None = None,
-    ) -> EmittedEvent:
-        event = EmittedEvent(
+    ) -> StatusEventHandle:
+        emitted_event = EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.STATUS,
             trace_id=trace_id,
@@ -92,9 +120,16 @@ class EventPublisher(EventEmitter):
             metadata=metadata,
         )
 
-        await self._publish_event(event)
+        persisted_event = await self._publish_event(emitted_event)
 
-        return event
+        updater = EventPublisherStatusUpdater(
+            session_store=self._store,
+            session_id=self._session_id,
+            event=emitted_event,
+            persisted_event_id=persisted_event.id,
+        )
+
+        return StatusEventHandle(event=emitted_event, update=updater)
 
     @override
     async def emit_message_event(

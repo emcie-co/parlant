@@ -23,6 +23,7 @@ from parlant.core.emissions import (
     EventEmitter,
     EventEmitterFactory,
     MessageEventHandle,
+    StatusEventHandle,
 )
 from parlant.core.sessions import (
     EventKind,
@@ -56,6 +57,28 @@ class EventBufferMessageUpdater:
         return MessageEventHandle(event=new_event, update=self)
 
 
+class EventBufferStatusUpdater:
+    """StatusEventUpdater implementation that updates events in an EventBuffer."""
+
+    def __init__(self, buffer: "EventBuffer", event_index: int) -> None:
+        self._buffer = buffer
+        self._event_index = event_index
+
+    async def __call__(self, data: StatusEventData) -> StatusEventHandle:
+        # EmittedEvent is frozen, so we need to replace with a new event
+        old_event = self._buffer.events[self._event_index]
+        new_event = EmittedEvent(
+            source=old_event.source,
+            kind=old_event.kind,
+            trace_id=old_event.trace_id,
+            data=cast(JSONSerializable, data),
+            metadata=old_event.metadata,
+        )
+        self._buffer.events[self._event_index] = new_event
+
+        return StatusEventHandle(event=new_event, update=self)
+
+
 class EventBuffer(EventEmitter):
     def __init__(self, emitting_agent: Agent) -> None:
         self.agent = emitting_agent
@@ -67,7 +90,7 @@ class EventBuffer(EventEmitter):
         trace_id: str,
         data: StatusEventData,
         metadata: Mapping[str, JSONSerializable] | None = None,
-    ) -> EmittedEvent:
+    ) -> StatusEventHandle:
         event = EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.STATUS,
@@ -76,9 +99,11 @@ class EventBuffer(EventEmitter):
             metadata=metadata,
         )
 
+        event_index = len(self.events)
         self.events.append(event)
 
-        return event
+        updater = EventBufferStatusUpdater(buffer=self, event_index=event_index)
+        return StatusEventHandle(event=event, update=updater)
 
     @override
     async def emit_message_event(

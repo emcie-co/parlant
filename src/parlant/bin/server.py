@@ -147,6 +147,7 @@ from parlant.core.engines.alpha.canned_response_generator import (
 )
 from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
 from parlant.core.meter import Meter, LocalMeter
+from parlant.core.nlp.react import ReactGenerator
 from parlant.core.services.indexing.guideline_agent_intention_proposer import (
     AgentIntentionProposerSchema,
 )
@@ -977,6 +978,11 @@ async def initialize_container(
     if nlp_service_instance.supports_streaming:
         streaming_generator = await nlp_service_instance.get_streaming_text_generator()
         try_define(StreamingTextGenerator, streaming_generator)
+
+    # Bind the ReAct generator if available
+    if nlp_service_instance.supports_react:
+        react_generator = await nlp_service_instance.get_react_generator()
+        try_define(ReactGenerator, react_generator)
 
 
 async def recover_server_tasks(

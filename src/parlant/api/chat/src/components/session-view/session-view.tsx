@@ -5,6 +5,7 @@ import {Button} from '../ui/button';
 import {BASE_URL, deleteData, postData} from '@/utils/api';
 import {groupBy} from '@/utils/obj';
 import Message from '../message/message';
+import Markdown from '../markdown/markdown';
 import {EventInterface, ServerStatus, SessionInterface} from '@/utils/interfaces';
 import Spacer from '../ui/custom/spacer';
 import {toast} from 'sonner';
@@ -31,6 +32,7 @@ const SessionView = (): ReactElement => {
 	const [message, setMessage] = useState('');
 	const [lastOffset, setLastOffset] = useState(0);
 	const [messages, setMessages] = useState<EventInterface[]>([]);
+	const [streamingStatusEvents, setStreamingStatusEvents] = useState<EventInterface[]>([]);
 	const [showTyping, setShowTyping] = useState(false);
 	const [showThinking, setShowThinking] = useState(false);
 	const [thinkingDisplay, setThinkingDisplay] = useState('');
@@ -239,7 +241,9 @@ const SessionView = (): ReactElement => {
 			setShowThinking(lastStatusEventStatus === 'processing');
 
 			if (lastStatusEventStatus === 'processing') {
-				setThinkingDisplay(lastStatusEvent?.data?.data?.stage ?? 'Thinking');
+				// Prefer the chunked-status `message` (joined chunks); fall back to the
+				// legacy `data.stage` field or the generic "Thinking" placeholder.
+				setThinkingDisplay(lastStatusEvent?.data?.message ?? lastStatusEvent?.data?.data?.stage ?? 'Thinking');
 			}
 
 			// Don't show typing if we already have a streaming message arriving
@@ -248,6 +252,17 @@ const SessionView = (): ReactElement => {
 			// Clear typing indicator when streaming message chunks arrive (even without status event)
 			setShowTyping(false);
 		}
+		// Track any status events that arrived with a `chunks` property so the
+		// streaming-status SSE effect can open per-event connections for them.
+		const newStreamingStatuses = (lastEvents || []).filter(isStatusStreaming);
+		if (newStreamingStatuses.length) {
+			setStreamingStatusEvents((prev) => {
+				const byId = new Map(prev.map((e) => [e.id, e]));
+				for (const s of newStreamingStatuses) if (s.id) byId.set(s.id, s);
+				return Array.from(byId.values());
+			});
+		}
+
 		// Clear processed events to avoid reprocessing them
 		setLastEvents([]);
 	};
@@ -303,6 +318,87 @@ const SessionView = (): ReactElement => {
 		if (chunks.length === 0) return true; // Empty chunks = streaming started but no data yet
 		return chunks[chunks.length - 1] !== null; // Not null-terminated = still streaming
 	};
+
+	// Helper to check if a status event is still streaming (has chunks but not completed with null terminator)
+	const isStatusStreaming = (event: EventInterface): boolean => {
+		if (event.kind !== 'status') return false;
+		const chunks = event?.data?.chunks;
+		if (chunks === undefined) return false;
+		if (chunks.length === 0) return true;
+		return chunks[chunks.length - 1] !== null;
+	};
+
+	// Buffered reveal for the thinking-status text. Unlike message-bubble, we
+	// intentionally do NOT "finish up" the reveal when streaming ends — when
+	// the chunked status closes or a new event takes over, whatever was already
+	// shown stays put. No fade overlay either: we want a steady character-level
+	// reveal so the text doesn't appear to "pop in" in batches on the right.
+	const [thinkingRevealed, setThinkingRevealed] = useState(0);
+	const thinkingRevealedRef = useRef(0);
+
+	// Keep the latest thinkingDisplay accessible to the long-lived reveal timer
+	// without recreating the interval on every text update (which would
+	// otherwise reset the 30ms tick clock on every chunk and produce jitter).
+	const thinkingTargetRef = useRef('');
+	thinkingTargetRef.current = thinkingDisplay;
+
+	// Reset revealed→0 whenever a *new* chunked status event ID enters the
+	// streaming set. Using event IDs (rather than the isThinkingStreamingActive
+	// bool) is robust to multi-step turns: even when an old reasoning event
+	// hasn't been null-terminated yet by the time the next one starts, the new
+	// ID still triggers a reset. Without this, subsequent reasoning rounds
+	// would inherit the previous round's revealed offset.
+	const seenStreamingIdsRef = useRef<Set<string>>(new Set());
+	useEffect(() => {
+		const currentIds = new Set<string>();
+		let hasNewId = false;
+		for (const e of streamingStatusEvents) {
+			if (!isStatusStreaming(e) || !e.id) continue;
+			currentIds.add(e.id);
+			if (!seenStreamingIdsRef.current.has(e.id)) hasNewId = true;
+		}
+		seenStreamingIdsRef.current = currentIds;
+		if (hasNewId) {
+			thinkingRevealedRef.current = 0;
+			setThinkingRevealed(0);
+		}
+	}, [streamingStatusEvents]);
+
+	// Snap revealed to full ONLY when the current thinkingDisplay does not match
+	// any chunked status event's message — i.e. it came from a non-chunked
+	// source (e.g. "Evaluating tools"). While the text still matches a chunked
+	// event (including after null-termination, where data.message holds the
+	// final reasoning string), we leave revealed alone so the reveal timer can
+	// catch up smoothly rather than the full text popping in instantly.
+	useEffect(() => {
+		const matchesChunkedEvent = streamingStatusEvents.some((e) => e?.data?.message === thinkingDisplay);
+		if (matchesChunkedEvent) return;
+		thinkingRevealedRef.current = thinkingDisplay.length;
+		setThinkingRevealed(thinkingDisplay.length);
+	}, [thinkingDisplay, streamingStatusEvents]);
+
+	// One long-lived reveal timer, gated on whether the thinking indicator is
+	// visible at all. We intentionally keep ticking after a chunked stream's
+	// null-terminator: if revealed hasn't caught up to the final text yet, we
+	// let the animation finish naturally rather than popping the full text in.
+	// When a new event replaces the text, the snap effect above takes over.
+	useEffect(() => {
+		if (!showThinking) return;
+
+		const revealInterval = 30;
+		const charsPerReveal = 4;
+
+		const timer = setInterval(() => {
+			const target = thinkingTargetRef.current;
+			const cur = thinkingRevealedRef.current;
+			if (cur >= target.length) return; // caught up — idle
+			const next = Math.min(cur + charsPerReveal, target.length);
+			thinkingRevealedRef.current = next;
+			setThinkingRevealed(next);
+		}, revealInterval);
+
+		return () => clearInterval(timer);
+	}, [showThinking]);
 
 	// Track active SSE connections for streaming messages
 	const streamingConnectionsRef = useRef<Map<string, EventSource>>(new Map());
@@ -369,6 +465,73 @@ const SessionView = (): ReactElement => {
 			activeConnections.clear();
 		};
 	}, [messages, session?.id]);
+
+	// Track active SSE connections for streaming status events (mirrors the messages variant)
+	const streamingStatusConnectionsRef = useRef<Map<string, EventSource>>(new Map());
+
+	// Use SSE to subscribe to streaming status-event updates (any status event whose data carries `chunks`)
+	useEffect(() => {
+		if (!session?.id || session?.id === NEW_SESSION_ID) return;
+
+		const activeConnections = streamingStatusConnectionsRef.current;
+
+		// Close connections for status events that are no longer streaming
+		for (const [eventId, eventSource] of activeConnections) {
+			const stillStreaming = streamingStatusEvents.some((e) => e.id === eventId && isStatusStreaming(e));
+			if (!stillStreaming) {
+				eventSource.close();
+				activeConnections.delete(eventId);
+			}
+		}
+
+		// Open SSE connections for new streaming status events
+		for (const streamingStatus of streamingStatusEvents) {
+			if (!streamingStatus.id || activeConnections.has(streamingStatus.id)) continue;
+			if (!isStatusStreaming(streamingStatus)) continue;
+
+			const eventSource = new EventSource(`${BASE_URL}/sessions/${session.id}/events/${streamingStatus.id}?sse=true`);
+
+			eventSource.onmessage = (event) => {
+				try {
+					const updatedEvent = JSON.parse(event.data);
+
+					// Mirror the latest data onto the tracked status event
+					setStreamingStatusEvents((prev) => prev.map((e) => (e.id === streamingStatus.id ? {...e, data: {...e.data, ...updatedEvent.data}} : e)));
+
+					// Surface the joined message into the thinking indicator if present
+					const joinedMessage = updatedEvent?.data?.message;
+					if (typeof joinedMessage === 'string' && joinedMessage) {
+						setThinkingDisplay(joinedMessage);
+					}
+
+					// Check if streaming is complete and close connection
+					const chunks = updatedEvent?.data?.chunks;
+					if (chunks && chunks.length > 0 && chunks[chunks.length - 1] === null) {
+						eventSource.close();
+						activeConnections.delete(streamingStatus.id!);
+					}
+				} catch (error) {
+					console.error('Error parsing SSE event:', error);
+				}
+			};
+
+			eventSource.onerror = (error) => {
+				console.error('SSE connection error:', error);
+				eventSource.close();
+				activeConnections.delete(streamingStatus.id!);
+			};
+
+			activeConnections.set(streamingStatus.id, eventSource);
+		}
+
+		// Cleanup on unmount or session change
+		return () => {
+			for (const eventSource of activeConnections.values()) {
+				eventSource.close();
+			}
+			activeConnections.clear();
+		};
+	}, [streamingStatusEvents, session?.id]);
 
 	const createSession = async (): Promise<SessionInterface | undefined> => {
 		if (!newSession) return;
@@ -468,7 +631,13 @@ const SessionView = (): ReactElement => {
 											<div className='bubbles' />
 										</div>
 										{showTyping && !hasStreamingMessage && <p className={twMerge('flex items-center font-normal text-[#A9AFB7] text-[14px] font-inter')}>Typing...</p>}
-										{showThinking && <p className={twMerge('flex items-center font-normal text-[#A9AFB7] text-[14px] font-inter')}>{thinkingDisplay}...</p>}
+										{showThinking && (
+									<div className={twMerge('flex items-center font-normal text-[#A9AFB7] text-[14px] font-inter')}>
+										{/* Live markdown rendering of the in-flight reveal prefix. */}
+										<Markdown>{thinkingDisplay.slice(0, thinkingRevealed)}</Markdown>
+										...
+									</div>
+								)}
 									</div>
 								)}
 							</div>

@@ -208,7 +208,9 @@ SessionStatus: TypeAlias = Literal[
 
 class StatusEventData(TypedDict):
     status: SessionStatus
-    data: JSONSerializable
+    data: NotRequired[JSONSerializable]
+    message: NotRequired[str]
+    chunks: NotRequired[list[str | None]]
 
 
 class GuidelineMatch(TypedDict):

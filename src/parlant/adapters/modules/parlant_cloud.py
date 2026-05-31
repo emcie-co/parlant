@@ -61,10 +61,16 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import Span, set_tracer_provider
 from typing_extensions import Self, override
 
+from parlant.adapters.tunnels.dispatcher import TunnelRequestDispatcher
+from parlant.adapters.tunnels.secured_tunnel import SecuredTunnelService
+from parlant.adapters.tunnels.websocket_tunnel import WebSocketTunnelService
 from parlant.api.authorization import AuthorizationPolicy, Operation, ProductionAuthorizationPolicy
+from parlant.core.app_modules.sessions import SessionModule
+from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.loggers import CompositeLogger, LogLevel, Logger, TracingLogger
 from parlant.core.meter import Counter, DurationHistogram, Histogram, Meter
 from parlant.core.tracer import AttributeValue, CompositeTracer, Tracer
+from parlant.core.tunnels import TunnelService
 
 _logger = logging.getLogger(__name__)
 
@@ -710,6 +716,42 @@ class ParlantCloudMeter(Meter):
 
 
 # ---------------------------------------------------------------------------
+# Tunnel wiring
+# ---------------------------------------------------------------------------
+
+
+def _get_cloud_base_url() -> str:
+    return os.environ.get("PARLANT_CLOUD_URL", "https://api.parlant.cloud")
+
+
+def _create_tunnel_service(
+    session_module: SessionModule,
+    background_task_service: BackgroundTaskService,
+    logger: Logger | None = None,
+) -> SecuredTunnelService | None:
+    """Create a tunnel service if PARLANT_CLOUD_PROJECT_TOKEN is set."""
+    token = os.environ.get("PARLANT_CLOUD_PROJECT_TOKEN", "")
+    if not token:
+        return None
+
+    base_url = _get_cloud_base_url()
+    ws_url = base_url.replace("https://", "wss://").replace("http://", "ws://") + "/cloud"
+
+    dispatcher = TunnelRequestDispatcher(
+        session_module=session_module,
+        logger=logger,
+    )
+
+    inner = WebSocketTunnelService(
+        url=ws_url,
+        token=token,
+        dispatcher=dispatcher,
+    )
+
+    return SecuredTunnelService(inner=inner, token=token)
+
+
+# ---------------------------------------------------------------------------
 # Module entry point — configure_container
 # ---------------------------------------------------------------------------
 
@@ -764,5 +806,22 @@ async def configure_container(container: Container) -> Container:
             ParlantCloudMeter(project_id=project_id)
         )
         container[Meter] = cloud_meter
+
+    # Start tunnel if project token is available
+    try:
+        tunnel = _create_tunnel_service(
+            session_module=container[SessionModule],
+            background_task_service=container[BackgroundTaskService],
+            logger=container[Logger],
+        )
+
+        if tunnel:
+            container[TunnelService] = tunnel
+            await container[BackgroundTaskService].start(
+                tunnel.start(),
+                tag="parlant-cloud-tunnel",
+            )
+    except Exception as e:
+        logger.warning(f"Failed to start Parlant Cloud tunnel: {e}")
 
     return container

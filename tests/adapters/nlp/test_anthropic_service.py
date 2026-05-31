@@ -208,46 +208,49 @@ def test_that_encode_maps_tool_choice(
     assert request["tool_choice"] == expected
 
 
-def test_that_encode_emits_thinking_only_when_enabled(anthropic: AnthropicReactGenerator) -> None:
-    disabled = anthropic._encode([], [], "auto", reasoning=ReasoningConfig())
-    assert "thinking" not in disabled
+def test_that_minimal_effort_skips_the_thinking_block(
+    anthropic: AnthropicReactGenerator,
+) -> None:
+    # On Sonnet/Haiku 4.5 manual mode, "minimal" effort means no thinking at
+    # all — the request goes without a `thinking` block so the model runs in
+    # standard mode at zero thinking tokens.
+    minimal = anthropic._encode([], [], "auto", reasoning=ReasoningConfig(effort="minimal"))
+    assert "thinking" not in minimal
 
-    enabled = anthropic._encode(
-        [],
-        [],
-        "auto",
-        reasoning=ReasoningConfig(enabled=True, budget_tokens=4096),
-    )
-    # Default visibility ("summary") -> display "summarized".
-    assert enabled["thinking"] == {
+
+def test_that_effort_maps_to_the_thinking_budget_ladder(
+    anthropic: AnthropicReactGenerator,
+) -> None:
+    # Default effort ("medium") -> manual thinking with the medium-tier budget.
+    medium = anthropic._encode([], [], "auto", reasoning=ReasoningConfig())
+    assert medium["thinking"] == {
         "type": "enabled",
-        "budget_tokens": 4096,
+        "budget_tokens": anthropic._EFFORT_TO_BUDGET["medium"],
         "display": "summarized",
     }
     # max_tokens must exceed the thinking budget.
-    assert enabled["max_tokens"] > 4096
+    assert medium["max_tokens"] > anthropic._EFFORT_TO_BUDGET["medium"]
+
+    # Explicit "high" picks the higher tier.
+    high = anthropic._encode([], [], "auto", reasoning=ReasoningConfig(effort="high"))
+    assert high["thinking"]["budget_tokens"] == anthropic._EFFORT_TO_BUDGET["high"]
 
 
 def test_that_visibility_maps_to_the_display_knob(anthropic: AnthropicReactGenerator) -> None:
-    # Claude 4 has no verbatim option: "none" omits the thinking block, while
+    # Claude 4 has no verbatim option: "none" omits the thinking summary, while
     # "summary" and "full" both request the summary ("full" has no equivalent).
     def display_for(visibility: str) -> Any:
         request = anthropic._encode(
             [],
             [],
             "auto",
-            reasoning=ReasoningConfig(enabled=True, visibility=visibility),  # type: ignore[arg-type]
+            reasoning=ReasoningConfig(visibility=visibility),  # type: ignore[arg-type]
         )
         return request["thinking"]["display"]
 
     assert display_for("none") == "omitted"
     assert display_for("summary") == "summarized"
     assert display_for("full") == "summarized"
-
-
-def test_that_encode_uses_a_default_thinking_budget(anthropic: AnthropicReactGenerator) -> None:
-    request = anthropic._encode([], [], "auto", reasoning=ReasoningConfig(enabled=True))
-    assert request["thinking"]["budget_tokens"] == anthropic._DEFAULT_THINKING_BUDGET
 
 
 def test_that_encode_tool_translates_nullable_to_json_schema_null_type(
@@ -502,7 +505,7 @@ async def test_that_live_anthropic_reports_a_thinking_summary_when_enabled(logge
                 ],
             )
         ],
-        reasoning=ReasoningConfig(enabled=True, budget_tokens=2048, visibility="summary"),
+        reasoning=ReasoningConfig(visibility="summary"),
     )
 
     assert "20" in result.message.text  # Bob = 20
@@ -525,7 +528,7 @@ async def test_that_visibility_none_omits_the_thinking_summary_but_still_reasons
                 parts=[TextPart(text="Is 91 prime? Reason it out, then answer yes or no.")],
             )
         ],
-        reasoning=ReasoningConfig(enabled=True, budget_tokens=2048, visibility="none"),
+        reasoning=ReasoningConfig(visibility="none"),
     )
 
     # No thinking summary surfaced...
@@ -547,7 +550,7 @@ async def test_that_live_anthropic_streams_thinking_text(logger: Logger) -> None
                 parts=[TextPart(text="Briefly: is 91 prime? Reason it out.")],
             )
         ],
-        reasoning=ReasoningConfig(enabled=True, budget_tokens=2048, visibility="full"),
+        reasoning=ReasoningConfig(visibility="full"),
     ):
         if isinstance(event, ReasoningDelta):
             streamed_reasoning.append(event.text)
@@ -567,7 +570,7 @@ async def test_that_live_thinking_and_tool_blocks_round_trip_through_a_second_ca
     with its signature intact, or Anthropic 400s. Run a real two-step loop with
     thinking enabled (tool_choice auto) and confirm the follow-up succeeds."""
     generator = _live_generator(logger)
-    reasoning = ReasoningConfig(enabled=True, budget_tokens=1024, visibility="full")
+    reasoning = ReasoningConfig(visibility="full")
 
     history: list[Message] = [
         Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris? Use the tool.")])
@@ -611,7 +614,14 @@ async def test_that_system_prompt_can_change_between_steps_around_a_tool_call(
         Message(role=Role.SYSTEM, parts=[TextPart(text=base_system)]),
         Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris?")]),
     ]
-    first = await generator.step(history, [WEATHER_TOOL], tool_choice="required")
+    # Anthropic rejects a forced tool_choice alongside a `thinking` block, so
+    # the first (forced) call uses effort="minimal" to skip thinking entirely.
+    first = await generator.step(
+        history,
+        [WEATHER_TOOL],
+        tool_choice="required",
+        reasoning=ReasoningConfig(effort="minimal"),
+    )
     assert first.needs_tools
     history.append(first.message)
 
@@ -650,7 +660,14 @@ async def test_that_live_history_can_be_edited_between_manual_steps(logger: Logg
         Message(role=Role.SYSTEM, parts=[TextPart(text="Use the tool, then answer the user.")]),
         Message(role=Role.USER, parts=[TextPart(text="What's the weather in Paris?")]),
     ]
-    first = await generator.step(history, [WEATHER_TOOL], tool_choice="required")
+    # Forced tool_choice is incompatible with thinking on Anthropic — skip
+    # thinking for this step.
+    first = await generator.step(
+        history,
+        [WEATHER_TOOL],
+        tool_choice="required",
+        reasoning=ReasoningConfig(effort="minimal"),
+    )
     history.append(first.message)
 
     call = first.tool_calls[0]
@@ -683,7 +700,7 @@ async def test_that_live_e2e_streams_thoughts_and_runs_tools_to_a_final_answer(
     logger: Logger,
 ) -> None:
     generator = _live_generator(logger)
-    reasoning = ReasoningConfig(enabled=True, budget_tokens=1024, visibility="full")
+    reasoning = ReasoningConfig(visibility="full")
 
     async def dispatch(call: ToolCallPart) -> ToolResultPart:
         assert call.name == "get_weather"

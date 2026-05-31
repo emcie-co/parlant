@@ -236,19 +236,24 @@ def test_that_encode_tool_translates_nullable_to_json_schema_null_type(
     assert "nullable" not in properties["tags"]["items"]
 
 
-def test_that_encode_emits_reasoning_only_when_enabled(openai: OpenAIReactGenerator) -> None:
-    disabled = openai._encode([], [], "auto", reasoning=ReasoningConfig())
-    assert "reasoning" not in disabled
-    assert "include" not in disabled
+def test_that_encode_always_emits_reasoning_with_effort_mapped_identity(
+    openai: OpenAIReactGenerator,
+) -> None:
+    # OpenAI's Responses API exposes a native ``"minimal"`` effort tier, so the
+    # adapter always emits the reasoning block — the depth is controlled by
+    # effort and the encrypted_content include is needed for cross-step replay.
+    minimal = openai._encode([], [], "auto", reasoning=ReasoningConfig(effort="minimal"))
+    assert minimal["reasoning"] == {"effort": "minimal", "summary": "auto"}
+    assert minimal["include"] == ["reasoning.encrypted_content"]
 
-    enabled = openai._encode(
+    high = openai._encode(
         [],
         [],
         "auto",
-        reasoning=ReasoningConfig(enabled=True, effort="high", visibility="full"),
+        reasoning=ReasoningConfig(effort="high", visibility="full"),
     )
-    assert enabled["reasoning"] == {"effort": "high", "summary": "detailed"}
-    assert enabled["include"] == ["reasoning.encrypted_content"]
+    assert high["reasoning"] == {"effort": "high", "summary": "detailed"}
+    assert high["include"] == ["reasoning.encrypted_content"]
 
 
 def test_that_encode_omits_summary_when_visibility_is_none(openai: OpenAIReactGenerator) -> None:
@@ -256,7 +261,7 @@ def test_that_encode_omits_summary_when_visibility_is_none(openai: OpenAIReactGe
         [],
         [],
         "auto",
-        reasoning=ReasoningConfig(enabled=True, effort="low", visibility="none"),
+        reasoning=ReasoningConfig(effort="low", visibility="none"),
     )
     assert request["reasoning"] == {"effort": "low"}
 
@@ -466,7 +471,7 @@ async def test_that_live_openai_reports_reasoning_when_enabled(logger: Logger) -
                 ],
             )
         ],
-        reasoning=ReasoningConfig(enabled=True, effort="high", visibility="summary"),
+        reasoning=ReasoningConfig(effort="high", visibility="summary"),
     )
 
     assert "20" in result.message.text  # Bob = 20 (Alice 40, Carol 30)
@@ -494,7 +499,7 @@ async def test_that_live_openai_streams_a_visible_thought_summary(logger: Logger
                 ],
             )
         ],
-        reasoning=ReasoningConfig(enabled=True, effort="high", visibility="full"),
+        reasoning=ReasoningConfig(effort="high", visibility="full"),
     ):
         if isinstance(event, ReasoningDelta):
             streamed_reasoning.append(event.text)
@@ -517,7 +522,7 @@ async def test_that_live_reasoning_and_tool_items_round_trip_through_encode(
     the function_call (matched by call_id) and the reasoning item (with its
     encrypted_content) — the OpenAI analog of preserving Gemini signatures."""
     generator = _live_generator(logger)
-    reasoning = ReasoningConfig(enabled=True, effort="high", visibility="summary")
+    reasoning = ReasoningConfig(effort="high", visibility="summary")
 
     history: list[Message] = [
         Message(role=Role.USER, parts=[TextPart(text="Use the tool to get the weather in Paris.")])
@@ -624,7 +629,7 @@ async def test_that_live_e2e_streams_thoughts_and_runs_tools_to_a_final_answer(
     logger: Logger,
 ) -> None:
     generator = _live_generator(logger)
-    reasoning = ReasoningConfig(enabled=True, effort="high", visibility="full")
+    reasoning = ReasoningConfig(effort="high", visibility="full")
 
     async def dispatch(call: ToolCallPart) -> ToolResultPart:
         assert call.name == "get_weather"

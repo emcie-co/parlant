@@ -79,12 +79,14 @@ class _FakeReactGenerator(ReactGenerator):
         tool_choice: Any,
         *,
         reasoning: Any = None,
+        hints: Any = None,
     ) -> Any:
         request = {
             "history": list(history),
             "tools": list(tools),
             "tool_choice": tool_choice,
             "reasoning": reasoning,
+            "hints": hints,
         }
         self.encoded_requests.append(request)
         return request
@@ -494,6 +496,7 @@ async def test_that_provider_errors_propagate_out_of_step() -> None:
             tool_choice: Any,
             *,
             reasoning: Any = None,
+            hints: Any = None,
         ) -> Any:
             return {}
 
@@ -510,7 +513,7 @@ async def test_that_provider_errors_propagate_out_of_step() -> None:
 
 async def test_that_call_options_are_threaded_through_to_encode() -> None:
     generator = _FakeReactGenerator([_text_event("ok")])
-    reasoning = ReasoningConfig(enabled=True)
+    reasoning = ReasoningConfig(effort="medium")
 
     await generator.step(
         [Message(role=Role.USER, parts=[TextPart(text="q")])],
@@ -540,6 +543,7 @@ async def test_that_cancelling_a_step_propagates_and_tears_down_the_stream() -> 
             tool_choice: Any,
             *,
             reasoning: Any = None,
+            hints: Any = None,
         ) -> Any:
             return {}
 
@@ -585,6 +589,7 @@ class _StreamingProvider(ReactGenerator):
         tool_choice: Any,
         *,
         reasoning: Any = None,
+        hints: Any = None,
     ) -> Any:
         return {}
 

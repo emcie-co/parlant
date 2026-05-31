@@ -39,14 +39,12 @@ from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.moderation import ModerationService, NoModeration
 from parlant.core.nlp.service import (
-    EmbedderHints,
     ModelSize,
     NLPService,
-    ReactGeneratorHints,
     SchematicGeneratorHints,
     StreamingTextGeneratorHints,
 )
-from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
+from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbedderHints, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
     BaseSchematicGenerator,
@@ -60,6 +58,7 @@ from parlant.core.nlp.react import (
     FinishReason,
     Message,
     ReactGenerator,
+    ReactGeneratorHints,
     ReasoningConfig,
     ReasoningPart,
     Role,
@@ -474,6 +473,14 @@ class GeminiReactGenerator(ReactGenerator):
     # Don't reuse a cached prefix that's about to expire mid-request.
     _CACHE_REUSE_MARGIN = timedelta(seconds=30)
 
+    # Mapping from canonical ModelSize to a concrete Gemini model id, used to
+    # resolve per-call ``hints`` overrides on ``_encode``.
+    _MODEL_BY_SIZE: dict[ModelSize, str] = {
+        ModelSize.SMALL: "gemini-3.1-flash-lite",
+        ModelSize.MEDIUM: "gemini-2.5-flash",
+        ModelSize.LARGE: "gemini-2.5-pro",
+    }
+
     def __init__(
         self,
         *,
@@ -501,6 +508,12 @@ class GeminiReactGenerator(ReactGenerator):
 
     # ---- provider seam -----------------------------------------------------
 
+    def _resolve_model(self, hints: ReactGeneratorHints) -> str:
+        """Return the model id for this call, applying ``hints['model_size']``
+        if present (falling back to the generator's default)."""
+        size = hints.get("model_size", ModelSize.AUTO)
+        return self._MODEL_BY_SIZE.get(size, self.model)
+
     @override
     def _encode(
         self,
@@ -509,6 +522,7 @@ class GeminiReactGenerator(ReactGenerator):
         tool_choice: ToolChoice,
         *,
         reasoning: ReasoningConfig,
+        hints: ReactGeneratorHints = {},
     ) -> dict[str, Any]:
         system_chunks: list[str] = []
 
@@ -544,7 +558,12 @@ class GeminiReactGenerator(ReactGenerator):
             ]
             tool_config = self._encode_tool_choice(tool_choice)
 
-        thinking_config = self._encode_thinking(reasoning) if reasoning.enabled else None
+        resolved_model = self._resolve_model(hints)
+
+        # Always emit a thinking config — depth is controlled by ``effort``.
+        # ``"minimal"`` resolves to "off" on Gemini 2.5 (``thinking_budget=0``);
+        # on 3.x it routes to the lowest available ``thinking_level``.
+        thinking_config = self._encode_thinking(reasoning, resolved_model=resolved_model)
 
         prefix_contents: Optional[list[google.genai.types.Content]] = None
         suffix_contents = contents
@@ -560,7 +579,7 @@ class GeminiReactGenerator(ReactGenerator):
         explicit_cache = self.cache.provider_options.get("gemini_cached_content")
 
         return {
-            "model": self.model,
+            "model": resolved_model,
             "system_instruction": system_instruction,
             "tools": tool_block,
             "tool_config": tool_config,
@@ -646,12 +665,41 @@ class GeminiReactGenerator(ReactGenerator):
 
         return google.genai.types.ToolConfig(function_calling_config=function_calling_config)
 
-    def _encode_thinking(self, reasoning: ReasoningConfig) -> google.genai.types.ThinkingConfig:
+    # Maps ``ReasoningConfig.effort`` to a thinking-token budget for Gemini 2.5
+    # models. ``"minimal"`` resolves to 0, which is the documented way to turn
+    # thinking off on 2.5 flash / flash-lite. (2.5 Pro silently ignores 0 and
+    # always thinks — there's nothing the adapter can do about that.)
+    _EFFORT_TO_BUDGET_25: dict[str, int] = {
+        "minimal": 0,
+        "low": 1024,
+        "medium": 8192,
+        "high": 24576,
+    }
+
+    # Maps ``ReasoningConfig.effort`` to Gemini 3.x's ``thinking_level``. 3.x
+    # uses a coarse named-level knob instead of a numeric budget. 3.x cannot
+    # fully disable thinking; ``"minimal"`` is the lowest available level.
+    _EFFORT_TO_LEVEL_3X: dict[str, google.genai.types.ThinkingLevel] = {
+        "minimal": google.genai.types.ThinkingLevel.MINIMAL,
+        "low": google.genai.types.ThinkingLevel.LOW,
+        "medium": google.genai.types.ThinkingLevel.MEDIUM,
+        "high": google.genai.types.ThinkingLevel.HIGH,
+    }
+
+    def _encode_thinking(
+        self, reasoning: ReasoningConfig, *, resolved_model: str
+    ) -> google.genai.types.ThinkingConfig:
         thinking_kwargs: dict[str, Any] = {
             "include_thoughts": reasoning.visibility != "none",
         }
-        if reasoning.budget_tokens is not None:
-            thinking_kwargs["thinking_budget"] = reasoning.budget_tokens
+        if resolved_model.startswith("gemini-3"):
+            # Gemini 3.x prefers ``thinking_level``; ``thinking_budget`` is
+            # accepted for backward compat but may produce unexpected results
+            # on 3.x Pro, so we don't emit it.
+            thinking_kwargs["thinking_level"] = self._EFFORT_TO_LEVEL_3X[reasoning.effort]
+        else:
+            # Gemini 2.5 uses an explicit numeric budget.
+            thinking_kwargs["thinking_budget"] = self._EFFORT_TO_BUDGET_25[reasoning.effort]
         return google.genai.types.ThinkingConfig(**thinking_kwargs)
 
     @override
@@ -815,7 +863,8 @@ class GeminiReactGenerator(ReactGenerator):
                 events.extend(self._decode_part(part, builder))
 
         if raw_event.usage_metadata is not None:
-            builder.usage = self._decode_usage(raw_event.usage_metadata)
+            model_name = getattr(raw_event, "model_version", "") or ""
+            builder.usage = self._decode_usage(raw_event.usage_metadata, model_name)
 
         return events
 
@@ -868,7 +917,7 @@ class GeminiReactGenerator(ReactGenerator):
             return FinishReason.ERROR
         return FinishReason.STOP
 
-    def _decode_usage(self, usage_metadata: Any) -> Usage:
+    def _decode_usage(self, usage_metadata: Any, model_name: str) -> Usage:
         candidates_tokens = usage_metadata.candidates_token_count or 0
         reasoning_tokens = usage_metadata.thoughts_token_count or 0
         return Usage(
@@ -877,6 +926,7 @@ class GeminiReactGenerator(ReactGenerator):
             output_tokens=candidates_tokens + reasoning_tokens,
             cached_input_tokens=usage_metadata.cached_content_token_count or 0,
             reasoning_tokens=reasoning_tokens,
+            model_name=model_name,
         )
 
 
@@ -1021,24 +1071,19 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
         return True
 
     @override
-    async def get_react_generator(self, hints: ReactGeneratorHints = {}) -> ReactGenerator:
-        model = {
-            ModelSize.NANO: "gemini-3.1-flash-lite",
-            ModelSize.MINI: "gemini-2.5-flash",
-            ModelSize.LARGE: "gemini-2.5-pro",
-        }.get(hints.get("model_size", ModelSize.AUTO), "gemini-3.1-flash-lite")
-        return GeminiReactGenerator(model=model, logger=self.logger)
+    async def get_react_generator(self) -> ReactGenerator:
+        return GeminiReactGenerator(logger=self.logger)
 
     @override
     async def get_schematic_generator(
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> GeminiSchematicGenerator[T]:
         match hints.get("model_size", ModelSize.AUTO):
-            case ModelSize.NANO:
+            case ModelSize.SMALL:
                 return Gemini_3_1_Flash_Lite[t](  # type: ignore
                     self.logger, self._tracer, self._meter, self._health_reporter
                 )
-            case ModelSize.MINI:
+            case ModelSize.MEDIUM:
                 return Gemini_3_1_Flash_Lite[t](  # type: ignore
                     self.logger, self._tracer, self._meter, self._health_reporter
                 )

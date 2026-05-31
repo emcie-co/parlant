@@ -257,7 +257,7 @@ class PromptBuilder:
             self.add_section(
                 name=BuiltInSection.AGENT_IDENTITY,
                 template="""
-You are an AI agent named {agent_name}.
+## You are an AI agent named {agent_name}.
 
 The following is a description of your background and personality: ###
 {agent_description}
@@ -280,7 +280,7 @@ The following is a description of your background and personality: ###
         self.add_section(
             name=BuiltInSection.CUSTOMER_IDENTITY,
             template="""
-The user you're interacting with is called {customer_name}.
+## The user you're interacting with is called {customer_name}.
 """,
             props={
                 "customer_name": customer.name,
@@ -489,18 +489,6 @@ If none of the capabilities address the current request of the customer - DO NOT
                 props={"capabilities_string": capabilities_string},
                 status=SectionStatus.ACTIVE,
             )
-        else:
-            self.add_section(
-                name=BuiltInSection.CAPABILITIES,
-                template="""
-When evaluating guidelines, you may sometimes be given capabilities to assist the customer beyond those dictated through guidelines.
-However, in this case, no capabilities relevant to the current state of the conversation were found, besides the ones potentially listed in other sections of this prompt.
-
-
-""",
-                props={},
-                status=SectionStatus.ACTIVE,
-            )
 
         return self
 
@@ -604,6 +592,8 @@ you don't need to specifically double-check if you followed or broke any guideli
         agent_intention_guidelines_list = "\n".join(agent_intention_guidelines)
 
         guideline_instruction = """
+## EXTREMELY IMPORTANT - GUIDELINES YOU MUST FOLLOW:
+
 When crafting your reply, you must follow the behavioral guidelines provided below, which have been identified as relevant to the current state of the interaction.
     """
         if agent_intention_guidelines_list:

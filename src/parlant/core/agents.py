@@ -401,7 +401,7 @@ class AgentDocumentStore(AgentStore):
     ) -> Agent:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
-            max_engine_iterations = max_engine_iterations or 3
+            max_engine_iterations = max_engine_iterations or 5
 
             # Use provided ID or generate one
             if id is not None:

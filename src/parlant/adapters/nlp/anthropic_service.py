@@ -41,7 +41,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backt
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.tracer import Tracer
 from parlant.core.meter import Meter
-from parlant.core.nlp.embedding import Embedder
+from parlant.core.nlp.embedding import Embedder, EmbedderHints
 from parlant.core.nlp.generation import (
     T,
     BaseSchematicGenerator,
@@ -52,10 +52,8 @@ from parlant.core.loggers import Logger
 from parlant.core.nlp.moderation import ModerationService, NoModeration
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.service import (
-    EmbedderHints,
     ModelSize,
     NLPService,
-    ReactGeneratorHints,
     SchematicGeneratorHints,
     StreamingTextGeneratorHints,
 )
@@ -66,6 +64,7 @@ from parlant.core.nlp.react import (
     FinishReason,
     Message,
     ReactGenerator,
+    ReactGeneratorHints,
     ReasoningConfig,
     ReasoningPart,
     Role,
@@ -334,7 +333,25 @@ class AnthropicReactGenerator(ReactGenerator):
     """
 
     _ROLE = {Role.USER: "user", Role.ASSISTANT: "assistant", Role.TOOL: "user"}
-    _DEFAULT_THINKING_BUDGET = 1024
+
+    # Maps ``ReasoningConfig.effort`` to a thinking-token budget for *manual*
+    # thinking mode (Sonnet 4.5 / Haiku 4.5). ``"minimal"`` means "no thinking" —
+    # the adapter skips the ``thinking`` block entirely so the model runs in
+    # standard mode with zero thinking tokens spent.
+    _EFFORT_TO_BUDGET: dict[str, int] = {
+        "minimal": 0,  # sentinel — skip thinking block
+        "low": 2048,
+        "medium": 8192,
+        "high": 16384,
+    }
+
+    # Mapping from canonical ModelSize to a concrete Anthropic model id, used
+    # to resolve per-call ``hints`` overrides on ``_encode``.
+    _MODEL_BY_SIZE: dict[ModelSize, str] = {
+        ModelSize.SMALL: "claude-haiku-4-5-20251001",
+        ModelSize.MEDIUM: "claude-sonnet-4-6",
+        ModelSize.LARGE: "claude-opus-4-8",
+    }
 
     def __init__(
         self,
@@ -357,6 +374,12 @@ class AnthropicReactGenerator(ReactGenerator):
     def id(self) -> str:
         return f"anthropic/{self.model}"
 
+    def _resolve_model(self, hints: ReactGeneratorHints) -> str:
+        """Return the model id for this call, applying ``hints['model_size']``
+        if present (falling back to the generator's default)."""
+        size = hints.get("model_size", ModelSize.AUTO)
+        return self._MODEL_BY_SIZE.get(size, self.model)
+
     # ---- provider seam -----------------------------------------------------
 
     @override
@@ -367,6 +390,7 @@ class AnthropicReactGenerator(ReactGenerator):
         tool_choice: ToolChoice,
         *,
         reasoning: ReasoningConfig,
+        hints: ReactGeneratorHints = {},
     ) -> dict[str, Any]:
         system_chunks: list[str] = []
 
@@ -390,8 +414,9 @@ class AnthropicReactGenerator(ReactGenerator):
         ]
 
         max_tokens = self._max_tokens
+        resolved_model = self._resolve_model(hints)
         request: dict[str, Any] = {
-            "model": self.model,
+            "model": resolved_model,
             "max_tokens": max_tokens,
             "messages": messages,
         }
@@ -411,26 +436,52 @@ class AnthropicReactGenerator(ReactGenerator):
             request["tools"] = [self._encode_tool(spec) for spec in tools]
             request["tool_choice"] = self._encode_tool_choice(tool_choice)
 
-        if reasoning.enabled:
-            budget = reasoning.budget_tokens or self._DEFAULT_THINKING_BUDGET
-            # Claude 4 only ever returns a SUMMARY of its thinking (it is billed
-            # the full thinking tokens). `display` is the one visibility knob:
-            # "omitted" reasons internally without returning the block;
-            # "summarized" returns the summary. There is no verbatim option, so
-            # "full" maps to "summarized" (the closest Anthropic offers).
-            display = "omitted" if reasoning.visibility == "none" else "summarized"
-            request["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": budget,
-                "display": display,
-            }
-            # Anthropic requires max_tokens > budget_tokens; leave headroom for
-            # the visible answer after the thinking budget.
-            request["max_tokens"] = max(max_tokens, budget + 2048)
-            # NOTE: thinking is rejected by Anthropic alongside a forced
-            # tool_choice ("any"/"tool"); callers must use "auto" with reasoning.
+        # Claude 4 only ever returns a SUMMARY of its thinking (it is billed
+        # the full thinking tokens). ``display`` is the visibility knob:
+        # "omitted" reasons internally without returning the block; "summarized"
+        # returns the summary. There is no verbatim option, so "full" maps to
+        # "summarized" (the closest Anthropic offers).
+        display = "omitted" if reasoning.visibility == "none" else "summarized"
+
+        if self._uses_adaptive_thinking(resolved_model):
+            # Opus 4.6+/4.7+ exclusively use adaptive thinking — they never run
+            # without a thinking block, so "minimal" maps to the lowest level
+            # rather than disabling. Effort routes through ``output_config``.
+            request["thinking"] = {"type": "adaptive", "display": display}
+            request["output_config"] = {"effort": self._map_effort(reasoning.effort)}
+        else:
+            # Sonnet 4.5 / Haiku 4.5 use manual budgeted thinking. "minimal"
+            # means "no thinking" — skip the block entirely so the model runs
+            # in standard mode with zero thinking tokens spent.
+            budget = self._EFFORT_TO_BUDGET[reasoning.effort]
+            if budget > 0:
+                request["thinking"] = {
+                    "type": "enabled",
+                    "budget_tokens": budget,
+                    "display": display,
+                }
+                # Anthropic requires max_tokens > budget_tokens; leave headroom
+                # for the visible answer after the thinking budget.
+                request["max_tokens"] = max(max_tokens, budget + 2048)
+        # NOTE: a ``thinking`` block is rejected by Anthropic alongside a
+        # forced ``tool_choice`` ("any"/"tool"); callers must use "auto" when
+        # effort > "minimal" on Sonnet/Haiku or on any Opus 4.6+ call.
 
         return request
+
+    @staticmethod
+    def _uses_adaptive_thinking(model: str) -> bool:
+        """Opus 4.x exclusively uses adaptive thinking (4.7+ rejects ``enabled``
+        outright; 4.5/4.6 deprecate it). Sonnet and Haiku 4.5 still use the
+        manual ``enabled`` shape."""
+        return model.startswith("claude-opus-4")
+
+    @staticmethod
+    def _map_effort(effort: str) -> str:
+        """Map ``ReasoningConfig.effort`` to Anthropic's adaptive effort levels
+        ("low" | "medium" | "high"). Adaptive thinking can't be disabled, so
+        our ``"minimal"`` collapses to ``"low"``."""
+        return "low" if effort == "minimal" else effort
 
     def _encode_message(self, message: Message, *, cache: bool) -> dict[str, Any]:
         blocks = self._encode_blocks(message)
@@ -574,11 +625,11 @@ class AnthropicReactGenerator(ReactGenerator):
                     provider_data={ANTHROPIC_BLOCK_KEY: raw_block},
                 )
 
-        builder.usage = self._decode_usage(message.usage)
+        builder.usage = self._decode_usage(message.usage, getattr(message, "model", "") or "")
         builder.finish_reason = self._map_finish_reason(message.stop_reason)
         return []
 
-    def _decode_usage(self, usage: Any) -> Usage:
+    def _decode_usage(self, usage: Any, model_name: str) -> Usage:
         cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
         cache_creation = getattr(usage, "cache_creation_input_tokens", 0) or 0
         return Usage(
@@ -588,6 +639,7 @@ class AnthropicReactGenerator(ReactGenerator):
             output_tokens=usage.output_tokens or 0,  # includes thinking tokens
             cached_input_tokens=cache_read,
             reasoning_tokens=0,  # Anthropic does not report thinking tokens separately
+            model_name=model_name,
         )
 
     def _map_finish_reason(self, stop_reason: Optional[str]) -> FinishReason:
@@ -642,13 +694,8 @@ Please set ANTHROPIC_API_KEY in your environment before running Parlant.
         return True
 
     @override
-    async def get_react_generator(self, hints: ReactGeneratorHints = {}) -> ReactGenerator:
-        model = {
-            ModelSize.NANO: "claude-haiku-4-5-20251001",
-            ModelSize.MINI: "claude-sonnet-4-6",
-            ModelSize.LARGE: "claude-opus-4-7",
-        }.get(hints.get("model_size", ModelSize.AUTO), "claude-haiku-4-5-20251001")
-        return AnthropicReactGenerator(model=model, logger=self.logger)
+    async def get_react_generator(self) -> ReactGenerator:
+        return AnthropicReactGenerator(logger=self.logger, cache=CacheConfig(enabled=True))
 
     @override
     async def get_schematic_generator(

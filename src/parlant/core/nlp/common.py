@@ -12,24 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import asdict, dataclass
-import json
-from typing import Mapping, Optional
+from enum import IntEnum
+from typing_extensions import Literal, TypeAlias
 
 
-@dataclass(frozen=True)
-class UsageInfo:
-    input_tokens: int
-    output_tokens: int
-    extra: Optional[Mapping[str, int | float | str]] = None
-
-    def __repr__(self) -> str:
-        return json.dumps(asdict(self), indent=2)
+class ModelSize(IntEnum):
+    SMALL = 0
+    MEDIUM = 1
+    LARGE = 2
+    AUTO = 99
 
 
-@dataclass(frozen=True)
-class GenerationInfo:
-    schema_name: str
-    model: str
-    duration: float
-    usage: UsageInfo
+ModelGeneration: TypeAlias = Literal["auto", "stable", "latest"]
+
+ModelType: TypeAlias = Literal["auto", "standard", "reasoning"]

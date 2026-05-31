@@ -1,24 +1,21 @@
 import asyncio
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from io import StringIO
 from typing import cast
 
-from parlant.core.agents import CompositionMode
-from parlant.core.emissions import EmittedEvent, MessageEventHandle, StatusEventHandle
-from parlant.core.engines.alpha.message_event_composer import MessageEventComposition
-from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.emissions import MessageEventHandle, StatusEventHandle
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.engines.engine_context import EngineContext, IterationState
-from parlant.core.engines.sigma.responder.base_responder import BaseResponder
-from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
+from parlant.core.engines.sigma.loop.loop import Loop, LoopJob, LoopResult
+from parlant.core.nlp.common import ModelSize
 from parlant.core.nlp.react import (
     Message,
     ParameterSpec,
-    ReasoningConfig,
     ReasoningDelta,
     Role,
     StepCompleted,
+    StepResult,
     StreamEvent,
     TextDelta,
     TextPart,
@@ -39,9 +36,12 @@ from parlant.core.sessions import (
 
 @dataclass
 class _ResponseState:
+    start_time: float = field(default_factory=asyncio.get_event_loop().time)
+
     current_event: StreamEvent | None = None
 
     history: list[Message] = field(default_factory=list)
+    in_the_middle_of_running_tools: bool = False
 
     reasoning_handle: StatusEventHandle | None = None
     reasoning_buffer: StringIO | None = None
@@ -51,25 +51,24 @@ class _ResponseState:
     message_buffer: StringIO | None = None
     message_chunks: list[str | None] = field(default_factory=list)
 
-    message_events: list[EmittedEvent] = field(default_factory=list)
-    generation_info: Mapping[str, GenerationInfo] = field(default_factory=dict)
-
-    running_tools: bool = False
+    steps: list[StepResult] = field(default_factory=list)
 
 
-class StreamingResponder(BaseResponder):
-    async def do_respond(self, context: EngineContext) -> Sequence[MessageEventComposition]:
-        state = _ResponseState(history=self._build_history(context))
+class StreamingLoop(Loop):
+    async def run(self, job: LoopJob) -> LoopResult:
+        context, prompt = job.context, job.prompt
+
+        state = _ResponseState(history=self._build_history(context, prompt))
 
         while not context.state.prepared_to_respond:
             async for event in self._react.stream_step(
                 history=state.history,
                 tools=await self._get_tools(context),
                 tool_choice="auto",
-                reasoning=self._get_reasoning_config(context),
+                reasoning=job.reasoning_config,
+                hints={"model_size": job.model_size},
             ):
                 await self._on_new_event(state, event)
-
                 await self._update_reasoning(context, state)
                 await self._update_tool_calls(context, state)
                 await self._update_message(context, state)
@@ -93,13 +92,7 @@ class StreamingResponder(BaseResponder):
             data=StatusEventData(status="ready", data={"stage": "completed"}),
         )
 
-        # TODO: we need to return generation info from react generator
-        return [
-            MessageEventComposition(
-                generation_info=state.generation_info,
-                events=state.message_events,
-            )
-        ]
+        return LoopResult(prompt=prompt, steps=state.steps)
 
     async def _get_tools(self, context: EngineContext) -> list[ToolSpec]:
         return [
@@ -116,19 +109,13 @@ class StreamingResponder(BaseResponder):
             )
         ]
 
-    def _get_reasoning_config(self, context: EngineContext) -> ReasoningConfig:
-        return ReasoningConfig(
-            enabled=True,
-            budget_tokens=8192,
-            effort="medium",
-            visibility="summary",
-        )
-
     async def _on_new_event(self, state: _ResponseState, event: StreamEvent) -> None:
         state.current_event = event
 
         if isinstance(event, StepCompleted):
             state.history.append(event.result.message)
+            state.steps.append(event.result)
+            self._logger.info(f"{self.__class__.__name__} step usage:\n {event.result.usage}")
 
     async def _update_reasoning(self, context: EngineContext, state: _ResponseState) -> None:
         match state.current_event:
@@ -191,13 +178,13 @@ class StreamingResponder(BaseResponder):
     async def _update_tool_calls(self, context: EngineContext, state: _ResponseState) -> None:
         match state.current_event:
             case ToolCallStarted():
-                if not state.running_tools:
+                if not state.in_the_middle_of_running_tools:
                     await context.session_event_emitter.emit_status_event(
                         trace_id=context.tracer.trace_id,
                         data=StatusEventData(status="processing", message="Evaluating tools"),
                     )
 
-                state.running_tools = True
+                state.in_the_middle_of_running_tools = True
             case StepCompleted(result=result) if result.needs_tools:
                 if len(result.tool_calls) > 2:
                     await context.session_event_emitter.emit_status_event(
@@ -217,7 +204,7 @@ class StreamingResponder(BaseResponder):
 
                 await self._simulate_tool_calls(context, state, result.tool_calls)
             case _:
-                state.running_tools = False
+                state.in_the_middle_of_running_tools = False
 
     async def _simulate_tool_calls(
         self, context: EngineContext, state: _ResponseState, tool_calls: Sequence[ToolCallPart]
@@ -293,22 +280,89 @@ class StreamingResponder(BaseResponder):
                     )
                 )
 
-                # FIXME: This should come from the generator itself
-                generation_info = GenerationInfo(
-                    schema_name="react",
-                    model="",
-                    duration=0.0,
-                    usage=UsageInfo(input_tokens=0, output_tokens=0),
-                )
-
-                tbd = "react"
-
-                state.generation_info = {tbd: generation_info}
-                state.message_events = [state.message_handle.event]
-
                 if not result.needs_tools:
                     context.state.prepared_to_respond = True
 
                 state.message_buffer = None
                 state.message_chunks = []
                 state.message_handle = None
+
+    def _get_model_size(self, context: EngineContext, state: _ResponseState) -> ModelSize:
+        return ModelSize.MEDIUM
+
+    def _build_history(self, context: EngineContext, prompt: str) -> list[Message]:
+        cache_key = context.session.id
+
+        system_message = Message(
+            role=Role.SYSTEM,
+            cache_key=cache_key,
+            parts=[TextPart(text=prompt)],
+        )
+
+        history = [system_message]
+
+        for event in context.interaction.events:
+            if event.kind == EventKind.MESSAGE and event.source == EventSource.CUSTOMER:
+                history.append(
+                    Message(
+                        role=Role.USER,
+                        cache_key=cache_key,
+                        parts=[TextPart(text=cast(MessageEventData, event.data)["message"])],
+                    )
+                )
+            elif event.source == EventSource.CUSTOMER_UI:
+                history.append(
+                    Message(
+                        role=Role.USER,
+                        cache_key=cache_key,
+                        parts=[TextPart(text=f"[Customer UI Event]: {event.data}")],
+                    )
+                )
+            elif event.kind == EventKind.MESSAGE and event.source in (
+                EventSource.AI_AGENT,
+                EventSource.HUMAN_AGENT_ON_BEHALF_OF_AI_AGENT,
+            ):
+                history.append(
+                    Message(
+                        role=Role.ASSISTANT,
+                        cache_key=cache_key,
+                        parts=[TextPart(text=cast(MessageEventData, event.data)["message"])],
+                    )
+                )
+            elif event.source == EventSource.HUMAN_AGENT:
+                message_data = cast(MessageEventData, event.data)
+
+                history.append(
+                    Message(
+                        role=Role.ASSISTANT,
+                        cache_key=cache_key,
+                        parts=[
+                            TextPart(
+                                text=f"[Intervention by human agent. Name: {message_data['participant']['display_name']}]: {message_data['message']}"
+                            )
+                        ],
+                    )
+                )
+            elif event.kind == EventKind.TOOL and event.source == EventSource.SYSTEM:
+                call_id = 0
+
+                for call in cast(ToolEventData, event.data)["tool_calls"]:
+                    call_id += 1
+                    is_error = "error_details" in call.get("result", {}).get("metadata", {})
+
+                    history.append(
+                        Message(
+                            role=Role.TOOL,
+                            cache_key=cache_key,
+                            parts=[
+                                ToolResultPart(
+                                    call_id=str(call_id),
+                                    name=call["tool_id"],
+                                    content=call["result"].get("data", {}),
+                                    is_error=is_error,
+                                )
+                            ],
+                        )
+                    )
+
+        return history

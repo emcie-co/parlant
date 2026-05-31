@@ -59,14 +59,12 @@ from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import (
-    EmbedderHints,
     ModelSize,
     NLPService,
-    ReactGeneratorHints,
     SchematicGeneratorHints,
     StreamingTextGeneratorHints,
 )
-from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
+from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbedderHints, EmbeddingResult
 from parlant.core.nlp.generation import (
     T,
     BaseSchematicGenerator,
@@ -87,6 +85,7 @@ from parlant.core.nlp.react import (
     FinishReason,
     Message,
     ReactGenerator,
+    ReactGeneratorHints,
     ReasoningConfig,
     Role,
     StreamEvent,
@@ -874,9 +873,23 @@ class OpenAIReactGenerator(ReactGenerator):
         self._logger = logger
         self._client = client or AsyncClient(api_key=api_key or os.environ.get("OPENAI_API_KEY"))
 
+    # Mapping from canonical ModelSize to a concrete OpenAI model id, used to
+    # resolve per-call ``hints`` overrides on ``_encode``.
+    _MODEL_BY_SIZE: dict[ModelSize, str] = {
+        ModelSize.SMALL: "gpt-5.4-nano",
+        ModelSize.MEDIUM: "gpt-5.4-mini",
+        ModelSize.LARGE: "gpt-5.4",
+    }
+
     @property
     def id(self) -> str:
         return f"openai/{self.model}"
+
+    def _resolve_model(self, hints: ReactGeneratorHints) -> str:
+        """Return the model id for this call, applying ``hints['model_size']``
+        if present (falling back to the generator's default)."""
+        size = hints.get("model_size", ModelSize.AUTO)
+        return self._MODEL_BY_SIZE.get(size, self.model)
 
     # ---- provider seam -----------------------------------------------------
 
@@ -888,6 +901,7 @@ class OpenAIReactGenerator(ReactGenerator):
         tool_choice: ToolChoice,
         *,
         reasoning: ReasoningConfig,
+        hints: ReactGeneratorHints = {},
     ) -> dict[str, Any]:
         instruction_chunks: list[str] = []
         input_items: list[dict[str, Any]] = []
@@ -907,7 +921,7 @@ class OpenAIReactGenerator(ReactGenerator):
             input_items.extend(self._encode_message(message))
 
         request: dict[str, Any] = {
-            "model": self.model,
+            "model": self._resolve_model(hints),
             "input": input_items,
             "instructions": "\n\n".join(chunk for chunk in instruction_chunks if chunk) or None,
         }
@@ -916,10 +930,12 @@ class OpenAIReactGenerator(ReactGenerator):
             request["tools"] = [self._encode_tool(spec) for spec in tools]
             request["tool_choice"] = self._encode_tool_choice(tool_choice)
 
-        if reasoning.enabled:
-            request["reasoning"] = self._encode_reasoning(reasoning)
-            # Needed so reasoning items can be replayed in a stateless request.
-            request["include"] = ["reasoning.encrypted_content"]
+        # Always emit the reasoning block — the depth is controlled by ``effort``
+        # and OpenAI's ``"minimal"`` is the canonical "as little as possible"
+        # level. ``include`` is needed so reasoning items round-trip verbatim
+        # across stateless calls.
+        request["reasoning"] = self._encode_reasoning(reasoning)
+        request["include"] = ["reasoning.encrypted_content"]
 
         if cache_key is not None:
             # OpenAI's prefix caching is automatic; the key is only a routing hint.
@@ -1012,10 +1028,9 @@ class OpenAIReactGenerator(ReactGenerator):
         return tool_choice  # "auto" | "none" | "required"
 
     def _encode_reasoning(self, reasoning: ReasoningConfig) -> dict[str, Any]:
-        # NOTE: ReasoningConfig.budget_tokens has no effect here. The Responses
-        # API controls reasoning depth via `effort` tiers, not a token budget
-        # (only Gemini honors budget_tokens). It is intentionally ignored, the
-        # same way CacheConfig.ttl is a no-op for OpenAI's automatic caching.
+        # OpenAI's Responses API controls reasoning depth via ``effort`` tiers,
+        # which already include a native ``"minimal"`` level — so the canonical
+        # mapping is identity.
         config: dict[str, Any] = {"effort": reasoning.effort}
         summary = {"none": None, "summary": "auto", "full": "detailed"}[reasoning.visibility]
         if summary is not None:
@@ -1074,15 +1089,15 @@ class OpenAIReactGenerator(ReactGenerator):
 
         if event_type == "response.completed":
             response = raw_event.response
-            builder.usage = self._decode_usage(response.usage)
+            builder.usage = self._decode_usage(response.usage, getattr(response, "model", "") or "")
             builder.finish_reason = self._map_finish_reason(response)
             return []
 
         return []
 
-    def _decode_usage(self, usage: Any) -> Usage:
+    def _decode_usage(self, usage: Any, model_name: str) -> Usage:
         if usage is None:
-            return Usage()
+            return Usage(model_name=model_name)
         output_details = usage.output_tokens_details
         input_details = usage.input_tokens_details
         return Usage(
@@ -1091,6 +1106,7 @@ class OpenAIReactGenerator(ReactGenerator):
             output_tokens=usage.output_tokens or 0,
             cached_input_tokens=(input_details.cached_tokens if input_details else 0) or 0,
             reasoning_tokens=(output_details.reasoning_tokens if output_details else 0) or 0,
+            model_name=model_name,
         )
 
     def _map_finish_reason(self, response: Any) -> FinishReason:
@@ -1152,13 +1168,8 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
         return True
 
     @override
-    async def get_react_generator(self, hints: ReactGeneratorHints = {}) -> ReactGenerator:
-        model = {
-            ModelSize.NANO: "gpt-5.4-nano",
-            ModelSize.MINI: "gpt-5.4-mini",
-            ModelSize.LARGE: "gpt-5.4",
-        }.get(hints.get("model_size", ModelSize.AUTO), "gpt-5.4-nano")
-        return OpenAIReactGenerator(model=model, logger=self._logger)
+    async def get_react_generator(self) -> ReactGenerator:
+        return OpenAIReactGenerator(logger=self._logger)
 
     @override
     async def get_schematic_generator(
@@ -1179,7 +1190,7 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
                 }.get(t, GPT_4o_24_08_06[t])(  # type: ignore
                     self._logger, self._tracer, self._meter, self._health_reporter
                 )
-            case ModelSize.NANO:
+            case ModelSize.SMALL:
                 match hints.get("model_generation", "auto"):
                     case "auto" | "stable":
                         match hints.get("model_type", "auto"):
@@ -1201,7 +1212,7 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
                                 return GPT_5_Nano[t](  # type: ignore
                                     self._logger, self._tracer, self._meter, self._health_reporter
                                 )
-            case ModelSize.MINI:
+            case ModelSize.MEDIUM:
                 match hints.get("model_generation", "auto"):
                     case "auto" | "stable":
                         match hints.get("model_type", "auto"):

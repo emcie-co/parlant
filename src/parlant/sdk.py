@@ -5022,7 +5022,7 @@ class Server:
         ).create_agent(
             name=name,
             description=description,
-            max_engine_iterations=max_engine_iterations or 3,
+            max_engine_iterations=max_engine_iterations or 5,
             composition_mode=composition_mode.value,
             message_output_mode=output_mode,
             engine=engine,

@@ -180,24 +180,42 @@ def test_that_encode_maps_tool_choice(
     assert config.allowed_function_names == expected_allowed
 
 
-def test_that_encode_emits_thinking_config_only_when_reasoning_enabled(
+def test_that_encode_maps_effort_to_a_thinking_level_on_gemini_3x(
     gemini: GeminiReactGenerator,
 ) -> None:
-    # Reasoning is per-call: a disabled config emits no thinking_config...
-    disabled = gemini._encode([], [], "auto", reasoning=ReasoningConfig())
-    assert disabled["thinking_config"] is None
+    # The default ``gemini`` fixture uses a 3.x model — ``effort`` is mapped
+    # through ``thinking_level``. 3.x cannot fully disable thinking, so
+    # ``"minimal"`` collapses to ``ThinkingLevel.MINIMAL``.
+    minimal = gemini._encode([], [], "auto", reasoning=ReasoningConfig(effort="minimal"))
+    assert minimal["thinking_config"].thinking_level == google.genai.types.ThinkingLevel.MINIMAL
 
-    # ...while an enabled one does.
-    enabled = gemini._encode(
-        [],
-        [],
-        "auto",
-        reasoning=ReasoningConfig(enabled=True, budget_tokens=2048, visibility="summary"),
+    medium = gemini._encode(
+        [], [], "auto", reasoning=ReasoningConfig(effort="medium", visibility="summary")
     )
-    thinking = enabled["thinking_config"]
+    thinking = medium["thinking_config"]
     assert thinking is not None
     assert thinking.include_thoughts is True
-    assert thinking.thinking_budget == 2048
+    assert thinking.thinking_level == google.genai.types.ThinkingLevel.MEDIUM
+
+
+def test_that_encode_maps_effort_to_a_thinking_budget_on_gemini_25(logger: Logger) -> None:
+    # Explicitly build a 2.5-model generator to exercise the budget ladder
+    # (``"minimal"`` → ``thinking_budget=0`` is the documented "off" switch on
+    # Gemini 2.5 flash / flash-lite).
+    generator = GeminiReactGenerator(
+        logger=logger, model="gemini-2.5-flash", client=google.genai.Client(api_key="offline")
+    )
+
+    minimal = generator._encode([], [], "auto", reasoning=ReasoningConfig(effort="minimal"))
+    assert minimal["thinking_config"].thinking_budget == 0
+
+    medium = generator._encode(
+        [], [], "auto", reasoning=ReasoningConfig(effort="medium", visibility="summary")
+    )
+    thinking = medium["thinking_config"]
+    assert thinking is not None
+    assert thinking.include_thoughts is True
+    assert thinking.thinking_budget == generator._EFFORT_TO_BUDGET_25["medium"]
 
 
 def _offline_generator(logger: Logger, cache: CacheConfig | None = None) -> GeminiReactGenerator:
@@ -410,7 +428,7 @@ async def test_that_live_e2e_streams_thoughts_and_runs_tools_to_a_final_answer(
     opportunistically while the reasoning spend is asserted.
     """
     generator = _live_generator(logger)
-    reasoning = ReasoningConfig(enabled=True, budget_tokens=4096, visibility="summary")
+    reasoning = ReasoningConfig(visibility="summary")
 
     async def dispatch(call: ToolCallPart) -> ToolResultPart:
         assert call.name == "get_weather"
@@ -515,7 +533,7 @@ async def test_that_live_gemini_streams_a_visible_thought_summary(logger: Logger
     completed: StepResult | None = None
     async for event in generator.stream_step(
         [Message(role=Role.USER, parts=[TextPart(text=prompt)])],
-        reasoning=ReasoningConfig(enabled=True, budget_tokens=8192, visibility="summary"),
+        reasoning=ReasoningConfig(visibility="summary"),
     ):
         if isinstance(event, ReasoningDelta):
             streamed_reasoning.append(event.text)
@@ -662,7 +680,7 @@ async def test_that_live_gemini_reports_reasoning_when_enabled(logger: Logger) -
                 ],
             )
         ],
-        reasoning=ReasoningConfig(enabled=True, budget_tokens=2048, visibility="summary"),
+        reasoning=ReasoningConfig(visibility="summary"),
     )
 
     assert "80" in result.message.text

@@ -13,25 +13,25 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
-from enum import IntEnum
-from typing_extensions import TypedDict, NotRequired, TypeAlias, Literal
+from typing_extensions import TypedDict, NotRequired
 
-from parlant.core.nlp.embedding import Embedder
+from parlant.core.nlp.common import ModelGeneration, ModelSize, ModelType
+from parlant.core.nlp.embedding import Embedder, EmbedderHints
 from parlant.core.nlp.generation import T, SchematicGenerator, StreamingTextGenerator
 from parlant.core.nlp.moderation import ModerationService
 from parlant.core.nlp.react import ReactGenerator
 
-
-class ModelSize(IntEnum):
-    NANO = 0
-    MINI = 1
-    LARGE = 2
-    AUTO = 99
-
-
-ModelGeneration: TypeAlias = Literal["auto", "stable", "latest"]
-
-ModelType: TypeAlias = Literal["auto", "standard", "reasoning"]
+# Re-exports for backward compatibility — these symbols moved to dedicated
+# modules but historically lived here.
+__all__ = [
+    "EmbedderHints",
+    "ModelGeneration",
+    "ModelSize",
+    "ModelType",
+    "NLPService",
+    "SchematicGeneratorHints",
+    "StreamingTextGeneratorHints",
+]
 
 
 class SchematicGeneratorHints(TypedDict, total=False):
@@ -43,16 +43,6 @@ class SchematicGeneratorHints(TypedDict, total=False):
 class StreamingTextGeneratorHints(TypedDict, total=False):
     model_size: NotRequired[ModelSize]
     model_generation: NotRequired[ModelGeneration]
-
-
-class ReactGeneratorHints(TypedDict, total=False):
-    model_size: NotRequired[ModelSize]
-    model_generation: NotRequired[ModelGeneration]
-    model_type: NotRequired[ModelType]
-
-
-class EmbedderHints(TypedDict, total=False):
-    model_size: NotRequired[ModelSize]
 
 
 class NLPService(ABC):
@@ -88,8 +78,13 @@ class NLPService(ABC):
         """
         ...
 
-    async def get_react_generator(self, hints: ReactGeneratorHints = {}) -> ReactGenerator:
+    async def get_react_generator(self) -> ReactGenerator:
         """Return a ReAct-style generator.
+
+        Per-call model selection is done via the ``hints`` argument on
+        :meth:`ReactGenerator.step` / :meth:`ReactGenerator.stream_step` /
+        :meth:`ReactGenerator.run`; the generator itself is not bound to a size
+        at construction time.
 
         Raises:
             NotImplementedError: If ReAct is not supported (supports_react is False).

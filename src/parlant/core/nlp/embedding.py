@@ -21,10 +21,11 @@ import json
 import zlib
 from lagom import Container
 from typing import Any, Callable, Optional, Mapping, Sequence, TypedDict, cast
-from typing_extensions import override
+from typing_extensions import NotRequired, override
 
 from parlant.core.async_utils import Stopwatch
 from parlant.core.common import Version
+from parlant.core.nlp.common import ModelSize
 from parlant.core.health import (
     NLP_EMBED_KIND,
     NLP_REQUESTS_COUNTER,
@@ -41,6 +42,10 @@ from parlant.core.persistence.document_database import (
     DocumentDatabase,
 )
 from parlant.core.tracer import Tracer
+
+
+class EmbedderHints(TypedDict, total=False):
+    model_size: NotRequired[ModelSize]
 
 
 @dataclass(frozen=True)

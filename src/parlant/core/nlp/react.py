@@ -63,6 +63,7 @@ Manual step loop (the caller controls tool execution and may edit history)::
 import abc
 import asyncio
 import json
+import time
 from dataclasses import dataclass, field
 from datetime import timedelta
 from enum import Enum
@@ -77,6 +78,15 @@ from typing import (
     Sequence,
     Union,
 )
+from typing_extensions import NotRequired, TypedDict
+
+from parlant.core.nlp.common import ModelGeneration, ModelSize, ModelType
+
+
+class ReactGeneratorHints(TypedDict, total=False):
+    model_size: NotRequired[ModelSize]
+    model_generation: NotRequired[ModelGeneration]
+    model_type: NotRequired[ModelType]
 
 
 # ───────────────────────────── canonical message model ─────────────────────
@@ -264,17 +274,22 @@ ToolChoice = Union[Literal["auto", "none", "required"], Mapping[str, str]]
 
 @dataclass(kw_only=True)
 class ReasoningConfig:
-    """Reasoning/thinking knobs, mapped per provider in ``_encode``.
+    """Provider-neutral reasoning knobs, mapped per provider in ``_encode``.
 
-    Anthropic -> ``thinking={"type": "enabled", "budget_tokens": budget_tokens}``
-    OpenAI    -> ``reasoning={"effort": effort, "summary": "auto"}``
-    Gemini    -> ``thinking_config(include_thoughts=True, thinking_budget=...)``
-                 on 2.5; 3.x keys ``thinking_level`` off ``effort``.
+    ``effort`` is the only depth control. ``"minimal"`` means "as little
+    reasoning as possible" and resolves to *off* on providers that support
+    disabling reasoning (Anthropic Sonnet/Haiku 4.5: no ``thinking`` block;
+    Gemini 2.5 flash/flash-lite: ``thinking_budget=0``; OpenAI: native
+    ``effort="minimal"``). On providers that can't be fully disabled (Anthropic
+    Opus 4.6+ adaptive; Gemini 3.x), it routes to the lowest available level.
+
+    ``visibility`` is what the caller sees of the model's reasoning. It is
+    orthogonal to ``effort``: visibility is what comes BACK, effort is what
+    happens server-side. ``"none"`` requests omission of any returned reasoning
+    where the provider supports it.
     """
 
-    enabled: bool = False
     effort: Literal["minimal", "low", "medium", "high"] = "medium"
-    budget_tokens: Optional[int] = None
     visibility: Literal["none", "summary", "full"] = "summary"
 
 
@@ -316,20 +331,43 @@ class FinishReason(str, Enum):
 
 @dataclass(kw_only=True)
 class Usage:
-    """Token accounting for a step. Aggregate across steps with ``+``."""
+    """Token accounting for a step. Aggregate across steps with ``+``.
+
+    ``model_name`` records the concrete provider model id that produced the
+    usage (e.g. ``"claude-haiku-4-5-20251001"``, ``"gpt-5.4-nano"``,
+    ``"gemini-3.1-flash-lite"``). When summing usages from steps that ran on
+    different models, the LEFT operand's ``model_name`` wins; if it is empty,
+    the right operand's ``model_name`` is used.
+
+    ``ttft`` is the wall-clock time in seconds from the moment the provider
+    request is opened to the first content-bearing event (the first text,
+    reasoning, or tool-call signal). It is ``0.0`` when no first token was
+    observed (e.g. an empty response or a cancelled stream). When aggregating
+    usages across steps, ``__add__`` keeps the minimum non-zero ``ttft`` — that
+    is, the earliest "first token" of any step.
+    """
 
     input_tokens: int = 0
     output_tokens: int = 0
     cached_input_tokens: int = 0  # subset of input_tokens served from cache
     reasoning_tokens: int = 0  # subset of output_tokens spent on reasoning
+    model_name: str = ""
+    ttft: float = 0.0
 
     def __add__(self, other: "Usage") -> "Usage":
+        # Treat 0.0 as "unset": min of non-zero values, or 0.0 if both unset.
+        nonzero_ttfts = [t for t in (self.ttft, other.ttft) if t > 0.0]
         return Usage(
             input_tokens=self.input_tokens + other.input_tokens,
             output_tokens=self.output_tokens + other.output_tokens,
             cached_input_tokens=self.cached_input_tokens + other.cached_input_tokens,
             reasoning_tokens=self.reasoning_tokens + other.reasoning_tokens,
+            model_name=self.model_name or other.model_name,
+            ttft=min(nonzero_ttfts) if nonzero_ttfts else 0.0,
         )
+
+    def __repr__(self) -> str:
+        return json.dumps(self.__dict__, indent=2)
 
 
 @dataclass(kw_only=True)
@@ -506,12 +544,13 @@ class ReactGenerator(abc.ABC):
         tool_choice: ToolChoice,
         *,
         reasoning: ReasoningConfig,
+        hints: ReactGeneratorHints = {},
     ) -> Any:
         """Translate canonical history + tools into the provider request
         payload. MUST preserve every ``Part.provider_data`` / signature and
         emit the correct block/item type per part. The system prompt, if any, is
         a leading ``Role.SYSTEM`` message in ``history``; ``reasoning`` is per
-        call."""
+        call; ``hints`` lets callers override model selection per call."""
 
     @abc.abstractmethod
     def _raw_stream(self, request: Any) -> AsyncIterator[Any]:
@@ -537,6 +576,7 @@ class ReactGenerator(abc.ABC):
         *,
         tool_choice: ToolChoice = "auto",
         reasoning: Optional[ReasoningConfig] = None,
+        hints: Optional[ReactGeneratorHints] = None,
     ) -> AsyncIterator[StreamEvent]:
         """Run one inference, yielding normalized events; ends with
         :class:`StepCompleted` carrying the assembled :class:`StepResult`.
@@ -544,17 +584,30 @@ class ReactGenerator(abc.ABC):
         The system prompt, if any, is supplied as a leading ``Role.SYSTEM``
         message in ``history`` (the caller owns it). ``reasoning`` is per call so
         a single generator can serve many turns with different thinking settings.
+        ``hints`` may override the underlying model per call.
         """
         request = self._encode(
             history,
             tools,
             tool_choice,
             reasoning=reasoning or ReasoningConfig(),
+            hints=hints or {},
         )
         builder = TurnBuilder()
+        # TTFT measured from the moment we open the provider stream to the first
+        # content-bearing event (text, reasoning, or tool-call signal). Stays
+        # 0.0 if no first token arrives (empty / cancelled stream). We track it
+        # in a local and stamp it onto ``builder.usage`` *after* the stream loop
+        # so adapters' final ``builder.usage = self._decode_usage(...)`` assignment
+        # (which typically lands on the closing usage event) can't clobber it.
+        request_started_at = time.monotonic()
+        ttft: float = 0.0
         async for raw in self._raw_stream(request):
             for event in self._decode(raw, builder):
+                if ttft == 0.0 and isinstance(event, (TextDelta, ReasoningDelta, ToolCallStarted)):
+                    ttft = time.monotonic() - request_started_at
                 yield event
+        builder.usage.ttft = ttft
         yield StepCompleted(result=builder.finish())
 
     async def step(
@@ -564,11 +617,12 @@ class ReactGenerator(abc.ABC):
         *,
         tool_choice: ToolChoice = "auto",
         reasoning: Optional[ReasoningConfig] = None,
+        hints: Optional[ReactGeneratorHints] = None,
     ) -> StepResult:
         """Run one inference and return the assembled :class:`StepResult`."""
         result: Optional[StepResult] = None
         async for event in self.stream_step(
-            history, tools, tool_choice=tool_choice, reasoning=reasoning
+            history, tools, tool_choice=tool_choice, reasoning=reasoning, hints=hints
         ):
             if isinstance(event, StepCompleted):
                 result = event.result
@@ -584,6 +638,7 @@ class ReactGenerator(abc.ABC):
         max_steps: int = 20,
         tool_choice: ToolChoice = "auto",
         reasoning: Optional[ReasoningConfig] = None,
+        hints: Optional[ReactGeneratorHints] = None,
         on_step: Optional[StepHook] = None,
     ) -> Sequence[Message]:
         """Convenience ReAct loop.
@@ -601,7 +656,7 @@ class ReactGenerator(abc.ABC):
 
         for _ in range(max_steps):
             result = await self.step(
-                conversation, tools, tool_choice=tool_choice, reasoning=reasoning
+                conversation, tools, tool_choice=tool_choice, reasoning=reasoning, hints=hints
             )
             conversation.append(result.message)
 

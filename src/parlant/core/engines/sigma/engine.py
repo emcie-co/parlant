@@ -7,6 +7,7 @@ from parlant.core.engines.alpha.entity_context import EntityContext
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.engines.engine_context import EngineContext, Interaction, ResponseState
 from parlant.core.engines.sigma.responder import Responder
+from parlant.core.engines.sigma.task_runner import Task, TaskResult, TaskRunner
 from parlant.core.engines.types import Context, Engine, UtteranceRequest
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.loggers import Logger
@@ -21,12 +22,14 @@ class SigmaEngine(Engine):
         tracer: Tracer,
         meter: Meter,
         responder: Responder,
+        task_runner: TaskRunner,
         entity_queries: EntityQueries,
     ) -> None:
         self._logger = logger
         self._tracer = tracer
         self._meter = meter
         self._responder = responder
+        self._task_runner = task_runner
         self._entity_queries = entity_queries
 
     @override
@@ -37,7 +40,8 @@ class SigmaEngine(Engine):
     ) -> bool:
         engine_context = await self._load_context(context, event_emitter)
 
-        await self._responder.respond(engine_context)
+        await self._task_runner.run(Task(engine_context))
+        # await self._responder.respond(engine_context)
 
         return True
 

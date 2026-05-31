@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock
 
 import websockets.asyncio.server
 
-from parlant.adapters.tunnels.websocket_tunnel import WebSocketTunnelService
-from parlant.adapters.tunnels.dispatcher import TunnelRequestDispatcher
+from parlant.adapters.modules.parlant_cloud import WebSocketTunnelService
+from parlant.core.tunnels import TunnelRequestDispatcher
 from parlant.core.tunnels import TunnelResponse, TunnelService
 
 

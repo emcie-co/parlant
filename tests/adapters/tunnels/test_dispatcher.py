@@ -1,5 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock
-from parlant.adapters.tunnels.dispatcher import TunnelRequestDispatcher
+from parlant.core.tunnels import TunnelRequestDispatcher
 from parlant.core.tunnels import TunnelRequest
 
 

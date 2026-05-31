@@ -29,7 +29,7 @@ from parlant.core.health import (
     ReportRetention,
     ViewSnapshot,
 )
-from parlant.core.health.nlp_view import SchemaThresholds  # PercentileResult?
+from parlant.core.health.nlp_view import SchemaThresholds
 from parlant.core.health.reporter import RollingCounter
 
 _TEST_APP_CONTEXT = ApplicationContext(instance_id="test-instance")

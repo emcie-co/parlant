@@ -1,7 +1,7 @@
 import os
 from unittest.mock import AsyncMock, patch
 
-from parlant.adapters.tunnels.secured_tunnel import SecuredTunnelService
+from parlant.adapters.modules.parlant_cloud import WebSocketTunnelService
 
 
 async def test_that_tunnel_is_not_created_without_project_token() -> None:
@@ -28,4 +28,4 @@ async def test_that_tunnel_is_created_with_project_token() -> None:
         )
 
         assert result is not None
-        assert isinstance(result, SecuredTunnelService)
+        assert isinstance(result, WebSocketTunnelService)

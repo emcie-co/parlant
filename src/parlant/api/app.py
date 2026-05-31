@@ -20,8 +20,8 @@ from typing import Any, Awaitable, Callable, Mapping, TypeAlias
 
 import mimetypes
 
-from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, status
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, FastAPI, Request, Response, status
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from starlette.types import Receive, Scope, Send
@@ -212,44 +212,44 @@ async def create_api_app(
     @api_app.exception_handler(RateLimitExceededException)
     async def rate_limit_exceeded_handler(
         request: Request, exc: RateLimitExceededException
-    ) -> HTTPException:
+    ) -> JSONResponse:
         logger.trace(f"Rate limit exceeded: {exc}")
 
-        raise HTTPException(
+        return JSONResponse(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=str(exc),
+            content={"detail": str(exc)},
         )
 
     @api_app.exception_handler(AuthorizationException)
     async def authorization_error_handler(
         request: Request, exc: AuthorizationException
-    ) -> HTTPException:
+    ) -> JSONResponse:
         logger.trace(f"Authorization error: {exc}")
 
-        raise HTTPException(
+        return JSONResponse(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(exc),
+            content={"detail": str(exc)},
         )
 
     @api_app.exception_handler(ItemNotFoundError)
     async def item_not_found_error_handler(
         request: Request, exc: ItemNotFoundError
-    ) -> HTTPException:
+    ) -> JSONResponse:
         logger.info(str(exc))
 
-        raise HTTPException(
+        return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
+            content={"detail": str(exc)},
         )
 
     @api_app.exception_handler(Exception)
-    async def server_error_handler(request: Request, exc: ItemNotFoundError) -> HTTPException:
+    async def server_error_handler(request: Request, exc: Exception) -> JSONResponse:
         logger.error(str(exc))
         logger.error(str(traceback.format_exception(exc)))
 
-        raise HTTPException(
+        return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc),
+            content={"detail": str(exc)},
         )
 
     static_dir = os.path.join(os.path.dirname(__file__), "chat/dist")

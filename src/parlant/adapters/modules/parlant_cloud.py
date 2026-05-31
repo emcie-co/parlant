@@ -98,8 +98,6 @@ class ParlantCloudAuthorizationPolicy(AuthorizationPolicy):
     async def check_permission(self, request: Request, operation: Operation) -> bool:
         if self._is_trusted(request.headers):
             return True
-        if operation == Operation.ACCESS_INTEGRATED_UI:
-            return True
         return await self._production_policy.check_permission(request, operation)
 
     @override

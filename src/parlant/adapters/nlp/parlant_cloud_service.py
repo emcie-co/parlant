@@ -85,7 +85,10 @@ GenerationModelTier: TypeAlias = Literal["jackal", "bison"]
 EmbeddingModelTier: TypeAlias = Literal["jackal-embedding", "bison-embedding"]
 ModelRole: TypeAlias = Literal["teacher", "student", "auto"]
 
-BASE_URL = os.environ.get("PARLANT_CLOUD_API_URL", "https://api.parlant.cloud/inference")
+BASE_URL = os.environ.get(
+    "PARLANT_CLOUD_API_URL",
+    f"{(os.environ.get('PARLANT_CLOUD_BASE_URL') or 'https://api.parlant.cloud').rstrip('/')}/inference",
+)
 
 # Pattern to detect word boundaries for chunking
 # Matches after any whitespace character

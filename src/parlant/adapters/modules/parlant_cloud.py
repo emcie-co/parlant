@@ -17,6 +17,11 @@
 Auto-loaded by the Server when PARLANT_CLOUD_API_KEY is set.
 Validates the API key, resolves project context, and sets up
 ParlantCloudTracer / ParlantCloudLogger / ParlantCloudMeter.
+
+All cloud services derive their base URL from a single env var:
+  PARLANT_CLOUD_BASE_URL  (preferred)
+  PARLANT_CLOUD_OTEL_URL  (backward compat, same meaning)
+  default: https://api.parlant.cloud
 """
 
 import asyncio
@@ -66,6 +71,20 @@ _logger = logging.getLogger(__name__)
 _exit_stack = AsyncExitStack()
 
 PLATFORM_SECRET_HEADER = "X-Parlant-Cloud-Platform-Secret"
+
+_DEFAULT_BASE_URL = "https://api.parlant.cloud"
+
+
+def _get_cloud_base_url() -> str:
+    """Resolve the Parlant Cloud base URL from environment.
+
+    Priority: PARLANT_CLOUD_BASE_URL > PARLANT_CLOUD_OTEL_URL > default.
+    """
+    return (
+        os.getenv("PARLANT_CLOUD_BASE_URL")
+        or os.getenv("PARLANT_CLOUD_OTEL_URL")
+        or _DEFAULT_BASE_URL
+    ).rstrip("/")
 
 
 class ParlantCloudAuthorizationPolicy(AuthorizationPolicy):
@@ -128,7 +147,7 @@ class ParlantCloudTracer(Tracer):
 
         self._endpoint = os.getenv(
             "PARLANT_CLOUD_OTEL_ENDPOINT",
-            f"{os.getenv('PARLANT_CLOUD_OTEL_URL', 'https://api.parlant.cloud')}/v1/traces",
+            f"{_get_cloud_base_url()}/v1/traces",
         )
 
         self._api_key = os.getenv("PARLANT_CLOUD_API_KEY", "")
@@ -396,9 +415,7 @@ class ParlantCloudLogger(TracingLogger):
         super().__init__(tracer=tracer, log_level=LogLevel.TRACE, logger_id=logger_id)
 
         self._project_id = project_id
-        self._endpoint = (
-            f"{os.getenv('PARLANT_CLOUD_OTEL_URL', 'https://api.parlant.cloud')}/v1/logs"
-        )
+        self._endpoint = f"{_get_cloud_base_url()}/v1/logs"
         self._api_key = os.getenv("PARLANT_CLOUD_API_KEY", "")
 
         self._logger_provider: LoggerProvider | None = None
@@ -587,9 +604,7 @@ class ParlantCloudDurationHistogram(DurationHistogram):
 class ParlantCloudMeter(Meter):
     def __init__(self, project_id: str = "") -> None:
         self._project_id = project_id
-        self._endpoint = (
-            f"{os.getenv('PARLANT_CLOUD_OTEL_URL', 'https://api.parlant.cloud')}/v1/metrics"
-        )
+        self._endpoint = f"{_get_cloud_base_url()}/v1/metrics"
         self._api_key = os.getenv("PARLANT_CLOUD_API_KEY", "")
 
         self._meter_provider: MeterProvider | None = None
@@ -709,7 +724,7 @@ async def configure_container(container: Container) -> Container:
         return container
 
     logger = container[Logger]
-    api_url = os.environ.get("PARLANT_CLOUD_OTEL_URL", "https://api.parlant.cloud")
+    api_url = _get_cloud_base_url()
 
     auth_url = f"{api_url}/v1/auth/api-key"
     try:

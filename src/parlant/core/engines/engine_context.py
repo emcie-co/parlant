@@ -227,6 +227,7 @@ class EngineContext:
                             {
                                 "tool_id": tool_id.to_string(),
                                 "arguments": arguments,
+                                "rationale": "",
                                 "result": {
                                     "data": result.data,
                                     "metadata": result.metadata,

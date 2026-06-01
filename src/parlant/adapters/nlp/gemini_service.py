@@ -495,8 +495,8 @@ class GeminiReactGenerator(ReactGenerator):
     # resolve per-call ``hints`` overrides on ``_encode``.
     _MODEL_BY_SIZE: dict[ModelSize, str] = {
         ModelSize.SMALL: "gemini-3.1-flash-lite",
-        ModelSize.MEDIUM: "gemini-2.5-flash",
-        ModelSize.LARGE: "gemini-2.5-pro",
+        ModelSize.MEDIUM: "gemini-3.5-flash",
+        ModelSize.LARGE: "gemini-3.1-pro-preview",
     }
 
     def __init__(
@@ -582,6 +582,14 @@ class GeminiReactGenerator(ReactGenerator):
         # ``"minimal"`` resolves to "off" on Gemini 2.5 (``thinking_budget=0``);
         # on 3.x it routes to the lowest available ``thinking_level``.
         thinking_config = self._encode_thinking(reasoning, resolved_model=resolved_model)
+
+        # Never cache the final (live) turn: it changes on every call and must be
+        # sent as the suffix. If the caller marked the last message (e.g. it marks
+        # every message with the same cache_key), clamp the split so at least the
+        # last content stays live — otherwise the suffix would be empty and Gemini
+        # rejects the request with "contents are required".
+        if cache_split >= len(non_system) - 1:
+            cache_split = len(non_system) - 2
 
         prefix_contents: Optional[list[google.genai.types.Content]] = None
         suffix_contents = contents
@@ -722,40 +730,45 @@ class GeminiReactGenerator(ReactGenerator):
 
     @override
     async def _raw_stream(self, request: Any) -> AsyncIterator[Any]:
+        # thinking_config is always set on the request (it's allowed alongside a
+        # CachedContent). system_instruction / tools / tool_config are NOT: Gemini
+        # rejects a cached request that also sets them, so when a cache is used
+        # they're baked into the cache instead and only set inline otherwise.
         config_kwargs: dict[str, Any] = {}
-        if request["tool_config"] is not None:
-            config_kwargs["tool_config"] = request["tool_config"]
         if request["thinking_config"] is not None:
             config_kwargs["thinking_config"] = request["thinking_config"]
-        if request["tools"] is not None:
-            config_kwargs["tools"] = request["tools"]
 
         cached_content_name: Optional[str] = request["explicit_cache_name"]
         contents = request["all_contents"]
 
         if cached_content_name is not None:
-            # Reuse a caller-provided cache: assume it holds the system prompt.
+            # Reuse a caller-provided cache: assume it holds the system prompt,
+            # tools, and tool_config.
             contents = request["all_contents"]
         elif request["prefix_contents"] is not None:
-            # Managed cache: cache the marked prefix (system + prefix contents),
-            # then send only the live suffix referencing it.
+            # Managed cache: cache the marked prefix (system + prefix contents +
+            # tools/tool_config), then send only the live suffix referencing it.
             cached_content_name = await self._get_or_create_cache(
                 model=request["model"],
                 system_instruction=request["system_instruction"],
                 prefix_contents=request["prefix_contents"],
+                tools=request["tools"],
+                tool_config=request["tool_config"],
                 cache_key=request["cache_key"],
             )
             if cached_content_name is not None:
                 contents = request["suffix_contents"]
-            elif request["system_instruction"] is not None:
-                # Caching unavailable (e.g. prefix below the provider minimum):
-                # fall back to sending the full content inline, uncached.
-                config_kwargs["system_instruction"] = request["system_instruction"]
-        elif request["system_instruction"] is not None:
-            config_kwargs["system_instruction"] = request["system_instruction"]
 
         if cached_content_name is not None:
             config_kwargs["cached_content"] = cached_content_name
+        else:
+            # No cache in play: set system_instruction / tools / tool_config inline.
+            if request["system_instruction"] is not None:
+                config_kwargs["system_instruction"] = request["system_instruction"]
+            if request["tools"] is not None:
+                config_kwargs["tools"] = request["tools"]
+            if request["tool_config"] is not None:
+                config_kwargs["tool_config"] = request["tool_config"]
 
         config = google.genai.types.GenerateContentConfig(**config_kwargs)
 
@@ -786,16 +799,24 @@ class GeminiReactGenerator(ReactGenerator):
         model: str,
         system_instruction: Optional[str],
         prefix_contents: list[google.genai.types.Content],
+        tools: Optional[list[google.genai.types.Tool]] = None,
+        tool_config: Optional[google.genai.types.ToolConfig] = None,
     ) -> str:
         # Fold the caller's key together with the actual content: the key gives
         # intentional identity, the content hash guarantees a key reused after an
-        # edited prefix never serves stale content.
+        # edited prefix never serves stale content. Tools / tool_config are baked
+        # into the cache (Gemini forbids passing them on a cached request), so
+        # they're part of the identity too.
         hasher = hashlib.sha256()
         hasher.update(cache_key.encode("utf-8"))
         hasher.update(model.encode("utf-8"))
         hasher.update((system_instruction or "").encode("utf-8"))
         for content in prefix_contents:
             hasher.update(content.model_dump_json(exclude_none=True).encode("utf-8"))
+        for tool in tools or []:
+            hasher.update(tool.model_dump_json(exclude_none=True).encode("utf-8"))
+        if tool_config is not None:
+            hasher.update(tool_config.model_dump_json(exclude_none=True).encode("utf-8"))
         return hasher.hexdigest()
 
     async def _get_or_create_cache(
@@ -805,11 +826,19 @@ class GeminiReactGenerator(ReactGenerator):
         system_instruction: Optional[str],
         prefix_contents: list[google.genai.types.Content],
         cache_key: str,
+        tools: Optional[list[google.genai.types.Tool]] = None,
+        tool_config: Optional[google.genai.types.ToolConfig] = None,
     ) -> Optional[str]:
         """Return a usable cache resource name, or ``None`` if caching is
         unavailable for this prefix. Caching is an optimization, so this never
-        raises for cache problems — the caller falls back to an inline request."""
-        key = self._cache_key(cache_key, model, system_instruction, prefix_contents)
+        raises for cache problems — the caller falls back to an inline request.
+
+        ``system_instruction`` / ``tools`` / ``tool_config`` are baked into the
+        cached content: Gemini rejects a GenerateContent request that both uses a
+        CachedContent and sets those fields, so they must live in the cache."""
+        key = self._cache_key(
+            cache_key, model, system_instruction, prefix_contents, tools, tool_config
+        )
 
         async with self._cache_lock:
             if key in self._uncacheable_keys:
@@ -827,6 +856,10 @@ class GeminiReactGenerator(ReactGenerator):
                 config_kwargs["contents"] = prefix_contents
             if system_instruction is not None:
                 config_kwargs["system_instruction"] = system_instruction
+            if tools is not None:
+                config_kwargs["tools"] = tools
+            if tool_config is not None:
+                config_kwargs["tool_config"] = tool_config
             if self.cache.ttl is not None:
                 config_kwargs["ttl"] = f"{int(self.cache.ttl.total_seconds())}s"
 

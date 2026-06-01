@@ -379,4 +379,17 @@ class StreamingLoop(Loop):
                         )
                     )
 
+        # Providers (e.g. Gemini, Anthropic) require at least one non-system
+        # turn. When the agent speaks first — a greeting before any customer
+        # message — the interaction is empty and the history holds only the
+        # system message; give the model a user turn to respond to.
+        if len(history) == 1:
+            history.append(
+                Message(
+                    role=Role.USER,
+                    cache_key=cache_key,
+                    parts=[TextPart(text="[The conversation has not started yet.]")],
+                )
+            )
+
         return history

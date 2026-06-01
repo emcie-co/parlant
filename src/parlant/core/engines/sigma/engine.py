@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from collections.abc import Sequence
+import traceback
 from typing_extensions import override
 
 from parlant.core.emission.event_buffer import EventBuffer
@@ -21,11 +22,12 @@ from parlant.core.engines.alpha.entity_context import EntityContext
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.engines.engine_context import EngineContext, Interaction, ResponseState
 from parlant.core.engines.sigma.responder import Responder
-from parlant.core.engines.sigma.task_runner import Task, TaskRunner
+from parlant.core.engines.sigma.task_runner import TaskRunner
 from parlant.core.engines.types import Context, Engine, UtteranceRequest
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
+from parlant.core.sessions import StatusEventData
 from parlant.core.tracer import Tracer
 
 
@@ -52,10 +54,22 @@ class SigmaEngine(Engine):
         context: Context,
         event_emitter: EventEmitter,
     ) -> bool:
-        engine_context = await self._load_context(context, event_emitter)
+        try:
+            engine_context = await self._load_context(context, event_emitter)
 
-        # await self._task_runner.run(Task(engine_context))
-        await self._responder.respond(engine_context)
+            # await self._task_runner.run(Task(engine_context))
+            await self._responder.respond(engine_context)
+        except Exception as e:
+            self._logger.error(
+                f"Error processing context: {e}\n\n{''.join(traceback.format_exception(type(e), e, e.__traceback__))}"
+            )
+
+            await event_emitter.emit_status_event(
+                trace_id=self._tracer.trace_id,
+                data=StatusEventData(status="error"),
+            )
+
+            return False
 
         return True
 

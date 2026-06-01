@@ -238,6 +238,37 @@ def test_that_a_cache_marker_splits_history_into_prefix_and_suffix(logger: Logge
     assert request["cache_key"] == "doc-v1"
 
 
+def test_that_marking_every_message_keeps_the_live_turn_in_the_suffix(logger: Logger) -> None:
+    # The Sigma loop marks every message with the same cache_key. The final
+    # (live) turn must never end up in the cached prefix, or the suffix sent to
+    # Gemini would be empty ("contents are required").
+    generator = _offline_generator(logger, CacheConfig(enabled=True))
+    history = [
+        Message(role=Role.USER, parts=[TextPart(text="first")], cache_key="s1"),
+        Message(role=Role.USER, parts=[TextPart(text="second")], cache_key="s1"),
+        Message(role=Role.USER, parts=[TextPart(text="the live question")], cache_key="s1"),
+    ]
+
+    request = generator._encode(history, [], "auto", reasoning=ReasoningConfig())
+
+    assert [c.parts[0].text for c in request["prefix_contents"]] == ["first", "second"]
+    assert [c.parts[0].text for c in request["suffix_contents"]] == ["the live question"]
+
+
+def test_that_a_single_marked_message_is_not_cached_as_an_empty_suffix(logger: Logger) -> None:
+    # A lone marked message: there's nothing to cache without emptying the
+    # suffix, so it stays live (no positional prefix cache).
+    generator = _offline_generator(logger, CacheConfig(enabled=True))
+    history = [
+        Message(role=Role.USER, parts=[TextPart(text="the live question")], cache_key="s1"),
+    ]
+
+    request = generator._encode(history, [], "auto", reasoning=ReasoningConfig())
+
+    assert request["prefix_contents"] is None
+    assert [c.parts[0].text for c in request["suffix_contents"]] == ["the live question"]
+
+
 def test_that_a_marked_system_message_caches_the_system_alone(logger: Logger) -> None:
     generator = _offline_generator(logger, CacheConfig(enabled=True))
     history = [

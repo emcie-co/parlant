@@ -439,7 +439,7 @@ class NovitaStreamingTextGenerator(BaseStreamingTextGenerator):
                     schema_name="streaming",
                     input_tokens=usage_info.input_tokens,
                     output_tokens=usage_info.output_tokens,
-                    cached_input_tokens=usage_info.extra.get("cached_input_tokens", 0)
+                    cached_input_tokens=int(usage_info.extra.get("cached_input_tokens", 0))
                     if usage_info.extra
                     else 0,
                 )

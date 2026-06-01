@@ -80,7 +80,7 @@ class StreamingLoop(Loop):
                 tools=await self._get_tools(context),
                 tool_choice="auto",
                 reasoning=job.reasoning_config,
-                hints={"model_size": job.model_size},
+                hints={"model_size": job.model_size, "service_tier": "priority"},
             ):
                 await self._on_new_event(state, event)
                 await self._update_reasoning(context, state)

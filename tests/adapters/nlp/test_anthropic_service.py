@@ -236,6 +236,20 @@ def test_that_effort_maps_to_the_thinking_budget_ladder(
     assert high["thinking"]["budget_tokens"] == anthropic._EFFORT_TO_BUDGET["high"]
 
 
+def test_that_service_tier_maps_to_anthropic_values(anthropic: AnthropicReactGenerator) -> None:
+    # Anthropic only accepts "auto" / "standard_only" on requests, and has no
+    # flex tier (it maps to standard).
+    def tier_for(service_tier: str | None) -> str:
+        hints = {"service_tier": service_tier} if service_tier else {}
+        request = anthropic._encode([], [], "auto", reasoning=ReasoningConfig(), hints=hints)  # type: ignore[arg-type]
+        return request["service_tier"]
+
+    assert tier_for(None) == "standard_only"
+    assert tier_for("standard") == "standard_only"
+    assert tier_for("flex") == "standard_only"
+    assert tier_for("priority") == "auto"
+
+
 def test_that_visibility_maps_to_the_display_knob(anthropic: AnthropicReactGenerator) -> None:
     # Claude 4 has no verbatim option: "none" omits the thinking summary, while
     # "summary" and "full" both request the summary ("full" has no equivalent).

@@ -266,6 +266,18 @@ def test_that_encode_omits_summary_when_visibility_is_none(openai: OpenAIReactGe
     assert request["reasoning"] == {"effort": "low"}
 
 
+def test_that_service_tier_maps_to_openai_values(openai: OpenAIReactGenerator) -> None:
+    def tier_for(service_tier: str | None) -> str:
+        hints = {"service_tier": service_tier} if service_tier else {}
+        request = openai._encode([], [], "auto", reasoning=ReasoningConfig(), hints=hints)  # type: ignore[arg-type]
+        return request["service_tier"]
+
+    assert tier_for(None) == "default"  # default is "standard" -> "default"
+    assert tier_for("standard") == "default"
+    assert tier_for("flex") == "flex"
+    assert tier_for("priority") == "priority"
+
+
 def test_that_cache_key_becomes_prompt_cache_key(openai: OpenAIReactGenerator) -> None:
     history = [
         Message(role=Role.USER, parts=[TextPart(text="ctx")], cache_key="agent-7"),

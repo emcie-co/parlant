@@ -62,6 +62,7 @@ from parlant.core.nlp.react import (
     ReasoningConfig,
     ReasoningPart,
     Role,
+    ServiceTier,
     StreamEvent,
     TextDelta,
     TextPart,
@@ -112,7 +113,7 @@ class GoogleEstimatingTokenizer(EstimatingTokenizer):
 
 
 class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
-    supported_hints = ["temperature", "thinking_config"]
+    supported_hints = ["temperature", "thinking_config", "config"]
 
     def __init__(
         self,
@@ -453,6 +454,14 @@ class Gemini_3_5_Flash(GeminiSchematicGenerator[T]):
     def max_tokens(self) -> int:
         return 1024 * 1024
 
+    @override
+    async def generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[T]:
+        return await super().generate(prompt, {**hints, "config": {"service_tier": "priority"}})
+
 
 # The key under which Gemini's per-part ``thought_signature`` is preserved in a
 # canonical Part's ``provider_data``. It MUST round-trip verbatim, or replaying
@@ -497,6 +506,13 @@ class GeminiReactGenerator(ReactGenerator):
         ModelSize.SMALL: "gemini-3.1-flash-lite",
         ModelSize.MEDIUM: "gemini-3.5-flash",
         ModelSize.LARGE: "gemini-3.1-pro-preview",
+    }
+
+    # Gemini's service_tier accepts "standard" / "flex" / "priority" directly.
+    _SERVICE_TIER: dict[ServiceTier, str] = {
+        "standard": "standard",
+        "flex": "flex",
+        "priority": "priority",
     }
 
     def __init__(
@@ -610,6 +626,7 @@ class GeminiReactGenerator(ReactGenerator):
             "tools": tool_block,
             "tool_config": tool_config,
             "thinking_config": thinking_config,
+            "service_tier": self._SERVICE_TIER[hints.get("service_tier", "standard")],
             "all_contents": contents,
             "prefix_contents": prefix_contents,  # cache this (None => no managed cache)
             "suffix_contents": suffix_contents,  # send this when a cache is used
@@ -737,6 +754,8 @@ class GeminiReactGenerator(ReactGenerator):
         config_kwargs: dict[str, Any] = {}
         if request["thinking_config"] is not None:
             config_kwargs["thinking_config"] = request["thinking_config"]
+        if request.get("service_tier") is not None:
+            config_kwargs["service_tier"] = request["service_tier"]
 
         cached_content_name: Optional[str] = request["explicit_cache_name"]
         contents = request["all_contents"]

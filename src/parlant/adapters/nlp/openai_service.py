@@ -88,6 +88,7 @@ from parlant.core.nlp.react import (
     ReactGeneratorHints,
     ReasoningConfig,
     Role,
+    ServiceTier,
     StreamEvent,
     TextDelta,
     TextPart,
@@ -891,6 +892,14 @@ class OpenAIReactGenerator(ReactGenerator):
         size = hints.get("model_size", ModelSize.AUTO)
         return self._MODEL_BY_SIZE.get(size, self.model)
 
+    # OpenAI's service_tier accepts "auto"/"default"/"flex"/"priority";
+    # "standard" maps to "default".
+    _SERVICE_TIER: dict[ServiceTier, str] = {
+        "standard": "default",
+        "flex": "flex",
+        "priority": "priority",
+    }
+
     # ---- provider seam -----------------------------------------------------
 
     @override
@@ -940,6 +949,8 @@ class OpenAIReactGenerator(ReactGenerator):
         if cache_key is not None:
             # OpenAI's prefix caching is automatic; the key is only a routing hint.
             request["prompt_cache_key"] = cache_key
+
+        request["service_tier"] = self._SERVICE_TIER[hints.get("service_tier", "standard")]
 
         return request
 

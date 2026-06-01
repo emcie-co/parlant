@@ -83,10 +83,21 @@ from typing_extensions import NotRequired, TypedDict
 from parlant.core.nlp.common import ModelGeneration, ModelSize, ModelType
 
 
+ServiceTier = Literal["standard", "flex", "priority"]
+"""Provider-neutral request service tier, mapped per provider in ``_encode``:
+
+- ``"standard"``: the normal tier.
+- ``"flex"``: cheaper, slower, best-effort (OpenAI/Gemini have it; Anthropic
+  has no flex tier, so it maps to standard).
+- ``"priority"``: faster, premium, higher reliability.
+"""
+
+
 class ReactGeneratorHints(TypedDict, total=False):
     model_size: NotRequired[ModelSize]
     model_generation: NotRequired[ModelGeneration]
     model_type: NotRequired[ModelType]
+    service_tier: NotRequired[ServiceTier]
 
 
 # ───────────────────────────── canonical message model ─────────────────────
@@ -550,7 +561,8 @@ class ReactGenerator(abc.ABC):
         payload. MUST preserve every ``Part.provider_data`` / signature and
         emit the correct block/item type per part. The system prompt, if any, is
         a leading ``Role.SYSTEM`` message in ``history``; ``reasoning`` is per
-        call; ``hints`` lets callers override model selection per call."""
+        call; ``hints`` lets callers override model selection and service tier
+        per call."""
 
     @abc.abstractmethod
     def _raw_stream(self, request: Any) -> AsyncIterator[Any]:
@@ -584,7 +596,7 @@ class ReactGenerator(abc.ABC):
         The system prompt, if any, is supplied as a leading ``Role.SYSTEM``
         message in ``history`` (the caller owns it). ``reasoning`` is per call so
         a single generator can serve many turns with different thinking settings.
-        ``hints`` may override the underlying model per call.
+        ``hints`` may override the underlying model and service tier per call.
         """
         request = self._encode(
             history,
@@ -622,7 +634,11 @@ class ReactGenerator(abc.ABC):
         """Run one inference and return the assembled :class:`StepResult`."""
         result: Optional[StepResult] = None
         async for event in self.stream_step(
-            history, tools, tool_choice=tool_choice, reasoning=reasoning, hints=hints
+            history,
+            tools,
+            tool_choice=tool_choice,
+            reasoning=reasoning,
+            hints=hints,
         ):
             if isinstance(event, StepCompleted):
                 result = event.result
@@ -656,7 +672,11 @@ class ReactGenerator(abc.ABC):
 
         for _ in range(max_steps):
             result = await self.step(
-                conversation, tools, tool_choice=tool_choice, reasoning=reasoning, hints=hints
+                conversation,
+                tools,
+                tool_choice=tool_choice,
+                reasoning=reasoning,
+                hints=hints,
             )
             conversation.append(result.message)
 

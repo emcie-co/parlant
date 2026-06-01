@@ -198,6 +198,19 @@ def test_that_encode_maps_effort_to_a_thinking_level_on_gemini_3x(
     assert thinking.thinking_level == google.genai.types.ThinkingLevel.MEDIUM
 
 
+def test_that_service_tier_maps_to_gemini_values(gemini: GeminiReactGenerator) -> None:
+    # Gemini accepts "standard" / "flex" / "priority" directly.
+    def tier_for(service_tier: str | None) -> str:
+        hints = {"service_tier": service_tier} if service_tier else {}
+        request = gemini._encode([], [], "auto", reasoning=ReasoningConfig(), hints=hints)  # type: ignore[arg-type]
+        return request["service_tier"]
+
+    assert tier_for(None) == "standard"
+    assert tier_for("standard") == "standard"
+    assert tier_for("flex") == "flex"
+    assert tier_for("priority") == "priority"
+
+
 def test_that_encode_maps_effort_to_a_thinking_budget_on_gemini_25(logger: Logger) -> None:
     # Explicitly build a 2.5-model generator to exercise the budget ladder
     # (``"minimal"`` → ``thinking_budget=0`` is the documented "off" switch on

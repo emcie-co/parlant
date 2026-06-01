@@ -68,6 +68,7 @@ from parlant.core.nlp.react import (
     ReasoningConfig,
     ReasoningPart,
     Role,
+    ServiceTier,
     StreamEvent,
     TextDelta,
     TextPart,
@@ -353,6 +354,14 @@ class AnthropicReactGenerator(ReactGenerator):
         ModelSize.LARGE: "claude-opus-4-8",
     }
 
+    # Anthropic's request service_tier only accepts "auto" (priority-when-available)
+    # or "standard_only". There is no flex tier, so it maps to standard.
+    _SERVICE_TIER: dict[ServiceTier, str] = {
+        "standard": "standard_only",
+        "flex": "standard_only",
+        "priority": "auto",
+    }
+
     def __init__(
         self,
         *,
@@ -419,6 +428,7 @@ class AnthropicReactGenerator(ReactGenerator):
             "model": resolved_model,
             "max_tokens": max_tokens,
             "messages": messages,
+            "service_tier": self._SERVICE_TIER[hints.get("service_tier", "standard")],
         }
 
         system_text = "\n\n".join(chunk for chunk in system_chunks if chunk)

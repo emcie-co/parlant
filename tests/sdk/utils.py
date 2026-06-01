@@ -25,7 +25,6 @@ from parlant.client.types.event import Event as ClientEvent
 from fastapi import FastAPI
 import httpx
 
-from parlant.adapters.nlp.emcie_service import EmcieService
 from parlant.adapters.nlp.gemini_service import GeminiService
 from parlant.core.application_context import ApplicationContext
 from parlant.core.health import HealthReporter

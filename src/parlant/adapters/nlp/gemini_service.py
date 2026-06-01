@@ -400,6 +400,24 @@ class Gemini_2_5_Pro(GeminiSchematicGenerator[T]):
         return 1024 * 1024
 
 
+class Gemini_3_1_Pro(GeminiSchematicGenerator[T]):
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
+        super().__init__(
+            model_name="gemini-3.1-pro-preview",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 1024 * 1024
+
+
 class Gemini_3_1_Flash_Lite(GeminiSchematicGenerator[T]):
     def __init__(
         self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
@@ -1084,11 +1102,11 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
                     self.logger, self._tracer, self._meter, self._health_reporter
                 )
             case ModelSize.MEDIUM:
-                return Gemini_3_1_Flash_Lite[t](  # type: ignore
+                return Gemini_3_5_Flash[t](  # type: ignore
                     self.logger, self._tracer, self._meter, self._health_reporter
                 )
             case ModelSize.LARGE:
-                return Gemini_3_5_Flash[t](  # type: ignore
+                return Gemini_3_1_Pro[t](  # type: ignore
                     self.logger, self._tracer, self._meter, self._health_reporter
                 )
             case _:

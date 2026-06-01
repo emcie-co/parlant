@@ -13,12 +13,13 @@
 # limitations under the License.
 
 from itertools import chain
-from typing import Mapping, NewType, Optional, Sequence, Set, cast
-from typing_extensions import override, TypedDict, Self
+from typing import Awaitable, Callable, Mapping, NewType, Optional, Sequence, Set, cast
+from typing_extensions import override, TypedDict, Self, Required
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from parlant.core import async_utils
 from parlant.core.agents import CompositionMode
 from parlant.core.async_utils import ReaderWriterLock, safe_gather
 from parlant.core.common import (
@@ -31,6 +32,7 @@ from parlant.core.common import (
     IdGenerator,
     xxh3_checksum,
 )
+from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -40,6 +42,18 @@ from parlant.core.persistence.document_database import (
 from parlant.core.persistence.document_database_helper import (
     DocumentStoreMigrationHelper,
     DocumentMigrationHelper,
+)
+from parlant.core.persistence.vector_database import (
+    SimilarDocumentResult,
+    VectorCollection,
+    VectorCollectionIndex,
+    VectorDatabase,
+    BaseDocument as VectorDocument,
+)
+from parlant.core.persistence.vector_database_helper import (
+    VectorDocumentStoreMigrationHelper,
+    calculate_min_vectors_for_max_item_count,
+    query_chunks,
 )
 from parlant.core.tags import TagId
 
@@ -68,6 +82,7 @@ class Guideline:
     composition_mode: Optional[CompositionMode] = None
     track: bool = True
     priority: int = 0
+    signals: Sequence[str] = field(default_factory=list)
 
     def __str__(self) -> str:
         if self.content.condition and self.content.action:
@@ -97,6 +112,13 @@ class GuidelineUpdateParams(TypedDict, total=False):
     composition_mode: Optional[CompositionMode]
     track: bool
     priority: int
+    signals: Sequence[str]
+
+
+@dataclass(frozen=True)
+class GuidelineRelevanceResult:
+    guideline: Guideline
+    score: float
 
 
 class GuidelineStore(ABC):
@@ -117,6 +139,7 @@ class GuidelineStore(ABC):
         track: bool = True,
         labels: Optional[Set[str]] = None,
         priority: int = 0,
+        signals: Sequence[str] = [],
     ) -> Guideline: ...
 
     @abstractmethod
@@ -125,6 +148,14 @@ class GuidelineStore(ABC):
         tags: Optional[Sequence[TagId]] = None,
         labels: Optional[Set[str]] = None,
     ) -> Sequence[Guideline]: ...
+
+    @abstractmethod
+    async def find_relevant_guidelines(
+        self,
+        query: str,
+        available_guidelines: Sequence[Guideline],
+        max_count: int,
+    ) -> Sequence[GuidelineRelevanceResult]: ...
 
     @abstractmethod
     async def read_guideline(
@@ -316,6 +347,24 @@ class GuidelineDocument_v0_10_0(TypedDict, total=False):
     priority: int
 
 
+class GuidelineDocument_v0_11_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    last_modified: str
+    condition: str
+    action: Optional[str]
+    description: Optional[str]
+    title: Optional[str]
+    criticality: str
+    enabled: bool
+    metadata: Mapping[str, JSONSerializable]
+    composition_mode: Optional[str]
+    track: bool
+    labels: Sequence[str]
+    priority: int
+
+
 class GuidelineDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
@@ -332,6 +381,15 @@ class GuidelineDocument(TypedDict, total=False):
     track: bool
     labels: Sequence[str]
     priority: int
+    signals: Sequence[str]
+
+
+class GuidelineVectorDocument(TypedDict, total=False):
+    id: ObjectId
+    guideline_id: ObjectId
+    version: Version.String
+    content: str
+    checksum: Required[str]
 
 
 class GuidelineTagAssociationDocument(TypedDict, total=False):
@@ -355,30 +413,64 @@ async def guideline_document_converter_0_1_0_to_0_2_0(doc: BaseDocument) -> Opti
     )
 
 
-class GuidelineDocumentStore(GuidelineStore):
-    VERSION = Version.from_string("0.11.0")
+class GuidelineVectorStore(GuidelineStore):
+    VERSION = Version.from_string("0.12.0")
 
     def __init__(
         self,
         id_generator: IdGenerator,
-        database: DocumentDatabase,
-        allow_migration: bool = False,
+        vector_db: VectorDatabase,
+        document_db: DocumentDatabase,
+        embedder_type_provider: Callable[[], Awaitable[type[Embedder]]],
+        embedder_factory: EmbedderFactory,
+        allow_migration: bool = True,
         collections_prefix: str | None = None,
     ) -> None:
         self._id_generator = id_generator
 
-        self._database = database
+        self._vector_db = vector_db
+        self._database = document_db
+        self._vector_collection: VectorCollection[GuidelineVectorDocument]
         self._collection: DocumentCollection[GuidelineDocument]
         self._tag_association_collection: DocumentCollection[GuidelineTagAssociationDocument]
 
         self._allow_migration = allow_migration
         self._collections_prefix = collections_prefix
         self._lock = ReaderWriterLock()
+        self._embedder_factory = embedder_factory
+        self._embedder_type_provider = embedder_type_provider
+        self._embedder: Embedder
+
+    async def _vector_document_loader(
+        self, doc: VectorDocument
+    ) -> Optional[GuidelineVectorDocument]:
+        return cast(GuidelineVectorDocument, doc)
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[GuidelineDocument]:
+        async def v0_11_0_to_v0_12_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(GuidelineDocument_v0_11_0, doc)
+            return GuidelineDocument(
+                id=d["id"],
+                version=Version.String("0.12.0"),
+                creation_utc=d["creation_utc"],
+                last_modified=d.get("last_modified", d["creation_utc"]),
+                condition=d["condition"],
+                action=d["action"],
+                description=d.get("description", None),
+                title=d.get("title", None),
+                criticality=d["criticality"],
+                enabled=d["enabled"],
+                metadata=d["metadata"],
+                composition_mode=d.get("composition_mode"),
+                track=d.get("track", True),
+                labels=d.get("labels", []),
+                priority=d.get("priority", 0),
+                signals=[],
+            )
+
         async def v0_10_0_to_v0_11_0(doc: BaseDocument) -> Optional[BaseDocument]:
             d = cast(GuidelineDocument_v0_10_0, doc)
-            return GuidelineDocument(
+            return GuidelineDocument_v0_11_0(
                 id=d["id"],
                 version=Version.String("0.11.0"),
                 creation_utc=d["creation_utc"],
@@ -519,6 +611,7 @@ class GuidelineDocumentStore(GuidelineStore):
                 "0.8.0": v0_8_0_to_v0_9_0,
                 "0.9.0": v0_9_0_to_v0_10_0,
                 "0.10.0": v0_10_0_to_v0_11_0,
+                "0.11.0": v0_11_0_to_v0_12_0,
             },
         ).migrate(doc)
 
@@ -551,6 +644,27 @@ class GuidelineDocumentStore(GuidelineStore):
         return None
 
     async def __aenter__(self) -> Self:
+        embedder_type = await self._embedder_type_provider()
+
+        self._embedder = self._embedder_factory.create_embedder(embedder_type)
+
+        async with VectorDocumentStoreMigrationHelper(
+            store=self,
+            database=self._vector_db,
+            allow_migration=self._allow_migration,
+        ):
+            self._vector_collection = await self._vector_db.get_or_create_collection(
+                name=f"{self._collections_prefix}_guidelines"
+                if self._collections_prefix
+                else "guidelines",
+                schema=GuidelineVectorDocument,
+                embedder_type=embedder_type,
+                document_loader=self._vector_document_loader,
+            )
+            await self._vector_collection.ensure_indexes(
+                [VectorCollectionIndex(field="guideline_id")]
+            )
+
         async with DocumentStoreMigrationHelper(
             store=self,
             database=self._database,
@@ -605,6 +719,7 @@ class GuidelineDocumentStore(GuidelineStore):
             track=guideline.track,
             labels=list(guideline.labels),
             priority=guideline.priority,
+            signals=list(guideline.signals),
         )
 
     async def _deserialize(
@@ -639,7 +754,63 @@ class GuidelineDocumentStore(GuidelineStore):
             composition_mode=composition_mode,
             track=guideline_document.get("track", True),
             priority=guideline_document.get("priority", 0),
+            signals=list(guideline_document.get("signals", [])),
         )
+
+    def _guideline_embedding_content(self, content: GuidelineContent) -> str:
+        """Render a guideline's content as the string to embed.
+
+        Treats ``None`` / empty / whitespace-only condition, action, and
+        description as absent. The condition+action pair reads as
+        ``When {condition}, then {action}``; a lone condition or action gets a
+        labeled form; a non-empty description is appended as its own block.
+        """
+        condition = (content.condition or "").strip()
+        action = (content.action or "").strip()
+        description = (content.description or "").strip()
+
+        if condition and action:
+            head = f"When {condition}, then {action}"
+        elif condition:
+            head = f"Condition: {condition}"
+        elif action:
+            head = f"Action: {action}"
+        else:
+            raise ValueError("Guideline must have at least a condition or an action")
+
+        if description:
+            return f"{head}\n\nDescription: {description}"
+
+        return head
+
+    def _list_guideline_contents(self, guideline: Guideline) -> list[str]:
+        """The independent strings to embed for a guideline: its rendered
+        content followed by each signal as its own vector."""
+        return [self._guideline_embedding_content(guideline.content), *guideline.signals]
+
+    async def _insert_vector_documents(self, guideline: Guideline) -> None:
+        insertion_tasks = []
+
+        for content in self._list_guideline_contents(guideline):
+            doc_id = self._id_generator.generate(xxh3_checksum(f"{guideline.id}{content}"))
+
+            vec_doc = GuidelineVectorDocument(
+                id=ObjectId(doc_id),
+                guideline_id=ObjectId(guideline.id),
+                version=self.VERSION.to_string(),
+                content=content,
+                checksum=xxh3_checksum(content),
+            )
+
+            insertion_tasks.append(self._vector_collection.insert_one(document=vec_doc))
+
+        await async_utils.safe_gather(*insertion_tasks)
+
+    async def _delete_vector_documents(self, guideline_id: GuidelineId) -> None:
+        for v_doc in await self._vector_collection.find(
+            filters={"guideline_id": {"$eq": guideline_id}}
+        ):
+            await self._vector_collection.delete_one(filters={"id": {"$eq": v_doc["id"]}})
 
     @override
     async def create_guideline(
@@ -658,6 +829,7 @@ class GuidelineDocumentStore(GuidelineStore):
         track: bool = True,
         labels: Optional[Set[str]] = None,
         priority: int = 0,
+        signals: Sequence[str] = [],
     ) -> Guideline:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
@@ -693,7 +865,10 @@ class GuidelineDocumentStore(GuidelineStore):
                 composition_mode=composition_mode,
                 track=track,
                 priority=priority,
+                signals=list(signals),
             )
+
+            await self._insert_vector_documents(guideline)
 
             await self._collection.insert_one(
                 document=self._serialize(
@@ -782,6 +957,8 @@ class GuidelineDocumentStore(GuidelineStore):
         guideline_id: GuidelineId,
     ) -> None:
         async with self._lock.writer_lock:
+            await self._delete_vector_documents(guideline_id)
+
             result = await self._collection.delete_one(
                 filters={
                     "id": {"$eq": guideline_id},
@@ -832,6 +1009,7 @@ class GuidelineDocumentStore(GuidelineStore):
                         else {}
                     ),
                     **({"priority": params["priority"]} if "priority" in params else {}),
+                    **({"signals": params["signals"]} if "signals" in params else {}),
                     "last_modified": datetime.now(timezone.utc).isoformat(),
                 }
             )
@@ -841,9 +1019,19 @@ class GuidelineDocumentStore(GuidelineStore):
                 params=guideline_document,
             )
 
-        assert result.updated_document
+            assert result.updated_document
 
-        return await self._deserialize(guideline_document=result.updated_document)
+            updated = await self._deserialize(guideline_document=result.updated_document)
+
+            # Re-sync the embedded vectors if any embedded field changed
+            # (condition / action / description / signals).
+            if any(
+                key in params for key in ("condition", "action", "description", "signals")
+            ):
+                await self._delete_vector_documents(guideline_id)
+                await self._insert_vector_documents(updated)
+
+        return updated
 
     @override
     async def find_guideline(
@@ -868,6 +1056,60 @@ class GuidelineDocumentStore(GuidelineStore):
             )
 
         return await self._deserialize(guideline_document=guideline_document)
+
+    @override
+    async def find_relevant_guidelines(
+        self,
+        query: str,
+        available_guidelines: Sequence[Guideline],
+        max_count: int,
+    ) -> Sequence[GuidelineRelevanceResult]:
+        if not available_guidelines:
+            return []
+
+        guidelines_by_id = {g.id: g for g in available_guidelines}
+
+        async with self._lock.reader_lock:
+            queries = await query_chunks(query, self._embedder)
+            filters: Where = {"guideline_id": {"$in": [str(g.id) for g in available_guidelines]}}
+
+            tasks = [
+                self._vector_collection.find_similar_documents(
+                    filters=filters,
+                    query=q,
+                    k=calculate_min_vectors_for_max_item_count(
+                        items=available_guidelines,
+                        count_item_vectors=lambda g: len(self._list_guideline_contents(g)),
+                        max_items_to_return=max_count,
+                    ),
+                    hints={"tag": "guidelines"},
+                )
+                for q in queries
+            ]
+
+        all_sdocs = chain.from_iterable(await async_utils.safe_gather(*tasks))
+
+        # Dedupe by guideline, keeping the closest matching vector per guideline.
+        unique_sdocs: dict[str, SimilarDocumentResult[GuidelineVectorDocument]] = {}
+
+        for similar_doc in all_sdocs:
+            guideline_id = similar_doc.document["guideline_id"]
+            if (
+                guideline_id not in unique_sdocs
+                or unique_sdocs[guideline_id].distance > similar_doc.distance
+            ):
+                unique_sdocs[guideline_id] = similar_doc
+
+        top_results = sorted(unique_sdocs.values(), key=lambda r: r.distance)[:max_count]
+
+        return [
+            GuidelineRelevanceResult(
+                guideline=guidelines_by_id[GuidelineId(r.document["guideline_id"])],
+                score=1.0 - r.distance,
+            )
+            for r in top_results
+            if GuidelineId(r.document["guideline_id"]) in guidelines_by_id
+        ]
 
     @override
     async def upsert_tag(
@@ -1058,6 +1300,7 @@ class CompositeGuidelineStore(GuidelineStore):
         track: bool = True,
         labels: Optional[Set[str]] = None,
         priority: int = 0,
+        signals: Sequence[str] = [],
     ) -> Guideline:
         return await self._writable_store.create_guideline(
             condition=condition,
@@ -1074,6 +1317,7 @@ class CompositeGuidelineStore(GuidelineStore):
             track=track,
             labels=labels,
             priority=priority,
+            signals=signals,
         )
 
     @override
@@ -1086,6 +1330,22 @@ class CompositeGuidelineStore(GuidelineStore):
             *[store.list_guidelines(tags=tags, labels=labels) for store in self._all_stores]
         )
         return list(chain.from_iterable(results))
+
+    @override
+    async def find_relevant_guidelines(
+        self,
+        query: str,
+        available_guidelines: Sequence[Guideline],
+        max_count: int,
+    ) -> Sequence[GuidelineRelevanceResult]:
+        results = await safe_gather(
+            *[
+                store.find_relevant_guidelines(query, available_guidelines, max_count)
+                for store in self._all_stores
+            ]
+        )
+        merged = list(chain.from_iterable(results))
+        return sorted(merged, key=lambda r: r.score, reverse=True)[:max_count]
 
     @override
     async def read_guideline(

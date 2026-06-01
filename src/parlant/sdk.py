@@ -213,7 +213,7 @@ from parlant.core.evaluations import (
 from parlant.core.guidelines import (
     Guideline as _Guideline,
     GuidelineContent,
-    GuidelineDocumentStore,
+    GuidelineVectorStore,
     GuidelineId,
     GuidelineStore,
 )
@@ -2521,6 +2521,7 @@ class Journey:
         labels: Iterable[str] = (),
         dependencies: Sequence[Guideline | Journey] = [],
         priority: int = 0,
+        signals: Sequence[str] = [],
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
         guideline = await self._server._create_guideline(
@@ -2543,6 +2544,7 @@ class Journey:
             track=track,
             labels=labels,
             priority=priority,
+            signals=signals,
         )
 
         if dependencies:
@@ -3311,6 +3313,7 @@ class Agent:
         labels: Iterable[str] = (),
         dependencies: Sequence[Guideline | Journey] = [],
         priority: int = 0,
+        signals: Sequence[str] = [],
     ) -> Guideline:
         """Creates a guideline with the specified condition and action, as well as (optionally) tools to achieve its task."""
         guideline = await self._server._create_guideline(
@@ -3333,6 +3336,7 @@ class Agent:
             track=track,
             labels=labels,
             priority=priority,
+            signals=signals,
         )
 
         if dependencies:
@@ -4270,6 +4274,7 @@ class Server:
         track: bool = True,
         labels: Iterable[str] = (),
         priority: int = 0,
+        signals: Sequence[str] = [],
     ) -> Guideline:
         """Internal method to create a guideline with common logic."""
         if condition is None and matcher is None and action is None:
@@ -4299,6 +4304,7 @@ class Server:
             track=track,
             labels=set(labels) if labels else None,
             priority=priority,
+            signals=signals,
         )
 
         if canned_responses:
@@ -5375,7 +5381,6 @@ class Server:
             for interface, implementation in [
                 (AgentStore, AgentDocumentStore),
                 (TagStore, TagDocumentStore),
-                (GuidelineStore, GuidelineDocumentStore),
                 (GuidelineToolAssociationStore, GuidelineToolAssociationDocumentStore),
                 (RelationshipStore, RelationshipDocumentStore),
             ]:
@@ -5527,6 +5532,7 @@ class Server:
                 (CannedResponseStore, CannedResponseVectorStore),
                 (CapabilityStore, CapabilityVectorStore),
                 (JourneyStore, JourneyVectorStore),
+                (GuidelineStore, GuidelineVectorStore),
             ]:
                 if vector_store_interface not in c().defined_types:
                     c()[vector_store_interface] = await self._exit_stack.enter_async_context(

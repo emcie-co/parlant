@@ -530,7 +530,7 @@ class _EventDocument(TypedDict, total=False):
 class _UsageInfoDocument(TypedDict):
     input_tokens: int
     output_tokens: int
-    extra: Mapping[str, int] | None
+    extra: Mapping[str, int | float] | None
 
 
 class _GenerationInfoDocument(TypedDict):

@@ -163,6 +163,7 @@ class GuidelineModule:
         track: bool = True,
         labels: Set[str] | None = None,
         priority: int = 0,
+        signals: Sequence[str] = [],
     ) -> Guideline:
         if tags:
             for tag_id in tags:
@@ -184,6 +185,7 @@ class GuidelineModule:
             track=track,
             labels=labels,
             priority=priority,
+            signals=signals,
         )
 
         return guideline
@@ -220,6 +222,7 @@ class GuidelineModule:
         composition_mode: CompositionMode | None = None,
         labels: GuidelineLabelsUpdateParams | None = None,
         priority: int | None = None,
+        signals: Sequence[str] | None = None,
     ) -> Guideline:
         _ = await self._guideline_store.read_guideline(guideline_id=guideline_id)
 
@@ -232,6 +235,7 @@ class GuidelineModule:
             or enabled is not None
             or composition_mode is not None
             or priority is not None
+            or signals is not None
         ):
             update_params: GuidelineUpdateParams = {}
             if condition:
@@ -250,6 +254,8 @@ class GuidelineModule:
                 update_params["composition_mode"] = composition_mode
             if priority is not None:
                 update_params["priority"] = priority
+            if signals is not None:
+                update_params["signals"] = signals
 
             await self._guideline_store.update_guideline(
                 guideline_id=guideline_id,

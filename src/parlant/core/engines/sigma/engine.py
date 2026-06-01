@@ -54,8 +54,8 @@ class SigmaEngine(Engine):
     ) -> bool:
         engine_context = await self._load_context(context, event_emitter)
 
-        await self._task_runner.run(Task(engine_context))
-        # await self._responder.respond(engine_context)
+        # await self._task_runner.run(Task(engine_context))
+        await self._responder.respond(engine_context)
 
         return True
 

@@ -199,7 +199,7 @@ from parlant.core.relationships import (
     RelationshipStore,
 )
 from parlant.core.guidelines import (
-    GuidelineDocumentStore,
+    GuidelineVectorStore,
     GuidelineStore,
 )
 from parlant.adapters.db.json_file import JSONFileDocumentDatabase
@@ -849,7 +849,6 @@ async def initialize_container(
             (CustomerStore, CustomerDocumentStore, "customers.json"),
             (EvaluationStore, EvaluationDocumentStore, "evaluations.json"),
             (TagStore, TagDocumentStore, "tags.json"),
-            (GuidelineStore, GuidelineDocumentStore, "guidelines.json"),
             (
                 GuidelineToolAssociationStore,
                 GuidelineToolAssociationDocumentStore,
@@ -913,6 +912,7 @@ async def initialize_container(
             (CannedResponseStore, CannedResponseVectorStore, "canned_responses.json"),
             (JourneyStore, JourneyVectorStore, "journey_associations.json"),
             (CapabilityStore, CapabilityVectorStore, "capabilities.json"),
+            (GuidelineStore, GuidelineVectorStore, "guidelines.json"),
         ]:
             await try_define_vector_store(
                 store_interface,

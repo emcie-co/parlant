@@ -391,6 +391,16 @@ GuidelineLabelsField: TypeAlias = Annotated[
 ]
 
 
+GuidelineSignalsField: TypeAlias = Annotated[
+    Sequence[str],
+    Field(
+        description="Signals associated with the guideline, embedded as independent "
+        "vectors to help with retrieval and matching.",
+        examples=[["I want a refund", "money back please"], []],
+    ),
+]
+
+
 class GuidelineDTO(
     DefaultBaseModel,
     json_schema_extra={"example": guideline_dto_example},
@@ -411,6 +421,7 @@ class GuidelineDTO(
     track: bool = True
     labels: GuidelineLabelsField = set()
     priority: int = 0
+    signals: GuidelineSignalsField = []
 
 
 EnumValueTypeDTO: TypeAlias = str | int

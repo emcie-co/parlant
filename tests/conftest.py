@@ -172,7 +172,7 @@ from parlant.core.relationships import (
     RelationshipDocumentStore,
     RelationshipStore,
 )
-from parlant.core.guidelines import GuidelineDocumentStore, GuidelineStore
+from parlant.core.guidelines import GuidelineStore, GuidelineVectorStore
 from parlant.adapters.db.transient import TransientDocumentDatabase
 from parlant.core.nlp.service import NLPService
 from parlant.core.persistence.data_collection import DataCollectingSchematicGenerator
@@ -363,9 +363,6 @@ async def container(
         container[AgentStore] = await stack.enter_async_context(
             AgentDocumentStore(container[IdGenerator], TransientDocumentDatabase())
         )
-        container[GuidelineStore] = await stack.enter_async_context(
-            GuidelineDocumentStore(container[IdGenerator], TransientDocumentDatabase())
-        )
         container[RelationshipStore] = await stack.enter_async_context(
             RelationshipDocumentStore(container[IdGenerator], TransientDocumentDatabase())
         )
@@ -476,6 +473,21 @@ async def container(
 
         container[CapabilityStore] = await stack.enter_async_context(
             CapabilityVectorStore(
+                container[IdGenerator],
+                vector_db=TransientVectorDatabase(
+                    container[Logger],
+                    container[Tracer],
+                    embedder_factory,
+                    lambda: embedding_cache,
+                ),
+                document_db=TransientDocumentDatabase(),
+                embedder_factory=embedder_factory,
+                embedder_type_provider=get_embedder_type,
+            )
+        )
+
+        container[GuidelineStore] = await stack.enter_async_context(
+            GuidelineVectorStore(
                 container[IdGenerator],
                 vector_db=TransientVectorDatabase(
                     container[Logger],

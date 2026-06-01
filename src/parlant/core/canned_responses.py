@@ -106,7 +106,7 @@ class CannedResponse:
 
 
 @dataclass(frozen=True)
-class CannedResponseRelevantResult:
+class CannedResponseRelevanceResult:
     canned_response: CannedResponse
     score: float
 
@@ -163,7 +163,7 @@ class CannedResponseStore(ABC):
         query: str,
         available_canned_responses: Sequence[CannedResponse],
         max_count: int,
-    ) -> Sequence[CannedResponseRelevantResult]: ...
+    ) -> Sequence[CannedResponseRelevanceResult]: ...
 
     @abstractmethod
     async def upsert_tag(
@@ -869,7 +869,7 @@ class CannedResponseVectorStore(CannedResponseStore):
         query: str,
         available_canned_responses: Sequence[CannedResponse],
         max_count: int,
-    ) -> Sequence[CannedResponseRelevantResult]:
+    ) -> Sequence[CannedResponseRelevanceResult]:
         if not available_canned_responses:
             return []
 
@@ -925,7 +925,7 @@ class CannedResponseVectorStore(CannedResponseStore):
                 result.append(canned_response)
 
         return [
-            CannedResponseRelevantResult(
+            CannedResponseRelevanceResult(
                 canned_response=canned_response,
                 score=1.0 - vector_doc.distance,
             )
@@ -1014,7 +1014,7 @@ class CompositeCannedResponseStore(CannedResponseStore):
         query: str,
         available_canned_responses: Sequence[CannedResponse],
         max_count: int,
-    ) -> Sequence[CannedResponseRelevantResult]:
+    ) -> Sequence[CannedResponseRelevanceResult]:
         return await self._writable_store.filter_relevant_canned_responses(
             query, available_canned_responses, max_count
         )

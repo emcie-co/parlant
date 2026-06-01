@@ -606,6 +606,8 @@ class CompositeAgentStore(AgentStore):
         max_engine_iterations: Optional[int] = None,
         composition_mode: Optional[CompositionMode] = None,
         message_output_mode: Optional[MessageOutputMode] = None,
+        engine: Optional[str] = None,
+        effort: Optional[Effort] = None,
         tags: Optional[Sequence[TagId]] = None,
         id: Optional[AgentId] = None,
     ) -> Agent:
@@ -616,6 +618,8 @@ class CompositeAgentStore(AgentStore):
             max_engine_iterations=max_engine_iterations,
             composition_mode=composition_mode,
             message_output_mode=message_output_mode,
+            engine=engine,
+            effort=effort,
             tags=tags,
             id=id,
         )

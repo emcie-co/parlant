@@ -61,8 +61,7 @@ class GuidelineRecaller:
         if not guidelines:
             return GuidelineRecallResult([])
 
-        last_customer_message = context.interaction.last_customer_message
-        query = last_customer_message.content if last_customer_message else ""
+        query = self._build_query(context)
 
         if not query:
             return GuidelineRecallResult([])
@@ -79,3 +78,12 @@ class GuidelineRecaller:
                 for result in results
             ]
         )
+
+    def _build_query(self, context: EngineContext) -> str:
+        # Mirror the alpha engine's retrieval query: build it from the whole
+        # interaction rather than just the last message, so the embedding search
+        # reflects the full conversational context.
+        if not context.interaction.events:
+            return ""
+
+        return str([f"{m.source}: {m.content}\n\n" for m in context.interaction.messages])

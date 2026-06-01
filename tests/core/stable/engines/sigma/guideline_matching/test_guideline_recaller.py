@@ -105,16 +105,14 @@ async def test_that_the_recaller_matches_via_a_signal_over_the_main_content(
     assert result.recalled_guidelines[0].guideline.id == guidelines["refund"].id
 
 
-async def test_that_the_recaller_returns_nothing_when_there_is_no_customer_message(
+async def test_that_the_recaller_returns_nothing_for_an_empty_interaction(
     container: Container,
     recaller: GuidelineRecaller,
 ) -> None:
     guidelines = await _create_sample_guidelines(container[GuidelineStore])
 
-    # No customer turn to form a query from -> nothing to recall.
-    context = create_engine_context(
-        conversation=[(EventSource.AI_AGENT, "Hello! How can I help?")],
-    )
+    # No interaction at all -> no query to recall against.
+    context = create_engine_context(conversation=[])
 
     result = await recaller.recall(context, list(guidelines.values()), max_count=1)
 

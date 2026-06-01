@@ -26,8 +26,7 @@ from parlant.core.agents import Agent, AgentId, CompositionMode, Effort, Message
 from parlant.core.common import Criticality, generate_id
 from parlant.core.customers import Customer, CustomerId
 from parlant.core.emission.event_buffer import EventBuffer
-from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
-from parlant.core.engines.engine_context import EngineContext, Interaction, ResponseState
+from parlant.core.engines.engine_context import EngineContext, Interaction
 from parlant.core.engines.types import Context
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import StdoutLogger
@@ -120,21 +119,6 @@ def create_engine_context(
         for i, (source, message) in enumerate(conversation)
     ]
 
-    state = ResponseState(
-        context_variables=[],
-        glossary_terms=set(),
-        capabilities=[],
-        iterations=[],
-        ordinary_guideline_matches=[],
-        tool_enabled_guideline_matches={},
-        journeys=[],
-        journey_paths={},
-        tool_events=[],
-        tool_insights=ToolInsights(),
-        prepared_to_respond=False,
-        message_events=[],
-    )
-
     return EngineContext(
         info=Context(session_id=session.id, agent_id=agent.id),
         logger=logger,
@@ -145,5 +129,7 @@ def create_engine_context(
         session_event_emitter=EventBuffer(emitting_agent=agent),
         response_event_emitter=EventBuffer(emitting_agent=agent),
         interaction=Interaction(events=events),
-        state=state,
+        # The guideline-matching components read only `interaction`; the engine's
+        # response state isn't exercised here.
+        state=None,
     )

@@ -19,9 +19,11 @@ from typing_extensions import override
 from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.emissions import EventEmitter
 from parlant.core.engines.alpha.entity_context import EntityContext
-from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
-from parlant.core.engines.engine_context import EngineContext, Interaction, ResponseState
+from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
+from parlant.core.engines.engine_context import EngineContext, Interaction
+from parlant.core.engines.sigma.guideline_matching.guideline_recaller import GuidelineRecaller
 from parlant.core.engines.sigma.responder import Responder
+from parlant.core.engines.sigma.response_state import ResponseState
 from parlant.core.engines.sigma.task_runner import TaskRunner
 from parlant.core.engines.types import Context, Engine, UtteranceRequest
 from parlant.core.entity_cq import EntityQueries
@@ -37,6 +39,7 @@ class SigmaEngine(Engine):
         logger: Logger,
         tracer: Tracer,
         meter: Meter,
+        guideline_recaller: GuidelineRecaller,
         responder: Responder,
         task_runner: TaskRunner,
         entity_queries: EntityQueries,
@@ -44,8 +47,11 @@ class SigmaEngine(Engine):
         self._logger = logger
         self._tracer = tracer
         self._meter = meter
+
+        self._guideline_recaller = guideline_recaller
         self._responder = responder
         self._task_runner = task_runner
+
         self._entity_queries = entity_queries
 
     @override
@@ -56,6 +62,25 @@ class SigmaEngine(Engine):
     ) -> bool:
         try:
             engine_context = await self._load_context(context, event_emitter)
+
+            await event_emitter.emit_status_event(
+                trace_id=self._tracer.trace_id,
+                data=StatusEventData(status="processing", message="Checking policies"),
+            )
+
+            usable_guidelines = await self._entity_queries.find_guidelines_for_context(
+                context.agent_id, []
+            )
+
+            guidelines = await self._guideline_recaller.recall(engine_context, usable_guidelines)
+
+            engine_context.state.ordinary_guideline_matches = [
+                GuidelineMatch(
+                    guideline=rc.guideline,
+                    rationale="This guideline was ranked high enough to qualify as related to the conversation",
+                )
+                for rc in guidelines.recalled_guidelines
+            ]
 
             # await self._task_runner.run(Task(engine_context))
             await self._responder.respond(engine_context)
@@ -109,24 +134,7 @@ class SigmaEngine(Engine):
             session_event_emitter=event_emitter,
             response_event_emitter=EventBuffer(agent),
             interaction=interaction,
-            state=ResponseState(
-                context_variables=[],
-                glossary_terms=set(),
-                capabilities=[],
-                iterations=[],
-                ordinary_guideline_matches=[],
-                tool_enabled_guideline_matches={},
-                journeys=[],
-                journey_paths={
-                    k: list(v) for k, v in session.agent_states[-1].journey_paths.items()
-                }
-                if session.agent_states
-                else {},
-                tool_events=[],
-                tool_insights=ToolInsights(),
-                prepared_to_respond=False,
-                message_events=[],
-            ),
+            state=ResponseState(),
         )
 
         # Set in context for access by hooks and other components

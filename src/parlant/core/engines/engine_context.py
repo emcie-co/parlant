@@ -19,18 +19,13 @@ from typing import Any, Optional, Sequence, cast
 
 from parlant.core.agents import Agent
 from parlant.core.async_utils import Stopwatch
-from parlant.core.capabilities import Capability
 from parlant.core.common import JSONSerializable
-from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.tracer import Tracer
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent, EventEmitter
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.types import Context
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
-from parlant.core.glossary import Term
-from parlant.core.guidelines import Guideline
-from parlant.core.journeys import Journey, JourneyId
 from parlant.core.loggers import Logger
 from parlant.core.sessions import (
     Event,
@@ -134,42 +129,6 @@ class Interaction:
     """An sequenced event-by-event representation of the interaction"""
 
 
-@dataclass(frozen=False)
-class ResponseState:
-    """Used to access and update the state needed for responding properly"""
-
-    context_variables: list[tuple[ContextVariable, ContextVariableValue]]
-    glossary_terms: set[Term]
-    capabilities: list[Capability]
-    iterations: list[IterationState]
-    ordinary_guideline_matches: list[GuidelineMatch]
-    tool_enabled_guideline_matches: dict[GuidelineMatch, list[ToolId]]
-    journeys: list[Journey]
-    journey_paths: dict[JourneyId, list[Optional[str]]]
-    tool_events: list[EmittedEvent]
-    tool_insights: ToolInsights
-    prepared_to_respond: bool
-    message_events: list[EmittedEvent]
-    usable_guidelines: list[Guideline] = field(default_factory=list)
-    additional_canned_response_fields: dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def ordinary_guidelines(self) -> list[Guideline]:
-        return [gp.guideline for gp in self.ordinary_guideline_matches]
-
-    @property
-    def tool_enabled_guidelines(self) -> list[Guideline]:
-        return [gp.guideline for gp in self.tool_enabled_guideline_matches.keys()]
-
-    @property
-    def guidelines(self) -> list[Guideline]:
-        return self.ordinary_guidelines + self.tool_enabled_guidelines
-
-    @property
-    def all_events(self) -> list[EmittedEvent]:
-        return self.tool_events + self.message_events
-
-
 @dataclass
 class EngineContext:
     """Helper class to access loaded values that are relevant for responding in a particular context"""
@@ -201,7 +160,7 @@ class EngineContext:
     interaction: Interaction
     """A snapshot of the interaction history in the loaded session"""
 
-    state: ResponseState
+    state: Any
     """The current state of the response being processed"""
 
     creation: Stopwatch = field(default_factory=Stopwatch.start)

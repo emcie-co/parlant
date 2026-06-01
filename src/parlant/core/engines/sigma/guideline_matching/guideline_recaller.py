@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 from parlant.core.engines.engine_context import EngineContext
 from parlant.core.guidelines import Guideline, GuidelineStore
+from parlant.core.tracer import Tracer
 
 
 @dataclass(frozen=True)
@@ -34,10 +35,24 @@ class GuidelineRecallResult:
 class GuidelineRecaller:
     DEFAULT_MAX_COUNT = 10
 
-    def __init__(self, guideline_store: GuidelineStore) -> None:
+    def __init__(
+        self,
+        guideline_store: GuidelineStore,
+        tracer: Tracer,
+    ) -> None:
         self._guideline_store = guideline_store
+        self._tracer = tracer
 
     async def recall(
+        self,
+        context: EngineContext,
+        guidelines: Sequence[Guideline],
+        max_count: int = DEFAULT_MAX_COUNT,
+    ) -> GuidelineRecallResult:
+        with self._tracer.span("guideline.recall"):
+            return await self._do_recall(context, guidelines, max_count)
+
+    async def _do_recall(
         self,
         context: EngineContext,
         guidelines: Sequence[Guideline],

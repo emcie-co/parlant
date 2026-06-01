@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from lagom import Container
+from pytest import fixture
 
 from parlant.core.guidelines import Guideline, GuidelineStore
 from parlant.core.engines.sigma.guideline_matching.guideline_recaller import GuidelineRecaller
@@ -21,8 +22,13 @@ from parlant.core.sessions import EventSource
 from tests.core.stable.engines.sigma.guideline_matching.utils import create_engine_context
 
 
-def test_that_a_guideline_recaller_can_be_created(container: Container) -> None:
-    assert GuidelineRecaller(container[GuidelineStore]) is not None
+@fixture
+def recaller(container: Container) -> GuidelineRecaller:
+    return container[GuidelineRecaller]
+
+
+def test_that_a_guideline_recaller_can_be_created(recaller: GuidelineRecaller) -> None:
+    assert recaller is not None
 
 
 # ─────────── embedder-backed recall over the real GuidelineStore ─────────────
@@ -56,12 +62,10 @@ async def _create_sample_guidelines(store: GuidelineStore) -> dict[str, Guidelin
 
 async def test_that_the_recaller_returns_the_single_right_guideline_per_conversation(
     container: Container,
+    recaller: GuidelineRecaller,
 ) -> None:
-    store = container[GuidelineStore]
-    guidelines = await _create_sample_guidelines(store)
+    guidelines = await _create_sample_guidelines(container[GuidelineStore])
     available = list(guidelines.values())
-
-    recaller = GuidelineRecaller(store)
 
     cases: list[tuple[str, str]] = [
         ("hi, I'd like to get my money back for this order", "refund"),
@@ -85,11 +89,9 @@ async def test_that_the_recaller_returns_the_single_right_guideline_per_conversa
 
 async def test_that_the_recaller_matches_via_a_signal_over_the_main_content(
     container: Container,
+    recaller: GuidelineRecaller,
 ) -> None:
-    store = container[GuidelineStore]
-    guidelines = await _create_sample_guidelines(store)
-
-    recaller = GuidelineRecaller(store)
+    guidelines = await _create_sample_guidelines(container[GuidelineStore])
 
     # Phrased to match the refund guideline's *signal* ("I want my money back")
     # rather than its condition/action wording.
@@ -105,11 +107,9 @@ async def test_that_the_recaller_matches_via_a_signal_over_the_main_content(
 
 async def test_that_the_recaller_returns_nothing_when_there_is_no_customer_message(
     container: Container,
+    recaller: GuidelineRecaller,
 ) -> None:
-    store = container[GuidelineStore]
-    guidelines = await _create_sample_guidelines(store)
-
-    recaller = GuidelineRecaller(store)
+    guidelines = await _create_sample_guidelines(container[GuidelineStore])
 
     # No customer turn to form a query from -> nothing to recall.
     context = create_engine_context(

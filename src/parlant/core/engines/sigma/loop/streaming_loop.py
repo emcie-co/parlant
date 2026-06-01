@@ -49,7 +49,7 @@ from parlant.core.sessions import (
 
 
 @dataclass
-class _ResponseState:
+class _LoopState:
     start_time: float = field(default_factory=asyncio.get_event_loop().time)
 
     current_event: StreamEvent | None = None
@@ -72,7 +72,7 @@ class StreamingLoop(Loop):
     async def run(self, job: LoopJob) -> LoopResult:
         context, prompt = job.context, job.prompt
 
-        state = _ResponseState(history=self._build_history(context, prompt))
+        state = _LoopState(history=self._build_history(context, prompt))
 
         while not context.state.prepared_to_respond:
             async for event in self._react.stream_step(
@@ -123,7 +123,7 @@ class StreamingLoop(Loop):
             )
         ]
 
-    async def _on_new_event(self, state: _ResponseState, event: StreamEvent) -> None:
+    async def _on_new_event(self, state: _LoopState, event: StreamEvent) -> None:
         state.current_event = event
 
         if isinstance(event, StepCompleted):
@@ -131,7 +131,7 @@ class StreamingLoop(Loop):
             state.steps.append(event.result)
             self._logger.info(f"{self.__class__.__name__} step usage:\n {event.result.usage}")
 
-    async def _update_reasoning(self, context: EngineContext, state: _ResponseState) -> None:
+    async def _update_reasoning(self, context: EngineContext, state: _LoopState) -> None:
         match state.current_event:
             case ReasoningDelta():
                 if state.reasoning_handle is None:  # First reasoning chunk
@@ -189,7 +189,7 @@ class StreamingLoop(Loop):
                 state.reasoning_chunks = []
                 state.reasoning_handle = None
 
-    async def _update_tool_calls(self, context: EngineContext, state: _ResponseState) -> None:
+    async def _update_tool_calls(self, context: EngineContext, state: _LoopState) -> None:
         match state.current_event:
             case ToolCallStarted():
                 if not state.in_the_middle_of_running_tools:
@@ -221,7 +221,7 @@ class StreamingLoop(Loop):
                 state.in_the_middle_of_running_tools = False
 
     async def _simulate_tool_calls(
-        self, context: EngineContext, state: _ResponseState, tool_calls: Sequence[ToolCallPart]
+        self, context: EngineContext, state: _LoopState, tool_calls: Sequence[ToolCallPart]
     ) -> None:
         parts: list[ToolResultPart] = []
 
@@ -245,7 +245,7 @@ class StreamingLoop(Loop):
             )
         )
 
-    async def _update_message(self, context: EngineContext, state: _ResponseState) -> None:
+    async def _update_message(self, context: EngineContext, state: _LoopState) -> None:
         match state.current_event:
             case TextDelta():
                 if state.message_handle is None:  # First message chunk
@@ -301,7 +301,7 @@ class StreamingLoop(Loop):
                 state.message_chunks = []
                 state.message_handle = None
 
-    def _get_model_size(self, context: EngineContext, state: _ResponseState) -> ModelSize:
+    def _get_model_size(self, context: EngineContext, state: _LoopState) -> ModelSize:
         return ModelSize.MEDIUM
 
     def _build_history(self, context: EngineContext, prompt: str) -> list[Message]:

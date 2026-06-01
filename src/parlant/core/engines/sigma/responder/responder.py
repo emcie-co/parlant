@@ -77,9 +77,12 @@ class Responder:
         max_restrictiveness = 0
 
         # Check all matched guidelines for composition mode
-        for guideline in context.state.guidelines:
-            if guideline.composition_mode is not None:
-                mode = guideline.composition_mode
+        for guideline_match in chain(
+            context.state.ordinary_guideline_matches,
+            context.state.tool_enabled_guideline_matches,
+        ):
+            if guideline_match.guideline.composition_mode is not None:
+                mode = guideline_match.guideline.composition_mode
 
                 # Track most restrictive (only CANNED_* modes)
                 if mode in restrictiveness_priority:

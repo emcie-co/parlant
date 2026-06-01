@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from lagom import Container
+from pytest import fixture
+
 from parlant.core.engines.sigma.guideline_matching.guideline_ranker import GuidelineRanker
 from parlant.core.sessions import EventSource
 
@@ -21,11 +24,16 @@ from tests.core.stable.engines.sigma.guideline_matching.utils import (
 )
 
 
-def test_that_a_guideline_ranker_can_be_created() -> None:
-    assert GuidelineRanker() is not None
+@fixture
+def ranker(container: Container) -> GuidelineRanker:
+    return container[GuidelineRanker]
 
 
-async def test_that_the_ranker_ranks_a_relevant_guideline() -> None:
+def test_that_a_guideline_ranker_can_be_created(ranker: GuidelineRanker) -> None:
+    assert ranker is not None
+
+
+async def test_that_the_ranker_ranks_a_relevant_guideline(ranker: GuidelineRanker) -> None:
     guideline = create_guideline(
         condition="the customer asks about toppings",
         action="list the available toppings",
@@ -35,7 +43,7 @@ async def test_that_the_ranker_ranks_a_relevant_guideline() -> None:
         conversation=[(EventSource.CUSTOMER, "what toppings do you have?")],
     )
 
-    result = await GuidelineRanker().rank(context, [guideline])
+    result = await ranker.rank(context, [guideline])
 
     assert len(result.ranked_guidelines) == 1
     assert result.ranked_guidelines[0].guideline == guideline

@@ -39,4 +39,4 @@ async def test_that_the_distiller_distills_a_relevant_guideline() -> None:
 
     assert len(result.distilled_guidelines) == 1
     assert result.distilled_guidelines[0].guideline == guideline
-    assert result.distilled_guidelines[0].relevant
+    assert result.distilled_guidelines[0].is_relevant

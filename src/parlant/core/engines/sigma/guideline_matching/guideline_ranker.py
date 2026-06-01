@@ -23,7 +23,7 @@ from parlant.core.guidelines import Guideline
 class RankedGuideline:
     guideline: Guideline
     reasoning: str
-    relevant: bool
+    is_relevant: bool
     score: float
 
 

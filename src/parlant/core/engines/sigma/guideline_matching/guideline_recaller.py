@@ -16,13 +16,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from parlant.core.engines.engine_context import EngineContext
-from parlant.core.guidelines import Guideline
+from parlant.core.guidelines import Guideline, GuidelineStore
 
 
 @dataclass(frozen=True)
 class RecalledGuideline:
     guideline: Guideline
-    relevant: bool
+    is_relevant: bool
     score: float
 
 
@@ -32,9 +32,35 @@ class GuidelineRecallResult:
 
 
 class GuidelineRecaller:
+    DEFAULT_MAX_COUNT = 10
+
+    def __init__(self, guideline_store: GuidelineStore) -> None:
+        self._guideline_store = guideline_store
+
     async def recall(
         self,
         context: EngineContext,
         guidelines: Sequence[Guideline],
+        max_count: int = DEFAULT_MAX_COUNT,
     ) -> GuidelineRecallResult:
-        return GuidelineRecallResult([])
+        if not guidelines:
+            return GuidelineRecallResult([])
+
+        last_customer_message = context.interaction.last_customer_message
+        query = last_customer_message.content if last_customer_message else ""
+
+        if not query:
+            return GuidelineRecallResult([])
+
+        results = await self._guideline_store.find_relevant_guidelines(
+            query=query,
+            available_guidelines=guidelines,
+            max_count=max_count,
+        )
+
+        return GuidelineRecallResult(
+            [
+                RecalledGuideline(guideline=result.guideline, is_relevant=True, score=result.score)
+                for result in results
+            ]
+        )

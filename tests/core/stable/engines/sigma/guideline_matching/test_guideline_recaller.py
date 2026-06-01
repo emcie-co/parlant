@@ -18,39 +18,20 @@ from parlant.core.guidelines import Guideline, GuidelineStore
 from parlant.core.engines.sigma.guideline_matching.guideline_recaller import GuidelineRecaller
 from parlant.core.sessions import EventSource
 
-from tests.core.stable.engines.sigma.guideline_matching.utils import (
-    create_engine_context,
-    create_guideline,
-)
+from tests.core.stable.engines.sigma.guideline_matching.utils import create_engine_context
 
 
-def test_that_a_guideline_recaller_can_be_created() -> None:
-    assert GuidelineRecaller() is not None
+def test_that_a_guideline_recaller_can_be_created(container: Container) -> None:
+    assert GuidelineRecaller(container[GuidelineStore]) is not None
 
 
-async def test_that_the_recaller_recalls_a_relevant_guideline() -> None:
-    guideline = create_guideline(
-        condition="the customer asks about toppings",
-        action="list the available toppings",
-    )
-
-    context = create_engine_context(
-        conversation=[(EventSource.CUSTOMER, "what toppings do you have?")],
-    )
-
-    result = await GuidelineRecaller().recall(context, [guideline])
-
-    assert len(result.recalled_guidelines) == 1
-    assert result.recalled_guidelines[0].guideline == guideline
-    assert result.recalled_guidelines[0].relevant
-
-
-# ─────────── embedder-backed retrieval over the real GuidelineStore ──────────
+# ─────────── embedder-backed recall over the real GuidelineStore ─────────────
 #
-# These exercise find_relevant_guidelines() end-to-end: three guidelines are
-# created in the actual (container-provided) vector store so their content and
-# signals get embedded, then sample conversations are matched against them with
-# max_count=1, expecting exactly the right one of three back.
+# The recaller is given the store and uses find_relevant_guidelines under the
+# hood. Three guidelines are created in the actual (container-provided) vector
+# store so their content and signals get embedded; sample conversations are
+# then recalled against them with max_count=1, expecting exactly the right one
+# of three back.
 
 
 async def _create_sample_guidelines(store: GuidelineStore) -> dict[str, Guideline]:
@@ -73,12 +54,14 @@ async def _create_sample_guidelines(store: GuidelineStore) -> dict[str, Guidelin
     return {"refund": refund, "hours": hours, "shipping": shipping}
 
 
-async def test_that_find_relevant_guidelines_returns_the_single_right_guideline_per_conversation(
+async def test_that_the_recaller_returns_the_single_right_guideline_per_conversation(
     container: Container,
 ) -> None:
     store = container[GuidelineStore]
     guidelines = await _create_sample_guidelines(store)
     available = list(guidelines.values())
+
+    recaller = GuidelineRecaller(store)
 
     cases: list[tuple[str, str]] = [
         ("hi, I'd like to get my money back for this order", "refund"),
@@ -87,31 +70,52 @@ async def test_that_find_relevant_guidelines_returns_the_single_right_guideline_
     ]
 
     for last_customer_message, expected_key in cases:
-        results = await store.find_relevant_guidelines(
-            query=last_customer_message,
-            available_guidelines=available,
-            max_count=1,
+        context = create_engine_context(
+            conversation=[(EventSource.CUSTOMER, last_customer_message)],
         )
 
-        assert len(results) == 1
-        assert results[0].guideline.id == guidelines[expected_key].id, (
-            f"query {last_customer_message!r} expected {expected_key}"
+        result = await recaller.recall(context, available, max_count=1)
+
+        assert len(result.recalled_guidelines) == 1
+        assert result.recalled_guidelines[0].guideline.id == guidelines[expected_key].id, (
+            f"message {last_customer_message!r} expected {expected_key}"
         )
+        assert result.recalled_guidelines[0].is_relevant
 
 
-async def test_that_find_relevant_guidelines_matches_via_a_signal_over_the_main_content(
+async def test_that_the_recaller_matches_via_a_signal_over_the_main_content(
     container: Container,
 ) -> None:
     store = container[GuidelineStore]
     guidelines = await _create_sample_guidelines(store)
 
+    recaller = GuidelineRecaller(store)
+
     # Phrased to match the refund guideline's *signal* ("I want my money back")
     # rather than its condition/action wording.
-    results = await store.find_relevant_guidelines(
-        query="I want my money back please",
-        available_guidelines=list(guidelines.values()),
-        max_count=1,
+    context = create_engine_context(
+        conversation=[(EventSource.CUSTOMER, "I want my money back please")],
     )
 
-    assert len(results) == 1
-    assert results[0].guideline.id == guidelines["refund"].id
+    result = await recaller.recall(context, list(guidelines.values()), max_count=1)
+
+    assert len(result.recalled_guidelines) == 1
+    assert result.recalled_guidelines[0].guideline.id == guidelines["refund"].id
+
+
+async def test_that_the_recaller_returns_nothing_when_there_is_no_customer_message(
+    container: Container,
+) -> None:
+    store = container[GuidelineStore]
+    guidelines = await _create_sample_guidelines(store)
+
+    recaller = GuidelineRecaller(store)
+
+    # No customer turn to form a query from -> nothing to recall.
+    context = create_engine_context(
+        conversation=[(EventSource.AI_AGENT, "Hello! How can I help?")],
+    )
+
+    result = await recaller.recall(context, list(guidelines.values()), max_count=1)
+
+    assert result.recalled_guidelines == []

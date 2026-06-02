@@ -20,6 +20,7 @@ ParlantCloudTracer / ParlantCloudLogger / ParlantCloudMeter.
 
 All cloud services derive their base URL from a single env var:
   PARLANT_CLOUD_BASE_URL  (preferred)
+  PARLANT_CLOUD_API_URL   (preferred by Parlant Cloud setup, /inference suffix is stripped)
   PARLANT_CLOUD_OTEL_URL  (backward compat, same meaning)
   default: https://api.parlant.cloud
 """
@@ -80,7 +81,7 @@ _logger = logging.getLogger(__name__)
 
 _exit_stack = AsyncExitStack()
 
-PLATFORM_SECRET_HEADER = "X-Parlant-Cloud-Platform-Secret"
+PLATFORM_TOKEN_HEADER = "X-Parlant-Cloud-Platform-Token"
 
 _DEFAULT_BASE_URL = "https://api.parlant.cloud"
 
@@ -88,13 +89,19 @@ _DEFAULT_BASE_URL = "https://api.parlant.cloud"
 def _get_cloud_base_url() -> str:
     """Resolve the Parlant Cloud base URL from environment.
 
-    Priority: PARLANT_CLOUD_BASE_URL > PARLANT_CLOUD_OTEL_URL > default.
+    Priority: PARLANT_CLOUD_BASE_URL > PARLANT_CLOUD_API_URL > PARLANT_CLOUD_OTEL_URL > default.
     """
-    return (
+    base_url = (
         os.getenv("PARLANT_CLOUD_BASE_URL")
+        or os.getenv("PARLANT_CLOUD_API_URL")
         or os.getenv("PARLANT_CLOUD_OTEL_URL")
         or _DEFAULT_BASE_URL
     ).rstrip("/")
+
+    if base_url.endswith("/inference"):
+        base_url = base_url[: -len("/inference")]
+
+    return base_url
 
 
 class ParlantCloudAuthorizationPolicy(AuthorizationPolicy):
@@ -120,7 +127,7 @@ class ParlantCloudAuthorizationPolicy(AuthorizationPolicy):
         return app
 
     def _is_trusted(self, headers: Mapping[str, str]) -> bool:
-        secret = headers.get(PLATFORM_SECRET_HEADER, "")
+        secret = headers.get(PLATFORM_TOKEN_HEADER, "")
         return bool(secret) and hmac.compare_digest(secret, self._platform_secret)
 
     @override
@@ -745,7 +752,7 @@ class WebSocketTunnelService(TunnelService):
     async def start(self) -> None:
         if not self._token:
             raise ValueError(
-                "PARLANT_CLOUD_PROJECT_TOKEN is required to start the tunnel. "
+                "PARLANT_CLOUD_API_KEY is required to start the tunnel. "
                 "Set it in your environment to connect to Parlant Cloud."
             )
 
@@ -813,8 +820,8 @@ def _create_tunnel_service(
     background_task_service: BackgroundTaskService,
     logger: Logger | None = None,
 ) -> WebSocketTunnelService | None:
-    """Create a tunnel service if PARLANT_CLOUD_PROJECT_TOKEN is set."""
-    token = os.environ.get("PARLANT_CLOUD_PROJECT_TOKEN", "")
+    """Create a tunnel service if PARLANT_CLOUD_API_KEY is set."""
+    token = os.environ.get("PARLANT_CLOUD_API_KEY", "")
     if not token:
         return None
 
@@ -839,9 +846,9 @@ def _create_tunnel_service(
 
 
 async def configure_container(container: Container) -> Container:
-    platform_secret = os.environ.get("PARLANT_CLOUD_PLATFORM_SECRET", "")
-    if platform_secret:
-        container[AuthorizationPolicy] = ParlantCloudAuthorizationPolicy(platform_secret)
+    platform_token = os.environ.get("PARLANT_CLOUD_PLATFORM_TOKEN", "")
+    if platform_token:
+        container[AuthorizationPolicy] = ParlantCloudAuthorizationPolicy(platform_token)
 
     api_key = os.environ.get("PARLANT_CLOUD_API_KEY", "")
     if not api_key:

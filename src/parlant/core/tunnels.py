@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Awaitable, Callable, Mapping
 
 from parlant.core.agents import AgentId
-from parlant.core.app_modules.sessions import Moderation, SessionModule
+from parlant.core.app_modules.sessions import Moderation, SessionModule, SessionUpdateParamsModel
 from parlant.core.customers import CustomerId
 from parlant.core.loggers import Logger
 from parlant.core.sessions import EventId, EventKind, EventSource, SessionId
@@ -172,9 +172,24 @@ class TunnelRequestDispatcher:
 
     async def _handle_update_session(self, params: dict[str, Any]) -> dict[str, Any]:
         session_id = SessionId(params.pop("session_id"))
+        update_params: SessionUpdateParamsModel = {}
+        if "customer_id" in params:
+            update_params["customer_id"] = CustomerId(params["customer_id"])
+        if "agent_id" in params:
+            update_params["agent_id"] = AgentId(params["agent_id"])
+        if "mode" in params:
+            update_params["mode"] = params["mode"]
+        if "title" in params:
+            update_params["title"] = params["title"]
+        if "consumption_offsets" in params:
+            update_params["consumption_offsets"] = params["consumption_offsets"]
+        if "agent_states" in params:
+            update_params["agent_states"] = params["agent_states"]
+        if "metadata" in params:
+            update_params["metadata"] = params["metadata"]
         session = await self._session_module.update(
             session_id=session_id,
-            params=params,
+            params=update_params,
         )
         return self._serialize_session(session)
 

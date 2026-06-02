@@ -60,11 +60,7 @@ async def test_that_tunnel_connects_and_dispatches_request() -> None:
             await asyncio.sleep(0.1)
 
         await tunnel.stop()
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        await asyncio.wait_for(task, timeout=1.0)
 
     assert received_response is not None
     assert received_response["request_id"] == "req-1"
@@ -107,10 +103,64 @@ async def test_that_tunnel_reconnects_after_disconnect() -> None:
             await asyncio.sleep(0.1)
 
         await tunnel.stop()
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        await asyncio.wait_for(task, timeout=1.0)
 
     assert connection_count >= 2
+
+
+async def test_that_stopping_tunnel_closes_active_websocket() -> None:
+    connected = asyncio.Event()
+
+    async def mock_handler(websocket: websockets.asyncio.server.ServerConnection) -> None:
+        connected.set()
+        await websocket.wait_closed()
+
+    async with websockets.asyncio.server.serve(mock_handler, "localhost", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        url = f"ws://localhost:{port}"
+
+        dispatcher = AsyncMock(spec=TunnelRequestDispatcher)
+
+        tunnel = WebSocketTunnelService(
+            url=url,
+            token="test-token",
+            dispatcher=dispatcher,
+        )
+
+        task = asyncio.create_task(tunnel.start())
+        await asyncio.wait_for(connected.wait(), timeout=1.0)
+
+        await tunnel.stop()
+        await asyncio.wait_for(task, timeout=1.0)
+
+
+async def test_that_stopping_tunnel_interrupts_reconnect_delay() -> None:
+    connection_count = 0
+
+    async def mock_handler(websocket: websockets.asyncio.server.ServerConnection) -> None:
+        nonlocal connection_count
+        connection_count += 1
+        await websocket.close()
+
+    async with websockets.asyncio.server.serve(mock_handler, "localhost", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        url = f"ws://localhost:{port}"
+
+        dispatcher = AsyncMock(spec=TunnelRequestDispatcher)
+
+        tunnel = WebSocketTunnelService(
+            url=url,
+            token="test-token",
+            dispatcher=dispatcher,
+            initial_reconnect_delay=10.0,
+        )
+
+        task = asyncio.create_task(tunnel.start())
+
+        for _ in range(50):
+            if connection_count >= 1:
+                break
+            await asyncio.sleep(0.1)
+
+        await tunnel.stop()
+        await asyncio.wait_for(task, timeout=1.0)

@@ -28,6 +28,9 @@ from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
 
 
+# TODO add context variables, glossary etc'
+
+
 @dataclass(frozen=True)
 class RankedGuideline:
     guideline: Guideline
@@ -69,7 +72,7 @@ class GuidelineRanker:
         self,
         logger: Logger,
         schematic_generator: SchematicGenerator[GuidelineRankSchema],
-        include_tldr: bool = False,
+        include_tldr: bool = True,
     ) -> None:
         self._logger = logger
         self._schematic_generator = schematic_generator

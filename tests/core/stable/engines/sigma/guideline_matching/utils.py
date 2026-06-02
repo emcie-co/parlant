@@ -19,7 +19,7 @@ distiller / ranker / recaller can be exercised over a known interaction
 history without spinning up the full SDK/engine.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 
 from parlant.core.agents import Agent, AgentId, CompositionMode, Effort, MessageOutputMode
@@ -27,6 +27,7 @@ from parlant.core.common import Criticality, generate_id
 from parlant.core.customers import Customer, CustomerId
 from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.engines.engine_context import EngineContext, Interaction
+from parlant.core.engines.sigma.guideline_matching.guideline_ranker import GuidelineRanker
 from parlant.core.engines.types import Context
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import StdoutLogger
@@ -54,6 +55,60 @@ def create_guideline(
         tags=tags,
         metadata={},
     )
+
+
+def create_guideline_by_name(
+    guidelines_dict: Mapping[str, Mapping[str, str]],
+    name: str,
+) -> Guideline:
+    spec = guidelines_dict[name]
+    return create_guideline(condition=spec["condition"], action=spec.get("action"))
+
+
+async def base_test_that_guidelines_are_ranked_correctly(
+    ranker: GuidelineRanker,
+    guidelines_dict: Mapping[str, Mapping[str, str]],
+    conversation: list[tuple[EventSource, str]],
+    conversation_guideline_names: list[str],
+    relevant_guideline_names: list[str],
+    irrelevant_guideline_names: list[str],
+) -> None:
+    """Rank ``conversation_guideline_names`` against ``conversation`` and assert that:
+
+    - every guideline in ``relevant_guideline_names`` was ranked as relevant, and
+    - every guideline in ``irrelevant_guideline_names`` was ranked as not relevant.
+
+    A guideline that appears in neither list is a "don't care": any decision the
+    ranker makes about it is accepted.
+    """
+    assert set(relevant_guideline_names) <= set(conversation_guideline_names)
+    assert set(irrelevant_guideline_names) <= set(conversation_guideline_names)
+    assert not (set(relevant_guideline_names) & set(irrelevant_guideline_names))
+
+    guidelines_by_name = {
+        name: create_guideline_by_name(guidelines_dict, name)
+        for name in conversation_guideline_names
+    }
+
+    context = create_engine_context(conversation=conversation)
+
+    result = await ranker.rank(context, list(guidelines_by_name.values()))
+
+    relevance_by_id = {
+        ranked.guideline.id: ranked.is_relevant for ranked in result.ranked_guidelines
+    }
+
+    for name in relevant_guideline_names:
+        guideline = guidelines_by_name[name]
+        assert relevance_by_id.get(guideline.id) is True, (
+            f"expected guideline {name!r} to be ranked as relevant, but it wasn't"
+        )
+
+    for name in irrelevant_guideline_names:
+        guideline = guidelines_by_name[name]
+        assert relevance_by_id.get(guideline.id) is False, (
+            f"expected guideline {name!r} to be ranked as not relevant, but it was"
+        )
 
 
 def create_agent(name: str = "Test Agent") -> Agent:

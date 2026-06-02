@@ -913,7 +913,13 @@ async def configure_container(container: Container) -> Container:
         )
         container[Meter] = cloud_meter
 
-    # Start tunnel if the project token is available
+    return container
+
+
+async def initialize_container(container: Container) -> None:
+    """Start the tunnel after core application modules are available."""
+    logger = container[Logger]
+
     try:
         tunnel = _create_tunnel_service(
             session_module=container[SessionModule],
@@ -929,5 +935,3 @@ async def configure_container(container: Container) -> Container:
             )
     except Exception as e:
         logger.warning(f"Failed to start Parlant Cloud tunnel: {e}")
-
-    return container

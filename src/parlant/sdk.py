@@ -5632,6 +5632,13 @@ class Server:
                 if module_func := getattr(env_based_module, "initialize_container", None):
                     await module_func(c.clone())
 
+            if _should_configure_parlant_cloud():
+                from parlant.adapters.modules.parlant_cloud import (
+                    initialize_container as cloud_initialize,
+                )
+
+                await cloud_initialize(c)
+
         async def configure_api(app: FastAPI) -> FastAPI:
             if self._configure_api:
                 await self._configure_api(app)

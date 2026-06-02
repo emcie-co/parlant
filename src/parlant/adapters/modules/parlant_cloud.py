@@ -14,15 +14,17 @@
 
 """Parlant Cloud module.
 
-Auto-loaded by the Server when PARLANT_CLOUD_API_KEY is set.
-Validates the API key, resolves project context, and sets up
+Auto-loaded by the Server when PARLANT_CLOUD_PLATFORM_TOKEN is set.
+Validates the platform token, resolves project context, and sets up
 ParlantCloudTracer / ParlantCloudLogger / ParlantCloudMeter.
 
-All cloud services derive their base URL from a single env var:
+Tunnel and telemetry derive their base URL from:
   PARLANT_CLOUD_BASE_URL  (preferred)
-  PARLANT_CLOUD_API_URL   (preferred by Parlant Cloud setup, /inference suffix is stripped)
   PARLANT_CLOUD_OTEL_URL  (backward compat, same meaning)
   default: https://api.parlant.cloud
+
+PARLANT_CLOUD_API_KEY and PARLANT_CLOUD_API_URL are used only by the NLP
+service adapter.
 """
 
 import asyncio
@@ -89,24 +91,18 @@ _DEFAULT_BASE_URL = "https://api.parlant.cloud"
 def _get_cloud_base_url() -> str:
     """Resolve the Parlant Cloud base URL from environment.
 
-    Priority: PARLANT_CLOUD_BASE_URL > PARLANT_CLOUD_API_URL > PARLANT_CLOUD_OTEL_URL > default.
+    Priority: PARLANT_CLOUD_BASE_URL > PARLANT_CLOUD_OTEL_URL > default.
     """
-    base_url = (
+    return (
         os.getenv("PARLANT_CLOUD_BASE_URL")
-        or os.getenv("PARLANT_CLOUD_API_URL")
         or os.getenv("PARLANT_CLOUD_OTEL_URL")
         or _DEFAULT_BASE_URL
     ).rstrip("/")
 
-    if base_url.endswith("/inference"):
-        base_url = base_url[: -len("/inference")]
-
-    return base_url
-
 
 class ParlantCloudAuthorizationPolicy(AuthorizationPolicy):
-    def __init__(self, platform_secret: str) -> None:
-        self._platform_secret = platform_secret
+    def __init__(self, platform_token: str) -> None:
+        self._platform_token = platform_token
         self._production_policy = ProductionAuthorizationPolicy()
 
     @property
@@ -127,8 +123,8 @@ class ParlantCloudAuthorizationPolicy(AuthorizationPolicy):
         return app
 
     def _is_trusted(self, headers: Mapping[str, str]) -> bool:
-        secret = headers.get(PLATFORM_TOKEN_HEADER, "")
-        return bool(secret) and hmac.compare_digest(secret, self._platform_secret)
+        token = headers.get(PLATFORM_TOKEN_HEADER, "")
+        return bool(token) and hmac.compare_digest(token, self._platform_token)
 
     @override
     async def check_permission(self, request: Request, operation: Operation) -> bool:
@@ -167,7 +163,7 @@ class ParlantCloudTracer(Tracer):
             f"{_get_cloud_base_url()}/v1/traces",
         )
 
-        self._api_key = os.getenv("PARLANT_CLOUD_API_KEY", "")
+        self._platform_token = os.getenv("PARLANT_CLOUD_PLATFORM_TOKEN", "")
 
         self._spans = contextvars.ContextVar[str](
             "tracer_spans",
@@ -196,8 +192,8 @@ class ParlantCloudTracer(Tracer):
 
     async def __aenter__(self) -> Self:
         headers = {}
-        if self._api_key:
-            headers["authorization"] = f"Bearer {self._api_key}"
+        if self._platform_token:
+            headers["authorization"] = f"Bearer {self._platform_token}"
         else:
             _logger.info(
                 "Parlant Cloud tracing is not configured. Learn more at https://parlant.io/cloud"
@@ -226,7 +222,6 @@ class ParlantCloudTracer(Tracer):
 
         resource_attributes: dict[str, str] = {
             "service.name": "parlant-cloud-tracer",
-            "api_key": self._api_key,
         }
         if self._project_id:
             resource_attributes["project_id"] = self._project_id
@@ -433,7 +428,7 @@ class ParlantCloudLogger(TracingLogger):
 
         self._project_id = project_id
         self._endpoint = f"{_get_cloud_base_url()}/v1/logs"
-        self._api_key = os.getenv("PARLANT_CLOUD_API_KEY", "")
+        self._platform_token = os.getenv("PARLANT_CLOUD_PLATFORM_TOKEN", "")
 
         self._logger_provider: LoggerProvider | None = None
         self._log_exporter: OTLPLogExporter | None = None
@@ -443,7 +438,6 @@ class ParlantCloudLogger(TracingLogger):
     async def __aenter__(self) -> Self:
         resource_attributes: dict[str, str] = {
             "service.name": "parlant-cloud-logger",
-            "api_key": self._api_key,
         }
         if self._project_id:
             resource_attributes["project_id"] = self._project_id
@@ -451,8 +445,8 @@ class ParlantCloudLogger(TracingLogger):
         resource = Resource.create(resource_attributes)
 
         headers = {}
-        if self._api_key:
-            headers["authorization"] = f"Bearer {self._api_key}"
+        if self._platform_token:
+            headers["authorization"] = f"Bearer {self._platform_token}"
 
         self._log_exporter = OTLPLogExporter(
             endpoint=self._endpoint,
@@ -622,7 +616,7 @@ class ParlantCloudMeter(Meter):
     def __init__(self, project_id: str = "") -> None:
         self._project_id = project_id
         self._endpoint = f"{_get_cloud_base_url()}/v1/metrics"
-        self._api_key = os.getenv("PARLANT_CLOUD_API_KEY", "")
+        self._platform_token = os.getenv("PARLANT_CLOUD_PLATFORM_TOKEN", "")
 
         self._meter_provider: MeterProvider | None = None
         self._metric_exporter: OTLPMetricExporter | None = None
@@ -632,7 +626,6 @@ class ParlantCloudMeter(Meter):
     async def __aenter__(self) -> Self:
         resource_attributes: dict[str, str] = {
             "service.name": "parlant-cloud-meter",
-            "api_key": self._api_key,
         }
         if self._project_id:
             resource_attributes["project_id"] = self._project_id
@@ -640,8 +633,8 @@ class ParlantCloudMeter(Meter):
         resource = Resource.create(resource_attributes)
 
         headers = {}
-        if self._api_key:
-            headers["authorization"] = f"Bearer {self._api_key}"
+        if self._platform_token:
+            headers["authorization"] = f"Bearer {self._platform_token}"
 
         self._metric_exporter = OTLPMetricExporter(
             endpoint=self._endpoint,
@@ -752,7 +745,7 @@ class WebSocketTunnelService(TunnelService):
     async def start(self) -> None:
         if not self._token:
             raise ValueError(
-                "PARLANT_CLOUD_API_KEY is required to start the tunnel. "
+                "PARLANT_CLOUD_PLATFORM_TOKEN is required to start the tunnel. "
                 "Set it in your environment to connect to Parlant Cloud."
             )
 
@@ -820,8 +813,8 @@ def _create_tunnel_service(
     background_task_service: BackgroundTaskService,
     logger: Logger | None = None,
 ) -> WebSocketTunnelService | None:
-    """Create a tunnel service if PARLANT_CLOUD_API_KEY is set."""
-    token = os.environ.get("PARLANT_CLOUD_API_KEY", "")
+    """Create a tunnel service if PARLANT_CLOUD_PLATFORM_TOKEN is set."""
+    token = os.environ.get("PARLANT_CLOUD_PLATFORM_TOKEN", "")
     if not token:
         return None
 
@@ -849,23 +842,24 @@ async def configure_container(container: Container) -> Container:
     platform_token = os.environ.get("PARLANT_CLOUD_PLATFORM_TOKEN", "")
     if platform_token:
         container[AuthorizationPolicy] = ParlantCloudAuthorizationPolicy(platform_token)
-
-    api_key = os.environ.get("PARLANT_CLOUD_API_KEY", "")
-    if not api_key:
+    else:
         return container
 
     logger = container[Logger]
-    api_url = _get_cloud_base_url()
+    base_url = _get_cloud_base_url()
 
-    auth_url = f"{api_url}/v1/auth/api-key"
+    auth_url = f"{base_url}/v1/auth/platform-token"
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.post(auth_url, headers={"Authorization": f"Bearer {api_key}"})
+            resp = await client.post(
+                auth_url,
+                headers={"Authorization": f"Bearer {platform_token}"},
+            )
             resp.raise_for_status()
             auth_data = resp.json()
             project_id: str = auth_data.get("project_id", "")
     except Exception:
-        logger.warning("Parlant Cloud API key validation failed; observability disabled")
+        logger.warning("Parlant Cloud platform token validation failed; observability disabled")
         return container
 
     if not project_id:
@@ -896,7 +890,7 @@ async def configure_container(container: Container) -> Container:
         )
         container[Meter] = cloud_meter
 
-    # Start tunnel if project token is available
+    # Start tunnel if the platform token is available
     try:
         tunnel = _create_tunnel_service(
             session_module=container[SessionModule],

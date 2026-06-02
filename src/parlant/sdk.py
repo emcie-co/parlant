@@ -299,6 +299,12 @@ plugin server) or a ``ToolId`` (hosted on an external tool service)."""
 T = TypeVar("T")
 
 
+def _should_configure_parlant_cloud() -> bool:
+    return bool(
+        os.environ.get("PARLANT_CLOUD_API_KEY") or os.environ.get("PARLANT_CLOUD_PROJECT_TOKEN")
+    )
+
+
 def _tool_ref_to_id(ref: ToolRef) -> ToolId:
     """Convert a ToolRef to a ToolId."""
     if isinstance(ref, ToolId):
@@ -5582,7 +5588,7 @@ class Server:
                 if module_func := getattr(env_based_module, "configure_container", None):
                     latest_container = await module_func(latest_container.clone())
 
-            if os.environ.get("PARLANT_CLOUD_API_KEY"):
+            if _should_configure_parlant_cloud():
                 from parlant.adapters.modules.parlant_cloud import (
                     configure_container as cloud_configure,
                 )

@@ -33,8 +33,8 @@ def test_that_verify_environment_returns_none_when_api_key_is_set() -> None:
         assert error is None
 
 
-def test_that_default_model_is_m2_7() -> None:
-    """Test that the default model is MiniMax-M2.7."""
+def test_that_default_model_is_m3() -> None:
+    """Test that the default model is MiniMax-M3."""
     from unittest.mock import MagicMock
 
     with patch.dict(os.environ, {"MINIMAX_API_KEY": "test-key"}, clear=True):
@@ -42,12 +42,16 @@ def test_that_default_model_is_m2_7() -> None:
         tracer = MagicMock()
         meter = MagicMock()
         service = MiniMaxService(logger=logger, tracer=tracer, meter=meter)
-        assert service._model_name == "MiniMax-M2.7"
+        assert service._model_name == "MiniMax-M3"
 
 
-def test_that_m2_7_model_classes_exist() -> None:
-    """Test that MiniMax M2.7 model classes are importable and have correct model names."""
-    from parlant.adapters.nlp.minimax_service import MiniMax_M2_7, MiniMax_M2_7_Highspeed
+def test_that_m3_and_m2_7_model_classes_exist() -> None:
+    """Test that MiniMax M3 and M2.7 model classes are importable and have correct model names."""
+    from parlant.adapters.nlp.minimax_service import (
+        MiniMax_M3,
+        MiniMax_M2_7,
+        MiniMax_M2_7_Highspeed,
+    )
     from unittest.mock import MagicMock
 
     logger = MagicMock()
@@ -55,6 +59,10 @@ def test_that_m2_7_model_classes_exist() -> None:
     meter = MagicMock()
 
     with patch.dict(os.environ, {"MINIMAX_API_KEY": "test-key"}):
+        gen_m3 = MiniMax_M3[dict](logger=logger, tracer=tracer, meter=meter)
+        assert gen_m3.model_name == "MiniMax-M3"
+        assert gen_m3.max_tokens == 512_000
+
         gen = MiniMax_M2_7[dict](logger=logger, tracer=tracer, meter=meter)
         assert gen.model_name == "MiniMax-M2.7"
 

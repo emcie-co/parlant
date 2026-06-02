@@ -207,29 +207,14 @@ class MiniMaxSchematicGenerator(BaseSchematicGenerator[T]):
             raise
 
 
-class MiniMax_M2_5(MiniMaxSchematicGenerator[T]):
+class MiniMax_M3(MiniMaxSchematicGenerator[T]):
     def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(model_name="MiniMax-M2.5", logger=logger, tracer=tracer, meter=meter)
+        super().__init__(model_name="MiniMax-M3", logger=logger, tracer=tracer, meter=meter)
 
     @property
     @override
     def max_tokens(self) -> int:
-        return 204_000
-
-
-class MiniMax_M2_5_Highspeed(MiniMaxSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter) -> None:
-        super().__init__(
-            model_name="MiniMax-M2.5-highspeed",
-            logger=logger,
-            tracer=tracer,
-            meter=meter,
-        )
-
-    @property
-    @override
-    def max_tokens(self) -> int:
-        return 204_000
+        return 512_000
 
 
 class MiniMax_M2_7(MiniMaxSchematicGenerator[T]):
@@ -279,7 +264,7 @@ Please set MINIMAX_API_KEY in your environment before running Parlant.
         self._logger = logger
         self._tracer = tracer
         self._meter = meter
-        self._model_name = os.environ.get("MINIMAX_MODEL", "MiniMax-M2.7")
+        self._model_name = os.environ.get("MINIMAX_MODEL", "MiniMax-M3")
         self._logger.info(f"Initialized MiniMaxService with model: {self._model_name}")
 
     @property
@@ -300,10 +285,9 @@ Please set MINIMAX_API_KEY in your environment before running Parlant.
     ) -> Callable[..., MiniMaxSchematicGenerator[T]] | None:
         """Returns the specialized generator class for known models."""
         model_mapping: dict[str, type[MiniMaxSchematicGenerator[T]]] = {
+            "MiniMax-M3": MiniMax_M3[t],  # type: ignore
             "MiniMax-M2.7": MiniMax_M2_7[t],  # type: ignore
             "MiniMax-M2.7-highspeed": MiniMax_M2_7_Highspeed[t],  # type: ignore
-            "MiniMax-M2.5": MiniMax_M2_5[t],  # type: ignore
-            "MiniMax-M2.5-highspeed": MiniMax_M2_5_Highspeed[t],  # type: ignore
         }
 
         if generator_class := model_mapping.get(model_name):

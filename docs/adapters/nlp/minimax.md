@@ -1,6 +1,6 @@
 # MiniMax Service Documentation
 
-The MiniMax service integrates [MiniMax](https://www.minimaxi.com/) large language models with Parlant. MiniMax provides an OpenAI-compatible API with high-performance models featuring 204K context windows.
+The MiniMax service integrates [MiniMax](https://www.minimaxi.com/) large language models with Parlant. MiniMax provides an OpenAI-compatible API with high-performance models.
 
 ## Prerequisites
 
@@ -14,9 +14,9 @@ Configure the MiniMax service using these environment variables:
 # Required: Your MiniMax API key
 export MINIMAX_API_KEY="your-api-key-here"
 
-# Optional: Model selection (default: MiniMax-M2.7)
-# Options: MiniMax-M2.7, MiniMax-M2.7-highspeed, MiniMax-M2.5, MiniMax-M2.5-highspeed
-export MINIMAX_MODEL="MiniMax-M2.7"
+# Optional: Model selection (default: MiniMax-M3)
+# Options: MiniMax-M3, MiniMax-M2.7, MiniMax-M2.7-highspeed
+export MINIMAX_MODEL="MiniMax-M3"
 
 # Optional: Custom base URL (default: https://api.minimax.io/v1)
 export MINIMAX_BASE_URL="https://api.minimax.io/v1"
@@ -26,10 +26,9 @@ export MINIMAX_BASE_URL="https://api.minimax.io/v1"
 
 | Model | Context Window | Best For |
 |-------|---------------|----------|
-| `MiniMax-M2.7` | 204K tokens | Latest model, highest quality (default) |
-| `MiniMax-M2.7-highspeed` | 204K tokens | Latest model, lower latency |
-| `MiniMax-M2.5` | 204K tokens | Previous generation, general purpose |
-| `MiniMax-M2.5-highspeed` | 204K tokens | Previous generation, faster responses |
+| `MiniMax-M3` | 512K tokens | Latest model, up to 128K output, supports image input (default) |
+| `MiniMax-M2.7` | 204K tokens | Previous generation, highest quality |
+| `MiniMax-M2.7-highspeed` | 204K tokens | Previous generation, lower latency |
 
 ## Quick Start
 

@@ -1,5 +1,6 @@
 import asyncio
 import json
+from typing import Any
 from unittest.mock import AsyncMock
 
 import websockets.asyncio.server
@@ -15,7 +16,7 @@ async def test_that_tunnel_service_interface_exists() -> None:
 
 
 async def test_that_tunnel_connects_and_dispatches_request() -> None:
-    received_response: dict | None = None
+    received_response: dict[str, Any] | None = None
 
     async def mock_platform_handler(websocket: websockets.asyncio.server.ServerConnection) -> None:
         nonlocal received_response

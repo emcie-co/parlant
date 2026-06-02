@@ -4488,6 +4488,7 @@ dependencies = [
     { name = "types-jsonschema" },
     { name = "uvicorn" },
     { name = "websocket-client" },
+    { name = "websockets" },
     { name = "wsproto" },
     { name = "xxhash" },
 ]
@@ -4666,6 +4667,7 @@ requires-dist = [
     { name = "types-jsonschema", specifier = ">=4.22.0.20240610" },
     { name = "uvicorn", specifier = ">=0.38.0" },
     { name = "websocket-client", specifier = ">=1.5.3" },
+    { name = "websockets", specifier = ">=16.0" },
     { name = "wsproto", specifier = ">=1.2.0" },
     { name = "xxhash", specifier = ">=3.5.0" },
     { name = "zhipuai", marker = "extra == 'zhipu'", specifier = ">=2.0.0" },

@@ -86,6 +86,7 @@ async def test_that_dispatcher_routes_sessions_create() -> None:
 
     assert response.request_id == "req-create"
     assert response.error is None
+    assert isinstance(response.result, dict)
     assert response.result["session_id"] == "sess-1"
     session_module.create.assert_awaited_once()
 
@@ -118,6 +119,7 @@ async def test_that_dispatcher_routes_sessions_read() -> None:
     response = await dispatcher.dispatch(request)
 
     assert response.error is None
+    assert isinstance(response.result, dict)
     assert response.result["session_id"] == "sess-1"
     assert response.result["agent_id"] == "agent-1"
     session_module.read.assert_awaited_once()
@@ -156,6 +158,7 @@ async def test_that_dispatcher_routes_sessions_list() -> None:
     response = await dispatcher.dispatch(request)
 
     assert response.error is None
+    assert isinstance(response.result, dict)
     assert len(response.result["sessions"]) == 1
     assert response.result["total_count"] == 1
     session_module.find.assert_awaited_once()
@@ -192,6 +195,7 @@ async def test_that_dispatcher_routes_sessions_update() -> None:
     response = await dispatcher.dispatch(request)
 
     assert response.error is None
+    assert isinstance(response.result, dict)
     assert response.result["title"] == "Updated Title"
     session_module.update.assert_awaited_once()
 
@@ -239,6 +243,7 @@ async def test_that_dispatcher_routes_sessions_read_event() -> None:
     response = await dispatcher.dispatch(request)
 
     assert response.error is None
+    assert isinstance(response.result, dict)
     assert response.result["id"] == "evt-1"
     session_module.read_event.assert_awaited_once()
 
@@ -272,6 +277,7 @@ async def test_that_dispatcher_routes_sessions_update_event() -> None:
     response = await dispatcher.dispatch(request)
 
     assert response.error is None
+    assert isinstance(response.result, dict)
     assert response.result["id"] == "evt-1"
     session_module.update_event.assert_awaited_once()
 

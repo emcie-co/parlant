@@ -270,7 +270,7 @@ def test_that_service_tier_maps_to_openai_values(openai: OpenAIReactGenerator) -
     def tier_for(service_tier: str | None) -> str:
         hints = {"service_tier": service_tier} if service_tier else {}
         request = openai._encode([], [], "auto", reasoning=ReasoningConfig(), hints=hints)  # type: ignore[arg-type]
-        return request["service_tier"]
+        return str(request["service_tier"])
 
     assert tier_for(None) == "default"  # default is "standard" -> "default"
     assert tier_for("standard") == "default"

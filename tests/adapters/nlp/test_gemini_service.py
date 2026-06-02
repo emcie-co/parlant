@@ -203,7 +203,7 @@ def test_that_service_tier_maps_to_gemini_values(gemini: GeminiReactGenerator) -
     def tier_for(service_tier: str | None) -> str:
         hints = {"service_tier": service_tier} if service_tier else {}
         request = gemini._encode([], [], "auto", reasoning=ReasoningConfig(), hints=hints)  # type: ignore[arg-type]
-        return request["service_tier"]
+        return str(request["service_tier"])
 
     assert tier_for(None) == "standard"
     assert tier_for("standard") == "standard"

@@ -808,10 +808,6 @@ class WebSocketTunnelService(TunnelService):
                         pass
 
 
-def _get_cloud_base_url() -> str:
-    return os.environ.get("PARLANT_CLOUD_URL", "https://api.parlant.cloud")
-
-
 def _create_tunnel_service(
     session_module: SessionModule,
     background_task_service: BackgroundTaskService,

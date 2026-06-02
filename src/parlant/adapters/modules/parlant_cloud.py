@@ -741,6 +741,8 @@ class WebSocketTunnelService(TunnelService):
         self._dispatcher = dispatcher
         self._initial_reconnect_delay = initial_reconnect_delay
         self._running = False
+        self._stop_event: asyncio.Event | None = None
+        self._websocket: Any | None = None
 
     async def start(self) -> None:
         if not self._token:
@@ -750,6 +752,7 @@ class WebSocketTunnelService(TunnelService):
             )
 
         self._running = True
+        self._stop_event = asyncio.Event()
         reconnect_delay = self._initial_reconnect_delay
 
         while self._running:
@@ -757,6 +760,7 @@ class WebSocketTunnelService(TunnelService):
                 await self._connect_and_listen()
                 reconnect_delay = self._initial_reconnect_delay
             except asyncio.CancelledError:
+                await self.stop()
                 return
             except Exception as e:
                 if not self._running:
@@ -764,48 +768,67 @@ class WebSocketTunnelService(TunnelService):
                 _logger.warning(
                     f"Tunnel connection failed: {e}. Reconnecting in {reconnect_delay:.1f}s..."
                 )
-                await asyncio.sleep(reconnect_delay)
+                await self._wait_for_reconnect_or_stop(reconnect_delay)
                 reconnect_delay = min(reconnect_delay * 2, _MAX_RECONNECT_DELAY)
 
     async def stop(self) -> None:
         self._running = False
+        if self._stop_event:
+            self._stop_event.set()
+
+        if self._websocket is not None:
+            await self._websocket.close()
+
+    async def _wait_for_reconnect_or_stop(self, delay: float) -> None:
+        if not self._stop_event:
+            await asyncio.sleep(delay)
+            return
+
+        try:
+            await asyncio.wait_for(self._stop_event.wait(), timeout=delay)
+        except TimeoutError:
+            pass
 
     async def _connect_and_listen(self) -> None:
         headers = {"Authorization": f"Bearer {self._token}"}
 
         async with websockets.connect(self._url, additional_headers=headers) as ws:
+            self._websocket = ws
             _logger.info(f"Tunnel connected to {self._url}")
 
-            async for raw_message in ws:
-                if not self._running:
-                    break
+            try:
+                async for raw_message in ws:
+                    if not self._running:
+                        break
 
-                try:
-                    message: dict[str, Any] = _json_mod.loads(raw_message)
-                    request = TunnelRequest(
-                        request_id=message["request_id"],
-                        method=message["method"],
-                        params=message.get("params", {}),
-                    )
-
-                    response = await self._dispatcher.dispatch(request)
-                    await ws.send(_json_mod.dumps(response.to_dict()))
-
-                except Exception as e:
-                    _logger.error(f"Error processing tunnel message: {e}")
-                    request_id = (
-                        message.get("request_id", "unknown")
-                        if isinstance(message, dict)
-                        else "unknown"
-                    )
                     try:
-                        error_resp = TunnelResponse(
-                            request_id=request_id,
-                            error=str(e),
+                        message: dict[str, Any] = _json_mod.loads(raw_message)
+                        request = TunnelRequest(
+                            request_id=message["request_id"],
+                            method=message["method"],
+                            params=message.get("params", {}),
                         )
-                        await ws.send(_json_mod.dumps(error_resp.to_dict()))
-                    except Exception:
-                        pass
+
+                        response = await self._dispatcher.dispatch(request)
+                        await ws.send(_json_mod.dumps(response.to_dict()))
+
+                    except Exception as e:
+                        _logger.error(f"Error processing tunnel message: {e}")
+                        request_id = (
+                            message.get("request_id", "unknown")
+                            if isinstance(message, dict)
+                            else "unknown"
+                        )
+                        try:
+                            error_resp = TunnelResponse(
+                                request_id=request_id,
+                                error=str(e),
+                            )
+                            await ws.send(_json_mod.dumps(error_resp.to_dict()))
+                        except Exception:
+                            pass
+            finally:
+                self._websocket = None
 
 
 def _create_tunnel_service(

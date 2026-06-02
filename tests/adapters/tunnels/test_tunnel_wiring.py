@@ -2,6 +2,29 @@ import os
 from unittest.mock import AsyncMock, patch
 
 from parlant.adapters.modules.parlant_cloud import WebSocketTunnelService
+from parlant.sdk import _should_configure_parlant_cloud
+
+
+async def test_that_sdk_cloud_module_is_not_loaded_without_cloud_credentials() -> None:
+    with patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("PARLANT_CLOUD_API_KEY", None)
+        os.environ.pop("PARLANT_CLOUD_PROJECT_TOKEN", None)
+
+        assert _should_configure_parlant_cloud() is False
+
+
+async def test_that_sdk_cloud_module_is_loaded_with_cloud_api_key() -> None:
+    with patch.dict(os.environ, {"PARLANT_CLOUD_API_KEY": "test-api-key"}):
+        os.environ.pop("PARLANT_CLOUD_PROJECT_TOKEN", None)
+
+        assert _should_configure_parlant_cloud() is True
+
+
+async def test_that_sdk_cloud_module_is_loaded_with_project_token() -> None:
+    with patch.dict(os.environ, {"PARLANT_CLOUD_PROJECT_TOKEN": "test-token"}):
+        os.environ.pop("PARLANT_CLOUD_API_KEY", None)
+
+        assert _should_configure_parlant_cloud() is True
 
 
 async def test_that_tunnel_is_not_created_without_project_token() -> None:

@@ -143,7 +143,9 @@ async def test_that_signals_can_be_updated(container: Container) -> None:
         signals=["money back"],
     )
 
-    updated = await store.update_guideline(guideline.id, {"signals": ["reimbursement", "chargeback"]})
+    updated = await store.update_guideline(
+        guideline.id, {"signals": ["reimbursement", "chargeback"]}
+    )
 
     assert set(updated.signals) == {"reimbursement", "chargeback"}
 

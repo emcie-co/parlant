@@ -98,6 +98,9 @@ from parlant.core.engines.alpha.guideline_matching.generic.guideline_actionable_
     GenericActionableGuidelineMatching,
     GenericActionableGuidelineGuidelineMatchingShot,
 )
+from parlant.core.engines.sigma.guideline_matching.guideline_ranker import (
+    GuidelineRankSchema,
+)
 from parlant.core.engines.alpha.guideline_matching.generic.guideline_previously_applied_actionable_batch import (
     GenericPreviouslyAppliedActionableGuidelineMatchesSchema,
     GenericPreviouslyAppliedActionableGuidelineMatching,
@@ -534,6 +537,7 @@ async def container(
             RelativeActionSchema,
             ReachableNodesEvaluationSchema,
             JourneyBacktrackCheckSchema,
+            GuidelineRankSchema,
         ):
             container[SchematicGenerator[generation_schema]] = await make_schematic_generator(  # type: ignore
                 container,
@@ -657,6 +661,14 @@ class NoCachedGenerations:
 
 @fixture
 def no_cache(container: Container) -> None:
+    if isinstance(
+        container[SchematicGenerator[GuidelineRankSchema]],
+        CachedSchematicGenerator,
+    ):
+        cast(
+            CachedSchematicGenerator[GuidelineRankSchema],
+            container[SchematicGenerator[GuidelineRankSchema]],
+        ).use_cache = False
     if isinstance(
         container[SchematicGenerator[GenericPreviouslyAppliedActionableGuidelineMatchesSchema]],
         CachedSchematicGenerator,

@@ -1025,9 +1025,7 @@ class GuidelineVectorStore(GuidelineStore):
 
             # Re-sync the embedded vectors if any embedded field changed
             # (condition / action / description / signals).
-            if any(
-                key in params for key in ("condition", "action", "description", "signals")
-            ):
+            if any(key in params for key in ("condition", "action", "description", "signals")):
                 await self._delete_vector_documents(guideline_id)
                 await self._insert_vector_documents(updated)
 

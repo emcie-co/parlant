@@ -134,7 +134,7 @@ async def test_that_dispatcher_routes_sessions_create_without_customer_id() -> N
     assert isinstance(response.result, dict)
     assert response.result["session_id"] == "sess-1"
     session_module.create.assert_awaited_once_with(
-        customer_id=None,
+        customer_id="guest",
         agent_id="agent-1",
         title="Test Session",
         allow_greeting=False,
@@ -662,3 +662,23 @@ async def test_that_dispatcher_rejects_unsupported_sort_direction_in_sessions_li
     assert response.error is not None
     assert "Unsupported sort direction" in response.error
     session_module.find.assert_not_awaited()
+
+
+async def test_that_dispatcher_forwards_labels_filter_to_sessions_list() -> None:
+    session_module = AsyncMock()
+    session_module.find = AsyncMock(
+        return_value=MagicMock(items=[], total_count=0, has_more=False, next_cursor=None),
+    )
+
+    dispatcher = TunnelRequestDispatcher(session_module=session_module)
+    response = await dispatcher.dispatch(
+        TunnelRequest(
+            request_id="req-labels",
+            method="sessions.list",
+            params={"labels": ["premium", "support"]},
+        ),
+    )
+
+    assert response.error is None
+    session_module.find.assert_awaited_once()
+    assert session_module.find.await_args.kwargs["labels"] == {"premium", "support"}

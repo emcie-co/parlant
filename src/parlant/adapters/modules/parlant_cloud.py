@@ -67,7 +67,10 @@ from typing_extensions import Self, override
 import json as _json_mod
 import websockets
 from parlant.api.authorization import AuthorizationPolicy, Operation, ProductionAuthorizationPolicy
+from parlant.core.app_modules.agents import AgentModule
+from parlant.core.app_modules.customers import CustomerModule
 from parlant.core.app_modules.sessions import SessionModule
+from parlant.core.app_modules.tags import TagModule
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.loggers import CompositeLogger, LogLevel, Logger, TracingLogger
 from parlant.core.meter import Counter, DurationHistogram, Histogram, Meter
@@ -130,6 +133,10 @@ class ParlantCloudAuthorizationPolicy(AuthorizationPolicy):
     async def check_permission(self, request: Request, operation: Operation) -> bool:
         if self._is_trusted(request.headers):
             return True
+        if operation == Operation.ACCESS_INTEGRATED_UI:
+            host = request.headers.get("host", "")
+            if host.startswith("localhost") or host.startswith("127.0.0.1"):
+                return True
         return await self._production_policy.check_permission(request, operation)
 
     @override
@@ -833,6 +840,9 @@ class WebSocketTunnelService(TunnelService):
 
 def _create_tunnel_service(
     session_module: SessionModule,
+    agent_module: AgentModule,
+    customer_module: CustomerModule,
+    tag_module: TagModule,
     background_task_service: BackgroundTaskService,
     logger: Logger | None = None,
 ) -> WebSocketTunnelService | None:
@@ -846,6 +856,9 @@ def _create_tunnel_service(
 
     dispatcher = TunnelRequestDispatcher(
         session_module=session_module,
+        agent_module=agent_module,
+        customer_module=customer_module,
+        tag_module=tag_module,
         logger=logger,
     )
 
@@ -923,6 +936,9 @@ async def initialize_container(container: Container) -> None:
     try:
         tunnel = _create_tunnel_service(
             session_module=container[SessionModule],
+            agent_module=container[AgentModule],
+            customer_module=container[CustomerModule],
+            tag_module=container[TagModule],
             background_task_service=container[BackgroundTaskService],
             logger=container[Logger],
         )

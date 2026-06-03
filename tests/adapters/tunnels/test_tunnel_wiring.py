@@ -5,7 +5,10 @@ from unittest.mock import AsyncMock, patch
 from lagom import Container
 
 from parlant.adapters.modules.parlant_cloud import WebSocketTunnelService, initialize_container
+from parlant.core.app_modules.agents import AgentModule
+from parlant.core.app_modules.customers import CustomerModule
 from parlant.core.app_modules.sessions import SessionModule
+from parlant.core.app_modules.tags import TagModule
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.loggers import Logger
 from parlant.sdk import _should_configure_parlant_cloud
@@ -57,6 +60,9 @@ async def test_that_tunnel_is_not_created_without_project_token() -> None:
 
         result = _create_tunnel_service(
             session_module=AsyncMock(),
+            agent_module=AsyncMock(),
+            customer_module=AsyncMock(),
+            tag_module=AsyncMock(),
             background_task_service=AsyncMock(),
         )
 
@@ -69,6 +75,9 @@ async def test_that_tunnel_is_created_with_project_token() -> None:
 
         result = _create_tunnel_service(
             session_module=AsyncMock(),
+            agent_module=AsyncMock(),
+            customer_module=AsyncMock(),
+            tag_module=AsyncMock(),
             background_task_service=AsyncMock(),
         )
 
@@ -88,6 +97,9 @@ async def test_that_tunnel_uses_cloud_base_url() -> None:
 
         result = _create_tunnel_service(
             session_module=AsyncMock(),
+            agent_module=AsyncMock(),
+            customer_module=AsyncMock(),
+            tag_module=AsyncMock(),
             background_task_service=AsyncMock(),
         )
 
@@ -108,6 +120,9 @@ async def test_that_tunnel_ignores_cloud_api_url() -> None:
 
         result = _create_tunnel_service(
             session_module=AsyncMock(),
+            agent_module=AsyncMock(),
+            customer_module=AsyncMock(),
+            tag_module=AsyncMock(),
             background_task_service=AsyncMock(),
         )
 
@@ -122,6 +137,9 @@ async def test_that_cloud_initializer_starts_tunnel_after_session_module_exists(
         background_task_service = FakeBackgroundTaskService()
 
         container[SessionModule] = cast(SessionModule, object())
+        container[AgentModule] = cast(AgentModule, object())
+        container[CustomerModule] = cast(CustomerModule, object())
+        container[TagModule] = cast(TagModule, object())
         container[BackgroundTaskService] = cast(BackgroundTaskService, background_task_service)
         container[Logger] = cast(Logger, FakeLogger())
 

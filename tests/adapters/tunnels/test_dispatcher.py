@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+from parlant.core.agents import CompositionMode, MessageOutputMode
 from parlant.core.tunnels import TunnelRequestDispatcher
 from parlant.core.tunnels import TunnelRequest
 
@@ -311,8 +312,8 @@ async def test_that_dispatcher_routes_agents_list() -> None:
                 name="Agent One",
                 description=None,
                 max_engine_iterations=3,
-                composition_mode="fluid",
-                message_output_mode="block",
+                composition_mode=CompositionMode.FLUID,
+                message_output_mode=MessageOutputMode.BLOCK,
                 tags=[],
             )
         ]
@@ -329,6 +330,8 @@ async def test_that_dispatcher_routes_agents_list() -> None:
     assert response.error is None
     assert isinstance(response.result, dict)
     assert response.result["agents"][0]["id"] == "agent-1"
+    assert response.result["agents"][0]["composition_mode"] == "fluid"
+    assert response.result["agents"][0]["message_output_mode"] == "block"
     agent_module.find.assert_awaited_once()
 
 

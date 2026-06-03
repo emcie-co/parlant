@@ -2,10 +2,15 @@ from abc import ABC, abstractmethod
 from typing import Any, Awaitable, Callable, Mapping
 
 from parlant.core.agents import AgentId
+from parlant.core.app_modules.agents import AgentModule
+from parlant.core.app_modules.customers import CustomerModule
 from parlant.core.app_modules.sessions import Moderation, SessionModule, SessionUpdateParamsModel
+from parlant.core.app_modules.tags import TagModule
+from parlant.core.common import ItemNotFoundError
 from parlant.core.customers import CustomerId
 from parlant.core.loggers import Logger
 from parlant.core.sessions import EventId, EventKind, EventSource, SessionId
+from parlant.core.tags import TagId
 
 
 class TunnelRequest:
@@ -64,9 +69,15 @@ class TunnelRequestDispatcher:
     def __init__(
         self,
         session_module: SessionModule,
+        agent_module: AgentModule | None = None,
+        customer_module: CustomerModule | None = None,
+        tag_module: TagModule | None = None,
         logger: Logger | None = None,
     ) -> None:
         self._session_module = session_module
+        self._agent_module = agent_module
+        self._customer_module = customer_module
+        self._tag_module = tag_module
         self._logger = logger
 
     async def dispatch(self, request: TunnelRequest) -> TunnelResponse:
@@ -99,8 +110,60 @@ class TunnelRequestDispatcher:
             "sessions.read_event": self._handle_read_event,
             "sessions.update_event": self._handle_update_event,
             "sessions.delete_events": self._handle_delete_events,
+            "agents.list": self._handle_list_agents,
+            "agents.retrieve": self._handle_retrieve_agent,
+            "customers.retrieve": self._handle_retrieve_customer,
+            "tags.list": self._handle_list_tags,
+            "tags.retrieve": self._handle_retrieve_tag,
         }
         return handlers.get(method)
+
+    async def _handle_list_tags(self, params: dict[str, Any]) -> dict[str, Any]:
+        if self._tag_module is None:
+            raise RuntimeError("Tag module is not available")
+
+        tags = await self._tag_module.find(name=params.get("name"))
+        return {"tags": [self._serialize_tag(t) for t in tags]}
+
+    async def _handle_retrieve_tag(self, params: dict[str, Any]) -> dict[str, Any]:
+        if self._tag_module is None:
+            raise RuntimeError("Tag module is not available")
+
+        try:
+            tag = await self._tag_module.read(tag_id=TagId(params["tag_id"]))
+        except ItemNotFoundError:
+            return {"tag": None}
+        return {"tag": self._serialize_tag(tag)}
+
+    async def _handle_list_agents(self, params: dict[str, Any]) -> dict[str, Any]:
+        del params
+        if self._agent_module is None:
+            raise RuntimeError("Agent module is not available")
+
+        agents = await self._agent_module.find()
+        return {"agents": [self._serialize_agent(a) for a in agents]}
+
+    async def _handle_retrieve_agent(self, params: dict[str, Any]) -> dict[str, Any]:
+        if self._agent_module is None:
+            raise RuntimeError("Agent module is not available")
+
+        try:
+            agent = await self._agent_module.read(agent_id=AgentId(params["agent_id"]))
+        except ItemNotFoundError:
+            return {"agent": None}
+        return {"agent": self._serialize_agent(agent)}
+
+    async def _handle_retrieve_customer(self, params: dict[str, Any]) -> dict[str, Any]:
+        if self._customer_module is None:
+            raise RuntimeError("Customer module is not available")
+
+        try:
+            customer = await self._customer_module.read(
+                customer_id=CustomerId(params["customer_id"]),
+            )
+        except ItemNotFoundError:
+            return {"customer": None}
+        return {"customer": self._serialize_customer(customer)}
 
     async def _handle_create_event(self, params: dict[str, Any]) -> dict[str, Any]:
         session_id = SessionId(params["session_id"])
@@ -243,4 +306,33 @@ class TunnelRequestDispatcher:
             "creation_utc": event.creation_utc.isoformat(),
             "data": event.data,
             "metadata": dict(event.metadata) if event.metadata else {},
+        }
+
+    @staticmethod
+    def _serialize_agent(agent: Any) -> dict[str, Any]:
+        return {
+            "id": agent.id,
+            "name": agent.name,
+            "description": agent.description,
+            "max_engine_iterations": agent.max_engine_iterations,
+            "composition_mode": agent.composition_mode,
+            "message_output_mode": agent.message_output_mode,
+            "tags": list(agent.tags),
+        }
+
+    @staticmethod
+    def _serialize_customer(customer: Any) -> dict[str, Any]:
+        return {
+            "id": customer.id,
+            "name": customer.name,
+            "metadata": dict(customer.extra) if customer.extra else {},
+            "tags": list(customer.tags),
+            "creation_utc": customer.creation_utc.isoformat(),
+        }
+
+    @staticmethod
+    def _serialize_tag(tag: Any) -> dict[str, Any]:
+        return {
+            "id": tag.id,
+            "name": tag.name,
         }

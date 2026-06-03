@@ -65,7 +65,8 @@ class TaskRunner:
         ):
             job = LoopJob(
                 context=task.context,
-                system_instructions=self._build_prompt(task.context, task.instructions).build(),
+                system_instructions=self._build_system_instructions(task.context, task.instructions),
+                turn_instructions=self._build_turn_instructions,
                 model_size=self._get_model_size(task.context),
                 reasoning_config=self._get_reasoning_config(task.context),
             )
@@ -113,21 +114,13 @@ class TaskRunner:
 
         return most_restrictive_mode
 
-    def _build_prompt(
+    def _build_system_instructions(
         self,
         context: EngineContext,
         instructions: str | None,
-    ) -> PromptBuilder:
-        guideline_representations = {
-            m.guideline.id: internal_representation(m.guideline)
-            for m in chain(
-                context.state.ordinary_guideline_matches,
-                context.state.tool_enabled_guideline_matches,
-            )
-        }
-
+    ) -> str:
         builder = PromptBuilder(
-            on_build=lambda prompt: self._logger.trace(f"TaskRunner prompt:\n{prompt}")
+            on_build=lambda prompt: self._logger.trace(f"TaskRunner system instructions:\n{prompt}")
         )
 
         builder.add_section(
@@ -180,7 +173,7 @@ Based on previous experience, you seem too eager to please the user by relying o
             template="""
 RESPONSE MECHANISM
 ------------------
-To craft an optimal response, ensure alignment with all provided guidelines based on the latest interaction state.
+To craft an optimal response, ensure alignment with all provided guidelines based on the latest interaction state by REASONING about them internally.
 Before choosing your response, reason about it by first identifying **up to** three key insights based on this prompt and the ongoing conversation.
 These insights should include relevant user requests, applicable principles from this prompt, or conclusions drawn from the interaction.
 Ensure to include any user request as an insight, whether it's explicit or implicit.
@@ -191,6 +184,7 @@ PRIORITIZING INSTRUCTIONS
 Deviating from an instruction (either task instructions or guidelines) is acceptable only when the deviation arises from a deliberate prioritization.
 
 Consider the following valid reasons for such deviations:
+    - The instruction has already been fulfilled in the conversation, so reiterating it would be redundant (unless the situation warrants it).
     - The instruction contradicts a user request.
     - The instruction lacks sufficient context or data to apply reliably.
     - The instruction depends on an agent intention condition that does not apply in the current situation.
@@ -210,14 +204,46 @@ In cases of conflict, prioritize the business's values and ensure your decisions
         builder.add_agent_identity(context.agent)
         builder.add_customer_identity(context.customer, context.session)
         builder.add_context_variables(context.state.context_variables)
+
+        # How/when to follow guidelines lives in the (cached) system instructions;
+        # the matched guidelines themselves are listed per turn (see
+        # _build_turn_instructions).
+        builder.add_low_criticality_guideline_instructions()
+        builder.add_guideline_instructions()
+
+        builder.add_section(
+            name="taskrunner-reminder",
+            template="""REMINDER: Only use information and services that are sourced from this prompt. Never use your intrinsic knowledge to offer services or provide information. REGARDING YOUR FINAL MESSAGE - REMEMBER THAT YOU ARE NOT RESPONDING DIRECTLY TO THE USER, BUT RATHER INFORMING A SUBSEQUENT SYSTEM COMPONENT AND IMPORTANT INFORMATION AND A RECAP OF TOOLS YOU MAY HAVE RUN.""",
+        )
+
+        return builder.build()
+
+    async def _build_turn_instructions(
+        self,
+        context: EngineContext,
+    ) -> str:
+        guideline_representations = {
+            m.guideline.id: internal_representation(m.guideline)
+            for m in chain(
+                context.state.ordinary_guideline_matches,
+                context.state.tool_enabled_guideline_matches,
+            )
+        }
+
+        builder = PromptBuilder(
+            on_build=lambda prompt: self._logger.trace(f"TaskRunner turn instructions:\n{prompt}")
+        )
+
         builder.add_glossary(list(context.state.glossary_terms))
         builder.add_capabilities_for_message_generation(context.state.capabilities)
-        builder.add_low_criticality_guidelines(
+        # The how/when explanation is in the system instructions; here we list
+        # the matched guidelines themselves (turn-level).
+        builder.add_matched_low_criticality_guidelines(
             context.state.ordinary_guideline_matches,
             context.state.tool_enabled_guideline_matches,
             guideline_representations,
         )
-        builder.add_guidelines_for_message_generation(
+        builder.add_matched_guidelines(
             context.state.ordinary_guideline_matches,
             context.state.tool_enabled_guideline_matches,
             guideline_representations,
@@ -228,7 +254,7 @@ In cases of conflict, prioritize the business's values and ensure your decisions
             template="""REMINDER: Only use information and services that are sourced from this prompt. Never use your intrinsic knowledge to offer services or provide information. REGARDING YOUR FINAL MESSAGE - REMEMBER THAT YOU ARE NOT RESPONDING DIRECTLY TO THE USER, BUT RATHER INFORMING A SUBSEQUENT SYSTEM COMPONENT AND IMPORTANT INFORMATION AND A RECAP OF TOOLS YOU MAY HAVE RUN.""",
         )
 
-        return builder
+        return builder.build()
 
     def _get_model_size(self, context: EngineContext) -> ModelSize:
         match context.agent.effort:

@@ -129,6 +129,7 @@ class TunnelRequestDispatcher:
             "agents.list": self._handle_list_agents,
             "agents.retrieve": self._handle_retrieve_agent,
             "customers.retrieve": self._handle_retrieve_customer,
+            "customers.list": self._handle_list_customers,
             "tags.list": self._handle_list_tags,
             "tags.retrieve": self._handle_retrieve_tag,
         }
@@ -180,6 +181,25 @@ class TunnelRequestDispatcher:
         except ItemNotFoundError:
             return {"customer": None}
         return {"customer": self._serialize_customer(customer)}
+
+    async def _handle_list_customers(self, params: dict[str, Any]) -> dict[str, Any]:
+        if self._customer_module is None:
+            raise RuntimeError("Customer module is not available")
+
+        cursor = decode_cursor(params["cursor"]) if params.get("cursor") else None
+        sort_direction = _parse_sort_direction(params.get("sort_direction"))
+
+        result = await self._customer_module.find(
+            limit=params.get("limit"),
+            cursor=cursor,
+            sort_direction=sort_direction,
+        )
+        return {
+            "customers": [self._serialize_customer(c) for c in result.items],
+            "total_count": result.total_count,
+            "has_more": result.has_more,
+            "next_cursor": encode_cursor(result.next_cursor) if result.next_cursor else None,
+        }
 
     async def _handle_create_event(self, params: dict[str, Any]) -> dict[str, Any]:
         session_id = SessionId(params["session_id"])

@@ -106,6 +106,7 @@ class TunnelRequestDispatcher:
             "sessions.list": self._handle_list_sessions,
             "sessions.update": self._handle_update_session,
             "sessions.delete": self._handle_delete_session,
+            "sessions.delete_many": self._handle_delete_many_sessions,
             "sessions.create_event": self._handle_create_event,
             "sessions.list_events": self._handle_list_events,
             "sessions.read_event": self._handle_read_event,
@@ -262,6 +263,27 @@ class TunnelRequestDispatcher:
             session_id=SessionId(params["session_id"]),
         )
         return {}
+
+    async def _handle_delete_many_sessions(self, params: dict[str, Any]) -> dict[str, Any]:
+        result = await self._session_module.find(
+            agent_id=AgentId(params["agent_id"]) if params.get("agent_id") else None,
+            customer_id=CustomerId(params["customer_id"]) if params.get("customer_id") else None,
+            limit=None,
+        )
+
+        deleted_session_ids: list[str] = []
+        failed_session_ids: list[str] = []
+        for session in result.items:
+            try:
+                await self._session_module.delete(session_id=session.id)
+                deleted_session_ids.append(session.id)
+            except Exception:
+                failed_session_ids.append(session.id)
+
+        if failed_session_ids:
+            raise RuntimeError("Failed to delete sessions: " + ", ".join(failed_session_ids))
+
+        return {"deleted_session_ids": deleted_session_ids}
 
     async def _handle_read_event(self, params: dict[str, Any]) -> dict[str, Any]:
         event = await self._session_module.read_event(

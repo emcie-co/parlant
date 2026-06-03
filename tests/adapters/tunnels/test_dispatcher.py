@@ -220,6 +220,68 @@ async def test_that_dispatcher_routes_sessions_delete() -> None:
     session_module.delete.assert_awaited_once()
 
 
+async def test_that_dispatcher_routes_sessions_delete_many() -> None:
+    session_module = AsyncMock()
+    session_module.find = AsyncMock(
+        return_value=MagicMock(
+            items=[
+                MagicMock(id="sess-1"),
+                MagicMock(id="sess-2"),
+            ],
+            total_count=2,
+            has_more=False,
+            next_cursor=None,
+        )
+    )
+    session_module.delete = AsyncMock(return_value=None)
+
+    dispatcher = TunnelRequestDispatcher(session_module=session_module)
+
+    request = TunnelRequest(
+        request_id="req-delete-many",
+        method="sessions.delete_many",
+        params={"agent_id": "agent-1"},
+    )
+
+    response = await dispatcher.dispatch(request)
+
+    assert response.error is None
+    assert isinstance(response.result, dict)
+    assert response.result["deleted_session_ids"] == ["sess-1", "sess-2"]
+    session_module.find.assert_awaited_once()
+    assert session_module.delete.await_count == 2
+
+
+async def test_that_dispatcher_reports_sessions_delete_many_partial_failure() -> None:
+    session_module = AsyncMock()
+    session_module.find = AsyncMock(
+        return_value=MagicMock(
+            items=[
+                MagicMock(id="sess-1"),
+                MagicMock(id="sess-2"),
+            ],
+            total_count=2,
+            has_more=False,
+            next_cursor=None,
+        )
+    )
+    session_module.delete = AsyncMock(side_effect=[None, RuntimeError("boom")])
+
+    dispatcher = TunnelRequestDispatcher(session_module=session_module)
+
+    request = TunnelRequest(
+        request_id="req-delete-many-failure",
+        method="sessions.delete_many",
+        params={"agent_id": "agent-1"},
+    )
+
+    response = await dispatcher.dispatch(request)
+
+    assert response.error is not None
+    assert "sess-2" in response.error
+    assert session_module.delete.await_count == 2
+
+
 async def test_that_dispatcher_routes_sessions_read_event() -> None:
     session_module = AsyncMock()
     session_module.read_event = AsyncMock(

@@ -98,6 +98,50 @@ async def test_that_dispatcher_routes_sessions_create() -> None:
     session_module.create.assert_awaited_once()
 
 
+async def test_that_dispatcher_routes_sessions_create_without_customer_id() -> None:
+    session_module = AsyncMock()
+    session_module.create = AsyncMock(
+        return_value=MagicMock(
+            id="sess-1",
+            creation_utc=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            customer_id="guest",
+            agent_id="agent-1",
+            mode="auto",
+            title="Test Session",
+            consumption_offsets={},
+            agent_states=[],
+            metadata={"source": "simulation"},
+            labels=set(),
+        )
+    )
+
+    dispatcher = TunnelRequestDispatcher(session_module=session_module)
+
+    request = TunnelRequest(
+        request_id="req-create",
+        method="sessions.create",
+        params={
+            "agent_id": "agent-1",
+            "title": "Test Session",
+            "metadata": {"source": "simulation"},
+        },
+    )
+
+    response = await dispatcher.dispatch(request)
+
+    assert response.request_id == "req-create"
+    assert response.error is None
+    assert isinstance(response.result, dict)
+    assert response.result["session_id"] == "sess-1"
+    session_module.create.assert_awaited_once_with(
+        customer_id=None,
+        agent_id="agent-1",
+        title="Test Session",
+        allow_greeting=False,
+        metadata={"source": "simulation"},
+    )
+
+
 async def test_that_dispatcher_routes_sessions_read() -> None:
     session_module = AsyncMock()
     session_module.read = AsyncMock(

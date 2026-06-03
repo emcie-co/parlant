@@ -223,7 +223,7 @@ class TunnelRequestDispatcher:
 
     async def _handle_create_session(self, params: dict[str, Any]) -> dict[str, Any]:
         session = await self._session_module.create(
-            customer_id=CustomerId(params["customer_id"]),
+            customer_id=CustomerId(params["customer_id"]) if params.get("customer_id") else None,
             agent_id=AgentId(params["agent_id"]),
             title=params.get("title"),
             allow_greeting=params.get("allow_greeting", False),

@@ -580,3 +580,41 @@ async def test_that_dispatcher_treats_invalid_cursor_as_no_cursor_in_sessions_li
     assert response.error is None
     session_module.find.assert_awaited_once()
     assert session_module.find.await_args.kwargs["cursor"] is None
+
+
+async def test_that_dispatcher_forwards_sort_direction_to_sessions_list() -> None:
+    session_module = AsyncMock()
+    session_module.find = AsyncMock(
+        return_value=MagicMock(items=[], total_count=0, has_more=False, next_cursor=None),
+    )
+
+    dispatcher = TunnelRequestDispatcher(session_module=session_module)
+    response = await dispatcher.dispatch(
+        TunnelRequest(
+            request_id="req-sort",
+            method="sessions.list",
+            params={"sort_direction": "desc"},
+        ),
+    )
+
+    assert response.error is None
+    session_module.find.assert_awaited_once()
+    assert session_module.find.await_args.kwargs["sort_direction"] is SortDirection.DESC
+
+
+async def test_that_dispatcher_rejects_unsupported_sort_direction_in_sessions_list() -> None:
+    session_module = AsyncMock()
+    session_module.find = AsyncMock()
+
+    dispatcher = TunnelRequestDispatcher(session_module=session_module)
+    response = await dispatcher.dispatch(
+        TunnelRequest(
+            request_id="req-bad-sort",
+            method="sessions.list",
+            params={"sort_direction": "up"},
+        ),
+    )
+
+    assert response.error is not None
+    assert "Unsupported sort direction" in response.error
+    session_module.find.assert_not_awaited()

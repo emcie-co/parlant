@@ -743,25 +743,18 @@ No special behavioral guidelines are relevant right now, so you don't need to sp
         guideline_list = "\n".join(guidelines)
         agent_intention_guidelines_list = "\n".join(agent_intention_guidelines)
 
-        guideline_block = (
-            "Here are the behavioral guidelines for our domain, each written as "
-            '"When <condition>, then <action>". These are STANDING rules, not commands to act '
-            "on right now: a guideline appearing here does NOT mean you must apply it again in "
-            "this message.\n"
-            "\n"
-            "BEFORE applying any guideline below, check what has already happened in the "
-            "conversation:\n"
-            "- If you have ALREADY satisfied a guideline's action, and nothing new has happened "
-            "to re-trigger its condition, it is DONE. Do NOT restate it, re-offer it, or remind "
-            "the user of it. Repeating a guideline you've already fulfilled reads as obsessive "
-            "and is a mistake — skip it silently and move the conversation forward.\n"
-            "- Apply a guideline only when its condition is currently (and still) active AND its "
-            "action has not already been addressed earlier in the conversation.\n"
-            '- For agent-intention guidelines ("When you are likely/about to ..."), apply them '
-            "only if you are actually about to produce a message that activates the condition.\n"
-            "\n"
-            "When unsure whether you've already covered a guideline, prefer NOT repeating it.\n"
-        )
+        guideline_block = """\
+    Here are the behavioral guidelines for our domain, each written as "When <condition>, then <action>". These are STANDING rules, not commands to act on right now: a guideline appearing here does NOT mean you must apply it again in this message.
+
+    This whole assessment is INTERNAL. Your reply must contain ONLY your message to the user — never narrate or preface it, and never mention guidelines, considerations, or that you are checking anything. In particular, do NOT write things like "Let me check the guidelines before I reply" or "Based on the guidelines, ...". Just write the reply itself.
+
+    Consider, before applying any guideline below, what has already happened in the conversation:
+    - If you have ALREADY satisfied a guideline's action, and nothing new has happened to re-trigger its condition, it is DONE. Do NOT restate it, re-offer it, or remind the user of it. Repeating a guideline you've already fulfilled reads as obsessive and is a mistake — skip it silently and move the conversation forward.
+    - Apply a guideline only when its condition is currently (and still) active AND its action has not already been addressed earlier in the conversation.
+    - For agent-intention guidelines ("When you are likely/about to ..."), apply them only if you are actually about to produce a message that activates the condition.
+
+    When unsure whether you've already covered a guideline, prefer NOT repeating it.
+    """
 
         if agent_intention_guidelines_list:
             guideline_block += """

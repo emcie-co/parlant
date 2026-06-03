@@ -33,7 +33,11 @@ from typing import Any
 import pytest
 from anthropic import AsyncAnthropic
 
-from parlant.adapters.nlp.anthropic_service import ANTHROPIC_BLOCK_KEY, AnthropicReactGenerator
+from parlant.adapters.nlp.anthropic_service import (
+    ANTHROPIC_BLOCK_KEY,
+    TURN_INSTRUCTIONS_OPEN,
+    AnthropicReactGenerator,
+)
 from parlant.core.loggers import Logger, StdoutLogger
 from parlant.core.tracer import LocalTracer
 from parlant.core.nlp.react import (
@@ -273,11 +277,12 @@ def test_that_a_mid_conversation_system_message_is_inline_on_opus_4_8(logger: Lo
     }
 
 
-def test_that_a_mid_conversation_system_message_folds_into_system_on_haiku(
+def test_that_a_mid_conversation_system_message_rides_the_last_user_message_on_haiku(
     anthropic: AnthropicReactGenerator,
 ) -> None:
-    # The default fixture is Haiku 4.5, which has no inline system support, so a
-    # mid-conversation system message is concatenated into the top-level system.
+    # Haiku 4.5 has no inline system support, so a mid-conversation system message
+    # is appended (wrapped) to the END of the last user message instead of folded
+    # into the system block — keeping the system prompt stable and cacheable.
     history = [
         Message(role=Role.SYSTEM, parts=[TextPart(text="main")]),
         Message(role=Role.USER, parts=[TextPart(text="hi")]),
@@ -286,8 +291,15 @@ def test_that_a_mid_conversation_system_message_folds_into_system_on_haiku(
 
     request = anthropic._encode(history, [], "auto", reasoning=ReasoningConfig())
 
-    assert request["system"] == "main\n\nmid"
+    # No system-role messages; the leading system carries the protocol note.
     assert all(m["role"] != "system" for m in request["messages"])
+    assert request["system"].startswith("main")
+    assert "ADDITIONAL RESPONSE CONSIDERATIONS" in request["system"]
+    # The mid-conversation instruction rides, wrapped, at the end of the user turn.
+    last_user = request["messages"][-1]
+    assert last_user["role"] == "user"
+    assert last_user["content"][-1]["text"].startswith(TURN_INSTRUCTIONS_OPEN)
+    assert "mid" in last_user["content"][-1]["text"]
 
 
 def test_that_an_inline_mid_conversation_system_is_not_a_cache_breakpoint(logger: Logger) -> None:
@@ -320,11 +332,12 @@ def test_that_an_inline_mid_conversation_system_is_not_a_cache_breakpoint(logger
     }
 
 
-def test_that_a_folded_mid_conversation_system_is_a_separate_uncached_block(
+def test_that_a_mid_conversation_system_keeps_the_system_a_single_cached_block(
     anthropic: AnthropicReactGenerator,
 ) -> None:
-    # On Haiku the mid-conversation system folds into the top-level system, but
-    # as a separate uncached block so the cached leading system stays stable.
+    # With caching on, the mid-conversation instruction must NOT enter the system
+    # block (which stays one cached block) — it rides at the tail of the last user
+    # message, past the cache breakpoint, so the cached prefix is unaffected.
     history = [
         Message(role=Role.SYSTEM, parts=[TextPart(text="main")], cache_key="s"),
         Message(role=Role.USER, parts=[TextPart(text="hi")], cache_key="s"),
@@ -333,11 +346,19 @@ def test_that_a_folded_mid_conversation_system_is_a_separate_uncached_block(
 
     request = anthropic._encode(history, [], "auto", reasoning=ReasoningConfig())
 
-    assert request["system"] == [
-        {"type": "text", "text": "main", "cache_control": {"type": "ephemeral"}},
-        {"type": "text", "text": "mid"},
-    ]
-    assert "cache_control" in request["messages"][0]["content"][-1]
+    # System is a single cached block: leading system + protocol note.
+    assert len(request["system"]) == 1
+    assert request["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert request["system"][0]["text"].startswith("main")
+    assert "ADDITIONAL RESPONSE CONSIDERATIONS" in request["system"][0]["text"]
+    # The breakpoint stays on the user message's real content...
+    last_user = request["messages"][-1]
+    assert last_user["role"] == "user"
+    assert "cache_control" in last_user["content"][0]
+    # ...and the wrapped instruction is appended after it, uncached.
+    assert last_user["content"][-1]["text"].startswith(TURN_INSTRUCTIONS_OPEN)
+    assert "cache_control" not in last_user["content"][-1]
+    assert "mid" in last_user["content"][-1]["text"]
 
 
 def test_that_prefill_request_appends_an_uncached_dummy_and_caps_output(
@@ -469,14 +490,11 @@ def test_that_a_marked_system_message_caches_the_system(
 
     request = anthropic._encode(history, [], "auto", reasoning=ReasoningConfig())
 
-    # System is emitted as a cache_control'd text block (not a plain string).
-    assert request["system"] == [
-        {
-            "type": "text",
-            "text": "big stable system",
-            "cache_control": {"type": "ephemeral"},
-        }
-    ]
+    # System is emitted as a single cache_control'd text block (not a plain string).
+    assert len(request["system"]) == 1
+    assert request["system"][0]["type"] == "text"
+    assert request["system"][0]["text"].startswith("big stable system")
+    assert request["system"][0]["cache_control"] == {"type": "ephemeral"}
     # The user message is not itself a cache breakpoint.
     assert "cache_control" not in request["messages"][0]["content"][-1]
 

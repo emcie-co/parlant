@@ -157,7 +157,7 @@ Based on previous experience, you seem too eager to please the user by offering 
             template="""
 RESPONSE MECHANISM
 ------------------
-To craft an optimal response, ensure alignment with provided guidelines based on the latest interaction state.
+To craft an optimal response, ensure alignment with provided guidelines based on the latest interaction state by REASONING about them internally (do not mention this to the user explicitly in a message).
 Before choosing your response, reason about it by first identifying **up to** three key insights based on this prompt and the ongoing conversation.
 These insights should include relevant user requests, applicable principles from this prompt, or conclusions drawn from the interaction.
 Ensure to include any user request as an insight, whether it's explicit or implicit.
@@ -202,7 +202,7 @@ In cases of conflict, prioritize the business's values and ensure your decisions
 
         builder.add_section(
             name="responder-reminder",
-            template="""REMINDER: Only offer information and offer services that are sourced from this prompt. Never use your intrinsic knowledge to offer services or provide information. And remember to be concise and conversational.""",
+            template="""REMINDER: Only offer information and offer services that are sourced from this prompt. Never use your intrinsic knowledge to offer services or provide information. And remember to be concise, conversational, and to NOT expose your response mechanism in user-facing messages.""",
         )
 
         return builder.build()
@@ -240,7 +240,7 @@ In cases of conflict, prioritize the business's values and ensure your decisions
 
         builder.add_section(
             name="responder-reminder",
-            template="""REMINDER: Only offer information and offer services that are sourced from this prompt. Never use your intrinsic knowledge to offer services or provide information. And remember to be concise and conversational.""",
+            template="""REMINDER: Only offer information and offer services that are sourced from this prompt. Never use your intrinsic knowledge to offer services or provide information. And remember to be concise, conversational, and to NOT expose your response mechanism in user-facing messages.""",
         )
 
         return builder.build()

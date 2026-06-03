@@ -36,6 +36,7 @@ import pytest
 
 from parlant.adapters.nlp.gemini_service import (
     GEMINI_THOUGHT_SIGNATURE_KEY,
+    TURN_INSTRUCTIONS_OPEN,
     GeminiReactGenerator,
 )
 from parlant.core.loggers import Logger, StdoutLogger
@@ -234,11 +235,12 @@ async def test_that_a_prefix_above_the_cache_minimum_is_prefilled(
     assert await gemini._should_prefill(history, [], {}) is True
 
 
-def test_that_a_mid_conversation_system_message_folds_into_the_system_instruction(
+def test_that_a_mid_conversation_system_message_rides_the_last_user_message(
     gemini: GeminiReactGenerator,
 ) -> None:
-    # Gemini contents have no system role, so a mid-conversation system message
-    # is concatenated into the top-level system_instruction.
+    # Gemini contents have no system role, and folding a mid-conversation system
+    # message into system_instruction would break caching — so it's appended
+    # (wrapped) to the END of the last user message instead.
     history = [
         Message(role=Role.SYSTEM, parts=[TextPart(text="main")]),
         Message(role=Role.USER, parts=[TextPart(text="hi")]),
@@ -247,9 +249,15 @@ def test_that_a_mid_conversation_system_message_folds_into_the_system_instructio
 
     request = gemini._encode(history, [], "auto", reasoning=ReasoningConfig())
 
-    assert request["system_instruction"] == "main\n\nmid"
-    # The conversation contents carry only the non-system turns.
+    # system_instruction holds the leading system + protocol note, not "mid".
+    assert request["system_instruction"].startswith("main")
+    assert "ADDITIONAL RESPONSE CONSIDERATIONS" in request["system_instruction"]
+    assert "mid" not in request["system_instruction"]
+    # The mid-conversation instruction rides, wrapped, at the end of the user turn.
     assert [c.role for c in request["all_contents"]] == ["user"]
+    last_user = request["all_contents"][-1]
+    assert last_user.parts[-1].text.startswith(TURN_INSTRUCTIONS_OPEN)
+    assert "mid" in last_user.parts[-1].text
 
 
 def test_that_encode_maps_effort_to_a_thinking_budget_on_gemini_25(logger: Logger) -> None:
@@ -333,7 +341,7 @@ def test_that_a_marked_system_message_caches_the_system_alone(logger: Logger) ->
     request = generator._encode(history, [], "auto", reasoning=ReasoningConfig())
 
     # System goes to system_instruction; the cache covers it with an empty prefix.
-    assert request["system_instruction"] == "big stable system"
+    assert request["system_instruction"].startswith("big stable system")
     assert request["prefix_contents"] == []
     assert request["cache_key"] == "sys-v1"
     # The whole conversation is sent as the suffix referencing the cache.

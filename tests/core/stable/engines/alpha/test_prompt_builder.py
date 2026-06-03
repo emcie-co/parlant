@@ -71,6 +71,8 @@ def test_that_matched_guidelines_lead_with_a_skip_if_already_satisfied_rule() ->
 
     assert "ALREADY satisfied" in prompt
     assert "skip it silently" in prompt
+    # The assessment must be internal — no narrated "let me check the guidelines" preamble.
+    assert "This whole assessment is INTERNAL" in prompt
 
 
 def test_that_matched_guidelines_renders_an_empty_state_when_there_are_no_matches() -> None:

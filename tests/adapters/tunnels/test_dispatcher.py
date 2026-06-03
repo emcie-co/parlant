@@ -2,9 +2,13 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from parlant.core.agents import CompositionMode, MessageOutputMode
+from parlant.core.persistence.common import SortDirection
 from parlant.core.tunnels import TunnelRequestDispatcher
 from parlant.core.tunnels import TunnelRequest
+from parlant.core.tunnels import _parse_sort_direction
 
 
 async def test_that_dispatcher_routes_sessions_create_event_to_session_module() -> None:
@@ -482,3 +486,17 @@ async def test_that_dispatcher_routes_tags_retrieve() -> None:
     assert isinstance(response.result, dict)
     assert response.result["tag"]["id"] == "tag-1"
     tag_module.read.assert_awaited_once()
+
+
+def test_that_parse_sort_direction_returns_none_for_none() -> None:
+    assert _parse_sort_direction(None) is None
+
+
+def test_that_parse_sort_direction_maps_asc_and_desc() -> None:
+    assert _parse_sort_direction("asc") is SortDirection.ASC
+    assert _parse_sort_direction("desc") is SortDirection.DESC
+
+
+def test_that_parse_sort_direction_raises_for_unknown_value() -> None:
+    with pytest.raises(ValueError, match="Unsupported sort direction"):
+        _parse_sort_direction("sideways")

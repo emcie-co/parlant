@@ -1121,9 +1121,7 @@ class OpenAIReactGenerator(ReactGenerator):
 
     async def _prefill(self, request: Any) -> Usage:
         prefill_request = self._build_prefill_request(request)
-        response = await self._client.responses.create(
-            stream=False, store=False, **prefill_request
-        )
+        response = await self._client.responses.create(stream=False, store=False, **prefill_request)
         return self._decode_usage(response.usage, getattr(response, "model", "") or "")
 
     @override

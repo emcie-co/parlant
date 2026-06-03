@@ -239,7 +239,7 @@ Important considerations:
 2. Semantic evaluation: Assess the actual meaning of conditions, not just keyword matching.
 3. Context matters: Consider the full context and intent behind the user's message, including tool results, context variables, capabilities etc'.
 4. Ignore action: The action is only provided for you to contextualize the condition. Do not make your determination based on whether the action has occured. Only evaluate the condition.
-
+5. Match based on entire context: a guideline may be matched based on the entire context of the interaction. It may be relevant even if it has nothing to do with the latest customer message.
 """,  # TODO potentially add something about re-activating guidelines
             props={},
         )

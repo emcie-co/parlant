@@ -65,7 +65,9 @@ class TaskRunner:
         ):
             job = LoopJob(
                 context=task.context,
-                system_instructions=self._build_system_instructions(task.context, task.instructions),
+                system_instructions=self._build_system_instructions(
+                    task.context, task.instructions
+                ),
                 turn_instructions=self._build_turn_instructions,
                 model_size=self._get_model_size(task.context),
                 reasoning_config=self._get_reasoning_config(task.context),

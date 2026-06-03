@@ -21,7 +21,9 @@ from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 
 
-def _match(condition: str, action: str, criticality: Criticality = Criticality.MEDIUM) -> GuidelineMatch:
+def _match(
+    condition: str, action: str, criticality: Criticality = Criticality.MEDIUM
+) -> GuidelineMatch:
     now = datetime.now(timezone.utc)
     guideline = Guideline(
         id=GuidelineId(generate_id()),
@@ -101,8 +103,8 @@ def test_that_matched_low_criticality_guidelines_list_the_principles() -> None:
     )
     representations = {match.guideline.id: internal_representation(match.guideline)}
 
-    prompt = PromptBuilder().add_matched_low_criticality_guidelines(
-        [match], {}, representations
-    ).build()
+    prompt = (
+        PromptBuilder().add_matched_low_criticality_guidelines([match], {}, representations).build()
+    )
 
     assert "keep it brief" in prompt

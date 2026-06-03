@@ -716,3 +716,107 @@ async def test_that_dispatcher_returns_null_next_cursor_when_no_more_sessions() 
 
     assert response.error is None
     assert response.result["next_cursor"] is None
+
+
+async def test_that_dispatcher_routes_customers_list() -> None:
+    session_module = AsyncMock()
+    customer_module = AsyncMock()
+    customer_module.find = AsyncMock(
+        return_value=MagicMock(
+            items=[
+                MagicMock(
+                    id="customer-1",
+                    name="Customer One",
+                    extra={"tier": "gold"},
+                    tags=[],
+                    creation_utc=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                ),
+            ],
+            total_count=1,
+            has_more=False,
+            next_cursor=None,
+        )
+    )
+
+    dispatcher = TunnelRequestDispatcher(
+        session_module=session_module,
+        customer_module=customer_module,
+    )
+
+    response = await dispatcher.dispatch(
+        TunnelRequest(request_id="req-customers", method="customers.list", params={}),
+    )
+
+    assert response.error is None
+    assert isinstance(response.result, dict)
+    assert len(response.result["customers"]) == 1
+    assert response.result["customers"][0]["id"] == "customer-1"
+    assert response.result["total_count"] == 1
+    assert response.result["has_more"] is False
+    assert response.result["next_cursor"] is None
+    customer_module.find.assert_awaited_once()
+
+
+async def test_that_dispatcher_forwards_pagination_to_customers_list() -> None:
+    session_module = AsyncMock()
+    customer_module = AsyncMock()
+    customer_module.find = AsyncMock(
+        return_value=MagicMock(items=[], total_count=0, has_more=False, next_cursor=None),
+    )
+
+    encoded = encode_cursor(Cursor(creation_utc="2026-01-01T00:00:00+00:00", id=ObjectId("cust-1")))
+
+    dispatcher = TunnelRequestDispatcher(
+        session_module=session_module,
+        customer_module=customer_module,
+    )
+    response = await dispatcher.dispatch(
+        TunnelRequest(
+            request_id="req-customers-page",
+            method="customers.list",
+            params={"limit": 5, "cursor": encoded, "sort_direction": "asc"},
+        ),
+    )
+
+    assert response.error is None
+    customer_module.find.assert_awaited_once()
+    kwargs = customer_module.find.await_args.kwargs
+    assert kwargs["limit"] == 5
+    assert kwargs["cursor"] == Cursor(
+        creation_utc="2026-01-01T00:00:00+00:00", id=ObjectId("cust-1")
+    )
+    assert kwargs["sort_direction"] is SortDirection.ASC
+
+
+async def test_that_dispatcher_returns_encoded_next_cursor_in_customers_list() -> None:
+    real_cursor = Cursor(creation_utc="2026-01-02T00:00:00+00:00", id=ObjectId("cust-42"))
+    session_module = AsyncMock()
+    customer_module = AsyncMock()
+    customer_module.find = AsyncMock(
+        return_value=MagicMock(items=[], total_count=0, has_more=True, next_cursor=real_cursor),
+    )
+
+    dispatcher = TunnelRequestDispatcher(
+        session_module=session_module,
+        customer_module=customer_module,
+    )
+    response = await dispatcher.dispatch(
+        TunnelRequest(request_id="req-customers-next", method="customers.list", params={}),
+    )
+
+    assert response.error is None
+    encoded = response.result["next_cursor"]
+    assert isinstance(encoded, str) and encoded
+    assert decode_cursor(encoded) == real_cursor
+
+
+async def test_that_dispatcher_returns_error_when_customer_module_missing_for_list() -> None:
+    session_module = AsyncMock()
+    dispatcher = TunnelRequestDispatcher(session_module=session_module)
+
+    response = await dispatcher.dispatch(
+        TunnelRequest(request_id="req-no-cust-mod", method="customers.list", params={}),
+    )
+
+    assert response.error is not None
+    assert "Customer module" in response.error

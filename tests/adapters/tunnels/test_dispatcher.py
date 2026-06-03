@@ -715,6 +715,7 @@ async def test_that_dispatcher_returns_null_next_cursor_when_no_more_sessions() 
     )
 
     assert response.error is None
+    assert isinstance(response.result, dict)
     assert response.result["next_cursor"] is None
 
 
@@ -805,6 +806,7 @@ async def test_that_dispatcher_returns_encoded_next_cursor_in_customers_list() -
     )
 
     assert response.error is None
+    assert isinstance(response.result, dict)
     encoded = response.result["next_cursor"]
     assert isinstance(encoded, str) and encoded
     assert decode_cursor(encoded) == real_cursor

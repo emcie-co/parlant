@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
@@ -33,15 +33,15 @@ from parlant.core.tracer import Tracer
 @dataclass(frozen=True)
 class LoopJob:
     context: EngineContext
-    prompt: str
+    system_instructions: str
+    turn_instructions: Callable[[EngineContext], Awaitable[str]] | None = None
     model_size: ModelSize = ModelSize.MEDIUM
     reasoning_config: ReasoningConfig | None = None
-    reminder: Callable[[EngineContext], str] | None = None
 
 
 @dataclass(frozen=True)
 class LoopResult:
-    prompt: str
+    job: LoopJob
     steps: Sequence[StepResult]
 
     @property

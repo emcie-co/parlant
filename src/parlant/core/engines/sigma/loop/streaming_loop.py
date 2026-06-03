@@ -70,24 +70,22 @@ class _LoopState:
 
 class StreamingLoop(Loop):
     async def run(self, job: LoopJob) -> LoopResult:
-        context, prompt = job.context, job.prompt
+        state = _LoopState(history=await self._build_history(job))
 
-        state = _LoopState(history=self._build_history(context, job))
-
-        while not context.state.prepared_to_respond:
+        while not job.context.state.prepared_to_respond:
             async for event in self._react.stream_step(
                 history=state.history,
-                tools=await self._get_tools(context),
+                tools=await self._get_tools(job.context),
                 tool_choice="auto",
                 reasoning=job.reasoning_config,
                 hints={"model_size": job.model_size, "service_tier": "priority"},
             ):
                 await self._on_new_event(state, event)
-                await self._update_reasoning(context, state)
-                await self._update_tool_calls(context, state)
-                await self._update_message(context, state)
+                await self._update_reasoning(job.context, state)
+                await self._update_tool_calls(job.context, state)
+                await self._update_message(job.context, state)
 
-            context.state.iterations.append(
+            job.context.state.iterations.append(
                 IterationState(
                     matched_guidelines=[],
                     resolved_guidelines=[],
@@ -96,17 +94,17 @@ class StreamingLoop(Loop):
                 )
             )
 
-            if len(context.state.iterations) == context.agent.max_engine_iterations:
+            if len(job.context.state.iterations) == job.context.agent.max_engine_iterations:
                 # TODO: We need to force a message here in some way...
                 # Maybe we can control max turns in the generator itself?
-                context.state.prepared_to_respond = True
+                job.context.state.prepared_to_respond = True
 
-        await context.session_event_emitter.emit_status_event(
-            trace_id=context.tracer.trace_id,
+        await job.context.session_event_emitter.emit_status_event(
+            trace_id=job.context.tracer.trace_id,
             data=StatusEventData(status="ready", data={"stage": "completed"}),
         )
 
-        return LoopResult(prompt=prompt, steps=state.steps)
+        return LoopResult(job=job, steps=state.steps)
 
     async def _get_tools(self, context: EngineContext) -> list[ToolSpec]:
         return [
@@ -304,18 +302,18 @@ class StreamingLoop(Loop):
     def _get_model_size(self, context: EngineContext, state: _LoopState) -> ModelSize:
         return ModelSize.MEDIUM
 
-    def _build_history(self, context: EngineContext, job: LoopJob) -> list[Message]:
-        cache_key = context.session.id
+    async def _build_history(self, job: LoopJob) -> list[Message]:
+        cache_key = job.context.session.id
 
         system_message = Message(
             role=Role.SYSTEM,
             cache_key=cache_key,
-            parts=[TextPart(text=job.prompt)],
+            parts=[TextPart(text=job.system_instructions)],
         )
 
         history = [system_message]
 
-        for event in context.interaction.events:
+        for event in job.context.interaction.events:
             if event.kind == EventKind.MESSAGE and event.source == EventSource.CUSTOMER:
                 history.append(
                     Message(
@@ -392,7 +390,9 @@ class StreamingLoop(Loop):
                 )
             )
 
-        if job.reminder:
+        if job.turn_instructions:
+            turn_instructions = await job.turn_instructions(job.context)
+
             history.append(
                 Message(
                     role=Role.SYSTEM,
@@ -400,10 +400,8 @@ class StreamingLoop(Loop):
                     parts=[
                         TextPart(
                             text=f"""\
-[Note to self as a reminder while interacting with the user]:
-### Start of note-to-self
-{job.reminder(context)}
-### End of note-to-self"""
+[Instructions and notes you must respect and hold to right now in the conversation!]:
+{turn_instructions}"""
                         )
                     ],
                 )

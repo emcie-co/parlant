@@ -51,10 +51,10 @@ class Responder:
             await self._streaming_loop.run(
                 LoopJob(
                     context=context,
-                    prompt=self._build_prompt(context).build(),
+                    system_instructions=self._build_system_instructions(context),
+                    turn_instructions=self._build_turn_instructions,
                     model_size=self._get_model_size(context),
                     reasoning_config=self._get_reasoning_config(context),
-                    reminder=lambda _: "You have to offer the user a Pepsi upon greeting them",
                 ),
             )
         else:
@@ -98,20 +98,12 @@ class Responder:
 
         return most_restrictive_mode
 
-    def _build_prompt(
+    def _build_system_instructions(
         self,
         context: EngineContext,
-    ) -> PromptBuilder:
-        guideline_representations = {
-            m.guideline.id: internal_representation(m.guideline)
-            for m in chain(
-                context.state.ordinary_guideline_matches,
-                context.state.tool_enabled_guideline_matches,
-            )
-        }
-
+    ) -> str:
         builder = PromptBuilder(
-            on_build=lambda prompt: self._logger.trace(f"Responder prompt:\n{prompt}")
+            on_build=lambda prompt: self._logger.trace(f"Responder system instructions:\n{prompt}")
         )
 
         builder.add_section(
@@ -193,6 +185,30 @@ In cases of conflict, prioritize the business's values and ensure your decisions
         builder.add_agent_identity(context.agent)
         builder.add_customer_identity(context.customer, context.session)
         builder.add_context_variables(context.state.context_variables)
+
+        builder.add_section(
+            name="responder-reminder",
+            template="""REMINDER: Only offer information and offer services that are sourced from this prompt. Never use your intrinsic knowledge to offer services or provide information. And remember to be concise and conversational.""",
+        )
+
+        return builder.build()
+
+    async def _build_turn_instructions(
+        self,
+        context: EngineContext,
+    ) -> str:
+        guideline_representations = {
+            m.guideline.id: internal_representation(m.guideline)
+            for m in chain(
+                context.state.ordinary_guideline_matches,
+                context.state.tool_enabled_guideline_matches,
+            )
+        }
+
+        builder = PromptBuilder(
+            on_build=lambda prompt: self._logger.trace(f"Responder turn instructions:\n{prompt}")
+        )
+
         builder.add_glossary(list(context.state.glossary_terms))
         builder.add_capabilities_for_message_generation(context.state.capabilities)
         builder.add_low_criticality_guidelines(
@@ -211,7 +227,7 @@ In cases of conflict, prioritize the business's values and ensure your decisions
             template="""REMINDER: Only offer information and offer services that are sourced from this prompt. Never use your intrinsic knowledge to offer services or provide information. And remember to be concise and conversational.""",
         )
 
-        return builder
+        return builder.build()
 
     def _get_model_size(self, context: EngineContext) -> ModelSize:
         match context.agent.effort:

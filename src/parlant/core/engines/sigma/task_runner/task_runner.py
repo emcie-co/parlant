@@ -66,7 +66,7 @@ class TaskRunner:
             result = await self._streaming_loop.run(
                 LoopJob(
                     context=task.context,
-                    prompt=self._build_prompt(task.context, task.instructions).build(),
+                    system_instructions=self._build_prompt(task.context, task.instructions).build(),
                     model_size=self._get_model_size(task.context),
                     reasoning_config=self._get_reasoning_config(task.context),
                 ),

@@ -278,6 +278,48 @@ def test_that_service_tier_maps_to_openai_values(openai: OpenAIReactGenerator) -
     assert tier_for("priority") == "priority"
 
 
+def test_that_prefill_request_appends_a_dummy_input_and_caps_output(
+    openai: OpenAIReactGenerator,
+) -> None:
+    history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text="sys")]),
+        Message(role=Role.USER, parts=[TextPart(text="hi")]),
+        Message(role=Role.ASSISTANT, parts=[TextPart(text="hello")]),
+    ]
+    encoded = openai._encode(history, [], "auto", reasoning=ReasoningConfig())
+    prefill = openai._build_prefill_request(encoded)
+
+    assert prefill["max_output_tokens"] == 1
+    assert "reasoning" not in prefill
+    assert prefill["instructions"] == encoded["instructions"]
+    # The original input prefix is preserved, with a dummy user item appended.
+    assert prefill["input"][: len(encoded["input"])] == encoded["input"]
+    assert prefill["input"][-1] == {"role": "user", "content": "."}
+
+
+def test_that_min_cache_size_is_1024_for_known_models(openai: OpenAIReactGenerator) -> None:
+    assert openai._min_cache_size("gpt-5.4-mini") == 1024
+    assert openai._min_cache_size("o3") == 1024
+    assert openai._min_cache_size("some-unknown-model") > 2048
+
+
+async def test_that_a_short_prefix_is_not_prefilled(openai: OpenAIReactGenerator) -> None:
+    # A tiny prompt is well below the 1024-token cache minimum: counting its
+    # tokens (locally, via tiktoken) must decide against prefilling.
+    history = [Message(role=Role.SYSTEM, parts=[TextPart(text="be concise")])]
+
+    assert await openai._should_prefill(history, [], {}) is False
+
+
+async def test_that_a_prefix_above_the_cache_minimum_is_prefilled(
+    openai: OpenAIReactGenerator,
+) -> None:
+    # A prompt comfortably past 1024 tokens crosses the cache minimum.
+    history = [Message(role=Role.SYSTEM, parts=[TextPart(text="word " * 4000)])]
+
+    assert await openai._should_prefill(history, [], {}) is True
+
+
 def test_that_a_leading_system_message_becomes_instructions(openai: OpenAIReactGenerator) -> None:
     history = [
         Message(role=Role.SYSTEM, parts=[TextPart(text="main")]),

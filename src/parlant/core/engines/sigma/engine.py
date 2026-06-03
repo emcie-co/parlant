@@ -16,6 +16,7 @@ from collections.abc import Sequence
 import traceback
 from typing_extensions import override
 
+from parlant.core.async_utils import safe_gather
 from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.emissions import EventEmitter
 from parlant.core.engines.alpha.entity_context import EntityContext
@@ -68,21 +69,11 @@ class SigmaEngine(Engine):
                 data=StatusEventData(status="processing", message="Checking policies"),
             )
 
-            usable_guidelines = await self._entity_queries.find_guidelines_for_context(
-                context.agent_id, []
-            )
+            # Load guidelines and prepare response in parallel
+            load_guidelines = self._load_guidelines(engine_context)
+            prepare = self._responder.prepare(engine_context)
+            await safe_gather(load_guidelines, prepare)
 
-            guidelines = await self._guideline_recaller.recall(engine_context, usable_guidelines)
-
-            engine_context.state.ordinary_guideline_matches = [
-                GuidelineMatch(
-                    guideline=rc.guideline,
-                    rationale="This guideline was ranked high enough to qualify as related to the conversation",
-                )
-                for rc in guidelines.recalled_guidelines
-            ]
-
-            # await self._task_runner.run(Task(engine_context))
             await self._responder.respond(engine_context)
         except Exception as e:
             self._logger.error(
@@ -149,3 +140,18 @@ class SigmaEngine(Engine):
         return Interaction(
             events=history,
         )
+
+    async def _load_guidelines(self, context: EngineContext) -> None:
+        usable_guidelines = await self._entity_queries.find_guidelines_for_context(
+            context.agent.id, []
+        )
+
+        guidelines = await self._guideline_recaller.recall(context, usable_guidelines)
+
+        context.state.ordinary_guideline_matches = [
+            GuidelineMatch(
+                guideline=rc.guideline,
+                rationale="This guideline was ranked high enough to qualify as related to the conversation",
+            )
+            for rc in guidelines.recalled_guidelines
+        ]

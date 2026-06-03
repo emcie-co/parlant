@@ -211,6 +211,29 @@ def test_that_service_tier_maps_to_gemini_values(gemini: GeminiReactGenerator) -
     assert tier_for("priority") == "priority"
 
 
+def test_that_min_cache_size_is_known_per_model_family(gemini: GeminiReactGenerator) -> None:
+    assert gemini._min_cache_size("gemini-3.1-pro-preview") == 2048
+    assert gemini._min_cache_size("gemini-3.5-flash") == 1024
+    assert gemini._min_cache_size("gemini-2.5-flash-lite") == 1024
+    assert gemini._min_cache_size("some-unknown-model") > 2048
+
+
+async def test_that_a_short_prefix_is_not_prefilled(gemini: GeminiReactGenerator) -> None:
+    # Tokens estimated locally (gpt-5), so this needs no network. A tiny prompt
+    # is well below the cache minimum.
+    history = [Message(role=Role.SYSTEM, parts=[TextPart(text="be concise")])]
+
+    assert await gemini._should_prefill(history, [], {}) is False
+
+
+async def test_that_a_prefix_above_the_cache_minimum_is_prefilled(
+    gemini: GeminiReactGenerator,
+) -> None:
+    history = [Message(role=Role.SYSTEM, parts=[TextPart(text="word " * 4000)])]
+
+    assert await gemini._should_prefill(history, [], {}) is True
+
+
 def test_that_a_mid_conversation_system_message_folds_into_the_system_instruction(
     gemini: GeminiReactGenerator,
 ) -> None:

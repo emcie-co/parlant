@@ -882,6 +882,10 @@ class OpenAIReactGenerator(ReactGenerator):
         ModelSize.LARGE: "gpt-5.4",
     }
 
+    # Cache minimum assumed for models we don't recognize — large enough that
+    # prefill is skipped rather than warming a cache that may never engage.
+    _UNKNOWN_MIN_CACHE_SIZE = 1 << 20
+
     @property
     def id(self) -> str:
         return f"openai/{self.model}"
@@ -1069,6 +1073,49 @@ class OpenAIReactGenerator(ReactGenerator):
         except RateLimitError:
             self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
+
+    def _build_prefill_request(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Turn an encoded request into a cache-warming request: same input
+        prefix / instructions / tools / prompt_cache_key, plus a tiny dummy user
+        item and a 1-token output cap. Reasoning is dropped so the 1-token cap is
+        valid; it doesn't affect the cached input prefix."""
+        input_items = list(request["input"])
+        if not input_items or input_items[-1].get("role") != "user":
+            input_items = input_items + [{"role": "user", "content": "."}]
+
+        prefill = {
+            key: value
+            for key, value in request.items()
+            if value is not None and key not in ("reasoning", "include")
+        }
+        prefill["input"] = input_items
+        prefill["max_output_tokens"] = 1
+        return prefill
+
+    def _min_cache_size(self, model: str) -> int:
+        """Minimum prompt size (in tokens) at which OpenAI automatic prompt
+        caching engages. It is 1024 tokens across current models; unknown models
+        are assumed not to cache cheaply."""
+        if model.startswith(("gpt-", "o1", "o3", "o4", "chatgpt-")):
+            return 1024
+        return self._UNKNOWN_MIN_CACHE_SIZE
+
+    @override
+    async def _should_prefill(
+        self,
+        history: Sequence[Message],
+        tools: Sequence[ToolSpec],
+        hints: ReactGeneratorHints,
+    ) -> bool:
+        token_count = self._estimate_prefill_tokens(history, tools)
+        return token_count >= self._min_cache_size(self._resolve_model(hints))
+
+    async def _prefill(self, request: Any) -> Usage:
+        prefill_request = self._build_prefill_request(request)
+        response = await self._client.responses.create(
+            stream=False, store=False, **prefill_request
+        )
+        return self._decode_usage(response.usage, getattr(response, "model", "") or "")
 
     @override
     def _decode(self, raw_event: Any, builder: TurnBuilder) -> list[StreamEvent]:

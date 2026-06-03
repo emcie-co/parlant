@@ -508,6 +508,10 @@ class GeminiReactGenerator(ReactGenerator):
         ModelSize.LARGE: "gemini-3.1-pro-preview",
     }
 
+    # Cache minimum assumed for models we don't recognize — large enough that
+    # prefill is skipped rather than warming a cache that may never engage.
+    _UNKNOWN_MIN_CACHE_SIZE = 1 << 20
+
     # Gemini's service_tier accepts "standard" / "flex" / "priority" directly.
     _SERVICE_TIER: dict[ServiceTier, str] = {
         "standard": "standard",
@@ -745,7 +749,45 @@ class GeminiReactGenerator(ReactGenerator):
             thinking_kwargs["thinking_budget"] = self._EFFORT_TO_BUDGET_25[reasoning.effort]
         return google.genai.types.ThinkingConfig(**thinking_kwargs)
 
+    def _min_cache_size(self, model: str) -> int:
+        """Minimum prompt size (in tokens) at which Gemini context caching
+        engages for ``model``. Pro models require 2048 tokens, Flash models 1024;
+        unknown models are assumed not to cache cheaply."""
+        if "pro" in model:
+            return 2048
+        if "flash" in model:
+            return 1024
+        return self._UNKNOWN_MIN_CACHE_SIZE
+
     @override
+    async def _should_prefill(
+        self,
+        history: Sequence[Message],
+        tools: Sequence[ToolSpec],
+        hints: ReactGeneratorHints,
+    ) -> bool:
+        token_count = self._estimate_prefill_tokens(history, tools)
+        return token_count >= self._min_cache_size(self._resolve_model(hints))
+
+    @override
+    async def _prefill(self, request: Any) -> Usage:
+        # Gemini supports explicit caching: create the CachedContent resource for
+        # the marked prefix now, so a later call reuses it. No inference needed.
+        prefix_contents = request.get("prefix_contents")
+        cache_key = request.get("cache_key")
+        if prefix_contents is None or not cache_key:
+            return Usage(model_name=request["model"])
+
+        await self._get_or_create_cache(
+            model=request["model"],
+            system_instruction=request["system_instruction"],
+            prefix_contents=prefix_contents,
+            tools=request["tools"],
+            tool_config=request["tool_config"],
+            cache_key=cache_key,
+        )
+        return Usage(model_name=request["model"])
+
     async def _raw_stream(self, request: Any) -> AsyncIterator[Any]:
         # thinking_config is always set on the request (it's allowed alongside a
         # CachedContent). system_instruction / tools / tool_config are NOT: Gemini

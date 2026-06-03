@@ -67,6 +67,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import timedelta
 from enum import Enum
+from functools import lru_cache
 from typing import (
     Any,
     AsyncIterator,
@@ -78,6 +79,8 @@ from typing import (
     Sequence,
     Union,
 )
+
+import tiktoken
 from typing_extensions import NotRequired, TypedDict
 
 from parlant.core.nlp.common import ModelGeneration, ModelSize, ModelType
@@ -525,6 +528,13 @@ class TurnBuilder:
         )
 
 
+@lru_cache(maxsize=1)
+def _prefill_tokenizer() -> tiktoken.Encoding:
+    """The gpt-5 (o200k_base) encoding, used as a fast, provider-agnostic local
+    estimator for the prefill cache-minimum check."""
+    return tiktoken.encoding_for_model("gpt-5")
+
+
 # ───────────────────────────── the abstract base ───────────────────────────
 
 
@@ -579,7 +589,107 @@ class ReactGenerator(abc.ABC):
         fold its content into ``builder`` (capturing signatures, usage, and the
         finish reason)."""
 
+    async def _prefill(self, request: Any) -> Usage:
+        """Warm the provider's cache for an encoded request, without producing a
+        real turn. Default no-op (for providers/fakes that don't support
+        prefilling); the concrete adapters override it. See :meth:`prefill`."""
+        return Usage()
+
+    async def _should_prefill(
+        self,
+        history: Sequence[Message],
+        tools: Sequence[ToolSpec],
+        hints: ReactGeneratorHints,
+    ) -> bool:
+        """Whether warming the cache is worth it for this prefix. Providers only
+        cache prompts above a per-model token minimum; below it, ``cache_control``
+        / implicit caching is ignored and a prefill round-trip is wasted. Default
+        always prefills; the concrete adapters override with a token-count check
+        against the resolved model's minimum. See :meth:`prefill`."""
+        return True
+
+    @staticmethod
+    def _estimate_prefill_tokens(
+        history: Sequence[Message],
+        tools: Sequence[ToolSpec],
+    ) -> int:
+        """Estimate the cacheable prefix's token count locally with the gpt-5
+        (o200k_base) tokenizer. It is provider-agnostic and within ~10% of every
+        provider's own count — close enough to compare against a cache minimum,
+        and ~1000x cheaper than a provider ``count_tokens`` round-trip. It runs a
+        touch low, so the rare miss is a skipped (not a wasted) prefill."""
+        return len(_prefill_tokenizer().encode(ReactGenerator._prefix_text(history, tools)))
+
+    @staticmethod
+    def _prefix_text(history: Sequence[Message], tools: Sequence[ToolSpec]) -> str:
+        """Flatten the cacheable prefix (system + conversation + tool schemas)
+        into plain text for token estimation. Approximate — it ignores
+        provider-specific framing tokens, which is fine for comparing against a
+        model's cache-size minimum."""
+        chunks: list[str] = []
+
+        for message in history:
+            for part in message.parts:
+                if isinstance(part, (TextPart, ReasoningPart)):
+                    chunks.append(part.text)
+                elif isinstance(part, ToolCallPart):
+                    chunks.append(part.name)
+                    chunks.append(str(dict(part.args)))
+                elif isinstance(part, ToolResultPart):
+                    chunks.append(str(part.content))
+
+        for tool in tools:
+            chunks.append(tool.name)
+            chunks.append(tool.description)
+            for parameter in tool.parameters:
+                chunks.append(parameter.name)
+                if parameter.description:
+                    chunks.append(parameter.description)
+
+        return "\n".join(chunks)
+
     # ---- concrete orchestration: shared by all providers -------------------
+
+    async def prefill(
+        self,
+        history: Sequence[Message],
+        tools: Sequence[ToolSpec] = (),
+        *,
+        tool_choice: ToolChoice = "auto",
+        reasoning: Optional[ReasoningConfig] = None,
+        hints: Optional[ReactGeneratorHints] = None,
+    ) -> Usage:
+        """Warm the provider cache for ``history`` so a subsequent
+        :meth:`step` / :meth:`stream_step` reads it instead of paying full input
+        cost. Mark the prefix to cache via :attr:`Message.cache_key`, as usual.
+
+        Pass the SAME ``tools`` / ``reasoning`` / ``hints`` you'll use in the real
+        call: the cached prefix must be byte-identical for the cache to hit.
+
+        Returns the prefill :class:`Usage` (e.g. ``cache_creation_input_tokens``
+        on Anthropic). Best-effort: providers that can't prefill return an empty
+        ``Usage``.
+        """
+        if not await self._should_prefill(history, tools, hints or {}):
+            return Usage()
+
+        request = self._encode(
+            history,
+            tools,
+            tool_choice,
+            reasoning=reasoning or ReasoningConfig(),
+            hints=hints or {},
+        )
+
+        # Prefill is a single blocking round-trip rather than a stream, so there
+        # is no first-token moment to clock. Report the whole operation's
+        # wall-clock duration as ``ttft`` — that's the latency a caller pays to
+        # warm the cache.
+        started_at = time.monotonic()
+        usage = await self._prefill(request)
+        usage.ttft = time.monotonic() - started_at
+
+        return usage
 
     async def stream_step(
         self,

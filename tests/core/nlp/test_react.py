@@ -528,6 +528,33 @@ async def test_that_call_options_are_threaded_through_to_encode() -> None:
     assert request["reasoning"] is reasoning
 
 
+async def test_that_prefill_encodes_the_history_and_defaults_to_a_no_op_usage() -> None:
+    generator = _FakeReactGenerator([_text_event("ok")])
+
+    usage = await generator.prefill([Message(role=Role.USER, parts=[TextPart(text="q")])])
+
+    # prefill encodes (so the provider can warm its cache) and, with no override,
+    # reports no token usage — but ttft always covers the operation's duration.
+    assert len(generator.encoded_requests) == 1
+    assert usage.ttft >= 0.0
+    assert usage == Usage(ttft=usage.ttft)
+
+
+def test_that_prefix_text_flattens_messages_and_tool_schemas_for_token_counting() -> None:
+    history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text="you are helpful")]),
+        Message(role=Role.USER, parts=[TextPart(text="weather in paris?")]),
+    ]
+
+    text = _FakeReactGenerator([])._prefix_text(history, [WEATHER_TOOL])
+
+    assert "you are helpful" in text
+    assert "weather in paris?" in text
+    # Tool name + description feed into the count too.
+    assert WEATHER_TOOL.name in text
+    assert WEATHER_TOOL.description in text
+
+
 async def test_that_cancelling_a_step_propagates_and_tears_down_the_stream() -> None:
     started = asyncio.Event()
 

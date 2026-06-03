@@ -20,6 +20,7 @@ from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
+from parlant.core.engines.sigma.loop.loop import LoopJob
 from parlant.core.glossary import Term
 from parlant.core.guidelines import Guideline
 from parlant.core.journeys import Journey, JourneyId
@@ -57,3 +58,4 @@ class ResponseState:
     usable_guidelines: list[Guideline] = field(default_factory=list)
     additional_canned_response_fields: dict[str, Any] = field(default_factory=dict)
     iterations: list[IterationState] = field(default_factory=list)
+    job: Optional[LoopJob] = None

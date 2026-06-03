@@ -19,7 +19,6 @@ from parlant.core.agents import CompositionMode, Effort, MessageOutputMode
 from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.engines.engine_context import EngineContext
-from parlant.core.engines.sigma.loop.loop import LoopJob
 from parlant.core.engines.sigma.loop.streaming_loop import StreamingLoop
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
@@ -63,14 +62,13 @@ class TaskRunner:
             output_mode == MessageOutputMode.STREAM
             and composition_mode == CompositionMode.CANNED_FLUID
         ):
-            result = await self._streaming_loop.run(
-                LoopJob(
-                    context=task.context,
-                    system_instructions=self._build_prompt(task.context, task.instructions).build(),
-                    model_size=self._get_model_size(task.context),
-                    reasoning_config=self._get_reasoning_config(task.context),
-                ),
+            job = await self._streaming_loop.create_job(
+                context=task.context,
+                system_instructions=self._build_prompt(task.context, task.instructions).build(),
+                model_size=self._get_model_size(task.context),
+                reasoning_config=self._get_reasoning_config(task.context),
             )
+            result = await self._streaming_loop.run_job(job)
 
             return TaskResult(
                 output=result.steps[-1].message.text if result.steps else "",

@@ -661,7 +661,7 @@ These guidelines have already been pre-filtered based on the interaction's conte
             template="""
 ## EXTREMELY IMPORTANT - GUIDELINES YOU MUST FOLLOW:
 
-When crafting your reply, you must follow the behavioral guidelines that have been identified as relevant to the current state of the interaction. The specific guidelines are provided to you in a separate instruction later in the conversation.
+When crafting your reply, you must follow the behavioral guidelines that have been identified as relevant to the current state of the interaction. The specific guidelines, if any, will be provided to you in a separate instruction later in the conversation.
 
 Some guidelines are tied to conditions related to you, the agent. These guidelines are considered relevant because it is likely that you intend to produce a message that will trigger the associated condition. You should only follow these guidelines if you are actually going to produce a message that activates the condition.
 
@@ -787,7 +787,7 @@ Important note - some guidelines ({customer_dependent_guideline_indices_str}) ma
         self.add_section(
             name="low-criticality-guideline-instructions",
             template="""
-When generating a response, consider the general principles that will be provided to you later in the conversation.
+When generating a response, remember to consider the general principles that will be provided to you later in the conversation.
 Note that you may ignore a principle if it is not relevant to the specific context or if you find it inappropriate.
 You will also be provided with guidelines that have been detected as specifically relevant to the current context and that you must follow. Prioritize those context-specific guidelines over these general principles.
 """,

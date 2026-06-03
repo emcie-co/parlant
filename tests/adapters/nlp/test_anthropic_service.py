@@ -340,6 +340,68 @@ def test_that_a_folded_mid_conversation_system_is_a_separate_uncached_block(
     assert "cache_control" in request["messages"][0]["content"][-1]
 
 
+def test_that_prefill_request_appends_an_uncached_dummy_and_caps_output(
+    anthropic: AnthropicReactGenerator,
+) -> None:
+    history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text="sys")], cache_key="s"),
+        Message(role=Role.USER, parts=[TextPart(text="hi")], cache_key="s"),
+        Message(role=Role.ASSISTANT, parts=[TextPart(text="hello")], cache_key="s"),
+    ]
+    encoded = anthropic._encode(history, [], "auto", reasoning=ReasoningConfig())
+    prefill = anthropic._build_prefill_request(encoded)
+
+    assert prefill["max_tokens"] == 1
+    assert "thinking" not in prefill
+    # The cached prefix is unchanged (so the real call will hit this cache).
+    assert prefill["system"] == encoded["system"]
+    assert prefill["messages"][: len(encoded["messages"])] == encoded["messages"]
+    # A dummy user turn is appended, and it is NOT cached.
+    assert prefill["messages"][-1]["role"] == "user"
+    assert "cache_control" not in prefill["messages"][-1]["content"][-1]
+
+
+def test_that_prefill_skips_the_dummy_when_history_ends_with_a_user_turn(
+    anthropic: AnthropicReactGenerator,
+) -> None:
+    history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text="sys")], cache_key="s"),
+        Message(role=Role.USER, parts=[TextPart(text="hi")], cache_key="s"),
+    ]
+    encoded = anthropic._encode(history, [], "auto", reasoning=ReasoningConfig())
+    prefill = anthropic._build_prefill_request(encoded)
+
+    # No extra dummy turn — the existing user turn ends the array.
+    assert len(prefill["messages"]) == len(encoded["messages"])
+    assert prefill["messages"][-1]["role"] == "user"
+    assert prefill["max_tokens"] == 1
+
+
+def test_that_min_cache_size_is_known_per_model_family(
+    anthropic: AnthropicReactGenerator,
+) -> None:
+    assert anthropic._min_cache_size("claude-haiku-4-5-20251001") == 2048
+    assert anthropic._min_cache_size("claude-sonnet-4-6") == 1024
+    assert anthropic._min_cache_size("claude-opus-4-8") == 1024
+    assert anthropic._min_cache_size("some-unknown-model") > 2048
+
+
+async def test_that_a_short_prefix_is_not_prefilled(anthropic: AnthropicReactGenerator) -> None:
+    # Tokens estimated locally (gpt-5), so this needs no network. A tiny prompt
+    # is well below the cache minimum.
+    history = [Message(role=Role.SYSTEM, parts=[TextPart(text="be concise")])]
+
+    assert await anthropic._should_prefill(history, [], {}) is False
+
+
+async def test_that_a_prefix_above_the_cache_minimum_is_prefilled(
+    anthropic: AnthropicReactGenerator,
+) -> None:
+    history = [Message(role=Role.SYSTEM, parts=[TextPart(text="word " * 4000)])]
+
+    assert await anthropic._should_prefill(history, [], {}) is True
+
+
 def test_that_visibility_maps_to_the_display_knob(anthropic: AnthropicReactGenerator) -> None:
     # Claude 4 has no verbatim option: "none" omits the thinking summary, while
     # "summary" and "full" both request the summary ("full" has no equivalent).

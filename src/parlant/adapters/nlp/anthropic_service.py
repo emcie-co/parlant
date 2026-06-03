@@ -359,6 +359,10 @@ class AnthropicReactGenerator(ReactGenerator):
         ModelSize.LARGE: "claude-opus-4-8",
     }
 
+    # Cache minimum assumed for models we don't recognize — large enough that
+    # prefill is skipped rather than warming a cache that may never engage.
+    _UNKNOWN_MIN_CACHE_SIZE = 1 << 20
+
     # Anthropic's request service_tier only accepts "auto" (priority-when-available)
     # or "standard_only". There is no flex tier, so it maps to standard.
     _SERVICE_TIER: dict[ServiceTier, str] = {
@@ -629,7 +633,6 @@ class AnthropicReactGenerator(ReactGenerator):
     @override
     async def _raw_stream(self, request: Any) -> AsyncIterator[Any]:
         try:
-            self._logger.debug(f"Anthropic API request:\n{json.dumps(request, indent=2)}")
             async with self._client.messages.stream(**request) as stream:
                 async for event in stream:
                     yield event
@@ -637,6 +640,56 @@ class AnthropicReactGenerator(ReactGenerator):
         except RateLimitError:
             self._logger.error(ANTHROPIC_RATE_LIMIT_ERROR_MESSAGE)
             raise
+
+    def _build_prefill_request(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Turn an encoded request into a cache-warming request: same cached
+        prefix (tools/system/messages with their cache_control), plus a tiny
+        uncached dummy user turn and a 1-token output cap. Thinking is dropped
+        (incompatible with max_tokens=1) and tool use is not forced."""
+        messages = list(request["messages"])
+        # Append a dummy user turn to trigger the cache write — unless the
+        # history already ends with a user turn (Anthropic rejects two
+        # consecutive user turns).
+        if not messages or messages[-1]["role"] != "user":
+            messages = messages + [{"role": "user", "content": "."}]
+
+        prefill: dict[str, Any] = {
+            "model": request["model"],
+            "max_tokens": 1,
+            "messages": messages,
+        }
+        if "system" in request:
+            prefill["system"] = request["system"]
+        if "tools" in request:
+            prefill["tools"] = request["tools"]
+        if "service_tier" in request:
+            prefill["service_tier"] = request["service_tier"]
+        return prefill
+
+    def _min_cache_size(self, model: str) -> int:
+        """Minimum prompt size (in tokens) at which Anthropic prompt caching
+        engages for ``model``. Caching is ignored below this; unknown models are
+        assumed not to cache cheaply."""
+        if "haiku" in model:
+            return 2048
+        if "sonnet" in model or "opus" in model:
+            return 1024
+        return self._UNKNOWN_MIN_CACHE_SIZE
+
+    @override
+    async def _should_prefill(
+        self,
+        history: Sequence[Message],
+        tools: Sequence[ToolSpec],
+        hints: ReactGeneratorHints,
+    ) -> bool:
+        token_count = self._estimate_prefill_tokens(history, tools)
+        return token_count >= self._min_cache_size(self._resolve_model(hints))
+
+    async def _prefill(self, request: Any) -> Usage:
+        prefill_request = self._build_prefill_request(request)
+        response = await self._client.messages.create(**prefill_request)
+        return self._decode_usage(response.usage, getattr(response, "model", "") or "")
 
     @override
     def _decode(self, raw_event: Any, builder: TurnBuilder) -> list[StreamEvent]:

@@ -248,7 +248,8 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
                 input_tokens=response.usage_metadata.prompt_token_count or 0
                 if response.usage_metadata
                 else 0,
-                output_tokens=response.usage_metadata.candidates_token_count or 0
+                output_tokens=(response.usage_metadata.candidates_token_count or 0)
+                + (response.usage_metadata.thoughts_token_count or 0)
                 if response.usage_metadata
                 else 0,
                 cached_input_tokens=response.usage_metadata.cached_content_token_count or 0
@@ -264,7 +265,8 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
                     duration=(t_end - t_start),
                     usage=UsageInfo(
                         input_tokens=response.usage_metadata.prompt_token_count or 0,
-                        output_tokens=response.usage_metadata.candidates_token_count or 0,
+                        output_tokens=(response.usage_metadata.candidates_token_count or 0)
+                        + (response.usage_metadata.thoughts_token_count or 0),
                         extra={
                             "cached_input_tokens": (
                                 response.usage_metadata.cached_content_token_count or 0

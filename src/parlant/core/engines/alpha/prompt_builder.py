@@ -506,6 +506,7 @@ If none of the capabilities address the current request of the customer - DO NOT
                 template="""
 The following are the capabilities that you hold as an agent.
 They may or may not effect your decision regarding the specified guidelines.
+All relevant capabilities you have as an agent should be listed here, if you are asked to perform something that is not listed here, assume you cannot do so (that behavior is not supported)
 ###
 {capabilities_string}
 ###

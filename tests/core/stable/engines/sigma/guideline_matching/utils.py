@@ -23,19 +23,33 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 
 from parlant.core.agents import Agent, AgentId, CompositionMode, Effort, MessageOutputMode
-from parlant.core.common import Criticality, generate_id
+from parlant.core.capabilities import Capability, CapabilityId
+from parlant.core.common import Criticality, JSONSerializable, generate_id
+from parlant.core.context_variables import (
+    ContextVariable,
+    ContextVariableId,
+    ContextVariableValue,
+    ContextVariableValueId,
+)
 from parlant.core.customers import Customer, CustomerId
 from parlant.core.emission.event_buffer import EventBuffer
+from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.engine_context import EngineContext, Interaction
 from parlant.core.engines.sigma.guideline_matching.guideline_ranker import GuidelineRanker
 from parlant.core.engines.types import Context
+from parlant.core.glossary import Term, TermId
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import StdoutLogger
-from parlant.core.sessions import EventSource, Session, SessionId
+from parlant.core.sessions import EventKind, EventSource, Session, SessionId
 from parlant.core.tracer import LocalTracer
 from parlant.core.tags import TagId
 
 from tests.core.common.utils import create_event_message
+
+
+# Flip to False to only assert that relevant guidelines pass the filter, ignoring
+# whatever the ranker does with the irrelevant ones.
+ASSERT_IRRELEVANT_GUIDELINES = False
 
 
 def create_guideline(
@@ -65,6 +79,72 @@ def create_guideline_by_name(
     return create_guideline(condition=spec["condition"], action=spec.get("action"))
 
 
+def create_term(
+    name: str,
+    description: str,
+    synonyms: list[str] = [],
+    tags: list[TagId] = [],
+) -> Term:
+    return Term(
+        id=TermId("-"),
+        creation_utc=datetime.now(timezone.utc),
+        last_modified_utc=datetime.now(timezone.utc),
+        name=name,
+        description=description,
+        synonyms=synonyms,
+        tags=tags,
+    )
+
+
+def create_context_variable(
+    name: str,
+    data: JSONSerializable,
+    tags: list[TagId] = [],
+) -> tuple[ContextVariable, ContextVariableValue]:
+    return ContextVariable(
+        id=ContextVariableId("-"),
+        creation_utc=datetime.now(timezone.utc),
+        last_modified_utc=datetime.now(timezone.utc),
+        name=name,
+        description="",
+        tool_id=None,
+        freshness_rules=None,
+        tags=tags,
+    ), ContextVariableValue(
+        ContextVariableValueId("-"),
+        last_modified_utc=datetime.now(timezone.utc),
+        data=data,
+    )
+
+
+def create_capability(
+    title: str,
+    description: str,
+    *,
+    id: str = "cap_-",
+    signals: list[str] = [],
+    tags: list[TagId] = [],
+) -> Capability:
+    return Capability(
+        id=CapabilityId(id),
+        creation_utc=datetime.now(timezone.utc),
+        title=title,
+        description=description,
+        signals=signals,
+        tags=tags,
+    )
+
+
+def create_staged_tool_event(data: JSONSerializable) -> EmittedEvent:
+    return EmittedEvent(
+        source=EventSource.AI_AGENT,
+        kind=EventKind.TOOL,
+        trace_id="",
+        data=data,
+        metadata=None,
+    )
+
+
 async def base_test_that_guidelines_are_ranked_correctly(
     ranker: GuidelineRanker,
     guidelines_dict: Mapping[str, Mapping[str, str]],
@@ -72,6 +152,12 @@ async def base_test_that_guidelines_are_ranked_correctly(
     conversation_guideline_names: list[str],
     relevant_guideline_names: list[str],
     irrelevant_guideline_names: list[str],
+    *,
+    agent_description: str | None = None,
+    context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]] = [],
+    terms: Sequence[Term] = [],
+    capabilities: Sequence[Capability] = [],
+    staged_events: Sequence[EmittedEvent] = [],
 ) -> None:
     """Rank ``conversation_guideline_names`` against ``conversation`` and assert that:
 
@@ -90,9 +176,18 @@ async def base_test_that_guidelines_are_ranked_correctly(
         for name in conversation_guideline_names
     }
 
-    context = create_engine_context(conversation=conversation)
+    agent = create_agent(description=agent_description) if agent_description else None
 
-    result = await ranker.rank(context, list(guidelines_by_name.values()))
+    context = create_engine_context(conversation=conversation, agent=agent)
+
+    result = await ranker.rank(
+        context,
+        list(guidelines_by_name.values()),
+        context_variables=context_variables,
+        terms=terms,
+        capabilities=capabilities,
+        staged_events=staged_events,
+    )
 
     relevance_by_id = {
         ranked.guideline.id: ranked.is_relevant for ranked in result.ranked_guidelines
@@ -104,19 +199,20 @@ async def base_test_that_guidelines_are_ranked_correctly(
             f"expected guideline {name!r} to be ranked as relevant, but it wasn't"
         )
 
-    for name in irrelevant_guideline_names:
-        guideline = guidelines_by_name[name]
-        assert relevance_by_id.get(guideline.id) is False, (
-            f"expected guideline {name!r} to be ranked as not relevant, but it was"
-        )
+    if ASSERT_IRRELEVANT_GUIDELINES:
+        for name in irrelevant_guideline_names:
+            guideline = guidelines_by_name[name]
+            assert relevance_by_id.get(guideline.id) is False, (
+                f"expected guideline {name!r} to be ranked as not relevant, but it was"
+            )
 
 
-def create_agent(name: str = "Test Agent") -> Agent:
+def create_agent(name: str = "Test Agent", description: str | None = None) -> Agent:
     now = datetime.now(timezone.utc)
     return Agent(
         id=AgentId(generate_id()),
         name=name,
-        description=None,
+        description=description,
         creation_utc=now,
         last_modified_utc=now,
         max_engine_iterations=3,

@@ -500,3 +500,37 @@ def test_that_parse_sort_direction_maps_asc_and_desc() -> None:
 def test_that_parse_sort_direction_raises_for_unknown_value() -> None:
     with pytest.raises(ValueError, match="Unsupported sort direction"):
         _parse_sort_direction("sideways")
+
+
+async def test_that_dispatcher_serializes_session_labels_in_sessions_list() -> None:
+    session_module = AsyncMock()
+    session_module.find = AsyncMock(
+        return_value=MagicMock(
+            items=[
+                MagicMock(
+                    id="sess-1",
+                    creation_utc=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    customer_id="cust-1",
+                    agent_id="agent-1",
+                    mode="auto",
+                    title=None,
+                    metadata={},
+                    labels={"premium", "support"},
+                ),
+            ],
+            total_count=1,
+            has_more=False,
+            next_cursor=None,
+        )
+    )
+
+    dispatcher = TunnelRequestDispatcher(session_module=session_module)
+
+    response = await dispatcher.dispatch(
+        TunnelRequest(request_id="req-labels", method="sessions.list", params={}),
+    )
+
+    assert response.error is None
+    assert isinstance(response.result, dict)
+    serialized = response.result["sessions"][0]
+    assert set(serialized["labels"]) == {"premium", "support"}

@@ -330,6 +330,7 @@ class TunnelRequestDispatcher:
             "mode": session.mode,
             "title": session.title,
             "metadata": dict(session.metadata) if session.metadata else {},
+            "labels": list(session.labels),
         }
 
     @staticmethod

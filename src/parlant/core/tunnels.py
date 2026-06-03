@@ -10,8 +10,21 @@ from parlant.core.app_modules.tags import TagModule
 from parlant.core.common import ItemNotFoundError
 from parlant.core.customers import CustomerId
 from parlant.core.loggers import Logger
+from parlant.core.persistence.common import SortDirection
 from parlant.core.sessions import EventId, EventKind, EventSource, SessionId
 from parlant.core.tags import TagId
+
+
+def _parse_sort_direction(value: str | None) -> SortDirection | None:
+    if value is None:
+        return None
+    match value:
+        case "asc":
+            return SortDirection.ASC
+        case "desc":
+            return SortDirection.DESC
+        case _:
+            raise ValueError(f"Unsupported sort direction: {value}")
 
 
 class TunnelRequest:

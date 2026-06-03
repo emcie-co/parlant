@@ -369,8 +369,8 @@ class TunnelRequestDispatcher:
         return {
             "id": event.id,
             "offset": event.offset,
-            "source": event.source,
-            "kind": event.kind,
+            "source": TunnelRequestDispatcher._serialize_scalar(event.source),
+            "kind": TunnelRequestDispatcher._serialize_scalar(event.kind),
             "creation_utc": event.creation_utc.isoformat(),
             "data": event.data,
             "metadata": dict(event.metadata) if event.metadata else {},

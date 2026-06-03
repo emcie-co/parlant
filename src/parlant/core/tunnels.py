@@ -4,6 +4,7 @@ from typing import Any, Awaitable, Callable, Mapping
 
 from parlant.core.agents import AgentId
 from parlant.core.app_modules.agents import AgentModule
+from parlant.core.app_modules.common import decode_cursor
 from parlant.core.app_modules.customers import CustomerModule
 from parlant.core.app_modules.sessions import Moderation, SessionModule, SessionUpdateParamsModel
 from parlant.core.app_modules.tags import TagModule
@@ -237,10 +238,13 @@ class TunnelRequestDispatcher:
         return self._serialize_session(session)
 
     async def _handle_list_sessions(self, params: dict[str, Any]) -> dict[str, Any]:
+        cursor = decode_cursor(params["cursor"]) if params.get("cursor") else None
+
         result = await self._session_module.find(
             agent_id=AgentId(params["agent_id"]) if params.get("agent_id") else None,
             customer_id=CustomerId(params["customer_id"]) if params.get("customer_id") else None,
             limit=params.get("limit"),
+            cursor=cursor,
         )
         return {
             "sessions": [self._serialize_session(s) for s in result.items],

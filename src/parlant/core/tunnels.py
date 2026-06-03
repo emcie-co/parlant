@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from enum import Enum
 from typing import Any, Awaitable, Callable, Mapping
 
 from parlant.core.agents import AgentId
@@ -315,10 +316,19 @@ class TunnelRequestDispatcher:
             "name": agent.name,
             "description": agent.description,
             "max_engine_iterations": agent.max_engine_iterations,
-            "composition_mode": agent.composition_mode,
-            "message_output_mode": agent.message_output_mode,
+            "composition_mode": TunnelRequestDispatcher._serialize_scalar(agent.composition_mode),
+            "message_output_mode": TunnelRequestDispatcher._serialize_scalar(
+                agent.message_output_mode
+            ),
             "tags": list(agent.tags),
         }
+
+    @staticmethod
+    def _serialize_scalar(value: Any) -> Any:
+        if isinstance(value, Enum):
+            return value.value
+
+        return value
 
     @staticmethod
     def _serialize_customer(customer: Any) -> dict[str, Any]:

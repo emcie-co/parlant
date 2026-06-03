@@ -290,6 +290,56 @@ def test_that_a_mid_conversation_system_message_folds_into_system_on_haiku(
     assert all(m["role"] != "system" for m in request["messages"])
 
 
+def test_that_an_inline_mid_conversation_system_is_not_a_cache_breakpoint(logger: Logger) -> None:
+    # On opus 4.8 the mid-conversation system stays inline, but it is dynamic, so
+    # the cache breakpoint must stay on the last real message — not the inline
+    # system — and the inline system must not carry cache_control.
+    generator = AnthropicReactGenerator(
+        model="claude-opus-4-8",
+        logger=logger,
+        cache=CacheConfig(enabled=True),
+        client=AsyncAnthropic(api_key="offline-encode-tests"),
+    )
+    history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text="main")], cache_key="s"),
+        Message(role=Role.USER, parts=[TextPart(text="hi")], cache_key="s"),
+        Message(role=Role.SYSTEM, parts=[TextPart(text="mid")], cache_key="s"),
+    ]
+
+    request = generator._encode(history, [], "auto", reasoning=ReasoningConfig())
+
+    # Leading system is the cached block.
+    assert request["system"] == [
+        {"type": "text", "text": "main", "cache_control": {"type": "ephemeral"}}
+    ]
+    # The breakpoint is on the last real message (the user), not the inline system.
+    assert "cache_control" in request["messages"][0]["content"][-1]
+    assert request["messages"][-1] == {
+        "role": "system",
+        "content": [{"type": "text", "text": "mid"}],
+    }
+
+
+def test_that_a_folded_mid_conversation_system_is_a_separate_uncached_block(
+    anthropic: AnthropicReactGenerator,
+) -> None:
+    # On Haiku the mid-conversation system folds into the top-level system, but
+    # as a separate uncached block so the cached leading system stays stable.
+    history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text="main")], cache_key="s"),
+        Message(role=Role.USER, parts=[TextPart(text="hi")], cache_key="s"),
+        Message(role=Role.SYSTEM, parts=[TextPart(text="mid")], cache_key="s"),
+    ]
+
+    request = anthropic._encode(history, [], "auto", reasoning=ReasoningConfig())
+
+    assert request["system"] == [
+        {"type": "text", "text": "main", "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": "mid"},
+    ]
+    assert "cache_control" in request["messages"][0]["content"][-1]
+
+
 def test_that_visibility_maps_to_the_display_knob(anthropic: AnthropicReactGenerator) -> None:
     # Claude 4 has no verbatim option: "none" omits the thinking summary, while
     # "summary" and "full" both request the summary ("full" has no equivalent).

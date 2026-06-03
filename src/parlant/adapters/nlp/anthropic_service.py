@@ -409,7 +409,12 @@ class AnthropicReactGenerator(ReactGenerator):
         resolved_model = self._resolve_model(hints)
         supports_inline_system = self._supports_inline_system(resolved_model)
 
-        system_chunks: list[str] = []
+        # The leading system prompt is the stable, cacheable part. Mid-conversation
+        # system messages are dynamic (e.g. per-turn instructions) and must never
+        # be cached: inline ones (opus 4.8) are kept out of the cache breakpoint,
+        # and folded ones (other models) go into a separate UNcached system block.
+        leading_system_chunks: list[str] = []
+        extra_system_chunks: list[str] = []
 
         cache_split = -1
         system_marked = False
@@ -417,20 +422,21 @@ class AnthropicReactGenerator(ReactGenerator):
         non_system: list[Message] = []
         for message in history:
             if message.role == Role.SYSTEM:
-                # Mid-conversation system message on a model that supports it
-                # (Claude Opus 4.8): keep it inline as a `system`-role turn.
-                if seen_non_system and supports_inline_system:
+                if not seen_non_system:
+                    # Leading system prompt → the stable, cacheable part.
+                    if message.text:
+                        leading_system_chunks.append(message.text)
                     if self.cache.enabled and message.cache_key is not None:
-                        cache_split = len(non_system)
+                        system_marked = True
+                elif supports_inline_system:
+                    # Mid-conversation system kept inline (Claude Opus 4.8). It's
+                    # dynamic, so it must NOT be a cache breakpoint — the breakpoint
+                    # stays on the last real message so the cached prefix grows.
                     non_system.append(message)
-                    continue
-                # Otherwise fold it into the top-level system block: the leading
-                # system prompt, plus any mid-conversation system message on a
-                # model without inline support.
-                if message.text:
-                    system_chunks.append(message.text)
-                if self.cache.enabled and message.cache_key is not None:
-                    system_marked = True
+                elif message.text:
+                    # Mid-conversation system on a model without inline support:
+                    # folded into the top-level system, but kept uncached.
+                    extra_system_chunks.append(message.text)
                 continue
             seen_non_system = True
             if self.cache.enabled and message.cache_key is not None:
@@ -450,16 +456,22 @@ class AnthropicReactGenerator(ReactGenerator):
             "service_tier": self._SERVICE_TIER[hints.get("service_tier", "standard")],
         }
 
-        system_text = "\n\n".join(chunk for chunk in system_chunks if chunk)
-        if system_text:
-            if system_marked:
-                # A marked system message caches the system prefix; Anthropic
-                # caches system via cache_control on a system text block.
-                request["system"] = [
-                    {"type": "text", "text": system_text, "cache_control": self._cache_control()}
-                ]
-            else:
-                request["system"] = system_text
+        leading_system = "\n\n".join(chunk for chunk in leading_system_chunks if chunk)
+        extra_system = "\n\n".join(chunk for chunk in extra_system_chunks if chunk)
+
+        if system_marked and leading_system:
+            # Cache the stable leading system via cache_control; any dynamic
+            # mid-conversation system follows as a separate, uncached block.
+            system_blocks: list[dict[str, Any]] = [
+                {"type": "text", "text": leading_system, "cache_control": self._cache_control()}
+            ]
+            if extra_system:
+                system_blocks.append({"type": "text", "text": extra_system})
+            request["system"] = system_blocks
+        else:
+            combined_system = "\n\n".join(s for s in (leading_system, extra_system) if s)
+            if combined_system:
+                request["system"] = combined_system
 
         if tools:
             request["tools"] = [self._encode_tool(spec) for spec in tools]
@@ -617,6 +629,7 @@ class AnthropicReactGenerator(ReactGenerator):
     @override
     async def _raw_stream(self, request: Any) -> AsyncIterator[Any]:
         try:
+            self._logger.debug(f"Anthropic API request:\n{json.dumps(request, indent=2)}")
             async with self._client.messages.stream(**request) as stream:
                 async for event in stream:
                     yield event

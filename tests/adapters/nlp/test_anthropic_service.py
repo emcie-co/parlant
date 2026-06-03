@@ -250,6 +250,46 @@ def test_that_service_tier_maps_to_anthropic_values(anthropic: AnthropicReactGen
     assert tier_for("priority") == "auto"
 
 
+def test_that_a_mid_conversation_system_message_is_inline_on_opus_4_8(logger: Logger) -> None:
+    generator = AnthropicReactGenerator(
+        model="claude-opus-4-8",
+        logger=logger,
+        client=AsyncAnthropic(api_key="offline-encode-tests"),
+    )
+    history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text="main")]),
+        Message(role=Role.USER, parts=[TextPart(text="hi")]),
+        Message(role=Role.SYSTEM, parts=[TextPart(text="mid")]),
+    ]
+
+    request = generator._encode(history, [], "auto", reasoning=ReasoningConfig())
+
+    # Leading system stays the top-level system field...
+    assert request["system"] == "main"
+    # ...and the mid-conversation system is an inline `system`-role turn.
+    assert request["messages"][-1] == {
+        "role": "system",
+        "content": [{"type": "text", "text": "mid"}],
+    }
+
+
+def test_that_a_mid_conversation_system_message_folds_into_system_on_haiku(
+    anthropic: AnthropicReactGenerator,
+) -> None:
+    # The default fixture is Haiku 4.5, which has no inline system support, so a
+    # mid-conversation system message is concatenated into the top-level system.
+    history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text="main")]),
+        Message(role=Role.USER, parts=[TextPart(text="hi")]),
+        Message(role=Role.SYSTEM, parts=[TextPart(text="mid")]),
+    ]
+
+    request = anthropic._encode(history, [], "auto", reasoning=ReasoningConfig())
+
+    assert request["system"] == "main\n\nmid"
+    assert all(m["role"] != "system" for m in request["messages"])
+
+
 def test_that_visibility_maps_to_the_display_knob(anthropic: AnthropicReactGenerator) -> None:
     # Claude 4 has no verbatim option: "none" omits the thinking summary, while
     # "summary" and "full" both request the summary ("full" has no equivalent).

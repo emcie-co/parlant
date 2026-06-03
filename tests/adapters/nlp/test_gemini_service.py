@@ -211,6 +211,24 @@ def test_that_service_tier_maps_to_gemini_values(gemini: GeminiReactGenerator) -
     assert tier_for("priority") == "priority"
 
 
+def test_that_a_mid_conversation_system_message_folds_into_the_system_instruction(
+    gemini: GeminiReactGenerator,
+) -> None:
+    # Gemini contents have no system role, so a mid-conversation system message
+    # is concatenated into the top-level system_instruction.
+    history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text="main")]),
+        Message(role=Role.USER, parts=[TextPart(text="hi")]),
+        Message(role=Role.SYSTEM, parts=[TextPart(text="mid")]),
+    ]
+
+    request = gemini._encode(history, [], "auto", reasoning=ReasoningConfig())
+
+    assert request["system_instruction"] == "main\n\nmid"
+    # The conversation contents carry only the non-system turns.
+    assert [c.role for c in request["all_contents"]] == ["user"]
+
+
 def test_that_encode_maps_effort_to_a_thinking_budget_on_gemini_25(logger: Logger) -> None:
     # Explicitly build a 2.5-model generator to exercise the budget ladder
     # (``"minimal"`` → ``thinking_budget=0`` is the documented "off" switch on

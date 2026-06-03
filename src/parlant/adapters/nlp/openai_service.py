@@ -916,6 +916,7 @@ class OpenAIReactGenerator(ReactGenerator):
         input_items: list[dict[str, Any]] = []
         cache_key: Optional[str] = None
 
+        seen_non_system = False
         for message in history:
             # OpenAI accepts a single prompt_cache_key (a routing hint). Use the
             # FIRST marked message's key — including a marked system message —
@@ -924,9 +925,16 @@ class OpenAIReactGenerator(ReactGenerator):
             if self.cache.enabled and cache_key is None and message.cache_key is not None:
                 cache_key = message.cache_key
             if message.role == Role.SYSTEM:
-                if message.text:
-                    instruction_chunks.append(message.text)
+                if not seen_non_system:
+                    # Leading system prompt → top-level instructions.
+                    if message.text:
+                        instruction_chunks.append(message.text)
+                elif message.text:
+                    # Mid-conversation system message → inline "developer" turn
+                    # (OpenAI's role for operator instructions in the input).
+                    input_items.append({"role": "developer", "content": message.text})
                 continue
+            seen_non_system = True
             input_items.extend(self._encode_message(message))
 
         request: dict[str, Any] = {

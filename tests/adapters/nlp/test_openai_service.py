@@ -278,6 +278,35 @@ def test_that_service_tier_maps_to_openai_values(openai: OpenAIReactGenerator) -
     assert tier_for("priority") == "priority"
 
 
+def test_that_a_leading_system_message_becomes_instructions(openai: OpenAIReactGenerator) -> None:
+    history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text="main")]),
+        Message(role=Role.USER, parts=[TextPart(text="hi")]),
+    ]
+
+    request = openai._encode(history, [], "auto", reasoning=ReasoningConfig())
+
+    assert request["instructions"] == "main"
+    assert all(item.get("role") != "developer" for item in request["input"])
+
+
+def test_that_a_mid_conversation_system_message_becomes_an_inline_developer_turn(
+    openai: OpenAIReactGenerator,
+) -> None:
+    history = [
+        Message(role=Role.SYSTEM, parts=[TextPart(text="main")]),
+        Message(role=Role.USER, parts=[TextPart(text="hi")]),
+        Message(role=Role.SYSTEM, parts=[TextPart(text="mid")]),
+    ]
+
+    request = openai._encode(history, [], "auto", reasoning=ReasoningConfig())
+
+    # The leading system stays the top-level instructions...
+    assert request["instructions"] == "main"
+    # ...and the mid-conversation system is an inline developer turn at its spot.
+    assert request["input"][-1] == {"role": "developer", "content": "mid"}
+
+
 def test_that_cache_key_becomes_prompt_cache_key(openai: OpenAIReactGenerator) -> None:
     history = [
         Message(role=Role.USER, parts=[TextPart(text="ctx")], cache_key="agent-7"),

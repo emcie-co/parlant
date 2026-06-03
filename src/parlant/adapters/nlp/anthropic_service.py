@@ -333,7 +333,12 @@ class AnthropicReactGenerator(ReactGenerator):
       :attr:`Usage.reasoning_tokens` is always 0 for this provider.
     """
 
-    _ROLE = {Role.USER: "user", Role.ASSISTANT: "assistant", Role.TOOL: "user"}
+    _ROLE = {
+        Role.USER: "user",
+        Role.ASSISTANT: "assistant",
+        Role.TOOL: "user",
+        Role.SYSTEM: "system",
+    }
 
     # Maps ``ReasoningConfig.effort`` to a thinking-token budget for *manual*
     # thinking mode (Sonnet 4.5 / Haiku 4.5). ``"minimal"`` means "no thinking" —
@@ -401,18 +406,33 @@ class AnthropicReactGenerator(ReactGenerator):
         reasoning: ReasoningConfig,
         hints: ReactGeneratorHints = {},
     ) -> dict[str, Any]:
+        resolved_model = self._resolve_model(hints)
+        supports_inline_system = self._supports_inline_system(resolved_model)
+
         system_chunks: list[str] = []
 
         cache_split = -1
         system_marked = False
+        seen_non_system = False
         non_system: list[Message] = []
         for message in history:
             if message.role == Role.SYSTEM:
+                # Mid-conversation system message on a model that supports it
+                # (Claude Opus 4.8): keep it inline as a `system`-role turn.
+                if seen_non_system and supports_inline_system:
+                    if self.cache.enabled and message.cache_key is not None:
+                        cache_split = len(non_system)
+                    non_system.append(message)
+                    continue
+                # Otherwise fold it into the top-level system block: the leading
+                # system prompt, plus any mid-conversation system message on a
+                # model without inline support.
                 if message.text:
                     system_chunks.append(message.text)
                 if self.cache.enabled and message.cache_key is not None:
                     system_marked = True
                 continue
+            seen_non_system = True
             if self.cache.enabled and message.cache_key is not None:
                 cache_split = len(non_system)
             non_system.append(message)
@@ -423,7 +443,6 @@ class AnthropicReactGenerator(ReactGenerator):
         ]
 
         max_tokens = self._max_tokens
-        resolved_model = self._resolve_model(hints)
         request: dict[str, Any] = {
             "model": resolved_model,
             "max_tokens": max_tokens,
@@ -487,6 +506,19 @@ class AnthropicReactGenerator(ReactGenerator):
         return model.startswith("claude-opus-4")
 
     @staticmethod
+    def _supports_inline_system(model: str) -> bool:
+        """Mid-conversation ``system``-role messages in the ``messages`` array
+        are supported on Claude Opus 4.8 only. On other models such messages are
+        folded into the top-level ``system`` field instead.
+
+        Placement rules apply (a mid-conversation system message must follow a
+        user turn, can't be first or consecutive, and can't sit between a
+        tool_use and its tool_result); the caller is responsible for placing
+        them validly, exactly as with the thinking + forced-tool_choice
+        constraint."""
+        return model.startswith("claude-opus-4-8")
+
+    @staticmethod
     def _map_effort(effort: str) -> str:
         """Map ``ReasoningConfig.effort`` to Anthropic's adaptive effort levels
         ("low" | "medium" | "high"). Adaptive thinking can't be disabled, so
@@ -514,7 +546,7 @@ class AnthropicReactGenerator(ReactGenerator):
                 if isinstance(part, ToolResultPart)
             ]
 
-        if message.role == Role.USER:
+        if message.role in (Role.USER, Role.SYSTEM):
             return [
                 {"type": "text", "text": part.text}
                 for part in message.parts

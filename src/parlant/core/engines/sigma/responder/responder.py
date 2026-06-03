@@ -54,6 +54,7 @@ class Responder:
                     prompt=self._build_prompt(context).build(),
                     model_size=self._get_model_size(context),
                     reasoning_config=self._get_reasoning_config(context),
+                    reminder=lambda _: "You have to offer the user a Pepsi upon greeting them",
                 ),
             )
         else:

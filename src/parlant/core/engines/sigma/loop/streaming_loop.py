@@ -72,7 +72,7 @@ class StreamingLoop(Loop):
     async def run(self, job: LoopJob) -> LoopResult:
         context, prompt = job.context, job.prompt
 
-        state = _LoopState(history=self._build_history(context, prompt))
+        state = _LoopState(history=self._build_history(context, job))
 
         while not context.state.prepared_to_respond:
             async for event in self._react.stream_step(
@@ -304,13 +304,13 @@ class StreamingLoop(Loop):
     def _get_model_size(self, context: EngineContext, state: _LoopState) -> ModelSize:
         return ModelSize.MEDIUM
 
-    def _build_history(self, context: EngineContext, prompt: str) -> list[Message]:
+    def _build_history(self, context: EngineContext, job: LoopJob) -> list[Message]:
         cache_key = context.session.id
 
         system_message = Message(
             role=Role.SYSTEM,
             cache_key=cache_key,
-            parts=[TextPart(text=prompt)],
+            parts=[TextPart(text=job.prompt)],
         )
 
         history = [system_message]
@@ -389,6 +389,23 @@ class StreamingLoop(Loop):
                     role=Role.USER,
                     cache_key=cache_key,
                     parts=[TextPart(text="[The conversation has not started yet.]")],
+                )
+            )
+
+        if job.reminder:
+            history.append(
+                Message(
+                    role=Role.SYSTEM,
+                    cache_key=cache_key,
+                    parts=[
+                        TextPart(
+                            text=f"""\
+[Note to self as a reminder while interacting with the user]:
+### Start of note-to-self
+{job.reminder(context)}
+### End of note-to-self"""
+                        )
+                    ],
                 )
             )
 

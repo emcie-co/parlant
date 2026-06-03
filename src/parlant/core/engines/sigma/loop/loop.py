@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
@@ -36,6 +36,7 @@ class LoopJob:
     prompt: str
     model_size: ModelSize = ModelSize.MEDIUM
     reasoning_config: ReasoningConfig | None = None
+    reminder: Callable[[EngineContext], str] | None = None
 
 
 @dataclass(frozen=True)

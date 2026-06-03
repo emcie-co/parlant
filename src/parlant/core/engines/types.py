@@ -41,6 +41,17 @@ class UtteranceRequest:
 
 
 class Engine(ABC):
+    async def initialize(
+        self,
+        context: Context,
+        event_emitter: EventEmitter,
+    ) -> None:
+        """Prepare to respond in this context before any message arrives — e.g.
+        warm provider caches as soon as the session is created. Default no-op;
+        engines that benefit override it. Called off the response path, so it
+        must not emit response events."""
+        ...
+
     @abstractmethod
     async def process(
         self,

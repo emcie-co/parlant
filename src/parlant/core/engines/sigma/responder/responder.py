@@ -18,6 +18,7 @@ from parlant.core.agents import CompositionMode, Effort, MessageOutputMode
 from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.engines.engine_context import EngineContext
+from parlant.core.engines.sigma.loop.loop import LoopJob
 from parlant.core.engines.sigma.loop.streaming_loop import StreamingLoop
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
@@ -39,8 +40,8 @@ class Responder:
         self._meter = meter
         self._streaming_loop = streaming_loop
 
-    async def prepare(self, context: EngineContext) -> None:
-        context.state.job = await self._streaming_loop.create_job(
+    def _build_job(self, context: EngineContext) -> LoopJob:
+        return LoopJob(
             context=context,
             system_instructions=self._build_system_instructions(context),
             turn_instructions=self._build_turn_instructions,
@@ -48,18 +49,21 @@ class Responder:
             reasoning_config=self._get_reasoning_config(context),
         )
 
+    async def prepare(self, context: EngineContext) -> None:
+        # Warm the provider cache for the stable prefix. The job itself is not
+        # retained — respond() rebuilds an equivalent one and reads the warm
+        # (content-addressed) cache.
+        await self._streaming_loop.prefill(self._build_job(context))
+
     async def respond(self, context: EngineContext) -> None:
         composition_mode = await self._resolve_composition_mode(context)
         output_mode = context.agent.message_output_mode
-
-        if context.state.job is None:
-            raise Exception("respond() called before prepare(); no job to run")
 
         if (
             output_mode == MessageOutputMode.STREAM
             and composition_mode == CompositionMode.CANNED_FLUID
         ):
-            context.state.job = await self._streaming_loop.run_job(context.state.job)
+            await self._streaming_loop.run(self._build_job(context))
         else:
             raise Exception(f"Unsupported message output mode: {output_mode}")
 

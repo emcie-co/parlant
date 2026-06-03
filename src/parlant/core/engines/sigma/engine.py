@@ -16,7 +16,6 @@ from collections.abc import Sequence
 import traceback
 from typing_extensions import override
 
-from parlant.core.async_utils import safe_gather
 from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.emissions import EventEmitter
 from parlant.core.engines.alpha.entity_context import EntityContext
@@ -56,6 +55,25 @@ class SigmaEngine(Engine):
         self._entity_queries = entity_queries
 
     @override
+    async def initialize(
+        self,
+        context: Context,
+        event_emitter: EventEmitter,
+    ) -> None:
+        # Warm the provider cache for the system prompt as soon as the session
+        # exists, before any message arrives. The interaction is empty here, so
+        # only the stable system prefix is warmed; the real turn later reads it.
+        engine_context = await self._load_context(
+            context,
+            event_emitter,
+            load_interaction=False,
+        )
+
+        # TODO: This should prepare EITHER the responder OR the task runner,
+        # depending on the effort level and context
+        await self._responder.prepare(engine_context)
+
+    @override
     async def process(
         self,
         context: Context,
@@ -69,10 +87,7 @@ class SigmaEngine(Engine):
                 data=StatusEventData(status="processing", message="Checking policies"),
             )
 
-            # Load guidelines and prepare response in parallel
-            load_guidelines = self._load_guidelines(engine_context)
-            prepare = self._responder.prepare(engine_context)
-            await safe_gather(load_guidelines, prepare)
+            await self._load_guidelines(engine_context)
 
             await self._responder.respond(engine_context)
         except Exception as e:

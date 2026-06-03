@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import asyncio
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from io import StringIO
 from typing import cast
@@ -26,7 +26,6 @@ from parlant.core.nlp.common import ModelSize
 from parlant.core.nlp.react import (
     Message,
     ParameterSpec,
-    ReasoningConfig,
     ReasoningDelta,
     Role,
     StepCompleted,
@@ -38,6 +37,7 @@ from parlant.core.nlp.react import (
     ToolCallStarted,
     ToolResultPart,
     ToolSpec,
+    Usage,
 )
 from parlant.core.sessions import (
     EventKind,
@@ -70,42 +70,26 @@ class _LoopState:
 
 
 class StreamingLoop(Loop):
-    async def create_job(
-        self,
-        context: EngineContext,
-        system_instructions: str,
-        turn_instructions: Callable[[EngineContext], Awaitable[str]] | None = None,
-        model_size: ModelSize = ModelSize.MEDIUM,
-        reasoning_config: ReasoningConfig | None = None,
-    ) -> LoopJob:
-        job = LoopJob(
-            context=context,
-            system_instructions=system_instructions,
-            turn_instructions=turn_instructions,
-            model_size=model_size,
-            reasoning_config=reasoning_config,
+    async def prefill(self, job: LoopJob) -> Usage:
+        self._logger.debug(f"Prefilling job for session {job.context.session.id}")
+
+        # Warm the cache for the stable prefix only — the system instructions and
+        # the conversation so far. The per-turn instructions are dynamic and sit
+        # past the cache breakpoint, so we leave them out here.
+        usage = await self._react.prefill(
+            history=await self._build_history(job, include_turn_instructions=False),
+            tools=await self._get_tools(job.context),
+            tool_choice="auto",
+            reasoning=job.reasoning_config,
+            hints={"model_size": job.model_size},
         )
 
-        self._logger.debug(f"Creating job for session {context.session.id}")
-
-        if len(context.interaction.events) <= 1:
-            self._logger.debug(f"Prefilling job for session {context.session.id}")
-            # Warm the cache for the stable prefix only — the system instructions and
-            # the conversation so far. The per-turn instructions are dynamic and sit
-            # past the cache breakpoint, so we leave them out here.
-            usage = await self._react.prefill(
-                history=await self._build_history(job, include_turn_instructions=False),
-                tools=await self._get_tools(context),
-                tool_choice="auto",
-                reasoning=job.reasoning_config,
-                hints={"model_size": job.model_size},
-            )
-
+        if usage.input_tokens > 0:
             self._logger.info(f"{self.__class__.__name__} prefill usage:\n {usage}")
 
-        return job
+        return usage
 
-    async def run_job(self, job: LoopJob) -> LoopResult:
+    async def run(self, job: LoopJob) -> LoopResult:
         state = _LoopState(history=await self._build_history(job))
 
         while not job.context.state.prepared_to_respond:

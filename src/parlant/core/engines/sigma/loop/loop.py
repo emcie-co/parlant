@@ -75,23 +75,16 @@ class Loop(ABC):
         self._react = react
 
     @abstractmethod
-    async def create_job(
-        self,
-        context: EngineContext,
-        system_instructions: str,
-        turn_instructions: Callable[[EngineContext], Awaitable[str]] | None = None,
-        model_size: ModelSize = ModelSize.MEDIUM,
-        reasoning_config: ReasoningConfig | None = None,
-    ) -> LoopJob:
-        """Build a :class:`LoopJob` and warm the generator's cache for it.
+    async def prefill(self, job: LoopJob) -> Usage:
+        """Warm the generator's cache for ``job``'s stable prefix — the system
+        instructions plus the conversation so far, without the dynamic per-turn
+        instructions. A later :meth:`run` of an equivalent job then reads the
+        provider's (content-addressed) cache instead of re-creating it.
 
-        The returned job is already prefilled — the stable prefix of the prompt
-        (system instructions plus the conversation so far) has been sent to the
-        underlying generator so that the subsequent :meth:`run_job` reads the
-        cache instead of re-creating it. Callers should pass the returned job
-        straight to :meth:`run_job`.
+        The job is not retained: the caller rebuilds an equivalent job for the
+        actual turn. Returns the prefill :class:`Usage`.
         """
         ...
 
     @abstractmethod
-    async def run_job(self, job: LoopJob) -> LoopResult: ...
+    async def run(self, job: LoopJob) -> LoopResult: ...

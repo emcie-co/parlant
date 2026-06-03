@@ -215,7 +215,7 @@ class SessionModule:
         metadata: Mapping[str, JSONSerializable] | None = None,
         labels: Set[str] | None = None,
     ) -> Session:
-        _ = await self._agent_store.read_agent(agent_id=agent_id)
+        agent = await self._agent_store.read_agent(agent_id=agent_id)
 
         session = await self._session_store.create_session(
             creation_utc=datetime.now(timezone.utc),
@@ -226,7 +226,13 @@ class SessionModule:
             labels=labels,
         )
 
-        if allow_greeting:
+        # Warm the engine's caches in the background as soon as the session
+        # exists, so the first response reads them instead of building them.
+        await self._initialize_session(session)
+
+        # TODO: For now, Sigma engine doesn't support dynamic greetings.
+        # User the utter() method manually after creation to send a greeting, if needed.
+        if allow_greeting and agent.engine != "sigma":
             await self.dispatch_processing_task(session)
 
         return session
@@ -465,6 +471,22 @@ class SessionModule:
         agent = await self._agent_store.read_agent(agent_id)
 
         return self._engine_registry.get_engine(agent.engine)
+
+    async def _initialize_session(self, session: Session) -> None:
+        event_emitter = await self._event_emitter_factory.create_event_emitter(
+            emitting_agent_id=session.agent_id,
+            session_id=session.id,
+        )
+
+        engine = await self._engine_for_agent(session.agent_id)
+
+        await engine.initialize(
+            Context(
+                session_id=session.id,
+                agent_id=session.agent_id,
+            ),
+            event_emitter=event_emitter,
+        )
 
     async def _process_session(self, session: Session) -> None:
         event_emitter = await self._event_emitter_factory.create_event_emitter(

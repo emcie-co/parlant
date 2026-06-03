@@ -7,6 +7,7 @@ import pytest
 from parlant.core.agents import CompositionMode, MessageOutputMode
 from parlant.core.app_modules.common import decode_cursor, encode_cursor
 from parlant.core.persistence.common import Cursor, ObjectId, SortDirection
+from parlant.core.sessions import EventKind, EventSource
 from parlant.core.tunnels import TunnelRequestDispatcher
 from parlant.core.tunnels import TunnelRequest
 from parlant.core.tunnels import _parse_sort_direction
@@ -337,8 +338,8 @@ async def test_that_dispatcher_routes_sessions_read_event() -> None:
         return_value=MagicMock(
             id="evt-1",
             offset=0,
-            source="customer",
-            kind="message",
+            source=EventSource.CUSTOMER,
+            kind=EventKind.MESSAGE,
             creation_utc=datetime(2026, 1, 1, tzinfo=timezone.utc),
             data={"message": "Hello"},
             metadata={},
@@ -358,7 +359,42 @@ async def test_that_dispatcher_routes_sessions_read_event() -> None:
     assert response.error is None
     assert isinstance(response.result, dict)
     assert response.result["id"] == "evt-1"
+    assert response.result["source"] == "customer"
+    assert response.result["kind"] == "message"
     session_module.read_event.assert_awaited_once()
+
+
+async def test_that_dispatcher_routes_sessions_list_events_with_serialized_enums() -> None:
+    session_module = AsyncMock()
+    session_module.find_events = AsyncMock(
+        return_value=[
+            MagicMock(
+                id="evt-1",
+                offset=0,
+                source=EventSource.CUSTOMER,
+                kind=EventKind.MESSAGE,
+                creation_utc=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                data={"message": "Hello"},
+                metadata={},
+            )
+        ]
+    )
+
+    dispatcher = TunnelRequestDispatcher(session_module=session_module)
+
+    request = TunnelRequest(
+        request_id="req-list-evts",
+        method="sessions.list_events",
+        params={"session_id": "sess-1", "min_offset": 0},
+    )
+
+    response = await dispatcher.dispatch(request)
+
+    assert response.error is None
+    assert isinstance(response.result, dict)
+    assert response.result["events"][0]["source"] == "customer"
+    assert response.result["events"][0]["kind"] == "message"
+    session_module.find_events.assert_awaited_once()
 
 
 async def test_that_dispatcher_routes_sessions_update_event() -> None:

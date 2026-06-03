@@ -239,12 +239,14 @@ class TunnelRequestDispatcher:
 
     async def _handle_list_sessions(self, params: dict[str, Any]) -> dict[str, Any]:
         cursor = decode_cursor(params["cursor"]) if params.get("cursor") else None
+        sort_direction = _parse_sort_direction(params.get("sort_direction"))
 
         result = await self._session_module.find(
             agent_id=AgentId(params["agent_id"]) if params.get("agent_id") else None,
             customer_id=CustomerId(params["customer_id"]) if params.get("customer_id") else None,
             limit=params.get("limit"),
             cursor=cursor,
+            sort_direction=sort_direction,
         )
         return {
             "sessions": [self._serialize_session(s) for s in result.items],

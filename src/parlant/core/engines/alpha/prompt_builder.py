@@ -64,6 +64,8 @@ class BuiltInSection(str, Enum):
     CONTEXT_VARIABLES = auto()
     GLOSSARY = auto()
     GUIDELINE_DESCRIPTIONS = auto()
+    GUIDELINE_INSTRUCTIONS = auto()
+    GUIDELINE_LIST = auto()
     GUIDELINES = auto()
     STAGED_EVENTS = auto()
     JOURNEYS = auto()
@@ -646,6 +648,188 @@ These guidelines have already been pre-filtered based on the interaction's conte
             },
             status=SectionStatus.ACTIVE,
         )
+        return self
+
+    def add_guideline_instructions(self) -> PromptBuilder:
+        """The *explanation* half of ``add_guidelines_for_message_generation``:
+        how and when to follow behavioral guidelines, without listing any. The
+        matched guidelines themselves are added separately via
+        :meth:`add_matched_guidelines`. Kept stable (no per-turn data) so it can
+        live in cached system-level instructions."""
+        self.add_section(
+            name=BuiltInSection.GUIDELINE_INSTRUCTIONS,
+            template="""
+## EXTREMELY IMPORTANT - GUIDELINES YOU MUST FOLLOW:
+
+When crafting your reply, you must follow the behavioral guidelines that have been identified as relevant to the current state of the interaction. The specific guidelines are provided to you in a separate instruction later in the conversation.
+
+Some guidelines are tied to conditions related to you, the agent. These guidelines are considered relevant because it is likely that you intend to produce a message that will trigger the associated condition. You should only follow these guidelines if you are actually going to produce a message that activates the condition.
+
+For any other guidelines, do not disregard a guideline because you believe its 'when' condition or rationale does not apply—this filtering has already been handled.
+
+Some guidelines may require asking specific questions. Never skip these questions, even if you believe the customer already provided the answer. Instead, ask them to confirm their previous response.
+
+You may choose not to follow a guideline only in the following cases:
+    - It conflicts with a previous customer request.
+    - It is clearly inappropriate given the current context of the conversation.
+    - It lacks sufficient context or data to apply reliably.
+    - It conflicts with an insight.
+    - It depends on an agent intention condition that does not apply in the current situation (as mentioned above)
+    - If a guideline offers multiple options (e.g., "do X or Y") and another more specific guideline restricts one of those options (e.g., "don’t do X"), follow both by
+        choosing the permitted alternative (i.e., do Y).
+In all other situations, you are expected to adhere to the guidelines.
+These guidelines have already been pre-filtered based on the interaction's context and other considerations outside your scope.
+    """,
+            status=SectionStatus.ACTIVE,
+        )
+        return self
+
+    def add_matched_guidelines(
+        self,
+        ordinary: Sequence[GuidelineMatch],
+        tool_enabled: Mapping[GuidelineMatch, Sequence[ToolId]],
+        guideline_representations: dict[GuidelineId, GuidelineInternalRepresentation],
+    ) -> PromptBuilder:
+        """The *list* half of ``add_guidelines_for_message_generation``: the
+        matched guidelines themselves, without the how/when explanation (which is
+        added separately via :meth:`add_guideline_instructions`). Per-turn data,
+        intended for turn-level instructions."""
+        all_matches = [
+            match
+            for match in chain(ordinary, tool_enabled)
+            if guideline_representations[match.guideline.id].action
+            and not match.guideline.criticality == Criticality.LOW
+        ]
+
+        if not all_matches:
+            self.add_section(
+                name=BuiltInSection.GUIDELINE_LIST,
+                template="""
+No special behavioral guidelines are relevant right now, so you don't need to specifically double-check if you followed or broke any guidelines.
+""",
+                status=SectionStatus.PASSIVE,
+            )
+            return self
+
+        guidelines = []
+        agent_intention_guidelines = []
+        customer_dependent_guideline_indices = []
+
+        for i, p in enumerate(all_matches, start=1):
+            if guideline_representations[p.guideline.id].action:
+                if cast(
+                    dict[str, bool],
+                    p.guideline.metadata.get("customer_dependent_action_data", dict()),
+                ).get("is_customer_dependent", False):
+                    customer_dependent_guideline_indices.append(i)
+
+                if guideline_representations[p.guideline.id].condition:
+                    guideline = f"Guideline #{i}) When {guideline_representations[p.guideline.id].condition}, then {guideline_representations[p.guideline.id].action}"
+                else:
+                    guideline = (
+                        f"Guideline #{i}) {guideline_representations[p.guideline.id].action}"
+                    )
+
+                if guideline_representations[p.guideline.id].description:
+                    guideline += f"\n      - Description: {guideline_representations[p.guideline.id].description}"
+
+                if p.rationale:
+                    guideline += f"\n      - Rationale: {p.rationale}"
+
+                if p.guideline.metadata.get("agent_intention_condition"):
+                    agent_intention_guidelines.append(guideline)
+                else:
+                    guidelines.append(guideline)
+
+        guideline_list = "\n".join(guidelines)
+        agent_intention_guidelines_list = "\n".join(agent_intention_guidelines)
+
+        guideline_block = "The following behavioral guidelines are relevant to the current state of the interaction. Follow them as explained earlier.\n"
+
+        if agent_intention_guidelines_list:
+            guideline_block += """
+- **Guidelines with agent intention condition**:
+    {agent_intention_guidelines_list}
+    """
+
+        if guideline_list:
+            guideline_block += """
+- **Guidelines**:
+    {guideline_list}
+    """
+
+        if customer_dependent_guideline_indices:
+            customer_dependent_guideline_indices_str = ", ".join(
+                [str(i) for i in customer_dependent_guideline_indices]
+            )
+            guideline_block += """
+Important note - some guidelines ({customer_dependent_guideline_indices_str}) may require asking specific questions. Never skip these questions, even if you believe the customer already provided the answer. Instead, ask them to confirm their previous response.
+"""
+        else:
+            customer_dependent_guideline_indices_str = ""
+
+        self.add_section(
+            name=BuiltInSection.GUIDELINE_LIST,
+            template=guideline_block,
+            props={
+                "guideline_list": guideline_list,
+                "agent_intention_guidelines_list": agent_intention_guidelines_list,
+                "customer_dependent_guideline_indices_str": customer_dependent_guideline_indices_str,
+            },
+            status=SectionStatus.ACTIVE,
+        )
+        return self
+
+    def add_low_criticality_guideline_instructions(self) -> PromptBuilder:
+        """The *explanation* half of ``add_low_criticality_guidelines``: how to
+        treat low-criticality general principles, without listing them. The list
+        is added separately via :meth:`add_matched_low_criticality_guidelines`."""
+        self.add_section(
+            name="low-criticality-guideline-instructions",
+            template="""
+When generating a response, consider the general principles that will be provided to you later in the conversation.
+Note that you may ignore a principle if it is not relevant to the specific context or if you find it inappropriate.
+You will also be provided with guidelines that have been detected as specifically relevant to the current context and that you must follow. Prioritize those context-specific guidelines over these general principles.
+""",
+            status=SectionStatus.ACTIVE,
+        )
+        return self
+
+    def add_matched_low_criticality_guidelines(
+        self,
+        ordinary: Sequence[GuidelineMatch],
+        tool_enabled: Mapping[GuidelineMatch, Sequence[ToolId]],
+        guideline_representations: dict[GuidelineId, GuidelineInternalRepresentation],
+    ) -> PromptBuilder:
+        """The *list* half of ``add_low_criticality_guidelines``: the
+        low-criticality principles themselves, without the explanation."""
+        all_matches = [
+            match
+            for match in chain(ordinary, tool_enabled)
+            if guideline_representations[match.guideline.id].action
+        ]
+        low_critical_matches = [
+            m for m in all_matches if m.guideline.criticality == Criticality.LOW
+        ]
+        if low_critical_matches:
+            low_criticality_guidelines = []
+            for p in low_critical_matches:
+                if guideline_representations[p.guideline.id].condition:
+                    guideline = f" - When {guideline_representations[p.guideline.id].condition}, then {guideline_representations[p.guideline.id].action}"
+                else:
+                    guideline = (
+                        f" - When always, then {guideline_representations[p.guideline.id].action}"
+                    )
+                low_criticality_guidelines.append(guideline)
+            guideline_list = "\n".join(low_criticality_guidelines)
+            self.add_section(
+                name="matched-low-criticality-guidelines",
+                template=f"""
+Consider the following general principles (low-criticality guidelines):
+{guideline_list}
+""",
+                status=SectionStatus.ACTIVE,
+            )
         return self
 
     def add_low_criticality_guidelines(

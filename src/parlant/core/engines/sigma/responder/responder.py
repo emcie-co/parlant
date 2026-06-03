@@ -186,6 +186,12 @@ In cases of conflict, prioritize the business's values and ensure your decisions
         builder.add_customer_identity(context.customer, context.session)
         builder.add_context_variables(context.state.context_variables)
 
+        # How/when to follow guidelines lives in the (cached) system instructions;
+        # the matched guidelines themselves are listed per turn (see
+        # _build_turn_instructions).
+        builder.add_low_criticality_guideline_instructions()
+        builder.add_guideline_instructions()
+
         builder.add_section(
             name="responder-reminder",
             template="""REMINDER: Only offer information and offer services that are sourced from this prompt. Never use your intrinsic knowledge to offer services or provide information. And remember to be concise and conversational.""",
@@ -211,12 +217,14 @@ In cases of conflict, prioritize the business's values and ensure your decisions
 
         builder.add_glossary(list(context.state.glossary_terms))
         builder.add_capabilities_for_message_generation(context.state.capabilities)
-        builder.add_low_criticality_guidelines(
+        # The how/when explanation is in the system instructions; here we list
+        # the matched guidelines themselves (turn-level).
+        builder.add_matched_low_criticality_guidelines(
             context.state.ordinary_guideline_matches,
             context.state.tool_enabled_guideline_matches,
             guideline_representations,
         )
-        builder.add_guidelines_for_message_generation(
+        builder.add_matched_guidelines(
             context.state.ordinary_guideline_matches,
             context.state.tool_enabled_guideline_matches,
             guideline_representations,

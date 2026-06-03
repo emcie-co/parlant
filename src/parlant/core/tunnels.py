@@ -4,7 +4,7 @@ from typing import Any, Awaitable, Callable, Mapping
 
 from parlant.core.agents import AgentId
 from parlant.core.app_modules.agents import AgentModule
-from parlant.core.app_modules.common import decode_cursor
+from parlant.core.app_modules.common import decode_cursor, encode_cursor
 from parlant.core.app_modules.customers import CustomerModule
 from parlant.core.app_modules.sessions import Moderation, SessionModule, SessionUpdateParamsModel
 from parlant.core.app_modules.tags import TagModule
@@ -256,6 +256,7 @@ class TunnelRequestDispatcher:
             "sessions": [self._serialize_session(s) for s in result.items],
             "total_count": result.total_count,
             "has_more": result.has_more,
+            "next_cursor": encode_cursor(result.next_cursor) if result.next_cursor else None,
         }
 
     async def _handle_update_session(self, params: dict[str, Any]) -> dict[str, Any]:

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from parlant.core.agents import CompositionMode, MessageOutputMode
-from parlant.core.app_modules.common import encode_cursor
+from parlant.core.app_modules.common import decode_cursor, encode_cursor
 from parlant.core.persistence.common import Cursor, ObjectId, SortDirection
 from parlant.core.tunnels import TunnelRequestDispatcher
 from parlant.core.tunnels import TunnelRequest
@@ -682,3 +682,37 @@ async def test_that_dispatcher_forwards_labels_filter_to_sessions_list() -> None
     assert response.error is None
     session_module.find.assert_awaited_once()
     assert session_module.find.await_args.kwargs["labels"] == {"premium", "support"}
+
+
+async def test_that_dispatcher_returns_encoded_next_cursor_in_sessions_list() -> None:
+    real_cursor = Cursor(creation_utc="2026-01-02T00:00:00+00:00", id=ObjectId("sess-42"))
+    session_module = AsyncMock()
+    session_module.find = AsyncMock(
+        return_value=MagicMock(items=[], total_count=0, has_more=True, next_cursor=real_cursor),
+    )
+
+    dispatcher = TunnelRequestDispatcher(session_module=session_module)
+    response = await dispatcher.dispatch(
+        TunnelRequest(request_id="req-next", method="sessions.list", params={}),
+    )
+
+    assert response.error is None
+    assert isinstance(response.result, dict)
+    encoded = response.result["next_cursor"]
+    assert isinstance(encoded, str) and encoded
+    assert decode_cursor(encoded) == real_cursor
+
+
+async def test_that_dispatcher_returns_null_next_cursor_when_no_more_sessions() -> None:
+    session_module = AsyncMock()
+    session_module.find = AsyncMock(
+        return_value=MagicMock(items=[], total_count=0, has_more=False, next_cursor=None),
+    )
+
+    dispatcher = TunnelRequestDispatcher(session_module=session_module)
+    response = await dispatcher.dispatch(
+        TunnelRequest(request_id="req-end", method="sessions.list", params={}),
+    )
+
+    assert response.error is None
+    assert response.result["next_cursor"] is None

@@ -951,11 +951,10 @@ class OpenAIReactGenerator(ReactGenerator):
             request["tools"] = [self._encode_tool(spec) for spec in tools]
             request["tool_choice"] = self._encode_tool_choice(tool_choice)
 
-        # Always emit the reasoning block — the depth is controlled by ``effort``
-        # and OpenAI's ``"minimal"`` is the canonical "as little as possible"
-        # level. ``include`` is needed so reasoning items round-trip verbatim
-        # across stateless calls.
-        request["reasoning"] = self._encode_reasoning(reasoning)
+        # Always emit the reasoning block — the depth is controlled by ``effort``,
+        # mapped to what the resolved model supports. ``include`` is needed so
+        # reasoning items round-trip verbatim across stateless calls.
+        request["reasoning"] = self._encode_reasoning(reasoning, request["model"])
         request["include"] = ["reasoning.encrypted_content"]
 
         if cache_key is not None:
@@ -1050,11 +1049,21 @@ class OpenAIReactGenerator(ReactGenerator):
             return {"type": "function", "name": tool_choice.get("name")}
         return tool_choice  # "auto" | "none" | "required"
 
-    def _encode_reasoning(self, reasoning: ReasoningConfig) -> dict[str, Any]:
-        # OpenAI's Responses API controls reasoning depth via ``effort`` tiers,
-        # which already include a native ``"minimal"`` level — so the canonical
-        # mapping is identity.
-        config: dict[str, Any] = {"effort": reasoning.effort}
+    @staticmethod
+    def _supports_minimal_effort(model: str) -> bool:
+        # The original gpt-5 family exposed effort="minimal"; gpt-5.1+ dropped it
+        # in favor of "none" (the "as little reasoning as possible" tier).
+        return not re.search(r"gpt-5\.\d", model)
+
+    def _encode_reasoning(self, reasoning: ReasoningConfig, model: str) -> dict[str, Any]:
+        # OpenAI's Responses API controls reasoning depth via ``effort`` tiers.
+        # Our canonical "as little as possible" level is ``"minimal"``; newer
+        # models call that tier ``"none"`` instead, so remap where unsupported.
+        effort: str = reasoning.effort
+        if effort == "minimal" and not self._supports_minimal_effort(model):
+            effort = "none"
+
+        config: dict[str, Any] = {"effort": effort}
         summary = {"none": None, "summary": "auto", "full": "detailed"}[reasoning.visibility]
         if summary is not None:
             config["summary"] = summary
@@ -1077,7 +1086,7 @@ class OpenAIReactGenerator(ReactGenerator):
     def _build_prefill_request(self, request: dict[str, Any]) -> dict[str, Any]:
         """Turn an encoded request into a cache-warming request: same input
         prefix / instructions / tools / prompt_cache_key, plus a tiny dummy user
-        item and a 1-token output cap. Reasoning is dropped so the 1-token cap is
+        item and a 16-token output cap. Reasoning is dropped so the small cap is
         valid; it doesn't affect the cached input prefix."""
         input_items = list(request["input"])
         if not input_items or input_items[-1].get("role") != "user":
@@ -1089,7 +1098,7 @@ class OpenAIReactGenerator(ReactGenerator):
             if value is not None and key not in ("reasoning", "include")
         }
         prefill["input"] = input_items
-        prefill["max_output_tokens"] = 1
+        prefill["max_output_tokens"] = 16
         return prefill
 
     def _min_cache_size(self, model: str) -> int:

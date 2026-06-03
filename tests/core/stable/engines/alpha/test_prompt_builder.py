@@ -42,7 +42,7 @@ def _match(condition: str, action: str, criticality: Criticality = Criticality.M
 def test_that_guideline_instructions_explain_how_to_follow_without_listing_guidelines() -> None:
     prompt = PromptBuilder().add_guideline_instructions().build()
 
-    assert "GUIDELINES YOU MUST FOLLOW" in prompt
+    assert "RELEVANT DOMAIN PROTOCOL GUIDELINES" in prompt
     assert "You may choose not to follow a guideline only" in prompt
     # The explanation must not contain any of the actual matched guidelines.
     assert "Guideline #" not in prompt
@@ -58,6 +58,19 @@ def test_that_matched_guidelines_list_the_guidelines_without_the_explanation() -
     assert "list the available toppings" in prompt
     # The how/when explanation belongs to add_guideline_instructions, not here.
     assert "You may choose not to follow a guideline only" not in prompt
+
+
+def test_that_matched_guidelines_lead_with_a_skip_if_already_satisfied_rule() -> None:
+    # Co-located with the list (turn-level), so the anti-repetition rule has the
+    # same recency as the guidelines themselves rather than living far up in the
+    # cached system block.
+    match = _match("the customer asks about toppings", "list the available toppings")
+    representations = {match.guideline.id: internal_representation(match.guideline)}
+
+    prompt = PromptBuilder().add_matched_guidelines([match], {}, representations).build()
+
+    assert "ALREADY satisfied" in prompt
+    assert "skip it silently" in prompt
 
 
 def test_that_matched_guidelines_renders_an_empty_state_when_there_are_no_matches() -> None:

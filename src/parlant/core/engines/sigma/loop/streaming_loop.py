@@ -147,6 +147,11 @@ class StreamingLoop(Loop):
         if isinstance(event, StepCompleted):
             state.history.append(event.result.message)
             state.steps.append(event.result)
+
+            if event.result.message.reasoning:
+                self._logger.info(
+                    f"{self.__class__.__name__} step reasoning:\n {event.result.message.reasoning}"
+                )
             self._logger.info(f"{self.__class__.__name__} step usage:\n {event.result.usage}")
 
     async def _update_reasoning(self, context: EngineContext, state: _LoopState) -> None:

@@ -412,8 +412,8 @@ The following is information that you're given about the user and context of the
             self.add_section(
                 name=BuiltInSection.GLOSSARY,
                 template="""
-The following is a glossary of the business.
-Understanding these terms, as they apply to the business, is critical for your task.
+The following is a glossary of our domain.
+Understanding these terms, as they apply to the domain, is critical for your task.
 When encountering any of these terms, prioritize the interpretation provided here over any definitions you may already know.
 Please be tolerant of possible typos by the user with regards to these terms,
 and let the user know if/when you assume they meant a term by their typo: ###
@@ -659,27 +659,26 @@ These guidelines have already been pre-filtered based on the interaction's conte
         self.add_section(
             name=BuiltInSection.GUIDELINE_INSTRUCTIONS,
             template="""
-## EXTREMELY IMPORTANT - GUIDELINES YOU MUST FOLLOW:
+## RELEVANT DOMAIN PROTOCOL GUIDELINES
 
-When crafting your reply, you must follow the behavioral guidelines that have been identified as relevant to the current state of the interaction. The specific guidelines, if any, will be provided to you in a separate instruction later in the conversation.
+When crafting your reply, follow the behavioral guidelines (provided toward the end of the prompt) to the extent that they are (still) relevant to the current state of the interaction. The guidelines to keep in mind, if any, will be provided to you in a separate instruction later in the conversation.
 
-Some guidelines are tied to conditions related to you, the agent. These guidelines are considered relevant because it is likely that you intend to produce a message that will trigger the associated condition. You should only follow these guidelines if you are actually going to produce a message that activates the condition.
+Some guidelines are tied to conditions related to you, the agent (e.g., "When you are likely/about to do something"). You should only follow these guidelines if you are actually going to produce a message that activates the condition.
 
-For any other guidelines, do not disregard a guideline because you believe its 'when' condition or rationale does not apply—this filtering has already been handled.
-
-Some guidelines may require asking specific questions. Never skip these questions, even if you believe the customer already provided the answer. Instead, ask them to confirm their previous response.
+Some guidelines may require asking specific questions and getting clear answers to them from the user. Never skip these questions, even if you believe the user already provided the answer. Instead, ask them to confirm their previous response.
 
 You may choose not to follow a guideline only in the following cases:
-    - It conflicts with a previous customer request.
+    - You have already followed the guideline and the context of its application doesn't merit following it again (i.e., it would be purely repetitive).
+    - It conflicts with a previous user request.
     - It is clearly inappropriate given the current context of the conversation.
     - It lacks sufficient context or data to apply reliably.
     - It conflicts with an insight.
     - It depends on an agent intention condition that does not apply in the current situation (as mentioned above)
     - If a guideline offers multiple options (e.g., "do X or Y") and another more specific guideline restricts one of those options (e.g., "don’t do X"), follow both by
         choosing the permitted alternative (i.e., do Y).
-In all other situations, you are expected to adhere to the guidelines.
-These guidelines have already been pre-filtered based on the interaction's context and other considerations outside your scope.
-    """,
+
+In all other situations, you are expected to follow the guidelines when and as appropriate.
+""",
             status=SectionStatus.ACTIVE,
         )
         return self
@@ -744,7 +743,25 @@ No special behavioral guidelines are relevant right now, so you don't need to sp
         guideline_list = "\n".join(guidelines)
         agent_intention_guidelines_list = "\n".join(agent_intention_guidelines)
 
-        guideline_block = "The following behavioral guidelines are relevant to the current state of the interaction. Follow them as explained earlier.\n"
+        guideline_block = (
+            "Here are the behavioral guidelines for our domain, each written as "
+            '"When <condition>, then <action>". These are STANDING rules, not commands to act '
+            "on right now: a guideline appearing here does NOT mean you must apply it again in "
+            "this message.\n"
+            "\n"
+            "BEFORE applying any guideline below, check what has already happened in the "
+            "conversation:\n"
+            "- If you have ALREADY satisfied a guideline's action, and nothing new has happened "
+            "to re-trigger its condition, it is DONE. Do NOT restate it, re-offer it, or remind "
+            "the user of it. Repeating a guideline you've already fulfilled reads as obsessive "
+            "and is a mistake — skip it silently and move the conversation forward.\n"
+            "- Apply a guideline only when its condition is currently (and still) active AND its "
+            "action has not already been addressed earlier in the conversation.\n"
+            '- For agent-intention guidelines ("When you are likely/about to ..."), apply them '
+            "only if you are actually about to produce a message that activates the condition.\n"
+            "\n"
+            "When unsure whether you've already covered a guideline, prefer NOT repeating it.\n"
+        )
 
         if agent_intention_guidelines_list:
             guideline_block += """
@@ -763,7 +780,7 @@ No special behavioral guidelines are relevant right now, so you don't need to sp
                 [str(i) for i in customer_dependent_guideline_indices]
             )
             guideline_block += """
-Important note - some guidelines ({customer_dependent_guideline_indices_str}) may require asking specific questions. Never skip these questions, even if you believe the customer already provided the answer. Instead, ask them to confirm their previous response.
+Important note - some guidelines ({customer_dependent_guideline_indices_str}) may require asking specific questions. When that is the case, never skip such questions, even if you believe the user already provided the answer. Instead, ask them to confirm their previous response.
 """
         else:
             customer_dependent_guideline_indices_str = ""
@@ -789,7 +806,7 @@ Important note - some guidelines ({customer_dependent_guideline_indices_str}) ma
             template="""
 When generating a response, remember to consider the general principles that will be provided to you later in the conversation.
 Note that you may ignore a principle if it is not relevant to the specific context or if you find it inappropriate.
-You will also be provided with guidelines that have been detected as specifically relevant to the current context and that you must follow. Prioritize those context-specific guidelines over these general principles.
+If you are provided with guidelines that have been detected as relevant to the current context, and they conflict with these general principles, prioritize the context-specific guidelines over these general principles.
 """,
             status=SectionStatus.ACTIVE,
         )

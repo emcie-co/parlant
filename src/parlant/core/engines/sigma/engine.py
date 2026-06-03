@@ -166,7 +166,7 @@ class SigmaEngine(Engine):
         context.state.ordinary_guideline_matches = [
             GuidelineMatch(
                 guideline=rc.guideline,
-                rationale="This guideline was ranked high enough to qualify as related to the conversation",
+                rationale="This is a general domain guideline. Keep it in mind as the conversation progresses. It may or may not be relevant right now.",
             )
             for rc in guidelines.recalled_guidelines
         ]

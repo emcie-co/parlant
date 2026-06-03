@@ -236,15 +236,25 @@ def test_that_encode_tool_translates_nullable_to_json_schema_null_type(
     assert "nullable" not in properties["tags"]["items"]
 
 
-def test_that_encode_always_emits_reasoning_with_effort_mapped_identity(
+def test_that_encode_always_emits_reasoning_with_effort_mapped_per_model(
     openai: OpenAIReactGenerator,
+    logger: Logger,
 ) -> None:
-    # OpenAI's Responses API exposes a native ``"minimal"`` effort tier, so the
-    # adapter always emits the reasoning block — the depth is controlled by
-    # effort and the encrypted_content include is needed for cross-step replay.
+    # The adapter always emits the reasoning block — depth is controlled by
+    # effort, and the encrypted_content include is needed for cross-step replay.
+    # gpt-5.1+ (the fixture is gpt-5.4-nano) dropped "minimal" for "none".
     minimal = openai._encode([], [], "auto", reasoning=ReasoningConfig(effort="minimal"))
-    assert minimal["reasoning"] == {"effort": "minimal", "summary": "auto"}
+    assert minimal["reasoning"] == {"effort": "none", "summary": "auto"}
     assert minimal["include"] == ["reasoning.encrypted_content"]
+
+    # The original gpt-5 family still exposes the native "minimal" tier.
+    gpt5 = OpenAIReactGenerator(
+        model="gpt-5",
+        logger=logger,
+        client=AsyncClient(api_key="offline-encode-tests"),
+    )
+    base = gpt5._encode([], [], "auto", reasoning=ReasoningConfig(effort="minimal"))
+    assert base["reasoning"] == {"effort": "minimal", "summary": "auto"}
 
     high = openai._encode(
         [],
@@ -289,7 +299,7 @@ def test_that_prefill_request_appends_a_dummy_input_and_caps_output(
     encoded = openai._encode(history, [], "auto", reasoning=ReasoningConfig())
     prefill = openai._build_prefill_request(encoded)
 
-    assert prefill["max_output_tokens"] == 1
+    assert prefill["max_output_tokens"] == 16
     assert "reasoning" not in prefill
     assert prefill["instructions"] == encoded["instructions"]
     # The original input prefix is preserved, with a dummy user item appended.

@@ -22,6 +22,7 @@ provider adapters (Gemini, OpenAI, ...) are tested in tests/adapters/nlp/.
 """
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any, Callable, Sequence, cast
 
 import pytest
@@ -46,7 +47,9 @@ from parlant.core.nlp.react import (
     ToolSpec,
     TurnBuilder,
     Usage,
+    tool_specs_from_tools,
 )
+from parlant.core.tools import Tool, ToolOverlap
 
 
 WEATHER_TOOL = ToolSpec(
@@ -669,3 +672,46 @@ async def test_that_cancelling_mid_stream_closes_the_provider_stream() -> None:
 
     assert received  # events were delivered before cancellation
     assert generator.stream_closed  # ...and the stream was still torn down
+
+
+def _parlant_tool(
+    name: str,
+    description: str,
+    parameters: dict[str, Any],
+    required: list[str],
+) -> Tool:
+    return Tool(
+        name=name,
+        creation_utc=datetime.now(timezone.utc),
+        description=description,
+        metadata={},
+        parameters={k: (v, None) for k, v in parameters.items()},  # type: ignore[misc]
+        required=required,
+        consequential=False,
+        overlap=ToolOverlap.NONE,
+    )
+
+
+def test_that_parlant_tools_convert_to_tool_specs() -> None:
+    tool = _parlant_tool(
+        "charge_card",
+        "Charge the customer's card.",
+        parameters={
+            "amount": {"type": "number", "description": "The amount to charge."},
+            "tags": {"type": "array", "item_type": "string"},
+            "when": {"type": "datetime"},  # no JSON Schema primitive -> string
+        },
+        required=["amount"],
+    )
+
+    spec = tool_specs_from_tools([tool])[0]
+
+    assert spec.name == "charge_card"
+    assert spec.description == "Charge the customer's card."
+    by_name = {p.name: p for p in spec.parameters}
+    assert by_name["amount"].type == "number" and by_name["amount"].required
+    assert by_name["tags"].type == "array" and by_name["tags"].items is not None
+    assert by_name["tags"].items.type == "string"
+    assert not by_name["tags"].required
+    # Exotic Parlant types fall back to "string".
+    assert by_name["when"].type == "string"

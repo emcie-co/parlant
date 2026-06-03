@@ -19,6 +19,20 @@ from parlant.core.engines.alpha.guideline_matching.generic.common import interna
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.tools import Tool, ToolOverlap
+
+
+def _tool(name: str, description: str, *, consequential: bool = False) -> Tool:
+    return Tool(
+        name=name,
+        creation_utc=datetime.now(timezone.utc),
+        description=description,
+        metadata={},
+        parameters={},
+        required=[],
+        consequential=consequential,
+        overlap=ToolOverlap.NONE,
+    )
 
 
 def _match(
@@ -108,3 +122,42 @@ def test_that_matched_low_criticality_guidelines_list_the_principles() -> None:
     )
 
     assert "keep it brief" in prompt
+
+
+# ─────────────────────────── tool descriptions ──────────────────────────────
+
+
+def test_that_tool_descriptions_list_name_and_description_as_optional() -> None:
+    prompt = PromptBuilder().add_tool_descriptions(
+        [_tool("get_weather", "Get the current weather for a city.")]
+    ).build()
+
+    assert "AVAILABLE TOOLS" in prompt
+    assert "get_weather: Get the current weather for a city." in prompt
+    # Framed as optional — the agent may use them but doesn't have to.
+    assert "MAY use the following tools" in prompt
+    assert "NOT required" in prompt
+
+
+def test_that_consequential_tools_carry_a_caution_note() -> None:
+    prompt = PromptBuilder().add_tool_descriptions(
+        [
+            _tool("get_weather", "Get the weather."),
+            _tool("charge_card", "Charge the customer's card.", consequential=True),
+        ]
+    ).build()
+
+    # The consequential note attaches only to the consequential tool.
+    assert "CONSEQUENTIAL" in prompt
+    assert "confirm with the user" in prompt
+    charge_line = next(line for line in prompt.splitlines() if "charge_card" in line)
+    weather_line = next(line for line in prompt.splitlines() if "get_weather" in line)
+    assert "CONSEQUENTIAL" in charge_line
+    assert "CONSEQUENTIAL" not in weather_line
+
+
+def test_that_tool_descriptions_render_an_empty_state_when_there_are_no_tools() -> None:
+    prompt = PromptBuilder().add_tool_descriptions([]).build()
+
+    assert "No tools should be used" in prompt
+    assert "AVAILABLE TOOLS" not in prompt

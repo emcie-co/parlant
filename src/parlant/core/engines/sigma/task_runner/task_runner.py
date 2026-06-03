@@ -250,6 +250,7 @@ In cases of conflict, prioritize the business's values and ensure your decisions
             context.state.tool_enabled_guideline_matches,
             guideline_representations,
         )
+        builder.add_tool_descriptions(context.state.tools)
 
         builder.add_section(
             name="taskrunner-reminder",

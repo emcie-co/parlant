@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Sequence
+from collections import defaultdict
+from collections.abc import Iterable, Sequence
 import traceback
 from typing_extensions import override
 
@@ -30,6 +31,7 @@ from parlant.core.entity_cq import EntityQueries
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.sessions import StatusEventData
+from parlant.core.tools import Tool, ToolId
 from parlant.core.tracer import Tracer
 
 
@@ -143,6 +145,11 @@ class SigmaEngine(Engine):
             state=ResponseState(),
         )
 
+        # Resolve the agent's stable tool catalog here (shared by the prefill in
+        # initialize() and the response in process()), so the tools block at the
+        # front of the cached prefix is identical across both.
+        await self._load_available_tools(result)
+
         # Set in context for access by hooks and other components
         # FIXME: remove type ignore
         EntityContext.set(result)  # type: ignore
@@ -156,17 +163,81 @@ class SigmaEngine(Engine):
             events=history,
         )
 
-    async def _load_guidelines(self, context: EngineContext) -> None:
-        usable_guidelines = await self._entity_queries.find_guidelines_for_context(
-            context.agent.id, []
+    async def _load_available_tools(self, context: EngineContext) -> None:
+        # The agent's full tool catalog: every tool reachable from its usable
+        # guidelines, sorted deterministically. It is independent of what matched
+        # this turn, so the cached tools prefix stays stable across turns.
+        context.state.usable_guidelines = list(
+            await self._entity_queries.find_guidelines_for_context(context.agent.id, [])
+        )
+        guideline_ids = {g.id for g in context.state.usable_guidelines}
+
+        tool_ids = sorted(
+            {
+                association.tool_id
+                for association in await self._entity_queries.find_guideline_tool_associations()
+                if association.guideline_id in guideline_ids
+            }
         )
 
-        guidelines = await self._guideline_recaller.recall(context, usable_guidelines)
+        context.state.available_tools = await self._resolve_tool_ids(tool_ids)
 
-        context.state.ordinary_guideline_matches = [
+    async def _load_guidelines(self, context: EngineContext) -> None:
+        # Reuse the usable guidelines already loaded by _load_available_tools.
+        guidelines = await self._guideline_recaller.recall(context, context.state.usable_guidelines)
+
+        matches = [
             GuidelineMatch(
                 guideline=rc.guideline,
-                rationale="This is a general domain guideline. Keep it in mind as the conversation progresses. It may or may not be relevant right now.",
+                rationale="This may or may not be relevant right now - use your judgment.",
             )
             for rc in guidelines.recalled_guidelines
         ]
+
+        # Distinguish between ordinary and tool-enabled guidelines (as the alpha
+        # engine does) — tool-enabled ones carry the tools the response may run.
+        context.state.tool_enabled_guideline_matches = (
+            await self._find_tool_enabled_guideline_matches(matches)
+        )
+        context.state.ordinary_guideline_matches = list(
+            set(matches).difference(set(context.state.tool_enabled_guideline_matches.keys()))
+        )
+
+        # The per-turn matched subset (for the prompt's tool descriptions). The
+        # full catalog the model may actually call lives in state.available_tools.
+        matched_tool_ids = list(
+            dict.fromkeys(
+                tool_id
+                for tool_ids in context.state.tool_enabled_guideline_matches.values()
+                for tool_id in tool_ids
+            )
+        )
+        context.state.tools = await self._resolve_tool_ids(matched_tool_ids)
+
+    async def _find_tool_enabled_guideline_matches(
+        self,
+        guideline_matches: Sequence[GuidelineMatch],
+    ) -> dict[GuidelineMatch, list[ToolId]]:
+        matches_by_id = {m.guideline.id: m for m in guideline_matches}
+
+        tools_for_guidelines: dict[GuidelineMatch, list[ToolId]] = defaultdict(list)
+        for association in await self._entity_queries.find_guideline_tool_associations():
+            if association.guideline_id in matches_by_id:
+                tools_for_guidelines[matches_by_id[association.guideline_id]].append(
+                    association.tool_id
+                )
+
+        return dict(tools_for_guidelines)
+
+    async def _resolve_tool_ids(self, tool_ids: Iterable[ToolId]) -> list[Tool]:
+        """Resolve ToolIds into their full Tool definitions, skipping any that
+        fail to resolve."""
+        tools: list[Tool] = []
+        for tool_id in tool_ids:
+            try:
+                service = await self._entity_queries.read_tool_service(tool_id.service_name)
+                tools.append(await service.read_tool(tool_id.tool_name))
+            except Exception as e:
+                self._logger.warning(f"Failed to resolve tool {tool_id.to_string()}: {e}")
+
+        return tools

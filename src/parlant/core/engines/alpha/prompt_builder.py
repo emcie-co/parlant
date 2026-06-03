@@ -48,7 +48,7 @@ from parlant.core.engines.alpha.utils import (
 )
 from parlant.core.emissions import EmittedEvent
 from parlant.core.guidelines import Guideline, GuidelineId
-from parlant.core.tools import ToolId
+from parlant.core.tools import Tool, ToolId
 
 _T = TypeVar("_T")
 
@@ -71,6 +71,7 @@ class BuiltInSection(str, Enum):
     JOURNEYS = auto()
     OBSERVATIONS = auto()
     CAPABILITIES = auto()
+    TOOL_DESCRIPTIONS = auto()
 
 
 class SectionStatus(Enum):
@@ -745,16 +746,16 @@ No special behavioral guidelines are relevant right now, so you don't need to sp
         agent_intention_guidelines_list = "\n".join(agent_intention_guidelines)
 
         guideline_block = """\
-    Here are the behavioral guidelines for our domain, each written as "When <condition>, then <action>". These are STANDING rules, not commands to act on right now: a guideline appearing here does NOT mean you must apply it again in this message.
+Here are the behavioral guidelines for our domain, each written as "When <condition>, then <action>". These are STANDING rules, not commands to act on right now: a guideline appearing here does NOT mean you must apply it again in this message.
 
-    This whole assessment is INTERNAL. Your reply must contain ONLY your message to the user — never narrate or preface it, and never mention guidelines, considerations, or that you are checking anything. In particular, do NOT write things like "Let me check the guidelines before I reply" or "Based on the guidelines, ...". Just write the reply itself.
+This whole assessment is INTERNAL. Your reply must contain ONLY your message to the user — never narrate or preface it, and never mention guidelines, considerations, or that you are checking anything. In particular, do NOT write things like "Let me check the guidelines before I reply" or "Based on the guidelines, ...". Just write the reply itself.
 
-    Consider, before applying any guideline below, what has already happened in the conversation:
-    - If you have ALREADY satisfied a guideline's action, and nothing new has happened to re-trigger its condition, it is DONE. Do NOT restate it, re-offer it, or remind the user of it. Repeating a guideline you've already fulfilled reads as obsessive and is a mistake — skip it silently and move the conversation forward.
-    - Apply a guideline only when its condition is currently (and still) active AND its action has not already been addressed earlier in the conversation.
-    - For agent-intention guidelines ("When you are likely/about to ..."), apply them only if you are actually about to produce a message that activates the condition.
+IMPORTANT: Consider, before applying any guideline below, what has already happened in the conversation. Do not obsessively repeat guidelines you've already followed sufficiently in the conversation so far:
+- If you have ALREADY satisfied a guideline's action, and nothing new has happened to re-trigger its condition, it is DONE. Do NOT restate it, re-offer it, or remind the user of it. Repeating a guideline you've already fulfilled reads as obsessive and is a mistake — skip it silently and move the conversation forward.
+- Apply a guideline only when its condition is currently (and still) active AND its action has not already been addressed earlier in the conversation.
+- For agent-intention guidelines ("When you are likely/about to ..."), apply them only if you are actually about to produce a message that activates the condition.
 
-    When unsure whether you've already covered a guideline, prefer NOT repeating it.
+When unsure whether you've already covered a guideline, prefer NOT repeating it.
     """
 
         if agent_intention_guidelines_list:
@@ -802,6 +803,45 @@ When generating a response, remember to consider the general principles that wil
 Note that you may ignore a principle if it is not relevant to the specific context or if you find it inappropriate.
 If you are provided with guidelines that have been detected as relevant to the current context, and they conflict with these general principles, prioritize the context-specific guidelines over these general principles.
 """,
+            status=SectionStatus.ACTIVE,
+        )
+        return self
+
+    def add_tool_descriptions(self, tools: Sequence[Tool]) -> PromptBuilder:
+        """List the tools available for this response — each tool's name and
+        description — with a caution on consequential ones. Framed as optional:
+        the agent MAY use these tools, but is never required to."""
+        if not tools:
+            self.add_section(
+                name=BuiltInSection.TOOL_DESCRIPTIONS,
+                template="""
+IMPORTANT: No tools should be used in processing your current response!
+""",
+                status=SectionStatus.PASSIVE,
+            )
+            return self
+
+        tool_lines = []
+        for tool in tools:
+            line = f"- {tool.name}: {tool.description}"
+            if tool.consequential:
+                line += (
+                    " — CONSEQUENTIAL: this tool has a significant, real-world effect. Be careful"
+                    " before running it; when appropriate, confirm with the user before going ahead"
+                    " and performing its action."
+                )
+            tool_lines.append(line)
+
+        self.add_section(
+            name=BuiltInSection.TOOL_DESCRIPTIONS,
+            template="""
+AVAILABLE TOOLS
+---------------
+For this turn, you MAY use the following tools when they genuinely help fulfill a guideline or the user's request. You are NOT required to use any of them — use a tool only when it is actually useful for the current response. You MAY NOT use any other tools in processing your current response other than the ones listed below.
+
+{tool_list}
+""",
+            props={"tool_list": "\n".join(tool_lines)},
             status=SectionStatus.ACTIVE,
         )
         return self

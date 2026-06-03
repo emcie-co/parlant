@@ -84,6 +84,7 @@ import tiktoken
 from typing_extensions import NotRequired, TypedDict
 
 from parlant.core.nlp.common import ModelGeneration, ModelSize, ModelType
+from parlant.core.tools import Tool
 
 
 ServiceTier = Literal["standard", "flex", "priority"]
@@ -280,6 +281,60 @@ class ToolSpec:
             schema["required"] = required
 
         return schema
+
+
+# Parlant tool-parameter types that have no direct JSON Schema primitive are
+# presented to the model as strings.
+_PARLANT_PARAM_TYPE_TO_JSON_SCHEMA: dict[str, JSONSchemaType] = {
+    "string": "string",
+    "number": "number",
+    "integer": "integer",
+    "boolean": "boolean",
+    "array": "array",
+}
+
+
+def tool_specs_from_tools(tools: Sequence[Tool]) -> list[ToolSpec]:
+    """Convert Parlant :class:`~parlant.core.tools.Tool` definitions into the
+    provider-neutral :class:`ToolSpec`s the generator understands."""
+    return [_tool_spec_from_tool(tool) for tool in tools]
+
+
+def _tool_spec_from_tool(tool: Tool) -> ToolSpec:
+    return ToolSpec(
+        name=tool.name,
+        description=tool.description,
+        parameters=[
+            _parameter_spec_from_descriptor(name, descriptor, required=name in tool.required)
+            for name, (descriptor, _options) in tool.parameters.items()
+        ],
+    )
+
+
+def _parameter_spec_from_descriptor(
+    name: str,
+    descriptor: Mapping[str, Any],
+    *,
+    required: bool,
+) -> ParameterSpec:
+    param_type = _PARLANT_PARAM_TYPE_TO_JSON_SCHEMA.get(descriptor.get("type", "string"), "string")
+
+    items: Optional[ParameterSpec] = None
+    if param_type == "array":
+        item_type = _PARLANT_PARAM_TYPE_TO_JSON_SCHEMA.get(
+            descriptor.get("item_type", "string"), "string"
+        )
+        items = ParameterSpec(name="item", type=item_type)
+
+    enum = descriptor.get("enum")
+    return ParameterSpec(
+        name=name,
+        type=param_type,
+        description=descriptor.get("description", ""),
+        required=required,
+        enum=list(enum) if enum is not None else None,
+        items=items,
+    )
 
 
 # "auto" | "none" | "required", or {"name": "<tool>"} to force one specific tool.

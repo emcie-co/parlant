@@ -25,7 +25,6 @@ from parlant.core.engines.sigma.loop.loop import Loop, LoopJob, LoopResult
 from parlant.core.nlp.common import ModelSize
 from parlant.core.nlp.react import (
     Message,
-    ParameterSpec,
     ReasoningDelta,
     Role,
     StepCompleted,
@@ -38,6 +37,7 @@ from parlant.core.nlp.react import (
     ToolResultPart,
     ToolSpec,
     Usage,
+    tool_specs_from_tools,
 )
 from parlant.core.sessions import (
     EventKind,
@@ -127,19 +127,7 @@ class StreamingLoop(Loop):
         return LoopResult(job=job, steps=state.steps)
 
     async def _get_tools(self, context: EngineContext) -> list[ToolSpec]:
-        return [
-            ToolSpec(
-                name="check_response_policy",
-                description="Use this tool to plan any response so that it aligns with policy.",
-                parameters=[
-                    ParameterSpec(
-                        name="thoughts",
-                        type="string",
-                        description="Your current thoughts about the response you are planning to generate.",
-                    ),
-                ],
-            )
-        ]
+        return [*tool_specs_from_tools(context.state.available_tools)]
 
     async def _on_new_event(self, state: _LoopState, event: StreamEvent) -> None:
         state.current_event = event

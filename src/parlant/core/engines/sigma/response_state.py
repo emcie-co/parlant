@@ -23,7 +23,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.glossary import Term
 from parlant.core.guidelines import Guideline
 from parlant.core.journeys import Journey, JourneyId
-from parlant.core.tools import ToolId
+from parlant.core.tools import Tool, ToolId
 
 
 @dataclass(frozen=True)
@@ -41,6 +41,8 @@ class IterationState:
 class ResponseState:
     ordinary_guideline_matches: list[GuidelineMatch] = field(default_factory=list)
     tool_enabled_guideline_matches: dict[GuidelineMatch, list[ToolId]] = field(default_factory=dict)
+    tools: list[Tool] = field(default_factory=list)  # tools the matched guidelines enabled (per turn)
+    available_tools: list[Tool] = field(default_factory=list)  # the agent's full, stable catalog
 
     # TODO: Remove what isn't needed
     context_variables: list[tuple[ContextVariable, ContextVariableValue]] = field(

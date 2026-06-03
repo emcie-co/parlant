@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from parlant.core.tunnels import TunnelRequestDispatcher
@@ -298,3 +299,121 @@ async def test_that_dispatcher_routes_sessions_delete_events() -> None:
 
     assert response.error is None
     session_module.delete_events.assert_awaited_once()
+
+
+async def test_that_dispatcher_routes_agents_list() -> None:
+    session_module = AsyncMock()
+    agent_module = AsyncMock()
+    agent_module.find = AsyncMock(
+        return_value=[
+            MagicMock(
+                id="agent-1",
+                name="Agent One",
+                description=None,
+                max_engine_iterations=3,
+                composition_mode="fluid",
+                message_output_mode="block",
+                tags=[],
+            )
+        ]
+    )
+    dispatcher = TunnelRequestDispatcher(
+        session_module=session_module,
+        agent_module=agent_module,
+    )
+
+    response = await dispatcher.dispatch(
+        TunnelRequest(request_id="req-agents", method="agents.list", params={})
+    )
+
+    assert response.error is None
+    assert isinstance(response.result, dict)
+    assert response.result["agents"][0]["id"] == "agent-1"
+    agent_module.find.assert_awaited_once()
+
+
+async def test_that_dispatcher_routes_customers_retrieve() -> None:
+    session_module = AsyncMock()
+    customer_module = AsyncMock()
+    customer_module.read = AsyncMock(
+        return_value=MagicMock(
+            id="customer-1",
+            name="Customer One",
+            extra={"tier": "gold"},
+            tags=[],
+            creation_utc=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+    )
+    dispatcher = TunnelRequestDispatcher(
+        session_module=session_module,
+        customer_module=customer_module,
+    )
+
+    response = await dispatcher.dispatch(
+        TunnelRequest(
+            request_id="req-customer",
+            method="customers.retrieve",
+            params={"customer_id": "customer-1"},
+        )
+    )
+
+    assert response.error is None
+    assert isinstance(response.result, dict)
+    assert response.result["customer"]["id"] == "customer-1"
+    assert response.result["customer"]["metadata"] == {"tier": "gold"}
+    customer_module.read.assert_awaited_once()
+
+
+async def test_that_dispatcher_routes_tags_list() -> None:
+    session_module = AsyncMock()
+    tag_module = AsyncMock()
+    tag_module.find = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                id="tag-1",
+                name="Tag One",
+            )
+        ]
+    )
+    dispatcher = TunnelRequestDispatcher(
+        session_module=session_module,
+        tag_module=tag_module,
+    )
+
+    response = await dispatcher.dispatch(
+        TunnelRequest(request_id="req-tags", method="tags.list", params={})
+    )
+
+    assert response.error is None
+    assert isinstance(response.result, dict)
+    assert response.result["tags"][0]["id"] == "tag-1"
+    assert response.result["tags"][0]["name"] == "Tag One"
+    tag_module.find.assert_awaited_once_with(name=None)
+
+
+async def test_that_dispatcher_routes_tags_retrieve() -> None:
+    session_module = AsyncMock()
+    tag_module = AsyncMock()
+    tag_module.read = AsyncMock(
+        return_value=SimpleNamespace(
+            id="tag-1",
+            name="Tag One",
+        )
+    )
+    dispatcher = TunnelRequestDispatcher(
+        session_module=session_module,
+        tag_module=tag_module,
+    )
+
+    response = await dispatcher.dispatch(
+        TunnelRequest(
+            request_id="req-tag",
+            method="tags.retrieve",
+            params={"tag_id": "tag-1"},
+        )
+    )
+
+    assert response.error is None
+    assert isinstance(response.result, dict)
+    assert response.result["tag"]["id"] == "tag-1"
+    tag_module.read.assert_awaited_once()

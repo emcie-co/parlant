@@ -5,7 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from parlant.core.agents import CompositionMode, MessageOutputMode
-from parlant.core.persistence.common import SortDirection
+from parlant.core.app_modules.common import encode_cursor
+from parlant.core.persistence.common import Cursor, ObjectId, SortDirection
 from parlant.core.tunnels import TunnelRequestDispatcher
 from parlant.core.tunnels import TunnelRequest
 from parlant.core.tunnels import _parse_sort_direction
@@ -534,3 +535,48 @@ async def test_that_dispatcher_serializes_session_labels_in_sessions_list() -> N
     assert isinstance(response.result, dict)
     serialized = response.result["sessions"][0]
     assert set(serialized["labels"]) == {"premium", "support"}
+
+
+async def test_that_dispatcher_forwards_cursor_to_sessions_list() -> None:
+    session_module = AsyncMock()
+    session_module.find = AsyncMock(
+        return_value=MagicMock(items=[], total_count=0, has_more=False, next_cursor=None),
+    )
+
+    encoded = encode_cursor(Cursor(creation_utc="2026-01-01T00:00:00+00:00", id=ObjectId("sess-1")))
+
+    dispatcher = TunnelRequestDispatcher(session_module=session_module)
+    response = await dispatcher.dispatch(
+        TunnelRequest(
+            request_id="req-cursor",
+            method="sessions.list",
+            params={"cursor": encoded},
+        ),
+    )
+
+    assert response.error is None
+    session_module.find.assert_awaited_once()
+    kwargs = session_module.find.await_args.kwargs
+    assert kwargs["cursor"] == Cursor(
+        creation_utc="2026-01-01T00:00:00+00:00", id=ObjectId("sess-1")
+    )
+
+
+async def test_that_dispatcher_treats_invalid_cursor_as_no_cursor_in_sessions_list() -> None:
+    session_module = AsyncMock()
+    session_module.find = AsyncMock(
+        return_value=MagicMock(items=[], total_count=0, has_more=False, next_cursor=None),
+    )
+
+    dispatcher = TunnelRequestDispatcher(session_module=session_module)
+    response = await dispatcher.dispatch(
+        TunnelRequest(
+            request_id="req-bad-cursor",
+            method="sessions.list",
+            params={"cursor": "not-a-real-cursor"},
+        ),
+    )
+
+    assert response.error is None
+    session_module.find.assert_awaited_once()
+    assert session_module.find.await_args.kwargs["cursor"] is None

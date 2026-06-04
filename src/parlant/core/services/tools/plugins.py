@@ -15,6 +15,7 @@
 from __future__ import annotations
 import asyncio
 import contextvars
+import math
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 import enum
@@ -53,12 +54,14 @@ import uvicorn
 
 from parlant.core.agents import AgentId
 from parlant.core.loggers import Logger
+from parlant.core.nlp.embedding import EmbedderFactory, EmbeddingCacheProvider, Embedder
 from parlant.core.tools import (
     Tool,
     ToolError,
     ToolParameterDescriptor,
     ToolParameterOptions,
     ToolParameterType,
+    ToolRelevanceResult,
     ToolResult,
     ToolContext,
     ToolResultError,
@@ -474,6 +477,30 @@ class ListToolsResponse(DefaultBaseModel):
     tools: list[Tool]
 
 
+class FindRelevantToolsRequest(DefaultBaseModel):
+    query: str
+    tool_names: list[str]
+    max_count: int
+
+
+class ToolRelevanceResultModel(DefaultBaseModel):
+    tool: Tool
+    score: float
+
+
+class FindRelevantToolsResponse(DefaultBaseModel):
+    tools: list[ToolRelevanceResultModel]
+
+
+def _cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(y * y for y in b))
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
 class ReadToolResponse(DefaultBaseModel):
     tool: Tool
 
@@ -519,6 +546,9 @@ class PluginServer:
         plugin_data: Mapping[str, Any] = {},
         hosted: bool = False,
         context_vars: Mapping[contextvars.ContextVar[Any], Any] = {},
+        embedder_factory: EmbedderFactory | None = None,
+        embedder_type: type[Embedder] | None = None,
+        embedding_cache_provider: EmbeddingCacheProvider | None = None,
     ) -> None:
         self.tools = {entry.tool.name: entry for entry in tools}
         self.plugin_data = plugin_data
@@ -529,6 +559,13 @@ class PluginServer:
         self.context_vars = context_vars
 
         self._on_app_created = on_app_created
+
+        # When wired (e.g. by the SDK with the NLP service's embedder), tools are
+        # embedded and ranked semantically; otherwise find_relevant_tools falls
+        # back to listing order.
+        self._embedder_factory = embedder_factory
+        self._embedder_type = embedder_type
+        self._embedding_cache_provider = embedding_cache_provider
 
         self._server: uvicorn.Server | None = None
 
@@ -595,12 +632,66 @@ class PluginServer:
             return self._server.started
         return False
 
+    async def _embed(self, texts: list[str]) -> Sequence[Sequence[float]]:
+        assert self._embedder_factory is not None and self._embedder_type is not None
+
+        if self._embedding_cache_provider is not None:
+            cache = self._embedding_cache_provider()
+            if (cached := await cache.get(self._embedder_type, texts)) is not None:
+                return cached.vectors
+
+        embedder = self._embedder_factory.create_embedder(self._embedder_type)
+        result = await embedder.embed(texts)
+
+        if self._embedding_cache_provider is not None:
+            await self._embedding_cache_provider().set(self._embedder_type, texts, result.vectors)
+
+        return result.vectors
+
+    async def find_relevant_tools(
+        self,
+        query: str,
+        tool_names: Sequence[str],
+        max_count: int,
+    ) -> Sequence[ToolRelevanceResult]:
+        candidates = [self.tools[name].tool for name in tool_names if name in self.tools]
+
+        # No embedder wired → no semantic ranking; preserve listing order.
+        if not candidates or self._embedder_factory is None or self._embedder_type is None:
+            return [ToolRelevanceResult(tool=t, score=0.0) for t in candidates[:max_count]]
+
+        # Embed ALL of this server's tools (a stable list → cache-friendly), then
+        # score the requested candidates against the query.
+        all_tools = [entry.tool for entry in self.tools.values()]
+        all_vectors = await self._embed([f"{t.name}: {t.description}" for t in all_tools])
+        vector_by_name = {t.name: v for t, v in zip(all_tools, all_vectors)}
+
+        (query_vector,) = await self._embed([query])
+
+        scored = [
+            ToolRelevanceResult(tool=t, score=_cosine_similarity(query_vector, vector_by_name[t.name]))
+            for t in candidates
+        ]
+        scored.sort(key=lambda r: r.score, reverse=True)
+        return scored[:max_count]
+
     def _create_app(self) -> FastAPI:
         app = FastAPI()
 
         @app.get("/tools")
         async def list_tools() -> ListToolsResponse:
             return ListToolsResponse(tools=[t.tool for t in self.tools.values()])
+
+        @app.post("/tools/relevant")
+        async def find_relevant_tools(request: FindRelevantToolsRequest) -> FindRelevantToolsResponse:
+            results = await self.find_relevant_tools(
+                request.query, request.tool_names, request.max_count
+            )
+            return FindRelevantToolsResponse(
+                tools=[
+                    ToolRelevanceResultModel(tool=r.tool, score=r.score) for r in results
+                ]
+            )
 
         @app.get("/tools/{name}")
         async def read_tool(name: str) -> ReadToolResponse:
@@ -815,23 +906,23 @@ class PluginClient(ToolService):
             for name, (descriptor, options) in parameters.items()
         }
 
+    def _tool_from_json(self, t: Mapping[str, Any]) -> Tool:
+        return Tool(
+            name=t["name"],
+            creation_utc=dateutil.parser.parse(t["creation_utc"]),
+            description=t["description"],
+            metadata=t["metadata"],
+            parameters=self._translate_parameters(t["parameters"]),
+            required=t["required"],
+            consequential=t["consequential"],
+            overlap=ToolOverlap(t["overlap"]),
+        )
+
     @override
     async def list_tools(self) -> Sequence[Tool]:
         response = await self._http_client.get(self._get_url("/tools"))
         content = response.json()
-        return [
-            Tool(
-                name=t["name"],
-                creation_utc=dateutil.parser.parse(t["creation_utc"]),
-                description=t["description"],
-                metadata=t["metadata"],
-                parameters=self._translate_parameters(t["parameters"]),
-                required=t["required"],
-                consequential=t["consequential"],
-                overlap=ToolOverlap(t["overlap"]),
-            )
-            for t in content["tools"]
-        ]
+        return [self._tool_from_json(t) for t in content["tools"]]
 
     @override
     async def read_tool(self, name: str) -> Tool:
@@ -843,17 +934,24 @@ class PluginClient(ToolService):
             raise ToolError(name, "Failed to read tool from remote service")
 
         content = response.json()
-        t = content["tool"]
-        return Tool(
-            name=t["name"],
-            creation_utc=dateutil.parser.parse(t["creation_utc"]),
-            description=t["description"],
-            metadata=t["metadata"],
-            parameters=self._translate_parameters(t["parameters"]),
-            required=t["required"],
-            consequential=t["consequential"],
-            overlap=ToolOverlap(t["overlap"]),
+        return self._tool_from_json(content["tool"])
+
+    @override
+    async def find_relevant_tools(
+        self,
+        query: str,
+        tool_names: Sequence[str],
+        max_count: int,
+    ) -> Sequence[ToolRelevanceResult]:
+        response = await self._http_client.post(
+            self._get_url("/tools/relevant"),
+            json={"query": query, "tool_names": list(tool_names), "max_count": max_count},
         )
+        content = response.json()
+        return [
+            ToolRelevanceResult(tool=self._tool_from_json(r["tool"]), score=r["score"])
+            for r in content["tools"]
+        ]
 
     @override
     async def resolve_tool(

@@ -17,6 +17,7 @@ from collections.abc import Iterable, Sequence
 import traceback
 from typing_extensions import override
 
+from parlant.core.async_utils import safe_gather
 from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.emissions import EventEmitter
 from parlant.core.engines.alpha.entity_context import EntityContext
@@ -31,11 +32,13 @@ from parlant.core.entity_cq import EntityQueries
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.sessions import StatusEventData
-from parlant.core.tools import Tool, ToolId
+from parlant.core.tools import Tool, ToolId, ToolRelevanceResult
 from parlant.core.tracer import Tracer
 
 
 class SigmaEngine(Engine):
+    _MAX_AVAILABLE_TOOLS = 10
+
     def __init__(
         self,
         logger: Logger,
@@ -71,6 +74,12 @@ class SigmaEngine(Engine):
             load_interaction=False,
         )
 
+        # No conversation yet, so there are no matched tools — the available set
+        # is just the tools most relevant to the agent description.
+        await self._load_usable_guidelines(engine_context)
+        await self._load_relevant_tools(engine_context)
+        self._select_available_tools(engine_context)
+
         # TODO: This should prepare EITHER the responder OR the task runner,
         # depending on the effort level and context
         await self._responder.prepare(engine_context)
@@ -89,7 +98,15 @@ class SigmaEngine(Engine):
                 data=StatusEventData(status="processing", message="Checking policies"),
             )
 
-            await self._load_guidelines(engine_context)
+            await self._load_usable_guidelines(engine_context)
+
+            # Guideline matching and tool relevance are both embedding-bound and
+            # independent, so run them in parallel to hide the added latency.
+            await safe_gather(
+                self._load_guidelines(engine_context),
+                self._load_relevant_tools(engine_context),
+            )
+            self._select_available_tools(engine_context)
 
             await self._responder.respond(engine_context)
         except Exception as e:
@@ -145,11 +162,6 @@ class SigmaEngine(Engine):
             state=ResponseState(),
         )
 
-        # Resolve the agent's stable tool catalog here (shared by the prefill in
-        # initialize() and the response in process()), so the tools block at the
-        # front of the cached prefix is identical across both.
-        await self._load_available_tools(result)
-
         # Set in context for access by hooks and other components
         # FIXME: remove type ignore
         EntityContext.set(result)  # type: ignore
@@ -163,27 +175,72 @@ class SigmaEngine(Engine):
             events=history,
         )
 
-    async def _load_available_tools(self, context: EngineContext) -> None:
-        # The agent's full tool catalog: every tool reachable from its usable
-        # guidelines, sorted deterministically. It is independent of what matched
-        # this turn, so the cached tools prefix stays stable across turns.
+    async def _load_usable_guidelines(self, context: EngineContext) -> None:
+        # The agent's full set of guidelines (used by both guideline matching and
+        # tool-relevance scoping); loaded once before the two run in parallel.
         context.state.usable_guidelines = list(
             await self._entity_queries.find_guidelines_for_context(context.agent.id, [])
         )
+
+    def _build_tool_query(self, context: EngineContext) -> str:
+        messages = [f"{m.source}: {m.content}" for m in context.interaction.messages]
+        return f"{context.agent.description or ''}\n\n{messages}"
+
+    async def _agent_candidate_tool_ids(self, context: EngineContext) -> set[ToolId]:
         guideline_ids = {g.id for g in context.state.usable_guidelines}
+        return {
+            association.tool_id
+            for association in await self._entity_queries.find_guideline_tool_associations()
+            if association.guideline_id in guideline_ids
+        }
 
-        tool_ids = sorted(
-            {
-                association.tool_id
-                for association in await self._entity_queries.find_guideline_tool_associations()
-                if association.guideline_id in guideline_ids
-            }
-        )
+    async def _load_relevant_tools(self, context: EngineContext) -> None:
+        # Rank the agent's candidate tools against the agent description + the
+        # conversation, scoped per service. Each service ranks only its own tools;
+        # we merge the scored results across services.
+        candidate_ids = await self._agent_candidate_tool_ids(context)
+        if not candidate_ids:
+            context.state.relevant_tools = []
+            return
 
-        context.state.available_tools = await self._resolve_tool_ids(tool_ids)
+        query = self._build_tool_query(context)
+
+        names_by_service: dict[str, list[str]] = defaultdict(list)
+        for tool_id in candidate_ids:
+            names_by_service[tool_id.service_name].append(tool_id.tool_name)
+
+        results: list[ToolRelevanceResult] = []
+        for service_name, names in names_by_service.items():
+            try:
+                service = await self._entity_queries.read_tool_service(service_name)
+                results.extend(
+                    await service.find_relevant_tools(query, names, self._MAX_AVAILABLE_TOOLS)
+                )
+            except Exception as e:
+                self._logger.warning(f"Failed to rank tools for service {service_name}: {e}")
+
+        results.sort(key=lambda r: r.score, reverse=True)
+        context.state.relevant_tools = [r.tool for r in results]
+
+    def _select_available_tools(self, context: EngineContext) -> None:
+        # Matched-turn tools are always included; fill up to _MAX_AVAILABLE_TOOLS
+        # with the most relevant general tools.
+        chosen: list[Tool] = list(context.state.tools)
+        seen = {tool.name for tool in chosen}
+        for tool in context.state.relevant_tools:
+            if len(chosen) >= self._MAX_AVAILABLE_TOOLS:
+                break
+            if tool.name not in seen:
+                seen.add(tool.name)
+                chosen.append(tool)
+
+        # Emit by name so an unchanged selection is byte-identical turn to turn,
+        # keeping the cached tools prefix warm (selection uses scores; emission
+        # order is stable).
+        context.state.available_tools = sorted(chosen, key=lambda tool: tool.name)
 
     async def _load_guidelines(self, context: EngineContext) -> None:
-        # Reuse the usable guidelines already loaded by _load_available_tools.
+        # Reuse the usable guidelines already loaded by _load_usable_guidelines.
         guidelines = await self._guideline_recaller.recall(context, context.state.usable_guidelines)
 
         matches = [

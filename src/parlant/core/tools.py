@@ -344,6 +344,16 @@ class ToolResultError(ToolError):
     pass
 
 
+@dataclass(frozen=True)
+class ToolRelevanceResult:
+    """A tool paired with its relevance score to a query. Higher is more
+    relevant. Scores are only meaningfully comparable within a single service's
+    embedding space; across services they are assumed roughly comparable."""
+
+    tool: Tool
+    score: float
+
+
 class ToolService(ABC):
     @abstractmethod
     async def list_tools(
@@ -370,6 +380,23 @@ class ToolService(ABC):
         context: ToolContext,
         arguments: Mapping[str, JSONSerializable],
     ) -> ToolResult: ...
+
+    async def find_relevant_tools(
+        self,
+        query: str,
+        tool_names: Sequence[str],
+        max_count: int,
+    ) -> Sequence[ToolRelevanceResult]:
+        """Rank this service's tools — restricted to ``tool_names`` — by relevance
+        to ``query``, returning at most ``max_count``. Names this service does not
+        own are silently skipped.
+
+        Default: no semantic ranking — the named tools in listing order with a
+        neutral score. Services that can embed (e.g. the plugin server) override
+        this."""
+        available = {tool.name: tool for tool in await self.list_tools()}
+        selected = [available[name] for name in tool_names if name in available]
+        return [ToolRelevanceResult(tool=tool, score=0.0) for tool in selected[:max_count]]
 
 
 @dataclass(frozen=True)

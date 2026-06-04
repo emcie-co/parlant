@@ -42,7 +42,8 @@ class ResponseState:
     ordinary_guideline_matches: list[GuidelineMatch] = field(default_factory=list)
     tool_enabled_guideline_matches: dict[GuidelineMatch, list[ToolId]] = field(default_factory=dict)
     tools: list[Tool] = field(default_factory=list)  # tools the matched guidelines enabled (per turn)
-    available_tools: list[Tool] = field(default_factory=list)  # the agent's full, stable catalog
+    relevant_tools: list[Tool] = field(default_factory=list)  # query-ranked, scored desc
+    available_tools: list[Tool] = field(default_factory=list)  # matched + relevant, capped, by name
 
     # TODO: Remove what isn't needed
     context_variables: list[tuple[ContextVariable, ContextVariableValue]] = field(

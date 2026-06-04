@@ -5610,6 +5610,10 @@ class Server:
                 context_vars={
                     self._current_server_var: self,
                 },
+                # Rank tools semantically with the default NLP service's embedder.
+                embedder_factory=EmbedderFactory(c),
+                embedder_type=type(await c[NLPService].get_embedder()),
+                embedding_cache_provider=lambda: c[EmbeddingCache],
             )
 
             await c[ServiceRegistry].update_tool_service(

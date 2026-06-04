@@ -31,6 +31,7 @@ from parlant.core.tools import (
     ToolResultError,
     ToolOverlap,
 )
+from parlant.core.nlp.embedding import EmbedderFactory, EmbeddingResult, NullEmbedder
 from parlant.core.services.tools.plugins import PluginServer, tool
 from parlant.core.agents import Agent, AgentId, AgentStore
 from parlant.core.tracer import LocalTracer
@@ -803,3 +804,66 @@ async def test_that_tool_decorator_can_set_overlap() -> None:
         return ToolResult({})
 
     assert my_tool.tool.overlap == ToolOverlap.NONE
+
+
+# ─────────────────── find_relevant_tools (offline, no HTTP) ──────────────────
+
+
+class _KeywordEmbedder(NullEmbedder):
+    """A deterministic embedder: a 2-d vector flagging 'weather'/'payment'."""
+
+    async def embed(
+        self, texts: list[str], hints: Mapping[str, Any] = {}
+    ) -> EmbeddingResult:
+        return EmbeddingResult(
+            vectors=[
+                [float("weather" in t.lower()), float("payment" in t.lower())] for t in texts
+            ]
+        )
+
+
+class _FakeEmbedderFactory(EmbedderFactory):
+    def __init__(self) -> None:  # bypass the container
+        pass
+
+    def create_embedder(self, embedder_type: Any) -> Any:
+        return _KeywordEmbedder()
+
+
+@tool
+def _weather_tool(context: ToolContext, city: str) -> ToolResult:
+    """Look up the current weather for a city."""
+    return ToolResult(data={})
+
+
+@tool
+def _payment_tool(context: ToolContext, amount: float) -> ToolResult:
+    """Charge a payment to the customer."""
+    return ToolResult(data={})
+
+
+async def test_that_plugin_server_ranks_tools_by_query_relevance() -> None:
+    server = PluginServer(
+        tools=[_weather_tool, _payment_tool],
+        embedder_factory=_FakeEmbedderFactory(),
+        embedder_type=NullEmbedder,
+    )
+
+    results = await server.find_relevant_tools(
+        "what's the weather like?", ["_weather_tool", "_payment_tool"], max_count=2
+    )
+
+    assert [r.tool.name for r in results] == ["_weather_tool", "_payment_tool"]
+    assert results[0].score > results[1].score
+
+
+async def test_that_plugin_server_without_an_embedder_preserves_order_and_skips_unknown() -> None:
+    server = PluginServer(tools=[_weather_tool, _payment_tool])
+
+    results = await server.find_relevant_tools(
+        "anything", ["_payment_tool", "does_not_exist", "_weather_tool"], max_count=5
+    )
+
+    # No embedder → listing order (as requested), unknown names silently skipped.
+    assert [r.tool.name for r in results] == ["_payment_tool", "_weather_tool"]
+    assert all(r.score == 0.0 for r in results)

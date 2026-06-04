@@ -521,7 +521,11 @@ class GeminiReactGenerator(ReactGenerator):
     early (e.g. on shutdown) for cost control.
     """
 
-    _ROLE_MAP = {Role.USER: "user", Role.ASSISTANT: "model", Role.TOOL: "tool"}
+    # Gemini Content.role accepts only "user"/"model"; function responses ride in
+    # a "user" turn. (A bogus "tool" role is tolerated by generateContent but
+    # rejected by cachedContents validation, breaking caching once the history
+    # contains tool results.)
+    _ROLE_MAP = {Role.USER: "user", Role.ASSISTANT: "model", Role.TOOL: "user"}
     # Don't reuse a cached prefix that's about to expire mid-request.
     _CACHE_REUSE_MARGIN = timedelta(seconds=30)
 

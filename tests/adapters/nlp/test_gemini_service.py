@@ -107,7 +107,8 @@ def test_that_encode_maps_roles_and_folds_system_messages(gemini: GeminiReactGen
 
     assert "You are a test agent." in request["system_instruction"]
     assert "Extra system rule." in request["system_instruction"]
-    assert [c.role for c in request["all_contents"]] == ["user", "model", "tool"]
+    # Gemini has no "tool" role — function responses ride in a "user" turn.
+    assert [c.role for c in request["all_contents"]] == ["user", "model", "user"]
     function_response = request["all_contents"][2].parts[0].function_response
     assert function_response.name == "get_weather"
     assert function_response.response == {"result": "sunny"}

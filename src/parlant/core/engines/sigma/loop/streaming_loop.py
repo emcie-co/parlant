@@ -211,20 +211,18 @@ class StreamingLoop(Loop):
 
                 state.in_the_middle_of_running_tools = True
             case StepCompleted(result=result) if result.needs_tools:
-                if len(result.tool_calls) > 2:
-                    await context.session_event_emitter.emit_status_event(
-                        trace_id=context.tracer.trace_id,
-                        data=StatusEventData(status="processing", message="Running tools"),
-                    )
-                else:
-                    assert len(result.tool_calls) == 1
-
+                if len(result.tool_calls) == 1:
                     await context.session_event_emitter.emit_status_event(
                         trace_id=context.tracer.trace_id,
                         data=StatusEventData(
                             status="processing",
                             message=f"Running tool: {result.tool_calls[0].name}",
                         ),
+                    )
+                else:
+                    await context.session_event_emitter.emit_status_event(
+                        trace_id=context.tracer.trace_id,
+                        data=StatusEventData(status="processing", message="Running tools"),
                     )
 
                 await self._run_tool_calls(context, state, result.tool_calls)
@@ -234,39 +232,39 @@ class StreamingLoop(Loop):
     async def _run_tool_calls(
         self, context: EngineContext, state: _LoopState, tool_calls: Sequence[ToolCallPart]
     ) -> None:
-        parts: list[ToolResultPart] = []
-
-        for tool_call in tool_calls:
-            tool_id = context.state.tool_ids_by_name.get(tool_call.name)
-
-            if tool_id is None:
-                self._logger.warning(f"Model requested an unknown tool: {tool_call.name}")
-                parts.append(
-                    ToolResultPart(
-                        call_id=tool_call.id,
-                        name=tool_call.name,
-                        content=f"Unknown tool: {tool_call.name}",
-                        is_error=True,
-                    )
-                )
-                continue
-
-            result = await self._tool_runner.run_tool(context, tool_id, tool_call.args)
-            parts.append(
-                ToolResultPart(
-                    call_id=tool_call.id,
-                    name=tool_call.name,
-                    content=result.data,
-                    is_error="error_details" in result.metadata,
-                )
-            )
+        # Run all of the step's tool calls concurrently; results keep call order.
+        parts = await asyncio.gather(
+            *(self._run_tool_call(context, tool_call) for tool_call in tool_calls)
+        )
 
         state.history.append(
             Message(
                 role=Role.TOOL,
                 cache_key=context.session.id,
-                parts=parts,
+                parts=list(parts),
             )
+        )
+
+    async def _run_tool_call(
+        self, context: EngineContext, tool_call: ToolCallPart
+    ) -> ToolResultPart:
+        tool_id = context.state.tool_ids_by_name.get(tool_call.name)
+
+        if tool_id is None:
+            self._logger.warning(f"Model requested an unknown tool: {tool_call.name}")
+            return ToolResultPart(
+                call_id=tool_call.id,
+                name=tool_call.name,
+                content=f"Unknown tool: {tool_call.name}",
+                is_error=True,
+            )
+
+        result = await self._tool_runner.run_tool(context, tool_id, tool_call.args)
+        return ToolResultPart(
+            call_id=tool_call.id,
+            name=tool_call.name,
+            content=result.data,
+            is_error="error_details" in result.metadata,
         )
 
     async def _update_message(self, context: EngineContext, state: _LoopState) -> None:

@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from collections.abc import Mapping
+import json
 
 from parlant.core.common import JSONSerializable
 from parlant.core.engines.engine_context import EngineContext
@@ -43,6 +44,9 @@ class ToolRunner:
         )
 
         try:
+            self._logger.debug(
+                f"Running tool {tool.to_string()} with arguments {json.dumps(arguments, indent=2)}"
+            )
             service = await self._entity_queries.read_tool_service(tool.service_name)
             return await service.call_tool(tool.tool_name, tool_context, arguments)
         except Exception as e:

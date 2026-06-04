@@ -366,6 +366,7 @@ async def test_that_dispatcher_routes_sessions_read_event() -> None:
 
 async def test_that_dispatcher_routes_sessions_list_events_with_serialized_enums() -> None:
     session_module = AsyncMock()
+    session_module.wait_for_more_events = AsyncMock()
     session_module.find_events = AsyncMock(
         return_value=[
             MagicMock(
@@ -395,6 +396,63 @@ async def test_that_dispatcher_routes_sessions_list_events_with_serialized_enums
     assert response.result["events"][0]["source"] == "customer"
     assert response.result["events"][0]["kind"] == "message"
     session_module.find_events.assert_awaited_once()
+    session_module.wait_for_more_events.assert_not_awaited()
+
+
+async def test_that_dispatcher_waits_when_listing_session_events_with_timeout() -> None:
+    session_module = AsyncMock()
+    session_module.wait_for_more_events = AsyncMock(return_value=True)
+    session_module.find_events = AsyncMock(return_value=[])
+
+    dispatcher = TunnelRequestDispatcher(session_module=session_module)
+
+    request = TunnelRequest(
+        request_id="req-list-evts-wait",
+        method="sessions.list_events",
+        params={
+            "session_id": "sess-1",
+            "min_offset": 2,
+            "source": "ai_agent",
+            "kinds": "message,status",
+            "trace_id": "trace-1",
+            "wait_for_data": 5,
+        },
+    )
+
+    response = await dispatcher.dispatch(request)
+
+    assert response.error is None
+    assert response.result == {"events": []}
+    session_module.wait_for_more_events.assert_awaited_once()
+    wait_call = session_module.wait_for_more_events.await_args.kwargs
+    assert wait_call["session_id"] == "sess-1"
+    assert wait_call["min_offset"] == 2
+    assert wait_call["source"] == EventSource.AI_AGENT
+    assert wait_call["kinds"] == [EventKind.MESSAGE, EventKind.STATUS]
+    assert wait_call["trace_id"] == "trace-1"
+    assert 0 < wait_call["timeout"].remaining() <= 5
+    session_module.find_events.assert_awaited_once()
+
+
+async def test_that_dispatcher_returns_empty_events_when_list_events_wait_times_out() -> None:
+    session_module = AsyncMock()
+    session_module.wait_for_more_events = AsyncMock(return_value=False)
+    session_module.find_events = AsyncMock()
+
+    dispatcher = TunnelRequestDispatcher(session_module=session_module)
+
+    request = TunnelRequest(
+        request_id="req-list-evts-timeout",
+        method="sessions.list_events",
+        params={"session_id": "sess-1", "min_offset": 2, "wait_for_data": 5},
+    )
+
+    response = await dispatcher.dispatch(request)
+
+    assert response.error is None
+    assert response.result == {"events": []}
+    session_module.wait_for_more_events.assert_awaited_once()
+    session_module.find_events.assert_not_awaited()
 
 
 async def test_that_dispatcher_routes_sessions_update_event() -> None:

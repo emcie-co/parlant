@@ -8,6 +8,7 @@ from parlant.core.app_modules.common import decode_cursor, encode_cursor
 from parlant.core.app_modules.customers import CustomerModule
 from parlant.core.app_modules.sessions import Moderation, SessionModule, SessionUpdateParamsModel
 from parlant.core.app_modules.tags import TagModule
+from parlant.core.async_utils import Timeout
 from parlant.core.common import ItemNotFoundError
 from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.loggers import Logger
@@ -26,6 +27,14 @@ def _parse_sort_direction(value: str | None) -> SortDirection | None:
             return SortDirection.DESC
         case _:
             raise ValueError(f"Unsupported sort direction: {value}")
+
+
+def _parse_event_kinds(value: Any) -> list[EventKind]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [EventKind(k) for k in value.split(",") if k]
+    return [EventKind(k) for k in value]
 
 
 class TunnelRequest:
@@ -231,12 +240,30 @@ class TunnelRequestDispatcher:
 
     async def _handle_list_events(self, params: dict[str, Any]) -> dict[str, Any]:
         session_id = SessionId(params["session_id"])
+        min_offset = params.get("min_offset", 0)
+        source = EventSource(params["source"]) if params.get("source") else None
+        kinds = _parse_event_kinds(params.get("kinds"))
+        trace_id = params.get("trace_id")
+        wait_for_data = params.get("wait_for_data", 0)
+
+        if wait_for_data > 0:
+            has_events = await self._session_module.wait_for_more_events(
+                session_id=session_id,
+                min_offset=min_offset,
+                source=source,
+                kinds=kinds,
+                trace_id=trace_id,
+                timeout=Timeout(wait_for_data),
+            )
+            if not has_events:
+                return {"events": []}
+
         events = await self._session_module.find_events(
             session_id=session_id,
-            min_offset=params.get("min_offset", 0),
-            source=EventSource(params["source"]) if params.get("source") else None,
-            kinds=[EventKind(k) for k in params.get("kinds", [])],
-            trace_id=params.get("trace_id"),
+            min_offset=min_offset,
+            source=source,
+            kinds=kinds,
+            trace_id=trace_id,
         )
 
         return {"events": [self._serialize_event(e) for e in events]}

@@ -18,6 +18,7 @@ from dataclasses import dataclass
 
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.engine_context import EngineContext
+from parlant.core.engines.sigma.tool_runner import ToolRunner
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.common import ModelSize
@@ -67,12 +68,14 @@ class Loop(ABC):
         meter: Meter,
         optimization_policy: OptimizationPolicy,
         react: ReactGenerator,
+        tool_runner: ToolRunner,
     ) -> None:
         self._logger = logger
         self._tracer = tracer
         self._meter = meter
         self._optimization_policy = optimization_policy
         self._react = react
+        self._tool_runner = tool_runner
 
     @abstractmethod
     async def prefill(self, job: LoopJob) -> Usage:

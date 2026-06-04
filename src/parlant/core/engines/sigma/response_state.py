@@ -44,6 +44,7 @@ class ResponseState:
     tools: list[Tool] = field(default_factory=list)  # tools the matched guidelines enabled (per turn)
     relevant_tools: list[Tool] = field(default_factory=list)  # query-ranked, scored desc
     available_tools: list[Tool] = field(default_factory=list)  # matched + relevant, capped, by name
+    tool_ids_by_name: dict[str, ToolId] = field(default_factory=dict)  # to run a tool by its name
 
     # TODO: Remove what isn't needed
     context_variables: list[tuple[ContextVariable, ContextVariableValue]] = field(

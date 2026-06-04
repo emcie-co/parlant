@@ -227,24 +227,37 @@ class StreamingLoop(Loop):
                         ),
                     )
 
-                await self._simulate_tool_calls(context, state, result.tool_calls)
+                await self._run_tool_calls(context, state, result.tool_calls)
             case _:
                 state.in_the_middle_of_running_tools = False
 
-    async def _simulate_tool_calls(
+    async def _run_tool_calls(
         self, context: EngineContext, state: _LoopState, tool_calls: Sequence[ToolCallPart]
     ) -> None:
         parts: list[ToolResultPart] = []
 
         for tool_call in tool_calls:
-            await asyncio.sleep(1)
+            tool_id = context.state.tool_ids_by_name.get(tool_call.name)
 
+            if tool_id is None:
+                self._logger.warning(f"Model requested an unknown tool: {tool_call.name}")
+                parts.append(
+                    ToolResultPart(
+                        call_id=tool_call.id,
+                        name=tool_call.name,
+                        content=f"Unknown tool: {tool_call.name}",
+                        is_error=True,
+                    )
+                )
+                continue
+
+            result = await self._tool_runner.run_tool(context, tool_id, tool_call.args)
             parts.append(
                 ToolResultPart(
                     call_id=tool_call.id,
                     name=tool_call.name,
-                    content="No special policy to consider at this point!",
-                    is_error=False,
+                    content=result.data,
+                    is_error="error_details" in result.metadata,
                 )
             )
 

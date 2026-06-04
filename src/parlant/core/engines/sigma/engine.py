@@ -199,6 +199,10 @@ class SigmaEngine(Engine):
         # conversation, scoped per service. Each service ranks only its own tools;
         # we merge the scored results across services.
         candidate_ids = await self._agent_candidate_tool_ids(context)
+        # Map names back to ToolIds so a tool call (which carries only a name) can
+        # be routed to its service when run.
+        context.state.tool_ids_by_name = {tid.tool_name: tid for tid in candidate_ids}
+
         if not candidate_ids:
             context.state.relevant_tools = []
             return

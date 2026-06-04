@@ -244,7 +244,7 @@ class TunnelRequestDispatcher:
         source = EventSource(params["source"]) if params.get("source") else None
         kinds = _parse_event_kinds(params.get("kinds"))
         trace_id = params.get("trace_id")
-        wait_for_data = params.get("wait_for_data", 0)
+        wait_for_data = params.get("wait_for_data", 60)
 
         if wait_for_data > 0:
             has_events = await self._session_module.wait_for_more_events(

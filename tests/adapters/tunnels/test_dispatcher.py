@@ -366,7 +366,7 @@ async def test_that_dispatcher_routes_sessions_read_event() -> None:
 
 async def test_that_dispatcher_routes_sessions_list_events_with_serialized_enums() -> None:
     session_module = AsyncMock()
-    session_module.wait_for_more_events = AsyncMock()
+    session_module.wait_for_more_events = AsyncMock(return_value=True)
     session_module.find_events = AsyncMock(
         return_value=[
             MagicMock(
@@ -395,8 +395,12 @@ async def test_that_dispatcher_routes_sessions_list_events_with_serialized_enums
     assert isinstance(response.result, dict)
     assert response.result["events"][0]["source"] == "customer"
     assert response.result["events"][0]["kind"] == "message"
+    session_module.wait_for_more_events.assert_awaited_once()
+    wait_call = session_module.wait_for_more_events.await_args.kwargs
+    assert wait_call["session_id"] == "sess-1"
+    assert wait_call["min_offset"] == 0
+    assert 0 < wait_call["timeout"].remaining() <= 60
     session_module.find_events.assert_awaited_once()
-    session_module.wait_for_more_events.assert_not_awaited()
 
 
 async def test_that_dispatcher_waits_when_listing_session_events_with_timeout() -> None:

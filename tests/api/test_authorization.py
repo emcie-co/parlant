@@ -28,11 +28,14 @@ def make_request(
     path: str = "/",
     x_forwarded_for: str | None = "203.0.113.10",
     client_host: str | None = "127.0.0.1",
+    extra_headers: dict[str, str] | None = None,
 ) -> Request:
     headers = []
 
     if x_forwarded_for is not None:
         headers.append((b"x-forwarded-for", x_forwarded_for.encode("latin-1")))
+    for name, value in (extra_headers or {}).items():
+        headers.append((name.encode("latin-1"), value.encode("latin-1")))
 
     scope = {
         "type": "http",
@@ -117,3 +120,25 @@ async def test_that_missing_client_ip_raises_authorization_exception() -> None:
 
     with pytest.raises(AuthorizationException):
         await limiter.check(request, Operation.LIST_EVENTS)
+
+
+async def test_that_authorization_exception_redacts_sensitive_headers() -> None:
+    request = make_request(
+        extra_headers={
+            "authorization": "Bearer secret-token",
+            "cookie": "access_token=secret-cookie",
+            "x-parlant-cloud-project-token": "raw-project-token-value",
+            "host": "localhost:2222",
+        }
+    )
+
+    exception = AuthorizationException(request, Operation.STREAM_LOGS)
+    message = str(exception)
+
+    assert "secret-token" not in message
+    assert "secret-cookie" not in message
+    assert "raw-project-token-value" not in message
+    assert "'host': 'localhost:2222'" in message
+    assert "'authorization': '<redacted>'" in message
+    assert "'cookie': '<redacted>'" in message
+    assert "'x-parlant-cloud-project-token': '<redacted>'" in message

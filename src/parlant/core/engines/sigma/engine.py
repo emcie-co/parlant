@@ -130,13 +130,7 @@ class SigmaEngine(Engine):
 
             await self._load_usable_guidelines(engine_context)
 
-            # Guideline matching and tool relevance are both embedding-bound and
-            # independent, so run them in parallel to hide the added latency.
-            await safe_gather(
-                self._load_guidelines(engine_context),
-                self._load_relevant_tools(engine_context),
-            )
-            self._select_available_tools(engine_context)
+            await self._rematch(engine_context)
 
             await self._responder.respond(engine_context)
         except Exception as e:
@@ -211,6 +205,16 @@ class SigmaEngine(Engine):
         context.state.usable_guidelines = list(
             await self._entity_queries.find_guidelines_for_context(context.agent.id, [])
         )
+
+    async def _rematch(self, engine_context: EngineContext) -> None:
+        # Guideline matching and tool relevance are both embedding-bound and
+        # independent, so run them in parallel to hide the added latency.
+        await safe_gather(
+            self._load_guidelines(engine_context),
+            self._load_relevant_tools(engine_context),
+        )
+
+        self._select_available_tools(engine_context)
 
     def _build_tool_query(self, context: EngineContext) -> str:
         messages = [f"{m.source}: {m.content}" for m in context.interaction.messages]

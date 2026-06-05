@@ -37,6 +37,12 @@ def _parse_event_kinds(value: Any) -> list[EventKind]:
     return [EventKind(k) for k in value]
 
 
+def _parse_moderation(value: Any) -> Moderation:
+    if value is None:
+        return Moderation.NONE
+    return Moderation(value)
+
+
 class TunnelRequest:
     """A request received from the platform through the tunnel."""
 
@@ -221,7 +227,7 @@ class TunnelRequestDispatcher:
         if kind == "message" and source in (EventSource.CUSTOMER, EventSource.CUSTOMER_UI):
             event = await self._session_module.create_customer_message(
                 session_id=session_id,
-                moderation=Moderation.AUTO,
+                moderation=_parse_moderation(params.get("moderation")),
                 message=message,
                 source=source,
                 trigger_processing=True,

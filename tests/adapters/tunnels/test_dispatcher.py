@@ -7,6 +7,7 @@ import pytest
 from parlant.core.agents import CompositionMode, MessageOutputMode
 from parlant.core.app_modules.common import decode_cursor, encode_cursor
 from parlant.core.persistence.common import Cursor, ObjectId, SortDirection
+from parlant.core.app_modules.sessions import Moderation
 from parlant.core.sessions import EventKind, EventSource
 from parlant.core.tunnels import TunnelRequestDispatcher
 from parlant.core.tunnels import TunnelRequest
@@ -43,6 +44,42 @@ async def test_that_dispatcher_routes_sessions_create_event_to_session_module() 
     assert response.request_id == "req-1"
     assert response.error is None
     session_module.create_customer_message.assert_awaited_once()
+    create_call = session_module.create_customer_message.await_args.kwargs
+    assert create_call["moderation"] == Moderation.NONE
+
+
+async def test_that_dispatcher_honors_sessions_create_event_moderation() -> None:
+    session_module = AsyncMock()
+    session_module.create_customer_message = AsyncMock(
+        return_value=MagicMock(
+            id="evt-1",
+            offset=0,
+            source="customer",
+            kind="message",
+            creation_utc="2026-01-01T00:00:00Z",
+        )
+    )
+
+    dispatcher = TunnelRequestDispatcher(session_module=session_module)
+
+    request = TunnelRequest(
+        request_id="req-1",
+        method="sessions.create_event",
+        params={
+            "session_id": "sess-1",
+            "kind": "message",
+            "source": "customer",
+            "message": "Hello",
+            "moderation": "paranoid",
+        },
+    )
+
+    response = await dispatcher.dispatch(request)
+
+    assert response.request_id == "req-1"
+    assert response.error is None
+    create_call = session_module.create_customer_message.await_args.kwargs
+    assert create_call["moderation"] == Moderation.PARANOID
 
 
 async def test_that_dispatcher_returns_error_for_unknown_method() -> None:

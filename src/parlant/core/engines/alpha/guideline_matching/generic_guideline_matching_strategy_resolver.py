@@ -15,6 +15,9 @@
 from typing_extensions import override
 
 
+from parlant.core.engines.alpha.guideline_matching.custom_guideline_matching_strategy import (
+    CustomGuidelineMatchingStrategy,
+)
 from parlant.core.engines.alpha.guideline_matching.generic.generic_guideline_matching_strategy import (
     GenericGuidelineMatchingStrategy,
 )
@@ -22,6 +25,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingStrategy,
     GuidelineMatchingStrategyResolver,
 )
+from parlant.core.engines.guideline_matcher_registry import GuidelineMatcherRegistry
 from parlant.core.guidelines import Guideline, GuidelineId
 from parlant.core.loggers import Logger
 from parlant.core.tags import TagId
@@ -31,9 +35,11 @@ class GenericGuidelineMatchingStrategyResolver(GuidelineMatchingStrategyResolver
     def __init__(
         self,
         generic_strategy: GenericGuidelineMatchingStrategy,
+        matcher_registry: GuidelineMatcherRegistry,
         logger: Logger,
     ) -> None:
         self._generic_strategy = generic_strategy
+        self._matcher_registry = matcher_registry
         self._logger = logger
 
         self.guideline_overrides: dict[GuidelineId, GuidelineMatchingStrategy] = {}
@@ -41,6 +47,15 @@ class GenericGuidelineMatchingStrategyResolver(GuidelineMatchingStrategyResolver
 
     @override
     async def resolve(self, guideline: Guideline) -> GuidelineMatchingStrategy:
+        # A code matcher registered via the SDK (engine-agnostic registry) takes
+        # precedence and runs as a custom strategy.
+        if matcher := self._matcher_registry.get(guideline.id):
+            return CustomGuidelineMatchingStrategy(
+                guideline=guideline,
+                matcher=matcher,
+                logger=self._logger,
+            )
+
         if override_strategy := self.guideline_overrides.get(guideline.id):
             return override_strategy
 

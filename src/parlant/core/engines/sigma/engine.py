@@ -24,6 +24,10 @@ from parlant.core.engines.alpha.entity_context import EntityContext
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.engine_context import Interaction
+from parlant.core.engines.guideline_matcher_registry import GuidelineMatcherRegistry
+from parlant.core.engines.sigma.guideline_matching.guideline_function_matcher import (
+    GuidelineFunctionMatcher,
+)
 from parlant.core.engines.sigma.guideline_matching.guideline_recaller import GuidelineRecaller
 from parlant.core.engines.sigma.responder import Responder
 from parlant.core.engines.sigma.response_state import EngineContext, ResponseState
@@ -46,6 +50,8 @@ class SigmaEngine(Engine):
         tracer: Tracer,
         meter: Meter,
         guideline_recaller: GuidelineRecaller,
+        guideline_function_matcher: GuidelineFunctionMatcher,
+        matcher_registry: GuidelineMatcherRegistry,
         responder: Responder,
         task_runner: TaskRunner,
         entity_queries: EntityQueries,
@@ -56,6 +62,8 @@ class SigmaEngine(Engine):
         self._meter = meter
 
         self._guideline_recaller = guideline_recaller
+        self._guideline_function_matcher = guideline_function_matcher
+        self._matcher_registry = matcher_registry
         self._responder = responder
         self._task_runner = task_runner
 
@@ -267,14 +275,30 @@ class SigmaEngine(Engine):
 
     async def _load_guidelines(self, context: EngineContext) -> None:
         # Reuse the usable guidelines already loaded by _load_usable_guidelines.
-        guidelines = await self._guideline_recaller.recall(context, context.state.usable_guidelines)
+        usable_guidelines = context.state.usable_guidelines
 
-        matches = [
+        # Partition by whether a guideline has a code (Python) matcher. Those go
+        # to the function matcher; the rest to the (LLM) recaller. An explicit
+        # matcher is authoritative, so the recaller never even evaluates them.
+        function_attached = [
+            g for g in usable_guidelines if self._matcher_registry.get(g.id) is not None
+        ]
+        recall_candidates = [
+            g for g in usable_guidelines if self._matcher_registry.get(g.id) is None
+        ]
+
+        # Both are independent, so run them concurrently.
+        function_matches, recalled = await safe_gather(
+            self._guideline_function_matcher.match(context, function_attached),
+            self._guideline_recaller.recall(context, recall_candidates),
+        )
+
+        matches = list(function_matches) + [
             GuidelineMatch(
                 guideline=rc.guideline,
                 rationale="This may or may not be relevant right now - use your judgment.",
             )
-            for rc in guidelines.recalled_guidelines
+            for rc in recalled.recalled_guidelines
         ]
 
         # Distinguish between ordinary and tool-enabled guidelines (as the alpha

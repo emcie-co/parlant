@@ -17,6 +17,7 @@ import json
 from typing import Awaitable, Callable, Sequence
 from typing_extensions import override
 
+from parlant.core.engines.alpha.entity_context import EntityContext
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingBatch,
@@ -28,6 +29,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
 from parlant.core.engines.alpha.guideline_matching.guideline_matching_context import (
     GuidelineMatchingContext,
 )
+from parlant.core.engines.engine_context import EngineContext
 from parlant.core.guidelines import Guideline
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -35,17 +37,19 @@ from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 
 DEFAULT_SKIPPED_RATIONALE = "Skipped by custom matcher"
 
+# A code matcher receives the engine-agnostic EngineContext (its concrete state
+# is hidden — EngineContext[Any]) so the same matcher runs under any engine.
+CodeMatcher = Callable[[EngineContext, Guideline], Awaitable[GuidelineMatch | None]]
+
 
 class CustomGuidelineMatchingBatch(GuidelineMatchingBatch):
     def __init__(
         self,
         guideline: Guideline,
-        context: GuidelineMatchingContext,
-        matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch | None]],
+        matcher: CodeMatcher,
         logger: Logger,
     ) -> None:
         self._guideline = guideline
-        self._context = context
         self._matcher = matcher
         self._logger = logger
 
@@ -55,10 +59,18 @@ class CustomGuidelineMatchingBatch(GuidelineMatchingBatch):
 
         match: GuidelineMatch | None = None
 
-        try:
-            match = await self._matcher(self._context, self._guideline)
-        except Exception as e:
-            self._logger.error(f"Error in custom matcher: {e}")
+        # The matcher takes the active EngineContext (set in the engine's
+        # _load_context before matching runs), rather than the engine-specific
+        # GuidelineMatchingContext, so it's engine-agnostic.
+        engine_context = EntityContext.get()
+
+        if engine_context is None:
+            self._logger.error("Custom matcher invoked without an active engine context; skipping")
+        else:
+            try:
+                match = await self._matcher(engine_context, self._guideline)
+            except Exception as e:
+                self._logger.error(f"Error in custom matcher: {e}")
 
         t_end = asyncio.get_event_loop().time()
 
@@ -114,7 +126,7 @@ class CustomGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     def __init__(
         self,
         guideline: Guideline,
-        matcher: Callable[[GuidelineMatchingContext, Guideline], Awaitable[GuidelineMatch | None]],
+        matcher: CodeMatcher,
         logger: Logger,
     ) -> None:
         self._guideline = guideline
@@ -134,7 +146,6 @@ class CustomGuidelineMatchingStrategy(GuidelineMatchingStrategy):
             return [
                 CustomGuidelineMatchingBatch(
                     guideline=self._guideline,
-                    context=context,
                     matcher=self._matcher,
                     logger=self._logger,
                 )

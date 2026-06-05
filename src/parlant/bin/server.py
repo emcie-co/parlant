@@ -117,6 +117,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     ResponseAnalysisBatch,
 )
 from parlant.core.engines.alpha.hooks import EngineHooks
+from parlant.core.engines.guideline_matcher_registry import GuidelineMatcherRegistry
 from parlant.core.engines.alpha.optimization_policy import (
     BasicOptimizationPolicy,
     OptimizationPolicy,
@@ -644,6 +645,7 @@ async def setup_container() -> AsyncIterator[Container]:
     )
 
     _define_singleton_value(c, EngineHooks, EngineHooks())
+    _define_singleton_value(c, GuidelineMatcherRegistry, GuidelineMatcherRegistry())
 
     _define_singleton(c, EventEmitterFactory, EventPublisherFactory)
 

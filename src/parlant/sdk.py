@@ -139,15 +139,7 @@ from parlant.core.engines.alpha.entity_context import EntityContext
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch as _GuidelineMatch,
 )
-from parlant.core.engines.alpha.guideline_matching.guideline_matching_context import (
-    GuidelineMatchingContext as _GuidelineMatchingContext,
-)
-from parlant.core.engines.alpha.guideline_matching.generic_guideline_matching_strategy_resolver import (
-    GenericGuidelineMatchingStrategyResolver,
-)
-from parlant.core.engines.alpha.guideline_matching.custom_guideline_matching_strategy import (
-    CustomGuidelineMatchingStrategy,
-)
+from parlant.core.engines.guideline_matcher_registry import GuidelineMatcherRegistry
 from parlant.core.glossary import GlossaryStore, GlossaryVectorStore, TermId
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
@@ -1166,39 +1158,39 @@ class GuidelineMatchingContext:
         ]
 
     @classmethod
-    async def _from_core(
+    async def _from_engine_context(
         cls,
-        core_ctx: _GuidelineMatchingContext,
+        engine_ctx: EngineContext,
         server: Server,
         container: Container,
     ) -> GuidelineMatchingContext:
-        """Convert a core GuidelineMatchingContext to an SDK GuidelineMatchingContext."""
-        agent = await server.get_agent(id=core_ctx.agent.id)
-        customer = await server.get_customer(id=core_ctx.customer.id)
-        interaction = Interaction(core_ctx.interaction_history)
+        """Build an SDK GuidelineMatchingContext from the engine-agnostic
+        EngineContext, so custom matchers run identically under any engine."""
+        agent = await server.get_agent(id=engine_ctx.agent.id)
+        customer = await server.get_customer(id=engine_ctx.customer.id)
 
         return cls(
             server=server,
             container=container,
             logger=container[Logger],
-            tracer=container[Tracer],
+            tracer=engine_ctx.tracer,
             session=Session(
-                id=core_ctx.session.id,
-                interaction=interaction,
-                metadata=core_ctx.session.metadata,
-                labels=core_ctx.session.labels,
+                id=engine_ctx.session.id,
+                interaction=engine_ctx.interaction,
+                metadata=engine_ctx.session.metadata,
+                labels=engine_ctx.session.labels,
                 customer=customer,
                 agent=agent,
-                mode=core_ctx.session.mode,
-                title=core_ctx.session.title,
+                mode=engine_ctx.session.mode,
+                title=engine_ctx.session.title,
             ),
             agent=agent,
             customer=customer,
             variables={
                 await agent.get_variable(id=var.id): val.data
-                for var, val in core_ctx.context_variables
+                for var, val in engine_ctx.state.context_variables
             },
-            staged_events=core_ctx.staged_events,
+            staged_events=engine_ctx.state.tool_events,
         )
 
 
@@ -4364,12 +4356,15 @@ class Server:
         )
 
         if matcher is not None:
-            # Create a shim that translates between SDK and core types
+            # Register the matcher in the engine-agnostic registry, wrapped in a
+            # shim that translates between the (neutral) EngineContext and the
+            # SDK's GuidelineMatchingContext. Whichever engine runs consumes the
+            # registry — the SDK doesn't depend on any engine's matching internals.
             async def shim_matcher(
-                core_ctx: _GuidelineMatchingContext, core_guideline: _Guideline
+                engine_ctx: EngineContext, core_guideline: _Guideline
             ) -> _GuidelineMatch | None:
-                sdk_ctx = await GuidelineMatchingContext._from_core(
-                    core_ctx=core_ctx,
+                sdk_ctx = await GuidelineMatchingContext._from_engine_context(
+                    engine_ctx=engine_ctx,
                     server=self,
                     container=self.container,
                 )
@@ -4384,15 +4379,7 @@ class Server:
                     else None
                 )
 
-            strategy = CustomGuidelineMatchingStrategy(
-                guideline=guideline,
-                matcher=shim_matcher,
-                logger=self.container[Logger],
-            )
-
-            self.container[GenericGuidelineMatchingStrategyResolver].guideline_overrides[
-                guideline.id
-            ] = strategy
+            self.container[GuidelineMatcherRegistry].register(guideline.id, shim_matcher)
 
         if (
             on_selected is not None

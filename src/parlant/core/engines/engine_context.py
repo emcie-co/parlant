@@ -15,7 +15,9 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Optional, Sequence, cast
+from typing import Any, Generic, Optional, Sequence, cast
+
+from typing_extensions import TypeVar
 
 from parlant.core.agents import Agent
 from parlant.core.async_utils import Stopwatch
@@ -39,6 +41,12 @@ from parlant.core.sessions import (
 from parlant.core.tools import ToolId, ToolResult
 
 
+# Parameterizes EngineContext.state so each engine keeps its own typed
+# ResponseState (EngineContext[MyResponseState]); defaults to Any so a bare
+# EngineContext — e.g. in engine-agnostic hooks/retrievers — exposes state as Any.
+TState = TypeVar("TState", default=Any)
+
+
 @dataclass(frozen=True)
 class IterationState:
     """State of a single iteration in the response process"""
@@ -47,6 +55,7 @@ class IterationState:
     resolved_guidelines: list[GuidelineMatch]
     tool_insights: ToolInsights
     executed_tools: list[ToolId]
+    ruled_out: list[GuidelineMatch] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -130,7 +139,7 @@ class Interaction:
 
 
 @dataclass
-class EngineContext:
+class EngineContext(Generic[TState]):
     """Helper class to access loaded values that are relevant for responding in a particular context"""
 
     info: Context
@@ -160,7 +169,7 @@ class EngineContext:
     interaction: Interaction
     """A snapshot of the interaction history in the loaded session"""
 
-    state: Any
+    state: TState
     """The current state of the response being processed"""
 
     creation: Stopwatch = field(default_factory=Stopwatch.start)
@@ -171,9 +180,12 @@ class EngineContext:
         tool_id: ToolId,
         arguments: dict[str, JSONSerializable],
         result: ToolResult,
+        rationale: str = "",
     ) -> None:
         """Adds a staged tool event to the loaded context"""
-        self.state.tool_events.append(
+        # state is generic (TState); every concrete ResponseState carries
+        # tool_events, but that contract isn't expressible on the bare TypeVar.
+        cast(Any, self.state).tool_events.append(
             EmittedEvent(
                 source=EventSource.SYSTEM,
                 kind=EventKind.TOOL,
@@ -186,7 +198,7 @@ class EngineContext:
                             {
                                 "tool_id": tool_id.to_string(),
                                 "arguments": arguments,
-                                "rationale": "",
+                                "rationale": rationale,
                                 "result": {
                                     "data": result.data,
                                     "metadata": result.metadata,

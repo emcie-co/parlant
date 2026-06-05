@@ -18,7 +18,7 @@ from itertools import chain
 from parlant.core.agents import CompositionMode, Effort, MessageOutputMode
 from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.engines.engine_context import EngineContext
+from parlant.core.engines.sigma.response_state import EngineContext
 from parlant.core.engines.sigma.loop.loop import LoopJob
 from parlant.core.engines.sigma.loop.streaming_loop import StreamingLoop
 from parlant.core.loggers import Logger

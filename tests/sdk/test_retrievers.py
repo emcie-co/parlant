@@ -266,3 +266,63 @@ class Test_that_retriever_guidelines_are_followed_by_agent(SDKTest):
         )
 
         assert "pepsi" in response.lower(), f"Expected 'pepsi' in response but got: {response}"
+
+
+class Test_that_a_custom_retriever_adds_data_to_message_context_with_sigma_engine(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Dummy agent",
+            description="Dummy agent",
+            engine="sigma",
+            output_mode=p.OutputMode.STREAM,
+            composition_mode=p.CompositionMode.FLUID,
+        )
+
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            assert ctx.interaction.last_customer_message is not None
+            assert ctx.interaction.last_customer_message.content == "What is an orange eggplant?"
+            return p.RetrieverResult(data="An orange eggplant is actually a special type of tomato")
+
+        await self.agent.attach_retriever(custom_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="What is an orange eggplant?",
+            recipient=self.agent,
+        )
+
+        assert await nlp_test(
+            context=response,
+            condition="It says that an orange eggplant is a type of tomato",
+        )
+
+
+class Test_that_a_guideline_attached_retriever_runs_with_sigma_engine(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Dummy agent",
+            description="Dummy agent",
+            engine="sigma",
+            output_mode=p.OutputMode.STREAM,
+            composition_mode=p.CompositionMode.FLUID,
+        )
+
+        self.observation = await self.agent.create_observation(
+            condition="the customer asks about Chongas",
+        )
+
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            return p.RetrieverResult(data="Chongas are a tropical island fruit")
+
+        await self.observation.attach_retriever(custom_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="What are chongas?",
+            recipient=self.agent,
+        )
+
+        assert await nlp_test(
+            context=response,
+            condition="It says chongas are a fruit",
+        )

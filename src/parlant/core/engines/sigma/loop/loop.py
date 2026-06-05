@@ -16,8 +16,9 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 
+from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
-from parlant.core.engines.engine_context import EngineContext
+from parlant.core.engines.sigma.response_state import EngineContext
 from parlant.core.engines.sigma.tool_runner import ToolRunner
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
@@ -69,6 +70,7 @@ class Loop(ABC):
         optimization_policy: OptimizationPolicy,
         react: ReactGenerator,
         tool_runner: ToolRunner,
+        hooks: EngineHooks,
     ) -> None:
         self._logger = logger
         self._tracer = tracer
@@ -76,6 +78,7 @@ class Loop(ABC):
         self._optimization_policy = optimization_policy
         self._react = react
         self._tool_runner = tool_runner
+        self._hooks = hooks
 
     @abstractmethod
     async def prefill(self, job: LoopJob) -> Usage:

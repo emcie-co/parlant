@@ -23,7 +23,7 @@ from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
-from parlant.core.engines.engine_context import EngineContext
+from parlant.core.engines.sigma.response_state import EngineContext
 from parlant.core.glossary import Term
 from parlant.core.guidelines import Guideline, GuidelineContent
 from parlant.core.loggers import Logger

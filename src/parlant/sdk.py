@@ -130,7 +130,7 @@ from parlant.core.engines.types import (
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder, PromptSection
 from parlant.core.engines.alpha.hooks import EngineHook, EngineHookResult, EngineHooks
-from parlant.core.engines.alpha.engine_context import (
+from parlant.core.engines.engine_context import (
     EngineContext,
     Interaction,
     InteractionMessage,

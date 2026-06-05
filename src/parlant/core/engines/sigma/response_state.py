@@ -13,13 +13,14 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Optional, TypeAlias
 
 from parlant.core.capabilities import Capability
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
+from parlant.core.engines.engine_context import EngineContext as _EngineContext
 from parlant.core.glossary import Term
 from parlant.core.guidelines import Guideline
 from parlant.core.journeys import Journey, JourneyId
@@ -41,7 +42,9 @@ class IterationState:
 class ResponseState:
     ordinary_guideline_matches: list[GuidelineMatch] = field(default_factory=list)
     tool_enabled_guideline_matches: dict[GuidelineMatch, list[ToolId]] = field(default_factory=dict)
-    tools: list[Tool] = field(default_factory=list)  # tools the matched guidelines enabled (per turn)
+    tools: list[Tool] = field(
+        default_factory=list
+    )  # tools the matched guidelines enabled (per turn)
     relevant_tools: list[Tool] = field(default_factory=list)  # query-ranked, scored desc
     available_tools: list[Tool] = field(default_factory=list)  # matched + relevant, capped, by name
     tool_ids_by_name: dict[str, ToolId] = field(default_factory=dict)  # to run a tool by its name
@@ -61,3 +64,19 @@ class ResponseState:
     usable_guidelines: list[Guideline] = field(default_factory=list)
     additional_canned_response_fields: dict[str, Any] = field(default_factory=dict)
     iterations: list[IterationState] = field(default_factory=list)
+
+    @property
+    def ordinary_guidelines(self) -> list[Guideline]:
+        return [gp.guideline for gp in self.ordinary_guideline_matches]
+
+    @property
+    def tool_enabled_guidelines(self) -> list[Guideline]:
+        return [gp.guideline for gp in self.tool_enabled_guideline_matches.keys()]
+
+    @property
+    def guidelines(self) -> list[Guideline]:
+        return self.ordinary_guidelines + self.tool_enabled_guidelines
+
+
+# The sigma engine sees its own ResponseState typed through context.state.
+EngineContext: TypeAlias = _EngineContext[ResponseState]

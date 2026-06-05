@@ -16,7 +16,7 @@ from collections.abc import Mapping
 import json
 
 from parlant.core.common import JSONSerializable
-from parlant.core.engines.engine_context import EngineContext
+from parlant.core.engines.sigma.response_state import EngineContext
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.loggers import Logger
 from parlant.core.tools import ToolContext, ToolId, ToolResult

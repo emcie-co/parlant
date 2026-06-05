@@ -22,10 +22,11 @@ from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.emissions import EventEmitter
 from parlant.core.engines.alpha.entity_context import EntityContext
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
-from parlant.core.engines.engine_context import EngineContext, Interaction
+from parlant.core.engines.alpha.hooks import EngineHooks
+from parlant.core.engines.engine_context import Interaction
 from parlant.core.engines.sigma.guideline_matching.guideline_recaller import GuidelineRecaller
 from parlant.core.engines.sigma.responder import Responder
-from parlant.core.engines.sigma.response_state import ResponseState
+from parlant.core.engines.sigma.response_state import EngineContext, ResponseState
 from parlant.core.engines.sigma.task_runner import TaskRunner
 from parlant.core.engines.types import Context, Engine, UtteranceRequest
 from parlant.core.entity_cq import EntityQueries
@@ -48,6 +49,7 @@ class SigmaEngine(Engine):
         responder: Responder,
         task_runner: TaskRunner,
         entity_queries: EntityQueries,
+        hooks: EngineHooks,
     ) -> None:
         self._logger = logger
         self._tracer = tracer
@@ -58,6 +60,7 @@ class SigmaEngine(Engine):
         self._task_runner = task_runner
 
         self._entity_queries = entity_queries
+        self._hooks = hooks
 
     @override
     async def initialize(
@@ -90,13 +93,32 @@ class SigmaEngine(Engine):
         context: Context,
         event_emitter: EventEmitter,
     ) -> bool:
+        # Load the context up front so the error hook (and the lifecycle hooks
+        # below) always have it, mirroring the alpha engine.
+        engine_context = await self._load_context(context, event_emitter)
+
         try:
-            engine_context = await self._load_context(context, event_emitter)
+            if not await self._hooks.call_on_acknowledging(engine_context):
+                return False  # Hook requested to bail out
 
             await event_emitter.emit_status_event(
                 trace_id=self._tracer.trace_id,
-                data=StatusEventData(status="processing", message="Checking policies"),
+                data=StatusEventData(status="acknowledged"),
             )
+
+            if not await self._hooks.call_on_acknowledged(engine_context):
+                return False  # Hook requested to bail out
+
+            await event_emitter.emit_status_event(
+                trace_id=self._tracer.trace_id,
+                data=StatusEventData(status="processing", message="Thinking"),
+            )
+
+            # Fire on_preparing before the (latency-heavy) guideline/tool loading
+            # so preparation-time hooks — e.g. global retrievers — start fetching
+            # in parallel and have their results ready by message generation.
+            if not await self._hooks.call_on_preparing(engine_context):
+                return False  # Hook requested to bail out
 
             await self._load_usable_guidelines(engine_context)
 
@@ -114,10 +136,11 @@ class SigmaEngine(Engine):
                 f"Error processing context: {e}\n\n{''.join(traceback.format_exception(type(e), e, e.__traceback__))}"
             )
 
-            await event_emitter.emit_status_event(
-                trace_id=self._tracer.trace_id,
-                data=StatusEventData(status="error"),
-            )
+            if await self._hooks.call_on_error(engine_context, e):
+                await event_emitter.emit_status_event(
+                    trace_id=self._tracer.trace_id,
+                    data=StatusEventData(status="error"),
+                )
 
             return False
 
@@ -163,8 +186,7 @@ class SigmaEngine(Engine):
         )
 
         # Set in context for access by hooks and other components
-        # FIXME: remove type ignore
-        EntityContext.set(result)  # type: ignore
+        EntityContext.set(result)
 
         return result
 

@@ -18,9 +18,10 @@ from dataclasses import dataclass, field
 from io import StringIO
 from typing import cast
 
+from parlant.core.async_utils import safe_gather
 from parlant.core.emissions import MessageEventHandle, StatusEventHandle
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
-from parlant.core.engines.engine_context import EngineContext, IterationState
+from parlant.core.engines.sigma.response_state import EngineContext, IterationState
 from parlant.core.engines.sigma.loop.loop import Loop, LoopJob, LoopResult
 from parlant.core.nlp.common import ModelSize
 from parlant.core.nlp.react import (
@@ -90,6 +91,12 @@ class StreamingLoop(Loop):
         return usage
 
     async def run(self, job: LoopJob) -> LoopResult:
+        # Give hooks (e.g. retrievers) a chance to stage tool events before we
+        # build the history — _build_history folds context.state.tool_events in.
+        if not await self._hooks.call_on_generating_messages(job.context):
+            # A hook requested that we not proceed with generating a response.
+            return LoopResult(job=job, steps=[])
+
         state = _LoopState(history=await self._build_history(job))
 
         while not job.context.state.prepared_to_respond:
@@ -108,6 +115,7 @@ class StreamingLoop(Loop):
             job.context.state.iterations.append(
                 IterationState(
                     matched_guidelines=[],
+                    ruled_out=[],
                     resolved_guidelines=[],
                     tool_insights=ToolInsights(evaluations={}, missing_data={}),
                     executed_tools=[],
@@ -123,6 +131,8 @@ class StreamingLoop(Loop):
             trace_id=job.context.tracer.trace_id,
             data=StatusEventData(status="ready", data={"stage": "completed"}),
         )
+
+        await self._hooks.call_on_messages_emitted(job.context)
 
         return LoopResult(job=job, steps=state.steps)
 
@@ -233,7 +243,7 @@ class StreamingLoop(Loop):
         self, context: EngineContext, state: _LoopState, tool_calls: Sequence[ToolCallPart]
     ) -> None:
         # Run all of the step's tool calls concurrently; results keep call order.
-        parts = await asyncio.gather(
+        parts = await safe_gather(
             *(self._run_tool_call(context, tool_call) for tool_call in tool_calls)
         )
 
@@ -260,6 +270,7 @@ class StreamingLoop(Loop):
             )
 
         result = await self._tool_runner.run_tool(context, tool_id, tool_call.args)
+
         return ToolResultPart(
             call_id=tool_call.id,
             name=tool_call.name,
@@ -323,8 +334,37 @@ class StreamingLoop(Loop):
                 state.message_chunks = []
                 state.message_handle = None
 
+                # A message was produced on this step's completion (it was
+                # already streamed/emitted above).
+                await self._hooks.call_on_message_generated(context, result.message.text)
+
     def _get_model_size(self, context: EngineContext, state: _LoopState) -> ModelSize:
         return ModelSize.MEDIUM
+
+    def _tool_event_messages(self, data: ToolEventData, cache_key: str) -> list[Message]:
+        messages: list[Message] = []
+
+        call_id = 0
+        for call in data["tool_calls"]:
+            call_id += 1
+            is_error = "error_details" in call.get("result", {}).get("metadata", {})
+
+            messages.append(
+                Message(
+                    role=Role.TOOL,
+                    cache_key=cache_key,
+                    parts=[
+                        ToolResultPart(
+                            call_id=str(call_id),
+                            name=call["tool_id"],
+                            content=call["result"].get("data", {}),
+                            is_error=is_error,
+                        )
+                    ],
+                )
+            )
+
+        return messages
 
     async def _build_history(
         self,
@@ -385,26 +425,9 @@ class StreamingLoop(Loop):
                     )
                 )
             elif event.kind == EventKind.TOOL and event.source == EventSource.SYSTEM:
-                call_id = 0
-
-                for call in cast(ToolEventData, event.data)["tool_calls"]:
-                    call_id += 1
-                    is_error = "error_details" in call.get("result", {}).get("metadata", {})
-
-                    history.append(
-                        Message(
-                            role=Role.TOOL,
-                            cache_key=cache_key,
-                            parts=[
-                                ToolResultPart(
-                                    call_id=str(call_id),
-                                    name=call["tool_id"],
-                                    content=call["result"].get("data", {}),
-                                    is_error=is_error,
-                                )
-                            ],
-                        )
-                    )
+                history.extend(
+                    self._tool_event_messages(cast(ToolEventData, event.data), cache_key)
+                )
 
         # Providers (e.g. Gemini, Anthropic) require at least one non-system
         # turn. When the agent speaks first — a greeting before any customer
@@ -419,21 +442,38 @@ class StreamingLoop(Loop):
                 )
             )
 
+        # Tool events staged for this turn (e.g. retriever results emitted during
+        # the on_generating_messages hook) aren't in the interaction history yet,
+        # so fold them in here so the model sees the retrieved context.
+        for tool_event in job.context.state.tool_events:
+            history.extend(
+                self._tool_event_messages(cast(ToolEventData, tool_event.data), cache_key)
+            )
+
         if include_turn_instructions and job.turn_instructions:
             turn_instructions = await job.turn_instructions(job.context)
 
-            history.append(
-                Message(
-                    role=Role.SYSTEM,
-                    cache_key=cache_key,
-                    parts=[
-                        TextPart(
-                            text=f"""\
-[Instructions and notes you must respect and hold to right now in the conversation!]:
+            instructions_message = Message(
+                role=Role.SYSTEM,
+                cache_key=cache_key,
+                parts=[
+                    TextPart(
+                        text=f"""\
+[The following is context about the current state of the conversation — the guidelines, glossary, and tools relevant to it. Treat it as background that informs your next reply; it is NOT itself a message addressed to you, so never respond to it, acknowledge it, or refer to it.]:
 {turn_instructions}"""
-                        )
-                    ],
-                )
+                    )
+                ],
             )
+
+            # Place the instructions immediately BEFORE the last customer message
+            # rather than at the very end. Ending the prompt on an imperative note
+            # makes the model treat it as the turn to answer — it paraphrases or
+            # echoes the instructions back instead of replying. Keeping the
+            # customer's message last keeps the model answering the customer.
+            last_customer_index = next(
+                (i for i in range(len(history) - 1, -1, -1) if history[i].role == Role.USER),
+                len(history),
+            )
+            history.insert(last_customer_index, instructions_message)
 
         return history

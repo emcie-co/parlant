@@ -42,11 +42,12 @@ class IterationState:
 class ResponseState:
     ordinary_guideline_matches: list[GuidelineMatch] = field(default_factory=list)
     tool_enabled_guideline_matches: dict[GuidelineMatch, list[ToolId]] = field(default_factory=dict)
-    tools: list[Tool] = field(
-        default_factory=list
-    )  # tools the matched guidelines enabled (per turn)
-    relevant_tools: list[Tool] = field(default_factory=list)  # query-ranked, scored desc
-    available_tools: list[Tool] = field(default_factory=list)  # matched + relevant, capped, by name
+    # tools the matched guidelines enabled this turn (described in the prompt)
+    matched_tools: list[Tool] = field(default_factory=list)
+    # all the agent's candidate tools, ranked by relevance to the conversation
+    agent_tool_pool: list[Tool] = field(default_factory=list)
+    # final catalog offered to the model (matched_tools ∪ top of the pool, capped, by name)
+    available_tools: list[Tool] = field(default_factory=list)
     tool_ids_by_name: dict[str, ToolId] = field(default_factory=dict)  # to run a tool by its name
 
     # TODO: Remove what isn't needed

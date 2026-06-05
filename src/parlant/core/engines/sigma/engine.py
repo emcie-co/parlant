@@ -88,7 +88,7 @@ class SigmaEngine(Engine):
         # No conversation yet, so there are no matched tools — the available set
         # is just the tools most relevant to the agent description.
         await self._load_usable_guidelines(engine_context)
-        await self._load_relevant_tools(engine_context)
+        await self._load_agent_tool_pool(engine_context)
         self._select_available_tools(engine_context)
 
         # TODO: This should prepare EITHER the responder OR the task runner,
@@ -211,7 +211,7 @@ class SigmaEngine(Engine):
         # independent, so run them in parallel to hide the added latency.
         await safe_gather(
             self._load_guidelines(engine_context),
-            self._load_relevant_tools(engine_context),
+            self._load_agent_tool_pool(engine_context),
         )
 
         self._select_available_tools(engine_context)
@@ -228,7 +228,7 @@ class SigmaEngine(Engine):
             if association.guideline_id in guideline_ids
         }
 
-    async def _load_relevant_tools(self, context: EngineContext) -> None:
+    async def _load_agent_tool_pool(self, context: EngineContext) -> None:
         # Rank the agent's candidate tools against the agent description + the
         # conversation, scoped per service. Each service ranks only its own tools;
         # we merge the scored results across services.
@@ -238,7 +238,7 @@ class SigmaEngine(Engine):
         context.state.tool_ids_by_name = {tid.tool_name: tid for tid in candidate_ids}
 
         if not candidate_ids:
-            context.state.relevant_tools = []
+            context.state.agent_tool_pool = []
             return
 
         query = self._build_tool_query(context)
@@ -258,14 +258,14 @@ class SigmaEngine(Engine):
                 self._logger.warning(f"Failed to rank tools for service {service_name}: {e}")
 
         results.sort(key=lambda r: r.score, reverse=True)
-        context.state.relevant_tools = [r.tool for r in results]
+        context.state.agent_tool_pool = [r.tool for r in results]
 
     def _select_available_tools(self, context: EngineContext) -> None:
         # Matched-turn tools are always included; fill up to _MAX_AVAILABLE_TOOLS
         # with the most relevant general tools.
-        chosen: list[Tool] = list(context.state.tools)
+        chosen: list[Tool] = list(context.state.matched_tools)
         seen = {tool.name for tool in chosen}
-        for tool in context.state.relevant_tools:
+        for tool in context.state.agent_tool_pool:
             if len(chosen) >= self._MAX_AVAILABLE_TOOLS:
                 break
             if tool.name not in seen:
@@ -323,7 +323,7 @@ class SigmaEngine(Engine):
                 for tool_id in tool_ids
             )
         )
-        context.state.tools = await self._resolve_tool_ids(matched_tool_ids)
+        context.state.matched_tools = await self._resolve_tool_ids(matched_tool_ids)
 
     async def _find_tool_enabled_guideline_matches(
         self,

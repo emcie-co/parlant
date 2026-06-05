@@ -16,6 +16,7 @@ import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from io import StringIO
+from itertools import chain
 from typing import cast
 
 from parlant.core.async_utils import safe_gather
@@ -127,6 +128,8 @@ class StreamingLoop(Loop):
             if len(job.context.state.iterations) == job.context.agent.max_engine_iterations:
                 # TODO: We need to force a message here in some way...
                 # Maybe we can control max turns in the generator itself?
+                # Maybe we should just add to the prompt that we've failed to
+                # converge to a desired outcome and are now stopping.
                 job.context.state.prepared_to_respond = True
 
         await job.context.session_event_emitter.emit_status_event(
@@ -284,7 +287,7 @@ class StreamingLoop(Loop):
                 )
 
         # Emit transient results into the transient response context
-        await context.response_event_emitter.emit_tool_event(
+        transient_tool_event = await context.response_event_emitter.emit_tool_event(
             trace_id=context.tracer.trace_id,
             data=ToolEventData(
                 tool_calls=[
@@ -310,7 +313,7 @@ class StreamingLoop(Loop):
         )
 
         # Emit persisted results into the session response context
-        await context.session_event_emitter.emit_tool_event(
+        persisted_tool_event = await context.session_event_emitter.emit_tool_event(
             trace_id=context.tracer.trace_id,
             data=ToolEventData(
                 tool_calls=[
@@ -335,7 +338,10 @@ class StreamingLoop(Loop):
             ),
         )
 
-        # Finally, emit all the step parts into the react state history
+        context.state.tool_events.append(transient_tool_event)
+        context.state.tool_events.append(persisted_tool_event)
+
+        # Finally, append all the react step parts
         state.history.append(
             Message(
                 role=Role.TOOL,

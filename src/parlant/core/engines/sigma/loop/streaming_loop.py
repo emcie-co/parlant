@@ -46,8 +46,10 @@ from parlant.core.sessions import (
     MessageEventData,
     Participant,
     StatusEventData,
+    ToolCall,
     ToolEventData,
 )
+from parlant.core.tools import ToolResult
 
 
 @dataclass
@@ -240,43 +242,118 @@ class StreamingLoop(Loop):
                 state.in_the_middle_of_running_tools = False
 
     async def _run_tool_calls(
-        self, context: EngineContext, state: _LoopState, tool_calls: Sequence[ToolCallPart]
+        self,
+        context: EngineContext,
+        state: _LoopState,
+        tool_calls: Sequence[ToolCallPart],
     ) -> None:
         # Run all of the step's tool calls concurrently; results keep call order.
-        parts = await safe_gather(
+        results: tuple[ToolResult | None] = await safe_gather(
             *(self._run_tool_call(context, tool_call) for tool_call in tool_calls)
         )
 
+        calls_and_results = list(zip(tool_calls, results))
+
+        step_parts: list[ToolResultPart] = []
+        transient_call_ids: list[str] = []
+        persisted_call_ids: list[str] = []
+
+        for tool_call, result in calls_and_results:
+            if result is not None:
+                if result.control.get("lifespan", "session") == "session":
+                    persisted_call_ids.append(tool_call.id)
+                else:
+                    transient_call_ids.append(tool_call.id)
+
+                step_parts.append(
+                    ToolResultPart(
+                        call_id=tool_call.id,
+                        name=tool_call.name,
+                        content=result.data,
+                        is_error="error_details" in result.metadata,
+                    )
+                )
+            else:
+                step_parts.append(
+                    ToolResultPart(
+                        call_id=tool_call.id,
+                        name=tool_call.name,
+                        content=f"Unknown tool: {tool_call.name}",
+                        is_error=True,
+                    )
+                )
+
+        # Emit transient results into the transient response context
+        await context.response_event_emitter.emit_tool_event(
+            trace_id=context.tracer.trace_id,
+            data=ToolEventData(
+                tool_calls=[
+                    ToolCall(
+                        tool_id=tool_call.name,
+                        arguments=tool_call.args,
+                        result={
+                            "data": result.data,
+                            "metadata": result.metadata,
+                            "control": result.control,
+                            "guidelines": result.guidelines,
+                            "canned_responses": result.canned_responses,
+                            "canned_response_fields": result.canned_response_fields,
+                        },
+                        rationale=state.reasoning_buffer.getvalue()
+                        if state.reasoning_buffer
+                        else "Not provided.",
+                    )
+                    for tool_call, result in calls_and_results
+                    if result and tool_call.id in transient_call_ids
+                ]
+            ),
+        )
+
+        # Emit persisted results into the session response context
+        await context.session_event_emitter.emit_tool_event(
+            trace_id=context.tracer.trace_id,
+            data=ToolEventData(
+                tool_calls=[
+                    ToolCall(
+                        tool_id=tool_call.name,
+                        arguments=tool_call.args,
+                        result={
+                            "data": result.data,
+                            "metadata": result.metadata,
+                            "control": result.control,
+                            "guidelines": result.guidelines,
+                            "canned_responses": result.canned_responses,
+                            "canned_response_fields": result.canned_response_fields,
+                        },
+                        rationale=state.reasoning_buffer.getvalue()
+                        if state.reasoning_buffer
+                        else "Not provided.",
+                    )
+                    for tool_call, result in calls_and_results
+                    if result and tool_call.id in persisted_call_ids
+                ]
+            ),
+        )
+
+        # Finally, emit all the step parts into the react state history
         state.history.append(
             Message(
                 role=Role.TOOL,
                 cache_key=context.session.id,
-                parts=list(parts),
+                parts=list(step_parts),
             )
         )
 
     async def _run_tool_call(
         self, context: EngineContext, tool_call: ToolCallPart
-    ) -> ToolResultPart:
+    ) -> ToolResult | None:
         tool_id = context.state.tool_ids_by_name.get(tool_call.name)
 
         if tool_id is None:
             self._logger.warning(f"Model requested an unknown tool: {tool_call.name}")
-            return ToolResultPart(
-                call_id=tool_call.id,
-                name=tool_call.name,
-                content=f"Unknown tool: {tool_call.name}",
-                is_error=True,
-            )
+            return None
 
-        result = await self._tool_runner.run_tool(context, tool_id, tool_call.args)
-
-        return ToolResultPart(
-            call_id=tool_call.id,
-            name=tool_call.name,
-            content=result.data,
-            is_error="error_details" in result.metadata,
-        )
+        return await self._tool_runner.run_tool(context, tool_id, tool_call.args)
 
     async def _update_message(self, context: EngineContext, state: _LoopState) -> None:
         match state.current_event:

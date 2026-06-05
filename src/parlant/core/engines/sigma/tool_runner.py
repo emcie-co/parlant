@@ -19,6 +19,7 @@ from parlant.core.common import JSONSerializable
 from parlant.core.engines.sigma.response_state import EngineContext
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.loggers import Logger
+from parlant.core.sessions import ToolEventData
 from parlant.core.tools import ToolContext, ToolId, ToolResult
 
 
@@ -47,8 +48,12 @@ class ToolRunner:
             self._logger.debug(
                 f"Running tool {tool.to_string()} with arguments {json.dumps(arguments, indent=2)}"
             )
+
             service = await self._entity_queries.read_tool_service(tool.service_name)
-            return await service.call_tool(tool.tool_name, tool_context, arguments)
+
+            result = await service.call_tool(tool.tool_name, tool_context, arguments)
+
+            return result
         except Exception as e:
             self._logger.error(f"Tool call failed ({tool.to_string()}): {e}")
             return ToolResult(data="Tool call error", metadata={"error_details": str(e)})

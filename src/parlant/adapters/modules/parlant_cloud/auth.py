@@ -52,14 +52,16 @@ class ParlantCloudAuthorizationPolicy(AuthorizationPolicy):
         token = headers.get(PROJECT_TOKEN_HEADER, "")
         return bool(token) and hmac.compare_digest(token, self._project_token)
 
+    def _is_localhost(self, headers: Mapping[str, str]) -> bool:
+        host = headers.get("host", "")
+        return host.startswith("localhost") or host.startswith("127.0.0.1")
+
     @override
     async def check_permission(self, request: Request, operation: Operation) -> bool:
         if self._is_trusted(request.headers):
             return True
-        if operation == Operation.ACCESS_INTEGRATED_UI:
-            host = request.headers.get("host", "")
-            if host.startswith("localhost") or host.startswith("127.0.0.1"):
-                return True
+        if operation == Operation.ACCESS_INTEGRATED_UI and self._is_localhost(request.headers):
+            return True
         return await self._production_policy.check_permission(request, operation)
 
     @override
@@ -75,5 +77,7 @@ class ParlantCloudAuthorizationPolicy(AuthorizationPolicy):
         operation: Operation,
     ) -> bool:
         if self._is_trusted(websocket.headers):
+            return True
+        if operation == Operation.STREAM_LOGS and self._is_localhost(websocket.headers):
             return True
         return await self._production_policy.check_websocket_permission(websocket, operation)

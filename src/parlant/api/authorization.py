@@ -14,7 +14,7 @@
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, Mapping
 
 from typing_extensions import override
 from fastapi import FastAPI, Request, WebSocket
@@ -137,11 +137,28 @@ class AuthorizationException(Exception):
         message_prefix: str = "Authorization failed",
     ) -> None:
         super().__init__(
-            f"{message_prefix}: OPERATION={operation.value if operation else 'GENERIC'}, HEADERS={request.headers}"
+            f"{message_prefix}: OPERATION={operation.value if operation else 'GENERIC'}, HEADERS={_safe_headers(request.headers)}"
         )
 
         self.request = request
         self.operation = operation
+
+
+def _safe_headers(headers: Mapping[str, str]) -> dict[str, str]:
+    return {
+        name: "<redacted>" if _is_sensitive_header(name) else value
+        for name, value in headers.items()
+    }
+
+
+def _is_sensitive_header(name: str) -> bool:
+    lower_name = name.lower()
+    return (
+        lower_name in {"authorization", "cookie", "set-cookie"}
+        or "token" in lower_name
+        or "secret" in lower_name
+        or "key" in lower_name
+    )
 
 
 class RateLimitExceededException(AuthorizationException):

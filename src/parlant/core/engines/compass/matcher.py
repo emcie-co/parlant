@@ -15,6 +15,7 @@
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from itertools import chain
+import traceback
 from typing import cast
 
 from parlant.core.async_utils import safe_gather
@@ -270,7 +271,10 @@ class Matcher:
                     await service.find_relevant_tools(query, names, self._MAX_AVAILABLE_TOOLS)
                 )
             except Exception as e:
-                self._logger.warning(f"Failed to rank tools for service {service_name}: {e}")
+                self._logger.warning(
+                    f"Failed to rank tools for service {service_name}: {e!r}\n"
+                    f"{traceback.format_exc()}"
+                )
 
         results.sort(key=lambda r: r.score, reverse=True)
         context.state.agent_tool_pool = [r.tool for r in results]

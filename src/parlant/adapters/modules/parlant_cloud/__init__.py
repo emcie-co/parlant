@@ -18,10 +18,12 @@ Auto-loaded by the Server when PARLANT_CLOUD_PROJECT_TOKEN is set.
 Validates the project token, resolves project context, and sets up
 ParlantCloudTracer / ParlantCloudLogger / ParlantCloudMeter.
 
-Tunnel and telemetry derive their base URL from:
-  PARLANT_CLOUD_BASE_URL  (preferred)
-  PARLANT_CLOUD_OTEL_URL  (backward compat, same meaning)
-  default: https://api.parlant.cloud
+Tunnel URL:
+  PARLANT_CLOUD_TUNNEL_URL, or PARLANT_CLOUD_BASE_URL converted to WebSocket /cloud.
+
+Logs, traces, and metrics collector URL:
+  PARLANT_CLOUD_CLOUD_OTEL_URL, then PARLANT_CLOUD_OTEL_URL for compatibility,
+  then PARLANT_CLOUD_BASE_URL.
 
 PARLANT_CLOUD_API_KEY and PARLANT_CLOUD_API_URL are used only by the NLP
 service adapter.

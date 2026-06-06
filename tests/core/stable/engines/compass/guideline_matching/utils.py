@@ -36,6 +36,7 @@ from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.engine_context import EngineContext, Interaction
 from parlant.core.engines.compass.guideline_matching.guideline_ranker import GuidelineRanker
+from parlant.core.engines.compass.response_state import ResponseState
 from parlant.core.engines.types import Context
 from parlant.core.glossary import Term, TermId
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
@@ -179,15 +180,14 @@ async def base_test_that_guidelines_are_ranked_correctly(
     agent = create_agent(description=agent_description) if agent_description else None
 
     context = create_engine_context(conversation=conversation, agent=agent)
-
-    result = await ranker.rank(
-        context,
-        list(guidelines_by_name.values()),
-        context_variables=context_variables,
-        terms=terms,
-        capabilities=capabilities,
-        staged_events=staged_events,
+    context.state = ResponseState(
+        context_variables=list(context_variables),
+        glossary_terms=set(terms),
+        capabilities=list(capabilities),
+        tool_events=list(staged_events),
     )
+
+    result = await ranker.rank(context, list(guidelines_by_name.values()))
 
     relevance_by_id = {
         ranked.guideline.id: ranked.is_relevant for ranked in result.ranked_guidelines

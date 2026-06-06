@@ -18,13 +18,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional, Sequence
 
-from parlant.core.capabilities import Capability
 from parlant.core.common import DefaultBaseModel, JSONSerializable
-from parlant.core.context_variables import ContextVariable, ContextVariableValue
-from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
 from parlant.core.engines.compass.response_state import EngineContext
-from parlant.core.glossary import Term
 from parlant.core.guidelines import Guideline, GuidelineContent
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
@@ -83,27 +79,12 @@ class GuidelineRanker:
         self,
         context: EngineContext,
         guidelines: Sequence[Guideline],
-        *,
-        context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]] = [],
-        terms: Sequence[Term] = [],
-        capabilities: Sequence[Capability] = [],
-        staged_events: Sequence[EmittedEvent] = [],
     ) -> GuidelineRankingResult:
         if not guidelines:
             return GuidelineRankingResult([])
 
         ranked_guidelines = await asyncio.gather(
-            *(
-                self._rank_guideline(
-                    context,
-                    guideline,
-                    context_variables=context_variables,
-                    terms=terms,
-                    capabilities=capabilities,
-                    staged_events=staged_events,
-                )
-                for guideline in guidelines
-            )
+            *(self._rank_guideline(context, guideline) for guideline in guidelines)
         )
 
         return GuidelineRankingResult(list(ranked_guidelines))
@@ -112,21 +93,8 @@ class GuidelineRanker:
         self,
         context: EngineContext,
         guideline: Guideline,
-        *,
-        context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
-        terms: Sequence[Term],
-        capabilities: Sequence[Capability],
-        staged_events: Sequence[EmittedEvent],
     ) -> RankedGuideline:
-        prompt = self._build_prompt(
-            context,
-            guideline,
-            shots=await self.shots(),
-            context_variables=context_variables,
-            terms=terms,
-            capabilities=capabilities,
-            staged_events=staged_events,
-        )
+        prompt = self._build_prompt(context, guideline, shots=await self.shots())
 
         inference = await self._schematic_generator.generate(prompt=prompt)
 
@@ -200,11 +168,6 @@ class GuidelineRanker:
         context: EngineContext,
         guideline: Guideline,
         shots: Sequence[GuidelineRankingShot],
-        *,
-        context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
-        terms: Sequence[Term],
-        capabilities: Sequence[Capability],
-        staged_events: Sequence[EmittedEvent],
     ) -> PromptBuilder:
         builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
 
@@ -257,12 +220,12 @@ Examples of Guideline Ranking Evaluations:
         )
 
         builder.add_agent_identity(context.agent)
-        builder.add_context_variables(context_variables)
-        builder.add_glossary(terms)
-        builder.add_capabilities_for_guideline_matching(capabilities)
+        builder.add_context_variables(context.state.context_variables)
+        builder.add_glossary(list(context.state.glossary_terms))
+        builder.add_capabilities_for_guideline_matching(context.state.capabilities)
         builder.add_customer_identity(context.customer, context.session)
         builder.add_interaction_history(context.interaction.events)
-        builder.add_staged_tool_events(staged_events)
+        builder.add_staged_tool_events(context.state.tool_events)
 
         builder.add_section(
             name=BuiltInSection.GUIDELINES,

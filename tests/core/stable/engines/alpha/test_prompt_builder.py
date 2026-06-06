@@ -19,7 +19,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.common import interna
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
-from parlant.core.tools import Tool, ToolOverlap
+from parlant.core.tools import Tool, ToolId, ToolOverlap
 
 
 def _tool(name: str, description: str, *, consequential: bool = False) -> Tool:
@@ -96,6 +96,34 @@ def test_that_matched_guidelines_renders_an_empty_state_when_there_are_no_matche
 
     assert "Guideline #" not in prompt
     assert "No special behavioral guidelines" in prompt
+
+
+def test_that_matched_guidelines_list_their_associated_tools() -> None:
+    match = _match("the customer asks about the weather", "tell them the forecast")
+    representations = {match.guideline.id: internal_representation(match.guideline)}
+    tool_enabled = {match: [ToolId(service_name="local", tool_name="get_weather")]}
+
+    prompt = PromptBuilder().add_matched_guidelines([], tool_enabled, representations).build()
+
+    assert "tell them the forecast" in prompt
+    assert "get_weather" in prompt
+    assert "consider using" in prompt.lower()
+
+
+def test_that_matched_low_criticality_guidelines_list_their_associated_tools() -> None:
+    match = _match("the customer greets you", "greet back", criticality=Criticality.LOW)
+    representations = {match.guideline.id: internal_representation(match.guideline)}
+    tool_enabled = {match: [ToolId(service_name="local", tool_name="say_hello")]}
+
+    prompt = (
+        PromptBuilder()
+        .add_matched_low_criticality_guidelines([], tool_enabled, representations)
+        .build()
+    )
+
+    assert "greet back" in prompt
+    assert "say_hello" in prompt
+    assert "consider using" in prompt.lower()
 
 
 # ──────────────── low-criticality instructions vs. list ─────────────────────

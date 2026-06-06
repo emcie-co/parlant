@@ -737,6 +737,13 @@ No special behavioral guidelines are relevant right now, so you don't need to sp
                 if p.rationale:
                     guideline += f"\n      - Rationale: {p.rationale}"
 
+                if tool_ids := tool_enabled.get(p):
+                    tool_names = ", ".join(tool_id.tool_name for tool_id in tool_ids)
+                    guideline += (
+                        "\n      - To carry this out, consider using the following "
+                        f"tool(s): {tool_names}"
+                    )
+
                 if p.guideline.metadata.get("agent_intention_condition"):
                     agent_intention_guidelines.append(guideline)
                 else:
@@ -870,6 +877,11 @@ For this turn, you MAY use the following tools when they genuinely help fulfill 
                 else:
                     guideline = (
                         f" - When always, then {guideline_representations[p.guideline.id].action}"
+                    )
+                if tool_ids := tool_enabled.get(p):
+                    tool_names = ", ".join(tool_id.tool_name for tool_id in tool_ids)
+                    guideline += (
+                        f" (to carry this out, consider using the following tool(s): {tool_names})"
                     )
                 low_criticality_guidelines.append(guideline)
             guideline_list = "\n".join(low_criticality_guidelines)

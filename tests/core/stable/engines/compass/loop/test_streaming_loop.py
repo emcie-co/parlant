@@ -15,15 +15,15 @@
 from typing import Any, cast
 
 from parlant.core.engines.alpha.hooks import EngineHooks
-from parlant.core.engines.sigma.loop.loop import LoopJob
-from parlant.core.engines.sigma.loop.streaming_loop import StreamingLoop
-from parlant.core.engines.sigma.response_state import EngineContext, ResponseState
+from parlant.core.engines.compass.loop.loop import LoopJob
+from parlant.core.engines.compass.loop.streaming_loop import StreamingLoop
+from parlant.core.engines.compass.response_state import EngineContext, ResponseState
 from parlant.core.loggers import StdoutLogger
 from parlant.core.nlp.react import Role
 from parlant.core.sessions import EventSource
 from parlant.core.tracer import LocalTracer
 
-from tests.core.stable.engines.sigma.guideline_matching.utils import create_engine_context
+from tests.core.stable.engines.compass.guideline_matching.utils import create_engine_context
 
 
 def _make_streaming_loop() -> StreamingLoop:

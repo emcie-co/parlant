@@ -21,10 +21,10 @@ from parlant.core.emissions import EventEmitter
 from parlant.core.engines.alpha.entity_context import EntityContext
 from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.engine_context import Interaction
-from parlant.core.engines.sigma.matcher import Matcher
-from parlant.core.engines.sigma.responder import Responder
-from parlant.core.engines.sigma.response_state import EngineContext, ResponseState
-from parlant.core.engines.sigma.task_runner import TaskRunner
+from parlant.core.engines.compass.matcher import Matcher
+from parlant.core.engines.compass.responder import Responder
+from parlant.core.engines.compass.response_state import EngineContext, ResponseState
+from parlant.core.engines.compass.task_runner import TaskRunner
 from parlant.core.engines.types import Context, Engine, UtteranceRequest
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.loggers import Logger
@@ -33,7 +33,7 @@ from parlant.core.sessions import StatusEventData
 from parlant.core.tracer import Tracer
 
 
-class SigmaEngine(Engine):
+class CompassEngine(Engine):
     def __init__(
         self,
         logger: Logger,

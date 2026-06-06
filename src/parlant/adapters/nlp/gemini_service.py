@@ -34,7 +34,7 @@ from pydantic.fields import FieldInfo
 from parlant.core.common import DefaultBaseModel
 from parlant.adapters.nlp.common import record_llm_metrics
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.engines.sigma.guideline_matching.guideline_ranker import GuidelineRankSchema
+from parlant.core.engines.compass.guideline_matching.guideline_ranker import GuidelineRankSchema
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
@@ -1257,7 +1257,7 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
     async def get_schematic_generator(
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> GeminiSchematicGenerator[T]:
-        # The Sigma guideline ranker is a cheap first-pass filter: always serve it
+        # The Compass guideline ranker is a cheap first-pass filter: always serve it
         # from the latest Flash Lite, regardless of any requested model size.
         if t is GuidelineRankSchema:
             return Gemini_3_1_Flash_Lite[t](  # type: ignore

@@ -16,10 +16,10 @@ from lagom import Container
 from pytest import fixture
 
 from parlant.core.guidelines import Guideline, GuidelineStore
-from parlant.core.engines.sigma.guideline_matching.guideline_recaller import GuidelineRecaller
+from parlant.core.engines.compass.guideline_matching.guideline_recaller import GuidelineRecaller
 from parlant.core.sessions import EventSource
 
-from tests.core.stable.engines.sigma.guideline_matching.utils import create_engine_context
+from tests.core.stable.engines.compass.guideline_matching.utils import create_engine_context
 
 
 @fixture

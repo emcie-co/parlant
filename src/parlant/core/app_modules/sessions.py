@@ -230,9 +230,9 @@ class SessionModule:
         # exists, so the first response reads them instead of building them.
         await self._initialize_session(session)
 
-        # TODO: For now, Sigma engine doesn't support dynamic greetings.
+        # TODO: For now, Compass engine doesn't support dynamic greetings.
         # User the utter() method manually after creation to send a greeting, if needed.
-        if allow_greeting and agent.engine != "sigma":
+        if allow_greeting and agent.engine != "compass":
             await self.dispatch_processing_task(session)
 
         return session

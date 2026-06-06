@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Test helpers for the Sigma guideline-matching components.
+"""Test helpers for the Compass guideline-matching components.
 
 Provides hand-built ``EngineContext`` and ``Guideline`` objects so the
 distiller / ranker / recaller can be exercised over a known interaction
@@ -35,7 +35,7 @@ from parlant.core.customers import Customer, CustomerId
 from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.engine_context import EngineContext, Interaction
-from parlant.core.engines.sigma.guideline_matching.guideline_ranker import GuidelineRanker
+from parlant.core.engines.compass.guideline_matching.guideline_ranker import GuidelineRanker
 from parlant.core.engines.types import Context
 from parlant.core.glossary import Term, TermId
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
@@ -217,7 +217,7 @@ def create_agent(name: str = "Test Agent", description: str | None = None) -> Ag
         last_modified_utc=now,
         max_engine_iterations=3,
         tags=[],
-        engine="sigma",
+        engine="compass",
         composition_mode=CompositionMode.FLUID,
         message_output_mode=MessageOutputMode.STREAM,
         effort=Effort.MEDIUM,

@@ -15,10 +15,10 @@
 from lagom import Container
 from pytest import fixture
 
-from parlant.core.engines.sigma.guideline_matching.guideline_ranker import GuidelineRanker
+from parlant.core.engines.compass.guideline_matching.guideline_ranker import GuidelineRanker
 from parlant.core.sessions import EventSource
 
-from tests.core.stable.engines.sigma.guideline_matching.utils import (
+from tests.core.stable.engines.compass.guideline_matching.utils import (
     base_test_that_guidelines_are_ranked_correctly,
 )
 

@@ -17,7 +17,7 @@ from typing import Any, Callable, Mapping, cast
 
 from parlant.core.common import JSONSerializable
 from parlant.core.engines.engine_context import EngineContext
-from parlant.core.engines.sigma.tool_runner import ToolRunner
+from parlant.core.engines.compass.tool_runner import ToolRunner
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.loggers import StdoutLogger
 from parlant.core.tools import ToolContext, ToolId, ToolResult

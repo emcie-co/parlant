@@ -485,12 +485,12 @@ class Test_that_custom_matcher_can_return_no_match(SDKTest):
         assert not await nlp_test(answer, "It mentions a banana")
 
 
-class Test_that_guideline_can_use_custom_matcher_with_sigma_engine(SDKTest):
+class Test_that_guideline_can_use_custom_matcher_with_compass_engine(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Dummy Agent",
             description="Dummy agent",
-            engine="sigma",
+            engine="compass",
             output_mode=p.OutputMode.STREAM,
             composition_mode=p.CompositionMode.FLUID,
         )
@@ -510,12 +510,12 @@ class Test_that_guideline_can_use_custom_matcher_with_sigma_engine(SDKTest):
         assert await nlp_test(answer, "It offers a banana")
 
 
-class Test_that_custom_matcher_can_return_no_match_with_sigma_engine(SDKTest):
+class Test_that_custom_matcher_can_return_no_match_with_compass_engine(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Dummy Agent",
             description="Dummy agent",
-            engine="sigma",
+            engine="compass",
             output_mode=p.OutputMode.STREAM,
             composition_mode=p.CompositionMode.FLUID,
         )
@@ -544,12 +544,12 @@ class Test_that_custom_matcher_can_return_no_match_with_sigma_engine(SDKTest):
         assert not await nlp_test(answer, "It mentions a banana")
 
 
-class Test_that_a_guideline_is_reevaluated_after_its_tool_runs_with_sigma_engine(SDKTest):
+class Test_that_a_guideline_is_reevaluated_after_its_tool_runs_with_compass_engine(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Reevaluation Agent",
             description="A test agent.",
-            engine="sigma",
+            engine="compass",
             output_mode=p.OutputMode.STREAM,
             composition_mode=p.CompositionMode.FLUID,
         )

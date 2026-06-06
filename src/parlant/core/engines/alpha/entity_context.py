@@ -21,7 +21,7 @@ from parlant.core.async_utils import Stopwatch
 from parlant.core.context_variables import ContextVariableId, ContextVariableValue
 from parlant.core.customers import Customer
 
-# Engine-agnostic contextvar: both alpha and sigma store their own
+# Engine-agnostic contextvar: both alpha and compass store their own
 # EngineContext[...] here, so this is the bare EngineContext (== EngineContext[Any]).
 from parlant.core.engines.engine_context import EngineContext, Interaction
 from parlant.core.sessions import Session

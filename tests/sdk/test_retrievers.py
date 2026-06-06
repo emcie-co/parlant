@@ -268,12 +268,12 @@ class Test_that_retriever_guidelines_are_followed_by_agent(SDKTest):
         assert "pepsi" in response.lower(), f"Expected 'pepsi' in response but got: {response}"
 
 
-class Test_that_a_custom_retriever_adds_data_to_message_context_with_sigma_engine(SDKTest):
+class Test_that_a_custom_retriever_adds_data_to_message_context_with_compass_engine(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Dummy agent",
             description="Dummy agent",
-            engine="sigma",
+            engine="compass",
             output_mode=p.OutputMode.STREAM,
             composition_mode=p.CompositionMode.FLUID,
         )
@@ -297,12 +297,12 @@ class Test_that_a_custom_retriever_adds_data_to_message_context_with_sigma_engin
         )
 
 
-class Test_that_a_guideline_attached_retriever_runs_with_sigma_engine(SDKTest):
+class Test_that_a_guideline_attached_retriever_runs_with_compass_engine(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Dummy agent",
             description="Dummy agent",
-            engine="sigma",
+            engine="compass",
             output_mode=p.OutputMode.STREAM,
             composition_mode=p.CompositionMode.FLUID,
         )

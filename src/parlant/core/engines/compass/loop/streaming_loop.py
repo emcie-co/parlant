@@ -21,8 +21,8 @@ from typing import cast
 from parlant.core.async_utils import safe_gather
 from parlant.core.emissions import MessageEventHandle, StatusEventHandle
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
-from parlant.core.engines.sigma.response_state import EngineContext, IterationState
-from parlant.core.engines.sigma.loop.loop import Loop, LoopJob, LoopResult
+from parlant.core.engines.compass.response_state import EngineContext, IterationState
+from parlant.core.engines.compass.loop.loop import Loop, LoopJob, LoopResult
 from parlant.core.nlp.common import ModelSize
 from parlant.core.nlp.react import (
     Message,

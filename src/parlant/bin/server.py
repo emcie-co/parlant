@@ -225,8 +225,8 @@ from parlant.core.sessions import (
 )
 from parlant.core.glossary import GlossaryStore, GlossaryVectorStore
 from parlant.core.engines.alpha.engine import AlphaEngine
-from parlant.core.engines.sigma.engine import SigmaEngine
-from parlant.core.engines.sigma.guideline_matching.guideline_ranker import GuidelineRankSchema
+from parlant.core.engines.compass.engine import CompassEngine
+from parlant.core.engines.compass.guideline_matching.guideline_ranker import GuidelineRankSchema
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
     GuidelineToolAssociationStore,
@@ -713,7 +713,7 @@ async def setup_container() -> AsyncIterator[Container]:
     )
 
     _define_singleton(c, Engine, AlphaEngine)
-    _define_singleton(c, SigmaEngine, SigmaEngine)
+    _define_singleton(c, CompassEngine, CompassEngine)
 
     _define_singleton_value(c, ApplicationContext, ApplicationContext(instance_id=generate_id()))
     _define_singleton(c, EventLoopMonitor, EventLoopMonitor)
@@ -810,7 +810,7 @@ async def initialize_container(
     c[EngineRegistry] = EngineRegistry(
         {
             "alpha": lambda: c[AlphaEngine],
-            "sigma": lambda: c[SigmaEngine],
+            "compass": lambda: c[CompassEngine],
         }
     )
 

@@ -15,7 +15,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from parlant.core.engines.sigma.response_state import EngineContext
+from parlant.core.engines.compass.response_state import EngineContext
 from parlant.core.guidelines import Guideline, GuidelineStore
 from parlant.core.tracer import Tracer
 

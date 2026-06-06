@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from parlant.core.engines.sigma.task_runner.task_runner import Task, TaskResult, TaskRunner
+from parlant.core.engines.compass.task_runner.task_runner import Task, TaskResult, TaskRunner
 
 __all__ = [
     "Task",

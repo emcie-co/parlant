@@ -20,11 +20,11 @@ from typing import cast
 from parlant.core.async_utils import safe_gather
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.guideline_matcher_registry import GuidelineMatcherRegistry
-from parlant.core.engines.sigma.guideline_matching.guideline_function_matcher import (
+from parlant.core.engines.compass.guideline_matching.guideline_function_matcher import (
     GuidelineFunctionMatcher,
 )
-from parlant.core.engines.sigma.guideline_matching.guideline_recaller import GuidelineRecaller
-from parlant.core.engines.sigma.response_state import EngineContext
+from parlant.core.engines.compass.guideline_matching.guideline_recaller import GuidelineRecaller
+from parlant.core.engines.compass.response_state import EngineContext
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.guidelines import Guideline, GuidelineId
 from parlant.core.loggers import Logger

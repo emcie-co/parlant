@@ -4967,7 +4967,7 @@ class Server:
         perceived_performance_policy: PerceivedPerformancePolicy | None = None,
         planner: Planner | None = None,
         preamble_config: PreambleConfiguration | None = None,
-        engine: Literal["alpha", "sigma"] = "alpha",
+        engine: Literal["alpha", "compass"] = "alpha",
         effort: Effort = Effort.MEDIUM,
     ) -> Agent:
         """Creates a new agent with the specified name, description, and composition mode.
@@ -4996,7 +4996,7 @@ class Server:
                 use the default planner (NullPlanner).
             preamble_config: Optional preamble configuration for this agent.
                 Allows customizing the preamble examples and adding additional instructions.
-            engine: Which engine this agent runs on. Defaults to "sigma".
+            engine: Which engine this agent runs on. Defaults to "alpha".
             effort: How much effort the agent invests in processing. Defaults to MEDIUM.
 
         Returns:

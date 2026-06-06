@@ -79,5 +79,5 @@ class ResponseState:
         return self.ordinary_guidelines + self.tool_enabled_guidelines
 
 
-# The sigma engine sees its own ResponseState typed through context.state.
+# The compass engine sees its own ResponseState typed through context.state.
 EngineContext: TypeAlias = _EngineContext[ResponseState]

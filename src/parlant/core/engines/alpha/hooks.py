@@ -30,10 +30,10 @@ class EngineType(Enum):
     engine actually fires (see EngineHooks.SUPPORTED_BY)."""
 
     ALPHA = auto()
-    SIGMA = auto()
+    COMPASS = auto()
 
 
-_ALL = frozenset({EngineType.ALPHA, EngineType.SIGMA})
+_ALL = frozenset({EngineType.ALPHA, EngineType.COMPASS})
 _ALPHA_ONLY = frozenset({EngineType.ALPHA})
 
 
@@ -64,7 +64,7 @@ EngineHook: TypeAlias = Callable[
 @dataclass(frozen=False)
 class EngineHooks:
     # Which engine(s) actually fire each hook. The alpha engine fires the full
-    # set (engine + canned_response_generator); the sigma engine fires only the
+    # set (engine + canned_response_generator); the compass engine fires only the
     # subset below. This is documentary for now — no warning is raised when a
     # hook unsupported by the running engine is registered.
     SUPPORTED_BY: ClassVar[dict[str, frozenset[EngineType]]] = {

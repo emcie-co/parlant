@@ -18,8 +18,8 @@ from dataclasses import dataclass
 
 from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
-from parlant.core.engines.sigma.response_state import EngineContext
-from parlant.core.engines.sigma.tool_runner import ToolRunner
+from parlant.core.engines.compass.response_state import EngineContext
+from parlant.core.engines.compass.tool_runner import ToolRunner
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.common import ModelSize

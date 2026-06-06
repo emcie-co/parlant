@@ -15,10 +15,10 @@
 from lagom import Container
 from pytest import fixture
 
-from parlant.core.engines.sigma.guideline_matching.guideline_distiller import GuidelineDistiller
+from parlant.core.engines.compass.guideline_matching.guideline_distiller import GuidelineDistiller
 from parlant.core.sessions import EventSource
 
-from tests.core.stable.engines.sigma.guideline_matching.utils import (
+from tests.core.stable.engines.compass.guideline_matching.utils import (
     create_engine_context,
     create_guideline,
 )

@@ -303,7 +303,7 @@ def test_that_a_cache_marker_splits_history_into_prefix_and_suffix(logger: Logge
 
 
 def test_that_marking_every_message_keeps_the_live_turn_in_the_suffix(logger: Logger) -> None:
-    # The Sigma loop marks every message with the same cache_key. The final
+    # The Compass loop marks every message with the same cache_key. The final
     # (live) turn must never end up in the cached prefix, or the suffix sent to
     # Gemini would be empty ("contents are required").
     generator = _offline_generator(logger, CacheConfig(enabled=True))

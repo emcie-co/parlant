@@ -20,7 +20,7 @@ from parlant.core.engines.guideline_matcher_registry import (
     GuidelineCodeMatcher,
     GuidelineMatcherRegistry,
 )
-from parlant.core.engines.sigma.response_state import EngineContext
+from parlant.core.engines.compass.response_state import EngineContext
 from parlant.core.guidelines import Guideline
 from parlant.core.loggers import Logger
 from parlant.core.tracer import Tracer
@@ -29,7 +29,7 @@ from parlant.core.tracer import Tracer
 class GuidelineFunctionMatcher:
     """Runs the code (Python) matchers of guidelines that have one registered.
 
-    This is the sigma counterpart to the alpha engine's
+    This is the compass counterpart to the alpha engine's
     CustomGuidelineMatchingStrategy: it reads the same engine-agnostic
     GuidelineMatcherRegistry and runs each matcher with the current EngineContext.
 

@@ -30,7 +30,7 @@ class GuidelineMatcherRegistry:
     The single source of truth for matchers registered via the SDK
     (``create_guideline(matcher=...)``), so the SDK doesn't depend on any
     engine's matching internals. Each engine consumes the same registry: the
-    alpha engine wraps a hit in a ``CustomGuidelineMatchingStrategy``; the sigma
+    alpha engine wraps a hit in a ``CustomGuidelineMatchingStrategy``; the compass
     engine runs the matcher directly.
     """
 

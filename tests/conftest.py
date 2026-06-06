@@ -98,7 +98,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.guideline_actionable_
     GenericActionableGuidelineMatching,
     GenericActionableGuidelineGuidelineMatchingShot,
 )
-from parlant.core.engines.sigma.guideline_matching.guideline_ranker import (
+from parlant.core.engines.compass.guideline_matching.guideline_ranker import (
     GuidelineRankSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.guideline_previously_applied_actionable_batch import (
@@ -191,7 +191,7 @@ from parlant.core.sessions import (
     SessionStore,
 )
 from parlant.core.engines.alpha.engine import AlphaEngine
-from parlant.core.engines.sigma.engine import SigmaEngine
+from parlant.core.engines.compass.engine import CompassEngine
 from parlant.core.glossary import GlossaryStore, GlossaryVectorStore
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatcher,
@@ -625,11 +625,11 @@ async def container(
 
         container[Engine] = Singleton(AlphaEngine)
         container[AlphaEngine] = Singleton(AlphaEngine)
-        container[SigmaEngine] = Singleton(SigmaEngine)
+        container[CompassEngine] = Singleton(CompassEngine)
         container[EngineRegistry] = EngineRegistry(
             {
                 "alpha": lambda: container[AlphaEngine],
-                "sigma": lambda: container[SigmaEngine],
+                "compass": lambda: container[CompassEngine],
             }
         )
 

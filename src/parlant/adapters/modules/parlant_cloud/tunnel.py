@@ -35,7 +35,7 @@ from parlant.core.tunnels import (
     TunnelService,
 )
 
-from .config import _get_cloud_base_url
+from .config import _get_cloud_tunnel_url
 
 _logger = logging.getLogger(__name__)
 
@@ -160,9 +160,6 @@ def _create_tunnel_service(
     if not token:
         return None
 
-    base_url = _get_cloud_base_url()
-    ws_url = base_url.replace("https://", "wss://").replace("http://", "ws://") + "/cloud"
-
     dispatcher = TunnelRequestDispatcher(
         session_module=session_module,
         agent_module=agent_module,
@@ -172,7 +169,7 @@ def _create_tunnel_service(
     )
 
     return WebSocketTunnelService(
-        url=ws_url,
+        url=_get_cloud_tunnel_url(),
         token=token,
         dispatcher=dispatcher,
     )

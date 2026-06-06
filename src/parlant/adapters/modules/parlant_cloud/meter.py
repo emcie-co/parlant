@@ -32,7 +32,7 @@ from typing_extensions import Self, override
 
 from parlant.core.meter import Counter, DurationHistogram, Histogram, Meter
 
-from .config import _get_cloud_base_url
+from .config import _get_cloud_otel_url
 
 _logger = logging.getLogger(__name__)
 
@@ -92,7 +92,7 @@ class ParlantCloudDurationHistogram(DurationHistogram):
 class ParlantCloudMeter(Meter):
     def __init__(self, project_id: str = "") -> None:
         self._project_id = project_id
-        self._endpoint = f"{_get_cloud_base_url()}/v1/metrics"
+        self._endpoint = f"{_get_cloud_otel_url()}/v1/metrics"
         self._project_token = os.getenv("PARLANT_CLOUD_PROJECT_TOKEN", "")
 
         self._meter_provider: MeterProvider | None = None

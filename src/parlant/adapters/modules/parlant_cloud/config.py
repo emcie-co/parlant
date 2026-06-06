@@ -27,10 +27,44 @@ _DEFAULT_BASE_URL = "https://api.parlant.cloud"
 def _get_cloud_base_url() -> str:
     """Resolve the Parlant Cloud base URL from environment.
 
-    Priority: PARLANT_CLOUD_BASE_URL > PARLANT_CLOUD_OTEL_URL > default.
+    Used for Parlant Cloud REST endpoints such as project-token validation.
+    """
+    return (os.getenv("PARLANT_CLOUD_BASE_URL") or _DEFAULT_BASE_URL).rstrip("/")
+
+
+def _get_cloud_otel_url() -> str:
+    """Resolve the Parlant Cloud OTLP collector base URL.
+
+    ``PARLANT_CLOUD_CLOUD_OTEL_URL`` is the current runtime env var injected by
+    Parlant Cloud. ``PARLANT_CLOUD_OTEL_URL`` remains accepted for compatibility.
     """
     return (
-        os.getenv("PARLANT_CLOUD_BASE_URL")
+        os.getenv("PARLANT_CLOUD_CLOUD_OTEL_URL")
         or os.getenv("PARLANT_CLOUD_OTEL_URL")
-        or _DEFAULT_BASE_URL
+        or _get_cloud_base_url()
     ).rstrip("/")
+
+
+def _get_cloud_tunnel_url() -> str:
+    """Resolve the WebSocket URL used by the Parlant Cloud tunnel."""
+    configured_url = os.getenv("PARLANT_CLOUD_TUNNEL_URL")
+    if configured_url:
+        return _to_websocket_cloud_url(configured_url)
+
+    return _to_websocket_cloud_url(_get_cloud_base_url())
+
+
+def _to_websocket_cloud_url(url: str) -> str:
+    normalized_url = url.rstrip("/")
+
+    if normalized_url.startswith("https://"):
+        normalized_url = "wss://" + normalized_url.removeprefix("https://")
+    elif normalized_url.startswith("http://"):
+        normalized_url = "ws://" + normalized_url.removeprefix("http://")
+    elif not normalized_url.startswith(("ws://", "wss://")):
+        normalized_url = f"ws://{normalized_url}"
+
+    if normalized_url.endswith("/cloud"):
+        return normalized_url
+
+    return f"{normalized_url}/cloud"

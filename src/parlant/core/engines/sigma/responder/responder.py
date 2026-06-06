@@ -45,12 +45,12 @@ class Responder:
     def _build_job(
         self,
         context: EngineContext,
-        rematch: Callable[[EngineContext], Awaitable[None]] | None = None,
+        refresh_state: Callable[[EngineContext], Awaitable[None]] | None = None,
     ) -> LoopJob:
         return LoopJob(
             context=context,
             system_instructions=self._build_system_instructions(context),
-            turn_instructions=partial(self._build_turn_instructions, rematch=rematch),
+            turn_instructions=partial(self._build_turn_instructions, refresh_state=refresh_state),
             model_size=self._get_model_size(context),
             reasoning_config=self._get_reasoning_config(context),
         )
@@ -65,7 +65,7 @@ class Responder:
     async def respond(
         self,
         context: EngineContext,
-        rematch: Callable[[EngineContext], Awaitable[None]],
+        refresh_state: Callable[[EngineContext], Awaitable[None]],
     ) -> None:
         composition_mode = await self._resolve_composition_mode(context)
         output_mode = context.agent.message_output_mode
@@ -74,7 +74,7 @@ class Responder:
             output_mode == MessageOutputMode.STREAM
             and composition_mode == CompositionMode.CANNED_FLUID
         ):
-            await self._streaming_loop.run(self._build_job(context, rematch))
+            await self._streaming_loop.run(self._build_job(context, refresh_state))
         else:
             raise Exception(f"Unsupported message output mode: {output_mode}")
 
@@ -222,13 +222,14 @@ In cases of conflict, prioritize the business's values and ensure your decisions
         self,
         context: EngineContext,
         *,
-        rematch: Callable[[EngineContext], Awaitable[None]] | None = None,
+        refresh_state: Callable[[EngineContext], Awaitable[None]] | None = None,
     ) -> str:
         # On builds after the first step (iterations populated), let the engine
-        # reevaluate guidelines gated on tools that just ran before we render. The
-        # initial match already happened before responding, so we skip it here.
-        if rematch is not None and context.state.iterations:
-            await rematch(context)
+        # refresh the state (reevaluating guidelines gated on tools that just ran)
+        # before we render. The initial match already happened before responding,
+        # so we skip it here.
+        if refresh_state is not None and context.state.iterations:
+            await refresh_state(context)
 
         guideline_representations = {
             m.guideline.id: internal_representation(m.guideline)

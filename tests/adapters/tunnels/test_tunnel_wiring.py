@@ -5,12 +5,16 @@ from unittest.mock import AsyncMock, patch
 from lagom import Container
 
 from parlant.adapters.modules.parlant_cloud import WebSocketTunnelService, initialize_container
+from parlant.adapters.modules.parlant_cloud.logger import ParlantCloudLogger
+from parlant.adapters.modules.parlant_cloud.meter import ParlantCloudMeter
+from parlant.adapters.modules.parlant_cloud.tracer import ParlantCloudTracer
 from parlant.core.app_modules.agents import AgentModule
 from parlant.core.app_modules.customers import CustomerModule
 from parlant.core.app_modules.sessions import SessionModule
 from parlant.core.app_modules.tags import TagModule
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.loggers import Logger
+from parlant.core.tracer import LocalTracer
 from parlant.sdk import _should_configure_parlant_cloud
 
 
@@ -108,6 +112,53 @@ async def test_that_tunnel_uses_cloud_base_url() -> None:
         assert result._url == "wss://api.emcie.xyz/cloud"
 
 
+async def test_that_tunnel_uses_explicit_parlant_cloud_tunnel_url() -> None:
+    with patch.dict(
+        os.environ,
+        {
+            "PARLANT_CLOUD_PROJECT_TOKEN": "test-token",
+            "PARLANT_CLOUD_BASE_URL": "https://api.emcie.xyz",
+            "PARLANT_CLOUD_TUNNEL_URL": "http://localhost:2500",
+        },
+    ):
+        from parlant.adapters.modules.parlant_cloud import _create_tunnel_service
+
+        result = _create_tunnel_service(
+            session_module=AsyncMock(),
+            agent_module=AsyncMock(),
+            customer_module=AsyncMock(),
+            tag_module=AsyncMock(),
+            background_task_service=AsyncMock(),
+        )
+
+        assert result is not None
+        assert isinstance(result, WebSocketTunnelService)
+        assert result._url == "ws://localhost:2500/cloud"
+
+
+async def test_that_tunnel_preserves_explicit_websocket_cloud_path() -> None:
+    with patch.dict(
+        os.environ,
+        {
+            "PARLANT_CLOUD_PROJECT_TOKEN": "test-token",
+            "PARLANT_CLOUD_TUNNEL_URL": "ws://localhost:2500/cloud",
+        },
+    ):
+        from parlant.adapters.modules.parlant_cloud import _create_tunnel_service
+
+        result = _create_tunnel_service(
+            session_module=AsyncMock(),
+            agent_module=AsyncMock(),
+            customer_module=AsyncMock(),
+            tag_module=AsyncMock(),
+            background_task_service=AsyncMock(),
+        )
+
+        assert result is not None
+        assert isinstance(result, WebSocketTunnelService)
+        assert result._url == "ws://localhost:2500/cloud"
+
+
 async def test_that_tunnel_ignores_cloud_api_url() -> None:
     with patch.dict(
         os.environ,
@@ -129,6 +180,22 @@ async def test_that_tunnel_ignores_cloud_api_url() -> None:
         assert result is not None
         assert isinstance(result, WebSocketTunnelService)
         assert result._url == "wss://api.parlant.cloud/cloud"
+
+
+async def test_that_cloud_otel_url_configures_logs_traces_and_metrics_collectors() -> None:
+    with patch.dict(
+        os.environ,
+        {
+            "PARLANT_CLOUD_CLOUD_OTEL_URL": "http://localhost:4318",
+        },
+    ):
+        tracer = ParlantCloudTracer()
+        logger = ParlantCloudLogger(tracer=LocalTracer())
+        meter = ParlantCloudMeter()
+
+        assert tracer._endpoint == "http://localhost:4318/v1/traces"
+        assert logger._endpoint == "http://localhost:4318/v1/logs"
+        assert meter._endpoint == "http://localhost:4318/v1/metrics"
 
 
 async def test_that_cloud_initializer_starts_tunnel_after_session_module_exists() -> None:

@@ -29,7 +29,7 @@ from typing_extensions import Self, override
 from parlant.core.loggers import LogLevel, TracingLogger
 from parlant.core.tracer import Tracer
 
-from .config import _get_cloud_base_url
+from .config import _get_cloud_otel_url
 
 _logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ class ParlantCloudLogger(TracingLogger):
         super().__init__(tracer=tracer, log_level=LogLevel.TRACE, logger_id=logger_id)
 
         self._project_id = project_id
-        self._endpoint = f"{_get_cloud_base_url()}/v1/logs"
+        self._endpoint = f"{_get_cloud_otel_url()}/v1/logs"
         self._project_token = os.getenv("PARLANT_CLOUD_PROJECT_TOKEN", "")
 
         self._logger_provider: LoggerProvider | None = None

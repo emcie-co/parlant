@@ -29,17 +29,23 @@ three different providers with no interface changes and no abstraction leaks.
 import asyncio
 import os
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from anthropic import AsyncAnthropic
+from lagom import Container
 
 from parlant.adapters.nlp.anthropic_service import (
     ANTHROPIC_BLOCK_KEY,
     TURN_INSTRUCTIONS_OPEN,
     AnthropicReactGenerator,
+    AnthropicService,
 )
+from parlant.core.engines.compass.guideline_matching.guideline_ranker import GuidelineRankSchema
+from parlant.core.health import HealthReporter
 from parlant.core.loggers import Logger, StdoutLogger
-from parlant.core.tracer import LocalTracer
+from parlant.core.meter import Meter
+from parlant.core.tracer import LocalTracer, Tracer
 from parlant.core.nlp.react import (
     CacheConfig,
     FinishReason,
@@ -1102,3 +1108,13 @@ async def test_that_cancelling_mid_stream_closes_the_provider_stream(logger: Log
         await task
 
     await asyncio.wait_for(stream_closed.wait(), timeout=5)
+
+
+async def test_that_the_guideline_ranker_is_served_by_haiku(container: Container) -> None:
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-api-key"}):
+        service = AnthropicService(
+            container[Logger], container[Tracer], container[Meter], container[HealthReporter]
+        )
+        generator = await service.get_schematic_generator(GuidelineRankSchema)
+
+    assert generator.model_name == "claude-haiku-4-5-20251001"

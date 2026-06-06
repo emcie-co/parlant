@@ -39,6 +39,7 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backt
     JourneyBacktrackNodeSelectionSchema,
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.engines.compass.guideline_matching.guideline_ranker import GuidelineRankSchema
 from parlant.core.tracer import Tracer
 from parlant.core.meter import Meter
 from parlant.core.nlp.embedding import Embedder, EmbedderHints
@@ -297,6 +298,24 @@ class Claude_Opus_4_1(AnthropicAISchematicGenerator[T]):
     ) -> None:
         super().__init__(
             model_name="claude-opus-4-1-20250805",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 200 * 1024
+
+
+class Claude_Haiku_4_5(AnthropicAISchematicGenerator[T]):
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
+        super().__init__(
+            model_name="claude-haiku-4-5-20251001",
             logger=logger,
             tracer=tracer,
             meter=meter,
@@ -854,6 +873,10 @@ Please set ANTHROPIC_API_KEY in your environment before running Parlant.
     async def get_schematic_generator(
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> AnthropicAISchematicGenerator[T]:
+        # The Compass guideline ranker is a cheap first-pass filter: serve it from
+        # Haiku regardless of the requested schema.
+        if t is GuidelineRankSchema:
+            return Claude_Haiku_4_5[t](self.logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
         if (
             t == JourneyBacktrackNodeSelectionSchema
             or t == DisambiguationGuidelineMatchesSchema

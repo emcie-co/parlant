@@ -32,13 +32,22 @@ import asyncio
 import os
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from openai import AsyncClient
+from lagom import Container
 
-from parlant.adapters.nlp.openai_service import OPENAI_ITEM_KEY, OpenAIReactGenerator
+from parlant.adapters.nlp.openai_service import (
+    OPENAI_ITEM_KEY,
+    OpenAIReactGenerator,
+    OpenAIService,
+)
+from parlant.core.engines.compass.guideline_matching.guideline_ranker import GuidelineRankSchema
+from parlant.core.health import HealthReporter
 from parlant.core.loggers import Logger, StdoutLogger
-from parlant.core.tracer import LocalTracer
+from parlant.core.meter import Meter
+from parlant.core.tracer import LocalTracer, Tracer
 from parlant.core.nlp.react import (
     CacheConfig,
     FinishReason,
@@ -913,3 +922,13 @@ async def test_that_cancelling_mid_stream_closes_the_provider_stream(logger: Log
 
     # The provider stream was torn down (its async context exited).
     await asyncio.wait_for(stream_closed.wait(), timeout=5)
+
+
+async def test_that_the_guideline_ranker_is_served_by_nano(container: Container) -> None:
+    with patch.dict(os.environ, {"OPENAI_API_KEY": "test-api-key"}):
+        service = OpenAIService(
+            container[Logger], container[Tracer], container[Meter], container[HealthReporter]
+        )
+        generator = await service.get_schematic_generator(GuidelineRankSchema)
+
+    assert generator.model_name == "gpt-5.4-nano"

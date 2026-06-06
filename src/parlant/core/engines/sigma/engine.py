@@ -14,7 +14,9 @@
 
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
+from itertools import chain
 import traceback
+from typing import cast
 from typing_extensions import override
 
 from parlant.core.async_utils import safe_gather
@@ -34,9 +36,11 @@ from parlant.core.engines.sigma.response_state import EngineContext, ResponseSta
 from parlant.core.engines.sigma.task_runner import TaskRunner
 from parlant.core.engines.types import Context, Engine, UtteranceRequest
 from parlant.core.entity_cq import EntityQueries
+from parlant.core.guidelines import Guideline, GuidelineId
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
-from parlant.core.sessions import StatusEventData
+from parlant.core.relationships import RelationshipKind, RelationshipStore
+from parlant.core.sessions import StatusEventData, ToolEventData
 from parlant.core.tools import Tool, ToolId, ToolRelevanceResult
 from parlant.core.tracer import Tracer
 
@@ -52,6 +56,7 @@ class SigmaEngine(Engine):
         guideline_recaller: GuidelineRecaller,
         guideline_function_matcher: GuidelineFunctionMatcher,
         matcher_registry: GuidelineMatcherRegistry,
+        relationship_store: RelationshipStore,
         responder: Responder,
         task_runner: TaskRunner,
         entity_queries: EntityQueries,
@@ -64,6 +69,7 @@ class SigmaEngine(Engine):
         self._guideline_recaller = guideline_recaller
         self._guideline_function_matcher = guideline_function_matcher
         self._matcher_registry = matcher_registry
+        self._relationship_store = relationship_store
         self._responder = responder
         self._task_runner = task_runner
 
@@ -130,9 +136,15 @@ class SigmaEngine(Engine):
 
             await self._load_usable_guidelines(engine_context)
 
+            # Initial match before responding: both the composition-mode decision
+            # and the guideline-gated retriever hook (fired at the start of the
+            # response loop) need the matches already in place.
             await self._rematch(engine_context)
 
-            await self._responder.respond(engine_context)
+            # The responder re-invokes _rematch when (re)building the turn
+            # instructions after each step, to reevaluate guidelines gated on the
+            # tools that just ran.
+            await self._responder.respond(engine_context, self._rematch)
         except Exception as e:
             self._logger.error(
                 f"Error processing context: {e}\n\n{''.join(traceback.format_exception(type(e), e, e.__traceback__))}"
@@ -207,14 +219,121 @@ class SigmaEngine(Engine):
         )
 
     async def _rematch(self, engine_context: EngineContext) -> None:
-        # Guideline matching and tool relevance are both embedding-bound and
-        # independent, so run them in parallel to hide the added latency.
-        await safe_gather(
-            self._load_guidelines(engine_context),
-            self._load_agent_tool_pool(engine_context),
-        )
+        # Called by the responder when (re)building the turn instructions.
+        if not engine_context.state.iterations:
+            # Initial match: guideline matching and tool relevance are both
+            # embedding-bound and independent, so run them in parallel.
+            await safe_gather(
+                self._load_guidelines(engine_context),
+                self._load_agent_tool_pool(engine_context),
+            )
+        else:
+            # A step already ran: reevaluate guidelines whose reevaluation tool
+            # just executed. Only the guideline set changes — the agent tool pool
+            # ranking depends on the (unchanged) conversation, so we don't re-rank.
+            await self._reevaluate_guidelines(engine_context)
 
+        # Re-fold matched + ranked tools into the offered catalog. Idempotent when
+        # nothing changed (so the rendered prompt stays byte-identical), and picks
+        # up any tools a reevaluated tool-enabled guideline brought in.
         self._select_available_tools(engine_context)
+
+    async def _reevaluate_guidelines(self, context: EngineContext) -> None:
+        executed_tool_ids = self._executed_tool_ids(context)
+        if not executed_tool_ids:
+            return
+
+        gated = await self._find_guidelines_gated_on_tools(context, executed_tool_ids)
+        already_matched = self._matched_guideline_ids(context)
+        candidates = [g for g in gated if g.id not in already_matched]
+        if not candidates:
+            return
+
+        # Code-attached gated guidelines are gated by their matcher (which can see
+        # the new tool results via the context); the rest are armed — surfaced for
+        # the react model to apply now that the tool's results are present.
+        code = [g for g in candidates if self._matcher_registry.get(g.id) is not None]
+        armed = [g for g in candidates if self._matcher_registry.get(g.id) is None]
+
+        code_matches = await self._guideline_function_matcher.match(context, code)
+        armed_matches = [
+            GuidelineMatch(
+                guideline=g,
+                rationale="Reevaluated as relevant after a tool it depends on was executed.",
+            )
+            for g in armed
+        ]
+        new_matches = list(code_matches) + armed_matches
+        if not new_matches:
+            return
+
+        # Classify into ordinary vs tool-enabled and append-merge (never reorder,
+        # so the already-rendered guidelines stay a byte-identical prefix).
+        new_tool_enabled = await self._find_tool_enabled_guideline_matches(new_matches)
+        new_ordinary = [m for m in new_matches if m not in new_tool_enabled]
+
+        context.state.ordinary_guideline_matches.extend(new_ordinary)
+        context.state.tool_enabled_guideline_matches.update(new_tool_enabled)
+
+        # Resolve and add any tools the reevaluated tool-enabled guidelines bring in.
+        new_tool_ids = list(
+            dict.fromkeys(tid for tids in new_tool_enabled.values() for tid in tids)
+        )
+        if new_tool_ids:
+            existing_names = {tool.name for tool in context.state.matched_tools}
+            for tool in await self._resolve_tool_ids(new_tool_ids):
+                if tool.name not in existing_names:
+                    existing_names.add(tool.name)
+                    context.state.matched_tools.append(tool)
+
+    def _matched_guideline_ids(self, context: EngineContext) -> set[GuidelineId]:
+        return {
+            m.guideline.id
+            for m in chain(
+                context.state.ordinary_guideline_matches,
+                context.state.tool_enabled_guideline_matches,
+            )
+        }
+
+    def _executed_tool_ids(self, context: EngineContext) -> set[ToolId]:
+        # The react loop records executed tools (by name) in state.tool_events;
+        # map them back to ToolIds via the per-turn name->id table.
+        executed: set[ToolId] = set()
+        for event in context.state.tool_events:
+            for call in cast(ToolEventData, event.data)["tool_calls"]:
+                if tool_id := context.state.tool_ids_by_name.get(call["tool_id"]):
+                    executed.add(tool_id)
+        return executed
+
+    async def _find_guidelines_gated_on_tools(
+        self,
+        context: EngineContext,
+        tool_ids: set[ToolId],
+    ) -> list[Guideline]:
+        usable_by_id = {g.id: g for g in context.state.usable_guidelines}
+        gated: dict[GuidelineId, Guideline] = {}
+
+        for tool_id in tool_ids:
+            relationships = await self._relationship_store.list_relationships(
+                kind=RelationshipKind.REEVALUATION,
+                indirect=False,
+                target_id=tool_id,
+            )
+
+            for relationship in relationships:
+                # Source is a guideline (match by id prefix, as elsewhere) or a tag
+                # (match by tag membership).
+                matched = [
+                    g for gid, g in usable_by_id.items() if gid.startswith(relationship.source.id)
+                ]
+
+                if not matched and relationship.source.kind.is_tag:
+                    matched = [g for g in usable_by_id.values() if relationship.source.id in g.tags]
+
+                for guideline in matched:
+                    gated[guideline.id] = guideline
+
+        return list(gated.values())
 
     def _build_tool_query(self, context: EngineContext) -> str:
         messages = [f"{m.source}: {m.content}" for m in context.interaction.messages]

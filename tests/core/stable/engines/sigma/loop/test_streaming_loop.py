@@ -64,7 +64,7 @@ async def test_that_turn_instructions_are_placed_before_the_last_customer_messag
         turn_instructions=turn_instructions,
     )
 
-    history = await _make_streaming_loop()._build_history(job)
+    history, instructions_index = await _make_streaming_loop()._build_history(job)
 
     # The model's most recent turn must be the customer's message — not the
     # imperative instructions note, which it otherwise tends to answer / echo.
@@ -72,6 +72,8 @@ async def test_that_turn_instructions_are_placed_before_the_last_customer_messag
     assert "buying a house" in history[-1].text
 
     # The turn instructions appear exactly once, immediately before that last
-    # customer message.
+    # customer message, and _build_history reports their index (so the loop can
+    # replace them in place when reevaluating).
     instruction_indices = [i for i, m in enumerate(history) if marker in m.text]
     assert instruction_indices == [len(history) - 2]
+    assert instructions_index == len(history) - 2

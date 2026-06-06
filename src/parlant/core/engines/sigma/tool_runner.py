@@ -19,7 +19,6 @@ from parlant.core.common import JSONSerializable
 from parlant.core.engines.sigma.response_state import EngineContext
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.loggers import Logger
-from parlant.core.sessions import ToolEventData
 from parlant.core.tools import ToolContext, ToolId, ToolResult
 
 

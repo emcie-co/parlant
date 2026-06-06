@@ -16,7 +16,6 @@ import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from io import StringIO
-from itertools import chain
 from typing import cast
 
 from parlant.core.async_utils import safe_gather
@@ -60,6 +59,11 @@ class _LoopState:
     current_event: StreamEvent | None = None
 
     history: list[Message] = field(default_factory=list)
+    # Index of the turn-instructions message in `history`, so it can be replaced
+    # in place when guidelines are reevaluated between steps. Stable because the
+    # instructions sit before the last customer message and all later events are
+    # appended after them.
+    instructions_index: int | None = None
     in_the_middle_of_running_tools: bool = False
 
     reasoning_handle: StatusEventHandle | None = None
@@ -80,8 +84,9 @@ class StreamingLoop(Loop):
         # Warm the cache for the stable prefix only — the system instructions and
         # the conversation so far. The per-turn instructions are dynamic and sit
         # past the cache breakpoint, so we leave them out here.
+        history, _ = await self._build_history(job, include_turn_instructions=False)
         usage = await self._react.prefill(
-            history=await self._build_history(job, include_turn_instructions=False),
+            history=history,
             tools=await self._get_tools(job.context),
             tool_choice="auto",
             reasoning=job.reasoning_config,
@@ -100,9 +105,24 @@ class StreamingLoop(Loop):
             # A hook requested that we not proceed with generating a response.
             return LoopResult(job=job, steps=[])
 
-        state = _LoopState(history=await self._build_history(job))
+        history, instructions_index = await self._build_history(job)
+        state = _LoopState(history=history, instructions_index=instructions_index)
 
         while not job.context.state.prepared_to_respond:
+            # After the first step, refresh the turn instructions in place: this
+            # re-invokes the rematch callback (reevaluating guidelines gated on the
+            # tools that ran) and swaps just the instructions message — the rest of
+            # the step history is preserved.
+            if (
+                state.instructions_index is not None
+                and job.turn_instructions is not None
+                and job.context.state.iterations
+            ):
+                refreshed = await job.turn_instructions(job.context)
+                state.history[state.instructions_index] = self._instructions_message(
+                    refreshed, job.context.session.id
+                )
+
             async for event in self._react.stream_step(
                 history=state.history,
                 tools=await self._get_tools(job.context),
@@ -454,7 +474,7 @@ class StreamingLoop(Loop):
         job: LoopJob,
         *,
         include_turn_instructions: bool = True,
-    ) -> list[Message]:
+    ) -> tuple[list[Message], int | None]:
         cache_key = job.context.session.id
 
         system_message = Message(
@@ -533,30 +553,35 @@ class StreamingLoop(Loop):
                 self._tool_event_messages(cast(ToolEventData, tool_event.data), cache_key)
             )
 
+        instructions_index: int | None = None
+
         if include_turn_instructions and job.turn_instructions:
             turn_instructions = await job.turn_instructions(job.context)
-
-            instructions_message = Message(
-                role=Role.SYSTEM,
-                cache_key=cache_key,
-                parts=[
-                    TextPart(
-                        text=f"""\
-[The following is context about the current state of the conversation — the guidelines, glossary, and tools relevant to it. Treat it as background that informs your next reply; it is NOT itself a message addressed to you, so never respond to it, acknowledge it, or refer to it.]:
-{turn_instructions}"""
-                    )
-                ],
-            )
 
             # Place the instructions immediately BEFORE the last customer message
             # rather than at the very end. Ending the prompt on an imperative note
             # makes the model treat it as the turn to answer — it paraphrases or
             # echoes the instructions back instead of replying. Keeping the
             # customer's message last keeps the model answering the customer.
-            last_customer_index = next(
+            instructions_index = next(
                 (i for i in range(len(history) - 1, -1, -1) if history[i].role == Role.USER),
                 len(history),
             )
-            history.insert(last_customer_index, instructions_message)
+            history.insert(
+                instructions_index, self._instructions_message(turn_instructions, cache_key)
+            )
 
-        return history
+        return history, instructions_index
+
+    def _instructions_message(self, turn_instructions: str, cache_key: str) -> Message:
+        return Message(
+            role=Role.SYSTEM,
+            cache_key=cache_key,
+            parts=[
+                TextPart(
+                    text=f"""\
+[The following is context about the current state of the conversation — the guidelines, glossary, and tools relevant to it. Treat it as background that informs your next reply; it is NOT itself a message addressed to you, so never respond to it, acknowledge it, or refer to it.]:
+{turn_instructions}"""
+                )
+            ],
+        )

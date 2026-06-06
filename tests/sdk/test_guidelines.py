@@ -544,6 +544,57 @@ class Test_that_custom_matcher_can_return_no_match_with_sigma_engine(SDKTest):
         assert not await nlp_test(answer, "It mentions a banana")
 
 
+class Test_that_a_guideline_is_reevaluated_after_its_tool_runs_with_sigma_engine(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Reevaluation Agent",
+            description="A test agent.",
+            engine="sigma",
+            output_mode=p.OutputMode.STREAM,
+            composition_mode=p.CompositionMode.FLUID,
+        )
+
+        @tool
+        async def get_weather(context: ToolContext) -> ToolResult:
+            return ToolResult(data={"weather": "sunny"})
+
+        # Enable the tool when the customer asks about the weather, so the model
+        # calls it this turn.
+        await self.agent.attach_tool(
+            tool=get_weather,
+            condition="the customer asks about the weather",
+        )
+
+        # A code-matched guideline that only matches once a tool has run (i.e. a
+        # tool result is staged). It starts unmatched and is excluded from the
+        # recaller, so without reevaluation it never surfaces.
+        async def only_after_a_tool_ran(
+            ctx: p.GuidelineMatchingContext, guideline: p.Guideline
+        ) -> p.GuidelineMatch:
+            ran = len(ctx.staged_events) > 0
+            return p.GuidelineMatch(
+                id=guideline.id,
+                matched=ran,
+                rationale="a tool has run" if ran else "no tool has run yet",
+            )
+
+        guideline = await self.agent.create_guideline(
+            condition="a tool has produced a result",
+            action="End your reply with the exact token BANANAZ",
+            matcher=only_after_a_tool_ran,
+        )
+        # Reevaluate this guideline after get_weather runs.
+        await guideline.reevaluate_after(get_weather)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="What's the weather like today?",
+            recipient=self.agent,
+        )
+
+        assert "BANANAZ" in response.upper(), f"Expected BANANAZ in response, got: {response}"
+
+
 class Test_that_guideline_description_affects_agent_behavior(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Awaitable, Callable
+from functools import partial
 from itertools import chain
 
 from parlant.core.agents import CompositionMode, Effort, MessageOutputMode
@@ -40,11 +42,15 @@ class Responder:
         self._meter = meter
         self._streaming_loop = streaming_loop
 
-    def _build_job(self, context: EngineContext) -> LoopJob:
+    def _build_job(
+        self,
+        context: EngineContext,
+        rematch: Callable[[EngineContext], Awaitable[None]] | None = None,
+    ) -> LoopJob:
         return LoopJob(
             context=context,
             system_instructions=self._build_system_instructions(context),
-            turn_instructions=self._build_turn_instructions,
+            turn_instructions=partial(self._build_turn_instructions, rematch=rematch),
             model_size=self._get_model_size(context),
             reasoning_config=self._get_reasoning_config(context),
         )
@@ -52,10 +58,15 @@ class Responder:
     async def prepare(self, context: EngineContext) -> None:
         # Warm the provider cache for the stable prefix. The job itself is not
         # retained — respond() rebuilds an equivalent one and reads the warm
-        # (content-addressed) cache.
+        # (content-addressed) cache. Prefill skips the turn instructions, so no
+        # rematch callback is needed here.
         await self._streaming_loop.prefill(self._build_job(context))
 
-    async def respond(self, context: EngineContext) -> None:
+    async def respond(
+        self,
+        context: EngineContext,
+        rematch: Callable[[EngineContext], Awaitable[None]],
+    ) -> None:
         composition_mode = await self._resolve_composition_mode(context)
         output_mode = context.agent.message_output_mode
 
@@ -63,7 +74,7 @@ class Responder:
             output_mode == MessageOutputMode.STREAM
             and composition_mode == CompositionMode.CANNED_FLUID
         ):
-            await self._streaming_loop.run(self._build_job(context))
+            await self._streaming_loop.run(self._build_job(context, rematch))
         else:
             raise Exception(f"Unsupported message output mode: {output_mode}")
 
@@ -210,7 +221,15 @@ In cases of conflict, prioritize the business's values and ensure your decisions
     async def _build_turn_instructions(
         self,
         context: EngineContext,
+        *,
+        rematch: Callable[[EngineContext], Awaitable[None]] | None = None,
     ) -> str:
+        # On builds after the first step (iterations populated), let the engine
+        # reevaluate guidelines gated on tools that just ran before we render. The
+        # initial match already happened before responding, so we skip it here.
+        if rematch is not None and context.state.iterations:
+            await rematch(context)
+
         guideline_representations = {
             m.guideline.id: internal_representation(m.guideline)
             for m in chain(

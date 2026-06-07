@@ -34,6 +34,9 @@ from pydantic.fields import FieldInfo
 from parlant.core.common import DefaultBaseModel
 from parlant.adapters.nlp.common import record_llm_metrics
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.engines.compass.guideline_matching.guideline_distiller import (
+    GuidelineDistillSchema,
+)
 from parlant.core.engines.compass.guideline_matching.guideline_ranker import GuidelineRankSchema
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
@@ -486,6 +489,47 @@ class Gemini_3_5_Flash(GeminiSchematicGenerator[T]):
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
         return await super().generate(prompt, {**hints, "config": {"service_tier": "priority"}})
+
+
+class Gemini_3_5_Flash_LowReasoning(GeminiSchematicGenerator[T]):
+    """Gemini 3.5 Flash with thinking pinned to the lowest level.
+
+    Used for cheap, latency-sensitive Sigma stages (e.g. the guideline distiller)
+    where a short chain of thought is enough and full reasoning would only add cost
+    and latency.
+    """
+
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
+        super().__init__(
+            model_name="gemini-3.5-flash",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 1024 * 1024
+
+    @override
+    async def generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[T]:
+        return await super().generate(
+            prompt,
+            {
+                "thinking_config": google.genai.types.ThinkingConfig(
+                    thinking_level=google.genai.types.ThinkingLevel.LOW
+                ),
+                **hints,
+            },
+        )
 
 
 # The key under which Gemini's per-part ``thought_signature`` is preserved in a
@@ -1261,6 +1305,13 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
         # from the latest Flash Lite, regardless of any requested model size.
         if t is GuidelineRankSchema:
             return Gemini_3_1_Flash_Lite[t](  # type: ignore
+                self.logger, self._tracer, self._meter, self._health_reporter
+            )
+
+        # The Sigma guideline distiller runs on Flash 3.5 with low reasoning by default:
+        # a short chain of thought is enough to distill the next action cheaply.
+        if t is GuidelineDistillSchema:
+            return Gemini_3_5_Flash_LowReasoning[t](  # type: ignore
                 self.logger, self._tracer, self._meter, self._health_reporter
             )
 

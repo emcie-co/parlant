@@ -227,6 +227,9 @@ from parlant.core.glossary import GlossaryStore, GlossaryVectorStore
 from parlant.core.engines.alpha.engine import AlphaEngine
 from parlant.core.engines.compass.engine import CompassEngine
 from parlant.core.engines.compass.guideline_matching.guideline_ranker import GuidelineRankSchema
+from parlant.core.engines.compass.guideline_matching.guideline_distiller import (
+    GuidelineDistillSchema,
+)
 from parlant.core.guideline_tool_associations import (
     GuidelineToolAssociationDocumentStore,
     GuidelineToolAssociationStore,
@@ -964,6 +967,7 @@ async def initialize_container(
         RelativeActionSchema,
         ReachableNodesEvaluationSchema,
         GuidelineRankSchema,
+        GuidelineDistillSchema,
     ):
         generator = await nlp_service_instance.get_schematic_generator(schema)
 

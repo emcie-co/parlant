@@ -33,3 +33,6 @@ class GenerationInfo:
     model: str
     duration: float
     usage: UsageInfo
+
+    def __repr__(self) -> str:
+        return json.dumps(asdict(self), indent=2)

@@ -16,7 +16,7 @@ import asyncio
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional, Sequence
+from typing import Sequence
 
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
@@ -24,6 +24,7 @@ from parlant.core.engines.compass.response_state import EngineContext
 from parlant.core.guidelines import Guideline, GuidelineContent
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
+from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
 
@@ -39,10 +40,13 @@ class RankedGuideline:
 @dataclass(frozen=True)
 class GuidelineRankingResult:
     ranked_guidelines: Sequence[RankedGuideline]
+    # Aggregated usage across every per-guideline ranking request sent this call,
+    # or None when no requests were sent.
+    generation_info: GenerationInfo | None
 
 
 class GuidelineRankSchema(DefaultBaseModel):
-    tldr: Optional[str] = None
+    tldr: str | None = None
     score: int
 
 
@@ -81,19 +85,22 @@ class GuidelineRanker:
         guidelines: Sequence[Guideline],
     ) -> GuidelineRankingResult:
         if not guidelines:
-            return GuidelineRankingResult([])
+            return GuidelineRankingResult([], None)
 
-        ranked_guidelines = await asyncio.gather(
+        results = await asyncio.gather(
             *(self._rank_guideline(context, guideline) for guideline in guidelines)
         )
 
-        return GuidelineRankingResult(list(ranked_guidelines))
+        return GuidelineRankingResult(
+            ranked_guidelines=[ranked for ranked, _ in results],
+            generation_info=_aggregate_generation_info([info for _, info in results]),
+        )
 
     async def _rank_guideline(
         self,
         context: EngineContext,
         guideline: Guideline,
-    ) -> RankedGuideline:
+    ) -> tuple[RankedGuideline, GenerationInfo]:
         prompt = self._build_prompt(context, guideline, shots=await self.shots())
 
         inference = await self._schematic_generator.generate(prompt=prompt)
@@ -104,11 +111,14 @@ class GuidelineRanker:
 
         # A score of 1-2 means "filtered out for sure"; 3+ ("maybe" and up) passes
         # the first-pass filter on to the next stages.
-        return RankedGuideline(
-            guideline=guideline,
-            reasoning=inference.content.tldr or "",
-            is_relevant=score >= self.RELEVANCE_SCORE_THRESHOLD,
-            score=float(score),
+        return (
+            RankedGuideline(
+                guideline=guideline,
+                reasoning=inference.content.tldr or "",
+                is_relevant=score >= self.RELEVANCE_SCORE_THRESHOLD,
+                score=float(score),
+            ),
+            inference.info,
         )
 
     async def shots(self) -> Sequence[GuidelineRankingShot]:
@@ -176,7 +186,7 @@ class GuidelineRanker:
             template="""
 GENERAL INSTRUCTIONS
 -----------------
-In our system, a conversational multi-turn AI agent's behavior is controlled by a set of guidelines. 
+In our system, a conversational multi-turn AI agent's behavior is controlled by a set of guidelines.
 Each guideline is comprised of a condition and potentially an action. Whenever a condition applies - the agent is directed to take its associated action.
 """,
             props={},
@@ -275,7 +285,28 @@ OUTPUT FORMAT
         return json.dumps(result, indent=4)
 
 
-def _format_guideline(condition: str, action: Optional[str]) -> str:
+def _aggregate_generation_info(infos: Sequence[GenerationInfo]) -> GenerationInfo:
+    # All requests use the same schema/model; sum the token cost across them.
+    # Duration is the max (the requests run concurrently, so it reflects wall-clock,
+    # not total work). cached_input_tokens lives in `extra` and may be absent on some
+    # infos, so default each to 0 before summing.
+    return GenerationInfo(
+        schema_name=infos[0].schema_name,
+        model=infos[0].model,
+        duration=max(info.duration for info in infos),
+        usage=UsageInfo(
+            input_tokens=sum(info.usage.input_tokens for info in infos),
+            output_tokens=sum(info.usage.output_tokens for info in infos),
+            extra={
+                "cached_input_tokens": sum(
+                    int((info.usage.extra or {}).get("cached_input_tokens", 0)) for info in infos
+                )
+            },
+        ),
+    )
+
+
+def _format_guideline(condition: str, action: str | None) -> str:
     # The action is optional and only present to contextualize the condition; omit
     # it entirely when absent rather than rendering "Action: None".
     text = f"Condition: {condition}."

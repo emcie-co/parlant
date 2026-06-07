@@ -22,7 +22,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import Guidel
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.engines.engine_context import EngineContext as _EngineContext
 from parlant.core.glossary import Term
-from parlant.core.guidelines import Guideline
+from parlant.core.guidelines import Guideline, GuidelineId
 from parlant.core.journeys import Journey, JourneyId
 from parlant.core.tools import Tool, ToolId
 
@@ -49,6 +49,12 @@ class ResponseState:
     # final catalog offered to the model (matched_tools ∪ top of the pool, capped, by name)
     available_tools: list[Tool] = field(default_factory=list)
     tool_ids_by_name: dict[str, ToolId] = field(default_factory=dict)  # to run a tool by its name
+
+    # Per-turn signals the matcher precomputes (once) so its per-guideline strategy
+    # selection can stay synchronous: guidelines that carry tools, and guidelines
+    # that participate in a dependency relationship.
+    guideline_ids_with_tools: set[GuidelineId] = field(default_factory=set)
+    guideline_ids_with_dependencies: set[GuidelineId] = field(default_factory=set)
 
     # TODO: Remove what isn't needed
     context_variables: list[tuple[ContextVariable, ContextVariableValue]] = field(

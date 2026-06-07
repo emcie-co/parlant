@@ -14,24 +14,42 @@
 
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
+from enum import IntEnum, auto
 from itertools import chain
 import traceback
 from typing import cast
 
+from parlant.core.agents import Effort
 from parlant.core.async_utils import safe_gather
+from parlant.core.common import Criticality
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.guideline_matcher_registry import GuidelineMatcherRegistry
 from parlant.core.engines.compass.guideline_matching.guideline_function_matcher import (
     GuidelineFunctionMatcher,
 )
+from parlant.core.engines.compass.guideline_matching.guideline_ranker import GuidelineRanker
 from parlant.core.engines.compass.guideline_matching.guideline_recaller import GuidelineRecaller
 from parlant.core.engines.compass.response_state import EngineContext
 from parlant.core.entity_cq import EntityQueries
 from parlant.core.guidelines import Guideline, GuidelineId
 from parlant.core.loggers import Logger
-from parlant.core.relationships import RelationshipKind, RelationshipStore
+from parlant.core.relationships import (
+    RelationshipEntityKind,
+    RelationshipKind,
+    RelationshipStore,
+)
 from parlant.core.sessions import ToolEventData
+from parlant.core.tags import TagId
 from parlant.core.tools import Tool, ToolId, ToolRelevanceResult
+
+
+class MatcherStrategy(IntEnum):
+    """How much effort to spend deciding whether a guideline applies, cheapest to
+    most thorough."""
+
+    RECALL = auto()
+    RANK = auto()
+    DISTILL = auto()
 
 
 class Matcher:
@@ -50,6 +68,7 @@ class Matcher:
         self,
         logger: Logger,
         guideline_recaller: GuidelineRecaller,
+        guideline_ranker: GuidelineRanker,
         guideline_function_matcher: GuidelineFunctionMatcher,
         matcher_registry: GuidelineMatcherRegistry,
         relationship_store: RelationshipStore,
@@ -57,6 +76,7 @@ class Matcher:
     ) -> None:
         self._logger = logger
         self._guideline_recaller = guideline_recaller
+        self._guideline_ranker = guideline_ranker
         self._guideline_function_matcher = guideline_function_matcher
         self._matcher_registry = matcher_registry
         self._relationship_store = relationship_store
@@ -78,32 +98,7 @@ class Matcher:
     # --- guideline matching ---
 
     async def _match(self, context: EngineContext) -> None:
-        usable_guidelines = context.state.usable_guidelines
-
-        # Partition by whether a guideline has a code (Python) matcher. Those go
-        # to the function matcher; the rest to the (LLM) recaller. An explicit
-        # matcher is authoritative, so the recaller never even evaluates them.
-        function_attached = [
-            g for g in usable_guidelines if self._matcher_registry.get(g.id) is not None
-        ]
-        recall_candidates = [
-            g for g in usable_guidelines if self._matcher_registry.get(g.id) is None
-        ]
-
-        # Both are independent, so run them concurrently.
-        function_matches, recalled = await safe_gather(
-            self._guideline_function_matcher.match(context, function_attached),
-            self._guideline_recaller.recall(context, recall_candidates),
-        )
-
-        matches = list(function_matches) + [
-            GuidelineMatch(
-                guideline=rc.guideline,
-                rationale="This may or may not be relevant right now - use your judgment.",
-            )
-            for rc in recalled.recalled_guidelines
-        ]
-
+        matches = await self._run_batches(context, context.state.usable_guidelines)
         await self._record(context, matches, append=False)
 
     async def _reevaluate(self, context: EngineContext) -> None:
@@ -117,25 +112,200 @@ class Matcher:
         if not candidates:
             return
 
-        # Code-attached gated guidelines are gated by their matcher (which can see
-        # the new tool results via the context); the rest are armed — surfaced for
-        # the react model to apply now that the tool's results are present.
-        code = [g for g in candidates if self._matcher_registry.get(g.id) is not None]
-        armed = [g for g in candidates if self._matcher_registry.get(g.id) is None]
+        matches = await self._run_batches(context, candidates)
 
-        code_matches = await self._guideline_function_matcher.match(context, code)
-        armed_matches = [
-            GuidelineMatch(
-                guideline=g,
-                rationale="Reevaluated as relevant after a tool it depends on was executed.",
-            )
-            for g in armed
-        ]
-        new_matches = list(code_matches) + armed_matches
-        if not new_matches:
+        if not matches:
             return
 
-        await self._record(context, new_matches, append=True)
+        await self._record(context, matches, append=True)
+
+    def _get_strategy(self, context: EngineContext, guideline: Guideline) -> MatcherStrategy:
+        strategy = MatcherStrategy.RECALL
+
+        match context.agent.effort:
+            case Effort.MIN:
+                match guideline.criticality:
+                    case Criticality.LOW:
+                        strategy = MatcherStrategy.RECALL
+                    case Criticality.MEDIUM:
+                        strategy = MatcherStrategy.RECALL
+                    case Criticality.HIGH:
+                        strategy = MatcherStrategy.RANK
+            case Effort.LOW:
+                match guideline.criticality:
+                    case Criticality.LOW:
+                        strategy = MatcherStrategy.RECALL
+                    case Criticality.MEDIUM:
+                        strategy = MatcherStrategy.RECALL
+                    case Criticality.HIGH:
+                        strategy = MatcherStrategy.DISTILL
+            case Effort.MEDIUM:
+                match guideline.criticality:
+                    case Criticality.LOW:
+                        strategy = MatcherStrategy.RECALL
+                    case Criticality.MEDIUM:
+                        strategy = MatcherStrategy.RANK
+                    case Criticality.HIGH:
+                        strategy = MatcherStrategy.DISTILL
+            case Effort.HIGH:
+                match guideline.criticality:
+                    case Criticality.LOW:
+                        strategy = MatcherStrategy.RANK
+                    case Criticality.MEDIUM:
+                        strategy = MatcherStrategy.RANK
+                    case Criticality.HIGH:
+                        strategy = MatcherStrategy.DISTILL
+            case Effort.MAX:
+                match guideline.criticality:
+                    case Criticality.LOW:
+                        strategy = MatcherStrategy.RANK
+                    case Criticality.MEDIUM:
+                        strategy = MatcherStrategy.DISTILL
+                    case Criticality.HIGH:
+                        strategy = MatcherStrategy.DISTILL
+
+        if strategy < MatcherStrategy.RANK:
+            # There are some special conditions under which we want
+            # to ensure a baseline of matching effort, since their
+            # matching carries important implications.
+
+            if guideline.labels:
+                # If the guideline has labels, we want to ensure high-quality analytics,
+                # so we should at least rank - not use embeddings.
+                return MatcherStrategy.RANK
+
+            if self._check_if_has_dependencies(context, guideline):
+                # If the guideline has dependencies, it may be gating important follow-up
+                # guidelines, so we should at least rank - not use embeddings.
+                return MatcherStrategy.RANK
+
+            if self._check_if_has_tools(context, guideline):
+                # If the guideline has tools, it may be gating important interactions
+                # with data and/or actions, so we should at least rank - not use embeddings.
+                return MatcherStrategy.RANK
+
+        return strategy
+
+    async def _load_strategy_signals(
+        self,
+        context: EngineContext,
+        guidelines: Sequence[Guideline],
+    ) -> None:
+        associations = await self._entity_queries.find_guideline_tool_associations()
+        context.state.guideline_ids_with_tools = {a.guideline_id for a in associations}
+
+        # A guideline "has dependencies" if it takes part in a dependency
+        # relationship — either as the dependent (source) or as the guideline being
+        # depended on (target, which gates its dependents). Either side means
+        # getting its match right carries downstream consequences.
+        #
+        # Endpoints may be guidelines directly, or tags (TAG_ALL/TAG_ANY) standing
+        # in for every guideline that carries the tag; we resolve both against the
+        # candidate guidelines so the per-guideline check can stay a plain lookup.
+        dependency_relationships = chain(
+            await self._relationship_store.list_relationships(
+                kind=RelationshipKind.DEPENDENCY, indirect=False
+            ),
+            await self._relationship_store.list_relationships(
+                kind=RelationshipKind.DEPENDENCY_ANY, indirect=False
+            ),
+        )
+
+        dependency_guideline_ids: set[GuidelineId] = set()
+        dependency_tags: set[TagId] = set()
+        for relationship in dependency_relationships:
+            for endpoint in (relationship.source, relationship.target):
+                if endpoint.kind == RelationshipEntityKind.GUIDELINE:
+                    dependency_guideline_ids.add(cast(GuidelineId, endpoint.id))
+                elif endpoint.kind.is_tag:
+                    dependency_tags.add(cast(TagId, endpoint.id))
+
+        context.state.guideline_ids_with_dependencies = {
+            guideline.id
+            for guideline in guidelines
+            if guideline.id in dependency_guideline_ids
+            or not dependency_tags.isdisjoint(guideline.tags)
+        }
+
+    def _check_if_has_tools(self, context: EngineContext, guideline: Guideline) -> bool:
+        return guideline.id in context.state.guideline_ids_with_tools
+
+    def _check_if_has_dependencies(self, context: EngineContext, guideline: Guideline) -> bool:
+        return guideline.id in context.state.guideline_ids_with_dependencies
+
+    async def _run_batches(
+        self,
+        context: EngineContext,
+        guidelines: Sequence[Guideline],
+    ) -> Sequence[GuidelineMatch]:
+        """Decide which of `guidelines` apply by routing each to a strategy and
+        running the resulting batches in parallel.
+
+        A guideline with a code (Python) matcher always goes to the function
+        matcher, regardless of strategy — an explicit matcher is authoritative. The
+        rest are bucketed by `_get_strategy`.
+        """
+        if not guidelines:
+            return []
+
+        # _get_strategy runs per guideline and is synchronous, so precompute the
+        # store-backed signals it consults (which guidelines have tools / are in a
+        # dependency relationship) once, here.
+        await self._load_strategy_signals(context, guidelines)
+
+        code_batch: list[Guideline] = []
+        recall_batch: list[Guideline] = []
+        rank_batch: list[Guideline] = []
+        distill_batch: list[Guideline] = []
+
+        for guideline in guidelines:
+            if self._matcher_registry.get(guideline.id) is not None:
+                code_batch.append(guideline)
+                continue
+
+            match self._get_strategy(context, guideline):
+                case MatcherStrategy.RECALL:
+                    recall_batch.append(guideline)
+                case MatcherStrategy.RANK:
+                    rank_batch.append(guideline)
+                case MatcherStrategy.DISTILL:
+                    distill_batch.append(guideline)
+
+        if distill_batch:
+            # Distillation isn't wired yet; don't silently drop these guidelines.
+            self._logger.warning(
+                f"Distillation is not wired yet; skipping {len(distill_batch)} guideline(s)."
+            )
+
+        code_matches, recalled, ranked = await safe_gather(
+            self._guideline_function_matcher.match(context, code_batch),
+            self._guideline_recaller.recall(context, recall_batch),
+            self._guideline_ranker.rank(context, rank_batch),
+        )
+
+        self._logger.info(
+            f"{self.__class__.__name__} guideline ranking usage:\n {ranked.generation_info}"
+        )
+
+        matches = list(code_matches)
+        matches += [
+            GuidelineMatch(
+                guideline=rc.guideline,
+                rationale="This may or may not be relevant right now - use your judgment.",
+            )
+            for rc in recalled.recalled_guidelines
+            if rc.is_relevant
+        ]
+        matches += [
+            GuidelineMatch(
+                guideline=rk.guideline,
+                rationale=rk.reasoning
+                or "This may or may not be relevant right now - use your judgment.",
+            )
+            for rk in ranked.ranked_guidelines
+            if rk.is_relevant
+        ]
+        return matches
 
     async def _record(
         self,

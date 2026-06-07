@@ -131,7 +131,7 @@ async def safe_gather(
     | asyncio.Task[_TResult2]
     | Coroutine[Any, Any, _TResult2]
     | Awaitable[_TResult2],
-) -> tuple[_TResult0, _TResult2]: ...
+) -> tuple[_TResult0, _TResult1, _TResult2]: ...
 
 
 @overload
@@ -152,7 +152,7 @@ async def safe_gather(
     | asyncio.Task[_TResult3]
     | Coroutine[Any, Any, _TResult3]
     | Awaitable[_TResult3],
-) -> tuple[_TResult0, _TResult3]: ...
+) -> tuple[_TResult0, _TResult1, _TResult2, _TResult3]: ...
 
 
 async def safe_gather(  # type: ignore[misc]

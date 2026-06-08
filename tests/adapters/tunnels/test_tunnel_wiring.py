@@ -4,7 +4,9 @@ from unittest.mock import AsyncMock, patch
 
 from lagom import Container
 
+import parlant.adapters.modules.parlant_cloud.lifecycle as lifecycle
 from parlant.adapters.modules.parlant_cloud import WebSocketTunnelService, initialize_container
+from parlant.adapters.modules.parlant_cloud.lifecycle import CloudProjectAuth
 from parlant.adapters.modules.parlant_cloud.logger import ParlantCloudLogger
 from parlant.adapters.modules.parlant_cloud.meter import ParlantCloudMeter
 from parlant.adapters.modules.parlant_cloud.tracer import ParlantCloudTracer
@@ -200,6 +202,11 @@ async def test_that_cloud_otel_url_configures_logs_traces_and_metrics_collectors
 
 async def test_that_cloud_initializer_starts_tunnel_after_session_module_exists() -> None:
     with patch.dict(os.environ, {"PARLANT_CLOUD_PROJECT_TOKEN": "test-token"}):
+        lifecycle._cloud_project_auth = CloudProjectAuth(
+            project_id="project-1",
+            secure_connection_enabled=True,
+            authenticated=True,
+        )
         container = Container()
         background_task_service = FakeBackgroundTaskService()
 
@@ -214,3 +221,29 @@ async def test_that_cloud_initializer_starts_tunnel_after_session_module_exists(
 
         assert background_task_service.started
         assert background_task_service.tag == "parlant-cloud-tunnel"
+
+        lifecycle._cloud_project_auth = None
+
+
+async def test_that_cloud_initializer_does_not_start_tunnel_without_secure_connection() -> None:
+    with patch.dict(os.environ, {"PARLANT_CLOUD_PROJECT_TOKEN": "test-token"}):
+        lifecycle._cloud_project_auth = CloudProjectAuth(
+            project_id="project-1",
+            secure_connection_enabled=False,
+            authenticated=True,
+        )
+        container = Container()
+        background_task_service = FakeBackgroundTaskService()
+
+        container[SessionModule] = cast(SessionModule, object())
+        container[AgentModule] = cast(AgentModule, object())
+        container[CustomerModule] = cast(CustomerModule, object())
+        container[TagModule] = cast(TagModule, object())
+        container[BackgroundTaskService] = cast(BackgroundTaskService, background_task_service)
+        container[Logger] = cast(Logger, FakeLogger())
+
+        await initialize_container(container)
+
+        assert not background_task_service.started
+
+        lifecycle._cloud_project_auth = None

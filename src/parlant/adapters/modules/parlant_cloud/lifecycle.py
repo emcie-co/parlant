@@ -51,7 +51,7 @@ _exit_stack = AsyncExitStack()
 @dataclass(frozen=True)
 class CloudProjectAuth:
     project_id: str
-    secure_connection_enabled: bool
+    secured: bool
     authenticated: bool
 
 
@@ -84,7 +84,7 @@ async def configure_container(container: Container) -> Container:
     except Exception:
         _cloud_project_auth = CloudProjectAuth(
             project_id="",
-            secure_connection_enabled=False,
+            secured=False,
             authenticated=False,
         )
         logger.warning("Parlant Cloud project token validation failed; observability disabled")
@@ -93,7 +93,7 @@ async def configure_container(container: Container) -> Container:
     if not isinstance(project_id, str) or not project_id:
         _cloud_project_auth = CloudProjectAuth(
             project_id="",
-            secure_connection_enabled=False,
+            secured=False,
             authenticated=False,
         )
         logger.warning("Parlant Cloud auth response missing project_id; observability disabled")
@@ -101,7 +101,7 @@ async def configure_container(container: Container) -> Container:
 
     _cloud_project_auth = CloudProjectAuth(
         project_id=project_id,
-        secure_connection_enabled=_secure_connection_enabled(auth_data),
+        secured=_secured(auth_data),
         authenticated=True,
     )
 
@@ -140,7 +140,7 @@ async def initialize_container(container: Container) -> None:
         if _cloud_project_auth is not None and not _cloud_project_auth.authenticated:
             return
 
-        if _cloud_project_auth is not None and not _cloud_project_auth.secure_connection_enabled:
+        if _cloud_project_auth is not None and not _cloud_project_auth.secured:
             logger.warning(
                 "Parlant Cloud secure connection is not enabled for this project plan; "
                 "using direct project requests"
@@ -166,14 +166,9 @@ async def initialize_container(container: Container) -> None:
         logger.warning(f"Failed to start Parlant Cloud tunnel: {e}")
 
 
-def _secure_connection_enabled(auth_data: Any) -> bool:
+def _secured(auth_data: Any) -> bool:
     if not isinstance(auth_data, dict):
         return False
 
-    features = auth_data.get("features")
-    if isinstance(features, dict):
-        secure_connection = features.get("secure_connection")
-        if isinstance(secure_connection, bool):
-            return secure_connection
-
-    return False
+    secured = auth_data.get("secured")
+    return secured if isinstance(secured, bool) else False

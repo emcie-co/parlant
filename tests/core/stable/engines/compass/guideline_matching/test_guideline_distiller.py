@@ -1465,10 +1465,10 @@ async def test_review_reset_password_journey_exits_when_the_customer_is_not_poli
 async def test_review_reset_password_journey_reuses_the_reset_tool_after_a_correction(
     distiller: GuidelineDistiller,
 ) -> None:
-    # Observed distilled action: "Ask the customer for their email address or phone
-    # number." After the account correction the distiller backtracks to contact
-    # collection, whereas the node-selection engine (which knows the email is still
-    # valid) re-runs the reset tool.
+    # After the account correction the flow returns to an earlier step, but the email is
+    # still valid - so the distiller should skip re-collecting it. Either wishing the
+    # customer a good day (the next not-yet-confirmed step) or jumping straight to
+    # re-running the reset tool is acceptable; re-asking for the email is not.
     staged_events = [
         create_staged_tool_event(
             cast(
@@ -1511,11 +1511,15 @@ async def test_review_reset_password_journey_reuses_the_reset_tool_after_a_corre
             ),
             (
                 EventSource.CUSTOMER,
-                "Oh wait, I think I gave you the wrong account number. It should be 987654, not 318475. Can we try again? with the same email",
+                "Oh wait, I think I gave you the wrong account number. It should be 987654, not 318475. Can we try again?",
             ),
         ],
         expected_relevant=True,
-        expected_distilled_action="use the reset_password tool again with the corrected account number",
+        expected_distilled_action=(
+            "either wishing the customer a good day, or using the reset_password tool again "
+            "with the corrected account number (but NOT re-asking for the email or phone number, "
+            "which was already provided and is still valid)"
+        ),
         staged_events=staged_events,
     )
 

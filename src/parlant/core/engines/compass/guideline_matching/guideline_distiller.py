@@ -536,6 +536,43 @@ example_5_expected = GuidelineDistillSchema(
 )
 
 
+# Shot 6: the flow has returned to an earlier step (the customer changed a detail they
+# gave earlier). The later detail they already provided is still valid, so the next step
+# is not the one that literally follows the changed step - it's the next step that still
+# needs doing.
+example_6_events = [
+    _make_event("11", EventSource.CUSTOMER, "I'd like to book a home cleaning."),
+    _make_event("21", EventSource.AI_AGENT, "Sure! What date would you like?"),
+    _make_event("31", EventSource.CUSTOMER, "Next Tuesday."),
+    _make_event("41", EventSource.AI_AGENT, "Got it. What's the address?"),
+    _make_event("51", EventSource.CUSTOMER, "42 Oak Street."),
+    _make_event("61", EventSource.AI_AGENT, "And how many rooms need cleaning?"),
+    _make_event(
+        "71",
+        EventSource.CUSTOMER,
+        "Actually, can we make it next Wednesday instead of Tuesday?",
+    ),
+]
+
+example_6_guideline = GuidelineContent(
+    condition="the customer wants to book a home cleaning",
+    action=(
+        "Ask for the desired date, then for the home address, then for the number of rooms, "
+        "and finally confirm the details and book the cleaning."
+    ),
+)
+
+example_6_expected = GuidelineDistillSchema(
+    reasoning=(
+        "The customer changed the date, returning to an earlier step of the action. The home "
+        "address they already gave is still valid, so there's no need to ask for it again. The "
+        "next step that still needs doing is asking how many rooms need cleaning."
+    ),
+    is_relevant=True,
+    distilled_action="Ask the customer how many rooms need cleaning.",
+)
+
+
 _baseline_shots: Sequence[GuidelineDistillationShot] = [
     GuidelineDistillationShot(
         description="",
@@ -566,6 +603,12 @@ _baseline_shots: Sequence[GuidelineDistillationShot] = [
         interaction_events=example_5_events,
         guideline=example_5_guideline,
         expected_result=example_5_expected,
+    ),
+    GuidelineDistillationShot(
+        description="",
+        interaction_events=example_6_events,
+        guideline=example_6_guideline,
+        expected_result=example_6_expected,
     ),
 ]
 

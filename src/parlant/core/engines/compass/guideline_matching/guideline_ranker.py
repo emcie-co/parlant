@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Sequence
 
+from parlant.core.agents import Effort
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
 from parlant.core.engines.compass.response_state import EngineContext
@@ -27,6 +28,7 @@ from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
+from parlant.core.tracer import Tracer
 
 
 @dataclass(frozen=True)
@@ -72,10 +74,12 @@ class GuidelineRanker:
     def __init__(
         self,
         logger: Logger,
+        tracer: Tracer,
         schematic_generator: SchematicGenerator[GuidelineRankSchema],
-        include_tldr: bool = True,
+        include_tldr: bool = False,
     ) -> None:
         self._logger = logger
+        self._tracer = tracer
         self._schematic_generator = schematic_generator
         self._include_tldr = include_tldr
 
@@ -87,14 +91,15 @@ class GuidelineRanker:
         if not guidelines:
             return GuidelineRankingResult([], None)
 
-        results = await asyncio.gather(
-            *(self._rank_guideline(context, guideline) for guideline in guidelines)
-        )
+        with self._tracer.span("guideline.rank"):
+            results = await asyncio.gather(
+                *(self._rank_guideline(context, guideline) for guideline in guidelines)
+            )
 
-        return GuidelineRankingResult(
-            ranked_guidelines=[ranked for ranked, _ in results],
-            generation_info=_aggregate_generation_info([info for _, info in results]),
-        )
+            return GuidelineRankingResult(
+                ranked_guidelines=[ranked for ranked, _ in results],
+                generation_info=_aggregate_generation_info([info for _, info in results]),
+            )
 
     async def _rank_guideline(
         self,
@@ -103,9 +108,10 @@ class GuidelineRanker:
     ) -> tuple[RankedGuideline, GenerationInfo]:
         prompt = self._build_prompt(context, guideline, shots=await self.shots())
 
-        inference = await self._schematic_generator.generate(prompt=prompt)
-
-        self._logger.trace(f"Completion:\n{inference.content.model_dump_json(indent=2)}")
+        inference = await self._schematic_generator.generate(
+            prompt=prompt,
+            hints={"reasoning_effort": self._get_reasoning_effort(context)},
+        )
 
         score = inference.content.score
 
@@ -114,12 +120,26 @@ class GuidelineRanker:
         return (
             RankedGuideline(
                 guideline=guideline,
-                reasoning=inference.content.tldr or "",
+                reasoning=inference.content.tldr
+                or f"This guideline ranked {score * 2} out of 10 in relevance to your next response.",
                 is_relevant=score >= self.RELEVANCE_SCORE_THRESHOLD,
-                score=float(score),
+                score=float(score) / 5.0,
             ),
             inference.info,
         )
+
+    def _get_reasoning_effort(self, context: EngineContext) -> str:
+        match context.agent.effort:
+            case Effort.MIN:
+                return "minimal"
+            case Effort.LOW:
+                return "minimal"
+            case Effort.MEDIUM:
+                return "minimal"
+            case Effort.HIGH:
+                return "low"
+            case Effort.MAX:
+                return "medium"
 
     async def shots(self) -> Sequence[GuidelineRankingShot]:
         return await shot_collection.list()
@@ -179,7 +199,7 @@ class GuidelineRanker:
         guideline: Guideline,
         shots: Sequence[GuidelineRankingShot],
     ) -> PromptBuilder:
-        builder = PromptBuilder(on_build=lambda prompt: self._logger.trace(f"Prompt:\n{prompt}"))
+        builder = PromptBuilder()
 
         builder.add_section(
             name="guideline-ranker-general-instructions",
@@ -252,6 +272,16 @@ Examples of Guideline Ranking Evaluations:
             status=SectionStatus.ACTIVE,
         )
 
+        # Without a tldr field to capture its reasoning, the model tends to append
+        # an unsolicited explanation after the JSON; tell it not to so we don't pay
+        # for output tokens we discard. (Providers that enforce structured output -
+        # OpenAI json_object, Gemini function-calling - ignore this harmlessly.)
+        json_only_note = (
+            ""
+            if self._include_tldr
+            else "\nRespond with ONLY the JSON object above - no explanation, reasoning, or other text."
+        )
+
         builder.add_section(
             name="guideline-ranker-output-format",
             template="""
@@ -261,9 +291,11 @@ OUTPUT FORMAT
 ```json
 {result_structure_text}
 ```
+{json_only_note}
 """,
             props={
                 "result_structure_text": self._format_output(),
+                "json_only_note": json_only_note,
             },
         )
 

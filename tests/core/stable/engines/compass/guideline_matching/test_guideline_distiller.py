@@ -15,6 +15,7 @@
 # TODO add tool handling
 
 from collections.abc import Sequence
+from datetime import datetime, timezone
 from typing import cast
 
 from lagom import Container
@@ -28,6 +29,7 @@ from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.emissions import EmittedEvent
 from parlant.core.glossary import Term
 from parlant.core.sessions import EventSource
+from parlant.core.tools import Tool, ToolId, ToolOverlap
 
 from tests.core.stable.engines.compass.guideline_matching.utils import (
     create_agent,
@@ -38,6 +40,38 @@ from tests.core.stable.engines.compass.guideline_matching.utils import (
     create_term,
 )
 from tests.test_utilities import nlp_test
+
+
+def create_tool(name: str, description: str) -> tuple[ToolId, Tool]:
+    """Build a (ToolId, Tool) pair for attaching tools to a distilled guideline."""
+    return ToolId("local", name), Tool(
+        name=name,
+        creation_utc=datetime.now(timezone.utc),
+        description=description,
+        metadata={},
+        parameters={},
+        required=[],
+        consequential=False,
+        overlap=ToolOverlap.NONE,
+    )
+
+
+_RESET_PASSWORD_TOOL = create_tool(
+    "reset_password",
+    "Reset the password for an account given the account number and the customer's email or phone.",
+)
+_CHECK_STOCK_TOOL = create_tool(
+    "check_stock",
+    "Check whether the given ordered items are currently available in stock.",
+)
+_BOOK_FLIGHT_TOOL = create_tool(
+    "book_flight",
+    "Book a flight given the source/destination airports, dates, class, and traveler details.",
+)
+_REFER_TO_HUMAN_TOOL = create_tool(
+    "refer_to_human",
+    "Hand the conversation off to a human representative.",
+)
 
 
 # A pizza order that has run its full course: toppings and drinks were chosen long ago
@@ -76,6 +110,7 @@ async def base_test_that_a_guideline_is_distilled_correctly(
     expected_distilled_action: str | None = None,
     *,
     agent_description: str | None = None,
+    tools: Sequence[tuple[ToolId, Tool]] = [],
     context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]] = [],
     terms: Sequence[Term] = [],
     capabilities: Sequence[Capability] = [],
@@ -96,6 +131,7 @@ async def base_test_that_a_guideline_is_distilled_correctly(
     result = await distiller.distill(
         context,
         [guideline],
+        tools={guideline.id: tools} if tools else {},
         context_variables=context_variables,
         terms=terms,
         capabilities=capabilities,
@@ -672,4 +708,897 @@ async def test_that_a_simple_action_is_restated_when_a_large_pizza_is_ordered(
         ],
         expected_relevant=True,
         expected_distilled_action="ask the customer what type of crust they would like",
+    )
+
+
+# --- Level 3: journeys collapsed into a single guideline; pick the next step ---
+
+# Each journey is expressed as one guideline: the trigger condition plus a prose
+# description of the whole multi-step process. The distiller must pick the single
+# step that should be taken next given the conversation so far.
+
+_RESET_PASSWORD_CONDITION = "the customer wants to reset their password"
+_RESET_PASSWORD_ACTION = (
+    "Ask the customer for their account number, then ask for their email address or "
+    "phone number, then wish them a good day. If the customer wishes you a good day in "
+    "return, use the reset_password tool with the provided details and report the result "
+    "to the customer. If the customer does not wish you a good day in return, do not "
+    "reset the password."
+)
+
+
+async def test_that_the_reset_password_journey_advances_to_asking_for_contact_details(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_RESET_PASSWORD_CONDITION,
+        action=_RESET_PASSWORD_ACTION,
+        tools=[_RESET_PASSWORD_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "Hi there, I need to reset my password"),
+            (EventSource.AI_AGENT, "I'm here to help you with that. What is your account number?"),
+            (EventSource.CUSTOMER, "318475"),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="ask the customer for their email address or phone number",
+    )
+
+
+_COMPLIMENT_CONDITION = "the customer wants to reset their password"
+_COMPLIMENT_ACTION = (
+    "Ask the customer for their name, then tell them their name is pretty, then ask for "
+    "their surname, then ask for their phone number, then send them a link to our terms "
+    "of service page, and finally ask for their favorite color."
+)
+
+_FORGOT_KEYS_CONDITION = "the customer doesn't know where their keys are"
+_FORGOT_KEYS_ACTION = (
+    "Ask the customer what type of keys they lost, then ask when they last used their "
+    "keys, then tell them to check near where they last used them. If they still haven't "
+    "found their keys, tell them they'd better get a new house."
+)
+
+_CALZONE_CONDITION = "the customer wants to order a calzone"
+_CALZONE_ACTION = (
+    "Welcome the customer to the Low Cal Calzone Zone, then ask how many calzones they "
+    "want. If they want more than 5, warn that delivery is likely to take more than an "
+    "hour and ask whether they can call a human representative - if they can, tell them "
+    "to order by phone; if not, apologize and say you support orders of up to 5 calzones. "
+    "If they want 5 or fewer, ask which type of calzone they want (Classic Italian, "
+    "Spinach and Ricotta, or Chicken and Broccoli), then which size (small, medium, or "
+    "large), then whether they want any drinks, then check that all ordered items are in "
+    "stock. If everything is available, confirm the order details, ask for the delivery "
+    "address, and finally place the order and thank them; if some items are unavailable, "
+    "apologize and ask them to remove the missing items, then check stock again."
+)
+
+_TECH_CONDITION = "the customer needs technical help"
+_TECH_ACTION = (
+    "Ask the customer how much technical experience they have, then ask whether their "
+    "issue is internet-related or password-related. For an internet issue, provide "
+    "advanced internet troubleshooting steps if they are experienced, or basic ones if "
+    "they are not. For a password-related or other issue, provide advanced non-internet "
+    "troubleshooting steps if they are experienced, or basic ones if they are not."
+)
+
+_INVESTMENT_CONDITION = "the customer wants investment advice"
+_INVESTMENT_ACTION = (
+    "Ask the customer about their age and current financial situation, then ask about "
+    "their risk tolerance and investment timeline. If they are young (under 40) with high "
+    "risk tolerance, recommend aggressive growth stocks and emerging market funds for a "
+    "long-term (5+ years) timeline, or balanced growth funds with some stability for a "
+    "short-term timeline. If they are older (40+) or have low risk tolerance, recommend "
+    "conservative balanced funds and blue-chip stocks for a long-term timeline, or use "
+    "the refer_to_human tool for a short-term timeline."
+)
+
+_BOOK_FLIGHT_CONDITION = "the customer wants to book a flight"
+_BOOK_FLIGHT_ACTION = (
+    "Ask for the source and destination airports, then for the dates of the departure and "
+    "return flight, then for the name of the traveler or travelers, then whether they want "
+    "economy or business class. If they want business class for any traveler, warn them "
+    "that it will cost extra and cannot be cancelled. Finally, book the flight using the "
+    "book_flight tool with the provided details."
+)
+
+
+# Compliment-customer journey
+
+
+async def test_that_the_compliment_journey_repeats_asking_for_the_name_when_not_provided(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_COMPLIMENT_CONDITION,
+        action=_COMPLIMENT_ACTION,
+        conversation=[
+            (EventSource.CUSTOMER, "Hi there, I need to reset my password"),
+            (EventSource.AI_AGENT, "I'm here to help you with that. What is your name?"),
+            (EventSource.CUSTOMER, "How is that relevant?"),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="ask the customer for their name",
+    )
+
+
+async def test_that_the_compliment_journey_advances_to_complimenting_the_name(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_COMPLIMENT_CONDITION,
+        action=_COMPLIMENT_ACTION,
+        conversation=[
+            (EventSource.CUSTOMER, "Hi there, I need to reset my password"),
+            (EventSource.AI_AGENT, "I'm here to help you with that. What is your name?"),
+            (EventSource.CUSTOMER, "My name is Bartholomew"),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="tell the customer that their name is pretty",
+    )
+
+
+# Forgot-keys journey
+
+
+async def test_that_the_forgot_keys_journey_does_not_apply_once_the_keys_are_found(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_FORGOT_KEYS_CONDITION,
+        action=_FORGOT_KEYS_ACTION,
+        conversation=[
+            (EventSource.CUSTOMER, "Hi, I lost my keys."),
+            (EventSource.AI_AGENT, "I'm sorry to hear that! What type of keys did you lose?"),
+            (
+                EventSource.CUSTOMER,
+                "Car keys, last used them at the office, and I just found them, thanks!",
+            ),
+        ],
+        expected_relevant=False,
+    )
+
+
+# Reset-password journey (the advance-to-contact-details case is defined above)
+
+
+async def test_that_the_reset_password_journey_advances_to_using_the_reset_tool(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_RESET_PASSWORD_CONDITION,
+        action=_RESET_PASSWORD_ACTION,
+        tools=[_RESET_PASSWORD_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "Hi there, I need to reset my password"),
+            (EventSource.AI_AGENT, "I'm here to help you with that. What is your account number?"),
+            (EventSource.CUSTOMER, "318475"),
+            (EventSource.AI_AGENT, "Thank you. Now I need your email address or phone number."),
+            (EventSource.CUSTOMER, "john.doe@email.com"),
+            (EventSource.AI_AGENT, "Great! Have a good day!"),
+            (
+                EventSource.CUSTOMER,
+                "Thank you, have a good day too! Now what's up with my password?",
+            ),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="use the reset_password tool with the provided details",
+    )
+
+
+async def test_that_the_reset_password_journey_advances_to_reporting_the_result(
+    distiller: GuidelineDistiller,
+) -> None:
+    staged_events = [
+        create_staged_tool_event(
+            cast(
+                JSONSerializable,
+                {
+                    "tool_calls": [
+                        {
+                            "tool_id": "local:reset_password",
+                            "arguments": {
+                                "account_number": "199877",
+                                "email": "john.doe@email.com",
+                            },
+                            "result": {
+                                "data": "Password reset successfully",
+                                "metadata": {},
+                                "control": {},
+                            },
+                        }
+                    ]
+                },
+            )
+        ),
+    ]
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_RESET_PASSWORD_CONDITION,
+        action=_RESET_PASSWORD_ACTION,
+        tools=[_RESET_PASSWORD_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "Hi there, I need to reset my password"),
+            (EventSource.AI_AGENT, "I'm here to help you with that. What is your account number?"),
+            (EventSource.CUSTOMER, "318475"),
+            (EventSource.AI_AGENT, "Thank you. Now I need your email address or phone number."),
+            (EventSource.CUSTOMER, "john.doe@email.com"),
+            (EventSource.AI_AGENT, "Great! Have a good day!"),
+            (EventSource.CUSTOMER, "Thank you, have a good day too!"),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="report to the customer that their password was reset successfully",
+        staged_events=staged_events,
+    )
+
+
+async def test_that_the_reset_password_journey_exits_when_it_no_longer_applies(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_RESET_PASSWORD_CONDITION,
+        action=_RESET_PASSWORD_ACTION,
+        tools=[_RESET_PASSWORD_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "Hi there, I need to reset my password"),
+            (EventSource.AI_AGENT, "I'm here to help you with that. What is your account number?"),
+            (EventSource.CUSTOMER, "318475"),
+            (EventSource.AI_AGENT, "Thank you. Now I need your email address or phone number."),
+            (
+                EventSource.CUSTOMER,
+                "Oh actually never mind, can you help me with an existing order first?",
+            ),
+        ],
+        expected_relevant=False,
+    )
+
+
+async def test_that_the_reset_password_journey_recollects_contact_details_for_a_new_account(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_RESET_PASSWORD_CONDITION,
+        action=_RESET_PASSWORD_ACTION,
+        tools=[_RESET_PASSWORD_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "Hi there, I need to reset my password"),
+            (EventSource.AI_AGENT, "I'm here to help you with that. What is your account number?"),
+            (EventSource.CUSTOMER, "318475"),
+            (EventSource.AI_AGENT, "Thank you. Now I need your email address or phone number."),
+            (EventSource.CUSTOMER, "john.doe@email.com"),
+            (EventSource.AI_AGENT, "Great! Have a good day!"),
+            (EventSource.CUSTOMER, "Thank you, have a good day too!"),
+            (EventSource.AI_AGENT, "I'll now reset your password for account 318475."),
+            (
+                EventSource.CUSTOMER,
+                "Wait! Actually, I want to reset my husband's password first - the info I'm looking for is under his account. I think his account number is 123655.",
+            ),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="ask for the email address or phone number for the new (husband's) account",
+    )
+
+
+async def test_that_the_reset_password_journey_starts_by_asking_for_the_account_number(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_RESET_PASSWORD_CONDITION,
+        action=_RESET_PASSWORD_ACTION,
+        tools=[_RESET_PASSWORD_TOOL],
+        conversation=[
+            (
+                EventSource.CUSTOMER,
+                "I lost my password but actually give me a sec to see if I can remember it",
+            ),
+            (
+                EventSource.AI_AGENT,
+                "Alright! Let me know how that goes. I can help you reset your password if necessary.",
+            ),
+            (EventSource.CUSTOMER, "Just give me a sec"),
+            (EventSource.AI_AGENT, "Sure! Take your time."),
+            (
+                EventSource.CUSTOMER,
+                "We'll probably end up resetting it, but let me try one more time before we do...",
+            ),
+            (EventSource.AI_AGENT, "No problem, Let me know how that goes."),
+            (EventSource.CUSTOMER, "Alright that's not it either. Best if I reset it..."),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="ask the customer for their account number",
+    )
+
+
+# Calzone journey
+
+
+async def test_that_the_calzone_journey_advances_to_checking_stock(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_CALZONE_CONDITION,
+        action=_CALZONE_ACTION,
+        tools=[_CHECK_STOCK_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "Hi"),
+            (EventSource.AI_AGENT, "Welcome to the Low Cal Calzone Zone!"),
+            (
+                EventSource.CUSTOMER,
+                "I'd like 3 Classic Italian calzones, medium size, no drinks. My address is 1234 Main Street, NYC, USA",
+            ),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="check whether all the ordered items are available in stock",
+    )
+
+
+async def test_that_the_calzone_journey_re_asks_the_type_when_the_quantity_changes(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_CALZONE_CONDITION,
+        action=_CALZONE_ACTION,
+        tools=[_CHECK_STOCK_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "Hi, I'd like to order some calzones"),
+            (
+                EventSource.AI_AGENT,
+                "Welcome to the Low Cal Calzone Zone! How many calzones would you like?",
+            ),
+            (EventSource.CUSTOMER, "I'll take 3 calzones"),
+            (
+                EventSource.AI_AGENT,
+                "Great! What type of calzones would you like? We have Classic Italian Calzone, Spinach and Ricotta Calzone, and Chicken and Broccoli Calzone.",
+            ),
+            (EventSource.CUSTOMER, "I'll go with two Classic Italian and one spinach"),
+            (EventSource.AI_AGENT, "Perfect! What size would you like - small, medium, or large?"),
+            (EventSource.CUSTOMER, "Actually, I changed my mind. I want 2 calzones instead of 3"),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="ask which type of calzone they want",
+    )
+
+
+async def test_that_the_calzone_journey_warns_about_delivery_time_when_quantity_exceeds_five(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_CALZONE_CONDITION,
+        action=_CALZONE_ACTION,
+        tools=[_CHECK_STOCK_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "I want to order calzones please"),
+            (
+                EventSource.AI_AGENT,
+                "Welcome to the Low Cal Calzone Zone! How many calzones would you like?",
+            ),
+            (EventSource.CUSTOMER, "Just 3 calzones"),
+            (
+                EventSource.AI_AGENT,
+                "What type of calzones would you like? We have Classic Italian Calzone, Spinach and Ricotta Calzone, and Chicken and Broccoli Calzone.",
+            ),
+            (EventSource.CUSTOMER, "Spinach and Ricotta please"),
+            (
+                EventSource.AI_AGENT,
+                "Excellent choice! What size would you like - small, medium, or large?",
+            ),
+            (EventSource.CUSTOMER, "Medium please"),
+            (EventSource.AI_AGENT, "Would you like any drinks with your order?"),
+            (
+                EventSource.CUSTOMER,
+                "Actually, I need to change my order. I want 10 calzones instead of 3",
+            ),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="warn the customer that delivery is likely to take more than an hour",
+    )
+
+
+async def test_that_the_calzone_journey_rechecks_stock_after_a_size_change(
+    distiller: GuidelineDistiller,
+) -> None:
+    staged_events = [
+        create_staged_tool_event(
+            cast(
+                JSONSerializable,
+                {
+                    "tool_calls": [
+                        {
+                            "tool_id": "local:check_stock",
+                            "arguments": {"items": ["4 large Classic Italian Calzones"]},
+                            "result": {
+                                "data": {
+                                    "all_available": True,
+                                    "available_items": ["4 large Classic Italian Calzones"],
+                                },
+                                "metadata": {},
+                                "control": {},
+                            },
+                        }
+                    ]
+                },
+            )
+        ),
+    ]
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_CALZONE_CONDITION,
+        action=_CALZONE_ACTION,
+        tools=[_CHECK_STOCK_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "I'd like to place an order"),
+            (
+                EventSource.AI_AGENT,
+                "Welcome to the Low Cal Calzone Zone! How many calzones would you like?",
+            ),
+            (EventSource.CUSTOMER, "4 calzones please"),
+            (
+                EventSource.AI_AGENT,
+                "What type of calzones would you like? We have Classic Italian Calzone, Spinach and Ricotta Calzone, and Chicken and Broccoli Calzone.",
+            ),
+            (EventSource.CUSTOMER, "Classic Italian"),
+            (EventSource.AI_AGENT, "What size would you like - small, medium, or large?"),
+            (EventSource.CUSTOMER, "Large for all of them, please"),
+            (EventSource.AI_AGENT, "Would you like any drinks with your order?"),
+            (EventSource.CUSTOMER, "No drinks, thanks"),
+            (
+                EventSource.AI_AGENT,
+                "Let me check if all items are available... Great! All items are in stock. Let me confirm your order: 4 large Classic Italian Calzones, no drinks.",
+            ),
+            (EventSource.CUSTOMER, "Actually, can I change those to medium size instead of large?"),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="check again whether all the ordered items are available in stock",
+        staged_events=staged_events,
+    )
+
+
+async def test_that_the_calzone_journey_rechecks_stock_after_a_type_change(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_CALZONE_CONDITION,
+        action=_CALZONE_ACTION,
+        tools=[_CHECK_STOCK_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "I'd like to order calzones"),
+            (
+                EventSource.AI_AGENT,
+                "Welcome to the Low Cal Calzone Zone! How many calzones would you like?",
+            ),
+            (EventSource.CUSTOMER, "3 calzones please"),
+            (
+                EventSource.AI_AGENT,
+                "What type of calzones would you like? We have Classic Italian Calzone, Spinach and Ricotta Calzone, and Chicken and Broccoli Calzone.",
+            ),
+            (EventSource.CUSTOMER, "Spinach and Ricotta please"),
+            (EventSource.AI_AGENT, "What size would you like - small, medium, or large?"),
+            (EventSource.CUSTOMER, "Medium please"),
+            (EventSource.AI_AGENT, "Would you like any drinks with your order?"),
+            (EventSource.CUSTOMER, "Yes, I'll take 2 sodas"),
+            (
+                EventSource.AI_AGENT,
+                "Great! Can you please confirm your order details? We have 3 medium spinach and ricotta calzones and 2 sodas.",
+            ),
+            (
+                EventSource.CUSTOMER,
+                "Actually, I want to change the calzone type for one of the orders to Chicken and Broccoli instead.",
+            ),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="check whether all the ordered items are available in stock",
+    )
+
+
+async def test_that_the_calzone_journey_re_asks_the_type_when_the_quantity_changes_late(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_CALZONE_CONDITION,
+        action=_CALZONE_ACTION,
+        tools=[_CHECK_STOCK_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "I'd like to order calzones"),
+            (
+                EventSource.AI_AGENT,
+                "Welcome to the Low Cal Calzone Zone! How many calzones would you like?",
+            ),
+            (EventSource.CUSTOMER, "3 calzones please"),
+            (
+                EventSource.AI_AGENT,
+                "What type of calzones would you like? We have Classic Italian Calzone, Spinach and Ricotta Calzone, and Chicken and Broccoli Calzone.",
+            ),
+            (EventSource.CUSTOMER, "2 Spinach and Ricotta and 1 Italian please"),
+            (EventSource.AI_AGENT, "What size would you like - small, medium, or large?"),
+            (EventSource.CUSTOMER, "Medium please"),
+            (EventSource.AI_AGENT, "Would you like any drinks with your order?"),
+            (EventSource.CUSTOMER, "Yes, I'll take 2 sodas"),
+            (
+                EventSource.AI_AGENT,
+                "Great! Can you please confirm your order details? We have 2 medium spinach and ricotta calzones, one medium classic Italian and 2 sodas.",
+            ),
+            (EventSource.CUSTOMER, "Wait I got confused. I want 4 calzones please."),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="ask which type of calzone they want",
+    )
+
+
+async def test_that_the_calzone_journey_advances_by_multiple_nodes_to_asking_about_drinks(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_CALZONE_CONDITION,
+        action=_CALZONE_ACTION,
+        tools=[_CHECK_STOCK_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "Hi"),
+            (EventSource.AI_AGENT, "Welcome to the Low Cal Calzone Zone!"),
+            (
+                EventSource.CUSTOMER,
+                "Thanks! Can I order 3 medium classical Italian calzones please?",
+            ),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="ask whether they want any drinks with their order",
+    )
+
+
+async def test_that_the_calzone_journey_advances_by_multiple_steps_to_asking_about_drinks(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_CALZONE_CONDITION,
+        action=_CALZONE_ACTION,
+        tools=[_CHECK_STOCK_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "Hi"),
+            (EventSource.AI_AGENT, "Welcome to the Low Cal Calzone Zone!"),
+            (
+                EventSource.CUSTOMER,
+                "Thanks! Can I order 3 medium classical Italian calzones please?",
+            ),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="ask whether they want any drinks with their order",
+    )
+
+
+# Technical-experience journey
+
+
+async def test_that_the_tech_experience_journey_selects_basic_internet_troubleshooting(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_TECH_CONDITION,
+        action=_TECH_ACTION,
+        conversation=[
+            (EventSource.CUSTOMER, "google is not loading up"),
+            (
+                EventSource.AI_AGENT,
+                "Hi there! I'm sorry to hear that. Before we begin troubleshooting - how technically experienced are you?",
+            ),
+            (EventSource.CUSTOMER, "Not much, I just browse the internet on my iphone"),
+            (
+                EventSource.AI_AGENT,
+                "I see, that's not a problem. Can you describe the exact issue you're experiencing?",
+            ),
+            (EventSource.CUSTOMER, "I type in google.com, but it doesn't load up"),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="provide basic internet troubleshooting steps",
+    )
+
+
+async def test_that_the_tech_experience_journey_selects_basic_non_internet_troubleshooting(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_TECH_CONDITION,
+        action=_TECH_ACTION,
+        conversation=[
+            (
+                EventSource.CUSTOMER,
+                "I can't remember the password for my PC and I have no technological experience pls help me",
+            ),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="provide basic non-internet (password-related) troubleshooting steps",
+    )
+
+
+# Investment-advice journey
+
+
+async def test_that_the_investment_journey_recommends_aggressive_growth_for_a_young_long_term_investor(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_INVESTMENT_CONDITION,
+        action=_INVESTMENT_ACTION,
+        tools=[_REFER_TO_HUMAN_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "Hi, I'm looking for investment advice"),
+            (
+                EventSource.AI_AGENT,
+                "I'd be happy to help you with investment advice! To get started, could you tell me your age and describe your current financial situation?",
+            ),
+            (
+                EventSource.CUSTOMER,
+                "I'm 38 years old. Financially, I make about $100,000 a year as a software engineer, have about $25,000 in savings, and I'm contributing to my 401k. I don't have any major debts except my mortgage.",
+            ),
+            (
+                EventSource.AI_AGENT,
+                "Great, thank you. What's your risk tolerance, and what's your investment timeline - short term (under 5 years) or long term (5+ years)?",
+            ),
+            (
+                EventSource.CUSTOMER,
+                "I'd say I have a pretty high risk tolerance - I'm young and can handle some volatility if it means better long-term returns. And I'm definitely thinking long-term, probably 10-15 years.",
+            ),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="recommend aggressive growth stocks and emerging market funds",
+    )
+
+
+# Book-flight journey
+
+
+async def test_that_the_book_flight_journey_advances_to_asking_for_the_traveler_name(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_BOOK_FLIGHT_CONDITION,
+        action=_BOOK_FLIGHT_ACTION,
+        tools=[_BOOK_FLIGHT_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "Hi, I'd like to book a flight please."),
+            (
+                EventSource.AI_AGENT,
+                "I'd be happy to help you book a flight! Could you please tell me your source and destination airports?",
+            ),
+            (EventSource.CUSTOMER, "I want to fly from JFK in New York to LAX in Los Angeles."),
+            (
+                EventSource.AI_AGENT,
+                "Great! And what dates would you like for your departure and return flights?",
+            ),
+            (
+                EventSource.CUSTOMER,
+                "Hmm, actually... I'm not entirely sure about the dates yet. Let me think about this and get back to you later.",
+            ),
+            (
+                EventSource.AI_AGENT,
+                "No problem at all! Take your time to figure out the dates. Is there anything else I can help you with in the meantime?",
+            ),
+            (
+                EventSource.CUSTOMER,
+                "Actually, you know what - I've decided. Let's depart on December 10th and return on December 17th. Can we book the flight now?",
+            ),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="ask for the name of the traveler or travelers",
+    )
+
+
+async def test_that_the_book_flight_journey_advances_to_asking_for_dates_for_a_new_destination(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_BOOK_FLIGHT_CONDITION,
+        action=_BOOK_FLIGHT_ACTION,
+        tools=[_BOOK_FLIGHT_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "Hi, I'd like to book a flight please."),
+            (
+                EventSource.AI_AGENT,
+                "I'd be happy to help you book a flight! Could you please tell me your source and destination airports?",
+            ),
+            (EventSource.CUSTOMER, "I want to fly from JFK in New York to LAX in Los Angeles."),
+            (
+                EventSource.AI_AGENT,
+                "Great! And what dates would you like for your departure and return flights?",
+            ),
+            (
+                EventSource.CUSTOMER,
+                "Hmm, actually... I'm not entirely sure about the dates yet. Let me think about it.",
+            ),
+            (
+                EventSource.AI_AGENT,
+                "No problem at all! Is there anything else I can help you with in the meantime?",
+            ),
+            (
+                EventSource.CUSTOMER,
+                "Rome sounds perfect! Actually, can you help me book a flight from JFK to Rome instead? I'll figure out the LA trip another time.",
+            ),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="ask for the dates of the departure and return flight",
+    )
+
+
+async def test_review_reset_password_journey_exits_when_the_customer_is_not_polite(
+    distiller: GuidelineDistiller,
+) -> None:
+    # Observed: is_relevant came back True. The node-selection engine exits the journey
+    # here (the customer didn't reciprocate the "good day", so per the journey the
+    # password must not be reset), but the distiller still considers the password-reset
+    # context active.
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_RESET_PASSWORD_CONDITION,
+        action=_RESET_PASSWORD_ACTION,
+        tools=[_RESET_PASSWORD_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "Hi there, I need to reset my password"),
+            (EventSource.AI_AGENT, "I'm here to help you with that. What is your account number?"),
+            (EventSource.CUSTOMER, "318475"),
+            (EventSource.AI_AGENT, "Thank you. Now I need your email address or phone number."),
+            (EventSource.CUSTOMER, "john.doe@email.com"),
+            (EventSource.AI_AGENT, "Great! Have a good day!"),
+            (EventSource.CUSTOMER, "Okay, thanks."),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="Do not reset the password",
+    )
+
+
+async def test_review_reset_password_journey_reuses_the_reset_tool_after_a_correction(
+    distiller: GuidelineDistiller,
+) -> None:
+    # Observed distilled action: "Ask the customer for their email address or phone
+    # number." After the account correction the distiller backtracks to contact
+    # collection, whereas the node-selection engine (which knows the email is still
+    # valid) re-runs the reset tool.
+    staged_events = [
+        create_staged_tool_event(
+            cast(
+                JSONSerializable,
+                {
+                    "tool_calls": [
+                        {
+                            "tool_id": "local:reset_password",
+                            "arguments": {
+                                "account_number": "318475",
+                                "email": "john.doe@email.com",
+                            },
+                            "result": {
+                                "data": "Password reset failed - account not found",
+                                "metadata": {"error": "ACCOUNT_NOT_FOUND"},
+                                "control": {},
+                            },
+                        }
+                    ]
+                },
+            )
+        ),
+    ]
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_RESET_PASSWORD_CONDITION,
+        action=_RESET_PASSWORD_ACTION,
+        tools=[_RESET_PASSWORD_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "Hi there, I need to reset my password"),
+            (EventSource.AI_AGENT, "I'm here to help you with that. What is your account number?"),
+            (EventSource.CUSTOMER, "318475"),
+            (EventSource.AI_AGENT, "Thank you. Now I need your email address or phone number."),
+            (EventSource.CUSTOMER, "john.doe@email.com"),
+            (EventSource.AI_AGENT, "Great! Have a good day!"),
+            (EventSource.CUSTOMER, "Thank you, have a good day too!"),
+            (
+                EventSource.AI_AGENT,
+                "I apologize, but the password could not be reset at this time since your account was not found.",
+            ),
+            (
+                EventSource.CUSTOMER,
+                "Oh wait, I think I gave you the wrong account number. It should be 987654, not 318475. Can we try again? with the same email",
+            ),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="use the reset_password tool again with the corrected account number",
+        staged_events=staged_events,
+    )
+
+
+async def test_review_calzone_journey_repeats_asking_for_the_size_when_not_provided(
+    distiller: GuidelineDistiller,
+) -> None:
+    # Observed distilled action: "Acknowledge that they are checking and wait for them to
+    # provide the size (small, medium, or large)." The customer said "Let me check for a
+    # sec", so the distiller waits instead of re-asking the size like the node-selection
+    # engine does.
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_CALZONE_CONDITION,
+        action=_CALZONE_ACTION,
+        tools=[_CHECK_STOCK_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "Hi, I'd like to order some calzones"),
+            (
+                EventSource.AI_AGENT,
+                "Welcome to the Low Cal Calzone Zone! How many calzones would you like?",
+            ),
+            (EventSource.CUSTOMER, "I'll take 3 calzones"),
+            (
+                EventSource.AI_AGENT,
+                "Great! What type of calzones would you like? We have Classic Italian Calzone, Spinach and Ricotta Calzone, and Chicken and Broccoli Calzone.",
+            ),
+            (EventSource.CUSTOMER, "I'll go with Classic Italian"),
+            (EventSource.AI_AGENT, "Perfect! What size would you like - small, medium, or large?"),
+            (EventSource.CUSTOMER, "Let me check for a sec"),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="wait for the customer to choose which size of calzone they want (small, medium, or large), or just ask them again",
+    )
+
+
+async def test_review_calzone_journey_rechecks_stock_when_reordering_the_same_items(
+    distiller: GuidelineDistiller,
+) -> None:
+    staged_events = [
+        create_staged_tool_event(
+            cast(
+                JSONSerializable,
+                {
+                    "tool_calls": [
+                        {
+                            "tool_id": "local:check_stock",
+                            "arguments": {"items": ["4 large Classic Italian Calzones"]},
+                            "result": {
+                                "data": {
+                                    "all_available": True,
+                                    "available_items": ["4 large Classic Italian Calzones"],
+                                },
+                                "metadata": {},
+                                "control": {},
+                            },
+                        }
+                    ]
+                },
+            )
+        ),
+    ]
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_CALZONE_CONDITION,
+        action=_CALZONE_ACTION,
+        tools=[_CHECK_STOCK_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "I'd like to place an order"),
+            (
+                EventSource.AI_AGENT,
+                "Welcome to the Low Cal Calzone Zone! How many calzones would you like?",
+            ),
+            (EventSource.CUSTOMER, "4 calzones please"),
+            (
+                EventSource.AI_AGENT,
+                "What type of calzones would you like? We have Classic Italian Calzone, Spinach and Ricotta Calzone, and Chicken and Broccoli Calzone.",
+            ),
+            (EventSource.CUSTOMER, "Classic Italian"),
+            (EventSource.AI_AGENT, "What size would you like - small, medium, or large?"),
+            (EventSource.CUSTOMER, "Large for all of them, please. I don't want any drinks btw"),
+        ],
+        expected_relevant=True,
+        expected_distilled_action="confirm order details",
+        staged_events=staged_events,
     )

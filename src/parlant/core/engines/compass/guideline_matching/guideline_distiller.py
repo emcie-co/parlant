@@ -14,6 +14,7 @@
 
 import asyncio
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional, Sequence
@@ -23,13 +24,19 @@ from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.context_variables import ContextVariable, ContextVariableValue
 from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
+from parlant.core.engines.alpha.tool_calling.common import get_tool_spec
 from parlant.core.engines.compass.response_state import EngineContext
 from parlant.core.glossary import Term
-from parlant.core.guidelines import Guideline, GuidelineContent
+from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
+from parlant.core.tools import Tool, ToolId
+
+# A guideline distilled from a journey may carry the tools attached to its
+# tool-using steps. Tools are provided per guideline, keyed by guideline id.
+GuidelineTools = Mapping[GuidelineId, Sequence[tuple[ToolId, Tool]]]
 
 
 @dataclass(frozen=True)
@@ -81,6 +88,7 @@ class GuidelineDistiller:
         context: EngineContext,
         guidelines: Sequence[Guideline],
         *,
+        tools: GuidelineTools = {},
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]] = [],
         terms: Sequence[Term] = [],
         capabilities: Sequence[Capability] = [],
@@ -94,6 +102,7 @@ class GuidelineDistiller:
                 self._distill_guideline(
                     context,
                     guideline,
+                    tools=tools.get(guideline.id, []),
                     context_variables=context_variables,
                     terms=terms,
                     capabilities=capabilities,
@@ -110,6 +119,7 @@ class GuidelineDistiller:
         context: EngineContext,
         guideline: Guideline,
         *,
+        tools: Sequence[tuple[ToolId, Tool]],
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         terms: Sequence[Term],
         capabilities: Sequence[Capability],
@@ -119,6 +129,7 @@ class GuidelineDistiller:
             context,
             guideline,
             shots=await self.shots(),
+            tools=tools,
             context_variables=context_variables,
             terms=terms,
             capabilities=capabilities,
@@ -194,6 +205,7 @@ class GuidelineDistiller:
         guideline: Guideline,
         shots: Sequence[GuidelineDistillationShot],
         *,
+        tools: Sequence[tuple[ToolId, Tool]],
         context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
         terms: Sequence[Term],
         capabilities: Sequence[Capability],
@@ -239,6 +251,8 @@ If the guideline applies, recognize how its action should be carried out right n
 
 Some of the action may already have been taken, in full or in part, earlier in the conversation. In that case, output only the part of the action that still needs to be taken now. If the action was already fully taken and its condition has not arisen again for a new reason, there is nothing left to take. If the condition has arisen again for a new reason (a new or subtly different context), the action should be taken again for that new occurrence. Be conservative about repeating actions that deliver static, one-time information (e.g. "send our address"): only repeat them if the condition genuinely arose again.
 
+If a flow has returned to an earlier stage (e.g. the customer corrects something they said earlier), don't just take the step that literally follows the changed point. Skip any later steps whose information you already have and that is still valid, and jump forward to the next step that genuinely still needs doing.
+
 Prioritize choosing a single action. Even when the guideline lists many things to do, return only the one that is appropriate to take next - do not bundle together everything the guideline mentions. It is fine for a single action to ask for several details at once when they naturally belong together, but it should never overwhelm the customer with unrelated requests or with steps that aren't yet relevant. Record the chosen action in the "distilled_action" field.
 
 The exact format of your response will be provided later in this prompt.
@@ -275,7 +289,7 @@ Examples of Guideline Distillations:
 """,
             props={
                 "guideline_text": _format_guideline(
-                    guideline.content.condition, guideline.content.action
+                    guideline.content.condition, guideline.content.action, tools
                 ),
             },
             status=SectionStatus.ACTIVE,
@@ -315,12 +329,25 @@ OUTPUT FORMAT
         return json.dumps(result, indent=4)
 
 
-def _format_guideline(condition: str, action: Optional[str]) -> str:
+def _format_guideline(
+    condition: str,
+    action: Optional[str],
+    tools: Sequence[tuple[ToolId, Tool]] = (),
+) -> str:
     # The action is optional and only present to contextualize the condition; omit it
     # entirely when absent rather than rendering "Action: None".
     text = f"Condition: {condition}."
     if action:
         text += f" Action: {action}"
+    if tools:
+        # Surface the tools attached to the action (description + arguments), so the
+        # distiller knows what each tool does and can name it as the next step.
+        tools_text = json.dumps([get_tool_spec(tool_id, tool) for tool_id, tool in tools], indent=2)
+        text += (
+            "\nThe action may be carried out (in full or in part) using the following tools. "
+            "When the next step is to run one of these tools, the distilled action should "
+            f"say so explicitly:\n{tools_text}"
+        )
     return text
 
 

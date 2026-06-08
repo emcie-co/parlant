@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
 import time
 from pydantic import ValidationError
 from anthropic import (
@@ -507,12 +508,14 @@ class AnthropicReactGenerator(ReactGenerator):
 
         # The leading system prompt is the stable, cacheable part. Mid-conversation
         # system messages are dynamic (e.g. per-turn instructions) and must never
-        # be cached: inline ones (opus 4.8) are kept out of the cache breakpoint;
-        # on models without inline support they ride at the END of the last user
-        # message (wrapped), again past the breakpoint, so the system +
-        # conversation prefix stays cacheable.
+        # be cached. On models with inline support (Opus 4.8+) they're emitted as a
+        # real system message at the very END of the array (the only valid spot —
+        # see _supports_inline_system); on others they ride at the END of the last
+        # user message (wrapped). Either way they sit past the cache breakpoint, so
+        # the system + conversation prefix stays cacheable.
         leading_system_chunks: list[str] = []
         tail_instruction_chunks: list[str] = []
+        inline_system_chunks: list[str] = []
 
         cache_split = -1
         system_marked = False
@@ -535,10 +538,13 @@ class AnthropicReactGenerator(ReactGenerator):
                         system_marked = True
                     leading_system_captured = True
                 elif supports_inline_system:
-                    # Mid-conversation system kept inline (Claude Opus 4.8). It's
-                    # dynamic, so it must NOT be a cache breakpoint — the breakpoint
-                    # stays on the last real message so the cached prefix grows.
-                    non_system.append(message)
+                    # Inline mid-conversation system (Opus 4.8+): collected and
+                    # emitted as a real system message at the END of the array,
+                    # past the cache breakpoint. (Anthropic rejects it anywhere it
+                    # would be followed by a user turn, so its in-history position
+                    # before the last user message is invalid.)
+                    if message.text:
+                        inline_system_chunks.append(message.text)
                 elif message.text:
                     # Mid-conversation system on a model without inline support:
                     # appended (wrapped) to the END of the last user message below.
@@ -556,6 +562,16 @@ class AnthropicReactGenerator(ReactGenerator):
 
         if tail_instruction_chunks:
             self._append_turn_instructions(messages, "\n\n".join(tail_instruction_chunks))
+
+        if inline_system_chunks:
+            # A single system message at the end (merged — consecutive system
+            # messages aren't allowed). No cache_control: it's dynamic.
+            messages.append(
+                {
+                    "role": "system",
+                    "content": [{"type": "text", "text": "\n\n".join(inline_system_chunks)}],
+                }
+            )
 
         max_tokens = self._max_tokens
         request: dict[str, Any] = {
@@ -630,16 +646,18 @@ class AnthropicReactGenerator(ReactGenerator):
 
     @staticmethod
     def _supports_inline_system(model: str) -> bool:
-        """Mid-conversation ``system``-role messages in the ``messages`` array
-        are supported on Claude Opus 4.8 only. On other models such messages are
-        folded into the top-level ``system`` field instead.
+        """Whether the model accepts mid-conversation ``system``-role messages in
+        the ``messages`` array (Claude Opus 4.8 and up). On other models such
+        messages are folded into the top-level ``system`` field / the tail of the
+        last user message instead.
 
-        Placement rules apply (a mid-conversation system message must follow a
-        user turn, can't be first or consecutive, and can't sit between a
-        tool_use and its tool_result); the caller is responsible for placing
-        them validly, exactly as with the thinking + forced-tool_choice
-        constraint."""
-        return model.startswith("claude-opus-4-8")
+        Anthropic requires a mid-array system message to either END the array or
+        immediately precede an ``assistant`` message (it can't be first, can't be
+        followed by a user turn, can't be consecutive, and can't sit between a
+        tool_use and its tool_result). ``_encode`` satisfies this by emitting the
+        per-turn note at the very end of the array."""
+        m = re.match(r"claude-opus-(\d+)-(\d+)", model)
+        return m is not None and (int(m.group(1)), int(m.group(2))) >= (4, 8)
 
     @staticmethod
     def _map_effort(effort: str) -> str:

@@ -444,31 +444,6 @@ class StreamingLoop(Loop):
     def _get_model_size(self, context: EngineContext, state: _LoopState) -> ModelSize:
         return ModelSize.MEDIUM
 
-    def _tool_event_messages(self, data: ToolEventData, cache_key: str) -> list[Message]:
-        messages: list[Message] = []
-
-        call_id = 0
-        for call in data["tool_calls"]:
-            call_id += 1
-            is_error = "error_details" in call.get("result", {}).get("metadata", {})
-
-            messages.append(
-                Message(
-                    role=Role.TOOL,
-                    cache_key=cache_key,
-                    parts=[
-                        ToolResultPart(
-                            call_id=str(call_id),
-                            name=call["tool_id"],
-                            content=call["result"].get("data", {}),
-                            is_error=is_error,
-                        )
-                    ],
-                )
-            )
-
-        return messages
-
     async def _build_history(
         self,
         job: LoopJob,
@@ -529,7 +504,7 @@ class StreamingLoop(Loop):
                 )
             elif event.kind == EventKind.TOOL and event.source == EventSource.SYSTEM:
                 history.extend(
-                    self._tool_event_messages(cast(ToolEventData, event.data), cache_key)
+                    self._build_tool_event_messages(cast(ToolEventData, event.data), cache_key)
                 )
 
         # Providers (e.g. Gemini, Anthropic) require at least one non-system
@@ -550,7 +525,7 @@ class StreamingLoop(Loop):
         # so fold them in here so the model sees the retrieved context.
         for tool_event in job.context.state.tool_events:
             history.extend(
-                self._tool_event_messages(cast(ToolEventData, tool_event.data), cache_key)
+                self._build_tool_event_messages(cast(ToolEventData, tool_event.data), cache_key)
             )
 
         instructions_index: int | None = None
@@ -585,3 +560,28 @@ class StreamingLoop(Loop):
                 )
             ],
         )
+
+    def _build_tool_event_messages(self, data: ToolEventData, cache_key: str) -> list[Message]:
+        messages: list[Message] = []
+
+        call_id = 0
+        for call in data["tool_calls"]:
+            call_id += 1
+            is_error = "error_details" in call.get("result", {}).get("metadata", {})
+
+            messages.append(
+                Message(
+                    role=Role.TOOL,
+                    cache_key=cache_key,
+                    parts=[
+                        ToolResultPart(
+                            call_id=str(call_id),
+                            name=call["tool_id"],
+                            content=call["result"].get("data", {}),
+                            is_error=is_error,
+                        )
+                    ],
+                )
+            )
+
+        return messages

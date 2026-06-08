@@ -21,6 +21,8 @@ policy, tracer, logger, meter, and tunnel service into the lagom container.
 
 import os
 from contextlib import AsyncExitStack
+from dataclasses import dataclass
+from typing import Any
 
 import httpx
 from lagom import Container
@@ -46,11 +48,24 @@ from .tunnel import _create_tunnel_service
 _exit_stack = AsyncExitStack()
 
 
+@dataclass(frozen=True)
+class CloudProjectAuth:
+    project_id: str
+    secure_connection_enabled: bool
+    authenticated: bool
+
+
+_cloud_project_auth: CloudProjectAuth | None = None
+
+
 async def configure_container(container: Container) -> Container:
+    global _cloud_project_auth
+
     project_token = os.environ.get("PARLANT_CLOUD_PROJECT_TOKEN", "")
     if project_token:
         container[AuthorizationPolicy] = ParlantCloudAuthorizationPolicy(project_token)
     else:
+        _cloud_project_auth = None
         return container
 
     logger = container[Logger]
@@ -65,14 +80,30 @@ async def configure_container(container: Container) -> Container:
             )
             resp.raise_for_status()
             auth_data = resp.json()
-            project_id: str = auth_data.get("project_id", "")
+            project_id = auth_data.get("project_id", "")
     except Exception:
+        _cloud_project_auth = CloudProjectAuth(
+            project_id="",
+            secure_connection_enabled=False,
+            authenticated=False,
+        )
         logger.warning("Parlant Cloud project token validation failed; observability disabled")
         return container
 
-    if not project_id:
+    if not isinstance(project_id, str) or not project_id:
+        _cloud_project_auth = CloudProjectAuth(
+            project_id="",
+            secure_connection_enabled=False,
+            authenticated=False,
+        )
         logger.warning("Parlant Cloud auth response missing project_id; observability disabled")
         return container
+
+    _cloud_project_auth = CloudProjectAuth(
+        project_id=project_id,
+        secure_connection_enabled=_secure_connection_enabled(auth_data),
+        authenticated=True,
+    )
 
     tracer = container[Tracer]
     cloud_tracer = await _exit_stack.enter_async_context(ParlantCloudTracer(project_id=project_id))
@@ -106,6 +137,16 @@ async def initialize_container(container: Container) -> None:
     logger = container[Logger]
 
     try:
+        if _cloud_project_auth is not None and not _cloud_project_auth.authenticated:
+            return
+
+        if _cloud_project_auth is not None and not _cloud_project_auth.secure_connection_enabled:
+            logger.warning(
+                "Parlant Cloud secure connection is not enabled for this project plan; "
+                "using direct project requests"
+            )
+            return
+
         tunnel = _create_tunnel_service(
             session_module=container[SessionModule],
             agent_module=container[AgentModule],
@@ -123,3 +164,20 @@ async def initialize_container(container: Container) -> None:
             )
     except Exception as e:
         logger.warning(f"Failed to start Parlant Cloud tunnel: {e}")
+
+
+def _secure_connection_enabled(auth_data: Any) -> bool:
+    if not isinstance(auth_data, dict):
+        return False
+
+    features = auth_data.get("features")
+    if isinstance(features, dict):
+        secure_connection = features.get("secure_connection")
+        if isinstance(secure_connection, bool):
+            return secure_connection
+
+    secure_connection_enabled = auth_data.get("secure_connection_enabled")
+    if isinstance(secure_connection_enabled, bool):
+        return secure_connection_enabled
+
+    return False

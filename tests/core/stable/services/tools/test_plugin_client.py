@@ -812,13 +812,9 @@ async def test_that_tool_decorator_can_set_overlap() -> None:
 class _KeywordEmbedder(NullEmbedder):
     """A deterministic embedder: a 2-d vector flagging 'weather'/'payment'."""
 
-    async def embed(
-        self, texts: list[str], hints: Mapping[str, Any] = {}
-    ) -> EmbeddingResult:
+    async def embed(self, texts: list[str], hints: Mapping[str, Any] = {}) -> EmbeddingResult:
         return EmbeddingResult(
-            vectors=[
-                [float("weather" in t.lower()), float("payment" in t.lower())] for t in texts
-            ]
+            vectors=[[float("weather" in t.lower()), float("payment" in t.lower())] for t in texts]
         )
 
 

@@ -494,7 +494,7 @@ class Gemini_3_5_Flash(GeminiSchematicGenerator[T]):
 class Gemini_3_5_Flash_LowReasoning(GeminiSchematicGenerator[T]):
     """Gemini 3.5 Flash with thinking pinned to the lowest level.
 
-    Used for cheap, latency-sensitive Sigma stages (e.g. the guideline distiller)
+    Used for cheap, latency-sensitive Compass stages (e.g. the guideline distiller)
     where a short chain of thought is enough and full reasoning would only add cost
     and latency.
     """
@@ -1301,15 +1301,11 @@ Please set GEMINI_API_KEY in your environment before running Parlant.
     async def get_schematic_generator(
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> GeminiSchematicGenerator[T]:
-        # The Compass guideline ranker is a cheap first-pass filter: always serve it
-        # from the latest Flash Lite, regardless of any requested model size.
         if t is GuidelineRankSchema:
             return Gemini_3_1_Flash_Lite[t](  # type: ignore
                 self.logger, self._tracer, self._meter, self._health_reporter
             )
 
-        # The Sigma guideline distiller runs on Flash 3.5 with low reasoning by default:
-        # a short chain of thought is enough to distill the next action cheaply.
         if t is GuidelineDistillSchema:
             return Gemini_3_5_Flash_LowReasoning[t](  # type: ignore
                 self.logger, self._tracer, self._meter, self._health_reporter

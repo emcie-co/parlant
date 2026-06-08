@@ -61,7 +61,9 @@ def _runner(service: _FakeService) -> ToolRunner:
 
 
 async def test_that_run_tool_executes_against_the_service_and_returns_its_result() -> None:
-    runner = _runner(_FakeService(lambda name, args: ToolResult(data={"called": name, "args": args})))
+    runner = _runner(
+        _FakeService(lambda name, args: ToolResult(data={"called": name, "args": args}))
+    )
 
     result = await runner.run_tool(
         _engine_context(), ToolId("svc", "echo"), cast(Mapping[str, JSONSerializable], {"x": 1})

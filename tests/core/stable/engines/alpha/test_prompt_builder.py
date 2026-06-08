@@ -156,9 +156,11 @@ def test_that_matched_low_criticality_guidelines_list_the_principles() -> None:
 
 
 def test_that_tool_descriptions_list_name_and_description_as_optional() -> None:
-    prompt = PromptBuilder().add_tool_descriptions(
-        [_tool("get_weather", "Get the current weather for a city.")]
-    ).build()
+    prompt = (
+        PromptBuilder()
+        .add_tool_descriptions([_tool("get_weather", "Get the current weather for a city.")])
+        .build()
+    )
 
     assert "AVAILABLE TOOLS" in prompt
     assert "get_weather: Get the current weather for a city." in prompt
@@ -168,12 +170,16 @@ def test_that_tool_descriptions_list_name_and_description_as_optional() -> None:
 
 
 def test_that_consequential_tools_carry_a_caution_note() -> None:
-    prompt = PromptBuilder().add_tool_descriptions(
-        [
-            _tool("get_weather", "Get the weather."),
-            _tool("charge_card", "Charge the customer's card.", consequential=True),
-        ]
-    ).build()
+    prompt = (
+        PromptBuilder()
+        .add_tool_descriptions(
+            [
+                _tool("get_weather", "Get the weather."),
+                _tool("charge_card", "Charge the customer's card.", consequential=True),
+            ]
+        )
+        .build()
+    )
 
     # The consequential note attaches only to the consequential tool.
     assert "CONSEQUENTIAL" in prompt

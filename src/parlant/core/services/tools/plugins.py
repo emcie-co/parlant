@@ -669,7 +669,9 @@ class PluginServer:
         (query_vector,) = await self._embed([query])
 
         scored = [
-            ToolRelevanceResult(tool=t, score=_cosine_similarity(query_vector, vector_by_name[t.name]))
+            ToolRelevanceResult(
+                tool=t, score=_cosine_similarity(query_vector, vector_by_name[t.name])
+            )
             for t in candidates
         ]
         scored.sort(key=lambda r: r.score, reverse=True)
@@ -683,14 +685,14 @@ class PluginServer:
             return ListToolsResponse(tools=[t.tool for t in self.tools.values()])
 
         @app.post("/tools/relevant")
-        async def find_relevant_tools(request: FindRelevantToolsRequest) -> FindRelevantToolsResponse:
+        async def find_relevant_tools(
+            request: FindRelevantToolsRequest,
+        ) -> FindRelevantToolsResponse:
             results = await self.find_relevant_tools(
                 request.query, request.tool_names, request.max_count
             )
             return FindRelevantToolsResponse(
-                tools=[
-                    ToolRelevanceResultModel(tool=r.tool, score=r.score) for r in results
-                ]
+                tools=[ToolRelevanceResultModel(tool=r.tool, score=r.score) for r in results]
             )
 
         @app.get("/tools/{name}")

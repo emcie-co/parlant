@@ -329,6 +329,18 @@ OUTPUT FORMAT
         return json.dumps(result, indent=4)
 
 
+def _readable_tool_spec(tool_id: ToolId, tool: Tool) -> dict[str, JSONSerializable]:
+    # ``get_tool_spec`` renders each parameter as a JSON *string*; left as-is, the
+    # surrounding ``json.dumps`` would re-escape it into an unreadable nested string.
+    # Parse the parameter specs back into objects so they render as clean nested JSON.
+    spec = get_tool_spec(tool_id, tool)
+    for key in ("optional_arguments", "required_parameters"):
+        params = spec.get(key)
+        if isinstance(params, dict):
+            spec[key] = {name: json.loads(value) for name, value in params.items()}
+    return spec
+
+
 def _format_guideline(
     condition: str,
     action: Optional[str],
@@ -342,7 +354,9 @@ def _format_guideline(
     if tools:
         # Surface the tools attached to the action (description + arguments), so the
         # distiller knows what each tool does and can name it as the next step.
-        tools_text = json.dumps([get_tool_spec(tool_id, tool) for tool_id, tool in tools], indent=2)
+        tools_text = json.dumps(
+            [_readable_tool_spec(tool_id, tool) for tool_id, tool in tools], indent=2
+        )
         text += (
             "\nThe action may be carried out (in full or in part) using the following tools. "
             "When the next step is to run one of these tools, the distilled action should "

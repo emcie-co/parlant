@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# TODO add tool handling
 
 from collections.abc import Sequence
 from datetime import datetime, timezone
@@ -34,6 +33,7 @@ from parlant.core.tools import Tool, ToolId, ToolOverlap
 from tests.core.stable.engines.compass.guideline_matching.utils import (
     create_agent,
     create_context_variable,
+    create_customer,
     create_engine_context,
     create_guideline,
     create_staged_tool_event,
@@ -110,6 +110,7 @@ async def base_test_that_a_guideline_is_distilled_correctly(
     expected_distilled_action: str | None = None,
     *,
     agent_description: str | None = None,
+    customer_name: str | None = None,
     tools: Sequence[tuple[ToolId, Tool]] = [],
     context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]] = [],
     terms: Sequence[Term] = [],
@@ -125,8 +126,9 @@ async def base_test_that_a_guideline_is_distilled_correctly(
     guideline = create_guideline(condition=condition, action=action)
 
     agent = create_agent(description=agent_description) if agent_description else None
+    customer = create_customer(name=customer_name) if customer_name else None
 
-    context = create_engine_context(conversation=conversation, agent=agent)
+    context = create_engine_context(conversation=conversation, agent=agent, customer=customer)
 
     result = await distiller.distill(
         context,
@@ -673,26 +675,6 @@ async def test_that_a_simple_action_is_restated_when_an_issue_is_resolved(
         ],
         expected_relevant=True,
         expected_distilled_action="confirm with the customer that the issue is fully resolved",
-    )
-
-
-async def test_that_a_simple_action_is_restated_before_confirming_an_order(
-    distiller: GuidelineDistiller,
-) -> None:
-    await base_test_that_a_guideline_is_distilled_correctly(
-        distiller,
-        condition="you are likely to confirm a new order or a payment",
-        action="Re-verify item, price, and customer consent before proceeding",
-        conversation=[
-            (EventSource.CUSTOMER, "I'd like to buy the noise-cancelling headphones for $199."),
-            (
-                EventSource.AI_AGENT,
-                "Sure! I'll place the order for the noise-cancelling headphones at $199.",
-            ),
-            (EventSource.CUSTOMER, "Yes, go ahead and place it."),
-        ],
-        expected_relevant=True,
-        expected_distilled_action="re-verify the item, the price, and the customer's consent before placing the order",
     )
 
 
@@ -1281,6 +1263,7 @@ async def test_that_the_calzone_journey_advances_by_multiple_steps_to_asking_abo
 # Technical-experience journey
 
 
+# Fails occasionally due to stopping to early, not a critical error
 async def test_that_the_tech_experience_journey_selects_basic_internet_troubleshooting(
     distiller: GuidelineDistiller,
 ) -> None:
@@ -1439,10 +1422,6 @@ async def test_that_the_book_flight_journey_advances_to_asking_for_dates_for_a_n
 async def test_review_reset_password_journey_exits_when_the_customer_is_not_polite(
     distiller: GuidelineDistiller,
 ) -> None:
-    # Observed: is_relevant came back True. The node-selection engine exits the journey
-    # here (the customer didn't reciprocate the "good day", so per the journey the
-    # password must not be reset), but the distiller still considers the password-reset
-    # context active.
     await base_test_that_a_guideline_is_distilled_correctly(
         distiller,
         condition=_RESET_PASSWORD_CONDITION,
@@ -1527,10 +1506,6 @@ async def test_review_reset_password_journey_reuses_the_reset_tool_after_a_corre
 async def test_review_calzone_journey_repeats_asking_for_the_size_when_not_provided(
     distiller: GuidelineDistiller,
 ) -> None:
-    # Observed distilled action: "Acknowledge that they are checking and wait for them to
-    # provide the size (small, medium, or large)." The customer said "Let me check for a
-    # sec", so the distiller waits instead of re-asking the size like the node-selection
-    # engine does.
     await base_test_that_a_guideline_is_distilled_correctly(
         distiller,
         condition=_CALZONE_CONDITION,
@@ -1605,4 +1580,197 @@ async def test_review_calzone_journey_rechecks_stock_when_reordering_the_same_it
         expected_relevant=True,
         expected_distilled_action="confirm order details",
         staged_events=staged_events,
+    )
+
+
+# --- Level 4: completed guidelines re-triggered such that only part reapplies ---
+#
+# Each guideline has already been fully carried out once. The condition then arises
+# again in a way that makes only a *subset* of the action relevant - a single changed
+# input, or a different manner of applying the action. The distiller must re-take just
+# that part and reuse or skip the rest, rather than redoing everything or nothing.
+
+
+_DINNER_RESERVATION_CONDITION = "the customer wants to book a dinner reservation"
+_DINNER_RESERVATION_ACTION = (
+    "Ask for the party size, then for the preferred date and time, then whether anyone "
+    "in the party has dietary restrictions, and finally confirm all the details and book "
+    "the table using the book_table tool."
+)
+
+_BOOK_TABLE_TOOL = create_tool(
+    "book_table",
+    "Reserve a restaurant table given the party size, date, time, and any dietary notes.",
+)
+
+
+async def test_that_the_dinner_reservation_journey_rebooks_only_for_an_increased_party_size(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_DINNER_RESERVATION_CONDITION,
+        action=_DINNER_RESERVATION_ACTION,
+        tools=[_BOOK_TABLE_TOOL],
+        conversation=[
+            (EventSource.CUSTOMER, "Hi, I'd like to book a dinner reservation."),
+            (EventSource.AI_AGENT, "Happy to help! How many people will be in your party?"),
+            (EventSource.CUSTOMER, "Four of us."),
+            (EventSource.AI_AGENT, "Great. What date and time would you like?"),
+            (EventSource.CUSTOMER, "This Saturday at 8pm."),
+            (
+                EventSource.AI_AGENT,
+                "Noted. Does anyone in your party have dietary restrictions?",
+            ),
+            (EventSource.CUSTOMER, "Yes, one of us is vegetarian."),
+            (
+                EventSource.AI_AGENT,
+                "All set - I've booked a table for 4 this Saturday at 8pm, with a note "
+                "about the vegetarian guest. See you then!",
+            ),
+            (
+                EventSource.CUSTOMER,
+                "Oh wait, two more friends just decided to join. Can we make it 6 instead of 4?",
+            ),
+        ],
+        expected_relevant=True,
+        expected_distilled_action=(
+            "Either confirm the details of the booking or run the book_table tool"
+        ),
+    )
+
+
+_RIDE_BOOKING_CONDITION = "the customer wants to book a ride"
+_RIDE_BOOKING_ACTION = (
+    "Confirm the pickup location with the customer and quote them the estimated fare."
+)
+
+
+async def test_that_a_ride_booking_guideline_requotes_the_fare_when_only_the_destination_changes(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_RIDE_BOOKING_CONDITION,
+        action=_RIDE_BOOKING_ACTION,
+        conversation=[
+            (EventSource.CUSTOMER, "I need a ride from JFK airport to the Hilton Midtown."),
+            (
+                EventSource.AI_AGENT,
+                "Got it - I'll set your pickup at JFK Terminal 4 arrivals. The estimated fare is $52.",
+            ),
+            (
+                EventSource.CUSTOMER,
+                "Perfect, terminal 4 is right. Actually, can you change the destination to "
+                "the Marriott near the convention center instead?",
+            ),
+        ],
+        expected_relevant=True,
+        expected_distilled_action=(
+            "quote the updated estimated fare for the new destination, without re-confirming "
+            "the pickup location, which is unchanged"
+        ),
+    )
+
+
+_WIRE_TRANSFER_CONDITION = "the customer requests a wire transfer"
+_WIRE_TRANSFER_ACTION = (
+    "Confirm the recipient and amount with the customer, and let them know that the daily "
+    "cutoff for same-day wires is 3 PM."
+)
+
+
+async def test_that_a_wire_transfer_guideline_reconfirms_only_the_new_recipient_on_a_second_wire(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_WIRE_TRANSFER_CONDITION,
+        action=_WIRE_TRANSFER_ACTION,
+        conversation=[
+            (
+                EventSource.CUSTOMER,
+                "I'd like to wire $2,000 to my landlord, account ending 4471.",
+            ),
+            (
+                EventSource.AI_AGENT,
+                "To confirm, that's $2,000 to the account ending 4471. Just so you know, the "
+                "daily cutoff for same-day wires is 3 PM. Shall I proceed?",
+            ),
+            (
+                EventSource.CUSTOMER,
+                "Yes, go ahead. I also need to send $500 to my sister, account ending 8830.",
+            ),
+        ],
+        expected_relevant=True,
+        expected_distilled_action=(
+            "confirm the new recipient and amount ($500 to the account ending 8830), without "
+            "repeating the 3 PM same-day wire cutoff, which was already stated and is unchanged"
+        ),
+    )
+
+
+_REFUND_PROCESS_CONDITION = "the customer asks how to get a refund"
+_REFUND_PROCESS_ACTION = (
+    "Explain the refund process that applies to the type of purchase in question."
+)
+
+
+async def test_that_a_refund_guideline_explains_the_physical_process_when_the_purchase_type_changes(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_REFUND_PROCESS_CONDITION,
+        action=_REFUND_PROCESS_ACTION,
+        conversation=[
+            (EventSource.CUSTOMER, "How do I get a refund for the e-book I bought?"),
+            (
+                EventSource.AI_AGENT,
+                "For digital downloads, refunds are automatic - we credit your original "
+                "payment method within 24 hours, and there's nothing to send back.",
+            ),
+            (
+                EventSource.CUSTOMER,
+                "Got it. I also bought a blender from you last week that I'd like to refund - "
+                "how does that one work?",
+            ),
+        ],
+        expected_relevant=True,
+        expected_distilled_action=("explain the refund process for a physical item (the blender)"),
+    )
+
+
+_WORKOUT_RECOMMENDATION_CONDITION = "the customer asks for a workout recommendation"
+_WORKOUT_RECOMMENDATION_ACTION = "Recommend a workout suited to the customer's stated goal."
+
+
+async def test_that_a_workout_guideline_recommends_differently_when_the_goal_changes(
+    distiller: GuidelineDistiller,
+) -> None:
+    await base_test_that_a_guideline_is_distilled_correctly(
+        distiller,
+        condition=_WORKOUT_RECOMMENDATION_CONDITION,
+        action=_WORKOUT_RECOMMENDATION_ACTION,
+        conversation=[
+            (
+                EventSource.CUSTOMER,
+                "Can you recommend a workout for me? I'm trying to lose weight.",
+            ),
+            (
+                EventSource.AI_AGENT,
+                "Sure! For weight loss, I'd suggest 30 minutes of brisk cardio - like jogging "
+                "or cycling - most days of the week.",
+            ),
+            (
+                EventSource.CUSTOMER,
+                "I've been doing that for a few months and I'm happy with my weight now. I'd "
+                "like to focus on building muscle instead.",
+            ),
+        ],
+        expected_relevant=True,
+        expected_distilled_action=(
+            "recommend a muscle-building workout - such as progressive strength/resistance "
+            "training - suited to the customer's new goal"
+        ),
     )

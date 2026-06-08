@@ -15,6 +15,7 @@
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from enum import IntEnum, auto
+from io import StringIO
 from itertools import chain
 import traceback
 from typing import cast
@@ -283,9 +284,28 @@ class Matcher:
             self._guideline_ranker.rank(context, rank_batch),
         )
 
-        self._logger.info(
-            f"{self.__class__.__name__} guideline ranking usage:\n {ranked.generation_info}"
-        )
+        ranking_results = StringIO()
+
+        if ranked.generation_info:
+            ranking_results.write(f"Usage: {ranked.generation_info}\n")
+
+        if ranked.ranked_guidelines:
+            for rank_result in ranked.ranked_guidelines:
+                g = rank_result.guideline
+
+                if g.content.condition:
+                    ranking_results.write(f"Condition: {g.content.condition}\n")
+                if g.content.action:
+                    ranking_results.write(f"Action: {g.content.action}\n")
+
+                ranking_results.write(
+                    f"  Score: {rank_result.score:.2f} ({'Relevant' if rank_result.is_relevant else 'Not Relevant'})\n"
+                )
+                ranking_results.write(f"  Reasoning: {rank_result.reasoning}\n\n")
+
+            self._logger.debug(
+                f"{self.__class__.__name__} guideline ranking results:\n{ranking_results.getvalue()}"
+            )
 
         matches = list(code_matches)
         matches += [

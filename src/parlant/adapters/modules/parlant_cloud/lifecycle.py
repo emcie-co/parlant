@@ -176,8 +176,4 @@ def _secure_connection_enabled(auth_data: Any) -> bool:
         if isinstance(secure_connection, bool):
             return secure_connection
 
-    secure_connection_enabled = auth_data.get("secure_connection_enabled")
-    if isinstance(secure_connection_enabled, bool):
-        return secure_connection_enabled
-
     return False

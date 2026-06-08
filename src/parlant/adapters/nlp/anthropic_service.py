@@ -517,15 +517,23 @@ class AnthropicReactGenerator(ReactGenerator):
         cache_split = -1
         system_marked = False
         seen_non_system = False
+        leading_system_captured = False
         non_system: list[Message] = []
         for message in history:
             if message.role == Role.SYSTEM:
-                if not seen_non_system:
-                    # Leading system prompt → the stable, cacheable part.
+                if not seen_non_system and not leading_system_captured:
+                    # The FIRST system message is the stable, cacheable prompt.
+                    # Only the first one: a later system message (e.g. the per-turn
+                    # instructions, inserted just before the last user message) is
+                    # dynamic and must NOT join the cached prefix — even though it
+                    # also precedes the first non-system message in a short
+                    # conversation. Otherwise the cached system block changes every
+                    # turn and prompt caching never hits.
                     if message.text:
                         leading_system_chunks.append(message.text)
                     if self.cache.enabled and message.cache_key is not None:
                         system_marked = True
+                    leading_system_captured = True
                 elif supports_inline_system:
                     # Mid-conversation system kept inline (Claude Opus 4.8). It's
                     # dynamic, so it must NOT be a cache breakpoint — the breakpoint
@@ -791,15 +799,31 @@ class AnthropicReactGenerator(ReactGenerator):
             return 1024
         return self._UNKNOWN_MIN_CACHE_SIZE
 
+    def _thinking_enabled(self, model: str, reasoning: Optional[ReasoningConfig]) -> bool:
+        """Whether the real call will run with extended thinking. Opus 4.x always
+        uses adaptive thinking; Sonnet/Haiku think unless effort is "minimal"
+        (budget 0). Mirrors ``reasoning or ReasoningConfig()`` in ``_encode``."""
+        if self._uses_adaptive_thinking(model):
+            return True
+        return self._EFFORT_TO_BUDGET[(reasoning or ReasoningConfig()).effort] > 0
+
     @override
     async def _should_prefill(
         self,
         history: Sequence[Message],
         tools: Sequence[ToolSpec],
         hints: ReactGeneratorHints,
+        reasoning: Optional[ReasoningConfig] = None,
     ) -> bool:
+        resolved_model = self._resolve_model(hints)
+        # Anthropic keys the prompt cache to the exact thinking config: a cache
+        # warmed without thinking is invisible to a thinking request, and matching
+        # the config would mean running a full thinking pass in the prefill. So
+        # warming only pays off when the real call won't think.
+        if self._thinking_enabled(resolved_model, reasoning):
+            return False
         token_count = self._estimate_prefill_tokens(history, tools)
-        return token_count >= self._min_cache_size(self._resolve_model(hints))
+        return token_count >= self._min_cache_size(resolved_model)
 
     async def _prefill(self, request: Any) -> Usage:
         prefill_request = self._build_prefill_request(request)
@@ -927,7 +951,9 @@ Please set ANTHROPIC_API_KEY in your environment before running Parlant.
         # The Compass guideline ranker is a cheap first-pass filter: serve it from
         # Haiku regardless of the requested schema.
         if t is GuidelineRankSchema:
-            return Claude_Haiku_4_5[t](self.logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
+            return Claude_Haiku_4_5[t](  # type: ignore
+                self.logger, self._tracer, self._meter, self._health_reporter
+            )
         if (
             t == JourneyBacktrackNodeSelectionSchema
             or t == DisambiguationGuidelineMatchesSchema

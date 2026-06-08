@@ -655,12 +655,16 @@ class ReactGenerator(abc.ABC):
         history: Sequence[Message],
         tools: Sequence[ToolSpec],
         hints: ReactGeneratorHints,
+        reasoning: Optional[ReasoningConfig] = None,
     ) -> bool:
         """Whether warming the cache is worth it for this prefix. Providers only
         cache prompts above a per-model token minimum; below it, ``cache_control``
-        / implicit caching is ignored and a prefill round-trip is wasted. Default
-        always prefills; the concrete adapters override with a token-count check
-        against the resolved model's minimum. See :meth:`prefill`."""
+        / implicit caching is ignored and a prefill round-trip is wasted. The
+        ``reasoning`` config is provided because some providers can only warm a
+        cache the real call will read when the prefill matches its thinking
+        settings. Default always prefills; the concrete adapters override with a
+        token-count check against the resolved model's minimum. See
+        :meth:`prefill`."""
         return True
 
     @staticmethod
@@ -725,7 +729,7 @@ class ReactGenerator(abc.ABC):
         on Anthropic). Best-effort: providers that can't prefill return an empty
         ``Usage``.
         """
-        if not await self._should_prefill(history, tools, hints or {}):
+        if not await self._should_prefill(history, tools, hints or {}, reasoning):
             return Usage()
 
         request = self._encode(

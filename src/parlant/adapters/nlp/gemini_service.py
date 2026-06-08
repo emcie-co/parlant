@@ -913,6 +913,7 @@ class GeminiReactGenerator(ReactGenerator):
         history: Sequence[Message],
         tools: Sequence[ToolSpec],
         hints: ReactGeneratorHints,
+        reasoning: Optional[ReasoningConfig] = None,
     ) -> bool:
         token_count = self._estimate_prefill_tokens(history, tools)
         return token_count >= self._min_cache_size(self._resolve_model(hints))

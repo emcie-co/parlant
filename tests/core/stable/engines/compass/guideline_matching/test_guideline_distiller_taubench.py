@@ -1094,11 +1094,6 @@ async def test_that_a_confirmed_cancellation_is_distilled_to_calling_the_cancel_
 async def test_that_an_exchange_with_everything_gathered_is_distilled_to_asking_for_confirmation(
     distiller: GuidelineDistiller,
 ) -> None:
-    # tau2-bench retail, Task 0 (Reward 0.0): identity is verified and the item, new variant
-    # and the customer's (single) payment method are all known, but the customer hasn't given
-    # the explicit 'yes' the policy requires before the exchange. The next step is the
-    # confirmation gate, not the tool call (and certainly not re-authenticating, as the failing
-    # agent did).
     staged_events = [
         _find_by_name_zip("Yusuf", "Rossi", "19122", "yusuf_rossi_9620"),
         _staged(
@@ -1185,8 +1180,8 @@ async def test_that_an_exchange_with_everything_gathered_is_distilled_to_asking_
         staged_events=staged_events,
         expected_relevant=True,
         expected_distilled_action=(
-            "summarize the proposed exchange and ask the customer to confirm with 'yes' before "
-            "processing it"
+            "list the exchange details and ask the customer for explicit confirmation before "
+            "processing the exchange"
         ),
     )
 
@@ -1585,9 +1580,6 @@ async def test_that_an_address_change_without_the_new_address_is_distilled_to_as
 async def test_that_a_fully_specified_item_change_is_distilled_to_asking_for_confirmation(
     distiller: GuidelineDistiller,
 ) -> None:
-    # All details are gathered (item, new variant, payment method) but the customer hasn't
-    # given the explicit 'yes' the policy requires before the (one-time) modification. The
-    # next step is the confirmation gate, not the tool call.
     staged_events = [
         _find_by_name_zip("Ava", "Martin", "60614", "ava_martin_1123"),
         _staged(

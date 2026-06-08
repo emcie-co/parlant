@@ -1444,10 +1444,6 @@ async def test_review_reset_password_journey_exits_when_the_customer_is_not_poli
 async def test_review_reset_password_journey_reuses_the_reset_tool_after_a_correction(
     distiller: GuidelineDistiller,
 ) -> None:
-    # After the account correction the flow returns to an earlier step, but the email is
-    # still valid - so the distiller should skip re-collecting it. Either wishing the
-    # customer a good day (the next not-yet-confirmed step) or jumping straight to
-    # re-running the reset tool is acceptable; re-asking for the email is not.
     staged_events = [
         create_staged_tool_event(
             cast(

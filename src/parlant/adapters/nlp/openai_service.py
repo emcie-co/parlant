@@ -67,9 +67,11 @@ from parlant.core.nlp.service import (
 )
 from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbedderHints, EmbeddingResult
 from parlant.core.nlp.generation import (
+    REASONING_EFFORT_HINT,
     T,
     BaseSchematicGenerator,
     BaseStreamingTextGenerator,
+    ReasoningEffort,
     SchematicGenerationResult,
     StreamingTextGenerator,
 )
@@ -213,6 +215,28 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
             if k in self.supported_openai_params and k not in exclude_params
         }
 
+    @staticmethod
+    def _supports_reasoning_effort(model: str) -> bool:
+        # reasoning_effort applies to the reasoning families (gpt-5*, o-series);
+        # standard chat models (gpt-4o, gpt-4.1, ...) reject it.
+        return model.startswith("gpt-5") or bool(re.match(r"o\d", model))
+
+    @staticmethod
+    def _supports_minimal_effort(model: str) -> bool:
+        # The original gpt-5 family exposed effort="minimal"; gpt-5.1+ dropped it
+        # in favor of "none" (the "as little reasoning as possible" tier).
+        return not re.search(r"gpt-5\.\d", model)
+
+    def _reasoning_arguments(self, effort: ReasoningEffort) -> dict[str, Any]:
+        """Map the normalized reasoning effort to OpenAI's ``reasoning_effort``
+        param, or an empty dict for models without reasoning support."""
+        if not self._supports_reasoning_effort(self.model_name):
+            return {}
+        value: str = effort
+        if effort == "minimal" and not self._supports_minimal_effort(self.model_name):
+            value = "none"
+        return {"reasoning_effort": value}
+
     async def _do_generate(
         self,
         prompt: str | PromptBuilder,
@@ -222,6 +246,10 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
             prompt = prompt.build()
 
         openai_api_arguments = self._list_arguments(hints)
+
+        effort = hints.get(REASONING_EFFORT_HINT)
+        if effort is not None:
+            openai_api_arguments = {**openai_api_arguments, **self._reasoning_arguments(effort)}
 
         if hints.get("strict", False):
             t_start = time.time()

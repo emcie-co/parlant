@@ -15,7 +15,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any, AsyncIterator, Callable, Generic, Mapping, TypeVar, cast, get_args
+from typing import Any, AsyncIterator, Callable, Generic, Literal, Mapping, TypeVar, cast, get_args
 from typing_extensions import override
 
 from parlant.core.async_utils import Stopwatch
@@ -35,6 +35,16 @@ from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.tracer import Tracer
 
 T = TypeVar("T", bound=DefaultBaseModel)
+
+
+# Normalized reasoning-depth hint accepted by every schematic generator under the
+# ``"reasoning_effort"`` key in ``generate``'s ``hints``. Each provider maps it to
+# its own model-specific reasoning configuration; models without reasoning support
+# ignore it. ``"minimal"`` is the floor ("as little reasoning as possible") and
+# resolves to *off* where the provider/model allows it.
+ReasoningEffort = Literal["minimal", "low", "medium", "high"]
+
+REASONING_EFFORT_HINT = "reasoning_effort"
 
 
 # ============================================================================

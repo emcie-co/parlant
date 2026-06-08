@@ -44,8 +44,10 @@ from parlant.core.tracer import Tracer
 from parlant.core.meter import Meter
 from parlant.core.nlp.embedding import Embedder, EmbedderHints
 from parlant.core.nlp.generation import (
+    REASONING_EFFORT_HINT,
     T,
     BaseSchematicGenerator,
+    ReasoningEffort,
     SchematicGenerationResult,
 )
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
@@ -125,6 +127,15 @@ class AnthropicEstimatingTokenizer(EstimatingTokenizer):
 class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
     supported_hints = ["temperature"]
 
+    # Manual budgeted thinking (Sonnet / Haiku 4.5). "minimal" → 0 means "no
+    # thinking": the adapter skips the block so the model runs in standard mode.
+    _EFFORT_TO_THINKING_BUDGET: dict[ReasoningEffort, int] = {
+        "minimal": 0,
+        "low": 2048,
+        "medium": 8192,
+        "high": 16384,
+    }
+
     def __init__(
         self,
         model_name: str,
@@ -186,14 +197,28 @@ class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
 
         anthropic_api_arguments = {k: v for k, v in hints.items() if k in self.supported_hints}
 
+        max_tokens = 4096
+        effort = hints.get(REASONING_EFFORT_HINT)
+        reasoning_arguments = (
+            self._reasoning_arguments(effort, max_tokens) if effort is not None else {}
+        )
+        if "thinking" in reasoning_arguments:
+            # Anthropic rejects a custom temperature when thinking is enabled.
+            anthropic_api_arguments = {
+                k: v for k, v in anthropic_api_arguments.items() if k != "temperature"
+            }
+
         t_start = time.time()
         try:
             response = await self._client.messages.create(
                 messages=[{"role": "user", "content": prompt}],
                 model=self.model_name,
-                max_tokens=4096,
+                max_tokens=reasoning_arguments.pop("max_tokens", max_tokens),
                 **anthropic_api_arguments,
+                **reasoning_arguments,
             )
+            if response.usage:
+                self.logger.debug(f"Anthropic API usage: {response.usage}")
         except RateLimitError:
             self.logger.error(
                 (
@@ -211,9 +236,6 @@ class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
             raise
 
         t_end = time.time()
-
-        if response.usage:
-            self.logger.trace(response.usage.model_dump_json(indent=2))
 
         raw_content = response.content[0].text
 
@@ -254,6 +276,35 @@ class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
                 f"JSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
             )
             raise
+
+    @staticmethod
+    def _uses_adaptive_thinking(model: str) -> bool:
+        # Opus 4.x exclusively uses adaptive thinking; Sonnet / Haiku use manual
+        # budgeted thinking.
+        return model.startswith("claude-opus-4")
+
+    def _reasoning_arguments(self, effort: ReasoningEffort, max_tokens: int) -> dict[str, Any]:
+        """Map the normalized reasoning effort to Anthropic's thinking config for
+        this model. ``display="omitted"`` keeps the response a single text block so
+        JSON extraction stays simple. Returns no ``thinking`` for manual models at
+        "minimal" effort (standard mode, zero thinking tokens)."""
+        if self._uses_adaptive_thinking(self.model_name):
+            # Adaptive thinking can't be disabled; "minimal" collapses to "low".
+            return {
+                "thinking": {"type": "adaptive", "display": "omitted"},
+                "output_config": {"effort": "low" if effort == "minimal" else effort},
+            }
+
+        budget = self._EFFORT_TO_THINKING_BUDGET[effort]
+        if budget == 0:
+            return {}
+
+        return {
+            "thinking": {"type": "enabled", "budget_tokens": budget, "display": "omitted"},
+            # Anthropic requires max_tokens > budget_tokens; leave headroom for the
+            # visible answer after the thinking budget.
+            "max_tokens": max(max_tokens, budget + 2048),
+        }
 
 
 class Claude_Sonnet_3_5(AnthropicAISchematicGenerator[T]):

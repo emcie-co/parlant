@@ -50,9 +50,11 @@ from parlant.core.nlp.service import (
 )
 from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbedderHints, EmbeddingResult
 from parlant.core.nlp.generation import (
+    REASONING_EFFORT_HINT,
     T,
     BaseSchematicGenerator,
     FallbackSchematicGenerator,
+    ReasoningEffort,
     SchematicGenerationResult,
     StreamingTextGenerator,
 )
@@ -141,6 +143,24 @@ class GoogleEstimatingTokenizer(EstimatingTokenizer):
 class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
     supported_hints = ["temperature", "thinking_config", "config"]
 
+    # Gemini 3.x uses a coarse named ``thinking_level``; "minimal" is the lowest
+    # level (3.x cannot fully disable thinking).
+    _EFFORT_TO_THINKING_LEVEL_3X: dict[ReasoningEffort, "google.genai.types.ThinkingLevel"] = {
+        "minimal": google.genai.types.ThinkingLevel.MINIMAL,
+        "low": google.genai.types.ThinkingLevel.LOW,
+        "medium": google.genai.types.ThinkingLevel.MEDIUM,
+        "high": google.genai.types.ThinkingLevel.HIGH,
+    }
+
+    # Gemini 2.5 uses a numeric ``thinking_budget``; "minimal" → 0 turns thinking
+    # off on 2.5 flash / flash-lite.
+    _EFFORT_TO_THINKING_BUDGET_25: dict[ReasoningEffort, int] = {
+        "minimal": 0,
+        "low": 1024,
+        "medium": 8192,
+        "high": 24576,
+    }
+
     def __init__(
         self,
         model_name: str,
@@ -201,6 +221,14 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
             prompt = prompt.build()
 
         gemini_api_arguments = {k: v for k, v in hints.items() if k in self.supported_hints}
+
+        # The normalized reasoning_effort hint wins over any thinking_config hint
+        # (per provider/model mapping); models without thinking support ignore it.
+        effort = hints.get(REASONING_EFFORT_HINT)
+        if effort is not None:
+            thinking_config = self._reasoning_thinking_config(effort)
+            if thinking_config is not None:
+                gemini_api_arguments["thinking_config"] = thinking_config
 
         fd = self._get_schema_function_declaration()
 
@@ -315,6 +343,15 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
         )
 
         return fd
+
+    def _reasoning_thinking_config(self, effort: ReasoningEffort) -> dict[str, Any] | None:
+        """Map the normalized reasoning effort to this model's thinking config, or
+        None for models without thinking support (e.g. Gemini 2.0)."""
+        if self.model_name.startswith("gemini-3"):
+            return {"thinking_level": self._EFFORT_TO_THINKING_LEVEL_3X[effort]}
+        if self.model_name.startswith("gemini-2.5"):
+            return {"thinking_budget": self._EFFORT_TO_THINKING_BUDGET_25[effort]}
+        return None
 
 
 class Gemini_2_0_Flash(GeminiSchematicGenerator[T]):

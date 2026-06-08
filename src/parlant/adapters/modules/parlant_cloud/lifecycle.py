@@ -140,13 +140,6 @@ async def initialize_container(container: Container) -> None:
         if _cloud_project_auth is not None and not _cloud_project_auth.authenticated:
             return
 
-        if _cloud_project_auth is not None and not _cloud_project_auth.secured:
-            logger.warning(
-                "Parlant Cloud secure connection is not enabled for this project plan; "
-                "using direct project requests"
-            )
-            return
-
         tunnel = _create_tunnel_service(
             session_module=container[SessionModule],
             agent_module=container[AgentModule],

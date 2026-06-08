@@ -74,7 +74,11 @@ class GuidelineRecaller:
 
         return GuidelineRecallResult(
             [
-                RecalledGuideline(guideline=result.guideline, is_relevant=True, score=result.score)
+                RecalledGuideline(
+                    guideline=result.guideline,
+                    is_relevant=result.score >= 0.3,
+                    score=result.score,
+                )
                 for result in results
             ]
         )

@@ -217,12 +217,13 @@ async def test_that_cloud_initializer_starts_tunnel_after_session_module_exists(
         container[BackgroundTaskService] = cast(BackgroundTaskService, background_task_service)
         container[Logger] = cast(Logger, FakeLogger())
 
-        await initialize_container(container)
+        try:
+            await initialize_container(container)
 
-        assert background_task_service.started
-        assert background_task_service.tag == "parlant-cloud-tunnel"
-
-        lifecycle._cloud_project_auth = None
+            assert background_task_service.started
+            assert background_task_service.tag == "parlant-cloud-tunnel"
+        finally:
+            lifecycle._cloud_project_auth = None
 
 
 async def test_that_cloud_initializer_does_not_start_tunnel_without_secure_connection() -> None:
@@ -242,8 +243,9 @@ async def test_that_cloud_initializer_does_not_start_tunnel_without_secure_conne
         container[BackgroundTaskService] = cast(BackgroundTaskService, background_task_service)
         container[Logger] = cast(Logger, FakeLogger())
 
-        await initialize_container(container)
+        try:
+            await initialize_container(container)
 
-        assert not background_task_service.started
-
-        lifecycle._cloud_project_auth = None
+            assert not background_task_service.started
+        finally:
+            lifecycle._cloud_project_auth = None

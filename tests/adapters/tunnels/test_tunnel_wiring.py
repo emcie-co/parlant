@@ -226,7 +226,7 @@ async def test_that_cloud_initializer_starts_tunnel_after_session_module_exists(
             lifecycle._cloud_project_auth = None
 
 
-async def test_that_cloud_initializer_does_not_start_tunnel_without_secure_connection() -> None:
+async def test_that_cloud_initializer_starts_tunnel_without_secure_connection() -> None:
     with patch.dict(os.environ, {"PARLANT_CLOUD_PROJECT_TOKEN": "test-token"}):
         lifecycle._cloud_project_auth = CloudProjectAuth(
             project_id="project-1",
@@ -246,7 +246,8 @@ async def test_that_cloud_initializer_does_not_start_tunnel_without_secure_conne
         try:
             await initialize_container(container)
 
-            assert not background_task_service.started
+            assert background_task_service.started
+            assert background_task_service.tag == "parlant-cloud-tunnel"
         finally:
             lifecycle._cloud_project_auth = None
 

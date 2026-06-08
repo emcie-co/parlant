@@ -18,7 +18,7 @@ from typing_extensions import override
 
 from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.emissions import EventEmitter
-from parlant.core.engines.alpha.entity_context import EntityContext
+from parlant.core.engines.entity_context import EntityContext
 from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.engine_context import Interaction
 from parlant.core.engines.compass.matcher import Matcher

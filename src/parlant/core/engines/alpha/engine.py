@@ -42,7 +42,7 @@ from parlant.core.engines.alpha.engine_context import (
     EngineContext,
     ResponseState,
 )
-from parlant.core.engines.alpha.entity_context import EntityContext
+from parlant.core.engines.entity_context import EntityContext
 from parlant.core.engines.alpha.message_generator import MessageGenerator
 from parlant.core.engines.alpha.hooks import EngineHooks
 from parlant.core.engines.alpha.perceived_performance_policy import (

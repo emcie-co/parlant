@@ -17,7 +17,7 @@ import json
 from typing import Awaitable, Callable, Sequence
 from typing_extensions import override
 
-from parlant.core.engines.alpha.entity_context import EntityContext
+from parlant.core.engines.entity_context import EntityContext
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingBatch,

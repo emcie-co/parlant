@@ -19,7 +19,7 @@ from typing import Any
 from fastapi import WebSocket
 from typing_extensions import override
 
-from parlant.core.engines.alpha.entity_context import EntityContext
+from parlant.core.engines.entity_context import EntityContext
 from parlant.core.common import UniqueId, generate_id
 from parlant.core.tracer import Tracer
 from parlant.core.loggers import TracingLogger, LogLevel

@@ -135,7 +135,7 @@ from parlant.core.engines.engine_context import (
     Interaction,
     InteractionMessage,
 )
-from parlant.core.engines.alpha.entity_context import EntityContext
+from parlant.core.engines.entity_context import EntityContext
 from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch as _GuidelineMatch,
 )

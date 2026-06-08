@@ -749,7 +749,7 @@ class PluginServer:
             # Restore EngineContext if context_id was provided (same-process hosted mode)
             if request.engine_context_id and request.engine_context_id in _engine_context_registry:
                 # Late import to avoid circular dependency
-                from parlant.core.engines.alpha.entity_context import EntityContext
+                from parlant.core.engines.entity_context import EntityContext
 
                 EntityContext.set(_engine_context_registry[request.engine_context_id])
 
@@ -997,7 +997,7 @@ class PluginClient(ToolService):
     ) -> ToolResult:
         # Register the current EngineContext for same-process PluginServer access
         # Late import to avoid circular dependency
-        from parlant.core.engines.alpha.entity_context import EntityContext
+        from parlant.core.engines.entity_context import EntityContext
 
         engine_context_id: str | None = None
         engine_context = EntityContext.get()

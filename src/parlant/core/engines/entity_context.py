@@ -15,14 +15,15 @@
 from __future__ import annotations
 
 import contextvars
+from typing import Any
 
 from parlant.core.agents import Agent
 from parlant.core.async_utils import Stopwatch
 from parlant.core.context_variables import ContextVariableId, ContextVariableValue
 from parlant.core.customers import Customer
 
-# Engine-agnostic contextvar: both alpha and compass store their own
-# EngineContext[...] here, so this is the bare EngineContext (== EngineContext[Any]).
+# Engine-agnostic contextvar: every engine (alpha, compass, ...) stores its own
+# EngineContext[...] here, so this holds EngineContext[Any].
 from parlant.core.engines.engine_context import EngineContext, Interaction
 from parlant.core.sessions import Session
 
@@ -34,12 +35,12 @@ class EntityContext:
     running within the same asyncio task context, including engine hooks.
     """
 
-    _var: contextvars.ContextVar[EngineContext | None] = contextvars.ContextVar(
+    _var: contextvars.ContextVar[EngineContext[Any] | None] = contextvars.ContextVar(
         "parlant_current_engine_context", default=None
     )
 
     @classmethod
-    def get(self) -> EngineContext | None:
+    def get(self) -> EngineContext[Any] | None:
         """Get the current engine context from the asyncio task context.
 
         Returns:
@@ -50,7 +51,7 @@ class EntityContext:
     @classmethod
     def set(
         self,
-        context: EngineContext,
+        context: EngineContext[Any],
     ) -> None:
         """Set the current entities in the asyncio task context.
 

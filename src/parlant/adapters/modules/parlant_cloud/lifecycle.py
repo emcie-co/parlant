@@ -22,7 +22,6 @@ policy, tracer, logger, meter, and tunnel service into the lagom container.
 import os
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
-from typing import Any
 
 import httpx
 from lagom import Container
@@ -51,7 +50,6 @@ _exit_stack = AsyncExitStack()
 @dataclass(frozen=True)
 class CloudProjectAuth:
     project_id: str
-    secured: bool
     authenticated: bool
 
 
@@ -84,7 +82,6 @@ async def configure_container(container: Container) -> Container:
     except Exception:
         _cloud_project_auth = CloudProjectAuth(
             project_id="",
-            secured=False,
             authenticated=False,
         )
         logger.warning("Parlant Cloud project token validation failed; observability disabled")
@@ -93,7 +90,6 @@ async def configure_container(container: Container) -> Container:
     if not isinstance(project_id, str) or not project_id:
         _cloud_project_auth = CloudProjectAuth(
             project_id="",
-            secured=False,
             authenticated=False,
         )
         logger.warning("Parlant Cloud auth response missing project_id; observability disabled")
@@ -101,7 +97,6 @@ async def configure_container(container: Container) -> Container:
 
     _cloud_project_auth = CloudProjectAuth(
         project_id=project_id,
-        secured=_secured(auth_data),
         authenticated=True,
     )
 
@@ -157,11 +152,3 @@ async def initialize_container(container: Container) -> None:
             )
     except Exception as e:
         logger.warning(f"Failed to start Parlant Cloud tunnel: {e}")
-
-
-def _secured(auth_data: Any) -> bool:
-    if not isinstance(auth_data, dict):
-        return False
-
-    secured = auth_data.get("secured")
-    return secured if isinstance(secured, bool) else False

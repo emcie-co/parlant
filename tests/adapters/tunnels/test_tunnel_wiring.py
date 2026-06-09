@@ -204,7 +204,6 @@ async def test_that_cloud_initializer_starts_tunnel_after_session_module_exists(
     with patch.dict(os.environ, {"PARLANT_CLOUD_PROJECT_TOKEN": "test-token"}):
         lifecycle._cloud_project_auth = CloudProjectAuth(
             project_id="project-1",
-            secured=True,
             authenticated=True,
         )
         container = Container()
@@ -224,35 +223,3 @@ async def test_that_cloud_initializer_starts_tunnel_after_session_module_exists(
             assert background_task_service.tag == "parlant-cloud-tunnel"
         finally:
             lifecycle._cloud_project_auth = None
-
-
-async def test_that_cloud_initializer_starts_tunnel_without_secure_connection() -> None:
-    with patch.dict(os.environ, {"PARLANT_CLOUD_PROJECT_TOKEN": "test-token"}):
-        lifecycle._cloud_project_auth = CloudProjectAuth(
-            project_id="project-1",
-            secured=False,
-            authenticated=True,
-        )
-        container = Container()
-        background_task_service = FakeBackgroundTaskService()
-
-        container[SessionModule] = cast(SessionModule, object())
-        container[AgentModule] = cast(AgentModule, object())
-        container[CustomerModule] = cast(CustomerModule, object())
-        container[TagModule] = cast(TagModule, object())
-        container[BackgroundTaskService] = cast(BackgroundTaskService, background_task_service)
-        container[Logger] = cast(Logger, FakeLogger())
-
-        try:
-            await initialize_container(container)
-
-            assert background_task_service.started
-            assert background_task_service.tag == "parlant-cloud-tunnel"
-        finally:
-            lifecycle._cloud_project_auth = None
-
-
-def test_that_cloud_auth_reads_secured_from_project_token_response() -> None:
-    assert lifecycle._secured({"secured": True}) is True
-    assert lifecycle._secured({"secured": False}) is False
-    assert lifecycle._secured({"features": {"secure_connection": True}}) is False

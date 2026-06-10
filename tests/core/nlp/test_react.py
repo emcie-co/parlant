@@ -75,6 +75,10 @@ class _FakeReactGenerator(ReactGenerator):
         self.raw_stream_started = 0
         self.raw_stream_cancelled = 0
 
+    @property
+    def provider_name(self) -> str:
+        return "fake"
+
     def _encode(
         self,
         history: Sequence[Message],
@@ -492,6 +496,10 @@ async def test_that_provider_errors_propagate_out_of_step() -> None:
         def __init__(self) -> None:
             super().__init__(model="fake")
 
+        @property
+        def provider_name(self) -> str:
+            return "fake"
+
         def _encode(
             self,
             history: Sequence[Message],
@@ -566,6 +574,10 @@ async def test_that_cancelling_a_step_propagates_and_tears_down_the_stream() -> 
             super().__init__(model="fake")
             self.cancelled = False
 
+        @property
+        def provider_name(self) -> str:
+            return "fake"
+
         def _encode(
             self,
             history: Sequence[Message],
@@ -611,6 +623,10 @@ class _StreamingProvider(ReactGenerator):
         super().__init__(model="fake")
         self.started = asyncio.Event()
         self.stream_closed = False
+
+    @property
+    def provider_name(self) -> str:
+        return "fake"
 
     def _encode(
         self,

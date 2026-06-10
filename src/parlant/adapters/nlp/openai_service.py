@@ -266,9 +266,6 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
 
             t_end = time.time()
 
-            if response.usage:
-                self.logger.trace(response.usage.model_dump_json(indent=2))
-
             parsed_object = response.choices[0].message.parsed
             assert parsed_object
 
@@ -939,6 +936,11 @@ class OpenAIReactGenerator(ReactGenerator):
     @property
     def id(self) -> str:
         return f"openai/{self.model}"
+
+    @property
+    @override
+    def provider_name(self) -> str:
+        return "openai"
 
     def _resolve_model(self, hints: ReactGeneratorHints) -> str:
         """Return the model id for this call, applying ``hints['model_size']``

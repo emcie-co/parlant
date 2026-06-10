@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import base64
 import enum
 import hashlib
 import inspect
@@ -265,9 +266,6 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
         json_result = (
             response.candidates[0].content.parts[0].function_call.args.get("log_data", {}) or {}
         )
-
-        if response.usage_metadata:
-            self.logger.trace(response.usage_metadata.model_dump_json(indent=2))
 
         try:
             model_content = self.schema.model_validate(json_result)
@@ -653,6 +651,40 @@ class GeminiReactGenerator(ReactGenerator):
     @property
     def id(self) -> str:
         return f"google/{self.model}"
+
+    @property
+    @override
+    def provider_name(self) -> str:
+        return "gemini"
+
+    @override
+    def _capture_tool_artifacts(self, calls: Sequence[ToolCallPart], blob: dict[str, Any]) -> None:
+        # Gemini 3.x requires a valid thought_signature on every replayed
+        # functionCall; it can't be synthesized, so persist it (per call,
+        # index-aligned; base64 since it's bytes). It rides on the tool-call
+        # part's provider_data (typically only the first part of the turn).
+        signatures: list[Optional[str]] = []
+        for call in calls:
+            raw = call.provider_data.get(GEMINI_THOUGHT_SIGNATURE_KEY)
+            signature = _signature_to_bytes(raw)
+            signatures.append(base64.b64encode(signature).decode("ascii") if signature else None)
+        blob["thought_signatures"] = signatures
+
+    @override
+    def _restore_tool_artifacts(
+        self, calls: Sequence[ToolCallPart], blob: Mapping[str, Any]
+    ) -> bool:
+        # The signature is model-bound and unsynthesizable: only replay natively
+        # when the blob came from this exact model and carries a usable signature.
+        if blob.get("model") != self.model:
+            return False
+        signatures = blob.get("thought_signatures") or []
+        if len(signatures) != len(calls) or not any(signatures):
+            return False
+        for call, signature in zip(calls, signatures):
+            if signature:
+                call.provider_data[GEMINI_THOUGHT_SIGNATURE_KEY] = base64.b64decode(signature)
+        return True
 
     # ---- provider seam -----------------------------------------------------
 

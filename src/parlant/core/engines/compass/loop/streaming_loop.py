@@ -13,12 +13,13 @@
 # limitations under the License.
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from io import StringIO
-from typing import cast
+from typing import Any, Optional, cast
 
 from parlant.core.async_utils import safe_gather
+from parlant.core.common import JSONSerializable
 from parlant.core.emissions import MessageEventHandle, StatusEventHandle
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.engines.compass.response_state import EngineContext, IterationState
@@ -35,6 +36,8 @@ from parlant.core.nlp.react import (
     TextPart,
     ToolCallPart,
     ToolCallStarted,
+    ToolMessageDeserializer,
+    ToolMessageSerializer,
     ToolResultPart,
     ToolSpec,
     Usage,
@@ -50,6 +53,61 @@ from parlant.core.sessions import (
     ToolEventData,
 )
 from parlant.core.tools import ToolResult
+
+
+# Key under which the provider's opaque tool-call replay blob is stored in a tool
+# event's metadata. Read back at history-build time so the originating provider
+# can faithfully replay the call (ids, signatures, …) on a later turn.
+_PROVIDER_DATA_KEY = "__provider_data__"
+
+
+class SessionToolMessageSerializer(ToolMessageSerializer):
+    """Session-backed sink. The neutral record (tool_id/args/result) is built by
+    the engine from execution and stored in the event's ``data``, so the call/
+    result writes are no-ops here; we only capture the provider blob for metadata."""
+
+    def __init__(self) -> None:
+        self.provider_data: Mapping[str, JSONSerializable] = {}
+
+    def write_calls(self, calls: Sequence[ToolCallPart]) -> None:
+        return None
+
+    def write_results(self, results: Sequence[ToolResultPart]) -> None:
+        return None
+
+    def write_provider_data(self, data: Mapping[str, Any]) -> None:
+        self.provider_data = cast(Mapping[str, JSONSerializable], dict(data))
+
+
+class SessionToolMessageDeserializer(ToolMessageDeserializer):
+    """Session-backed source. Serves calls/results from the neutral ``ToolEventData``
+    and the provider blob from the event's metadata."""
+
+    def __init__(self, data: ToolEventData, provider_data: Mapping[str, Any]) -> None:
+        self._data = data
+        self._provider_data = provider_data
+
+    def read_calls(self) -> Sequence[ToolCallPart]:
+        return [
+            ToolCallPart(name=call["tool_id"], args=call["arguments"])
+            for call in self._data["tool_calls"]
+        ]
+
+    def read_results(self) -> Sequence[ToolResultPart]:
+        results: list[ToolResultPart] = []
+        for call in self._data["tool_calls"]:
+            result = call.get("result", {}) or {}
+            results.append(
+                ToolResultPart(
+                    name=call["tool_id"],
+                    content=result.get("data", {}),
+                    is_error="error_details" in (result.get("metadata", {}) or {}),
+                )
+            )
+        return results
+
+    def read_provider_data(self) -> Mapping[str, Any]:
+        return self._provider_data
 
 
 @dataclass
@@ -85,6 +143,7 @@ class StreamingLoop(Loop):
         # the conversation so far. The per-turn instructions are dynamic and sit
         # past the cache breakpoint, so we leave them out here.
         history, _ = await self._build_history(job, include_turn_instructions=False)
+
         usage = await self._react.prefill(
             history=history,
             tools=await self._get_tools(job.context),
@@ -332,6 +391,26 @@ class StreamingLoop(Loop):
             ),
         )
 
+        # Capture the provider's replay blob for the persisted (session-lifespan)
+        # calls, so a later turn can rebuild a faithful native tool turn from the
+        # stored event. Index-aligned with the event's tool_calls below (same
+        # filter/order). The original ToolCallParts carry the provider artifacts
+        # (e.g. Gemini's thought_signature) the serializer needs.
+        persisted_calls = [
+            tool_call
+            for tool_call, result in calls_and_results
+            if result and tool_call.id in persisted_call_ids
+        ]
+        persisted_results = [part for part in step_parts if part.call_id in persisted_call_ids]
+        tool_message_serializer = SessionToolMessageSerializer()
+        self._react.serialize_tool_messages(
+            [
+                Message(role=Role.ASSISTANT, parts=persisted_calls),
+                Message(role=Role.TOOL, parts=persisted_results),
+            ],
+            tool_message_serializer,
+        )
+
         # Emit persisted results into the session response context
         persisted_tool_event = await context.session_event_emitter.emit_tool_event(
             trace_id=context.tracer.trace_id,
@@ -356,6 +435,7 @@ class StreamingLoop(Loop):
                     if result and tool_call.id in persisted_call_ids
                 ]
             ),
+            metadata={_PROVIDER_DATA_KEY: tool_message_serializer.provider_data},
         )
 
         context.state.tool_events.append(transient_tool_event)
@@ -504,7 +584,9 @@ class StreamingLoop(Loop):
                 )
             elif event.kind == EventKind.TOOL and event.source == EventSource.SYSTEM:
                 history.extend(
-                    self._build_tool_event_messages(cast(ToolEventData, event.data), cache_key)
+                    self._build_tool_event_messages(
+                        cast(ToolEventData, event.data), event.metadata, cache_key
+                    )
                 )
 
         # Providers (e.g. Gemini, Anthropic) require at least one non-system
@@ -525,7 +607,9 @@ class StreamingLoop(Loop):
         # so fold them in here so the model sees the retrieved context.
         for tool_event in job.context.state.tool_events:
             history.extend(
-                self._build_tool_event_messages(cast(ToolEventData, tool_event.data), cache_key)
+                self._build_tool_event_messages(
+                    cast(ToolEventData, tool_event.data), tool_event.metadata, cache_key
+                )
             )
 
         instructions_index: int | None = None
@@ -561,7 +645,36 @@ class StreamingLoop(Loop):
             ],
         )
 
-    def _build_tool_event_messages(self, data: ToolEventData, cache_key: str) -> list[Message]:
+    def _build_tool_event_messages(
+        self,
+        data: ToolEventData,
+        metadata: Optional[Mapping[str, JSONSerializable]],
+        cache_key: str,
+    ) -> list[Message]:
+        provider_data = (metadata or {}).get(_PROVIDER_DATA_KEY)
+        if isinstance(provider_data, Mapping) and provider_data:
+            # A model-issued tool call carrying its provider's replay blob: let the
+            # originating provider rebuild a faithful, native tool_use/tool_result
+            # pair (consistent ids, signatures, …).
+            messages = self._react.deserialize_tool_messages(
+                SessionToolMessageDeserializer(data, provider_data)
+            )
+            if messages is None:
+                self._logger.warning(
+                    "Skipping a tool event while building history: its provider data "
+                    f"({provider_data.get('provider')}/{provider_data.get('model')}) "
+                    "can't be replayed by the current generator."
+                )
+                return []
+            for message in messages:
+                message.cache_key = cache_key
+            return list(messages)
+
+        # No provider blob (e.g. retriever-staged results, or events from before
+        # this was introduced): fall back to the prior tool-result-only rendering.
+        return self._legacy_tool_event_messages(data, cache_key)
+
+    def _legacy_tool_event_messages(self, data: ToolEventData, cache_key: str) -> list[Message]:
         messages: list[Message] = []
 
         call_id = 0

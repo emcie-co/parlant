@@ -64,6 +64,7 @@ import abc
 import asyncio
 import json
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import timedelta
 from enum import Enum
@@ -205,6 +206,62 @@ class Message:
     @property
     def tool_results(self) -> Sequence[ToolResultPart]:
         return [p for p in self.parts if isinstance(p, ToolResultPart)]
+
+
+# ──────────────────────── tool-event persistence ports ─────────────────────
+#
+# A tool turn (assistant calls + tool results) is persisted outside this module
+# (e.g. in a session) so it can be replayed into the history of a LATER turn.
+# Two problems make that provider-specific: providers disagree on tool-call id
+# shape, and some require native artifacts on replay (Gemini's thought_signature,
+# etc.) that aren't synthesizable. So the *provider* owns turning a tool turn
+# into a JSON-safe blob and back into Messages, while the *caller* owns where the
+# bytes live — expressed through these two ports. The caller implements them; the
+# provider (ReactGenerator) drives them. Neither imports the other's domain.
+#
+# Index-alignment invariant: calls[i], results[i], and the i-th per-call slice of
+# the provider-data blob all describe the same call. Calls↔results are 1:1 (a
+# failed call still yields a result with is_error=True).
+
+
+class ToolMessageSerializer(abc.ABC):
+    """Sink a ReactGenerator pushes a tool turn into, on persist."""
+
+    @abc.abstractmethod
+    def write_calls(self, calls: Sequence[ToolCallPart]) -> None:
+        """The turn's tool calls. May be a no-op where the durable record is built
+        from execution rather than from these parts — kept for future providers
+        that need to persist call-side data."""
+
+    @abc.abstractmethod
+    def write_results(self, results: Sequence[ToolResultPart]) -> None:
+        """The turn's results. Same no-op caveat as :meth:`write_calls`; exists so
+        a future provider can persist result-side artifacts."""
+
+    @abc.abstractmethod
+    def write_provider_data(self, data: Mapping[str, Any]) -> None:
+        """The single per-turn provider blob (always carries ``provider`` and
+        ``model``, plus any native replay artifacts). Opaque to the caller; stored
+        verbatim and handed back unchanged on read."""
+
+
+class ToolMessageDeserializer(abc.ABC):
+    """Source a ReactGenerator pulls a stored tool turn out of, on replay."""
+
+    @abc.abstractmethod
+    def read_calls(self) -> Sequence[ToolCallPart]:
+        """Calls as parts with name + args populated (id/provider_data are left
+        for the provider to assign)."""
+
+    @abc.abstractmethod
+    def read_results(self) -> Sequence[ToolResultPart]:
+        """Results as parts with name + content + is_error populated (call_id is
+        left for the provider to match to its synthesized ids)."""
+
+    @abc.abstractmethod
+    def read_provider_data(self) -> Mapping[str, Any]:
+        """The blob written by :meth:`ToolMessageSerializer.write_provider_data`,
+        or ``{}`` if none was stored."""
 
 
 # ───────────────────────────── tools & config ──────────────────────────────
@@ -609,6 +666,81 @@ class ReactGenerator(abc.ABC):
     ) -> None:
         self.model = model
         self.cache = cache or CacheConfig()
+
+    # ---- tool-event persistence (provider-decided) -------------------------
+
+    @property
+    @abc.abstractmethod
+    def provider_name(self) -> str:
+        """Short, stable provider id ("anthropic" / "openai" / "gemini"). Used to
+        decide whether a stored tool-event blob was produced by — and so can be
+        replayed by — this generator."""
+
+    def serialize_tool_messages(
+        self, messages: Sequence[Message], serializer: ToolMessageSerializer
+    ) -> None:
+        """Persist a tool turn (the assistant call message + the tool result
+        message) through ``serializer``: push the calls/results and a JSON-safe
+        provider blob (``provider``/``model`` + any native replay artifacts)."""
+        calls = [p for m in messages for p in m.parts if isinstance(p, ToolCallPart)]
+        results = [p for m in messages for p in m.parts if isinstance(p, ToolResultPart)]
+        serializer.write_calls(calls)
+        serializer.write_results(results)
+        blob: dict[str, Any] = {"provider": self.provider_name, "model": self.model}
+        self._capture_tool_artifacts(calls, blob)
+        serializer.write_provider_data(blob)
+
+    def deserialize_tool_messages(
+        self, deserializer: ToolMessageDeserializer
+    ) -> Optional[Sequence[Message]]:
+        """Rebuild a tool turn for replay: the assistant ``ToolCallPart`` message
+        + the matching ``ToolResultPart`` message, with consistent synthesized
+        ids. Returns ``None`` (caller should skip + warn) when the stored blob
+        isn't ours or can't be faithfully replayed under the current model."""
+        blob = deserializer.read_provider_data()
+        if blob.get("provider") != self.provider_name:
+            return None
+
+        calls = list(deserializer.read_calls())
+        results = list(deserializer.read_results())
+        if not calls:
+            return None
+
+        call_parts: list[ToolCallPart] = []
+        result_parts: list[ToolResultPart] = []
+        for call, result in zip(calls, results):
+            call_id = uuid.uuid4().hex
+            call_parts.append(ToolCallPart(id=call_id, name=call.name, args=call.args))
+            result_parts.append(
+                ToolResultPart(
+                    call_id=call_id,
+                    name=result.name,
+                    content=result.content,
+                    is_error=result.is_error,
+                )
+            )
+
+        if not self._restore_tool_artifacts(call_parts, blob):
+            return None
+
+        return [
+            Message(role=Role.ASSISTANT, parts=call_parts),
+            Message(role=Role.TOOL, parts=result_parts),
+        ]
+
+    def _capture_tool_artifacts(self, calls: Sequence[ToolCallPart], blob: dict[str, Any]) -> None:
+        """Hook: add provider-native replay artifacts (per-call, index-aligned) to
+        ``blob``. Default: none — Anthropic/OpenAI replay with synthesized ids and
+        need nothing stored."""
+        return None
+
+    def _restore_tool_artifacts(
+        self, calls: Sequence[ToolCallPart], blob: Mapping[str, Any]
+    ) -> bool:
+        """Hook: reattach artifacts from ``blob`` onto the rebuilt call parts.
+        Return ``False`` if the turn can't be faithfully replayed under the
+        current model (caller skips + warns). Default: ``True``."""
+        return True
 
     # ---- provider seam: implement these three per provider -----------------
 

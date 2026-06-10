@@ -20,6 +20,7 @@ from anthropic import (
     APIResponseValidationError,
     APITimeoutError,
     AsyncAnthropic,
+    BadRequestError,
     InternalServerError,
     RateLimitError,
 )  # type: ignore
@@ -125,6 +126,25 @@ class AnthropicEstimatingTokenizer(EstimatingTokenizer):
         return result.input_tokens  # type: ignore[no-any-return]
 
 
+def _to_anthropic_output_schema(schema: Mapping[str, Any]) -> dict[str, Any]:
+    """Adapt a JSON schema for Anthropic structured outputs, which require
+    ``additionalProperties: false`` to be set explicitly on every object (nested
+    ``$defs``/``$ref`` are supported as-is)."""
+
+    def fix(node: Any) -> Any:
+        if isinstance(node, dict):
+            fixed = {key: fix(value) for key, value in node.items()}
+            if fixed.get("type") == "object" and "additionalProperties" not in fixed:
+                fixed["additionalProperties"] = False
+            return fixed
+        if isinstance(node, list):
+            return [fix(item) for item in node]
+        return node
+
+    result: dict[str, Any] = fix(dict(schema))
+    return result
+
+
 class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
     supported_hints = ["temperature"]
 
@@ -155,6 +175,11 @@ class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
 
         self._client = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
         self._estimating_tokenizer = AnthropicEstimatingTokenizer(self._client, model_name)
+
+        # Whether this model accepts structured outputs (output_config.format).
+        # None = not yet determined; set on the first request, then memoized so we
+        # don't re-probe a model that rejected it (e.g. Sonnet 4.0).
+        self._structured_outputs_supported: Optional[bool] = None
 
     @property
     @override
@@ -209,17 +234,32 @@ class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
                 k: v for k, v in anthropic_api_arguments.items() if k != "temperature"
             }
 
+        # output_config holds the (Opus) reasoning effort and — on models that
+        # support structured outputs — a JSON schema constraining the reply. The
+        # latter is dropped on models that reject it (and the result memoized).
+        output_config: dict[str, Any] = dict(reasoning_arguments.pop("output_config", {}))
+        final_max_tokens = reasoning_arguments.pop("max_tokens", max_tokens)
+        if self._structured_outputs_supported is not False:
+            output_config["format"] = {
+                "type": "json_schema",
+                "schema": _to_anthropic_output_schema(self.schema.model_json_schema()),
+            }
+
+        create_kwargs: dict[str, Any] = dict(
+            messages=[{"role": "user", "content": prompt}],
+            model=self.model_name,
+            max_tokens=final_max_tokens,
+            **anthropic_api_arguments,
+            **reasoning_arguments,
+        )
+        if output_config:
+            create_kwargs["output_config"] = output_config
+
         t_start = time.time()
         try:
-            response = await self._client.messages.create(
-                messages=[{"role": "user", "content": prompt}],
-                model=self.model_name,
-                max_tokens=reasoning_arguments.pop("max_tokens", max_tokens),
-                **anthropic_api_arguments,
-                **reasoning_arguments,
-            )
-            if response.usage:
-                self.logger.debug(f"Anthropic API usage: {response.usage}")
+            response = await self._client.messages.create(**create_kwargs)
+            if "format" in output_config:
+                self._structured_outputs_supported = True
         except RateLimitError:
             self.logger.error(
                 (
@@ -235,10 +275,34 @@ class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
                 ),
             )
             raise
+        except BadRequestError as exc:
+            if "format" not in output_config or not self._is_structured_output_unsupported(exc):
+                raise
+            # This model (or schema) can't do structured outputs — drop it for this
+            # and future calls, and fall back to free-text JSON parsing.
+            self.logger.warning(
+                f"{self.model_name} rejected structured outputs ({exc}); "
+                "falling back to free-text JSON parsing."
+            )
+            self._structured_outputs_supported = False
+            output_config.pop("format")
+            if output_config:
+                create_kwargs["output_config"] = output_config
+            else:
+                create_kwargs.pop("output_config", None)
+            response = await self._client.messages.create(**create_kwargs)
+
+        if response.usage:
+            self.logger.debug(f"Anthropic API usage: {response.usage}")
 
         t_end = time.time()
 
-        raw_content = response.content[0].text
+        # With structured outputs the JSON arrives as a text block (possibly after a
+        # thinking block), so pick the first text block rather than content[0].
+        raw_content = next(
+            (block.text for block in response.content if getattr(block, "type", None) == "text"),
+            "",
+        )
 
         try:
             json_content = normalize_json_output(raw_content)
@@ -306,6 +370,15 @@ class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
             # visible answer after the thinking budget.
             "max_tokens": max(max_tokens, budget + 2048),
         }
+
+    def _is_structured_output_unsupported(self, error: BadRequestError) -> bool:
+        """Whether a 400 indicates this model can't do structured outputs (rather
+        than some other bad request), so we know to fall back instead of failing."""
+        message = str(error).lower()
+        return any(
+            marker in message
+            for marker in ("does not support", "output_config", "structured output")
+        )
 
 
 class Claude_Sonnet_3_5(AnthropicAISchematicGenerator[T]):
@@ -484,6 +557,11 @@ class AnthropicReactGenerator(ReactGenerator):
     @property
     def id(self) -> str:
         return f"anthropic/{self.model}"
+
+    @property
+    @override
+    def provider_name(self) -> str:
+        return "anthropic"
 
     def _resolve_model(self, hints: ReactGeneratorHints) -> str:
         """Return the model id for this call, applying ``hints['model_size']``

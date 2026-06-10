@@ -332,3 +332,11 @@ async def latched_shield(
         pass
 
     return await latch._get_result()
+
+
+async def delay(
+    delay: float,
+    coro: asyncio.Future[_TResult0] | asyncio.Task[_TResult0] | Coroutine[Any, Any, _TResult0],
+) -> _TResult0:
+    await asyncio.sleep(delay)
+    return await coro

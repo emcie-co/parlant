@@ -16,7 +16,7 @@ from collections.abc import Sequence
 import traceback
 from typing_extensions import override
 
-from parlant.core.async_utils import safe_gather
+from parlant.core.async_utils import safe_gather, delay
 from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.emissions import EventEmitter
 from parlant.core.engines.entity_context import EntityContext
@@ -108,9 +108,12 @@ class CompassEngine(Engine):
             if not await self._hooks.call_on_acknowledged(engine_context):
                 return False  # Hook requested to bail out
 
-            await event_emitter.emit_status_event(
-                trace_id=self._tracer.trace_id,
-                data=StatusEventData(status="processing", message="Thinking"),
+            await delay(
+                0.3,
+                event_emitter.emit_status_event(
+                    trace_id=self._tracer.trace_id,
+                    data=StatusEventData(status="processing", message="Thinking"),
+                ),
             )
 
             # Fire on_preparing before the (latency-heavy) guideline/tool loading

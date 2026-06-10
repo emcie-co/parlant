@@ -93,12 +93,12 @@ class GuidelineRanker:
 
         with self._tracer.span("guideline.rank"):
             if len(guidelines) > 1:
-                # Warm-then-fan-out: rank the first guideline and AWAIT it so the
-                # provider's (implicit) cache is populated for the shared prompt
-                # prefix, then fan out the rest concurrently — they read the warm
-                # cache instead of all racing a cold one. The warm matches the
-                # fan-out's prefix exactly (same context/interaction), so this is
-                # reliable regardless of any earlier prefill. Costs one serialized
+                # Warm-then-fan-out: rank the first guideline and AWAIT it before
+                # fanning out the rest concurrently. For a provider with automatic
+                # prefix caching (OpenAI), this populates the cache for the shared
+                # prefix so the fan-out reads it warm instead of all racing a cold
+                # one; for explicit caching (Gemini) prefill already created the
+                # cache, so the first request simply hits it. Costs one serialized
                 # request of latency; only worth it when there's more than one.
                 first = await self._rank_guideline(context, guidelines[0])
                 rest = await asyncio.gather(

@@ -92,9 +92,21 @@ class GuidelineRanker:
             return GuidelineRankingResult([], None)
 
         with self._tracer.span("guideline.rank"):
-            results = await asyncio.gather(
-                *(self._rank_guideline(context, guideline) for guideline in guidelines)
-            )
+            if len(guidelines) > 1:
+                # Warm-then-fan-out: rank the first guideline and AWAIT it so the
+                # provider's (implicit) cache is populated for the shared prompt
+                # prefix, then fan out the rest concurrently — they read the warm
+                # cache instead of all racing a cold one. The warm matches the
+                # fan-out's prefix exactly (same context/interaction), so this is
+                # reliable regardless of any earlier prefill. Costs one serialized
+                # request of latency; only worth it when there's more than one.
+                first = await self._rank_guideline(context, guidelines[0])
+                rest = await asyncio.gather(
+                    *(self._rank_guideline(context, guideline) for guideline in guidelines[1:])
+                )
+                results = [first, *rest]
+            else:
+                results = [await self._rank_guideline(context, guidelines[0])]
 
             return GuidelineRankingResult(
                 ranked_guidelines=[ranked for ranked, _ in results],
@@ -140,6 +152,30 @@ class GuidelineRanker:
                 return "low"
             case Effort.MAX:
                 return "medium"
+
+    async def prefill(self, context: EngineContext) -> None:
+        """Warm the generator's cache for the ranker's shared prompt prefix.
+
+        `rank` fans out one request per guideline concurrently; an implicitly
+        cached provider (e.g. Gemini) only populates its cache once a request
+        completes, so a cold concurrent fan-out would have every request miss.
+        Issuing one request over the shared prefix first (and discarding it)
+        warms the cache so the real fan-out reads it. The same reasoning_effort
+        is used so the warmed variant matches. Best-effort: warming failures must
+        not break preparation."""
+        with self._tracer.span("guideline.prefill"):
+            try:
+                prompt = self._build_shared_prompt(context, shots=await self.shots())
+                inference = await self._schematic_generator.generate(
+                    prompt=prompt,
+                    hints={"reasoning_effort": self._get_reasoning_effort(context)},
+                )
+                if inference.info.usage.input_tokens > 0:
+                    self._logger.info(
+                        f"{self.__class__.__name__} prefill usage:\n {inference.info}"
+                    )
+            except Exception as exc:
+                self._logger.warning(f"Guideline ranker prefill failed (continuing): {exc}")
 
     async def shots(self) -> Sequence[GuidelineRankingShot]:
         return await shot_collection.list()
@@ -199,6 +235,45 @@ class GuidelineRanker:
         guideline: Guideline,
         shots: Sequence[GuidelineRankingShot],
     ) -> PromptBuilder:
+        # Start from the cross-turn-stable shared prefix, then append the
+        # turn-varying context, the specific guideline, and finally the
+        # output-format note. The guideline is what differs across the per-guideline
+        # fan-out, so everything before it stays byte-identical within a turn.
+        builder = self._build_shared_prompt(context, shots)
+
+        # Turn-varying context: changes turn to turn, so it's deliberately NOT in
+        # the shared prefix `prefill` warms (it would only bust that warm).
+        builder.add_context_variables(context.state.context_variables)
+        builder.add_glossary(list(context.state.glossary_terms))
+        builder.add_capabilities_for_guideline_matching(context.state.capabilities)
+        builder.add_interaction_history(context.interaction.events)
+        builder.add_staged_tool_events(context.state.tool_events)
+
+        builder.add_section(
+            name=BuiltInSection.GUIDELINES,
+            template="""
+- Guideline: ###
+{guideline_text}
+###
+""",
+            props={
+                "guideline_text": _format_guideline(
+                    guideline.content.condition, guideline.content.action
+                ),
+            },
+            status=SectionStatus.ACTIVE,
+        )
+
+        return builder
+
+    def _build_shared_prompt(
+        self,
+        context: EngineContext,
+        shots: Sequence[GuidelineRankingShot],
+    ) -> PromptBuilder:
+        """The cross-turn-stable head of the ranker prompt (instructions, shots,
+        agent + customer identity). Excludes turn-varying context, so it stays
+        byte-identical across turns — the prefix `prefill` warms."""
         builder = PromptBuilder()
 
         builder.add_section(
@@ -227,6 +302,8 @@ Output an integer score from 1 to 5 indicating how relevant the guideline's cond
 
 Scores of 1 and 2 mean the guideline will be filtered out for sure; 3 means maybe; 4 and 5 mean it should continue on to the next stages. When in doubt, lean towards a higher score - the human will make the final call.
 
+You will be given the context of the customer, the interaction so far (including tool calls and results), contextual information (variables) about the customer and the current interaction session, and other information. You shall use all of that information to evaluate the relevance of the guideline to the current state of the interaction, but you should focus more on the most recent state of the interaction.
+
 Important considerations:
 1. Focus on recency: Evaluate conditions based on the latest part of the conversation, particularly the most recent customer message.
 2. Semantic evaluation: Assess the actual meaning of conditions, not just keyword matching.
@@ -250,32 +327,13 @@ Examples of Guideline Ranking Evaluations:
         )
 
         builder.add_agent_identity(context.agent)
-        builder.add_context_variables(context.state.context_variables)
-        builder.add_glossary(list(context.state.glossary_terms))
-        builder.add_capabilities_for_guideline_matching(context.state.capabilities)
         builder.add_customer_identity(context.customer, context.session)
-        builder.add_interaction_history(context.interaction.events)
-        builder.add_staged_tool_events(context.state.tool_events)
-
-        builder.add_section(
-            name=BuiltInSection.GUIDELINES,
-            template="""
-- Guideline: ###
-{guideline_text}
-###
-""",
-            props={
-                "guideline_text": _format_guideline(
-                    guideline.content.condition, guideline.content.action
-                ),
-            },
-            status=SectionStatus.ACTIVE,
-        )
 
         # Without a tldr field to capture its reasoning, the model tends to append
         # an unsolicited explanation after the JSON; tell it not to so we don't pay
-        # for output tokens we discard. (Providers that enforce structured output -
-        # OpenAI json_object, Gemini function-calling - ignore this harmlessly.)
+        # for output tokens we discard. Kept as the final note (recency).
+        # (Providers that enforce structured output - OpenAI json_object, Gemini
+        # function-calling - ignore this harmlessly.)
         json_only_note = (
             ""
             if self._include_tldr

@@ -55,7 +55,7 @@ class Responder:
             reasoning_config=self._get_reasoning_config(context),
         )
 
-    async def prepare(self, context: EngineContext) -> None:
+    async def prefill(self, context: EngineContext) -> None:
         # Warm the provider cache for the stable prefix. The job itself is not
         # retained — respond() rebuilds an equivalent one and reads the warm
         # (content-addressed) cache. Prefill skips the turn instructions, so no

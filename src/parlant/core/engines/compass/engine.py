@@ -16,6 +16,7 @@ from collections.abc import Sequence
 import traceback
 from typing_extensions import override
 
+from parlant.core.async_utils import safe_gather
 from parlant.core.emission.event_buffer import EventBuffer
 from parlant.core.emissions import EventEmitter
 from parlant.core.engines.entity_context import EntityContext
@@ -72,13 +73,18 @@ class CompassEngine(Engine):
         )
 
         # Warm the response state (mostly the tool pool — the interaction is empty,
-        # so guideline matching has little to chew on) for the prefill below.
+        # so guideline matching has little to chew on) for the prefills below.
         await self._load_usable_guidelines(engine_context)
         await self._matcher.fill(engine_context)
 
+        # Warm the responder's and the guideline ranker's caches in parallel — both
+        # only need the (now-prepared) state, and neither depends on the other.
         # TODO: This should prepare EITHER the responder OR the task runner,
         # depending on the effort level and context
-        await self._responder.prepare(engine_context)
+        await safe_gather(
+            self._responder.prefill(engine_context),
+            self._matcher.prefill(engine_context),
+        )
 
     @override
     async def process(

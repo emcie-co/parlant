@@ -96,6 +96,11 @@ class Matcher:
         await self._reevaluate(context)
         await self._select_tools(context)
 
+    async def prefill(self, context: EngineContext) -> None:
+        """Warm the guideline ranker's shared-prompt cache so its per-guideline
+        fan-out hits it. See :meth:`GuidelineRanker.prefill`."""
+        await self._guideline_ranker.prefill(context)
+
     # --- guideline matching ---
 
     async def _match(self, context: EngineContext) -> None:

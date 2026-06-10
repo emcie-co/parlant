@@ -27,19 +27,27 @@ tests/core/nlp/test_react.py. This file covers Gemini specifics:
 
 import asyncio
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import google.genai
 import google.genai.types as genai_types
 import pytest
+from google.genai.errors import ClientError
 
 from parlant.adapters.nlp.gemini_service import (
     GEMINI_THOUGHT_SIGNATURE_KEY,
     TURN_INSTRUCTIONS_OPEN,
+    Gemini_3_1_Flash_Lite,
     GeminiReactGenerator,
 )
+from parlant.core.application_context import ApplicationContext
+from parlant.core.common import DefaultBaseModel
+from parlant.core.health import NullHealthReporter
 from parlant.core.loggers import Logger, StdoutLogger
+from parlant.core.meter import LocalMeter
 from parlant.core.tracer import LocalTracer
 from parlant.core.nlp.react import (
     CacheConfig,
@@ -398,6 +406,216 @@ def test_that_finish_reason_mapping_is_total_over_gemini_reasons(
     assert gemini._map_finish_reason(genai_types.FinishReason.RECITATION) == FinishReason.STOP
 
 
+# ════════════════════ 2b. SCHEMATIC EXPLICIT CACHE (store/load) ═════════════
+#
+# The schematic generator supports a `cache` hint — {"action": "store"|"load",
+# "key": <session>, "ttl"?: <seconds>} — that creates/reuses an explicit Gemini
+# CachedContent for a stable prompt prefix. The store/load decision logic is a
+# pure transform tested offline; a live round-trip lives in section 3.
+
+
+class _CacheProbe(DefaultBaseModel):
+    answer: str
+
+
+@pytest.fixture
+def schematic(logger: Logger) -> Gemini_3_1_Flash_Lite[_CacheProbe]:
+    # The client is replaced per-test where the API is exercised; the pure
+    # _plan_load tests never touch it.
+    return Gemini_3_1_Flash_Lite[_CacheProbe](
+        logger=logger,
+        tracer=LocalTracer(),
+        meter=LocalMeter(logger),
+        health_reporter=NullHealthReporter(ApplicationContext(instance_id="test-instance")),
+    )
+
+
+def _seed_cache(
+    gen: Gemini_3_1_Flash_Lite[_CacheProbe],
+    key: str,
+    prefix: str,
+    *,
+    name: str = "cachedContents/x",
+    expiry_delta: timedelta = timedelta(hours=1),
+) -> None:
+    gen._managed_caches[key] = (name, prefix, datetime.now(timezone.utc) + expiry_delta)
+
+
+class _FakeAioClient:
+    """Wraps the generator's real client so offline tool-building (which reads
+    `client.vertexai`) still works, while routing aio.caches / aio.models calls
+    through the supplied mocks."""
+
+    def __init__(
+        self,
+        real: Any,
+        *,
+        create: Any = None,
+        generate: Any = None,
+        delete: Any = None,
+    ) -> None:
+        self._real = real
+        self.aio = SimpleNamespace(
+            caches=SimpleNamespace(create=create or AsyncMock(), delete=delete or AsyncMock()),
+            models=SimpleNamespace(generate_content=generate or AsyncMock()),
+        )
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+
+def _fake_generation(payload: dict[str, Any]) -> SimpleNamespace:
+    function_call = SimpleNamespace(args={"log_data": payload})
+    part = SimpleNamespace(function_call=function_call)
+    candidate = SimpleNamespace(content=SimpleNamespace(parts=[part]))
+    usage = SimpleNamespace(
+        prompt_token_count=1200,
+        candidates_token_count=10,
+        thoughts_token_count=0,
+        cached_content_token_count=0,
+    )
+    return SimpleNamespace(candidates=[candidate], usage_metadata=usage)
+
+
+def test_that_load_strips_the_stored_prefix_and_returns_the_live_tail(
+    schematic: Gemini_3_1_Flash_Lite[_CacheProbe],
+) -> None:
+    _seed_cache(schematic, "s1", "STABLE HEAD\n", name="cachedContents/abc")
+    assert schematic._plan_load("s1", "STABLE HEAD\nlive tail") == (
+        "cachedContents/abc",
+        "live tail",
+    )
+
+
+def test_that_load_falls_back_when_the_prompt_does_not_start_with_the_cached_prefix(
+    schematic: Gemini_3_1_Flash_Lite[_CacheProbe],
+) -> None:
+    _seed_cache(schematic, "s1", "STABLE HEAD\n")
+    assert schematic._plan_load("s1", "A DIFFERENT prompt entirely") is None
+
+
+def test_that_load_falls_back_when_the_cache_entry_is_within_the_expiry_margin(
+    schematic: Gemini_3_1_Flash_Lite[_CacheProbe],
+) -> None:
+    _seed_cache(schematic, "s1", "STABLE HEAD\n", expiry_delta=timedelta(seconds=5))
+    assert schematic._plan_load("s1", "STABLE HEAD\nlive tail") is None
+
+
+def test_that_load_misses_when_the_key_is_unknown(
+    schematic: Gemini_3_1_Flash_Lite[_CacheProbe],
+) -> None:
+    assert schematic._plan_load("never-stored", "anything at all") is None
+
+
+def test_that_load_falls_back_when_there_is_no_live_tail(
+    schematic: Gemini_3_1_Flash_Lite[_CacheProbe],
+) -> None:
+    # An exact-prefix match with nothing after it would send an empty request.
+    _seed_cache(schematic, "s1", "STABLE HEAD\n")
+    assert schematic._plan_load("s1", "STABLE HEAD\n") is None
+
+
+async def test_that_a_rejected_prefix_is_marked_uncacheable_and_not_retried(
+    schematic: Gemini_3_1_Flash_Lite[_CacheProbe],
+) -> None:
+    create = AsyncMock(
+        side_effect=ClientError(
+            400, {"error": {"message": "token count too small", "status": "INVALID_ARGUMENT"}}
+        )
+    )
+    schematic._client = _FakeAioClient(schematic._client, create=create)  # type: ignore[assignment]
+    tools, tool_config = schematic._output_tools()
+
+    await schematic._store_cache(
+        key="s1", prefix_text="too short", ttl_seconds=300, tools=tools, tool_config=tool_config
+    )
+    await schematic._store_cache(
+        key="s1", prefix_text="too short", ttl_seconds=300, tools=tools, tool_config=tool_config
+    )
+
+    assert create.await_count == 1  # the second store skips the known-bad prefix
+    assert "s1" not in schematic._managed_caches
+
+
+async def test_that_store_registers_a_reusable_cache_entry_with_the_given_ttl(
+    schematic: Gemini_3_1_Flash_Lite[_CacheProbe],
+) -> None:
+    created = SimpleNamespace(
+        name="cachedContents/abc",
+        expire_time=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+    create = AsyncMock(return_value=created)
+    schematic._client = _FakeAioClient(schematic._client, create=create)  # type: ignore[assignment]
+    tools, tool_config = schematic._output_tools()
+
+    await schematic._store_cache(
+        key="s1", prefix_text="HEAD " * 300, ttl_seconds=600, tools=tools, tool_config=tool_config
+    )
+
+    assert schematic._managed_caches["s1"][0] == "cachedContents/abc"
+    assert create.await_args is not None
+    assert create.await_args.kwargs["config"].ttl == "600s"
+    # The same key now serves a load, stripping the stored prefix.
+    assert schematic._plan_load("s1", "HEAD " * 300 + "tail") == ("cachedContents/abc", "tail")
+
+
+async def test_that_a_store_request_generates_and_creates_a_cache_with_the_default_ttl(
+    schematic: Gemini_3_1_Flash_Lite[_CacheProbe],
+) -> None:
+    created = SimpleNamespace(
+        name="cachedContents/abc",
+        expire_time=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+    create = AsyncMock(return_value=created)
+    generate = AsyncMock(return_value=_fake_generation({"answer": "warmed"}))
+    schematic._client = _FakeAioClient(schematic._client, create=create, generate=generate)  # type: ignore[assignment]
+
+    result = await schematic._do_generate(
+        "HEAD " * 300, hints={"cache": {"action": "store", "key": "s1"}}
+    )
+
+    assert result.content.answer == "warmed"  # store still returns a real result
+    assert create.await_count == 1
+    assert create.await_args is not None
+    assert create.await_args.kwargs["config"].ttl == "300s"  # default 5 minutes
+    assert "s1" in schematic._managed_caches
+
+
+async def test_that_a_load_request_sends_only_the_suffix_referencing_the_cache(
+    schematic: Gemini_3_1_Flash_Lite[_CacheProbe],
+) -> None:
+    _seed_cache(schematic, "s1", "HEAD " * 300, name="cachedContents/abc")
+    generate = AsyncMock(return_value=_fake_generation({"answer": "ranked"}))
+    schematic._client = _FakeAioClient(schematic._client, generate=generate)  # type: ignore[assignment]
+
+    await schematic._do_generate(
+        "HEAD " * 300 + "the live tail", hints={"cache": {"action": "load", "key": "s1"}}
+    )
+
+    assert generate.await_args is not None
+    config = generate.await_args.kwargs["config"]
+    assert generate.await_args.kwargs["contents"] == "the live tail"
+    assert config.cached_content == "cachedContents/abc"
+    assert not config.tools  # tools/tool_config are baked into the cache, not inline
+
+
+async def test_that_a_load_miss_sends_the_full_prompt_with_inline_tools(
+    schematic: Gemini_3_1_Flash_Lite[_CacheProbe],
+) -> None:
+    generate = AsyncMock(return_value=_fake_generation({"answer": "ranked"}))
+    schematic._client = _FakeAioClient(schematic._client, generate=generate)  # type: ignore[assignment]
+
+    await schematic._do_generate(
+        "the whole prompt", hints={"cache": {"action": "load", "key": "absent"}}
+    )
+
+    assert generate.await_args is not None
+    config = generate.await_args.kwargs["config"]
+    assert generate.await_args.kwargs["contents"] == "the whole prompt"
+    assert config.cached_content is None
+    assert config.tools  # no cache → tools set inline
+
+
 # ════════════════════════════ 3. LIVE INTEGRATION ══════════════════════════
 
 LIVE = pytest.mark.skipif(
@@ -409,6 +627,35 @@ LIVE_MODEL = "gemini-3.1-flash-lite"
 
 def _live_generator(logger: Logger, **kwargs: Any) -> GeminiReactGenerator:
     return GeminiReactGenerator(model=LIVE_MODEL, logger=logger, **kwargs)
+
+
+def _live_schematic(logger: Logger) -> Gemini_3_1_Flash_Lite[_CacheProbe]:
+    return Gemini_3_1_Flash_Lite[_CacheProbe](
+        logger=logger,
+        tracer=LocalTracer(),
+        meter=LocalMeter(logger),
+        health_reporter=NullHealthReporter(ApplicationContext(instance_id="test-instance")),
+    )
+
+
+@LIVE
+async def test_that_live_store_then_load_reports_cached_tokens(logger: Logger) -> None:
+    schematic = _live_schematic(logger)
+    # A prefix comfortably over Gemini's 1,024-token cache minimum.
+    head = (
+        "You are ranking the relevance of a guideline to a conversation. "
+        "Follow these standing instructions precisely. "
+    ) * 120
+
+    await schematic._do_generate(head, hints={"cache": {"action": "store", "key": "live-session"}})
+    result = await schematic._do_generate(
+        head + "\n\nGuideline: greet the customer warmly. Answer with a relevance score.",
+        hints={"cache": {"action": "load", "key": "live-session"}},
+    )
+
+    assert result.info.usage.extra is not None
+    assert int(result.info.usage.extra["cached_input_tokens"]) > 0
+    await schematic.aclose()
 
 
 @LIVE

@@ -142,6 +142,12 @@ class CompassEngine(Engine):
                 )
 
             return False
+        finally:
+            # Re-warm the guideline ranker's cache for the next turn now that the
+            # response is out — keeping it off the user-facing critical path while
+            # refreshing the (per-session, TTL-bound) cache so the next turn's
+            # fan-out hits it. Best-effort; prefill swallows its own failures.
+            await self._matcher.prefill(engine_context)
 
         return True
 

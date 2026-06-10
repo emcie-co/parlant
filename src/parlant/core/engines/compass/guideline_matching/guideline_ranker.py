@@ -49,7 +49,7 @@ class GuidelineRankingResult:
 
 class GuidelineRankSchema(DefaultBaseModel):
     tldr: str | None = None
-    score: int
+    s: int
 
 
 @dataclass
@@ -122,10 +122,13 @@ class GuidelineRanker:
 
         inference = await self._schematic_generator.generate(
             prompt=prompt,
-            hints={"reasoning_effort": self._get_reasoning_effort(context)},
+            hints={
+                "reasoning_effort": self._get_reasoning_effort(context),
+                "cache": {"action": "load", "key": context.session.id},
+            },
         )
 
-        score = inference.content.score
+        score = inference.content.s
 
         # A score of 1-2 means "filtered out for sure"; 3+ ("maybe" and up) passes
         # the first-pass filter on to the next stages.
@@ -156,19 +159,23 @@ class GuidelineRanker:
     async def prefill(self, context: EngineContext) -> None:
         """Warm the generator's cache for the ranker's shared prompt prefix.
 
-        `rank` fans out one request per guideline concurrently; an implicitly
-        cached provider (e.g. Gemini) only populates its cache once a request
-        completes, so a cold concurrent fan-out would have every request miss.
-        Issuing one request over the shared prefix first (and discarding it)
-        warms the cache so the real fan-out reads it. The same reasoning_effort
-        is used so the warmed variant matches. Best-effort: warming failures must
-        not break preparation."""
+        `rank` fans out one request per guideline concurrently, each repeating the
+        shared prefix. The `cache: store` hint makes a provider that supports
+        explicit caching (Gemini) create a CachedContent for that prefix keyed by
+        the session, so the fan-out's `cache: load` requests reference it and send
+        only their per-guideline suffix. Providers without explicit caching ignore
+        the hint. The throwaway generation here is what triggers the store; the
+        same reasoning_effort is used so the cached variant matches. Best-effort:
+        warming failures must not break preparation."""
         with self._tracer.span("guideline.prefill"):
             try:
                 prompt = self._build_shared_prompt(context, shots=await self.shots())
                 inference = await self._schematic_generator.generate(
                     prompt=prompt,
-                    hints={"reasoning_effort": self._get_reasoning_effort(context)},
+                    hints={
+                        "reasoning_effort": self._get_reasoning_effort(context),
+                        "cache": {"action": "store", "key": context.session.id},
+                    },
                 )
                 if inference.info.usage.input_tokens > 0:
                     self._logger.info(
@@ -368,8 +375,8 @@ OUTPUT FORMAT
                 "isn't relevant to the most recent state of the interaction>"
             )
 
-        result["score"] = (
-            "<An integer from 1 to 5 indicating how relevant the guideline is, per the scale described above>"
+        result["s"] = (
+            "<The integer score from 1 to 5 indicating how relevant the guideline is, per the scale described above>"
         )
 
         return json.dumps(result, indent=4)
@@ -434,7 +441,7 @@ example_1_guideline = GuidelineContent(
 
 example_1_expected = GuidelineRankSchema(
     tldr="Dry throat suggests potential thirst",
-    score=4,
+    s=4,
 )
 
 
@@ -453,7 +460,7 @@ example_2_guideline = GuidelineContent(
 
 example_2_expected = GuidelineRankSchema(
     tldr="8 PM is not late night (10 PM or later)",
-    score=1,
+    s=1,
 )
 
 
@@ -472,7 +479,7 @@ example_3_guideline = GuidelineContent(
 
 example_3_expected = GuidelineRankSchema(
     tldr="The customer needs consultation before getting Platinum, which might be a product, so it's best to forward this to the human evaluator",
-    score=4,
+    s=4,
 )
 
 

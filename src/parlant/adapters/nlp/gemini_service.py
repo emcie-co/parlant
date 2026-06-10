@@ -144,6 +144,12 @@ class GoogleEstimatingTokenizer(EstimatingTokenizer):
 class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
     supported_hints = ["temperature", "thinking_config", "config"]
 
+    # Explicit-cache lifetimes. Reuse a cache only while comfortably inside its
+    # remaining lifetime; a new cache defaults to 5 minutes (callers recreate it
+    # each turn, so it only needs to outlast the gap between consecutive turns).
+    _CACHE_REUSE_MARGIN = timedelta(seconds=30)
+    _DEFAULT_CACHE_TTL_SECONDS = 300
+
     # Gemini 3.x uses a coarse named ``thinking_level``; "minimal" is the lowest
     # level (3.x cannot fully disable thinking).
     _EFFORT_TO_THINKING_LEVEL_3X: dict[ReasoningEffort, "google.genai.types.ThinkingLevel"] = {
@@ -181,6 +187,13 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
         self._client = google.genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
         self._tokenizer = GoogleEstimatingTokenizer(client=self._client, model_name=self.model_name)
+
+        # Explicit Gemini caching (store/load via the `cache` hint). Keyed by the
+        # caller's cache key → (resource name, cached prefix text, expiry); a load
+        # strips the stored prefix and sends only the live suffix referencing it.
+        self._managed_caches: dict[str, tuple[str, str, datetime]] = {}
+        self._uncacheable_prefixes: set[str] = set()
+        self._cache_lock = asyncio.Lock()
 
     @property
     @override
@@ -231,24 +244,48 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
             if thinking_config is not None:
                 gemini_api_arguments["thinking_config"] = thinking_config
 
-        fd = self._get_schema_function_declaration()
+        tools, tool_config = self._output_tools()
 
-        config = google.genai.types.GenerateContentConfig(
-            tools=[google.genai.types.Tool(function_declarations=[fd])],
-            tool_config=google.genai.types.ToolConfig(
-                function_calling_config=google.genai.types.FunctionCallingConfig(
-                    mode=google.genai.types.FunctionCallingConfigMode.ANY,
-                    allowed_function_names=[fd.name],
-                )
-            ),
-            **gemini_api_arguments,  # type: ignore
-        )
+        cache_hint = hints.get("cache") or {}
+        cache_action = cache_hint.get("action")
+        cache_key = cache_hint.get("key")
+
+        # STORE: create/refresh the cache for this key as a side effect, then fall
+        # through to a normal generation that still returns a (throwaway) result.
+        if cache_action == "store" and cache_key:
+            await self._store_cache(
+                key=cache_key,
+                prefix_text=prompt,
+                ttl_seconds=int(cache_hint.get("ttl", self._DEFAULT_CACHE_TTL_SECONDS)),
+                tools=tools,
+                tool_config=tool_config,
+            )
+
+        # LOAD: reuse a cache for this key while the prompt still starts with the
+        # cached prefix; send only the live suffix and reference the cache.
+        cached_content_name: Optional[str] = None
+        contents: str = prompt
+        if cache_action == "load" and cache_key:
+            plan = self._plan_load(cache_key, prompt)
+            if plan is not None:
+                cached_content_name, contents = plan
+
+        config_kwargs: dict[str, Any] = dict(gemini_api_arguments)
+        if cached_content_name is not None:
+            # system_instruction / tools / tool_config are baked into the cache;
+            # Gemini rejects setting them inline on a cached request.
+            config_kwargs["cached_content"] = cached_content_name
+        else:
+            config_kwargs["tools"] = tools
+            config_kwargs["tool_config"] = tool_config
+
+        config = google.genai.types.GenerateContentConfig(**config_kwargs)
 
         t_start = time.time()
         try:
             response = await self._client.aio.models.generate_content(
                 model=self.model_name,
-                contents=prompt,
+                contents=contents,
                 config=config,
             )
         except TooManyRequests:
@@ -341,6 +378,134 @@ class GeminiSchematicGenerator(BaseSchematicGenerator[T]):
         )
 
         return fd
+
+    def _output_tools(
+        self,
+    ) -> tuple[list[google.genai.types.Tool], google.genai.types.ToolConfig]:
+        """The schema function-declaration tool plus a tool_config that forces the
+        model to call it. Built once per request so the same value can be sent
+        inline or baked into a CachedContent."""
+        fd = self._get_schema_function_declaration()
+        tools = [google.genai.types.Tool(function_declarations=[fd])]
+        tool_config = google.genai.types.ToolConfig(
+            function_calling_config=google.genai.types.FunctionCallingConfig(
+                mode=google.genai.types.FunctionCallingConfigMode.ANY,
+                allowed_function_names=[fd.name],
+            )
+        )
+        return tools, tool_config
+
+    # ---- explicit caching --------------------------------------------------
+
+    def _prefix_hash(
+        self,
+        prefix_text: str,
+        tools: list[google.genai.types.Tool],
+        tool_config: google.genai.types.ToolConfig,
+    ) -> str:
+        # Identifies the cached content independently of the session key, so a
+        # prefix Gemini rejects (e.g. below the token minimum) is recognized as
+        # uncacheable across every session sharing it. Tools / tool_config are
+        # baked into the cache, so they're part of its identity too.
+        hasher = hashlib.sha256()
+        hasher.update(self.model_name.encode("utf-8"))
+        hasher.update(prefix_text.encode("utf-8"))
+        for tool in tools:
+            hasher.update(tool.model_dump_json(exclude_none=True).encode("utf-8"))
+        hasher.update(tool_config.model_dump_json(exclude_none=True).encode("utf-8"))
+        return hasher.hexdigest()
+
+    def _plan_load(self, key: str, prompt: str) -> Optional[tuple[str, str]]:
+        """Resolve a cached prefix for `key` into (cache_name, live_suffix), or
+        None when there's no usable cache: unknown key, within the expiry margin,
+        the prompt no longer starts with the cached prefix, or no live suffix
+        remains. The caller falls back to a full inline request on None."""
+        entry = self._managed_caches.get(key)
+        if entry is None:
+            return None
+
+        name, prefix_text, expiry = entry
+        if expiry - datetime.now(timezone.utc) <= self._CACHE_REUSE_MARGIN:
+            return None
+        if not prompt.startswith(prefix_text):
+            return None
+
+        suffix = prompt[len(prefix_text) :]
+        if not suffix:
+            return None
+
+        return name, suffix
+
+    async def _store_cache(
+        self,
+        *,
+        key: str,
+        prefix_text: str,
+        ttl_seconds: int,
+        tools: list[google.genai.types.Tool],
+        tool_config: google.genai.types.ToolConfig,
+    ) -> None:
+        """Create (or refresh) an explicit CachedContent holding `prefix_text` as
+        the system instruction plus the output tool, registered under `key` for a
+        later load. Caching is an optimization, so this never raises: a prefix
+        Gemini rejects (e.g. below the token minimum) is remembered and skipped,
+        and a transient failure just leaves the key uncached this turn."""
+        prefix_hash = self._prefix_hash(prefix_text, tools, tool_config)
+
+        async with self._cache_lock:
+            if prefix_hash in self._uncacheable_prefixes:
+                return
+
+            config = google.genai.types.CreateCachedContentConfig(
+                display_name=key,
+                system_instruction=prefix_text,
+                tools=tools,
+                tool_config=tool_config,
+                ttl=f"{ttl_seconds}s",
+            )
+
+            try:
+                cached = await self._client.aio.caches.create(model=self.model_name, config=config)
+            except ClientError as exc:
+                # Deterministic rejection (e.g. prefix below the minimum token
+                # count): this prefix will never cache, so stop retrying it.
+                self.logger.warning(
+                    f"Gemini rejected schematic caching for key '{key}' "
+                    f"({exc}); proceeding without caching."
+                )
+                self._uncacheable_prefixes.add(prefix_hash)
+                return
+            except Exception as exc:  # noqa: BLE001 - transient: degrade, retry later
+                self.logger.warning(
+                    f"Gemini schematic cache creation failed for key '{key}' "
+                    f"({exc}); proceeding without caching."
+                )
+                return
+
+            assert cached.name and cached.expire_time
+
+            # Overwriting this key's prior cache: free the old resource eagerly
+            # rather than waiting for its TTL to lapse.
+            previous = self._managed_caches.get(key)
+            if previous is not None and previous[0] != cached.name:
+                await self._delete_cache(previous[0])
+
+            self._managed_caches[key] = (cached.name, prefix_text, cached.expire_time)
+
+    async def _delete_cache(self, name: str) -> None:
+        try:
+            await self._client.aio.caches.delete(name=name)
+        except Exception as exc:  # noqa: BLE001 - cleanup must not raise
+            self.logger.warning(f"Failed to delete Gemini cache {name}: {exc}")
+
+    async def aclose(self) -> None:
+        """Delete every cache this generator created. Optional: cached content
+        auto-expires at its TTL, but deleting frees the resource (and its storage
+        cost) sooner. Best-effort; failures are logged and swallowed."""
+        async with self._cache_lock:
+            for name, _, _ in self._managed_caches.values():
+                await self._delete_cache(name)
+            self._managed_caches.clear()
 
     def _reasoning_thinking_config(self, effort: ReasoningEffort) -> dict[str, Any] | None:
         """Map the normalized reasoning effort to this model's thinking config, or

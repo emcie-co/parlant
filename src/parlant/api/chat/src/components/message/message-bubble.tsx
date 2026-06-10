@@ -9,7 +9,7 @@ import {agentAtom, customerAtom, dialogAtom, sessionAtom} from '@/store';
 import {getAvatarColor} from '../avatar/avatar';
 // import MessageRelativeTime from './message-relative-time';
 import {copy} from '@/lib/utils';
-import {Eye, EyeOff, Flag, Search} from 'lucide-react';
+import {Eye, EyeOff, Flag, Loader2, Search} from 'lucide-react';
 import FlagMessage from '../message-details/flag-message';
 import {EventInterface} from '@/utils/interfaces';
 import DraftBubble from './draft-bubble';
@@ -20,6 +20,7 @@ interface Props {
 	isSameSourceAsPrevious?: boolean;
 	isRegenerateHidden?: boolean;
 	isFirstMessageInDate?: boolean;
+	isInitializing?: boolean;
 	flagged?: string;
 	flaggedChanged?: (flagged: string) => void;
 	showLogsForMessage?: EventInterface | null;
@@ -30,7 +31,7 @@ interface Props {
 	sameTraceMessages?: EventInterface[];
 }
 
-const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, showLogsForMessage, setIsEditing, flagged, flaggedChanged, sameTraceMessages: sameTraceMessages}: Props) => {
+const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, isInitializing, showLogsForMessage, setIsEditing, flagged, flaggedChanged, sameTraceMessages: sameTraceMessages}: Props) => {
 	const ref = useRef<HTMLDivElement>(null);
 	const [agent] = useAtom(agentAtom);
 	const [customer] = useAtom(customerAtom);
@@ -261,6 +262,12 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 									</div>
 									<div className={twMerge('flex h-full font-normal text-[11px] text-[#AEB4BB] pe-[20px] font-inter self-end items-end whitespace-nowrap leading-[14px]', isOneLiner ? 'ps-[12px]' : '')}></div>
 								</div>
+								{isInitializing && isCustomer && serverStatus === 'pending' && (
+									<p className='flex items-center gap-[8px] mt-[10px] ps-[4px] font-normal text-[#A9AFB7] text-[14px] font-inter animate-fade-in-delayed'>
+										<Loader2 className='size-[14px] animate-spin' />
+										Initializing session...
+									</p>
+								)}
 							</div>
 							<div className={twMerge('mx-[10px] self-stretch relative invisible items-center flex group-hover/main:visible peer-hover:visible hover:visible')}>
 								<Tooltip value='Copy' side='top'>

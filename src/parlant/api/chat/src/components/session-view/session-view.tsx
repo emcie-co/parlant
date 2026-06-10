@@ -42,6 +42,10 @@ const SessionView = (): ReactElement => {
 	const [showLogsForMessage, setShowLogsForMessage] = useState<EventInterface | null>(null);
 	const [isMissingAgent, setIsMissingAgent] = useState<boolean | null>(null);
 	const [isContentFilterMenuOpen, setIsContentFilterMenuOpen] = useState(false);
+	// True while a brand-new session's create request is in flight (sessions are
+	// created lazily on the first message); drives the "Initializing session..."
+	// indicator under the pending customer message.
+	const [isInitializingSession, setIsInitializingSession] = useState(false);
 	const [flaggedItems, setFlaggedItems] = useState<Record<string, string>>({});
 	const [refreshFlag, setRefreshFlag] = useState(false);
 	const [pendingMessage, setPendingMessage] = useAtom<EventInterface>(pendingMessageAtom);
@@ -554,7 +558,19 @@ const SessionView = (): ReactElement => {
 	const postMessage = async (content: string): Promise<void> => {
 		setPendingMessage((pendingMessage) => ({...pendingMessage, sessionId: session?.id, data: {message: content}}));
 		setMessage('');
-		const eventSession = newSession ? (await createSession())?.id : session?.id;
+		let eventSession: string | undefined;
+		if (newSession) {
+			// Lazily create the session for the first message, surfacing an
+			// "Initializing session..." indicator while the create is in flight.
+			setIsInitializingSession(true);
+			try {
+				eventSession = (await createSession())?.id;
+			} finally {
+				setIsInitializingSession(false);
+			}
+		} else {
+			eventSession = session?.id;
+		}
 		const useContentFilteringStatus = useContentFiltering ? 'auto' : 'none';
 		postData(`sessions/${eventSession}/events?moderation=${useContentFilteringStatus}`, {kind: 'message', message: content, source: 'customer'})
 			.then(() => {
@@ -614,6 +630,7 @@ const SessionView = (): ReactElement => {
 												flagged={flaggedItems[event.trace_id]}
 												isFirstMessageInDate={!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc)}
 												isRegenerateHidden={!!isMissingAgent}
+												isInitializing={isInitializingSession}
 												event={event}
 												sameTraceMessages={visibleMessages.filter((e) => e.trace_id === event.trace_id)}
 												isContinual={(event.trace_id === visibleMessages[i - 1]?.trace_id && event.source === visibleMessages[i - 1]?.source) || (event.source === 'customer' && visibleMessages[i - 1]?.source === 'customer')}

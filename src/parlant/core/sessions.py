@@ -1343,19 +1343,24 @@ class SessionDocumentStore(SessionStore):
                         )
                     sessions.append(session)
 
+                sessions.sort(
+                    key=lambda s: (s.modified_utc.isoformat(), str(s.id)),
+                    reverse=sort_direction == SortDirection.DESC,
+                )
+
                 if cursor:
                     if sort_direction == SortDirection.DESC:
                         sessions = [
                             s
                             for s in sessions
-                            if (s.creation_utc.isoformat(), str(s.id))
+                            if (s.modified_utc.isoformat(), str(s.id))
                             < (cursor.creation_utc, str(cursor.id))
                         ]
                     else:
                         sessions = [
                             s
                             for s in sessions
-                            if (s.creation_utc.isoformat(), str(s.id))
+                            if (s.modified_utc.isoformat(), str(s.id))
                             > (cursor.creation_utc, str(cursor.id))
                         ]
 
@@ -1364,7 +1369,7 @@ class SessionDocumentStore(SessionStore):
                 has_more = bool(limit and len(sessions) > limit)
                 next_cursor = (
                     Cursor(
-                        creation_utc=paginated_sessions[-1].creation_utc.isoformat(),
+                        creation_utc=paginated_sessions[-1].modified_utc.isoformat(),
                         id=ObjectId(paginated_sessions[-1].id),
                     )
                     if has_more and paginated_sessions

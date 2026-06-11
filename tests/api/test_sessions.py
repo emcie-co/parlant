@@ -1719,6 +1719,169 @@ async def test_that_list_sessions_can_be_paginated_with_sort_directions(
     assert descending_data["items"][-1]["id"] == ascending_data["items"][0]["id"]
 
 
+async def test_that_list_sessions_with_min_modified_utc_paginates_by_effective_modified_utc(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    agent = await create_agent(container, "test-agent")
+    first_created_session = await create_session(
+        container,
+        agent_id=agent.id,
+        title="first-created-session",
+    )
+    await asyncio.sleep(0.015)
+    second_created_session = await create_session(
+        container,
+        agent_id=agent.id,
+        title="second-created-session",
+    )
+
+    checkpoint = datetime.now(timezone.utc)
+    await asyncio.sleep(0.015)
+    (
+        await async_client.post(
+            f"/sessions/{second_created_session.id}/events",
+            json={
+                "kind": "message",
+                "source": "customer",
+                "message": "older modification",
+            },
+        )
+    ).raise_for_status()
+    await asyncio.sleep(0.015)
+    (
+        await async_client.post(
+            f"/sessions/{first_created_session.id}/events",
+            json={
+                "kind": "message",
+                "source": "customer",
+                "message": "newer modification",
+            },
+        )
+    ).raise_for_status()
+
+    first_page = (
+        (
+            await async_client.get(
+                "/sessions",
+                params={
+                    "min_modified_utc": checkpoint.isoformat(),
+                    "limit": 1,
+                },
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert first_page["items"][0]["id"] == second_created_session.id
+    assert first_page["has_more"] is True
+    assert first_page["next_cursor"] is not None
+
+    second_page = (
+        (
+            await async_client.get(
+                "/sessions",
+                params={
+                    "min_modified_utc": checkpoint.isoformat(),
+                    "limit": 1,
+                    "cursor": first_page["next_cursor"],
+                },
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert second_page["items"][0]["id"] == first_created_session.id
+    assert second_page["has_more"] is False
+
+
+async def test_that_updated_event_makes_session_visible_to_min_modified_utc_listing(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    agent = await create_agent(container, "test-agent")
+    session = await create_session(container, agent_id=agent.id, title="session-with-event")
+    event = (
+        (
+            await async_client.post(
+                f"/sessions/{session.id}/events",
+                json={
+                    "kind": "message",
+                    "source": "customer",
+                    "message": "before checkpoint",
+                },
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    checkpoint = datetime.now(timezone.utc)
+    await asyncio.sleep(0.015)
+    (
+        await async_client.patch(
+            f"/sessions/{session.id}/events/{event['id']}",
+            json={"metadata": {"set": {"reviewed": True}}},
+        )
+    ).raise_for_status()
+
+    data = (
+        (
+            await async_client.get(
+                "/sessions",
+                params={"min_modified_utc": checkpoint.isoformat()},
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert [s["id"] for s in data] == [session.id]
+    assert dateutil.parser.isoparse(data[0]["modified_utc"]) >= checkpoint
+
+
+async def test_that_deleted_event_makes_session_visible_to_min_modified_utc_listing(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    agent = await create_agent(container, "test-agent")
+    session = await create_session(container, agent_id=agent.id, title="session-with-event")
+    (
+        await async_client.post(
+            f"/sessions/{session.id}/events",
+            json={
+                "kind": "message",
+                "source": "customer",
+                "message": "before checkpoint",
+            },
+        )
+    ).raise_for_status()
+
+    checkpoint = datetime.now(timezone.utc)
+    await asyncio.sleep(0.015)
+    delete_response = await async_client.delete(
+        f"/sessions/{session.id}/events",
+        params={"min_offset": 0},
+    )
+    assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+
+    data = (
+        (
+            await async_client.get(
+                "/sessions",
+                params={"min_modified_utc": checkpoint.isoformat()},
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert [s["id"] for s in data] == [session.id]
+    assert dateutil.parser.isoparse(data[0]["modified_utc"]) >= checkpoint
+
+
 async def test_that_list_sessions_can_be_paginated_with_filters(
     async_client: httpx.AsyncClient,
     container: Container,

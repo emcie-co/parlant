@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 from lagom import Container
 
 import parlant.adapters.modules.parlant_cloud.lifecycle as lifecycle
-from parlant.adapters.modules.parlant_cloud import WebSocketTunnelService, initialize_container
+from parlant.adapters.modules.parlant_cloud import ParlantCloudTunnelService, initialize_container
 from parlant.adapters.modules.parlant_cloud.lifecycle import CloudProjectAuth
 from parlant.adapters.modules.parlant_cloud.logger import ParlantCloudLogger
 from parlant.adapters.modules.parlant_cloud.meter import ParlantCloudMeter
@@ -17,7 +17,7 @@ from parlant.core.app_modules.tags import TagModule
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.loggers import Logger
 from parlant.core.tracer import LocalTracer
-from parlant.sdk import _should_configure_parlant_cloud
+from parlant.sdk import SDKError, _should_configure_parlant_cloud
 
 
 class FakeBackgroundTaskService:
@@ -44,11 +44,15 @@ async def test_that_sdk_cloud_module_is_not_loaded_without_cloud_credentials() -
         assert _should_configure_parlant_cloud() is False
 
 
-async def test_that_sdk_cloud_module_is_loaded_with_cloud_api_key() -> None:
+async def test_that_sdk_cloud_module_rejects_cloud_api_key_without_project_token() -> None:
     with patch.dict(os.environ, {"PARLANT_CLOUD_API_KEY": "test-api-key"}):
         os.environ.pop("PARLANT_CLOUD_PROJECT_TOKEN", None)
 
-        assert _should_configure_parlant_cloud() is True
+        try:
+            _should_configure_parlant_cloud()
+            raise AssertionError("Expected SDKError")
+        except SDKError as exc:
+            assert "PARLANT_CLOUD_PROJECT_TOKEN" in str(exc)
 
 
 async def test_that_sdk_cloud_module_is_loaded_with_project_token() -> None:
@@ -88,7 +92,7 @@ async def test_that_tunnel_is_created_with_project_token() -> None:
         )
 
         assert result is not None
-        assert isinstance(result, WebSocketTunnelService)
+        assert isinstance(result, ParlantCloudTunnelService)
 
 
 async def test_that_tunnel_uses_cloud_base_url() -> None:
@@ -110,7 +114,7 @@ async def test_that_tunnel_uses_cloud_base_url() -> None:
         )
 
         assert result is not None
-        assert isinstance(result, WebSocketTunnelService)
+        assert isinstance(result, ParlantCloudTunnelService)
         assert result._url == "wss://api.emcie.xyz/cloud"
 
 
@@ -134,7 +138,7 @@ async def test_that_tunnel_uses_explicit_parlant_cloud_tunnel_url() -> None:
         )
 
         assert result is not None
-        assert isinstance(result, WebSocketTunnelService)
+        assert isinstance(result, ParlantCloudTunnelService)
         assert result._url == "ws://localhost:2500/cloud"
 
 
@@ -157,7 +161,7 @@ async def test_that_tunnel_preserves_explicit_websocket_cloud_path() -> None:
         )
 
         assert result is not None
-        assert isinstance(result, WebSocketTunnelService)
+        assert isinstance(result, ParlantCloudTunnelService)
         assert result._url == "ws://localhost:2500/cloud"
 
 
@@ -180,7 +184,7 @@ async def test_that_tunnel_ignores_cloud_api_url() -> None:
         )
 
         assert result is not None
-        assert isinstance(result, WebSocketTunnelService)
+        assert isinstance(result, ParlantCloudTunnelService)
         assert result._url == "wss://api.parlant.cloud/cloud"
 
 
@@ -188,7 +192,7 @@ async def test_that_cloud_otel_url_configures_logs_traces_and_metrics_collectors
     with patch.dict(
         os.environ,
         {
-            "PARLANT_CLOUD_CLOUD_OTEL_URL": "http://localhost:4318",
+            "PARLANT_CLOUD_OTEL_URL": "http://localhost:4318",
         },
     ):
         tracer = ParlantCloudTracer()

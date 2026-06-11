@@ -25,6 +25,20 @@ class FakeWebSocket:
     headers: Mapping[str, str]
 
 
+@dataclass
+class FakeRequest:
+    headers: Mapping[str, str]
+
+
+async def test_that_localhost_is_trusted_for_api_operations_in_cloud_auth_mode() -> None:
+    policy = ParlantCloudAuthorizationPolicy(project_token="project-token")
+    request = FakeRequest(headers={"host": "localhost:2222"})
+
+    result = await policy.check_permission(request, Operation.LIST_AGENTS)  # type: ignore[arg-type]
+
+    assert result is True
+
+
 async def test_that_localhost_can_stream_logs_in_cloud_auth_mode() -> None:
     policy = ParlantCloudAuthorizationPolicy(project_token="project-token")
     websocket = FakeWebSocket(headers={"host": "localhost:2222"})

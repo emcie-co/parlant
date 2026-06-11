@@ -35,23 +35,17 @@ def _get_cloud_base_url() -> str:
 def _get_cloud_otel_url() -> str:
     """Resolve the Parlant Cloud OTLP collector base URL.
 
-    ``PARLANT_CLOUD_CLOUD_OTEL_URL`` is the current runtime env var injected by
-    Parlant Cloud. ``PARLANT_CLOUD_OTEL_URL`` remains accepted for compatibility.
+    ``PARLANT_CLOUD_OTEL_URL`` is injected by Parlant Cloud when observability
+    should be sent to a collector other than the API base URL.
     """
-    return (
-        os.getenv("PARLANT_CLOUD_CLOUD_OTEL_URL")
-        or os.getenv("PARLANT_CLOUD_OTEL_URL")
-        or _get_cloud_base_url()
-    ).rstrip("/")
+    return (os.getenv("PARLANT_CLOUD_OTEL_URL") or _get_cloud_base_url()).rstrip("/")
 
 
 def _get_cloud_tunnel_url() -> str:
     """Resolve the WebSocket URL used by the Parlant Cloud tunnel."""
-    configured_url = os.getenv("PARLANT_CLOUD_TUNNEL_URL")
-    if configured_url:
-        return _to_websocket_cloud_url(configured_url)
-
-    return _to_websocket_cloud_url(_get_cloud_base_url())
+    return _to_websocket_cloud_url(
+        os.getenv("PARLANT_CLOUD_TUNNEL_URL", _get_cloud_base_url()).rstrip("/")
+    )
 
 
 def _to_websocket_cloud_url(url: str) -> str:

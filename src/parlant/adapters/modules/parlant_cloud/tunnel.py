@@ -35,14 +35,14 @@ from parlant.core.tunnels import (
     TunnelService,
 )
 
-from .config import _get_cloud_tunnel_url
+from parlant.adapters.modules.parlant_cloud.config import _get_cloud_tunnel_url
 
 _logger = logging.getLogger(__name__)
 
 _MAX_RECONNECT_DELAY = 60.0
 
 
-class WebSocketTunnelService(TunnelService):
+class ParlantCloudTunnelService(TunnelService):
     """Tunnel that connects to the platform via WebSocket."""
 
     def __init__(
@@ -154,7 +154,7 @@ def _create_tunnel_service(
     tag_module: TagModule,
     background_task_service: BackgroundTaskService,
     logger: Logger | None = None,
-) -> WebSocketTunnelService | None:
+) -> ParlantCloudTunnelService | None:
     """Create a tunnel service if PARLANT_CLOUD_PROJECT_TOKEN is set."""
     token = os.environ.get("PARLANT_CLOUD_PROJECT_TOKEN", "")
     if not token:
@@ -168,7 +168,7 @@ def _create_tunnel_service(
         logger=logger,
     )
 
-    return WebSocketTunnelService(
+    return ParlantCloudTunnelService(
         url=_get_cloud_tunnel_url(),
         token=token,
         dispatcher=dispatcher,

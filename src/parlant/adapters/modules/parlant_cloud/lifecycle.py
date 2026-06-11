@@ -37,12 +37,12 @@ from parlant.core.meter import Meter
 from parlant.core.tracer import CompositeTracer, Tracer
 from parlant.core.tunnels import TunnelService
 
-from .auth import ParlantCloudAuthorizationPolicy
-from .config import _get_cloud_base_url
-from .logger import ParlantCloudLogger
-from .meter import ParlantCloudMeter
-from .tracer import ParlantCloudTracer
-from .tunnel import _create_tunnel_service
+from parlant.adapters.modules.parlant_cloud.auth import ParlantCloudAuthorizationPolicy
+from parlant.adapters.modules.parlant_cloud.config import _get_cloud_base_url
+from parlant.adapters.modules.parlant_cloud.logger import ParlantCloudLogger
+from parlant.adapters.modules.parlant_cloud.meter import ParlantCloudMeter
+from parlant.adapters.modules.parlant_cloud.tracer import ParlantCloudTracer
+from parlant.adapters.modules.parlant_cloud.tunnel import _create_tunnel_service
 
 _exit_stack = AsyncExitStack()
 

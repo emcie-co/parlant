@@ -22,18 +22,23 @@ Tunnel URL:
   PARLANT_CLOUD_TUNNEL_URL, or PARLANT_CLOUD_BASE_URL converted to WebSocket /cloud.
 
 Logs, traces, and metrics collector URL:
-  PARLANT_CLOUD_CLOUD_OTEL_URL, then PARLANT_CLOUD_OTEL_URL for compatibility,
-  then PARLANT_CLOUD_BASE_URL.
+  PARLANT_CLOUD_OTEL_URL, then PARLANT_CLOUD_BASE_URL.
 
 PARLANT_CLOUD_API_KEY and PARLANT_CLOUD_API_URL are used only by the NLP
 service adapter.
 """
 
-from .lifecycle import configure_container, initialize_container
-from .tunnel import WebSocketTunnelService, _create_tunnel_service
+from parlant.adapters.modules.parlant_cloud.lifecycle import (
+    configure_container,
+    initialize_container,
+)
+from parlant.adapters.modules.parlant_cloud.tunnel import (
+    ParlantCloudTunnelService,
+    _create_tunnel_service,
+)
 
 __all__ = [
-    "WebSocketTunnelService",
+    "ParlantCloudTunnelService",
     "_create_tunnel_service",
     "configure_container",
     "initialize_container",

@@ -159,7 +159,7 @@ class TermDTO(
     description: TermDescriptionField
     synonyms: TermSynonymsField = []
     tags: TermTagsField
-    last_modified_utc: TermLastModifiedField
+    modified_utc: TermLastModifiedField
 
 
 TermTagsUpdateAddField: TypeAlias = Annotated[
@@ -273,7 +273,7 @@ def create_router(
             description=term.description,
             synonyms=term.synonyms,
             tags=term.tags,
-            last_modified_utc=term.last_modified_utc,
+            modified_utc=term.modified_utc,
         )
 
     @router.get(
@@ -308,7 +308,7 @@ def create_router(
             description=term.description,
             synonyms=term.synonyms,
             tags=term.tags,
-            last_modified_utc=term.last_modified_utc,
+            modified_utc=term.modified_utc,
         )
 
     @router.get(
@@ -344,7 +344,7 @@ def create_router(
                 description=term.description,
                 synonyms=term.synonyms,
                 tags=term.tags,
-                last_modified_utc=term.last_modified_utc,
+                modified_utc=term.modified_utc,
             )
             for term in terms
         ]
@@ -399,7 +399,7 @@ def create_router(
             description=term.description,
             synonyms=term.synonyms,
             tags=term.tags,
-            last_modified_utc=term.last_modified_utc,
+            modified_utc=term.modified_utc,
         )
 
     @router.delete(

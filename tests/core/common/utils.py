@@ -58,6 +58,8 @@ def create_event_message(
         },
     }
 
+    creation_utc = datetime.now(timezone.utc)
+
     event = Event(
         id=EventId(generate_id()),
         source=source,
@@ -66,7 +68,8 @@ def create_event_message(
         trace_id="<main>",
         data=cast(JSONSerializable, message_data),
         metadata=metadata,
-        creation_utc=datetime.now(timezone.utc),
+        creation_utc=creation_utc,
+        modified_utc=creation_utc,
         deleted=False,
     )
 

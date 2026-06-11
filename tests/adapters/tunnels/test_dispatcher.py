@@ -819,6 +819,28 @@ async def test_that_dispatcher_forwards_labels_filter_to_sessions_list() -> None
     assert session_module.find.await_args.kwargs["labels"] == {"premium", "support"}
 
 
+async def test_that_dispatcher_forwards_min_modified_utc_to_sessions_list() -> None:
+    session_module = AsyncMock()
+    session_module.find = AsyncMock(
+        return_value=MagicMock(items=[], total_count=0, has_more=False, next_cursor=None),
+    )
+
+    dispatcher = TunnelRequestDispatcher(session_module=session_module)
+    response = await dispatcher.dispatch(
+        TunnelRequest(
+            request_id="req-min-modified",
+            method="sessions.list",
+            params={"min_modified_utc": "2026-01-02T03:04:05+00:00"},
+        ),
+    )
+
+    assert response.error is None
+    session_module.find.assert_awaited_once()
+    assert session_module.find.await_args.kwargs["min_modified_utc"] == datetime(
+        2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc
+    )
+
+
 async def test_that_dispatcher_returns_encoded_next_cursor_in_sessions_list() -> None:
     real_cursor = Cursor(creation_utc="2026-01-02T00:00:00+00:00", id=ObjectId("sess-42"))
     session_module = AsyncMock()

@@ -249,6 +249,7 @@ class SessionModule:
         cursor: Cursor | None = None,
         sort_direction: SortDirection | None = None,
         labels: Set[str] | None = None,
+        min_modified_utc: datetime | None = None,
     ) -> SessionListingModel:
         result = await self._session_store.list_sessions(
             agent_id=agent_id,
@@ -257,6 +258,7 @@ class SessionModule:
             cursor=cursor,
             sort_direction=sort_direction,
             labels=labels,
+            min_modified_utc=min_modified_utc,
         )
 
         return SessionListingModel(
@@ -272,9 +274,13 @@ class SessionModule:
         params: SessionUpdateParamsModel,
         labels: SessionLabelsUpdateParams | None = None,
     ) -> Session:
-        session = await self._session_store.update_session(
-            session_id=session_id,
-            params=params,
+        session = (
+            await self._session_store.update_session(
+                session_id=session_id,
+                params=params,
+            )
+            if params
+            else await self._session_store.read_session(session_id)
         )
 
         if labels:

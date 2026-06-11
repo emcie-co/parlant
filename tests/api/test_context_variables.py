@@ -63,7 +63,7 @@ async def test_that_a_context_variable_can_be_created(
     assert context_variable["description"] == "test of context variable"
     assert context_variable["freshness_rules"] == freshness_rules
     assert context_variable["tags"] == []
-    assert "last_modified_utc" in context_variable
+    assert "modified_utc" in context_variable
 
 
 async def test_that_a_context_variable_can_be_created_with_tags(
@@ -250,7 +250,7 @@ async def test_that_a_context_variable_can_be_updated_with_new_values(
     assert data["description"] == updated_description
     assert data["freshness_rules"] == freshness_rules
     assert set(data["tags"]) == set(tags_to_add)
-    assert data["last_modified_utc"] != variable.creation_utc.isoformat()
+    assert data["modified_utc"] != variable.creation_utc.isoformat()
 
 
 async def test_that_tags_can_be_removed_from_a_context_variable(

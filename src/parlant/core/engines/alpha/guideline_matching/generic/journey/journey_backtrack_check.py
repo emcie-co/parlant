@@ -526,7 +526,7 @@ OUTPUT FORMAT
                     Guideline(
                         id=GuidelineId(f"c-{i}"),
                         creation_utc=datetime.now(timezone.utc),
-                        last_modified_utc=datetime.now(timezone.utc),
+                        modified_utc=datetime.now(timezone.utc),
                         metadata={"journey_node": {"journey_id": "journey"}},
                         content=GuidelineContent(
                             condition=c,
@@ -556,6 +556,7 @@ def _make_event(e_id: str, source: EventSource, message: str) -> Event:
         source=source,
         kind=EventKind.MESSAGE,
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         offset=0,
         trace_id="",
         data={"message": message},

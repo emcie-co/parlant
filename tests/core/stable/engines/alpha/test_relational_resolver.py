@@ -6155,7 +6155,7 @@ async def test_that_resolver_does_not_crash_on_transient_tool_returned_guideline
     transient_guideline = Guideline(
         id=GuidelineId("<tool-guideline-1>"),
         creation_utc=datetime.now(timezone.utc),
-        last_modified_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         content=GuidelineContent(condition="x", action="y"),
         enabled=True,
         tags=[],

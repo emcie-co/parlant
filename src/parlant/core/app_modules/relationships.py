@@ -118,7 +118,7 @@ class RelationshipModule:
                 id=tag_id,
                 name=agent.name,
                 creation_utc=agent.creation_utc,
-                last_modified_utc=agent.last_modified_utc,
+                modified_utc=agent.modified_utc,
             )
         elif journey_id := Tag.extract_journey_id(tag_id):
             journey = await self._journey_store.read_journey(journey_id=cast(JourneyId, journey_id))
@@ -126,7 +126,7 @@ class RelationshipModule:
                 id=tag_id,
                 name=journey.title,
                 creation_utc=journey.creation_utc,
-                last_modified_utc=journey.last_modified_utc,
+                modified_utc=journey.modified_utc,
             )
         elif journey_node_id := Tag.extract_journey_node_id(tag_id):
             journey_node = await self._journey_store.read_node(
@@ -136,7 +136,7 @@ class RelationshipModule:
                 id=tag_id,
                 name=str(journey_node.action),
                 creation_utc=journey_node.creation_utc,
-                last_modified_utc=journey_node.creation_utc,
+                modified_utc=journey_node.creation_utc,
             )
         else:
             return await self._tag_store.read_tag(tag_id=tag_id)

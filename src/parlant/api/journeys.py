@@ -183,7 +183,7 @@ class JourneyDTO(
     composition_mode: CompositionModeDTO | None = None
     labels: JourneyLabelsField = set()
     priority: int = 0
-    last_modified_utc: JourneyLastModifiedField
+    modified_utc: JourneyLastModifiedField
 
 
 class JourneyGraphDTO(JourneyDTO):
@@ -526,7 +526,7 @@ def create_router(
             else None,
             labels=journey.labels,
             priority=journey.priority,
-            last_modified_utc=journey.last_modified_utc,
+            modified_utc=journey.modified_utc,
         )
 
     @router.get(
@@ -568,7 +568,7 @@ def create_router(
                     else None,
                     labels=journey.labels,
                     priority=journey.priority,
-                    last_modified_utc=journey.last_modified_utc,
+                    modified_utc=journey.modified_utc,
                 )
             )
 
@@ -634,7 +634,7 @@ def create_router(
             else None,
             labels=model.journey.labels,
             priority=model.journey.priority,
-            last_modified_utc=model.journey.last_modified_utc,
+            modified_utc=model.journey.modified_utc,
             nodes=[node_to_dto(n) for n in model.nodes],
             edges=[edge_to_dto(e) for e in model.edges],
         )
@@ -731,7 +731,7 @@ def create_router(
             else None,
             labels=journey.labels,
             priority=journey.priority,
-            last_modified_utc=journey.last_modified_utc,
+            modified_utc=journey.modified_utc,
         )
 
     @router.delete(

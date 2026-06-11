@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import websockets.asyncio.server
 
-from parlant.adapters.modules.parlant_cloud import WebSocketTunnelService
+from parlant.adapters.modules.parlant_cloud import ParlantCloudTunnelService
 from parlant.core.tunnels import TunnelRequestDispatcher
 from parlant.core.tunnels import TunnelResponse, TunnelService
 
@@ -46,7 +46,7 @@ async def test_that_tunnel_connects_and_dispatches_request() -> None:
             )
         )
 
-        tunnel = WebSocketTunnelService(
+        tunnel = ParlantCloudTunnelService(
             url=url,
             token="test-token",
             dispatcher=dispatcher,
@@ -88,7 +88,7 @@ async def test_that_tunnel_reconnects_after_disconnect() -> None:
 
         dispatcher = AsyncMock(spec=TunnelRequestDispatcher)
 
-        tunnel = WebSocketTunnelService(
+        tunnel = ParlantCloudTunnelService(
             url=url,
             token="test-token",
             dispatcher=dispatcher,
@@ -121,7 +121,7 @@ async def test_that_stopping_tunnel_closes_active_websocket() -> None:
 
         dispatcher = AsyncMock(spec=TunnelRequestDispatcher)
 
-        tunnel = WebSocketTunnelService(
+        tunnel = ParlantCloudTunnelService(
             url=url,
             token="test-token",
             dispatcher=dispatcher,
@@ -148,7 +148,7 @@ async def test_that_stopping_tunnel_interrupts_reconnect_delay() -> None:
 
         dispatcher = AsyncMock(spec=TunnelRequestDispatcher)
 
-        tunnel = WebSocketTunnelService(
+        tunnel = ParlantCloudTunnelService(
             url=url,
             token="test-token",
             dispatcher=dispatcher,

@@ -23,7 +23,7 @@ from typing_extensions import override
 
 from parlant.api.authorization import AuthorizationPolicy, Operation, ProductionAuthorizationPolicy
 
-from .config import PROJECT_TOKEN_HEADER
+from parlant.adapters.modules.parlant_cloud.config import PROJECT_TOKEN_HEADER
 
 
 class ParlantCloudAuthorizationPolicy(AuthorizationPolicy):
@@ -49,6 +49,9 @@ class ParlantCloudAuthorizationPolicy(AuthorizationPolicy):
         return app
 
     def _is_trusted(self, headers: Mapping[str, str]) -> bool:
+        if self._is_localhost(headers):
+            return True
+
         token = headers.get(PROJECT_TOKEN_HEADER, "")
         return bool(token) and hmac.compare_digest(token, self._project_token)
 
@@ -59,8 +62,6 @@ class ParlantCloudAuthorizationPolicy(AuthorizationPolicy):
     @override
     async def check_permission(self, request: Request, operation: Operation) -> bool:
         if self._is_trusted(request.headers):
-            return True
-        if operation == Operation.ACCESS_INTEGRATED_UI and self._is_localhost(request.headers):
             return True
         return await self._production_policy.check_permission(request, operation)
 
@@ -77,7 +78,5 @@ class ParlantCloudAuthorizationPolicy(AuthorizationPolicy):
         operation: Operation,
     ) -> bool:
         if self._is_trusted(websocket.headers):
-            return True
-        if operation == Operation.STREAM_LOGS and self._is_localhost(websocket.headers):
             return True
         return await self._production_policy.check_websocket_permission(websocket, operation)

@@ -33,7 +33,7 @@ from typing_extensions import Self, override
 
 from parlant.core.tracer import AttributeValue, Tracer
 
-from .config import _get_cloud_otel_url
+from parlant.adapters.modules.parlant_cloud.config import _get_cloud_otel_url
 
 _logger = logging.getLogger(__name__)
 

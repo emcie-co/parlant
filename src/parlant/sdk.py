@@ -292,9 +292,12 @@ T = TypeVar("T")
 
 
 def _should_configure_parlant_cloud() -> bool:
-    return bool(
-        os.environ.get("PARLANT_CLOUD_API_KEY") or os.environ.get("PARLANT_CLOUD_PROJECT_TOKEN")
-    )
+    if os.environ.get("PARLANT_CLOUD_API_KEY") and not os.environ.get(
+        "PARLANT_CLOUD_PROJECT_TOKEN"
+    ):
+        raise SDKError("PARLANT_CLOUD_PROJECT_TOKEN is required when PARLANT_CLOUD_API_KEY is set.")
+
+    return bool(os.environ.get("PARLANT_CLOUD_PROJECT_TOKEN"))
 
 
 def _tool_ref_to_id(ref: ToolRef) -> ToolId:

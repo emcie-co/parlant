@@ -45,7 +45,7 @@ async def test_that_a_journey_can_be_created(
     assert journey["title"] == payload["title"]
     assert journey["description"] == payload["description"]
     assert journey["tags"] == []
-    assert "last_modified_utc" in journey
+    assert "modified_utc" in journey
 
     assert len(journey["triggers"]) == 1
     guideline = await guideline_store.read_guideline(guideline_id=journey["triggers"][0])
@@ -279,7 +279,7 @@ async def test_that_a_journey_can_be_updated(
 
     assert updated_journey["title"] == expected_title
     assert updated_journey["description"] == expected_description
-    assert updated_journey["last_modified_utc"] != journey["last_modified_utc"]
+    assert updated_journey["modified_utc"] != journey["modified_utc"]
 
 
 async def test_that_tags_can_be_added_to_a_journey(

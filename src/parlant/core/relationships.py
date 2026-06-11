@@ -110,7 +110,7 @@ class Relationship:
 
     id: RelationshipId
     creation_utc: datetime
-    last_modified_utc: datetime
+    modified_utc: datetime
     source: RelationshipEntity
     target: RelationshipEntity
     kind: RelationshipKind
@@ -279,7 +279,7 @@ class RelationshipDocumentStore(RelationshipStore):
             id=ObjectId(relationship.id),
             version=self.VERSION.to_string(),
             creation_utc=relationship.creation_utc.isoformat(),
-            last_modified=relationship.last_modified_utc.isoformat(),
+            last_modified=relationship.modified_utc.isoformat(),
             source=relationship.source.id_to_string(),
             source_type=relationship.source.kind.value,
             target=relationship.target.id_to_string(),
@@ -336,7 +336,7 @@ class RelationshipDocumentStore(RelationshipStore):
         return Relationship(
             id=RelationshipId(relationship_document["id"]),
             creation_utc=datetime.fromisoformat(relationship_document["creation_utc"]),
-            last_modified_utc=datetime.fromisoformat(relationship_document["last_modified"]),
+            modified_utc=datetime.fromisoformat(relationship_document["last_modified"]),
             source=source,
             target=target,
             kind=kind,
@@ -404,7 +404,7 @@ class RelationshipDocumentStore(RelationshipStore):
             relationship = Relationship(
                 id=relationship_id,
                 creation_utc=creation_utc,
-                last_modified_utc=creation_utc,
+                modified_utc=creation_utc,
                 source=source,
                 target=target,
                 kind=kind,

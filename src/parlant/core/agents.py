@@ -90,7 +90,7 @@ class Agent:
     name: str
     description: Optional[str]
     creation_utc: datetime
-    last_modified_utc: datetime
+    modified_utc: datetime
     max_engine_iterations: int
     tags: Sequence[TagId]
     engine: str
@@ -351,7 +351,7 @@ class AgentDocumentStore(AgentStore):
             id=ObjectId(agent.id),
             version=self.VERSION.to_string(),
             creation_utc=agent.creation_utc.isoformat(),
-            last_modified=agent.last_modified_utc.isoformat(),
+            last_modified=agent.modified_utc.isoformat(),
             name=agent.name,
             description=agent.description,
             max_engine_iterations=agent.max_engine_iterations,
@@ -372,7 +372,7 @@ class AgentDocumentStore(AgentStore):
         return Agent(
             id=AgentId(agent_document["id"]),
             creation_utc=datetime.fromisoformat(agent_document["creation_utc"]),
-            last_modified_utc=datetime.fromisoformat(agent_document["last_modified"]),
+            modified_utc=datetime.fromisoformat(agent_document["last_modified"]),
             name=agent_document["name"],
             description=agent_document["description"],
             max_engine_iterations=agent_document["max_engine_iterations"],
@@ -420,7 +420,7 @@ class AgentDocumentStore(AgentStore):
                 name=name,
                 description=description,
                 creation_utc=creation_utc,
-                last_modified_utc=creation_utc,
+                modified_utc=creation_utc,
                 max_engine_iterations=max_engine_iterations,
                 tags=tags or [],
                 composition_mode=composition_mode or CompositionMode.FLUID,

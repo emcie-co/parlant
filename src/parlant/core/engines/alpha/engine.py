@@ -210,7 +210,7 @@ class AlphaEngine(Engine):
                 {
                     "session_id": context.session_id,
                     "agent_id": context.agent_id,
-                    "agent_last_modified": loaded_context.agent.last_modified_utc.isoformat(),
+                    "agent_last_modified": loaded_context.agent.modified_utc.isoformat(),
                 },
             ):
                 async with self._hist_engine_process_duration.measure():
@@ -277,7 +277,7 @@ class AlphaEngine(Engine):
                     {
                         "session_id": context.session_id,
                         "agent_id": context.agent_id,
-                        "agent_last_modified": loaded_context.agent.last_modified_utc.isoformat(),
+                        "agent_last_modified": loaded_context.agent.modified_utc.isoformat(),
                     },
                 ):
                     await self._do_utter(loaded_context, requests)
@@ -1110,12 +1110,12 @@ class AlphaEngine(Engine):
             )
 
             event_data["matched_guidelines"] = [
-                {"id": m.guideline.id, "last_modified": m.guideline.last_modified_utc.isoformat()}
+                {"id": m.guideline.id, "last_modified": m.guideline.modified_utc.isoformat()}
                 for m in all_matches
             ]
 
             event_data["matched_journeys"] = [
-                {"id": j.id, "last_modified": j.last_modified_utc.isoformat()}
+                {"id": j.id, "last_modified": j.modified_utc.isoformat()}
                 for j in context.state.journeys
             ]
 
@@ -1946,7 +1946,7 @@ class AlphaEngine(Engine):
                 guideline=Guideline(
                     id=GuidelineId(f"<canrep-request-{i}>"),
                     creation_utc=datetime.now(timezone.utc),
-                    last_modified_utc=datetime.now(timezone.utc),
+                    modified_utc=datetime.now(timezone.utc),
                     content=GuidelineContent(
                         condition="",  # FIXME: Change this to None when we support `str | None` conditions
                         action=utterance_request.action,
@@ -2030,7 +2030,7 @@ class AlphaEngine(Engine):
                             guideline=Guideline(
                                 id=GuidelineId(f"<tool-guideline-{guideline_index}>"),
                                 creation_utc=datetime.now(timezone.utc),
-                                last_modified_utc=datetime.now(timezone.utc),
+                                modified_utc=datetime.now(timezone.utc),
                                 content=GuidelineContent(
                                     condition=guideline_data.get("condition", ""),
                                     action=guideline_data["action"],
@@ -2263,7 +2263,7 @@ async def load_fresh_context_variable_value(
     # So we do have a tool attached.
     # Do we already have a value, and is it sufficiently fresh?
     if value and variable.freshness_rules:
-        cron_iterator = croniter(variable.freshness_rules, value.last_modified_utc)
+        cron_iterator = croniter(variable.freshness_rules, value.modified_utc)
 
         if cron_iterator.get_next(datetime) > current_time:
             # We already have a fresh value in store. Return it.

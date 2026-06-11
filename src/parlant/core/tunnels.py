@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from datetime import datetime
 from enum import Enum
 from typing import Any, Awaitable, Callable, Mapping
 
@@ -296,6 +297,11 @@ class TunnelRequestDispatcher:
         cursor = decode_cursor(params["cursor"]) if params.get("cursor") else None
         sort_direction = _parse_sort_direction(params.get("sort_direction"))
         labels = set(params["labels"]) if params.get("labels") else None
+        min_modified_utc = (
+            datetime.fromisoformat(params["min_modified_utc"])
+            if params.get("min_modified_utc")
+            else None
+        )
 
         result = await self._session_module.find(
             agent_id=AgentId(params["agent_id"]) if params.get("agent_id") else None,
@@ -304,6 +310,7 @@ class TunnelRequestDispatcher:
             cursor=cursor,
             sort_direction=sort_direction,
             labels=labels,
+            min_modified_utc=min_modified_utc,
         )
         return {
             "sessions": [self._serialize_session(s) for s in result.items],
@@ -389,6 +396,7 @@ class TunnelRequestDispatcher:
         return {
             "session_id": session.id,
             "creation_utc": session.creation_utc.isoformat(),
+            "modified_utc": session.modified_utc.isoformat(),
             "customer_id": session.customer_id,
             "agent_id": session.agent_id,
             "mode": session.mode,
@@ -405,8 +413,11 @@ class TunnelRequestDispatcher:
             "source": TunnelRequestDispatcher._serialize_scalar(event.source),
             "kind": TunnelRequestDispatcher._serialize_scalar(event.kind),
             "creation_utc": event.creation_utc.isoformat(),
+            "modified_utc": event.modified_utc.isoformat(),
+            "trace_id": event.trace_id,
             "data": event.data,
             "metadata": dict(event.metadata) if event.metadata else {},
+            "deleted": event.deleted,
         }
 
     @staticmethod

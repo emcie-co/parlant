@@ -71,7 +71,7 @@ class GuidelineContent:
 class Guideline:
     id: GuidelineId
     creation_utc: datetime
-    last_modified_utc: datetime
+    modified_utc: datetime
     content: GuidelineContent
     enabled: bool
     tags: Sequence[TagId]
@@ -705,7 +705,7 @@ class GuidelineVectorStore(GuidelineStore):
             id=ObjectId(guideline.id),
             version=self.VERSION.to_string(),
             creation_utc=guideline.creation_utc.isoformat(),
-            last_modified=guideline.last_modified_utc.isoformat(),
+            last_modified=guideline.modified_utc.isoformat(),
             condition=guideline.content.condition,
             action=guideline.content.action,
             description=guideline.content.description,
@@ -739,7 +739,7 @@ class GuidelineVectorStore(GuidelineStore):
         return Guideline(
             id=GuidelineId(guideline_document["id"]),
             creation_utc=datetime.fromisoformat(guideline_document["creation_utc"]),
-            last_modified_utc=datetime.fromisoformat(guideline_document["last_modified"]),
+            modified_utc=datetime.fromisoformat(guideline_document["last_modified"]),
             content=GuidelineContent(
                 condition=guideline_document["condition"],
                 action=guideline_document["action"],
@@ -850,7 +850,7 @@ class GuidelineVectorStore(GuidelineStore):
             guideline = Guideline(
                 id=guideline_id,
                 creation_utc=creation_utc,
-                last_modified_utc=creation_utc,
+                modified_utc=creation_utc,
                 content=GuidelineContent(
                     condition=condition,
                     action=action,

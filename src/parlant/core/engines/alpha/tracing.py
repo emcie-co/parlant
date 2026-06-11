@@ -117,7 +117,7 @@ class EngineTracer:
             "glossary.term_loaded",
             attributes={
                 "term_id": term.id,
-                "last_modified": term.last_modified_utc.isoformat(),
+                "last_modified": term.modified_utc.isoformat(),
                 "name": term.name,
             },
         )
@@ -205,7 +205,7 @@ class EngineTracer:
     ) -> None:
         attributes: dict[str, AttributeValue] = {
             "canned_response_id": canned_response.id,
-            "last_modified": canned_response.last_modified_utc.isoformat(),
+            "last_modified": canned_response.modified_utc.isoformat(),
             "rendered": rendered or "",
             "is_fallback": is_fallback,
         }
@@ -237,19 +237,19 @@ class EngineTracer:
                 return {
                     "entity_type": "guideline",
                     "id": str(re.entity.id),
-                    "last_modified": re.entity.last_modified_utc.isoformat(),
+                    "last_modified": re.entity.modified_utc.isoformat(),
                 }
             if isinstance(re.entity, Journey):
                 return {
                     "entity_type": "journey",
                     "id": str(re.entity.id),
-                    "last_modified": re.entity.last_modified_utc.isoformat(),
+                    "last_modified": re.entity.modified_utc.isoformat(),
                 }
             if isinstance(re.entity, Tag):
                 return {
                     "entity_type": "tag",
                     "id": str(re.entity.id),
-                    "last_modified": re.entity.last_modified_utc.isoformat(),
+                    "last_modified": re.entity.modified_utc.isoformat(),
                 }
             raise ValueError(f"Unknown ResolvedEntity entity type: {type(re.entity).__name__}")
 
@@ -263,7 +263,7 @@ class EngineTracer:
                         {
                             "relationship": {
                                 "id": str(r.details.relationship.id),
-                                "last_modified": r.details.relationship.last_modified_utc.isoformat(),
+                                "last_modified": r.details.relationship.modified_utc.isoformat(),
                             }
                         }
                         if r.details.relationship
@@ -283,11 +283,11 @@ class EngineTracer:
             if journey_node:
                 edge_id = extract_edge_id_from_journey_node_guideline_id(gid)
                 journey_id = cast(str, match.metadata.get("step_selection_journey_id"))
-                journey_last_modified_utc = ""
+                journey_modified_utc = ""
                 if journeys and journey_id:
                     j = journeys.get(JourneyId(journey_id))
                     if j:
-                        journey_last_modified_utc = j.last_modified_utc.isoformat()
+                        journey_modified_utc = j.modified_utc.isoformat()
 
                 self._tracer.add_event(
                     "journey.state.selected",
@@ -299,11 +299,7 @@ class EngineTracer:
                         ),
                         "rationale": rationale,
                         "journey_id": journey_id,
-                        **(
-                            {"last_modified": journey_last_modified_utc}
-                            if journey_last_modified_utc
-                            else {}
-                        ),
+                        **({"last_modified": journey_modified_utc} if journey_modified_utc else {}),
                         **(
                             {
                                 "sub_journey_id": cast(str, journey_node["sub_journey_id"]),
@@ -322,7 +318,7 @@ class EngineTracer:
                     "gm.selected",
                     attributes={
                         "guideline_id": gid,
-                        "last_modified": match.guideline.last_modified_utc.isoformat(),
+                        "last_modified": match.guideline.modified_utc.isoformat(),
                         "rationale": rationale,
                         **_resolutions_attr(gid),
                     },
@@ -337,11 +333,11 @@ class EngineTracer:
             if journey_node:
                 edge_id = extract_edge_id_from_journey_node_guideline_id(gid)
                 journey_id = cast(str, match.metadata.get("step_selection_journey_id"))
-                journey_last_modified_utc = ""
+                journey_modified_utc = ""
                 if journeys and journey_id:
                     j = journeys.get(JourneyId(journey_id))
                     if j:
-                        journey_last_modified_utc = j.last_modified_utc.isoformat()
+                        journey_modified_utc = j.modified_utc.isoformat()
 
                 self._tracer.add_event(
                     "journey.state.ruled_out",
@@ -353,11 +349,7 @@ class EngineTracer:
                         ),
                         "rationale": rationale,
                         "journey_id": journey_id,
-                        **(
-                            {"last_modified": journey_last_modified_utc}
-                            if journey_last_modified_utc
-                            else {}
-                        ),
+                        **({"last_modified": journey_modified_utc} if journey_modified_utc else {}),
                         **(
                             {
                                 "sub_journey_id": cast(str, journey_node["sub_journey_id"]),
@@ -376,7 +368,7 @@ class EngineTracer:
                     "gm.ruled_out",
                     attributes={
                         "guideline_id": gid,
-                        "last_modified": match.guideline.last_modified_utc.isoformat(),
+                        "last_modified": match.guideline.modified_utc.isoformat(),
                         "rationale": rationale,
                         **_resolutions_attr(gid),
                     },

@@ -51,6 +51,7 @@ from parlant.core.sessions import (
     EventKind,
     EventSource,
     Participant,
+    Session,
     SessionId,
     SessionStatus,
 )
@@ -161,6 +162,14 @@ SessionCreationUTCField: TypeAlias = Annotated[
     ),
 ]
 
+SessionModifiedUTCField: TypeAlias = Annotated[
+    datetime,
+    Field(
+        description="UTC timestamp of when the session was last modified",
+        examples=["2024-03-24T12:00:00Z"],
+    ),
+]
+
 SessionTitleField: TypeAlias = Annotated[
     str,
     Field(
@@ -208,6 +217,7 @@ session_example: ExampleJson = {
     "agent_id": "ag_123xyz",
     "customer_id": "cust_123xy",
     "creation_utc": "2024-03-24T12:00:00Z",
+    "modified_utc": "2024-03-24T12:00:00Z",
     "title": "Product inquiry session",
     "mode": "auto",
     "consumption_offsets": consumption_offsets_example,
@@ -226,6 +236,7 @@ class SessionDTO(
     agent_id: SessionAgentIdPath
     customer_id: SessionCustomerIdField
     creation_utc: SessionCreationUTCField
+    modified_utc: SessionModifiedUTCField
     title: SessionTitleField | None = None
     mode: SessionModeField
     consumption_offsets: ConsumptionOffsetsDTO
@@ -385,6 +396,11 @@ EventCreationUTCField: TypeAlias = Annotated[
     Field(description="UTC timestamp of when the event was created"),
 ]
 
+EventModifiedUTCField: TypeAlias = Annotated[
+    datetime,
+    Field(description="UTC timestamp of when the event was last modified"),
+]
+
 EventCorrelationIdField: TypeAlias = Annotated[
     str,
     Field(
@@ -409,6 +425,7 @@ event_example: ExampleJson = {
     "kind": "message",
     "offset": 0,
     "creation_utc": "2024-03-24T12:00:00Z",
+    "modified_utc": "2024-03-24T12:00:00Z",
     "trace_id": "corr_13xyz",
     "data": {
         "message": "Hello, I need help with my account",
@@ -428,6 +445,7 @@ class EventDTO(
     kind: EventKindDTO
     offset: EventOffsetField
     creation_utc: EventCreationUTCField
+    modified_utc: EventModifiedUTCField
     trace_id: EventTraceIdField
     correlation_id: EventCorrelationIdField
     data: JSONSerializableDTO
@@ -1133,11 +1151,27 @@ def event_to_dto(event: Event) -> EventDTO:
         kind=_event_kind_to_event_kind_dto(event.kind),
         offset=event.offset,
         creation_utc=event.creation_utc,
+        modified_utc=event.modified_utc,
         trace_id=event.trace_id,
         correlation_id=event.trace_id,
         data=cast(JSONSerializableDTO, event.data),
         metadata=event.metadata,
         deleted=event.deleted,
+    )
+
+
+def session_to_dto(session: Session) -> SessionDTO:
+    return SessionDTO(
+        id=session.id,
+        agent_id=session.agent_id,
+        customer_id=session.customer_id,
+        creation_utc=session.creation_utc,
+        modified_utc=session.modified_utc,
+        consumption_offsets=ConsumptionOffsetsDTO(client=session.consumption_offsets["client"]),
+        title=session.title,
+        mode=SessionModeDTO(session.mode),
+        metadata=session.metadata,
+        labels=session.labels,
     )
 
 
@@ -1248,6 +1282,14 @@ SortQuery: TypeAlias = Annotated[
     Query(
         description="Sort direction for results",
         examples=["asc", "desc"],
+    ),
+]
+
+MinModifiedUTCQuery: TypeAlias = Annotated[
+    datetime,
+    Query(
+        description="Only return sessions modified at or after this UTC timestamp",
+        examples=["2024-03-24T12:00:00Z"],
     ),
 ]
 
@@ -1388,17 +1430,7 @@ def create_router(
             labels=params.labels,
         )
 
-        return SessionDTO(
-            id=session.id,
-            agent_id=session.agent_id,
-            customer_id=session.customer_id,
-            creation_utc=session.creation_utc,
-            consumption_offsets=ConsumptionOffsetsDTO(client=session.consumption_offsets["client"]),
-            title=session.title,
-            mode=SessionModeDTO(session.mode),
-            metadata=session.metadata,
-            labels=session.labels,
-        )
+        return session_to_dto(session)
 
     @router.get(
         "/{session_id}",
@@ -1422,19 +1454,7 @@ def create_router(
 
         session = await app.sessions.read(session_id=session_id)
 
-        return SessionDTO(
-            id=session.id,
-            agent_id=session.agent_id,
-            creation_utc=session.creation_utc,
-            title=session.title,
-            customer_id=session.customer_id,
-            consumption_offsets=ConsumptionOffsetsDTO(
-                client=session.consumption_offsets["client"],
-            ),
-            mode=SessionModeDTO(session.mode),
-            metadata=session.metadata,
-            labels=session.labels,
-        )
+        return session_to_dto(session)
 
     @router.get(
         "",
@@ -1471,6 +1491,7 @@ def create_router(
         limit: LimitQuery | None = None,
         cursor: CursorQuery | None = None,
         sort: SortQuery | None = None,
+        min_modified_utc: MinModifiedUTCQuery | None = None,
     ) -> SessionListingDTO | Sequence[SessionDTO]:
         """Lists all sessions matching the specified filters with pagination support.
 
@@ -1485,43 +1506,14 @@ def create_router(
             cursor=decode_cursor(cursor) if cursor else None,
             sort_direction=sort_direction_dto_to_sort_direction(sort) if sort else None,
             labels=set(labels) if labels else None,
+            min_modified_utc=min_modified_utc,
         )
 
         if limit is None:
-            return [
-                SessionDTO(
-                    id=s.id,
-                    agent_id=s.agent_id,
-                    creation_utc=s.creation_utc,
-                    title=s.title,
-                    customer_id=s.customer_id,
-                    consumption_offsets=ConsumptionOffsetsDTO(
-                        client=s.consumption_offsets["client"],
-                    ),
-                    mode=SessionModeDTO(s.mode),
-                    metadata=s.metadata,
-                    labels=s.labels,
-                )
-                for s in sessions_result.items
-            ]
+            return [session_to_dto(s) for s in sessions_result.items]
 
         return SessionListingDTO(
-            items=[
-                SessionDTO(
-                    id=s.id,
-                    agent_id=s.agent_id,
-                    creation_utc=s.creation_utc,
-                    title=s.title,
-                    customer_id=s.customer_id,
-                    consumption_offsets=ConsumptionOffsetsDTO(
-                        client=s.consumption_offsets["client"],
-                    ),
-                    mode=SessionModeDTO(s.mode),
-                    metadata=s.metadata,
-                    labels=s.labels,
-                )
-                for s in sessions_result.items
-            ],
+            items=[session_to_dto(s) for s in sessions_result.items],
             total_count=sessions_result.total_count,
             has_more=sessions_result.has_more,
             next_cursor=encode_cursor(sessions_result.next_cursor)
@@ -1655,19 +1647,7 @@ def create_router(
             else None,
         )
 
-        return SessionDTO(
-            id=session.id,
-            agent_id=session.agent_id,
-            creation_utc=session.creation_utc,
-            title=session.title,
-            customer_id=session.customer_id,
-            consumption_offsets=ConsumptionOffsetsDTO(
-                client=session.consumption_offsets["client"],
-            ),
-            mode=SessionModeDTO(session.mode),
-            metadata=session.metadata,
-            labels=session.labels,
-        )
+        return session_to_dto(session)
 
     @router.post(
         "/{session_id}/events",
@@ -1874,18 +1854,7 @@ def create_router(
             metadata=params.metadata,
         )
 
-        return EventDTO(
-            id=event.id,
-            source=_event_source_to_event_source_dto(event.source),
-            kind=_event_kind_to_event_kind_dto(event.kind),
-            offset=event.offset,
-            creation_utc=event.creation_utc,
-            trace_id=event.trace_id,
-            correlation_id=event.trace_id,
-            data=cast(JSONSerializableDTO, event.data),
-            metadata=event.metadata,
-            deleted=event.deleted,
-        )
+        return event_to_dto(event)
 
     async def _add_custom_event(
         session_id: SessionIdPath,
@@ -1906,18 +1875,7 @@ def create_router(
             trigger_processing=False,
         )
 
-        return EventDTO(
-            id=event.id,
-            source=_event_source_to_event_source_dto(event.source),
-            kind=_event_kind_to_event_kind_dto(event.kind),
-            offset=event.offset,
-            creation_utc=event.creation_utc,
-            trace_id=event.trace_id,
-            correlation_id=event.trace_id,
-            data=cast(JSONSerializableDTO, event.data),
-            metadata=event.metadata,
-            deleted=event.deleted,
-        )
+        return event_to_dto(event)
 
     @router.get(
         "/{session_id}/events",
@@ -2051,21 +2009,7 @@ def create_router(
             trace_id=trace_id,
         )
 
-        return [
-            EventDTO(
-                id=e.id,
-                source=_event_source_to_event_source_dto(e.source),
-                kind=_event_kind_to_event_kind_dto(e.kind),
-                offset=e.offset,
-                creation_utc=e.creation_utc,
-                trace_id=e.trace_id,
-                correlation_id=e.trace_id,
-                data=cast(JSONSerializableDTO, e.data),
-                metadata=e.metadata,
-                deleted=e.deleted,
-            )
-            for e in events
-        ]
+        return [event_to_dto(e) for e in events]
 
     @router.get(
         "/{session_id}/events/{event_id}",

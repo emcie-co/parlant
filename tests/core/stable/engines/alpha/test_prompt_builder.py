@@ -42,7 +42,7 @@ def _match(
     guideline = Guideline(
         id=GuidelineId(generate_id()),
         creation_utc=now,
-        last_modified_utc=now,
+        modified_utc=now,
         content=GuidelineContent(condition=condition, action=action),
         enabled=True,
         tags=[],

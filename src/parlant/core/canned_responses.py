@@ -81,7 +81,7 @@ class CannedResponse:
             value=value,
             fields=[],
             creation_utc=now,
-            last_modified_utc=now,
+            modified_utc=now,
             tags=[],
             signals=[],
             metadata={},
@@ -93,7 +93,7 @@ class CannedResponse:
 
     id: CannedResponseId
     creation_utc: datetime
-    last_modified_utc: datetime
+    modified_utc: datetime
     value: str
     fields: Sequence[CannedResponseField]
     signals: Sequence[str]
@@ -563,7 +563,7 @@ class CannedResponseVectorStore(CannedResponseStore):
             id=ObjectId(canned_response_id.id),
             version=self.VERSION.to_string(),
             creation_utc=canned_response_id.creation_utc.isoformat(),
-            last_modified=canned_response_id.last_modified_utc.isoformat(),
+            last_modified=canned_response_id.modified_utc.isoformat(),
             value=canned_response_id.value,
             fields=json.dumps(
                 [
@@ -589,7 +589,7 @@ class CannedResponseVectorStore(CannedResponseStore):
         return CannedResponse(
             id=CannedResponseId(canned_response_document["id"]),
             creation_utc=datetime.fromisoformat(canned_response_document["creation_utc"]),
-            last_modified_utc=datetime.fromisoformat(
+            modified_utc=datetime.fromisoformat(
                 canned_response_document.get(
                     "last_modified", canned_response_document["creation_utc"]
                 )
@@ -658,7 +658,7 @@ class CannedResponseVectorStore(CannedResponseStore):
                 value=value,
                 fields=fields or [],
                 creation_utc=creation_utc,
-                last_modified_utc=creation_utc,
+                modified_utc=creation_utc,
                 metadata=metadata,
                 tags=tags or [],
                 signals=signals or [],
@@ -736,7 +736,7 @@ class CannedResponseVectorStore(CannedResponseStore):
             canrep = CannedResponse(
                 id=CannedResponseId(canned_response_id),
                 creation_utc=datetime.fromisoformat(doc["creation_utc"]),
-                last_modified_utc=datetime.now(timezone.utc),
+                modified_utc=datetime.now(timezone.utc),
                 value=params.get("value", existing_value.value),
                 fields=params.get("fields", existing_value.fields),
                 signals=params.get("signals", existing_value.signals),

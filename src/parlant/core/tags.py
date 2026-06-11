@@ -44,7 +44,7 @@ _BUILT_IN_TAG_CREATION_TIME = datetime(2025, 1, 1, tzinfo=timezone.utc)
 class Tag:
     id: TagId
     creation_utc: datetime
-    last_modified_utc: datetime
+    modified_utc: datetime
     name: str
 
     @staticmethod
@@ -53,7 +53,7 @@ class Tag:
             id=TagId("__preamble__"),
             name="__preamble__",
             creation_utc=_BUILT_IN_TAG_CREATION_TIME,
-            last_modified_utc=_BUILT_IN_TAG_CREATION_TIME,
+            modified_utc=_BUILT_IN_TAG_CREATION_TIME,
         )
 
     @staticmethod
@@ -62,7 +62,7 @@ class Tag:
             id=TagId(f"agent:{agent_id}"),
             name=f"agent:{agent_id}",
             creation_utc=_BUILT_IN_TAG_CREATION_TIME,
-            last_modified_utc=_BUILT_IN_TAG_CREATION_TIME,
+            modified_utc=_BUILT_IN_TAG_CREATION_TIME,
         )
 
     @staticmethod
@@ -78,7 +78,7 @@ class Tag:
             id=TagId(f"journey:{journey_id}"),
             name=f"journey:{journey_id}",
             creation_utc=_BUILT_IN_TAG_CREATION_TIME,
-            last_modified_utc=_BUILT_IN_TAG_CREATION_TIME,
+            modified_utc=_BUILT_IN_TAG_CREATION_TIME,
         )
 
     @staticmethod
@@ -94,7 +94,7 @@ class Tag:
             id=TagId(f"journey_node:{journey_node_id}"),
             name=f"journey_node:{journey_node_id}",
             creation_utc=_BUILT_IN_TAG_CREATION_TIME,
-            last_modified_utc=_BUILT_IN_TAG_CREATION_TIME,
+            modified_utc=_BUILT_IN_TAG_CREATION_TIME,
         )
 
     @staticmethod
@@ -110,7 +110,7 @@ class Tag:
             id=TagId(f"guideline:{guideline_id}"),
             name=f"guideline:{guideline_id}",
             creation_utc=_BUILT_IN_TAG_CREATION_TIME,
-            last_modified_utc=_BUILT_IN_TAG_CREATION_TIME,
+            modified_utc=_BUILT_IN_TAG_CREATION_TIME,
         )
 
     @staticmethod
@@ -242,7 +242,7 @@ class TagDocumentStore(TagStore):
             id=ObjectId(tag.id),
             version=self.VERSION.to_string(),
             creation_utc=tag.creation_utc.isoformat(),
-            last_modified=tag.last_modified_utc.isoformat(),
+            last_modified=tag.modified_utc.isoformat(),
             name=tag.name,
         )
 
@@ -250,7 +250,7 @@ class TagDocumentStore(TagStore):
         return Tag(
             id=TagId(document["id"]),
             creation_utc=datetime.fromisoformat(document["creation_utc"]),
-            last_modified_utc=datetime.fromisoformat(document["last_modified"]),
+            modified_utc=datetime.fromisoformat(document["last_modified"]),
             name=document["name"],
         )
 
@@ -279,7 +279,7 @@ class TagDocumentStore(TagStore):
             tag = Tag(
                 id=tag_id,
                 creation_utc=creation_utc,
-                last_modified_utc=creation_utc,
+                modified_utc=creation_utc,
                 name=name,
             )
             await self._collection.insert_one(self._serialize(tag))

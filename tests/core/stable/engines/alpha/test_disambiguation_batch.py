@@ -181,7 +181,7 @@ def create_term(
     return Term(
         id=TermId("-"),
         creation_utc=datetime.now(timezone.utc),
-        last_modified_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         name=name,
         description=description,
         synonyms=synonyms,
@@ -197,7 +197,7 @@ def create_context_variable(
     return ContextVariable(
         id=ContextVariableId("-"),
         creation_utc=datetime.now(timezone.utc),
-        last_modified_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         name=name,
         description="",
         tool_id=None,
@@ -205,7 +205,7 @@ def create_context_variable(
         tags=tags,
     ), ContextVariableValue(
         ContextVariableValueId("-"),
-        last_modified_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         data=data,
     )
 
@@ -240,7 +240,7 @@ async def create_guideline(
     guideline = Guideline(
         id=GuidelineId(generate_id()),
         creation_utc=datetime.now(timezone.utc),
-        last_modified_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         content=GuidelineContent(
             condition=condition,
             action=action,

@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
 from dataclasses import field
@@ -122,6 +122,7 @@ class Event:
     source: EventSource
     kind: EventKind
     creation_utc: datetime
+    modified_utc: datetime
     offset: int
     trace_id: str
     data: JSONSerializable
@@ -257,6 +258,7 @@ class AgentState:
 class Session:
     id: SessionId
     creation_utc: datetime
+    modified_utc: datetime
     customer_id: CustomerId
     agent_id: AgentId
     mode: SessionMode
@@ -337,6 +339,7 @@ class SessionStore(ABC):
         cursor: Cursor | None = None,
         sort_direction: SortDirection | None = None,
         labels: Optional[Set[str]] = None,
+        min_modified_utc: datetime | None = None,
     ) -> SessionListing: ...
 
     @abstractmethod
@@ -477,6 +480,7 @@ class _SessionDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
+    modified_utc: str
     customer_id: CustomerId
     agent_id: AgentId
     mode: SessionMode
@@ -517,6 +521,7 @@ class _EventDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
+    modified_utc: str
     session_id: SessionId
     source: str
     kind: str
@@ -654,7 +659,7 @@ class _ToolEventData_v0_5_0(TypedDict):
 
 
 class SessionDocumentStore(SessionStore):
-    VERSION = Version.from_string("0.9.0")
+    VERSION = Version.from_string("0.10.0")
 
     def __init__(
         self,
@@ -775,6 +780,24 @@ class SessionDocumentStore(SessionStore):
                 labels=[],  # Default to empty labels for existing sessions
             )
 
+        async def v0_9_0_to_v0_10_0(doc: BaseDocument) -> BaseDocument | None:
+            doc = cast(_SessionDocument, doc)
+
+            return _SessionDocument(
+                id=doc["id"],
+                version=Version.String("0.10.0"),
+                creation_utc=doc["creation_utc"],
+                modified_utc=doc.get("modified_utc", doc["creation_utc"]),
+                customer_id=doc["customer_id"],
+                agent_id=doc["agent_id"],
+                mode=doc["mode"],
+                title=doc["title"],
+                consumption_offsets=doc["consumption_offsets"],
+                agent_states=doc["agent_states"],
+                metadata=doc.get("metadata", {}),
+                labels=doc.get("labels", []),
+            )
+
         return await DocumentMigrationHelper[_SessionDocument](
             self,
             {
@@ -786,6 +809,7 @@ class SessionDocumentStore(SessionStore):
                 "0.6.0": v0_6_0_to_v0_7_0,
                 "0.7.0": v0_7_0_to_v0_8_0,
                 "0.8.0": v0_8_0_to_v0_9_0,
+                "0.9.0": v0_9_0_to_v0_10_0,
             },
         ).migrate(doc)
 
@@ -898,6 +922,41 @@ class SessionDocumentStore(SessionStore):
                 deleted=doc["deleted"],
             )
 
+        async def v0_8_0_to_v0_9_0(doc: BaseDocument) -> BaseDocument | None:
+            doc = cast(_EventDocument, doc)
+
+            return _EventDocument(
+                id=doc["id"],
+                version=Version.String("0.9.0"),
+                creation_utc=doc["creation_utc"],
+                session_id=doc["session_id"],
+                source=doc["source"],
+                kind=doc["kind"],
+                offset=doc["offset"],
+                trace_id=doc["trace_id"],
+                data=doc["data"],
+                metadata=doc.get("metadata"),
+                deleted=doc["deleted"],
+            )
+
+        async def v0_9_0_to_v0_10_0(doc: BaseDocument) -> BaseDocument | None:
+            doc = cast(_EventDocument, doc)
+
+            return _EventDocument(
+                id=doc["id"],
+                version=Version.String("0.10.0"),
+                creation_utc=doc["creation_utc"],
+                modified_utc=doc.get("modified_utc", doc["creation_utc"]),
+                session_id=doc["session_id"],
+                source=doc["source"],
+                kind=doc["kind"],
+                offset=doc["offset"],
+                trace_id=doc["trace_id"],
+                data=doc["data"],
+                metadata=doc.get("metadata"),
+                deleted=doc["deleted"],
+            )
+
         return await DocumentMigrationHelper[_EventDocument](
             self,
             {
@@ -908,6 +967,8 @@ class SessionDocumentStore(SessionStore):
                 "0.5.0": v0_5_0_to_v0_6_0,
                 "0.6.0": v0_6_0_to_v0_7_0,
                 "0.7.0": v0_7_0_to_v0_8_0,
+                "0.8.0": v0_8_0_to_v0_9_0,
+                "0.9.0": v0_9_0_to_v0_10_0,
             },
         ).migrate(doc)
 
@@ -941,6 +1002,12 @@ class SessionDocumentStore(SessionStore):
                     ),
                     CollectionIndex(
                         fields=(
+                            ("modified_utc", SortDirection.ASC),
+                            ("id", SortDirection.ASC),
+                        )
+                    ),
+                    CollectionIndex(
+                        fields=(
                             ("agent_id", SortDirection.ASC),
                             ("creation_utc", SortDirection.ASC),
                             ("id", SortDirection.ASC),
@@ -962,6 +1029,12 @@ class SessionDocumentStore(SessionStore):
                         fields=(
                             ("session_id", SortDirection.ASC),
                             ("offset", SortDirection.ASC),
+                        )
+                    ),
+                    CollectionIndex(
+                        fields=(
+                            ("modified_utc", SortDirection.ASC),
+                            ("session_id", SortDirection.ASC),
                         )
                     ),
                     CollectionIndex(
@@ -1019,6 +1092,7 @@ class SessionDocumentStore(SessionStore):
             id=ObjectId(session.id),
             version=self.VERSION.to_string(),
             creation_utc=session.creation_utc.isoformat(),
+            modified_utc=session.modified_utc.isoformat(),
             customer_id=session.customer_id,
             agent_id=session.agent_id,
             mode=session.mode,
@@ -1043,6 +1117,7 @@ class SessionDocumentStore(SessionStore):
         return Session(
             id=SessionId(session_document["id"]),
             creation_utc=datetime.fromisoformat(session_document["creation_utc"]),
+            modified_utc=datetime.fromisoformat(session_document["modified_utc"]),
             customer_id=session_document["customer_id"],
             agent_id=session_document["agent_id"],
             mode=session_document["mode"],
@@ -1069,6 +1144,7 @@ class SessionDocumentStore(SessionStore):
             id=ObjectId(event.id),
             version=self.VERSION.to_string(),
             creation_utc=event.creation_utc.isoformat(),
+            modified_utc=event.modified_utc.isoformat(),
             session_id=session_id,
             source=event.source.value,
             kind=event.kind.value,
@@ -1086,6 +1162,7 @@ class SessionDocumentStore(SessionStore):
         return Event(
             id=EventId(event_document["id"]),
             creation_utc=datetime.fromisoformat(event_document["creation_utc"]),
+            modified_utc=datetime.fromisoformat(event_document["modified_utc"]),
             source=EventSource(event_document["source"]),
             kind=EventKind(event_document["kind"]),
             offset=event_document["offset"],
@@ -1114,6 +1191,7 @@ class SessionDocumentStore(SessionStore):
             session = Session(
                 id=SessionId(generate_id()),
                 creation_utc=creation_utc,
+                modified_utc=creation_utc,
                 customer_id=customer_id,
                 agent_id=agent_id,
                 mode=mode or "auto",
@@ -1175,7 +1253,10 @@ class SessionDocumentStore(SessionStore):
 
             result = await self._session_collection.update_one(
                 filters={"id": {"$eq": session_id}},
-                params=self._serialize_session_update_params(params),
+                params={
+                    **self._serialize_session_update_params(params),
+                    "modified_utc": datetime.now(timezone.utc).isoformat(),
+                },
             )
 
         assert result.updated_document
@@ -1191,12 +1272,111 @@ class SessionDocumentStore(SessionStore):
         cursor: Cursor | None = None,
         sort_direction: SortDirection | None = None,
         labels: Optional[Set[str]] = None,
+        min_modified_utc: datetime | None = None,
     ) -> SessionListing:
         async with self._lock.reader_lock:
             filters = {
                 **({"agent_id": {"$eq": agent_id}} if agent_id else {}),
                 **({"customer_id": {"$eq": customer_id}} if customer_id else {}),
             }
+
+            if min_modified_utc:
+                min_modified_utc_str = min_modified_utc.isoformat()
+
+                event_result = await self._event_collection.find(
+                    filters={"modified_utc": {"$gte": min_modified_utc_str}},
+                )
+
+                event_session_ids = {d["session_id"] for d in event_result.items}
+                latest_event_modified_utc_by_session_id: dict[SessionId, datetime] = {}
+
+                for event_document in event_result.items:
+                    event_modified_utc = datetime.fromisoformat(event_document["modified_utc"])
+                    session_id = event_document["session_id"]
+                    latest_event_modified_utc_by_session_id[session_id] = max(
+                        latest_event_modified_utc_by_session_id.get(session_id, event_modified_utc),
+                        event_modified_utc,
+                    )
+
+                modified_filters: list[Where] = [
+                    {"modified_utc": {"$gte": min_modified_utc_str}},
+                ]
+                if event_session_ids:
+                    modified_filters.append(
+                        {
+                            "id": {
+                                "$in": [ObjectId(session_id) for session_id in event_session_ids],
+                            }
+                        }
+                    )
+
+                session_filters: Where = (
+                    cast(Where, {"$and": [filters, {"$or": modified_filters}]})
+                    if filters
+                    else cast(Where, {"$or": modified_filters})
+                )
+
+                result = await self._session_collection.find(
+                    filters=session_filters,
+                    sort_direction=sort_direction,
+                )
+
+                matching_session_documents = list(result.items)
+
+                if labels:
+                    matching_session_documents = [
+                        d
+                        for d in matching_session_documents
+                        if labels.issubset(set(d.get("labels", [])))
+                    ]
+
+                sessions = []
+                for session_document in matching_session_documents:
+                    session = self._deserialize_session(session_document)
+                    latest_event_modified_utc = latest_event_modified_utc_by_session_id.get(
+                        session.id,
+                    )
+                    if latest_event_modified_utc:
+                        session = replace(
+                            session,
+                            modified_utc=max(session.modified_utc, latest_event_modified_utc),
+                        )
+                    sessions.append(session)
+
+                if cursor:
+                    if sort_direction == SortDirection.DESC:
+                        sessions = [
+                            s
+                            for s in sessions
+                            if (s.creation_utc.isoformat(), str(s.id))
+                            < (cursor.creation_utc, str(cursor.id))
+                        ]
+                    else:
+                        sessions = [
+                            s
+                            for s in sessions
+                            if (s.creation_utc.isoformat(), str(s.id))
+                            > (cursor.creation_utc, str(cursor.id))
+                        ]
+
+                total_count = len(sessions)
+                paginated_sessions = sessions[:limit] if limit else sessions
+                has_more = bool(limit and len(sessions) > limit)
+                next_cursor = (
+                    Cursor(
+                        creation_utc=paginated_sessions[-1].creation_utc.isoformat(),
+                        id=ObjectId(paginated_sessions[-1].id),
+                    )
+                    if has_more and paginated_sessions
+                    else None
+                )
+
+                return SessionListing(
+                    items=paginated_sessions,
+                    total_count=total_count,
+                    has_more=has_more,
+                    next_cursor=next_cursor,
+                )
 
             result = await self._session_collection.find(
                 filters=cast(Where, filters),
@@ -1241,6 +1421,7 @@ class SessionDocumentStore(SessionStore):
                 filters={"id": {"$eq": session_id}},
                 params={
                     "metadata": updated_metadata,
+                    "modified_utc": datetime.now(timezone.utc).isoformat(),
                 },
             )
 
@@ -1266,6 +1447,7 @@ class SessionDocumentStore(SessionStore):
                 filters={"id": {"$eq": session_id}},
                 params={
                     "metadata": updated_metadata,
+                    "modified_utc": datetime.now(timezone.utc).isoformat(),
                 },
             )
 
@@ -1290,7 +1472,10 @@ class SessionDocumentStore(SessionStore):
 
             result = await self._session_collection.update_one(
                 filters={"id": {"$eq": session_id}},
-                params={"labels": updated_labels},
+                params={
+                    "labels": updated_labels,
+                    "modified_utc": datetime.now(timezone.utc).isoformat(),
+                },
             )
 
         assert result.updated_document
@@ -1314,7 +1499,10 @@ class SessionDocumentStore(SessionStore):
 
             result = await self._session_collection.update_one(
                 filters={"id": {"$eq": session_id}},
-                params={"labels": updated_labels},
+                params={
+                    "labels": updated_labels,
+                    "modified_utc": datetime.now(timezone.utc).isoformat(),
+                },
             )
 
         assert result.updated_document
@@ -1349,6 +1537,7 @@ class SessionDocumentStore(SessionStore):
                 kind=kind,
                 offset=offset,
                 creation_utc=creation_utc,
+                modified_utc=creation_utc,
                 trace_id=trace_id,
                 data=data,
                 metadata=metadata,
@@ -1386,7 +1575,10 @@ class SessionDocumentStore(SessionStore):
         async with self._lock.writer_lock:
             result = await self._event_collection.update_one(
                 filters={"id": {"$eq": event_id}},
-                params={"deleted": True},
+                params={
+                    "deleted": True,
+                    "modified_utc": datetime.now(timezone.utc).isoformat(),
+                },
             )
 
         if result.matched_count == 0:
@@ -1458,6 +1650,8 @@ class SessionDocumentStore(SessionStore):
 
             if not update_params:
                 return self._deserialize_event(event_document)
+
+            update_params["modified_utc"] = datetime.now(timezone.utc).isoformat()
 
             result = await self._event_collection.update_one(
                 filters={
@@ -1685,6 +1879,7 @@ class CompositeSessionStore(SessionStore):
         cursor: Cursor | None = None,
         sort_direction: SortDirection | None = None,
         labels: Optional[Set[str]] = None,
+        min_modified_utc: datetime | None = None,
     ) -> SessionListing:
         results = await safe_gather(
             *[
@@ -1695,6 +1890,7 @@ class CompositeSessionStore(SessionStore):
                     cursor=cursor,
                     sort_direction=sort_direction,
                     labels=labels,
+                    min_modified_utc=min_modified_utc,
                 )
                 for store in self._all_stores
             ]

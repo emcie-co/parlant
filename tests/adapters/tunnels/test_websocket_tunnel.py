@@ -68,6 +68,66 @@ async def test_that_tunnel_connects_and_dispatches_request() -> None:
     assert dispatcher.dispatch.await_count >= 1
 
 
+async def test_that_tunnel_streams_dispatcher_events_as_stream_frames() -> None:
+    received_frames: list[dict[str, Any]] = []
+
+    async def mock_platform_handler(websocket: websockets.asyncio.server.ServerConnection) -> None:
+        await websocket.send(
+            json.dumps(
+                {
+                    "request_id": "stream-1",
+                    "type": "stream",
+                    "method": "sessions.stream_events",
+                    "params": {"session_id": "sess-1"},
+                }
+            )
+        )
+
+        received_frames.append(json.loads(await websocket.recv()))
+        received_frames.append(json.loads(await websocket.recv()))
+        await websocket.wait_closed()
+
+    class StreamingDispatcher:
+        async def dispatch_stream(self, request: Any) -> Any:
+            assert request.request_id == "stream-1"
+            assert request.method == "sessions.stream_events"
+            yield {"id": "evt-1", "offset": 0}
+
+    async with websockets.asyncio.server.serve(mock_platform_handler, "localhost", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        url = f"ws://localhost:{port}"
+
+        tunnel = ParlantCloudTunnelService(
+            url=url,
+            token="test-token",
+            dispatcher=StreamingDispatcher(),  # type: ignore[arg-type]
+            initial_reconnect_delay=10.0,
+        )
+
+        task = asyncio.create_task(tunnel.start())
+
+        for _ in range(50):
+            if len(received_frames) >= 2:
+                break
+            await asyncio.sleep(0.1)
+
+        await tunnel.stop()
+        await asyncio.wait_for(task, timeout=1.0)
+
+    assert received_frames == [
+        {
+            "request_id": "stream-1",
+            "type": "stream_data",
+            "event": "message",
+            "data": {"id": "evt-1", "offset": 0},
+        },
+        {
+            "request_id": "stream-1",
+            "type": "stream_end",
+        },
+    ]
+
+
 async def test_that_tunnel_reconnects_after_disconnect() -> None:
     connection_count = 0
 

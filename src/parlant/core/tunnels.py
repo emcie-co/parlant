@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from datetime import datetime
 from enum import Enum
-from typing import Any, Awaitable, Callable, Mapping
+from typing import Any, Awaitable, Callable, Mapping, cast
 
 from parlant.core.agents import AgentId
 from parlant.core.app_modules.agents import AgentModule
@@ -128,6 +129,14 @@ class TunnelRequestDispatcher:
                 error=str(e),
             )
 
+    async def dispatch_stream(self, request: TunnelRequest) -> AsyncIterator[dict[str, Any]]:
+        handler = self._get_stream_handler(request.method)
+        if handler is None:
+            raise ValueError(f"Unknown stream method: {request.method}")
+
+        async for item in handler(dict(request.params)):
+            yield item
+
     def _get_handler(
         self, method: str
     ) -> Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None:
@@ -150,6 +159,15 @@ class TunnelRequestDispatcher:
             "customers.list": self._handle_list_customers,
             "tags.list": self._handle_list_tags,
             "tags.retrieve": self._handle_retrieve_tag,
+        }
+        return handlers.get(method)
+
+    def _get_stream_handler(
+        self, method: str
+    ) -> Callable[[dict[str, Any]], AsyncIterator[dict[str, Any]]] | None:
+        handlers: dict[str, Callable[[dict[str, Any]], AsyncIterator[dict[str, Any]]]] = {
+            "sessions.stream_events": self._stream_events,
+            "sessions.stream_event": self._stream_event,
         }
         return handlers.get(method)
 
@@ -280,6 +298,69 @@ class TunnelRequestDispatcher:
         )
 
         return {"events": [self._serialize_event(e) for e in events]}
+
+    async def _stream_events(self, params: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
+        session_id = SessionId(params["session_id"])
+        current_offset = params.get("min_offset", 0)
+        source = EventSource(params["source"]) if params.get("source") else None
+        kinds = _parse_event_kinds(params.get("kinds"))
+        trace_id = params.get("trace_id")
+        wait_for_data = params.get("wait_for_data", 60)
+
+        while True:
+            has_events = await self._session_module.wait_for_more_events(
+                session_id=session_id,
+                min_offset=current_offset,
+                source=source,
+                kinds=kinds,
+                trace_id=trace_id,
+                timeout=Timeout(wait_for_data),
+            )
+            if not has_events:
+                break
+
+            events = await self._session_module.find_events(
+                session_id=session_id,
+                min_offset=current_offset,
+                source=source,
+                kinds=kinds,
+                trace_id=trace_id,
+            )
+
+            for event in events:
+                yield self._serialize_event(event)
+                current_offset = max(current_offset, event.offset + 1)
+
+    async def _stream_event(self, params: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
+        session_id = SessionId(params["session_id"])
+        event_id = EventId(params["event_id"])
+        wait_for_data = params.get("wait_for_data", 60)
+        chunk_count = 0
+
+        while True:
+            event = await self._session_module.read_event(
+                session_id=session_id,
+                event_id=event_id,
+            )
+            yield self._serialize_event(event)
+
+            data = cast(dict[str, Any], event.data)
+            if "chunks" not in data:
+                break
+
+            chunks = cast(list[str | None], data["chunks"])
+            chunk_count = len(chunks)
+            if chunks and chunks[-1] is None:
+                break
+
+            has_new_chunks = await self._session_module.wait_for_new_streaming_chunks(
+                session_id=session_id,
+                event_id=event_id,
+                last_known_chunk_count=chunk_count,
+                timeout=Timeout(wait_for_data),
+            )
+            if not has_new_chunks:
+                break
 
     async def _handle_create_session(self, params: dict[str, Any]) -> dict[str, Any]:
         session = await self._session_module.create(

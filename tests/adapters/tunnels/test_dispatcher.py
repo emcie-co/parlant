@@ -513,6 +513,108 @@ async def test_that_dispatcher_returns_empty_events_when_list_events_wait_times_
     session_module.find_events.assert_not_awaited()
 
 
+async def test_that_dispatcher_streams_session_events_until_wait_times_out() -> None:
+    session_module = AsyncMock()
+    session_module.wait_for_more_events = AsyncMock(side_effect=[True, False])
+    session_module.find_events = AsyncMock(
+        return_value=[
+            MagicMock(
+                id="evt-1",
+                offset=0,
+                source=EventSource.AI_AGENT,
+                kind=EventKind.MESSAGE,
+                creation_utc=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                modified_utc=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                trace_id="trace-1",
+                data={"message": "Hello"},
+                metadata={},
+                deleted=False,
+            )
+        ]
+    )
+
+    dispatcher = TunnelRequestDispatcher(session_module=session_module)
+
+    request = TunnelRequest(
+        request_id="req-stream-evts",
+        method="sessions.stream_events",
+        params={"session_id": "sess-1", "min_offset": 0, "wait_for_data": 5},
+    )
+
+    events = [event async for event in dispatcher.dispatch_stream(request)]
+
+    assert events == [
+        {
+            "id": "evt-1",
+            "offset": 0,
+            "source": "ai_agent",
+            "kind": "message",
+            "creation_utc": "2026-01-01T00:00:00+00:00",
+            "modified_utc": "2026-01-01T00:00:00+00:00",
+            "trace_id": "trace-1",
+            "data": {"message": "Hello"},
+            "metadata": {},
+            "deleted": False,
+        }
+    ]
+    assert session_module.wait_for_more_events.await_count == 2
+    second_wait_call = session_module.wait_for_more_events.await_args_list[1].kwargs
+    assert second_wait_call["min_offset"] == 1
+
+
+async def test_that_dispatcher_streams_event_updates_until_chunks_complete() -> None:
+    session_module = AsyncMock()
+    session_module.read_event = AsyncMock(
+        side_effect=[
+            MagicMock(
+                id="evt-1",
+                offset=0,
+                source=EventSource.AI_AGENT,
+                kind=EventKind.MESSAGE,
+                creation_utc=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                modified_utc=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                trace_id="trace-1",
+                data={"chunks": ["Hel"]},
+                metadata={},
+                deleted=False,
+            ),
+            MagicMock(
+                id="evt-1",
+                offset=0,
+                source=EventSource.AI_AGENT,
+                kind=EventKind.MESSAGE,
+                creation_utc=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                modified_utc=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                trace_id="trace-1",
+                data={"chunks": ["Hello", None]},
+                metadata={},
+                deleted=False,
+            ),
+        ]
+    )
+    session_module.wait_for_new_streaming_chunks = AsyncMock(return_value=True)
+
+    dispatcher = TunnelRequestDispatcher(session_module=session_module)
+
+    request = TunnelRequest(
+        request_id="req-stream-evt",
+        method="sessions.stream_event",
+        params={"session_id": "sess-1", "event_id": "evt-1", "wait_for_data": 5},
+    )
+
+    events = [event async for event in dispatcher.dispatch_stream(request)]
+
+    assert [event["data"] for event in events] == [
+        {"chunks": ["Hel"]},
+        {"chunks": ["Hello", None]},
+    ]
+    session_module.wait_for_new_streaming_chunks.assert_awaited_once()
+    wait_call = session_module.wait_for_new_streaming_chunks.await_args.kwargs
+    assert wait_call["session_id"] == "sess-1"
+    assert wait_call["event_id"] == "evt-1"
+    assert wait_call["last_known_chunk_count"] == 1
+
+
 async def test_that_dispatcher_routes_sessions_update_event() -> None:
     session_module = AsyncMock()
     session_module.update_event = AsyncMock(

@@ -8,6 +8,7 @@ from parlant.core.agents import CompositionMode, MessageOutputMode
 from parlant.core.app_modules.common import decode_cursor, encode_cursor
 from parlant.core.persistence.common import Cursor, ObjectId, SortDirection
 from parlant.core.app_modules.sessions import Moderation
+from parlant.core.version import VERSION
 from parlant.core.sessions import EventKind, EventSource
 from parlant.core.tunnels import TunnelRequestDispatcher
 from parlant.core.tunnels import TunnelRequest
@@ -97,6 +98,22 @@ async def test_that_dispatcher_returns_error_for_unknown_method() -> None:
     assert response.request_id == "req-2"
     assert response.error is not None
     assert "unknown" in response.error.lower()
+
+
+async def test_that_dispatcher_routes_system_version() -> None:
+    dispatcher = TunnelRequestDispatcher(session_module=AsyncMock())
+
+    response = await dispatcher.dispatch(
+        TunnelRequest(
+            request_id="req-version",
+            method="system.version",
+            params={},
+        )
+    )
+
+    assert response.request_id == "req-version"
+    assert response.error is None
+    assert response.result == {"version": VERSION}
 
 
 async def test_that_dispatcher_routes_sessions_create() -> None:

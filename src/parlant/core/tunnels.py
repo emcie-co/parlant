@@ -16,6 +16,7 @@ from parlant.core.loggers import Logger
 from parlant.core.persistence.common import SortDirection
 from parlant.core.sessions import EventId, EventKind, EventSource, SessionId
 from parlant.core.tags import TagId
+from parlant.core.version import VERSION
 
 
 def _parse_sort_direction(value: str | None) -> SortDirection | None:
@@ -131,6 +132,7 @@ class TunnelRequestDispatcher:
         self, method: str
     ) -> Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None:
         handlers: dict[str, Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]] = {
+            "system.version": self._handle_system_version,
             "sessions.create": self._handle_create_session,
             "sessions.read": self._handle_read_session,
             "sessions.list": self._handle_list_sessions,
@@ -150,6 +152,10 @@ class TunnelRequestDispatcher:
             "tags.retrieve": self._handle_retrieve_tag,
         }
         return handlers.get(method)
+
+    async def _handle_system_version(self, params: dict[str, Any]) -> dict[str, Any]:
+        del params
+        return {"version": VERSION}
 
     async def _handle_list_tags(self, params: dict[str, Any]) -> dict[str, Any]:
         if self._tag_module is None:

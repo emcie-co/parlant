@@ -53,8 +53,8 @@ def _create_tokenizer(model_name: str) -> PreTrainedTokenizer:
     save_dir = os.environ.get("PARLANT_HOME", _model_temp_dir())
     os.makedirs(save_dir, exist_ok=True)
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)  # type: ignore
-    tokenizer = cast(PreTrainedTokenizer, tokenizer)
+    raw_tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)  # type: ignore
+    tokenizer = cast(PreTrainedTokenizer, raw_tokenizer)
     tokenizer.save_pretrained(save_dir)
 
     _TOKENIZER_MODELS[model_name] = tokenizer

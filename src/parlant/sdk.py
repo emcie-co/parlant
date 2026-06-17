@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict, deque
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, suppress
 import contextvars
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -3541,10 +3541,13 @@ class Server:
             await self._startup_context_manager.__aexit__(None, None, None)
         except BaseException:
             health_check_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await health_check_task
             raise
-        finally:
+        else:
             # Wait for health check to complete before cleanup
             await health_check_task
+        finally:
             await self._exit_stack.aclose()
 
         return False

@@ -544,7 +544,20 @@ class PluginServer:
             if self.started():
                 return self
 
-        raise TimeoutError()
+            if self._task.done():
+                await self._raise_startup_error()
+
+        raise TimeoutError(f"Timed out waiting for plugin server to start at {self.url}")
+
+    async def _raise_startup_error(self) -> None:
+        try:
+            await self._task
+        except RuntimeError:
+            raise
+        except BaseException as exc:
+            raise RuntimeError(f"Failed to start plugin server at {self.url}") from exc
+
+        raise RuntimeError(f"Plugin server stopped before startup at {self.url}")
 
     async def __aexit__(
         self,
@@ -578,13 +591,17 @@ class PluginServer:
 
         self._server = uvicorn.Server(config)
 
-        if self.hosted:
-            # Run without capturing signals.
-            # This is because we're being hosted in another process
-            # that has its own bookkeeping on signals.
-            await self._server._serve()
-        else:
-            await self._server.serve()
+        try:
+            if self.hosted:
+                # Run without capturing signals.
+                # This is because we're being hosted in another process
+                # that has its own bookkeeping on signals.
+                await self._server._serve()
+            else:
+                await self._server.serve()
+        except SystemExit as exc:
+            detail = f": {exc.__context__}" if exc.__context__ else ""
+            raise RuntimeError(f"Failed to start plugin server at {self.url}{detail}") from exc
 
     async def shutdown(self) -> None:
         if server := self._server:

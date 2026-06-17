@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict, deque
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, suppress
 import contextvars
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -3525,13 +3525,22 @@ class Server:
             await self._exit_stack.aclose()
             return False
 
-        with self._container[Tracer].span(
-            "startup.evaluations",
-            attributes={"scope": "Evaluations"},
-        ):
-            await self._process_evaluations()
+        try:
+            with self._container[Tracer].span(
+                "startup.evaluations",
+                attributes={"scope": "Evaluations"},
+            ):
+                await self._process_evaluations()
 
-        await self._setup_retrievers()
+            await self._setup_retrievers()
+        except BaseException as exc:
+            await self._startup_context_manager.__aexit__(
+                type(exc),
+                exc,
+                exc.__traceback__,
+            )
+            await self._exit_stack.aclose()
+            raise
 
         # Start health check polling to set ready event when the server is ready to receive requests
         health_check_task = asyncio.create_task(self._poll_health_endpoint())
@@ -3541,10 +3550,13 @@ class Server:
             await self._startup_context_manager.__aexit__(None, None, None)
         except BaseException:
             health_check_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await health_check_task
             raise
-        finally:
+        else:
             # Wait for health check to complete before cleanup
             await health_check_task
+        finally:
             await self._exit_stack.aclose()
 
         return False

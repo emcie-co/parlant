@@ -794,6 +794,50 @@ class JourneyVectorStore(JourneyStore):
             priority=doc.get("priority", 0),
         )
 
+    async def _deserialize_batch(
+        self,
+        journey_documents: Sequence[JourneyDocument],
+    ) -> Sequence[Journey]:
+        from collections import defaultdict
+        
+        journey_ids = [d["id"] for d in journey_documents]
+        tags_by_journey: dict[str, list[str]] = defaultdict(list)
+        triggers_by_journey: dict[str, list[str]] = defaultdict(list)
+        
+        if journey_ids:
+            all_tags = await self._tag_association_collection.find(
+                {"journey_id": {"$in": journey_ids}}
+            )
+            for tag_doc in all_tags:
+                tags_by_journey[tag_doc["journey_id"]].append(tag_doc["tag_id"])
+                
+            all_triggers = await self._trigger_association_collection.find(
+                {"journey_id": {"$in": journey_ids}}
+            )
+            for trig_doc in all_triggers:
+                triggers_by_journey[trig_doc["journey_id"]].append(trig_doc["trigger"])
+                
+        journeys: list[Journey] = []
+        for d in journey_documents:
+            composition_mode_str = d.get("composition_mode")
+            composition_mode = CompositionMode(composition_mode_str) if composition_mode_str else None
+            
+            journeys.append(
+                Journey(
+                    id=JourneyId(d["id"]),
+                    creation_utc=datetime.fromisoformat(d["creation_utc"]),
+                    triggers=triggers_by_journey.get(d["id"], []),
+                    title=d["title"],
+                    description=d["description"],
+                    root_id=JourneyNodeId(d["root_id"]),
+                    tags=tags_by_journey.get(d["id"], []),
+                    composition_mode=composition_mode,
+                    labels=set(d.get("labels", [])),
+                    priority=d.get("priority", 0),
+                )
+            )
+        return journeys
+
     def _serialize_node(
         self,
         node: JourneyNode,
@@ -1078,9 +1122,8 @@ class JourneyVectorStore(JourneyStore):
                 if journey_ids:
                     filters = {"$or": [{"id": {"$eq": id}} for id in journey_ids]}
 
-            return [
-                await self._deserialize(d) for d in await self._collection.find(filters=filters)
-            ]
+            docs = list(await self._collection.find(filters=filters))
+            return list(await self._deserialize_batch(docs))
 
     @override
     async def delete_journey(

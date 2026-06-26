@@ -120,26 +120,30 @@ class EntityQueries:
         agent_id: AgentId,
         journeys: Sequence[Journey],
     ) -> Sequence[Guideline]:
-        agent_guidelines = await self._guideline_store.list_guidelines(
-            tags=[Tag.for_agent_id(agent_id).id],
-        )
-        global_guidelines = await self._guideline_store.list_guidelines(tags=[])
-
         agent = await self._agent_store.read_agent(agent_id)
-        guidelines_for_agent_tags = await self._guideline_store.list_guidelines(
-            tags=[tag for tag in agent.tags]
-        )
-
-        guidelines_for_journeys = await self._guideline_store.list_guidelines(
-            tags=[Tag.for_journey_id(journey.id).id for journey in journeys]
-        )
-
+        
+        async def _empty_list() -> list[Guideline]: return []
+        
         tasks = [
+            self._guideline_store.list_guidelines(tags=[Tag.for_agent_id(agent_id).id]),
+            self._guideline_store.list_guidelines(tags=[]),
+            self._guideline_store.list_guidelines(tags=list(agent.tags)) if agent.tags else _empty_list(),
+            self._guideline_store.list_guidelines(tags=[Tag.for_journey_id(journey.id).id for journey in journeys]) if journeys else _empty_list(),
+        ]
+        
+        projection_tasks = [
             self._journey_guideline_projection.project_journey_to_guidelines(journey.id)
             for journey in journeys
-            if journey.triggers  # If a journey has no triggers, it indicates that the journey cannot be activated.
+            if journey.triggers
         ]
-        projected_journey_guidelines = await async_utils.safe_gather(*tasks)
+        
+        results = await async_utils.safe_gather(*tasks, *projection_tasks)
+        
+        agent_guidelines = results[0]
+        global_guidelines = results[1]
+        guidelines_for_agent_tags = results[2]
+        guidelines_for_journeys = results[3]
+        projected_journey_guidelines = results[4:]
 
         all_guidelines = set(
             chain(
@@ -210,22 +214,17 @@ class EntityQueries:
         self,
         agent_id: AgentId,
     ) -> Sequence[ContextVariable]:
-        agent_context_variables = await self._context_variable_store.list_variables(
-            tags=[Tag.for_agent_id(agent_id).id],
-        )
-        global_context_variables = await self._context_variable_store.list_variables(tags=[])
         agent = await self._agent_store.read_agent(agent_id)
-        context_variables_for_agent_tags = await self._context_variable_store.list_variables(
-            tags=[tag for tag in agent.tags]
+        
+        async def _empty_list() -> list[ContextVariable]: return []
+
+        results = await async_utils.safe_gather(
+            self._context_variable_store.list_variables(tags=[Tag.for_agent_id(agent_id).id]),
+            self._context_variable_store.list_variables(tags=[]),
+            self._context_variable_store.list_variables(tags=list(agent.tags)) if agent.tags else _empty_list(),
         )
 
-        all_context_variables = set(
-            chain(
-                agent_context_variables,
-                global_context_variables,
-                context_variables_for_agent_tags,
-            )
-        )
+        all_context_variables = set(chain(*results))
         return list(all_context_variables)
 
     async def read_context_variable_value(
@@ -258,22 +257,17 @@ class EntityQueries:
         query: str,
         max_count: int,
     ) -> Sequence[Capability]:
-        agent_capabilities = await self._capability_store.list_capabilities(
-            tags=[Tag.for_agent_id(agent_id).id],
-        )
-        global_capabilities = await self._capability_store.list_capabilities(tags=[])
         agent = await self._agent_store.read_agent(agent_id)
-        capabilities_for_agent_tags = await self._capability_store.list_capabilities(
-            tags=[tag for tag in agent.tags]
+        
+        async def _empty_list() -> list[Capability]: return []
+
+        results = await async_utils.safe_gather(
+            self._capability_store.list_capabilities(tags=[Tag.for_agent_id(agent_id).id]),
+            self._capability_store.list_capabilities(tags=[]),
+            self._capability_store.list_capabilities(tags=list(agent.tags)) if agent.tags else _empty_list(),
         )
 
-        all_capabilities = set(
-            chain(
-                agent_capabilities,
-                global_capabilities,
-                capabilities_for_agent_tags,
-            )
-        )
+        all_capabilities = set(chain(*results))
 
         result = await self._capability_store.find_relevant_capabilities(
             query,
@@ -288,16 +282,17 @@ class EntityQueries:
         agent_id: AgentId,
         query: str,
     ) -> Sequence[Term]:
-        agent_terms = await self._glossary_store.list_terms(
-            tags=[Tag.for_agent_id(agent_id).id],
-        )
-        global_terms = await self._glossary_store.list_terms(tags=[])
         agent = await self._agent_store.read_agent(agent_id)
-        glossary_for_agent_tags = await self._glossary_store.list_terms(
-            tags=[tag for tag in agent.tags]
+        
+        async def _empty_list() -> list[Term]: return []
+
+        results = await async_utils.safe_gather(
+            self._glossary_store.list_terms(tags=[Tag.for_agent_id(agent_id).id]),
+            self._glossary_store.list_terms(tags=[]),
+            self._glossary_store.list_terms(tags=list(agent.tags)) if agent.tags else _empty_list(),
         )
 
-        all_terms = set(chain(agent_terms, global_terms, glossary_for_agent_tags))
+        all_terms = set(chain(*results))
 
         return await self._glossary_store.find_relevant_terms(query, list(all_terms))
 
@@ -311,19 +306,17 @@ class EntityQueries:
         self,
         agent_id: AgentId,
     ) -> Sequence[Journey]:
-        agent_journeys = await self._journey_store.list_journeys(
-            tags=[Tag.for_agent_id(agent_id).id],
-        )
-        global_journeys = await self._journey_store.list_journeys(tags=[])
-
         agent = await self._agent_store.read_agent(agent_id)
-        journeys_for_agent_tags = (
-            await self._journey_store.list_journeys(tags=[tag for tag in agent.tags])
-            if agent.tags
-            else []
+        
+        async def _empty_list() -> list[Journey]: return []
+
+        results = await async_utils.safe_gather(
+            self._journey_store.list_journeys(tags=[Tag.for_agent_id(agent_id).id]),
+            self._journey_store.list_journeys(tags=[]),
+            self._journey_store.list_journeys(tags=list(agent.tags)) if agent.tags else _empty_list(),
         )
 
-        return list(set(chain(agent_journeys, global_journeys, journeys_for_agent_tags)))
+        return list(set(chain(*results)))
 
     async def sort_journeys_by_contextual_relevance(
         self,

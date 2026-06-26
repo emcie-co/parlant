@@ -627,6 +627,49 @@ class GuidelineDocumentStore(GuidelineStore):
             priority=guideline_document.get("priority", 0),
         )
 
+    async def _deserialize_batch(
+        self,
+        guideline_documents: Sequence[GuidelineDocument],
+    ) -> Sequence[Guideline]:
+        from collections import defaultdict
+        
+        guideline_ids = [d["id"] for d in guideline_documents]
+        tags_by_guideline: dict[str, list[str]] = defaultdict(list)
+        
+        if guideline_ids:
+            all_tags = await self._tag_association_collection.find(
+                {"guideline_id": {"$in": guideline_ids}}
+            )
+            for tag_doc in all_tags:
+                tags_by_guideline[tag_doc["guideline_id"]].append(tag_doc["tag_id"])
+                
+        guidelines: list[Guideline] = []
+        for d in guideline_documents:
+            composition_mode_str = d.get("composition_mode")
+            composition_mode = CompositionMode(composition_mode_str) if composition_mode_str else None
+            
+            guidelines.append(
+                Guideline(
+                    id=GuidelineId(d["id"]),
+                    creation_utc=datetime.fromisoformat(d["creation_utc"]),
+                    content=GuidelineContent(
+                        condition=d["condition"],
+                        action=d["action"],
+                        description=d.get("description", None),
+                    ),
+                    title=d.get("title", None),
+                    criticality=Criticality(d["criticality"]),
+                    enabled=d["enabled"],
+                    tags=[TagId(tag_id) for tag_id in tags_by_guideline.get(d["id"], [])],
+                    metadata=d["metadata"],
+                    labels=set(d.get("labels", [])),
+                    composition_mode=composition_mode,
+                    track=d.get("track", True),
+                    priority=d.get("priority", 0),
+                )
+            )
+        return guidelines
+
     @override
     async def create_guideline(
         self,
@@ -734,9 +777,8 @@ class GuidelineDocumentStore(GuidelineStore):
 
                     filters = {"$or": [{"id": {"$eq": id}} for id in guideline_ids]}
 
-            guidelines = [
-                await self._deserialize(d) for d in await self._collection.find(filters=filters)
-            ]
+            docs = list(await self._collection.find(filters=filters))
+            guidelines = list(await self._deserialize_batch(docs))
 
             # Filter by labels if specified
             if labels is not None:

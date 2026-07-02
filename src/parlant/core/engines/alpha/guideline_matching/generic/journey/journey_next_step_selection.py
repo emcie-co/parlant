@@ -396,9 +396,7 @@ class JourneyNextStepSelection:
         else:
             journey_description_str = ""
         if journey_triggers:
-            journey_triggers_str = " OR ".join(
-                f'"{g.content.condition}"' for g in journey_triggers
-            )
+            journey_triggers_str = " OR ".join(f'"{g.content.condition}"' for g in journey_triggers)
             journey_triggers_str = f"\nJourney activation condition: {journey_triggers_str}"
         else:
             journey_triggers_str = ""
@@ -508,7 +506,7 @@ OUTPUT FORMAT
         if shot.interaction_events:
             formatted_shot += f"""
 - **Interaction Events**:
-{json.dumps([adapt_event(e) for e in shot.interaction_events], indent=2)}
+{json.dumps([adapt_event(e) for e in shot.interaction_events], indent=2, ensure_ascii=False)}
 
 """
         formatted_shot += self.get_journey_transition_map_text(
@@ -535,7 +533,7 @@ OUTPUT FORMAT
         formatted_shot += f"""
 - **Expected Result**:
 ```json
-{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2, ensure_ascii=False)}
 ```
 """
 

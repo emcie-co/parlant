@@ -390,7 +390,7 @@ Example #{i}: ###
 
 - **Expected Result**:
 ```json
-{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2, ensure_ascii=False)}
 ```"""
 
     def _build_tool_call_inference_prompt(
@@ -620,7 +620,7 @@ You need to have tools_evaluation for each tool in the tools batch. Also, note t
                         "This argument must be provided by the customer, and NEVER automatically guessed by you"
                     )
 
-            return json.dumps(result)
+            return json.dumps(result, ensure_ascii=False)
 
         def _get_tool_spec(t_id: ToolId, t: Tool) -> dict[str, Any]:
             return {
@@ -709,7 +709,7 @@ Guidelines:
         if not staged_calls:
             return None
 
-        return json.dumps(staged_calls)
+        return json.dumps(staged_calls, ensure_ascii=False)
 
     async def _run_inference(
         self,

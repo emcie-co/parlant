@@ -124,7 +124,7 @@ class ToolRunningActionDetector:
             if examples := descriptor.get("examples"):
                 result["extraction_examples__only_for_reference"] = examples
 
-            return json.dumps(result)
+            return json.dumps(result, ensure_ascii=False)
 
         def _get_tool_spec(t_id: ToolId, t: Tool) -> dict[str, Any]:
             return {
@@ -277,7 +277,7 @@ Example #{i}: ###
 
 - **Expected Result**:
 ```json
-{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2, ensure_ascii=False)}
 ```"""
 
 

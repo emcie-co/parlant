@@ -37,7 +37,7 @@ def dump_guideline(g: Guideline) -> dict[str, str | None]:
 
 
 def escape_json_string(s: str) -> str:
-    return json.dumps(s)[1:-1]
+    return json.dumps(s, ensure_ascii=False)[1:-1]
 
 
 def internal_representation(g: Guideline) -> GuidelineInternalRepresentation:

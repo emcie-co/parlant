@@ -260,7 +260,7 @@ Example {i} - {shot.description}: ###
         if shot.interaction_events:
             formatted_shot += f"""
 - **Interaction Events**:
-{json.dumps([adapt_event(e) for e in shot.interaction_events], indent=2)}
+{json.dumps([adapt_event(e) for e in shot.interaction_events], indent=2, ensure_ascii=False)}
 
 """
         if shot.disambiguation_condition:
@@ -283,7 +283,7 @@ Example {i} - {shot.description}: ###
         formatted_shot += f"""
 - **Expected Result**:
 ```json
-{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2, ensure_ascii=False)}
 ```
 """
 
@@ -441,7 +441,7 @@ OUTPUT FORMAT
             ],
             "clarification_action": "<Include only if is_ambiguous is True. An action of the form ask the user whether they want to...>",
         }
-        return json.dumps(result, indent=4)
+        return json.dumps(result, indent=4, ensure_ascii=False)
 
 
 def _make_event(e_id: str, source: EventSource, message: str) -> Event:

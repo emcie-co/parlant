@@ -400,7 +400,8 @@ def _tool_decorator_impl(
                     param_info.resolved_type, BaseModel
                 ):
                     param_descriptor["description"] = json.dumps(
-                        {"json_schema": param_info.resolved_type.model_json_schema()}
+                        {"json_schema": param_info.resolved_type.model_json_schema()},
+                        ensure_ascii=False,
                     )
 
             if options := param_info.options:

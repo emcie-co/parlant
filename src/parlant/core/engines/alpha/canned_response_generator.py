@@ -1389,7 +1389,7 @@ Example {i} - {shot.description}: ###
         return f"""
 - **Expected Result**:
 ```json
-{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2, ensure_ascii=False)}
 ```"""
 
     def _build_draft_prompt(
@@ -1607,7 +1607,8 @@ If it makes sense in the current state of the interaction, inform the user about
                                 **({"examples": d.examples} if d.examples else {}),
                             }
                             for d in tool_insights.missing_data
-                        ]
+                        ],
+                        ensure_ascii=False,
                     ),
                     "missing_data": tool_insights.missing_data,
                 },
@@ -1635,7 +1636,8 @@ You should inform the user about this invalid data: ###
                                 **({"examples": d.examples} if d.examples else {}),
                             }
                             for d in tool_insights.invalid_data
-                        ]
+                        ],
+                        ensure_ascii=False,
                     ),
                     "invalid_data": tool_insights.invalid_data,
                 },
@@ -1853,7 +1855,8 @@ in order to run tools. If it makes sense in the current state of the interaction
                                 **({"examples": d.examples} if d.examples else {}),
                             }
                             for d in tool_insights.missing_data
-                        ]
+                        ],
+                        ensure_ascii=False,
                     ),
                     "missing_data": tool_insights.missing_data,
                 },
@@ -1880,7 +1883,8 @@ in order to run tools. You should inform the user about this invalid data: ###
                                 **({"examples": d.examples} if d.examples else {}),
                             }
                             for d in tool_insights.invalid_data
-                        ]
+                        ],
+                        ensure_ascii=False,
                     ),
                     "invalid_data": tool_insights.invalid_data,
                 },
@@ -2579,7 +2583,7 @@ Last agent message: {shot.last_agent_message}
         formatted_shot += f"""
 - **Expected Result**:
 ```json
-{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2, ensure_ascii=False)}
 ```
 """
 

@@ -12,21 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
-from typing import Sequence
+from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.sessions import EventSource
 
-from parlant.core.context_variables import ContextVariable, ContextVariableValue
+from tests.core.common.utils import create_event_message
 
 
-def context_variables_to_json(
-    context_variables: Sequence[tuple[ContextVariable, ContextVariableValue]],
-) -> str:
-    context_values = {
-        variable.name: {
-            "value": value.data,
-            **({"description": variable.description} if variable.description else {}),
-        }
-        for variable, value in context_variables
-    }
+def test_that_adapt_event_does_not_escape_non_ascii_characters() -> None:
+    event = create_event_message(
+        offset=0,
+        source=EventSource.CUSTOMER,
+        message="Привет, как дела?",
+    )
 
-    return json.dumps(context_values, ensure_ascii=False)
+    result = PromptBuilder.adapt_event(event)
+
+    assert "Привет, как дела?" in result
+    assert "\\u041f" not in result

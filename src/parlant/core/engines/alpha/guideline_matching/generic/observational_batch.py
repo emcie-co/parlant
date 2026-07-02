@@ -190,7 +190,7 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
         if shot.interaction_events:
             formatted_shot += f"""
 - **Interaction Events**:
-{json.dumps([adapt_event(e) for e in shot.interaction_events], indent=2)}
+{json.dumps([adapt_event(e) for e in shot.interaction_events], indent=2, ensure_ascii=False)}
 
 """
         if shot.guidelines:
@@ -206,7 +206,7 @@ class GenericObservationalGuidelineMatchingBatch(GuidelineMatchingBatch):
         formatted_shot += f"""
 - **Expected Result**:
 ```json
-{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2, ensure_ascii=False)}
 ```
 """
 
@@ -322,7 +322,7 @@ Expected Output
     }}
     ```""",
             props={
-                "result_structure_text": json.dumps(result_structure),
+                "result_structure_text": json.dumps(result_structure, ensure_ascii=False),
                 "result_structure": result_structure,
                 "guidelines_len": len(self._guidelines),
             },

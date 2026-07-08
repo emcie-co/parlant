@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import json
 import traceback
 from typing import Any, Sequence, cast
-from parlant.core.common import Criticality, DefaultBaseModel, JSONSerializable
+from parlant.core.common import Weight, DefaultBaseModel, JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
     DEFAULT_ROOT_ACTION,
@@ -13,9 +13,9 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backt
     SINGLE_FOLLOW_UP_CONDITION_STR,
     _JourneyEdge,
     _JourneyNode,
-    JourneyNodeKind,
     get_pruned_nodes,
 )
+from parlant.core.journeys import JourneyNodeKind
 from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingBatchError,
 )
@@ -24,13 +24,19 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matching_context im
 )
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
+from parlant.core.rules import (
+    Rule as Guideline,
+    RuleContent as GuidelineContent,
+    RuleId as GuidelineId,
+    RuleStore as GuidelineStore,
+)
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 FORK_NODE_ACTION_STR = "No action to perform in this node"
 EXIT_JOURNEY_INSTRUCTION = "There are no further transitions."
@@ -62,18 +68,17 @@ class JourneyBacktrackCheck:
     def __init__(
         self,
         logger: Logger,
-        guideline_store: GuidelineStore,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[JourneyBacktrackCheckSchema],
         examined_journey: Journey,
         context: GuidelineMatchingContext,
+        store_provider: StoreProvider,
         node_guidelines: Sequence[Guideline] = [],
         journey_path: Sequence[str | None] = [],
         journey_triggers: Sequence[Guideline] = [],
     ) -> None:
         self._logger = logger
-
-        self._guideline_store = guideline_store
+        self._store_provider = store_provider
 
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
@@ -82,6 +87,12 @@ class JourneyBacktrackCheck:
         self._examined_journey = examined_journey
         self._previous_path: Sequence[str | None] = journey_path
         self._journey_triggers = journey_triggers
+
+    @property
+    def _guideline_store(self) -> GuidelineStore:
+        return self._store_provider.get_store(
+            GuidelineStore, StoreProviderHints(call_site="engine")
+        )
 
     def _build_node_wrappers(self, guidelines: Sequence[Guideline]) -> dict[str, _JourneyNode]:
         def _get_guideline_node_index(guideline: Guideline) -> str:
@@ -101,9 +112,8 @@ class JourneyBacktrackCheck:
         for g in guidelines:
             node_index: str = guideline_id_to_node_index[g.id]
             if node_index not in node_wrappers:
-                kind = JourneyNodeKind(
-                    cast(dict[str, Any], g.metadata.get("journey_node", {})).get("kind", "NA")
-                )
+                kind_str = cast(dict[str, Any], g.metadata.get("journey_node", {})).get("kind")
+                kind = JourneyNodeKind(kind_str) if kind_str else None
                 customer_dependent_action = cast(
                     dict[str, bool], g.metadata.get("customer_dependent_action_data", {})
                 ).get("is_customer_dependent", False)
@@ -246,9 +256,7 @@ class JourneyBacktrackCheck:
         else:
             journey_description_str = ""
         if journey_triggers:
-            journey_triggers_str = " OR ".join(
-                f'"{g.content.condition}"' for g in journey_triggers
-            )
+            journey_triggers_str = " OR ".join(f'"{g.content.condition}"' for g in journey_triggers)
             journey_triggers_str = f"\nJourney activation condition: {journey_triggers_str}"
         else:
             journey_triggers_str = ""
@@ -285,7 +293,7 @@ This journey is not currently active. We may need to:
                     print_node = False
 
             # Node kind flags
-            if node.kind in {JourneyNodeKind.CHAT, JourneyNodeKind.NA} and node.action is None:
+            if node.kind in {JourneyNodeKind.CHAT, None} and node.action is None:
                 print_node = False
             elif node.kind == JourneyNodeKind.FORK:
                 displayed_node_action = FORK_NODE_ACTION_STR
@@ -523,14 +531,15 @@ OUTPUT FORMAT
                     Guideline(
                         id=GuidelineId(f"c-{i}"),
                         creation_utc=datetime.now(timezone.utc),
+                        modified_utc=datetime.now(timezone.utc),
                         metadata={"journey_node": {"journey_id": "journey"}},
                         content=GuidelineContent(
                             condition=c,
                             action=None,
                         ),
                         enabled=False,
-                        criticality=Criticality.HIGH,
-                        tags=[],
+                        weight=Weight.HIGH,
+                        groups=[],
                     )
                     for i, c in enumerate(shot.triggers)
                 ],
@@ -552,6 +561,7 @@ def _make_event(e_id: str, source: EventSource, message: str) -> Event:
         source=source,
         kind=EventKind.MESSAGE,
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         offset=0,
         trace_id="",
         data={"message": message},

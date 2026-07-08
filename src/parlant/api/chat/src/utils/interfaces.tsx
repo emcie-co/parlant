@@ -15,7 +15,7 @@ export interface Log {
 	timestamp: number;
 }
 
-export type ServerStatus = 'pending' | 'error' | 'accepted' | 'acknowledged' | 'processing' | 'typing' | 'ready';
+export type ServerStatus = 'pending' | 'error' | 'accepted' | 'acknowledged' | 'processing' | 'typing' | 'ready' | 'cancelled';
 type eventSource = 'customer' | 'customer_ui' | 'human_agent' | 'human_agent_on_behalf_of_ai_agent' | 'ai_agent' | 'system';
 
 export interface EventInterface {
@@ -35,7 +35,7 @@ export interface EventInterface {
 		canned_responses?: string[];
 		message: string;
 		data?: { exception?: string, stage?: string };
-		tags?: string;
+		groups?: string;
 		chunks?: (string | null)[];
 	};
 	index?: number;
@@ -47,6 +47,7 @@ export interface SessionInterface {
 	customer_id: string;
 	agent_id: string;
 	creation_utc: string;
+	modified_utc?: string;
 }
 
 export interface SessionCsvInterface {
@@ -55,7 +56,7 @@ export interface SessionCsvInterface {
 	Timestamp: Date;
 	Message: string;
 	Draft: string;
-	Tags: string;
+	Groups: string;
 	Flag: string;
 	'Trace ID': string;
 }

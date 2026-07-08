@@ -80,13 +80,21 @@ class LlamaEstimatingTokenizer(EstimatingTokenizer):
 class TogetherAISchematicGenerator(BaseSchematicGenerator[T]):
     supported_hints = ["temperature", "max_tokens", "top_p", "top_k"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name=model_name,
+        )
 
         self._client = AsyncTogether(api_key=os.environ.get("TOGETHER_API_KEY"))
         self._estimating_tokenizer = LlamaEstimatingTokenizer()
@@ -196,48 +204,73 @@ class TogetherAISchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class Llama3_1_8B(TogetherAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             model_name="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
 
 class Llama3_1_70B(TogetherAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             model_name="meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
 
 class Llama3_1_405B(TogetherAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             model_name="meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
 
 class Llama3_3_70B(TogetherAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             model_name="meta-llama/Llama-3.3-70B-Instruct-Turbo",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
 
 class TogetherAIEmbedder(BaseEmbedder):
-    def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+    def __init__(
+        self,
+        model_name: str,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+    ) -> None:
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name=model_name,
+        )
 
         self._client = AsyncTogether(api_key=os.environ.get("TOGETHER_API_KEY"))
 
@@ -276,12 +309,15 @@ class TogetherAIEmbedder(BaseEmbedder):
 
 
 class M2Bert32K(TogetherAIEmbedder):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             model_name="togethercomputer/m2-bert-80M-32k-retrieval",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
         self._estimating_tokenizer = HuggingFaceEstimatingTokenizer(self.model_name)
 
@@ -309,20 +345,41 @@ class M2Bert32K(TogetherAIEmbedder):
 class CustomTogetherAISchematicGenerator(TogetherAISchematicGenerator[T]):
     """Generic Together AI generator that accepts any model name."""
 
-    def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self,
+        model_name: str,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+    ) -> None:
         super().__init__(
             model_name=model_name,
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
 
 class CustomTogetherAIEmbedder(TogetherAIEmbedder):
     """Generic Together AI embedder that accepts any model name."""
 
-    def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(model_name=model_name, logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
+    def __init__(
+        self,
+        model_name: str,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+    ) -> None:
+        super().__init__(
+            model_name=model_name,
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+        )
         self._estimating_tokenizer = HuggingFaceEstimatingTokenizer(model_name)
         self._dimensions = int(os.environ.get("TOGETHER_EMBEDDING_DIMENSIONS", "768"))
 
@@ -376,10 +433,12 @@ Available models can be found at: https://docs.together.ai/docs/inference-models
 
         return None
 
-    def __init__(self,
+    def __init__(
+        self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
         self.model_name = os.environ.get(
             "TOGETHER_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo"
@@ -439,7 +498,7 @@ Available models can be found at: https://docs.together.ai/docs/inference-models
                 logger=self._logger,
                 tracer=self._tracer,
                 meter=self._meter,
-                    health_reporter=self._health_reporter,
+                health_reporter=self._health_reporter,
             )
 
     def _get_specialized_embedder_class(

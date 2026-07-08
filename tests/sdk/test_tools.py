@@ -31,7 +31,7 @@ class Test_that_a_tool_is_called_when_triggered_by_user_message(SDKTest):
 
         self.agent = await server.create_agent(
             name="Tool Test Agent",
-            description="Agent for testing tool invocation",
+            prompt="Agent for testing tool invocation",
         )
 
         self.tool_called = False
@@ -61,7 +61,7 @@ class Test_that_a_tool_can_access_current_customer(SDKTest):
 
         self.agent = await server.create_agent(
             name="Tool Test Agent",
-            description="Agent for testing tool invocation",
+            prompt="Agent for testing tool invocation",
         )
 
         self.customer = await server.create_customer(name="Test Customer")
@@ -90,18 +90,18 @@ class Test_that_a_tool_can_access_current_customer(SDKTest):
         )
 
 
-class Test_that_tool_guidelines_are_followed_by_agent(SDKTest):
+class Test_that_tool_rules_are_followed_by_agent(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Test Agent",
-            description="",
+            prompt="",
         )
 
         @p.tool
         async def check_account(context: ToolContext, account_id: str) -> ToolResult:
             return ToolResult(
                 data={"account_id": account_id, "name": "John"},
-                guidelines=[
+                rules=[
                     {"action": "Offer the customer a Pepsi immediately"},
                 ],
             )
@@ -120,15 +120,15 @@ class Test_that_tool_guidelines_are_followed_by_agent(SDKTest):
         assert "pepsi" in response.lower(), f"Expected 'pepsi' in response but got: {response}"
 
 
-class Test_that_tool_guideline_priority_filters_lower_priority_guidelines(SDKTest):
+class Test_that_tool_rule_priority_filters_lower_priority_rules(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Test Agent",
-            description="",
+            prompt="",
         )
 
-        # Regular guideline with default priority (0)
-        await self.agent.create_guideline(
+        # Regular rule with default priority (0)
+        await self.agent.create_rule(
             condition="a]ways, in all circumstances",
             action="Offer the customer orange juice immediately",
         )
@@ -137,7 +137,7 @@ class Test_that_tool_guideline_priority_filters_lower_priority_guidelines(SDKTes
         async def check_account(context: ToolContext, account_id: str) -> ToolResult:
             return ToolResult(
                 data={"account_id": account_id, "name": "John"},
-                guidelines=[
+                rules=[
                     {"action": "Offer the customer a Pepsi immediately", "priority": 100},
                 ],
             )
@@ -154,7 +154,7 @@ class Test_that_tool_guideline_priority_filters_lower_priority_guidelines(SDKTes
         )
 
         assert "pepsi" in response.lower(), (
-            f"Expected 'pepsi' in response (high-priority tool guideline) but got: {response}"
+            f"Expected 'pepsi' in response (high-priority tool rule) but got: {response}"
         )
         assert "orange" not in response.lower(), (
             f"Expected 'orange' to be filtered out by priority but got: {response}"
@@ -165,7 +165,7 @@ class Test_that_a_tool_can_update_customer_metadata(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Tool Test Agent",
-            description="Agent for testing customer metadata update",
+            prompt="Agent for testing customer metadata update",
         )
 
         self.customer = await server.create_customer(name="Test Customer")
@@ -204,7 +204,7 @@ class Test_that_a_tool_can_update_session_metadata(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Tool Test Agent",
-            description="Agent for testing session metadata update",
+            prompt="Agent for testing session metadata update",
         )
 
         self.customer = await server.create_customer(name="Test Customer")
@@ -240,13 +240,13 @@ class Test_that_a_tool_can_update_session_metadata(SDKTest):
         )
 
 
-class Test_that_agent_utter_follows_guidelines(SDKTest):
+class Test_that_agent_utter_follows_rules(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.booked_event = asyncio.Event()
 
         self.agent = await server.create_agent(
             name="Utter Test Agent",
-            description="Agent for testing utter",
+            prompt="Agent for testing utter",
         )
 
         @p.tool
@@ -260,7 +260,7 @@ class Test_that_agent_utter_follows_guidelines(SDKTest):
 
                 await self.agent.utter(
                     session=session,
-                    guidelines=[
+                    rules=[
                         {"action": "tell the customer the booking is confirmed"},
                     ],
                 )
@@ -269,7 +269,7 @@ class Test_that_agent_utter_follows_guidelines(SDKTest):
 
             return ToolResult(
                 data={"status": "booking in progress"},
-                guidelines=[
+                rules=[
                     {"action": "tell the customer you'll confirm the booking shortly"},
                 ],
             )
@@ -298,16 +298,16 @@ class Test_that_agent_utter_follows_guidelines(SDKTest):
         assert await nlp_test(last_message, "it says the booking is confirmed")
 
 
-class Test_that_tag_reevaluation_triggers_guideline_after_tool_call(SDKTest):
+class Test_that_tag_reevaluation_triggers_rule_after_tool_call(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.tool_called = False
 
         self.agent = await server.create_agent(
-            name="Tag Reeval Agent",
-            description="Agent for testing tag-based reevaluation",
+            name="Group Reeval Agent",
+            prompt="Agent for testing group-based reevaluation",
         )
 
-        tag = await server.create_tag("post-lookup")
+        group = await server.create_group("post-lookup")
 
         @p.tool
         async def verify_account(context: ToolContext, account_id: str) -> ToolResult:
@@ -319,13 +319,13 @@ class Test_that_tag_reevaluation_triggers_guideline_after_tool_call(SDKTest):
             tools=[verify_account],
         )
 
-        await self.agent.create_guideline(
+        await self.agent.create_rule(
             condition="the customer's account has been verified",
             action="Offer a Pepsi",
-            tags=[tag],
+            groups=[group],
         )
 
-        await tag.reevaluate_after(verify_account)
+        await group.reevaluate_after(verify_account)
 
     async def run(self, ctx: Context) -> None:
         response = await ctx.send_and_receive_message(
@@ -335,7 +335,7 @@ class Test_that_tag_reevaluation_triggers_guideline_after_tool_call(SDKTest):
 
         assert self.tool_called, "Expected verify_account tool to be called but it was not"
         assert "pepsi" in response.lower(), (
-            f"Expected 'pepsi' in response (reevaluation should trigger the tagged guideline "
+            f"Expected 'pepsi' in response (reevaluation should trigger the grouped rule "
             f"after the tool returns) but got: {response}"
         )
 
@@ -344,7 +344,7 @@ class Test_that_staged_tool_calls_are_accessible_in_custom_matcher_context(SDKTe
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Staged Tool Calls Agent",
-            description="Agent for testing staged_tool_calls in custom matcher",
+            prompt="Agent for testing staged_tool_calls in custom matcher",
         )
 
         @p.tool
@@ -359,24 +359,24 @@ class Test_that_staged_tool_calls_are_accessible_in_custom_matcher_context(SDKTe
         self.saw_tool_call = False
 
         async def matcher_that_checks_staged_tool_calls(
-            ctx: p.GuidelineMatchingContext, guideline: p.Guideline
-        ) -> p.GuidelineMatch:
+            ctx: p.RuleMatchingContext, rule: p.Rule
+        ) -> p.RuleMatch:
             for call in ctx.staged_tool_calls:
                 if call.tool_id.tool_name == "check_account":
                     self.saw_tool_call = True
-                    return p.GuidelineMatch(
-                        id=guideline.id,
+                    return p.RuleMatch(
+                        id=rule.id,
                         matched=True,
                         rationale="Found check_account in staged tool calls",
                     )
 
-            return p.GuidelineMatch(
-                id=guideline.id,
+            return p.RuleMatch(
+                id=rule.id,
                 matched=False,
                 rationale="check_account not found in staged tool calls",
             )
 
-        pepsi_offer = await self.agent.create_guideline(
+        pepsi_offer = await self.agent.create_rule(
             action="Offer the customer a Pepsi immediately",
             matcher=matcher_that_checks_staged_tool_calls,
         )
@@ -399,7 +399,7 @@ class Test_that_staged_tool_calls_are_accessible_in_custom_matcher_context(SDKTe
 
 
 class Test_that_external_tool_referenced_by_tool_id_is_called(SDKTest):
-    """An external PluginServer hosts a tool. The SDK guideline references it
+    """An external PluginServer hosts a tool. The SDK rule references it
     by ToolId (not ToolEntry). The engine should call the external tool and
     incorporate its result into the response."""
 
@@ -466,7 +466,7 @@ class Test_that_external_tool_referenced_by_tool_id_is_called(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="External Tool Agent",
-            description="Agent that uses an external tool service",
+            prompt="Agent that uses an external tool service",
         )
 
         await self.agent.create_observation(

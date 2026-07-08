@@ -20,7 +20,7 @@ from pytest import mark, raises
 from parlant.core.agents import AgentStore
 from parlant.core.capabilities import CapabilityStore
 from parlant.core.journeys import JourneyStore
-from parlant.core.tags import Tag, TagStore
+from parlant.core.groups import GroupIds, GroupStore
 from parlant.core.common import ItemNotFoundError
 
 
@@ -40,14 +40,14 @@ async def test_that_a_capability_can_be_created(
     assert capability["title"] == payload["title"]
     assert capability["description"] == payload["description"]
     assert capability["signals"] == payload["signals"]
-    assert capability["tags"] == []
+    assert capability["groups"] == []
 
 
 async def test_that_a_capability_can_be_created_with_tags(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     agent_store = container[AgentStore]
     journey_store = container[JourneyStore]
 
@@ -58,16 +58,16 @@ async def test_that_a_capability_can_be_created_with_tags(
         triggers=[],
     )
 
-    tag1 = await tag_store.create_tag("tag1")
-    tag2 = await tag_store.create_tag("tag2")
-    agent_tag = Tag.for_agent_id(agent.id).id
-    journey_tag = Tag.for_journey_id(journey.id).id
+    group1 = await group_store.create_group("group1")
+    group2 = await group_store.create_group("group2")
+    agent_group = GroupIds.for_agent_id(agent.id)
+    journey_group = GroupIds.for_journey_id(journey.id)
 
     payload = {
         "title": "Summarization",
         "description": "Summarizes long documents.",
         "signals": ["Summarize this article", "Give me a summary"],
-        "tags": [tag1.id, tag2.id, agent_tag, journey_tag],
+        "groups": [group1.id, group2.id, agent_group, journey_group],
     }
 
     response = await async_client.post("/capabilities", json=payload)
@@ -75,7 +75,7 @@ async def test_that_a_capability_can_be_created_with_tags(
 
     capability = response.json()
     assert capability["title"] == payload["title"]
-    assert set(capability["tags"]) == {tag1.id, tag2.id, agent_tag, journey_tag}
+    assert set(capability["groups"]) == {group1.id, group2.id, agent_group, journey_group}
 
 
 async def test_that_capabilities_can_be_listed(
@@ -190,10 +190,10 @@ async def test_that_tags_can_be_added_to_a_capability(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
 
-    tag1 = await tag_store.create_tag("tag1")
-    tag2 = await tag_store.create_tag("tag2")
+    group1 = await group_store.create_group("group1")
+    group2 = await group_store.create_group("group2")
 
     capability = (
         (
@@ -213,33 +213,33 @@ async def test_that_tags_can_be_added_to_a_capability(
         .json()
     )
 
-    update_payload = {"tags": {"add": [tag1.id, tag2.id]}}
+    update_payload = {"groups": {"add": [group1.id, group2.id]}}
     response = await async_client.patch(f"/capabilities/{capability['id']}", json=update_payload)
     response.raise_for_status()
     updated_capability = response.json()
 
-    assert tag1.id in updated_capability["tags"]
-    assert tag2.id in updated_capability["tags"]
+    assert group1.id in updated_capability["groups"]
+    assert group2.id in updated_capability["groups"]
 
 
 async def test_that_tags_can_be_removed_from_a_capability(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     capability_store = container[CapabilityStore]
 
-    tag1 = await tag_store.create_tag("tag1")
-    tag2 = await tag_store.create_tag("tag2")
+    group1 = await group_store.create_group("group1")
+    group2 = await group_store.create_group("group2")
 
     capability = await capability_store.create_capability(
         title="Translation",
         description="Translates text.",
         signals=["Translate this sentence"],
-        tags=[tag1.id, tag2.id],
+        groups=[group1.id, group2.id],
     )
 
-    update_payload = {"tags": {"remove": [tag1.id]}}
+    update_payload = {"groups": {"remove": [group1.id]}}
     _ = (
         await async_client.patch(f"/capabilities/{capability.id}", json=update_payload)
     ).raise_for_status()
@@ -248,11 +248,11 @@ async def test_that_tags_can_be_removed_from_a_capability(
         (await async_client.get(f"/capabilities/{capability.id}")).raise_for_status().json()
     )
 
-    assert tag1.id not in capability_after_update["tags"]
-    assert tag2.id in capability_after_update["tags"]
+    assert group1.id not in capability_after_update["groups"]
+    assert group2.id in capability_after_update["groups"]
 
 
-async def test_that_agent_tag_can_be_added_to_a_capability(
+async def test_that_agent_group_can_be_added_to_a_capability(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
@@ -275,37 +275,37 @@ async def test_that_agent_tag_can_be_added_to_a_capability(
         .raise_for_status()
         .json()
     )
-    agent_tag = Tag.for_agent_id(agent.id).id
+    agent_group = GroupIds.for_agent_id(agent.id)
 
-    update_payload = {"tags": {"add": [agent_tag]}}
+    update_payload = {"groups": {"add": [agent_group]}}
     response = await async_client.patch(f"/capabilities/{capability['id']}", json=update_payload)
     response.raise_for_status()
     updated_capability = response.json()
 
-    assert updated_capability["tags"] == [agent_tag]
+    assert updated_capability["groups"] == [agent_group]
 
 
-async def test_that_agent_tag_can_be_removed_from_a_capability(
+async def test_that_agent_group_can_be_removed_from_a_capability(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     capability_store = container[CapabilityStore]
 
     agent = await container[AgentStore].create_agent("Test Agent")
 
-    tag1 = await tag_store.create_tag("tag1")
+    group1 = await group_store.create_group("group1")
 
-    agent_tag = Tag.for_agent_id(agent.id).id
+    agent_group = GroupIds.for_agent_id(agent.id)
 
     capability = await capability_store.create_capability(
         title="Translation",
         description="Translates text.",
         signals=["Translate this sentence"],
-        tags=[agent_tag, tag1.id],
+        groups=[agent_group, group1.id],
     )
 
-    update_payload = {"tags": {"remove": [agent_tag]}}
+    update_payload = {"groups": {"remove": [agent_group]}}
     _ = (
         await async_client.patch(f"/capabilities/{capability.id}", json=update_payload)
     ).raise_for_status()
@@ -314,15 +314,15 @@ async def test_that_agent_tag_can_be_removed_from_a_capability(
         (await async_client.get(f"/capabilities/{capability.id}")).raise_for_status().json()
     )
 
-    assert agent_tag not in capability_after_update["tags"]
-    assert tag1.id in capability_after_update["tags"]
+    assert agent_group not in capability_after_update["groups"]
+    assert group1.id in capability_after_update["groups"]
 
 
-async def test_that_journey_tags_can_be_added_to_a_capability(
+async def test_that_journey_groups_can_be_added_to_a_capability(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
 
     journey = await journey_store.create_journey(
@@ -330,9 +330,9 @@ async def test_that_journey_tags_can_be_added_to_a_capability(
         description="A journey for customer support interactions.",
         triggers=[],
     )
-    journey_tag = Tag.for_journey_id(journey.id).id
+    journey_group = GroupIds.for_journey_id(journey.id)
 
-    tag1 = await tag_store.create_tag("tag1")
+    group1 = await group_store.create_group("group1")
 
     capability = (
         (
@@ -352,20 +352,20 @@ async def test_that_journey_tags_can_be_added_to_a_capability(
         .json()
     )
 
-    update_payload = {"tags": {"add": [tag1.id, journey_tag]}}
+    update_payload = {"groups": {"add": [group1.id, journey_group]}}
     response = await async_client.patch(f"/capabilities/{capability['id']}", json=update_payload)
     response.raise_for_status()
     updated_capability = response.json()
 
-    assert tag1.id in updated_capability["tags"]
-    assert journey_tag in updated_capability["tags"]
+    assert group1.id in updated_capability["groups"]
+    assert journey_group in updated_capability["groups"]
 
 
-async def test_that_journey_tags_can_be_removed_from_a_capability(
+async def test_that_journey_groups_can_be_removed_from_a_capability(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     capability_store = container[CapabilityStore]
     journey_store = container[JourneyStore]
 
@@ -374,18 +374,18 @@ async def test_that_journey_tags_can_be_removed_from_a_capability(
         description="A journey for customer support interactions.",
         triggers=[],
     )
-    journey_tag = Tag.for_journey_id(journey.id).id
+    journey_group = GroupIds.for_journey_id(journey.id)
 
-    tag1 = await tag_store.create_tag("tag1")
+    group1 = await group_store.create_group("group1")
 
     capability = await capability_store.create_capability(
         title="Translation",
         description="Translates text.",
         signals=["Translate this sentence"],
-        tags=[tag1.id, journey_tag],
+        groups=[group1.id, journey_group],
     )
 
-    update_payload = {"tags": {"remove": [journey_tag]}}
+    update_payload = {"groups": {"remove": [journey_group]}}
     _ = (
         await async_client.patch(f"/capabilities/{capability.id}", json=update_payload)
     ).raise_for_status()
@@ -394,8 +394,8 @@ async def test_that_journey_tags_can_be_removed_from_a_capability(
         (await async_client.get(f"/capabilities/{capability.id}")).raise_for_status().json()
     )
 
-    assert journey_tag not in capability_after_update["tags"]
-    assert tag1.id in capability_after_update["tags"]
+    assert journey_group not in capability_after_update["groups"]
+    assert group1.id in capability_after_update["groups"]
 
 
 async def test_that_a_capability_can_be_deleted(
@@ -421,16 +421,16 @@ async def test_that_capabilities_can_be_filtered_by_tag(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     capability_store = container[CapabilityStore]
 
-    tag = await tag_store.create_tag("tag1")
+    group = await group_store.create_group("group1")
 
     _ = await capability_store.create_capability(
         title="Provide Replacement Phone",
         description="Provide a replacement phone when a customer needs repair for their phone.",
         signals=["My phone is broken", "I need a replacement while my phone is being repaired"],
-        tags=[tag.id],
+        groups=[group.id],
     )
 
     _ = await capability_store.create_capability(
@@ -439,7 +439,7 @@ async def test_that_capabilities_can_be_filtered_by_tag(
         signals=["My password isn't what I thought"],
     )
 
-    response = await async_client.get(f"/capabilities?tag_id={tag.id}")
+    response = await async_client.get(f"/capabilities?group_id={group.id}")
     response.raise_for_status()
     capabilities = response.json()
 

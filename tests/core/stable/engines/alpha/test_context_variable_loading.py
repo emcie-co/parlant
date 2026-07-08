@@ -21,7 +21,7 @@ from parlant.core.agents import AgentId
 from parlant.core.sessions import Session
 from parlant.core.context_variables import ContextVariableStore
 from parlant.core.engines.alpha.engine import load_fresh_context_variable_value
-from parlant.core.tags import Tag
+from parlant.core.groups import GroupIds
 from parlant.core.tools import LocalToolService, ToolId
 from parlant.core.entity_cq import EntityQueries, EntityCommands
 
@@ -88,7 +88,7 @@ async def test_that_value_is_not_refreshed_when_freshness_rules_are_not_met(
 
     await context_variable_store.add_variable_tag(
         variable_id=context_variable.id,
-        tag_id=Tag.for_agent_id(agent_id).id,
+        group_id=GroupIds.for_agent_id(agent_id),
     )
 
     await context_variable_store.update_value(
@@ -159,7 +159,7 @@ async def test_that_value_refreshes_when_freshness_rules_are_met(
 
     await context_variable_store.add_variable_tag(
         variable_id=context_variable.id,
-        tag_id=Tag.for_agent_id(agent_id).id,
+        group_id=GroupIds.for_agent_id(agent_id),
     )
 
     await context_variable_store.update_value(
@@ -206,7 +206,7 @@ async def test_that_value_is_created_when_need_to_be_freshed(
 
     await context_variable_store.add_variable_tag(
         variable_id=context_variable.id,
-        tag_id=Tag.for_agent_id(agent_id).id,
+        group_id=GroupIds.for_agent_id(agent_id),
     )
 
     created_value = await load_fresh_context_variable_value(

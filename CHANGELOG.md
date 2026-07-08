@@ -216,7 +216,6 @@ All notable changes to Parlant will be documented here.
 
 - Changed default NLPService to EmcieService
 - Improved efficiency of journey state matching when first state is a tool state
-- Rename ContextualCorrelator to Tracer
 - Rename LoadedContext to EngineContext
 - Support proxy URL for LiteLLM
 

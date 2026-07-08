@@ -36,13 +36,13 @@ class RetryPolicy(Policy):
     def __init__(
         self,
         exceptions: Union[type[Exception], tuple[type[Exception], ...]],
-        max_attempts: int = 3,
+        max_exceptions: int = 3,
         wait_times: Optional[tuple[float, ...]] = None,
     ):
         if not isinstance(exceptions, tuple):
             exceptions = (exceptions,)
         self.exceptions = exceptions
-        self.max_exceptions = max_attempts
+        self.max_exceptions = max_exceptions
         self.wait_times = (
             wait_times if wait_times is not None else (1.0, 4.0, 8.0, 16.0, 32.0, 64.0)
         )
@@ -78,7 +78,7 @@ class RetryPolicy(Policy):
 
 def retry(
     exceptions: Union[type[Exception], tuple[type[Exception], ...]],
-    max_exceptions: int = 3,
+    max_exceptions: int = 5,
     wait_times: Optional[tuple[float, ...]] = None,
 ) -> RetryPolicy:
     return RetryPolicy(exceptions, max_exceptions, wait_times)

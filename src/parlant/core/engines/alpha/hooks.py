@@ -15,12 +15,26 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any, Awaitable, Callable, Optional, Sequence, TypeAlias
+from typing import Any, Awaitable, Callable, ClassVar, Optional, Sequence, TypeAlias
 
-from parlant.core.engines.alpha.engine_context import EngineContext
-from parlant.core.guidelines import GuidelineId
+# Engine-agnostic: a bare EngineContext is EngineContext[Any], so hook/retriever
+# authors see state typed as Any (the concrete ResponseState is hidden).
+from parlant.core.engines.engine_context import EngineContext
+from parlant.core.rules import RuleId as GuidelineId
 from parlant.core.journeys import JourneyId
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
+
+
+class EngineType(Enum):
+    """An engine that consumes engine hooks. Used to document which hooks each
+    engine actually fires (see EngineHooks.SUPPORTED_BY)."""
+
+    ALPHA = auto()
+    COMPASS = auto()
+
+
+_ALL = frozenset({EngineType.ALPHA, EngineType.COMPASS})
+_ALPHA_ONLY = frozenset({EngineType.ALPHA})
 
 
 class EngineHookResult(Enum):
@@ -49,6 +63,30 @@ EngineHook: TypeAlias = Callable[
 
 @dataclass(frozen=False)
 class EngineHooks:
+    # Which engine(s) actually fire each hook. The alpha engine fires the full
+    # set (engine + canned_response_generator); the compass engine fires only the
+    # subset below. This is documentary for now — no warning is raised when a
+    # hook unsupported by the running engine is registered.
+    SUPPORTED_BY: ClassVar[dict[str, frozenset[EngineType]]] = {
+        "on_error": _ALL,
+        "on_acknowledging": _ALL,
+        "on_acknowledged": _ALL,
+        "on_generating_preamble": _ALPHA_ONLY,
+        "on_preamble_generated": _ALPHA_ONLY,
+        "on_preamble_emitted": _ALPHA_ONLY,
+        "on_preparing": _ALL,
+        "on_preparation_iteration_start": _ALPHA_ONLY,
+        "on_preparation_iteration_end": _ALPHA_ONLY,
+        "on_generating_messages": _ALL,
+        "on_draft_generated": _ALPHA_ONLY,
+        "on_message_generated": _ALL,
+        "on_messages_emitted": _ALL,
+        "on_guideline_selected_handlers": _ALPHA_ONLY,
+        "on_guideline_message_handlers": _ALPHA_ONLY,
+        "on_journey_selected_handlers": _ALPHA_ONLY,
+        "on_journey_message_handlers": _ALPHA_ONLY,
+    }
+
     on_error: list[EngineHook] = field(default_factory=list)
     """Called when the engine has encountered a runtime error"""
 

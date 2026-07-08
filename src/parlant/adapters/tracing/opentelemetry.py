@@ -65,6 +65,12 @@ class OpenTelemetryTracer(Tracer):
             default=None,
         )
 
+        # Store the OpenTelemetry context for this tracer to maintain isolation
+        self._otel_context = contextvars.ContextVar[context.Context | None](
+            "otel_tracer_otel_context",
+            default=None,
+        )
+
     async def __aenter__(self) -> Self:
         resource = Resource.create({"service.name": self._service_name})
 
@@ -137,7 +143,7 @@ class OpenTelemetryTracer(Tracer):
 
         if not current_spans:
             new_spans = span_id
-            custom_trace_id = generate_id({"strategy": "uuid4"})
+            custom_trace_id = self._generate_trace_id()
             trace_id_reset_token = self._trace_id.set(custom_trace_id)
 
             # Convert UUID hex to proper OpenTelemetry format
@@ -167,13 +173,20 @@ class OpenTelemetryTracer(Tracer):
             )
 
             # For root spans, create a completely isolated context
-            # We'll create the span with our custom context after setting up the isolated context
             isolated_ctx = context.Context()
             ctx = isolated_ctx
+            otel_context_reset_token = self._otel_context.set(isolated_ctx)
         else:
             new_spans = current_spans + f"::{span_id}"
             trace_id_reset_token = None
-            ctx = context.get_current()
+            # Use the stored context from parent span, not the global context
+            stored_ctx = self._otel_context.get()
+            if stored_ctx is None:
+                # Fallback to isolated context if something went wrong
+                ctx = context.Context()
+            else:
+                ctx = stored_ctx
+            otel_context_reset_token = None
 
         spans_reset_token = self._spans.set(new_spans)
         attributes_reset_token = self._attributes.set(new_attributes)
@@ -187,8 +200,12 @@ class OpenTelemetryTracer(Tracer):
             if hasattr(span, "_context"):
                 span._context = span_context
         else:
-            # For child spans, create normally
+            # For child spans, create normally with the isolated context
             span = self._tracer.start_span(name=span_id, attributes=new_attributes, context=ctx)
+
+        # Update the context with this span for child spans to use
+        new_ctx = trace.set_span_in_context(span, ctx)
+        ctx_token = self._otel_context.set(new_ctx)
 
         span_token = self._current_span.set(span)
 
@@ -203,8 +220,11 @@ class OpenTelemetryTracer(Tracer):
             self._spans.reset(spans_reset_token)
             self._attributes.reset(attributes_reset_token)
             self._current_span.reset(span_token)
+            self._otel_context.reset(ctx_token)
             if trace_id_reset_token is not None:
                 self._trace_id.reset(trace_id_reset_token)
+            if otel_context_reset_token is not None:
+                self._otel_context.reset(otel_context_reset_token)
 
     @contextmanager
     @override

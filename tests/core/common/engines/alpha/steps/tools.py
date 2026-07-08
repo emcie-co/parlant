@@ -23,9 +23,9 @@ from parlant.core.relationships import (
     RelationshipKind,
 )
 from parlant.core.agents import AgentId, AgentStore
-from parlant.core.guideline_tool_associations import (
-    GuidelineToolAssociation,
-    GuidelineToolAssociationStore,
+from parlant.core.rule_tool_associations import (
+    RuleToolAssociation as GuidelineToolAssociation,
+    RuleToolAssociationStore as GuidelineToolAssociationStore,
 )
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tools import LocalToolService, ToolId

@@ -33,7 +33,7 @@ from parlant.core.nlp.service import NLPService
 from parlant.core.persistence.common import MigrationRequired, ObjectId
 from parlant.core.persistence.vector_database import BaseDocument
 from parlant.core.persistence.vector_database_helper import VectorDocumentStoreMigrationHelper
-from parlant.core.tags import Tag, TagId
+from parlant.core.groups import GroupIds, GroupId
 from parlant.core.tracer import Tracer
 from tests.test_utilities import SyncAwaiter
 
@@ -663,9 +663,9 @@ async def test_that_documents_are_indexed_when_changing_embedder_type(
                 description="a type of cow",
             )
 
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=term.id,
-                tag_id=Tag.for_agent_id(agent_id).id,
+                group_id=GroupIds.for_agent_id(agent_id),
             )
 
     async with create_database(context) as chroma_db:
@@ -776,43 +776,45 @@ async def test_that_in_filter_works_with_list_of_strings(
                 description="a type of cow",
             )
 
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=first_term.id,
-                tag_id=TagId("a"),
+                group_id=GroupId("a"),
             )
 
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=first_term.id,
-                tag_id=TagId("b"),
+                group_id=GroupId("b"),
             )
 
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=second_term.id,
-                tag_id=TagId("b"),
+                group_id=GroupId("b"),
             )
 
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=third_term.id,
-                tag_id=TagId("c"),
+                group_id=GroupId("c"),
             )
 
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=third_term.id,
-                tag_id=TagId("d"),
+                group_id=GroupId("d"),
             )
 
-            terms = await store.list_terms(tags=[TagId("a"), TagId("b")])
+            terms = await store.list_terms(groups=[GroupId("a"), GroupId("b")])
             assert len(terms) == 2
             assert terms[0].id == first_term.id
             assert terms[1].id == second_term.id
 
-            terms = await store.list_terms(tags=[TagId("a"), TagId("b"), TagId("c")])
+            terms = await store.list_terms(groups=[GroupId("a"), GroupId("b"), GroupId("c")])
             assert len(terms) == 3
             assert terms[0].id == first_term.id
             assert terms[1].id == second_term.id
             assert terms[2].id == third_term.id
 
-            terms = await store.list_terms(tags=[TagId("a"), TagId("b"), TagId("c"), TagId("d")])
+            terms = await store.list_terms(
+                groups=[GroupId("a"), GroupId("b"), GroupId("c"), GroupId("d")]
+            )
             assert len(terms) == 3
             assert terms[0].id == first_term.id
             assert terms[1].id == second_term.id
@@ -835,13 +837,13 @@ async def test_that_in_filter_works_with_single_tag(
                 name="Bazoo",
                 description="a type of cow",
             )
-            await store.upsert_tag(
+            await store.upsert_group(
                 term_id=first_term.id,
-                tag_id=TagId("unique_tag"),
+                group_id=GroupId("unique_tag"),
             )
 
-            # Test with a single tag that matches one term
-            terms = await store.list_terms(tags=[TagId("unique_tag")])
+            # Test with a single group that matches one term
+            terms = await store.list_terms(groups=[GroupId("unique_tag")])
             assert len(terms) == 1
             assert terms[0].id == first_term.id
             assert terms[0].name == "Bazoo"

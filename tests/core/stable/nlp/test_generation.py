@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+from dataclasses import dataclass
 from typing import Any, AsyncIterator, Callable, Mapping, cast
 from typing_extensions import override
 from lagom import Container
@@ -27,11 +28,14 @@ from parlant.core.engines.alpha.prompt_builder import (
     PromptSection,
     SectionStatus,
 )
+from parlant.core.application_context import ApplicationContext
 from parlant.core.loggers import Logger
 from parlant.core.health import HealthReporter, NullHealthReporter
 from parlant.core.meter import Meter
 from parlant.core.nlp.embedding import EmbeddingResult
 from parlant.core.nlp.generation import (
+    HEDGE_TIMEOUT_HINT,
+    BaseSchematicGenerator,
     BaseStreamingTextGenerator,
     FallbackSchematicGenerator,
     SchematicGenerationResult,
@@ -415,6 +419,192 @@ async def test_that_retry_succeeds_after_failures_with_higher_concurrency(
 
 
 # ============================================================================
+# BaseSchematicGenerator Hedging Tests
+# ============================================================================
+
+
+@dataclass
+class _HedgeAttempt:
+    """Scripts one `do_generate` invocation: how long it takes, and whether it
+    ultimately succeeds (``result``) or raises (``exception``)."""
+
+    delay: float
+    result: str | None = None
+    exception: BaseException | None = None
+
+
+class TestableBaseSchematicGenerator(BaseSchematicGenerator[DummySchema]):
+    """A BaseSchematicGenerator whose `do_generate` is scripted per attempt, so the
+    base class's hedging behavior can be exercised deterministically. The Nth call
+    to `do_generate` runs the Nth scripted attempt (the last one repeats)."""
+
+    def __init__(
+        self,
+        container: Container,
+        attempts: list[_HedgeAttempt],
+    ) -> None:
+        super().__init__(
+            logger=container[Logger],
+            tracer=container[Tracer],
+            meter=container[Meter],
+            model_name="test-model",
+            health_reporter=NullHealthReporter(
+                application_context=ApplicationContext(instance_id="test")
+            ),
+        )
+        self._attempts = attempts
+        self.call_count = 0
+        self.cancelled_indices: list[int] = []
+
+    @property
+    @override
+    def schema(self) -> type[DummySchema]:
+        return DummySchema
+
+    @override
+    async def do_generate(
+        self,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any] = {},
+    ) -> SchematicGenerationResult[DummySchema]:
+        index = self.call_count
+        self.call_count += 1
+        spec = self._attempts[min(index, len(self._attempts) - 1)]
+
+        try:
+            await asyncio.sleep(spec.delay)
+        except asyncio.CancelledError:
+            self.cancelled_indices.append(index)
+            raise
+
+        if spec.exception is not None:
+            raise spec.exception
+
+        return SchematicGenerationResult(
+            content=DummySchema(
+                result=spec.result if spec.result is not None else f"attempt-{index}"
+            ),
+            info=GenerationInfo(
+                schema_name="DummySchema",
+                model="test-model",
+                duration=spec.delay,
+                usage=UsageInfo(input_tokens=1, output_tokens=1),
+            ),
+        )
+
+    @property
+    @override
+    def id(self) -> str:
+        return "testable-schematic-generator"
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 1000
+
+    @property
+    @override
+    def tokenizer(self) -> EstimatingTokenizer:
+        return ZeroEstimatingTokenizer()
+
+
+async def test_that_a_request_slower_than_the_hedge_delay_triggers_a_second_attempt(
+    container: Container,
+) -> None:
+    generator = TestableBaseSchematicGenerator(
+        container,
+        attempts=[
+            _HedgeAttempt(delay=5.0, result="slow"),  # first attempt — never returns in time
+            _HedgeAttempt(delay=0.01, result="fast"),  # hedge — wins
+        ],
+    )
+
+    result = await generator.generate("prompt", hints={HEDGE_TIMEOUT_HINT: 0.05})
+
+    assert generator.call_count == 2
+    assert result.content.result == "fast"
+
+
+async def test_that_a_request_faster_than_the_hedge_delay_is_not_hedged(
+    container: Container,
+) -> None:
+    generator = TestableBaseSchematicGenerator(
+        container,
+        attempts=[_HedgeAttempt(delay=0.01, result="quick")],
+    )
+
+    result = await generator.generate("prompt", hints={HEDGE_TIMEOUT_HINT: 0.5})
+
+    assert generator.call_count == 1
+    assert result.content.result == "quick"
+
+
+async def test_that_no_hedge_is_attempted_without_the_hint(
+    container: Container,
+) -> None:
+    generator = TestableBaseSchematicGenerator(
+        container,
+        attempts=[_HedgeAttempt(delay=0.05, result="only")],
+    )
+
+    result = await generator.generate("prompt")
+
+    assert generator.call_count == 1
+    assert result.content.result == "only"
+
+
+async def test_that_the_losing_hedge_attempt_is_cancelled(
+    container: Container,
+) -> None:
+    generator = TestableBaseSchematicGenerator(
+        container,
+        attempts=[
+            _HedgeAttempt(delay=5.0, result="slow"),
+            _HedgeAttempt(delay=0.01, result="fast"),
+        ],
+    )
+
+    result = await generator.generate("prompt", hints={HEDGE_TIMEOUT_HINT: 0.05})
+
+    assert result.content.result == "fast"
+    assert generator.cancelled_indices == [0]
+
+
+async def test_that_a_hedge_returns_the_first_successful_result_even_if_another_attempt_fails(
+    container: Container,
+) -> None:
+    generator = TestableBaseSchematicGenerator(
+        container,
+        attempts=[
+            _HedgeAttempt(delay=0.15, result="slow-success"),  # first — slow but succeeds
+            _HedgeAttempt(delay=0.01, exception=FirstException()),  # hedge — fails fast
+        ],
+    )
+
+    result = await generator.generate("prompt", hints={HEDGE_TIMEOUT_HINT: 0.05})
+
+    assert generator.call_count == 2
+    assert result.content.result == "slow-success"
+
+
+async def test_that_a_hedge_raises_when_all_attempts_fail(
+    container: Container,
+) -> None:
+    generator = TestableBaseSchematicGenerator(
+        container,
+        attempts=[
+            _HedgeAttempt(delay=0.15, exception=FirstException("first")),
+            _HedgeAttempt(delay=0.01, exception=SecondException("second")),
+        ],
+    )
+
+    with raises(FirstException):
+        await generator.generate("prompt", hints={HEDGE_TIMEOUT_HINT: 0.05})
+
+    assert generator.call_count == 2
+
+
+# ============================================================================
 # StreamingTextGenerator Tests
 # ============================================================================
 
@@ -511,7 +701,9 @@ class TestableBaseStreamingTextGenerator(BaseStreamingTextGenerator):
             tracer=tracer,
             meter=meter,
             model_name="test-model",
-            health_reporter=NullHealthReporter(),
+            health_reporter=NullHealthReporter(
+                application_context=ApplicationContext(instance_id="test")
+            ),
         )
         self._chunks = chunks
         self._should_fail = should_fail
@@ -593,7 +785,7 @@ async def test_that_streaming_text_generator_reports_time_to_first_token_as_late
         ReportRetention,
     )
 
-    reporter = HealthReporter()
+    reporter = HealthReporter(application_context=ApplicationContext(instance_id="test"))
     reporter.configure_retention(
         NLP_REQUEST_KIND, ReportRetention(window=timedelta(minutes=10), max_count=1000)
     )

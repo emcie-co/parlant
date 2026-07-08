@@ -14,25 +14,24 @@
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from itertools import chain
 from typing import Sequence
 from lagom import Container
 from pytest import fixture
 
 from parlant.core.agents import Agent
 from parlant.core.capabilities import Capability, CapabilityId
-from parlant.core.common import Criticality, JSONSerializable, generate_id
+from parlant.core.common import Weight, JSONSerializable, generate_id
 from parlant.core.meter import Meter
 from parlant.core.tracer import Tracer
 from parlant.core.customers import Customer
 from parlant.core.emission.event_buffer import EventBuffer
-from parlant.core.engines.alpha.guideline_matching.generic.response_analysis_batch import (
+from parlant.core.engines.alpha.rule_matching.generic.response_analysis_batch import (
     GenericResponseAnalysisBatch,
     GenericResponseAnalysisSchema,
 )
-from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
-from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
-    GuidelineMatcher,
+from parlant.core.engines.rule_match import RuleMatch
+from parlant.core.engines.alpha.rule_matching.rule_matcher import (
+    RuleMatcher,
     ResponseAnalysisContext,
 )
 from parlant.core.engines.alpha.engine_context import Interaction, EngineContext, ResponseState
@@ -40,12 +39,12 @@ from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.engines.types import Context
 from parlant.core.entity_cq import EntityCommands
-from parlant.core.evaluations import GuidelinePayload, PayloadOperation
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.evaluations import RulePayload, PayloadOperation
+from parlant.core.rules import Rule, RuleContent, RuleId
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.services.indexing.behavioral_change_evaluation import GuidelineEvaluator
-from parlant.core.services.indexing.guideline_agent_intention_proposer import AgentIntentionProposer
+from parlant.core.services.indexing.evaluation_service import RuleEvaluator
+from parlant.core.services.indexing.rule_agent_intention_proposer import AgentIntentionProposer
 from parlant.core.sessions import (
     AgentState,
     Event,
@@ -58,7 +57,7 @@ from parlant.core.sessions import (
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter
 
-GUIDELINES_DICT = {
+RULES_DICT = {
     "medical_advice": {
         "condition": "You provide health-related information or advice",
         "action": "Include a disclaimer that this is not medical advice",
@@ -86,7 +85,7 @@ GUIDELINES_DICT = {
 class ContextOfTest:
     container: Container
     sync_await: SyncAwaiter
-    guidelines: list[Guideline]
+    rules: list[Rule]
     logger: Logger
 
 
@@ -98,19 +97,19 @@ def context(
     return ContextOfTest(
         container,
         sync_await,
-        guidelines=list(),
+        rules=list(),
         logger=container[Logger],
     )
 
 
-def match_guidelines(
+def match_rules(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
     session_id: SessionId,
     interaction_history: Sequence[Event],
     capabilities: Sequence[Capability] = [],
-) -> Sequence[GuidelineMatch]:
+) -> Sequence[RuleMatch]:
     session = context.sync_await(context.container[SessionStore].read_session(session_id))
 
     loaded_context = EngineContext(
@@ -131,8 +130,8 @@ def match_guidelines(
             glossary_terms=set(),
             capabilities=[],
             iterations=[],
-            ordinary_guideline_matches=[],
-            tool_enabled_guideline_matches={},
+            ordinary_rule_matches=[],
+            tool_enabled_rule_matches={},
             journeys=[],
             journey_paths={k: list(v) for k, v in session.agent_states[-1].journey_paths.items()}
             if session.agent_states
@@ -144,30 +143,30 @@ def match_guidelines(
         ),
     )
 
-    guideline_matching_result = context.sync_await(
-        context.container[GuidelineMatcher].match_guidelines(
+    rule_matching_result = context.sync_await(
+        context.container[RuleMatcher].match_rules(
             context=loaded_context,
             active_journeys=[],
-            guidelines=context.guidelines,
+            rules=context.rules,
         )
     )
 
-    return list(chain.from_iterable(guideline_matching_result.batches))
+    return list(rule_matching_result.matched)
 
 
-def create_guideline(
+def create_rule(
     context: ContextOfTest,
     condition: str,
     action: str | None = None,
-) -> Guideline:
+) -> Rule:
     metadata: dict[str, JSONSerializable] = {}
     if action:
-        guideline_evaluator = context.container[GuidelineEvaluator]
-        guideline_evaluation_data = context.sync_await(
-            guideline_evaluator.evaluate(
+        rule_evaluator = context.container[RuleEvaluator]
+        rule_evaluation_data = context.sync_await(
+            rule_evaluator.evaluate(
                 payloads=[
-                    GuidelinePayload(
-                        content=GuidelineContent(
+                    RulePayload(
+                        content=RuleContent(
                             condition=condition,
                             action=action,
                         ),
@@ -181,49 +180,50 @@ def create_guideline(
             )
         )
 
-        metadata = guideline_evaluation_data[0].properties_proposition or {}
+        metadata = rule_evaluation_data[0].properties_proposition or {}
 
-    guideline = Guideline(
-        id=GuidelineId(generate_id()),
+    rule = Rule(
+        id=RuleId(generate_id()),
         creation_utc=datetime.now(timezone.utc),
-        content=GuidelineContent(
+        modified_utc=datetime.now(timezone.utc),
+        content=RuleContent(
             condition=condition,
             action=action,
         ),
-        criticality=Criticality.MEDIUM,
+        weight=Weight.MEDIUM,
         enabled=True,
-        tags=[],
+        groups=[],
         metadata=metadata,
     )
 
-    context.guidelines.append(guideline)
+    context.rules.append(rule)
 
-    return guideline
+    return rule
 
 
-def create_guideline_by_name(
+def create_rule_by_name(
     context: ContextOfTest,
-    guideline_name: str,
-) -> Guideline | None:
-    if guideline_name in GUIDELINES_DICT:
-        guideline = create_guideline(
+    rule_name: str,
+) -> Rule | None:
+    if rule_name in RULES_DICT:
+        rule = create_rule(
             context=context,
-            condition=GUIDELINES_DICT[guideline_name]["condition"],
-            action=GUIDELINES_DICT[guideline_name]["action"],
+            condition=RULES_DICT[rule_name]["condition"],
+            action=RULES_DICT[rule_name]["action"],
         )
     else:
-        guideline = None
-    return guideline
+        rule = None
+    return rule
 
 
-def update_previously_applied_guidelines(
+def update_previously_applied_rules(
     context: ContextOfTest,
     session_id: SessionId,
-    applied_guideline_ids: list[GuidelineId],
+    applied_rule_ids: list[RuleId],
 ) -> None:
     session = context.sync_await(context.container[SessionStore].read_session(session_id))
-    applied_guideline_ids.extend(
-        session.agent_states[-1].applied_guideline_ids if session.agent_states else []
+    applied_rule_ids.extend(
+        session.agent_states[-1].applied_rule_ids if session.agent_states else []
     )
 
     context.sync_await(
@@ -234,7 +234,7 @@ def update_previously_applied_guidelines(
                 + [
                     AgentState(
                         trace_id="<main>",
-                        applied_guideline_ids=applied_guideline_ids,
+                        applied_rule_ids=applied_rule_ids,
                         journey_paths={},
                     )
                 ]
@@ -248,19 +248,18 @@ def analyze_response_and_update_session(
     agent: Agent,
     customer: Customer,
     session_id: SessionId,
-    previously_matched_guidelines: list[Guideline],
+    previously_matched_rules: list[Rule],
     interaction_history: list[Event],
 ) -> None:
     session = context.sync_await(context.container[SessionStore].read_session(session_id))
 
     matches_to_analyze = [
-        GuidelineMatch(
-            guideline=g,
+        RuleMatch(
+            rule=g,
             rationale="",
-            score=10,
         )
-        for g in previously_matched_guidelines
-        if (not session.agent_states or g.id not in session.agent_states[-1].applied_guideline_ids)
+        for g in previously_matched_rules
+        if (not session.agent_states or g.id not in session.agent_states[-1].applied_rule_ids)
         and not g.metadata.get("continuous", False)
     ]
 
@@ -283,28 +282,28 @@ def analyze_response_and_update_session(
             staged_tool_events=[],
             staged_message_events=[],
         ),
-        guideline_matches=matches_to_analyze,
+        rule_matches=matches_to_analyze,
     )
 
-    applied_guideline_ids = [
-        g.guideline.id
-        for g in (context.sync_await(generic_response_analysis_batch.process())).analyzed_guidelines
+    applied_rule_ids = [
+        g.rule.id
+        for g in (context.sync_await(generic_response_analysis_batch.process())).analyzed_rules
         if g.is_previously_applied
     ]
 
-    update_previously_applied_guidelines(context, session_id, applied_guideline_ids)
+    update_previously_applied_rules(context, session_id, applied_rule_ids)
 
 
-def base_test_that_correct_guidelines_are_matched(
+def base_test_that_correct_rules_are_matched(
     context: ContextOfTest,
     agent: Agent,
     customer: Customer,
     session_id: SessionId,
     conversation_context: list[tuple[EventSource, str]],
-    conversation_guideline_names: list[str],
-    relevant_guideline_names: list[str],
-    previously_applied_guidelines_names: list[str] = [],
-    previously_matched_guidelines_names: list[str] = [],
+    conversation_rule_names: list[str],
+    relevant_rule_names: list[str],
+    previously_applied_rules_names: list[str] = [],
+    previously_matched_rules_names: list[str] = [],
     capabilities: list[Capability] = [],
 ) -> None:
     interaction_history = [
@@ -316,27 +315,27 @@ def base_test_that_correct_guidelines_are_matched(
         for i, (source, message) in enumerate(conversation_context)
     ]
 
-    conversation_guidelines = {
-        name: create_guideline_by_name(context, name) for name in conversation_guideline_names
+    conversation_rules = {
+        name: create_rule_by_name(context, name) for name in conversation_rule_names
     }
 
-    relevant_guidelines = [conversation_guidelines[name] for name in relevant_guideline_names]
+    relevant_rules = [conversation_rules[name] for name in relevant_rule_names]
 
-    previously_matched_guidelines = [
-        guideline
-        for name in previously_matched_guidelines_names
-        if (guideline := conversation_guidelines.get(name)) is not None
+    previously_matched_rules = [
+        rule
+        for name in previously_matched_rules_names
+        if (rule := conversation_rules.get(name)) is not None
     ]
-    previously_applied_guidelines = [
-        guideline.id
-        for name in previously_applied_guidelines_names
-        if (guideline := conversation_guidelines.get(name)) is not None
+    previously_applied_rules = [
+        rule.id
+        for name in previously_applied_rules_names
+        if (rule := conversation_rules.get(name)) is not None
     ]
 
-    update_previously_applied_guidelines(
+    update_previously_applied_rules(
         context=context,
         session_id=session_id,
-        applied_guideline_ids=previously_applied_guidelines,
+        applied_rule_ids=previously_applied_rules,
     )
 
     analyze_response_and_update_session(
@@ -344,11 +343,11 @@ def base_test_that_correct_guidelines_are_matched(
         agent=agent,
         session_id=session_id,
         customer=customer,
-        previously_matched_guidelines=previously_matched_guidelines,
+        previously_matched_rules=previously_matched_rules,
         interaction_history=interaction_history,
     )
 
-    guideline_matches = match_guidelines(
+    rule_matches = match_rules(
         context=context,
         agent=agent,
         customer=customer,
@@ -357,100 +356,98 @@ def base_test_that_correct_guidelines_are_matched(
         capabilities=capabilities,
     )
 
-    matched_guidelines = [p.guideline for p in guideline_matches]
+    matched_rules = [p.rule for p in rule_matches]
 
-    assert set(matched_guidelines) == set(relevant_guidelines)
+    assert set(matched_rules) == set(relevant_rules)
 
 
-async def check_guideline(
-    context: ContextOfTest, guideline: GuidelineContent, is_agent_intention: bool
-) -> None:
+async def check_rule(context: ContextOfTest, rule: RuleContent, is_agent_intention: bool) -> None:
     agent_intention_detector = context.container[AgentIntentionProposer]
     result = await agent_intention_detector.propose_agent_intention(
-        guideline=guideline,
+        rule=rule,
     )
     assert (
         is_agent_intention == result.is_agent_intention
-    ), f"""Guideline incorrectly marked as {"not " if is_agent_intention else ""} agent's intention:
-Condition: {guideline.condition}
-Action: {guideline.action}"""
+    ), f"""Rule incorrectly marked as {"not " if is_agent_intention else ""} agent's intention:
+Condition: {rule.condition}
+Action: {rule.action}"""
 
 
 async def test_that_actions_which_are_agent_intention_are_classified_correctly(
     context: ContextOfTest,
 ) -> None:
-    guidelines = [
-        GuidelineContent(
+    rules = [
+        RuleContent(
             condition="You answer a question about pricing options",
             action="Include the most up-to-date pricing from the official source",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="You are going to provide medical advice",
             action="Add a disclaimer that the information is not a substitute for professional medical care",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="You make a recommendation about a product",
             action="Ensure the recommendation is based on factual information",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="You likely to make a recommendation about a product",
             action="Ensure the recommendation is based on factual information",
         ),
     ]
 
-    for g in guidelines:
-        await check_guideline(context=context, guideline=g, is_agent_intention=True)
+    for g in rules:
+        await check_rule(context=context, rule=g, is_agent_intention=True)
 
 
 async def test_that_actions_which_are_not_agent_intention_are_classified_correctly(
     context: ContextOfTest,
 ) -> None:
-    guidelines = [
-        GuidelineContent(
+    rules = [
+        RuleContent(
             condition="The customer is going to confirm their shipping address",
             action="Acknowledge and proceed with order processing",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="You have already apologized for the inconvenience",
             action="Do not repeat the apology",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="The customer asked about return policies",
             action="Provide a link to the official return policy page",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="Customer indicated your behavior is likely to cause them harm",
             action="Apologize and ask about what worries the customer",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="The customer gives very short snappy responses like 'ok', 'sure', 'got it'",
             action="Keep the next point brief, one sentence maximum",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="The customer has an inquiry that sounds high-level or basic, not drilling into specifics or details",
             action="Answer ONLY based on the information provided",
         ),
     ]
 
-    for g in guidelines:
-        await check_guideline(context=context, guideline=g, is_agent_intention=False)
+    for g in rules:
+        await check_rule(context=context, rule=g, is_agent_intention=False)
 
 
 async def test_that_actions_using_the_word_likely_arent_falsely_detected_as_agent_intention(
     context: ContextOfTest,
 ) -> None:
-    guidelines = [
-        GuidelineContent(
+    rules = [
+        RuleContent(
             condition="You are likely to encounter a very short and vague question from the customer, like 'credit cards' or 'dispute'",
             action="refer the customer to our manual",
         ),
     ]
 
-    for g in guidelines:
-        await check_guideline(context=context, guideline=g, is_agent_intention=False)
+    for g in rules:
+        await check_rule(context=context, rule=g, is_agent_intention=False)
 
 
-def test_that_guideline_with_agent_intention_is_rewritten_and_matched(
+def test_that_rule_with_agent_intention_is_rewritten_and_matched(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -462,21 +459,21 @@ def test_that_guideline_with_agent_intention_is_rewritten_and_matched(
             "I've been having headaches for the past few days. Could it be something serious?",
         ),
     ]
-    conversation_guideline_names: list[str] = ["medical_advice"]
-    relevant_guideline_names = conversation_guideline_names
+    conversation_rule_names: list[str] = ["medical_advice"]
+    relevant_rule_names = conversation_rule_names
 
-    base_test_that_correct_guidelines_are_matched(
+    base_test_that_correct_rules_are_matched(
         context,
         agent,
         customer,
         new_session.id,
         conversation_context,
-        conversation_guideline_names,
-        relevant_guideline_names,
+        conversation_rule_names,
+        relevant_rule_names,
     )
 
 
-def test_that_guideline_with_agent_intention_is_rewritten_and_matched_2(
+def test_that_rule_with_agent_intention_is_rewritten_and_matched_2(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -488,21 +485,21 @@ def test_that_guideline_with_agent_intention_is_rewritten_and_matched_2(
             "I'm looking for a budget-friendly smartphone under $300. What do you suggest?",
         ),
     ]
-    conversation_guideline_names: list[str] = ["recommend_product"]
-    relevant_guideline_names = conversation_guideline_names
+    conversation_rule_names: list[str] = ["recommend_product"]
+    relevant_rule_names = conversation_rule_names
 
-    base_test_that_correct_guidelines_are_matched(
+    base_test_that_correct_rules_are_matched(
         context,
         agent,
         customer,
         new_session.id,
         conversation_context,
-        conversation_guideline_names,
-        relevant_guideline_names,
+        conversation_rule_names,
+        relevant_rule_names,
     )
 
 
-def test_that_guideline_with_agent_intention_is_rewritten_and_matched_3(
+def test_that_rule_with_agent_intention_is_rewritten_and_matched_3(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -514,21 +511,21 @@ def test_that_guideline_with_agent_intention_is_rewritten_and_matched_3(
             "I'm traveling abroad next month and I want to make sure I won’t get charged unexpected fees on my credit card.",
         ),
     ]
-    conversation_guideline_names: list[str] = ["international_transaction"]
-    relevant_guideline_names = conversation_guideline_names
+    conversation_rule_names: list[str] = ["international_transaction"]
+    relevant_rule_names = conversation_rule_names
 
-    base_test_that_correct_guidelines_are_matched(
+    base_test_that_correct_rules_are_matched(
         context,
         agent,
         customer,
         new_session.id,
         conversation_context,
-        conversation_guideline_names,
-        relevant_guideline_names,
+        conversation_rule_names,
+        relevant_rule_names,
     )
 
 
-def test_that_guideline_with_agent_intention_that_was_matched_is_rewritten_and_matched_again(
+def test_that_rule_with_agent_intention_that_was_matched_is_rewritten_and_matched_again(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -548,23 +545,23 @@ def test_that_guideline_with_agent_intention_that_was_matched_is_rewritten_and_m
             "What about something a bit cheaper?",
         ),
     ]
-    conversation_guideline_names: list[str] = ["recommend_product"]
-    relevant_guideline_names: list[str] = ["recommend_product"]
-    previously_matched_guidelines_names: list[str] = ["recommend_product"]
-    base_test_that_correct_guidelines_are_matched(
+    conversation_rule_names: list[str] = ["recommend_product"]
+    relevant_rule_names: list[str] = ["recommend_product"]
+    previously_matched_rules_names: list[str] = ["recommend_product"]
+    base_test_that_correct_rules_are_matched(
         context,
         agent,
         customer,
         new_session.id,
         conversation_context,
-        conversation_guideline_names,
-        relevant_guideline_names,
-        previously_applied_guidelines_names=[],
-        previously_matched_guidelines_names=previously_matched_guidelines_names,
+        conversation_rule_names,
+        relevant_rule_names,
+        previously_applied_rules_names=[],
+        previously_matched_rules_names=previously_matched_rules_names,
     )
 
 
-def test_that_agent_intention_guideline_is_matched_based_on_capabilities_1(
+def test_that_agent_intention_rule_is_matched_based_on_capabilities_1(
     context: ContextOfTest,
     agent: Agent,
     new_session: Session,
@@ -577,7 +574,7 @@ def test_that_agent_intention_guideline_is_matched_based_on_capabilities_1(
             title="Reset Password",
             description="The ability to send the customer an email with a link to reset their password. The password can only be reset via this link",
             signals=["reset password", "password"],
-            tags=[],
+            groups=[],
         )
     ]
     conversation_context: list[tuple[EventSource, str]] = [
@@ -586,16 +583,16 @@ def test_that_agent_intention_guideline_is_matched_based_on_capabilities_1(
             "I can't remember the password to my account",
         ),
     ]
-    conversation_guideline_names: list[str] = ["multiple_capabilities", "reset_password_offer"]
-    relevant_guideline_names: list[str] = ["reset_password_offer"]
-    base_test_that_correct_guidelines_are_matched(
+    conversation_rule_names: list[str] = ["multiple_capabilities", "reset_password_offer"]
+    relevant_rule_names: list[str] = ["reset_password_offer"]
+    base_test_that_correct_rules_are_matched(
         context,
         agent,
         customer,
         new_session.id,
         conversation_context,
-        conversation_guideline_names,
-        relevant_guideline_names,
+        conversation_rule_names,
+        relevant_rule_names,
         capabilities=capabilities,
-        previously_applied_guidelines_names=[],
+        previously_applied_rules_names=[],
     )

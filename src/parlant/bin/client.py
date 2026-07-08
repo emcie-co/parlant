@@ -37,9 +37,9 @@ from parlant.client import ParlantClient
 from parlant.client.core import ApiError
 from parlant.client.types import (
     Agent,
-    AgentTagUpdateParams,
+    AgentGroupUpdateParams,
     Capability,
-    CapabilityTagUpdateParams,
+    CapabilityGroupUpdateParams,
     CannedResponse,
     CannedResponseField,
     ConsumptionOffsetsUpdateParams,
@@ -49,21 +49,22 @@ from parlant.client.types import (
     ContextVariableTagsUpdateParams,
     Customer,
     CustomerMetadataUpdateParams,
-    CustomerTagUpdateParams,
+    CustomerGroupUpdateParams,
     Event,
     Journey,
-    JourneyTagUpdateParams,
+    JourneyGraph,
+    JourneyGroupUpdateParams,
     JourneyTriggerUpdateParams,
-    Guideline,
+    Rule,
     Relationship,
     RelationshipKindDto,
-    GuidelinePayload,
-    GuidelineContent,
-    GuidelineToolAssociation,
-    GuidelineToolAssociationUpdateParams,
-    GuidelineTagsUpdateParams,
-    GuidelineWithRelationshipsAndToolAssociations,
-    GuidelineMetadataUpdateParams,
+    RulePayload,
+    RuleContent,
+    RuleToolAssociation,
+    RuleToolAssociationUpdateParams,
+    RuleGroupsUpdateParams,
+    RuleWithRelationshipsAndToolAssociations,
+    RuleMetadataUpdateParams,
     OpenApiServiceParams,
     Payload,
     SdkServiceParams,
@@ -71,10 +72,10 @@ from parlant.client.types import (
     Service,
     Session,
     Term,
-    TermTagsUpdateParams,
+    TermGroupsUpdateParams,
     Tool,
     ToolId,
-    Tag,
+    Group,
 )
 from websocket import WebSocketConnectionClosedException, create_connection
 
@@ -108,32 +109,32 @@ def set_exit_status(status: int) -> None:
 
 class Actions:
     @staticmethod
-    def _fetch_tag_id(
+    def _fetch_group_id(
         ctx: click.Context,
-        tag: str,
+        group: str,
     ) -> str:
         client = cast(ParlantClient, ctx.obj.client)
 
-        if tag.startswith("agent:"):
-            agent_id = tag.split(":")[1]
+        if group.startswith("agent:"):
+            agent_id = group.split(":")[1]
             if client.agents.retrieve(agent_id):
-                return tag
+                return group
             else:
                 raise Exception(f"Agent (id: {agent_id}) not found")
 
-        if tag.startswith("journey:"):
-            journey_id = tag.split(":")[1]
+        if group.startswith("journey:"):
+            journey_id = group.split(":")[1]
             if client.journeys.retrieve(journey_id):
-                return tag
+                return group
             else:
                 raise Exception(f"Journey (id: {journey_id}) not found")
 
-        tags = client.tags.list()
-        for t in tags:
-            if t.name == tag or t.id == tag:
+        groups = client.groups.list()
+        for t in groups:
+            if t.name == group or t.id == group:
                 return t.id
 
-        raise Exception(f"Tag ({tag}) not found")
+        raise Exception(f"Group ({group}) not found")
 
     @staticmethod
     def _fetch_tool_id(
@@ -157,8 +158,8 @@ class Actions:
         entity_id: str,
     ) -> tuple[str | ToolId, str]:
         with suppress(Exception):
-            if tag_id := Actions._fetch_tag_id(ctx, entity_id):
-                return tag_id, "tag"
+            if group_id := Actions._fetch_group_id(ctx, entity_id):
+                return group_id, "group"
 
         with suppress(Exception):
             if ":" in entity_id and (
@@ -170,8 +171,8 @@ class Actions:
                 return tool_id, "tool"
 
         client = cast(ParlantClient, ctx.obj.client)
-        client.guidelines.retrieve(entity_id)
-        return entity_id, "guideline"
+        client.rules.retrieve(entity_id)
+        return entity_id, "rule"
 
     @staticmethod
     def create_agent(
@@ -180,7 +181,7 @@ class Actions:
         description: Optional[str],
         max_engine_iterations: Optional[int],
         composition_mode: Optional[str],
-        tags: list[str],
+        groups: list[str],
     ) -> Agent:
         client = cast(ParlantClient, ctx.obj.client)
 
@@ -189,7 +190,7 @@ class Actions:
             description=description,
             max_engine_iterations=max_engine_iterations,
             composition_mode=composition_mode,
-            tags=list(set([Actions._fetch_tag_id(ctx, t) for t in tags])),
+            groups=list(set([Actions._fetch_group_id(ctx, t) for t in groups])),
         )
 
     @staticmethod
@@ -237,31 +238,31 @@ class Actions:
     def add_tag(
         ctx: click.Context,
         agent_id: str,
-        tag: str,
+        group: str,
     ) -> str:
         client = cast(ParlantClient, ctx.obj.client)
-        tag_id = Actions._fetch_tag_id(ctx, tag)
+        group_id = Actions._fetch_group_id(ctx, group)
         client.agents.update(
             agent_id=agent_id,
-            tags=AgentTagUpdateParams(add=[tag_id]),
+            groups=AgentGroupUpdateParams(add=[group_id]),
         )
 
-        return tag_id
+        return group_id
 
     @staticmethod
-    def remove_tag(
+    def remove_group(
         ctx: click.Context,
         agent_id: str,
-        tag: str,
+        group: str,
     ) -> str:
         client = cast(ParlantClient, ctx.obj.client)
-        tag_id = Actions._fetch_tag_id(ctx, tag)
+        group_id = Actions._fetch_group_id(ctx, group)
         client.agents.update(
             agent_id=agent_id,
-            tags=AgentTagUpdateParams(remove=[tag_id]),
+            groups=AgentGroupUpdateParams(remove=[group_id]),
         )
 
-        return tag_id
+        return group_id
 
     @staticmethod
     def create_session(
@@ -336,7 +337,7 @@ class Actions:
         name: str,
         description: str,
         synonyms: list[str],
-        tags: list[str],
+        groups: list[str],
     ) -> Term:
         client = cast(ParlantClient, ctx.obj.client)
 
@@ -344,7 +345,7 @@ class Actions:
             name=name,
             description=description,
             synonyms=synonyms,
-            tags=list(set([Actions._fetch_tag_id(ctx, t) for t in tags])),
+            groups=list(set([Actions._fetch_group_id(ctx, t) for t in groups])),
         )
 
     @staticmethod
@@ -375,11 +376,11 @@ class Actions:
     @staticmethod
     def list_terms(
         ctx: click.Context,
-        tag: Optional[str] = None,
+        group: Optional[str] = None,
     ) -> list[Term]:
         client = cast(ParlantClient, ctx.obj.client)
-        if tag:
-            return client.glossary.list_terms(tag_id=Actions._fetch_tag_id(ctx, tag))
+        if group:
+            return client.glossary.list_terms(group_id=Actions._fetch_group_id(ctx, group))
         else:
             return client.glossary.list_terms()
 
@@ -387,36 +388,36 @@ class Actions:
     def add_term_tag(
         ctx: click.Context,
         term_id: str,
-        tag: str,
+        group: str,
     ) -> str:
         client = cast(ParlantClient, ctx.obj.client)
-        tag_id = Actions._fetch_tag_id(ctx, tag)
-        client.glossary.update_term(term_id, tags=TermTagsUpdateParams(add=[tag_id]))
+        group_id = Actions._fetch_group_id(ctx, group)
+        client.glossary.update_term(term_id, groups=TermGroupsUpdateParams(add=[group_id]))
 
-        return tag_id
+        return group_id
 
     @staticmethod
     def remove_term_tag(
         ctx: click.Context,
         term_id: str,
-        tag: str,
+        group: str,
     ) -> str:
         client = cast(ParlantClient, ctx.obj.client)
-        tag_id = Actions._fetch_tag_id(ctx, tag)
-        client.glossary.update_term(term_id, tags=TermTagsUpdateParams(remove=[tag_id]))
+        group_id = Actions._fetch_group_id(ctx, group)
+        client.glossary.update_term(term_id, groups=TermGroupsUpdateParams(remove=[group_id]))
 
-        return tag_id
+        return group_id
 
     @staticmethod
-    def create_guideline(
+    def create_rule(
         ctx: click.Context,
         condition: str,
         action: Optional[str],
         tool_id: Optional[str],
-        tags: list[str],
-    ) -> GuidelineWithRelationshipsAndToolAssociations:
+        groups: list[str],
+    ) -> RuleWithRelationshipsAndToolAssociations:
         client = cast(ParlantClient, ctx.obj.client)
-        tags = list(set([Actions._fetch_tag_id(ctx, t) for t in tags]))
+        groups = list(set([Actions._fetch_group_id(ctx, t) for t in groups]))
 
         tool_ids = (
             [
@@ -431,9 +432,9 @@ class Actions:
         evaluation = client.evaluations.create(
             payloads=[
                 Payload(
-                    kind="guideline",
-                    guideline=GuidelinePayload(
-                        content=GuidelineContent(condition=condition),
+                    kind="rule",
+                    rule=RulePayload(
+                        content=RuleContent(condition=condition),
                         tool_ids=tool_ids,
                         operation="add",
                         action_proposition=True,
@@ -450,7 +451,7 @@ class Actions:
             "{task.completed}/{task.total}",
             TimeElapsedColumn(),
         ) as progress:
-            progress_task = progress.add_task("Evaluating guideline\n", total=100)
+            progress_task = progress.add_task("Evaluating rule\n", total=100)
 
             while True:
                 time.sleep(0.2)
@@ -469,24 +470,24 @@ class Actions:
                     invoice = evaluation_result.invoices[0]
                     assert invoice.approved
                     assert invoice.data
-                    assert invoice.data.guideline
-                    assert invoice.payload.guideline
+                    assert invoice.data.rule
+                    assert invoice.payload.rule
 
-                    guideline = client.guidelines.create(
+                    rule = client.rules.create(
                         condition=condition,
-                        action=action if action else invoice.data.guideline.action_proposition,
-                        tags=tags,
-                        metadata=invoice.data.guideline.properties_proposition or {},
+                        action=action if action else invoice.data.rule.action_proposition,
+                        groups=groups,
+                        metadata=invoice.data.rule.properties_proposition or {},
                     )
 
-                    guideline_with_relationships_and_associations = client.guidelines.update(
-                        guideline.id,
-                        tool_associations=GuidelineToolAssociationUpdateParams(
+                    rule_with_relationships_and_associations = client.rules.update(
+                        rule.id,
+                        tool_associations=RuleToolAssociationUpdateParams(
                             add=tool_ids,
                         ),
                     )
 
-                    return guideline_with_relationships_and_associations
+                    return rule_with_relationships_and_associations
 
                 elif evaluation_result.status == "failed":
                     raise ValueError(evaluation_result.error)
@@ -496,71 +497,71 @@ class Actions:
                 ctx, ToolId(service_name=tool_id.split(":")[0], tool_name=tool_id.split(":")[1])
             )
 
-            guideline_with_relationships_and_associations = client.guidelines.update(
-                guideline_id=guideline.id,
-                tool_associations=GuidelineToolAssociationUpdateParams(
+            rule_with_relationships_and_associations = client.rules.update(
+                rule_id=rule.id,
+                tool_associations=RuleToolAssociationUpdateParams(
                     add=[tool_id_obj],
                 ),
             )
 
-            return guideline_with_relationships_and_associations
+            return rule_with_relationships_and_associations
 
-        return GuidelineWithRelationshipsAndToolAssociations(
-            guideline=guideline,
+        return RuleWithRelationshipsAndToolAssociations(
+            rule=rule,
             relationships=[],
             tool_associations=[],
         )
 
     @staticmethod
-    def update_guideline(
+    def update_rule(
         ctx: click.Context,
-        guideline_id: str,
+        rule_id: str,
         condition: Optional[str] = None,
         action: Optional[str] = None,
-    ) -> GuidelineWithRelationshipsAndToolAssociations:
+    ) -> RuleWithRelationshipsAndToolAssociations:
         client = cast(ParlantClient, ctx.obj.client)
 
-        return client.guidelines.update(guideline_id, condition=condition, action=action)
+        return client.rules.update(rule_id, condition=condition, action=action)
 
     @staticmethod
-    def delete_guideline(
+    def delete_rule(
         ctx: click.Context,
-        guideline_id: str,
+        rule_id: str,
     ) -> None:
         client = cast(ParlantClient, ctx.obj.client)
-        client.guidelines.delete(guideline_id)
+        client.rules.delete(rule_id)
 
     @staticmethod
-    def view_guideline(
+    def view_rule(
         ctx: click.Context,
-        guideline_id: str,
-    ) -> GuidelineWithRelationshipsAndToolAssociations:
+        rule_id: str,
+    ) -> RuleWithRelationshipsAndToolAssociations:
         client = cast(ParlantClient, ctx.obj.client)
-        return client.guidelines.retrieve(guideline_id)
+        return client.rules.retrieve(rule_id)
 
     @staticmethod
-    def list_guidelines(
+    def list_rules(
         ctx: click.Context,
-        tag: Optional[str],
-    ) -> list[Guideline]:
+        group: Optional[str],
+    ) -> list[Rule]:
         client = cast(ParlantClient, ctx.obj.client)
-        if tag:
-            return client.guidelines.list(tag_id=Actions._fetch_tag_id(ctx, tag))
+        if group:
+            return client.rules.list(group_id=Actions._fetch_group_id(ctx, group))
         else:
-            return client.guidelines.list()
+            return client.rules.list()
 
     @staticmethod
-    def add_guideline_tool_association(
+    def add_rule_tool_association(
         ctx: click.Context,
-        guideline_id: str,
+        rule_id: str,
         service_name: str,
         tool_name: str,
-    ) -> GuidelineWithRelationshipsAndToolAssociations:
+    ) -> RuleWithRelationshipsAndToolAssociations:
         client = cast(ParlantClient, ctx.obj.client)
 
-        return client.guidelines.update(
-            guideline_id,
-            tool_associations=GuidelineToolAssociationUpdateParams(
+        return client.rules.update(
+            rule_id,
+            tool_associations=RuleToolAssociationUpdateParams(
                 add=[
                     ToolId(
                         service_name=service_name,
@@ -571,16 +572,16 @@ class Actions:
         )
 
     @staticmethod
-    def remove_guideline_tool_association(
+    def remove_rule_tool_association(
         ctx: click.Context,
-        guideline_id: str,
+        rule_id: str,
         service_name: str,
         tool_name: str,
     ) -> str:
         client = cast(ParlantClient, ctx.obj.client)
 
-        guideline_result = client.guidelines.retrieve(guideline_id)
-        associations = guideline_result.tool_associations
+        rule_result = client.rules.retrieve(rule_id)
+        associations = rule_result.tool_associations
 
         if association := next(
             (
@@ -590,9 +591,9 @@ class Actions:
             ),
             None,
         ):
-            client.guidelines.update(
-                guideline_id,
-                tool_associations=GuidelineToolAssociationUpdateParams(
+            client.rules.update(
+                rule_id,
+                tool_associations=RuleToolAssociationUpdateParams(
                     remove=[
                         ToolId(
                             service_name=service_name,
@@ -605,80 +606,74 @@ class Actions:
             return association.id
 
         raise ValueError(
-            f"An association between {guideline_id} and the tool {tool_name} from {service_name} was not found"
+            f"An association between {rule_id} and the tool {tool_name} from {service_name} was not found"
         )
 
     @staticmethod
-    def enable_guideline(
+    def enable_rule(
         ctx: click.Context,
-        guideline_ids: tuple[str],
-    ) -> list[Guideline]:
+        rule_ids: tuple[str],
+    ) -> list[Rule]:
         client = cast(ParlantClient, ctx.obj.client)
 
-        return [
-            client.guidelines.update(guideline_id, enabled=True).guideline
-            for guideline_id in guideline_ids
-        ]
+        return [client.rules.update(rule_id, enabled=True).rule for rule_id in rule_ids]
 
     @staticmethod
-    def disable_guideline(
+    def disable_rule(
         ctx: click.Context,
-        guideline_ids: tuple[str],
-    ) -> list[Guideline]:
+        rule_ids: tuple[str],
+    ) -> list[Rule]:
         client = cast(ParlantClient, ctx.obj.client)
 
-        return [
-            client.guidelines.update(guideline_id, enabled=False).guideline
-            for guideline_id in guideline_ids
-        ]
+        return [client.rules.update(rule_id, enabled=False).rule for rule_id in rule_ids]
 
     @staticmethod
-    def add_guideline_tag(
+    def add_rule_group(
         ctx: click.Context,
-        guideline_id: str,
-        tag: str,
+        rule_id: str,
+        group: str,
     ) -> str:
         client = cast(ParlantClient, ctx.obj.client)
-        tag_id = Actions._fetch_tag_id(ctx, tag)
-        client.guidelines.update(guideline_id, tags=GuidelineTagsUpdateParams(add=[tag_id]))
+        group_id = Actions._fetch_group_id(ctx, group)
+        client.rules.update(rule_id, groups=RuleGroupsUpdateParams(add=[group_id]))
 
-        return tag_id
+        return group_id
 
     @staticmethod
-    def remove_guideline_tag(
+    def remove_rule_group(
         ctx: click.Context,
-        guideline_id: str,
-        tag: str,
+        rule_id: str,
+        group: str,
     ) -> str:
         client = cast(ParlantClient, ctx.obj.client)
-        tag_id = Actions._fetch_tag_id(ctx, tag)
-        client.guidelines.update(guideline_id, tags=GuidelineTagsUpdateParams(remove=[tag_id]))
+        group_id = Actions._fetch_group_id(ctx, group)
+        client.rules.update(rule_id, groups=RuleGroupsUpdateParams(remove=[group_id]))
 
-        return tag_id
+        return group_id
 
     @staticmethod
-    def set_guideline_metadata(
+    def set_rule_metadata(
         ctx: click.Context,
-        guideline_id: str,
+        rule_id: str,
         key: str,
         value: str,
     ) -> None:
         client = cast(ParlantClient, ctx.obj.client)
-        client.guidelines.update(
-            guideline_id,
-            metadata=GuidelineMetadataUpdateParams(add={key: value}),
+        client.rules.update(
+            rule_id,
+            metadata=RuleMetadataUpdateParams(add={key: value}),
         )
 
     @staticmethod
-    def unset_guideline_metadata(
+    def unset_rule_metadata(
         ctx: click.Context,
-        guideline_id: str,
+        rule_id: str,
         key: str,
     ) -> None:
         client = cast(ParlantClient, ctx.obj.client)
-        client.guidelines.update(
-            guideline_id,
-            metadata=GuidelineMetadataUpdateParams(remove=[key]),
+        client.rules.update(
+            rule_id,
+            metadata=RuleMetadataUpdateParams(remove=[key]),
         )
 
     @staticmethod
@@ -694,11 +689,11 @@ class Actions:
         target_id, target_type = Actions._parse_relationship_side(ctx, target)
 
         return client.relationships.create(
-            source_guideline=cast(str, source_id) if source_type == "guideline" else None,
-            source_tag=cast(str, source_id) if source_type == "tag" else None,
+            source_rule=cast(str, source_id) if source_type == "rule" else None,
+            source_group=cast(str, source_id) if source_type == "group" else None,
             source_tool=cast(ToolId, source_id) if source_type == "tool" else None,
-            target_guideline=cast(str, target_id) if target_type == "guideline" else None,
-            target_tag=cast(str, target_id) if target_type == "tag" else None,
+            target_rule=cast(str, target_id) if target_type == "rule" else None,
+            target_group=cast(str, target_id) if target_type == "group" else None,
             target_tool=cast(ToolId, target_id) if target_type == "tool" else None,
             kind=kind,
         )
@@ -725,20 +720,20 @@ class Actions:
             (
                 r
                 for r in client.relationships.list(
-                    guideline_id=source_id if source_type == "guideline" else None,
-                    tag_id=source_id if source_type == "tag" else None,
+                    rule_id=source_id if source_type == "rule" else None,
+                    group_id=source_id if source_type == "group" else None,
                     tool_id=source_id if source_type == "tool" else None,
                     kind=kind,
                     indirect=False,
                 )
                 if (
-                    (r.source_guideline and source_id == r.source_guideline.id)
-                    or (r.source_tag and source_id == r.source_tag.id)
+                    (r.source_rule and source_id == r.source_rule.id)
+                    or (r.source_group and source_id == r.source_group.id)
                     or (r.source_tool and source_id.split(":")[1] == r.source_tool.name)
                 )
                 and (
-                    (r.target_guideline and target_id == r.target_guideline.id)
-                    or (r.target_tag and target_id == r.target_tag.id)
+                    (r.target_rule and target_id == r.target_rule.id)
+                    or (r.target_group and target_id == r.target_group.id)
                     or (r.target_tool and target_id.split(":")[1] == r.target_tool.name)
                 )
                 and r.kind == kind
@@ -756,23 +751,23 @@ class Actions:
     @staticmethod
     def list_relationships(
         ctx: click.Context,
-        guideline_id: Optional[str],
-        tag: Optional[str],
+        rule_id: Optional[str],
+        group: Optional[str],
         tool_id: Optional[str],
         kind: Optional[RelationshipKindDto],
         indirect: Optional[bool],
     ) -> list[Relationship]:
         client = cast(ParlantClient, ctx.obj.client)
 
-        tag_id = Actions._fetch_tag_id(ctx, tag) if tag else None
+        group_id = Actions._fetch_group_id(ctx, group) if group else None
         if tool_id:
             Actions._fetch_tool_id(
                 ctx, ToolId(service_name=tool_id.split(":")[0], tool_name=tool_id.split(":")[1])
             )
 
         return client.relationships.list(
-            guideline_id=guideline_id,
-            tag_id=tag_id,
+            rule_id=rule_id,
+            group_id=group_id,
             tool_id=tool_id,
             kind=kind,
             indirect=indirect,
@@ -781,11 +776,11 @@ class Actions:
     @staticmethod
     def list_variables(
         ctx: click.Context,
-        tag: Optional[str],
+        group: Optional[str],
     ) -> list[ContextVariable]:
         client = cast(ParlantClient, ctx.obj.client)
-        if tag:
-            return client.context_variables.list(tag_id=Actions._fetch_tag_id(ctx, tag))
+        if group:
+            return client.context_variables.list(group_id=Actions._fetch_group_id(ctx, group))
         else:
             return client.context_variables.list()
 
@@ -797,7 +792,7 @@ class Actions:
         service_name: Optional[str],
         tool_name: Optional[str],
         freshness_rules: Optional[str],
-        tags: list[str],
+        groups: list[str],
     ) -> ContextVariable:
         client = cast(ParlantClient, ctx.obj.client)
 
@@ -808,7 +803,7 @@ class Actions:
             if service_name and tool_name
             else None,
             freshness_rules=freshness_rules,
-            tags=list(set([Actions._fetch_tag_id(ctx, t) for t in tags])),
+            groups=list(set([Actions._fetch_group_id(ctx, t) for t in groups])),
         )
 
     @staticmethod
@@ -850,10 +845,10 @@ class Actions:
     ) -> ContextVariableValue:
         client = cast(ParlantClient, ctx.obj.client)
 
-        if key.startswith("tag:"):
-            tag_spec = key.split(":")[1]
-            tag_id = Actions._fetch_tag_id(ctx, tag_spec)
-            key = f"tag:{tag_id}"
+        if key.startswith("group:"):
+            group_spec = key.split(":")[1]
+            group_id = Actions._fetch_group_id(ctx, group_spec)
+            key = f"group:{group_id}"
 
         return client.context_variables.set_value(
             variable_id,
@@ -882,10 +877,10 @@ class Actions:
     ) -> ContextVariableValue:
         client = cast(ParlantClient, ctx.obj.client)
 
-        if key.startswith("tag:"):
-            tag_spec = key.split(":")[1]
-            tag_id = Actions._fetch_tag_id(ctx, tag_spec)
-            key = f"tag:{tag_id}"
+        if key.startswith("group:"):
+            group_spec = key.split(":")[1]
+            group_id = Actions._fetch_group_id(ctx, group_spec)
+            key = f"group:{group_id}"
 
         return client.context_variables.get_value(
             variable_id,
@@ -905,28 +900,28 @@ class Actions:
     def add_variable_tag(
         ctx: click.Context,
         variable_id: str,
-        tag: str,
+        group: str,
     ) -> str:
         client = cast(ParlantClient, ctx.obj.client)
-        tag_id = Actions._fetch_tag_id(ctx, tag)
+        group_id = Actions._fetch_group_id(ctx, group)
         client.context_variables.update(
-            variable_id, tags=ContextVariableTagsUpdateParams(add=[tag_id])
+            variable_id, groups=ContextVariableTagsUpdateParams(add=[group_id])
         )
-        return tag_id
+        return group_id
 
     @staticmethod
     def remove_variable_tag(
         ctx: click.Context,
         variable_id: str,
-        tag: str,
+        group: str,
     ) -> str:
         client = cast(ParlantClient, ctx.obj.client)
-        tag_id = Actions._fetch_tag_id(ctx, tag)
+        group_id = Actions._fetch_group_id(ctx, group)
         client.context_variables.update(
             variable_id,
-            tags=ContextVariableTagsUpdateParams(remove=[tag_id]),
+            groups=ContextVariableTagsUpdateParams(remove=[group_id]),
         )
-        return tag_id
+        return group_id
 
     @staticmethod
     def create_or_update_service(
@@ -1008,13 +1003,13 @@ class Actions:
     def create_customer(
         ctx: click.Context,
         name: str,
-        tags: list[str],
+        groups: list[str],
     ) -> Customer:
         client = cast(ParlantClient, ctx.obj.client)
         return client.customers.create(
             name=name,
             metadata={},
-            tags=list(set([Actions._fetch_tag_id(ctx, t) for t in tags])),
+            groups=list(set([Actions._fetch_group_id(ctx, t) for t in groups])),
         )
 
     @staticmethod
@@ -1071,77 +1066,77 @@ class Actions:
     def add_customer_tag(
         ctx: click.Context,
         customer_id: str,
-        tag: str,
+        group: str,
     ) -> str:
         client = cast(ParlantClient, ctx.obj.client)
 
-        tag_id = Actions._fetch_tag_id(ctx, tag)
+        group_id = Actions._fetch_group_id(ctx, group)
         client.customers.update(
             customer_id=customer_id,
-            tags=CustomerTagUpdateParams(add=[tag_id]),
+            groups=CustomerGroupUpdateParams(add=[group_id]),
         )
 
-        return tag_id
+        return group_id
 
     @staticmethod
     def remove_customer_tag(
         ctx: click.Context,
         customer_id: str,
-        tag: str,
+        group: str,
     ) -> str:
         client = cast(ParlantClient, ctx.obj.client)
 
-        tag_id = Actions._fetch_tag_id(ctx, tag)
+        group_id = Actions._fetch_group_id(ctx, group)
         client.customers.update(
             customer_id=customer_id,
-            tags=CustomerTagUpdateParams(remove=[tag_id]),
+            groups=CustomerGroupUpdateParams(remove=[group_id]),
         )
 
-        return tag_id
+        return group_id
 
     @staticmethod
-    def list_tags(ctx: click.Context) -> list[Tag]:
+    def list_groups(ctx: click.Context) -> list[Group]:
         client = cast(ParlantClient, ctx.obj.client)
-        return client.tags.list()
+        return client.groups.list()
 
     @staticmethod
-    def create_tag(
+    def create_group(
         ctx: click.Context,
         name: str,
-    ) -> Tag:
+    ) -> Group:
         client = cast(ParlantClient, ctx.obj.client)
-        return client.tags.create(name=name)
+        return client.groups.create(name=name)
 
     @staticmethod
     def view_tag(
         ctx: click.Context,
-        tag: str,
-    ) -> Tag:
-        tag_id = Actions._fetch_tag_id(ctx, tag)
+        group: str,
+    ) -> Group:
+        group_id = Actions._fetch_group_id(ctx, group)
 
         client = cast(ParlantClient, ctx.obj.client)
-        return client.tags.retrieve(tag_id=tag_id)
+        return client.groups.retrieve(group_id=group_id)
 
     @staticmethod
-    def update_tag(
+    def update_group(
         ctx: click.Context,
-        tag: str,
+        group: str,
         name: str,
-    ) -> Tag:
+    ) -> Group:
         client = cast(ParlantClient, ctx.obj.client)
-        return client.tags.update(tag_id=Actions._fetch_tag_id(ctx, tag), name=name)
+        return client.groups.update(group_id=Actions._fetch_group_id(ctx, group), name=name)
 
     @staticmethod
-    def delete_tag(
+    def delete_group(
         ctx: click.Context,
-        tag: str,
+        group: str,
     ) -> str:
         client = cast(ParlantClient, ctx.obj.client)
 
-        tag_id = Actions._fetch_tag_id(ctx, tag)
-        client.tags.delete(tag_id=tag_id)
+        group_id = Actions._fetch_group_id(ctx, group)
+        client.groups.delete(group_id=group_id)
 
-        return tag_id
+        return group_id
 
     @staticmethod
     def view_tool(
@@ -1185,7 +1180,7 @@ class Actions:
             client.canned_responses.delete(canned_response_id=canned_response.id)
 
         canned_responses = []
-        tag_ids = {tag.name: tag.id for tag in client.tags.list()}
+        group_ids = {group.name: group.id for group in client.groups.list()}
 
         for canned_response_data in data.get("canned_responses", []):
             value = canned_response_data["value"]
@@ -1196,14 +1191,17 @@ class Actions:
                 for canned_response_field in canned_response_data.get("fields", [])
             ]
 
-            tag_names = canned_response_data.get("tags", [])
+            group_names = canned_response_data.get("groups", [])
 
             signals = canned_response_data.get("signals", [])
 
             canned_response = client.canned_responses.create(
                 value=value,
                 fields=fields,
-                tags=[tag_ids[tag_name] for tag_name in tag_names if tag_name in tag_ids] or None,
+                groups=[
+                    group_ids[group_name] for group_name in group_names if group_name in group_ids
+                ]
+                or None,
                 signals=signals,
             )
 
@@ -1214,11 +1212,11 @@ class Actions:
     @staticmethod
     def list_journeys(
         ctx: click.Context,
-        tag: Optional[str] = None,
+        group: Optional[str] = None,
     ) -> list[Journey]:
         client = cast(ParlantClient, ctx.obj.client)
-        if tag:
-            return client.journeys.list(tag_id=Actions._fetch_tag_id(ctx, tag))
+        if group:
+            return client.journeys.list(group_id=Actions._fetch_group_id(ctx, group))
         else:
             return client.journeys.list()
 
@@ -1228,7 +1226,7 @@ class Actions:
         title: str,
         description: str,
         triggers: list[str],
-        tags: list[str],
+        groups: list[str],
     ) -> Journey:
         client = cast(ParlantClient, ctx.obj.client)
 
@@ -1236,7 +1234,7 @@ class Actions:
             title=title,
             description=description,
             triggers=triggers,
-            tags=tags,
+            groups=groups,
         )
 
         return journey
@@ -1245,7 +1243,7 @@ class Actions:
     def view_journey(
         ctx: click.Context,
         journey_id: str,
-    ) -> Journey:
+    ) -> JourneyGraph:
         client = cast(ParlantClient, ctx.obj.client)
         return client.journeys.retrieve(journey_id=journey_id)
 
@@ -1276,14 +1274,14 @@ class Actions:
     def add_journey_trigger(
         ctx: click.Context,
         journey_id: str,
-        guideline_id: Optional[str],
+        rule_id: Optional[str],
         trigger: Optional[str],
     ) -> Journey:
         client = cast(ParlantClient, ctx.obj.client)
 
-        guideline_id = (
-            guideline_id
-            or client.guidelines.create(
+        rule_id = (
+            rule_id
+            or client.rules.create(
                 condition=cast(str, trigger),
                 metadata={"journeys": [journey_id]},
             ).id
@@ -1291,46 +1289,50 @@ class Actions:
 
         return client.journeys.update(
             journey_id=journey_id,
-            triggers=JourneyTriggerUpdateParams(add=[guideline_id]),
+            triggers=JourneyTriggerUpdateParams(add=[rule_id]),
         )
 
     @staticmethod
     def remove_journey_trigger(
         ctx: click.Context,
         journey_id: str,
-        guideline_id: str,
+        rule_id: str,
     ) -> Journey:
         client = cast(ParlantClient, ctx.obj.client)
 
         return client.journeys.update(
             journey_id=journey_id,
-            triggers=JourneyTriggerUpdateParams(remove=[guideline_id]),
+            triggers=JourneyTriggerUpdateParams(remove=[rule_id]),
         )
 
     @staticmethod
-    def add_journey_tag(
+    def add_journey_group(
         ctx: click.Context,
         journey_id: str,
-        tag: str,
+        group: str,
     ) -> str:
         client = cast(ParlantClient, ctx.obj.client)
 
-        tag_id = Actions._fetch_tag_id(ctx, tag)
-        client.journeys.update(journey_id=journey_id, tags=JourneyTagUpdateParams(add=[tag_id]))
+        group_id = Actions._fetch_group_id(ctx, group)
+        client.journeys.update(
+            journey_id=journey_id, groups=JourneyGroupUpdateParams(add=[group_id])
+        )
 
-        return tag_id
+        return group_id
 
     @staticmethod
-    def remove_journey_tag(
+    def remove_journey_group(
         ctx: click.Context,
         journey_id: str,
-        tag: str,
+        group: str,
     ) -> str:
         client = cast(ParlantClient, ctx.obj.client)
-        tag_id = Actions._fetch_tag_id(ctx, tag)
-        client.journeys.update(journey_id=journey_id, tags=JourneyTagUpdateParams(remove=[tag_id]))
+        group_id = Actions._fetch_group_id(ctx, group)
+        client.journeys.update(
+            journey_id=journey_id, groups=JourneyGroupUpdateParams(remove=[group_id])
+        )
 
-        return tag_id
+        return group_id
 
     @staticmethod
     def create_capability(
@@ -1338,16 +1340,16 @@ class Actions:
         title: str,
         description: str,
         signals: list[str],
-        tags: list[str],
+        groups: list[str],
     ) -> Capability:
         client = cast(ParlantClient, ctx.obj.client)
-        tags = list(set([Actions._fetch_tag_id(ctx, t) for t in tags]))
+        groups = list(set([Actions._fetch_group_id(ctx, t) for t in groups]))
 
         return client.capabilities.create(
             title=title,
             description=description,
             signals=signals,
-            tags=tags,
+            groups=groups,
         )
 
     @staticmethod
@@ -1381,12 +1383,12 @@ class Actions:
     @staticmethod
     def list_capabilities(
         ctx: click.Context,
-        tag: Optional[str],
+        group: Optional[str],
     ) -> list[Capability]:
         client = cast(ParlantClient, ctx.obj.client)
 
-        if tag:
-            return client.capabilities.list(tag_id=Actions._fetch_tag_id(ctx, tag))
+        if group:
+            return client.capabilities.list(group_id=Actions._fetch_group_id(ctx, group))
         else:
             return client.capabilities.list()
 
@@ -1403,30 +1405,32 @@ class Actions:
     def add_capability_tag(
         ctx: click.Context,
         capability_id: str,
-        tag: str,
+        group: str,
     ) -> str:
         client = cast(ParlantClient, ctx.obj.client)
 
-        tag_id = Actions._fetch_tag_id(ctx, tag)
-        client.capabilities.update(capability_id, tags=CapabilityTagUpdateParams(add=[tag_id]))
+        group_id = Actions._fetch_group_id(ctx, group)
+        client.capabilities.update(
+            capability_id, groups=CapabilityGroupUpdateParams(add=[group_id])
+        )
 
-        return tag_id
+        return group_id
 
     @staticmethod
     def remove_capability_tag(
         ctx: click.Context,
         capability_id: str,
-        tag: str,
+        group: str,
     ) -> str:
         client = cast(ParlantClient, ctx.obj.client)
 
-        tag_id = Actions._fetch_tag_id(ctx, tag)
+        group_id = Actions._fetch_group_id(ctx, group)
         client.capabilities.update(
             capability_id,
-            tags=CapabilityTagUpdateParams(remove=[tag_id]),
+            groups=CapabilityGroupUpdateParams(remove=[group_id]),
         )
 
-        return tag_id
+        return group_id
 
     @staticmethod
     def stream_logs(
@@ -1566,7 +1570,7 @@ class Interface:
                 "Description": a.description or "",
                 "Max Engine Iterations": a.max_engine_iterations,
                 "Composition Mode": a.composition_mode.replace("_", "-"),
-                "Tags": ", ".join(a.tags or []),
+                "Groups": ", ".join(a.groups or []),
             }
             for a in agents
         ]
@@ -1580,7 +1584,7 @@ class Interface:
         description: Optional[str],
         max_engine_iterations: Optional[int],
         composition_mode: Optional[str],
-        tags: list[str],
+        groups: list[str],
     ) -> None:
         try:
             agent = Actions.create_agent(
@@ -1589,7 +1593,7 @@ class Interface:
                 description,
                 max_engine_iterations,
                 composition_mode,
-                tags,
+                groups,
             )
 
             Interface._write_success(f"Added agent (id: {agent.id})")
@@ -1663,19 +1667,19 @@ class Interface:
             set_exit_status(1)
 
     @staticmethod
-    def add_tag(ctx: click.Context, agent_id: str, tag: str) -> None:
+    def add_tag(ctx: click.Context, agent_id: str, group: str) -> None:
         try:
-            tag_id = Actions.add_tag(ctx, agent_id, tag)
-            Interface._write_success(f"Tagged agent (id: {agent_id}, tag_id: {tag_id})")
+            group_id = Actions.add_tag(ctx, agent_id, group)
+            Interface._write_success(f"Grouped agent (id: {agent_id}, group_id: {group_id})")
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
 
     @staticmethod
-    def remove_tag(ctx: click.Context, agent_id: str, tag: str) -> None:
+    def remove_group(ctx: click.Context, agent_id: str, group: str) -> None:
         try:
-            tag_id = Actions.remove_tag(ctx, agent_id, tag)
-            Interface._write_success(f"Untagged agent (id: {agent_id}, tag_id: {tag_id})")
+            group_id = Actions.remove_group(ctx, agent_id, group)
+            Interface._write_success(f"Untagged agent (id: {agent_id}, group_id: {group_id})")
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
@@ -1778,7 +1782,7 @@ class Interface:
                 "Name": term.name,
                 "Description": term.description,
                 "Synonyms": ", ".join(term.synonyms or []),
-                "Tags": ", ".join(term.tags),
+                "Groups": ", ".join(term.groups),
             }
             for term in terms
         ]
@@ -1791,14 +1795,14 @@ class Interface:
         name: str,
         description: str,
         synonyms: list[str],
-        tags: list[str],
+        groups: list[str],
     ) -> None:
         term = Actions.create_term(
             ctx,
             name,
             description,
             synonyms,
-            tags=tags,
+            groups=groups,
         )
 
         Interface._write_success(f"Added term (id: {term.id})")
@@ -1840,9 +1844,9 @@ class Interface:
     @staticmethod
     def list_terms(
         ctx: click.Context,
-        tag: Optional[str],
+        group: Optional[str],
     ) -> None:
-        terms = Actions.list_terms(ctx, tag)
+        terms = Actions.list_terms(ctx, group)
 
         if not terms:
             rich.print(Text("No data available", style="bold yellow"))
@@ -1854,47 +1858,47 @@ class Interface:
     def add_term_tag(
         ctx: click.Context,
         term_id: str,
-        tag: str,
+        group: str,
     ) -> None:
-        tag_id = Actions.add_term_tag(ctx, term_id, tag)
-        Interface._write_success(f"Added tag (id: {tag_id}) to term (id: {term_id})")
+        group_id = Actions.add_term_tag(ctx, term_id, group)
+        Interface._write_success(f"Added group (id: {group_id}) to term (id: {term_id})")
 
     @staticmethod
     def remove_term_tag(
         ctx: click.Context,
         term_id: str,
-        tag: str,
+        group: str,
     ) -> None:
-        tag_id = Actions.remove_term_tag(ctx, term_id, tag)
-        Interface._write_success(f"Removed tag (id: {tag_id}) from term (id: {term_id})")
+        group_id = Actions.remove_term_tag(ctx, term_id, group)
+        Interface._write_success(f"Removed group (id: {group_id}) from term (id: {term_id})")
 
     @staticmethod
-    def _render_guidelines(guidelines: list[Guideline]) -> None:
-        guideline_items: list[dict[str, Any]] = [
+    def _render_rules(rules: list[Rule]) -> None:
+        rule_items: list[dict[str, Any]] = [
             {
-                "ID": guideline.id,
-                "Condition": guideline.condition,
+                "ID": rule.id,
+                "Condition": rule.condition,
                 "Action": (
-                    guideline.action
-                    if guideline.action
-                    else f"Activate journey(s): {', '.join(tag.split('journey:')[1] for tag in guideline.tags if tag.startswith('journey:'))}"
-                    if any(tag for tag in guideline.tags if tag.startswith("journey:"))
+                    rule.action
+                    if rule.action
+                    else f"Activate journey(s): {', '.join(group.split('journey:')[1] for group in rule.groups if group.startswith('journey:'))}"
+                    if any(group for group in rule.groups if group.startswith("journey:"))
                     else "None"
                 ),
-                "Enabled": guideline.enabled,
-                "Tags": ", ".join(guideline.tags),
-                "Metadata": ", ".join([f"{k}: {v}" for k, v in guideline.metadata.items()])
-                if guideline.metadata
+                "Enabled": rule.enabled,
+                "Groups": ", ".join(rule.groups),
+                "Metadata": ", ".join([f"{k}: {v}" for k, v in rule.metadata.items()])
+                if rule.metadata
                 else "",
             }
-            for guideline in guidelines
+            for rule in rules
         ]
 
-        Interface._print_table(guideline_items)
+        Interface._print_table(rule_items)
 
     @staticmethod
     def _render_relationships(
-        entity: Guideline | Tag | Tool | None,
+        entity: Rule | Group | Tool | None,
         relationships: list[Relationship],
         include_indirect: bool,
     ) -> None:
@@ -1904,22 +1908,22 @@ class Interface:
                 "Kind": rel.kind,
             }
 
-            if rel.source_guideline:
+            if rel.source_rule:
                 result.update(
                     {
-                        "Source ID": rel.source_guideline.id,
-                        "Source Type": "Guideline",
-                        "Source Condition": rel.source_guideline.condition,
-                        "Source Action": rel.source_guideline.action or "",
+                        "Source ID": rel.source_rule.id,
+                        "Source Type": "Rule",
+                        "Source Condition": rel.source_rule.condition,
+                        "Source Action": rel.source_rule.action or "",
                     }
                 )
-            elif rel.source_tag:
-                assert rel.source_tag is not None
+            elif rel.source_group:
+                assert rel.source_group is not None
                 result.update(
                     {
-                        "Source ID": rel.source_tag.id,
-                        "Source Type": "Tag",
-                        "Source Name": rel.source_tag.name,
+                        "Source ID": rel.source_group.id,
+                        "Source Type": "Group",
+                        "Source Name": rel.source_group.name,
                     }
                 )
             elif rel.source_tool:
@@ -1930,22 +1934,22 @@ class Interface:
                         "Source Name": rel.source_tool.name,
                     }
                 )
-            if rel.target_guideline:
+            if rel.target_rule:
                 result.update(
                     {
-                        "Target ID": rel.target_guideline.id,
-                        "Target Type": "Guideline",
-                        "Target Condition": rel.target_guideline.condition,
-                        "Target Action": rel.target_guideline.action or "",
+                        "Target ID": rel.target_rule.id,
+                        "Target Type": "Rule",
+                        "Target Condition": rel.target_rule.condition,
+                        "Target Action": rel.target_rule.action or "",
                     }
                 )
-            elif rel.target_tag:
-                assert rel.target_tag is not None
+            elif rel.target_group:
+                assert rel.target_group is not None
                 result.update(
                     {
-                        "Target ID": rel.target_tag.id,
-                        "Target Type": "Tag",
-                        "Target Name": rel.target_tag.name,
+                        "Target ID": rel.target_group.id,
+                        "Target Type": "Group",
+                        "Target Name": rel.target_group.name,
                     }
                 )
             elif rel.target_tool:
@@ -1965,21 +1969,21 @@ class Interface:
                 "Kind": rel.kind,
             }
 
-            if rel.source_guideline:
+            if rel.source_rule:
                 result.update(
                     {
-                        "Source ID": rel.source_guideline.id,
-                        "Source Type": "Guideline",
-                        "Source Condition": rel.source_guideline.condition,
-                        "Source Action": rel.source_guideline.action or "",
+                        "Source ID": rel.source_rule.id,
+                        "Source Type": "Rule",
+                        "Source Condition": rel.source_rule.condition,
+                        "Source Action": rel.source_rule.action or "",
                     }
                 )
-            elif rel.source_tag:
+            elif rel.source_group:
                 result.update(
                     {
-                        "Source ID": rel.source_tag.id,
-                        "Source Type": "Tag",
-                        "Source Name": rel.source_tag.name,
+                        "Source ID": rel.source_group.id,
+                        "Source Type": "Group",
+                        "Source Name": rel.source_group.name,
                     }
                 )
             elif rel.source_tool:
@@ -1989,21 +1993,21 @@ class Interface:
                         "Source Name": rel.source_tool.name,
                     }
                 )
-            if rel.target_guideline:
+            if rel.target_rule:
                 result.update(
                     {
-                        "Target ID": rel.target_guideline.id,
-                        "Target Type": "Guideline",
-                        "Target Condition": rel.target_guideline.condition,
-                        "Target Action": rel.target_guideline.action or "",
+                        "Target ID": rel.target_rule.id,
+                        "Target Type": "Rule",
+                        "Target Condition": rel.target_rule.condition,
+                        "Target Action": rel.target_rule.action or "",
                     }
                 )
-            elif rel.target_tag:
+            elif rel.target_group:
                 result.update(
                     {
-                        "Target ID": rel.target_tag.id,
-                        "Target Type": "Tag",
-                        "Target Name": rel.target_tag.name,
+                        "Target ID": rel.target_group.id,
+                        "Target Type": "Group",
+                        "Target Name": rel.target_group.name,
                     }
                 )
             elif rel.target_tool:
@@ -2021,10 +2025,10 @@ class Interface:
                 for r in relationships
                 if entity
                 in (
-                    r.source_guideline,
-                    r.target_guideline,
-                    r.source_tag,
-                    r.target_tag,
+                    r.source_rule,
+                    r.target_rule,
+                    r.source_group,
+                    r.target_group,
                     r.source_tool,
                     r.target_tool,
                 )
@@ -2081,33 +2085,33 @@ class Interface:
                 )
 
     @staticmethod
-    def create_guideline(
+    def create_rule(
         ctx: click.Context,
         condition: str,
         action: Optional[str],
         tool_id: Optional[str],
-        tags: tuple[str],
+        groups: tuple[str],
     ) -> None:
         try:
-            guideline_with_relationships_and_associations = Actions.create_guideline(
+            rule_with_relationships_and_associations = Actions.create_rule(
                 ctx,
                 condition,
                 action,
                 tool_id,
-                tags=list(tags),
+                groups=list(groups),
             )
 
             Interface._write_success(
-                f"Added guideline (id: {guideline_with_relationships_and_associations.guideline.id})"
+                f"Added rule (id: {rule_with_relationships_and_associations.rule.id})"
             )
-            Interface._render_guidelines([guideline_with_relationships_and_associations.guideline])
+            Interface._render_rules([rule_with_relationships_and_associations.rule])
             Interface._render_relationships(
-                guideline_with_relationships_and_associations.guideline,
-                guideline_with_relationships_and_associations.relationships,
+                rule_with_relationships_and_associations.rule,
+                rule_with_relationships_and_associations.relationships,
                 include_indirect=False,
             )
-            Interface._render_guideline_tool_associations(
-                guideline_with_relationships_and_associations.tool_associations
+            Interface._render_rule_tool_associations(
+                rule_with_relationships_and_associations.tool_associations
             )
 
         except Exception as e:
@@ -2115,29 +2119,29 @@ class Interface:
             set_exit_status(1)
 
     @staticmethod
-    def update_guideline(
+    def update_rule(
         ctx: click.Context,
-        guideline_id: str,
+        rule_id: str,
         condition: str,
         action: str,
     ) -> None:
         try:
-            guideline_with_relationships_and_associations = Actions.update_guideline(
+            rule_with_relationships_and_associations = Actions.update_rule(
                 ctx,
-                guideline_id,
+                rule_id,
                 condition=condition,
                 action=action,
             )
 
-            guideline = guideline_with_relationships_and_associations.guideline
-            Interface._write_success(f"Updated guideline (id: {guideline.id})")
+            rule = rule_with_relationships_and_associations.rule
+            Interface._write_success(f"Updated rule (id: {rule.id})")
             Interface._render_relationships(
-                guideline_with_relationships_and_associations.guideline,
-                guideline_with_relationships_and_associations.relationships,
+                rule_with_relationships_and_associations.rule,
+                rule_with_relationships_and_associations.relationships,
                 include_indirect=False,
             )
-            Interface._render_guideline_tool_associations(
-                guideline_with_relationships_and_associations.tool_associations
+            Interface._render_rule_tool_associations(
+                rule_with_relationships_and_associations.tool_associations
             )
 
         except Exception as e:
@@ -2145,36 +2149,34 @@ class Interface:
             set_exit_status(1)
 
     @staticmethod
-    def delete_guideline(
+    def delete_rule(
         ctx: click.Context,
-        guideline_id: str,
+        rule_id: str,
     ) -> None:
         try:
-            Actions.delete_guideline(ctx, guideline_id)
+            Actions.delete_rule(ctx, rule_id)
 
-            Interface._write_success(f"Removed guideline (id: {guideline_id})")
+            Interface._write_success(f"Removed rule (id: {rule_id})")
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
 
     @staticmethod
-    def view_guideline(
+    def view_rule(
         ctx: click.Context,
-        guideline_id: str,
+        rule_id: str,
     ) -> None:
         try:
-            guideline_with_relationships_and_associations = Actions.view_guideline(
-                ctx, guideline_id
-            )
+            rule_with_relationships_and_associations = Actions.view_rule(ctx, rule_id)
 
-            Interface._render_guidelines([guideline_with_relationships_and_associations.guideline])
+            Interface._render_rules([rule_with_relationships_and_associations.rule])
             Interface._render_relationships(
-                guideline_with_relationships_and_associations.guideline,
-                guideline_with_relationships_and_associations.relationships,
+                rule_with_relationships_and_associations.rule,
+                rule_with_relationships_and_associations.relationships,
                 include_indirect=True,
             )
-            Interface._render_guideline_tool_associations(
-                guideline_with_relationships_and_associations.tool_associations
+            Interface._render_rule_tool_associations(
+                rule_with_relationships_and_associations.tool_associations
             )
 
         except Exception as e:
@@ -2182,39 +2184,39 @@ class Interface:
             set_exit_status(1)
 
     @staticmethod
-    def list_guidelines(
+    def list_rules(
         ctx: click.Context,
-        tag: Optional[str],
+        group: Optional[str],
         hide_disabled: bool,
     ) -> None:
         try:
-            guidelines = Actions.list_guidelines(ctx, tag)
+            rules = Actions.list_rules(ctx, group)
 
-            guidelines_to_render = sorted(
-                [g for g in guidelines if g.enabled or not hide_disabled],
+            rules_to_render = sorted(
+                [g for g in rules if g.enabled or not hide_disabled],
                 key=lambda g: g.enabled or False,
                 reverse=True,
             )
 
-            if not guidelines_to_render:
+            if not rules_to_render:
                 rich.print(Text("No data available", style="bold yellow"))
                 return
 
-            Interface._render_guidelines(guidelines_to_render)
+            Interface._render_rules(rules_to_render)
 
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
 
     @staticmethod
-    def _render_guideline_tool_associations(
-        associations: list[GuidelineToolAssociation],
+    def _render_rule_tool_associations(
+        associations: list[RuleToolAssociation],
     ) -> None:
         if associations:
             association_items = [
                 {
                     "Association ID": a.id,
-                    "Guideline ID": a.guideline_id,
+                    "Rule ID": a.rule_id,
                     "Service Name": a.tool_id.service_name,
                     "Tool Name": a.tool_id.tool_name,
                 }
@@ -2224,36 +2226,34 @@ class Interface:
             Interface._print_table(association_items)
 
     @staticmethod
-    def add_guideline_tool_association(
+    def add_rule_tool_association(
         ctx: click.Context,
-        guideline_id: str,
+        rule_id: str,
         service_name: str,
         tool_name: str,
     ) -> None:
         try:
-            guideline = Actions.add_guideline_tool_association(
-                ctx, guideline_id, service_name, tool_name
-            )
+            rule = Actions.add_rule_tool_association(ctx, rule_id, service_name, tool_name)
 
             Interface._write_success(
-                f"Enabled tool '{tool_name}' from service '{service_name}' for guideline '{guideline_id}'"
+                f"Enabled tool '{tool_name}' from service '{service_name}' for rule '{rule_id}'"
             )
-            Interface._render_guideline_tool_associations(guideline.tool_associations)
+            Interface._render_rule_tool_associations(rule.tool_associations)
 
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
 
     @staticmethod
-    def remove_guideline_tool_association(
+    def remove_rule_tool_association(
         ctx: click.Context,
-        guideline_id: str,
+        rule_id: str,
         service_name: str,
         tool_name: str,
     ) -> None:
         try:
-            association_id = Actions.remove_guideline_tool_association(
-                ctx, guideline_id, service_name, tool_name
+            association_id = Actions.remove_rule_tool_association(
+                ctx, rule_id, service_name, tool_name
             )
 
             Interface._write_success(f"Removed tool association (id: {association_id})")
@@ -2262,90 +2262,86 @@ class Interface:
             set_exit_status(1)
 
     @staticmethod
-    def enable_guideline(
+    def enable_rule(
         ctx: click.Context,
-        guideline_ids: tuple[str],
+        rule_ids: tuple[str],
     ) -> None:
         try:
-            guidelines = Actions.enable_guideline(ctx, guideline_ids)
+            rules = Actions.enable_rule(ctx, rule_ids)
 
-            Interface._write_success(f"Enabled guidelines (ids: {', '.join(guideline_ids)})")
+            Interface._write_success(f"Enabled rules (ids: {', '.join(rule_ids)})")
 
-            Interface._render_guidelines(guidelines)
+            Interface._render_rules(rules)
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
 
     @staticmethod
-    def disable_guideline(
+    def disable_rule(
         ctx: click.Context,
-        guideline_ids: tuple[str],
+        rule_ids: tuple[str],
     ) -> None:
         try:
-            guidelines = Actions.disable_guideline(ctx, guideline_ids)
+            rules = Actions.disable_rule(ctx, rule_ids)
 
-            Interface._write_success(f"Disabled guidelines (ids: {', '.join(guideline_ids)})")
+            Interface._write_success(f"Disabled rules (ids: {', '.join(rule_ids)})")
 
-            Interface._render_guidelines(guidelines)
+            Interface._render_rules(rules)
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
 
     @staticmethod
-    def add_guideline_tag(
+    def add_rule_group(
         ctx: click.Context,
-        guideline_id: str,
-        tag: str,
+        rule_id: str,
+        group: str,
     ) -> None:
         try:
-            tag_id = Actions.add_guideline_tag(ctx, guideline_id, tag)
-            Interface._write_success(f"Added tag (id: {tag_id}) to guideline (id: {guideline_id})")
+            group_id = Actions.add_rule_group(ctx, rule_id, group)
+            Interface._write_success(f"Added group (id: {group_id}) to rule (id: {rule_id})")
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
 
     @staticmethod
-    def remove_guideline_tag(
+    def remove_rule_group(
         ctx: click.Context,
-        guideline_id: str,
-        tag: str,
+        rule_id: str,
+        group: str,
     ) -> None:
         try:
-            tag_id = Actions.remove_guideline_tag(ctx, guideline_id, tag)
-            Interface._write_success(
-                f"Removed tag (id: {tag_id}) from guideline (id: {guideline_id})"
-            )
+            group_id = Actions.remove_rule_group(ctx, rule_id, group)
+            Interface._write_success(f"Removed group (id: {group_id}) from rule (id: {rule_id})")
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
 
     @staticmethod
-    def set_guideline_metadata(
+    def set_rule_metadata(
         ctx: click.Context,
-        guideline_id: str,
+        rule_id: str,
         key: str,
         value: str,
     ) -> None:
         try:
-            Actions.set_guideline_metadata(ctx, guideline_id, key, value)
+            Actions.set_rule_metadata(ctx, rule_id, key, value)
             Interface._write_success(
-                f"Added metadata (key: {key}, value: {value}) to guideline (id: {guideline_id})"
+                f"Added metadata (key: {key}, value: {value}) to rule (id: {rule_id})"
             )
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
 
     @staticmethod
-    def unset_guideline_metadata(
+    def unset_rule_metadata(
         ctx: click.Context,
-        guideline_id: str,
+        rule_id: str,
         key: str,
     ) -> None:
         try:
-            Actions.unset_guideline_metadata(ctx, guideline_id, key)
-            Interface._write_success(
-                f"Removed metadata (key: {key}) from guideline (id: {guideline_id})"
-            )
+            Actions.unset_rule_metadata(ctx, rule_id, key)
+            Interface._write_success(f"Removed metadata (key: {key}) from rule (id: {rule_id})")
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
@@ -2395,8 +2391,8 @@ class Interface:
     @staticmethod
     def list_relationships(
         ctx: click.Context,
-        guideline_id: Optional[str],
-        tag: Optional[str],
+        rule_id: Optional[str],
+        group: Optional[str],
         tool_id: Optional[str],
         kind: Optional[RelationshipKindDto],
         indirect: Optional[bool],
@@ -2404,8 +2400,8 @@ class Interface:
         try:
             relationships = Actions.list_relationships(
                 ctx,
-                guideline_id=guideline_id,
-                tag=tag,
+                rule_id=rule_id,
+                group=group,
                 tool_id=tool_id,
                 kind=kind,
                 indirect=indirect,
@@ -2415,11 +2411,11 @@ class Interface:
                 rich.print(Text("No data available", style="bold yellow"))
                 return
 
-            entity: Guideline | Tag | Tool | None = None
-            if guideline_id:
-                entity = Actions.view_guideline(ctx, guideline_id).guideline
-            elif tag:
-                entity = Actions.view_tag(ctx, tag)
+            entity: Rule | Group | Tool | None = None
+            if rule_id:
+                entity = Actions.view_rule(ctx, rule_id).rule
+            elif group:
+                entity = Actions.view_tag(ctx, group)
             elif tool_id:
                 entity = Actions.view_tool(ctx, tool_id)
 
@@ -2443,7 +2439,7 @@ class Interface:
                 "Service Name": variable.tool_id.service_name if variable.tool_id else "",
                 "Tool Name": variable.tool_id.tool_name if variable.tool_id else "",
                 "Freshness Rules": variable.freshness_rules,
-                "Tags": ", ".join(variable.tags or []),
+                "Groups": ", ".join(variable.groups or []),
             }
             for variable in variables
         ]
@@ -2453,9 +2449,9 @@ class Interface:
     @staticmethod
     def list_variables(
         ctx: click.Context,
-        tag: Optional[str],
+        group: Optional[str],
     ) -> None:
-        variables = Actions.list_variables(ctx, tag)
+        variables = Actions.list_variables(ctx, group)
 
         if not variables:
             rich.print("No variables found")
@@ -2471,7 +2467,7 @@ class Interface:
         service_name: Optional[str],
         tool_name: Optional[str],
         freshness_rules: Optional[str],
-        tags: list[str],
+        groups: list[str],
     ) -> None:
         variable = Actions.create_variable(
             ctx,
@@ -2480,7 +2476,7 @@ class Interface:
             service_name,
             tool_name,
             freshness_rules,
-            tags=tags,
+            groups=groups,
         )
 
         Interface._write_success(f"Added variable (id: {variable.id})")
@@ -2606,20 +2602,22 @@ class Interface:
             set_exit_status(1)
 
     @staticmethod
-    def add_variable_tag(ctx: click.Context, variable_id: str, tag: str) -> None:
+    def add_variable_tag(ctx: click.Context, variable_id: str, group: str) -> None:
         try:
-            tag_id = Actions.add_variable_tag(ctx, variable_id, tag)
-            Interface._write_success(f"Added tag (id: {tag_id}) to variable (id: {variable_id})")
+            group_id = Actions.add_variable_tag(ctx, variable_id, group)
+            Interface._write_success(
+                f"Added group (id: {group_id}) to variable (id: {variable_id})"
+            )
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
 
     @staticmethod
-    def remove_variable_tag(ctx: click.Context, variable_id: str, tag: str) -> None:
+    def remove_variable_tag(ctx: click.Context, variable_id: str, group: str) -> None:
         try:
-            tag_id = Actions.remove_variable_tag(ctx, variable_id, tag)
+            group_id = Actions.remove_variable_tag(ctx, variable_id, group)
             Interface._write_success(
-                f"Removed tag (id: {tag_id}) from variable (id: {variable_id})"
+                f"Removed group (id: {group_id}) from variable (id: {variable_id})"
             )
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
@@ -2729,7 +2727,7 @@ class Interface:
                 "ID": customer.id,
                 "Name": customer.name,
                 "Metadata": customer.metadata,
-                "Tags": ", ".join(customer.tags),
+                "Groups": ", ".join(customer.groups),
             }
             for customer in customers
         ]
@@ -2753,13 +2751,13 @@ class Interface:
     def create_customer(
         ctx: click.Context,
         name: str,
-        tags: list[str],
+        groups: list[str],
     ) -> None:
         try:
             customer = Actions.create_customer(
                 ctx,
                 name,
-                tags,
+                groups,
             )
 
             Interface._write_success(f"Added customer (id: {customer.id})")
@@ -2823,11 +2821,11 @@ class Interface:
     def add_customer_tag(
         ctx: click.Context,
         customer_id: str,
-        tag: str,
+        group: str,
     ) -> None:
         try:
-            tag_id = Actions.add_customer_tag(ctx, customer_id, tag)
-            Interface._write_success(f"Tagged customer (id: {customer_id}, tag_id: {tag_id})")
+            group_id = Actions.add_customer_tag(ctx, customer_id, group)
+            Interface._write_success(f"Grouped customer (id: {customer_id}, group_id: {group_id})")
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
@@ -2836,63 +2834,63 @@ class Interface:
     def remove_customer_tag(
         ctx: click.Context,
         customer_id: str,
-        tag: str,
+        group: str,
     ) -> None:
         try:
-            tag_id = Actions.remove_customer_tag(ctx, customer_id, tag)
-            Interface._write_success(f"Untagged customer (id: {customer_id}, tag_id: {tag_id})")
+            group_id = Actions.remove_customer_tag(ctx, customer_id, group)
+            Interface._write_success(f"Untagged customer (id: {customer_id}, group_id: {group_id})")
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
 
     @staticmethod
-    def _render_tags(tags: list[Tag]) -> None:
+    def _render_tags(groups: list[Group]) -> None:
         tag_items: list[dict[str, Any]] = [
             {
-                "ID": tag.id,
-                "Name": tag.name,
+                "ID": group.id,
+                "Name": group.name,
             }
-            for tag in tags
+            for group in groups
         ]
 
         Interface._print_table(tag_items)
 
     @staticmethod
-    def list_tags(ctx: click.Context) -> None:
+    def list_groups(ctx: click.Context) -> None:
         try:
-            tags = Actions.list_tags(ctx)
-            if not tags:
-                rich.print("No tags found.")
+            groups = Actions.list_groups(ctx)
+            if not groups:
+                rich.print("No groups found.")
                 return
 
-            Interface._render_tags(tags)
+            Interface._render_tags(groups)
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
 
     @staticmethod
-    def create_tag(ctx: click.Context, name: str) -> None:
+    def create_group(ctx: click.Context, name: str) -> None:
         try:
-            tag = Actions.create_tag(ctx, name=name)
-            Interface._write_success(f"Added tag (id: {tag.id})")
+            group = Actions.create_group(ctx, name=name)
+            Interface._write_success(f"Added group (id: {group.id})")
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
 
     @staticmethod
-    def view_tag(ctx: click.Context, tag: str) -> None:
+    def view_tag(ctx: click.Context, group: str) -> None:
         try:
-            tag_dto = Actions.view_tag(ctx, tag)
+            tag_dto = Actions.view_tag(ctx, group)
             Interface._render_tags([tag_dto])
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
 
     @staticmethod
-    def update_tag(ctx: click.Context, tag: str, name: str) -> None:
+    def update_group(ctx: click.Context, group: str, name: str) -> None:
         try:
-            tag_dto = Actions.update_tag(ctx, tag=tag, name=name)
-            Interface._write_success(f"Updated tag (id: {tag_dto.id})")
+            tag_dto = Actions.update_group(ctx, group=group, name=name)
+            Interface._write_success(f"Updated group (id: {tag_dto.id})")
 
             Interface._render_tags([tag_dto])
         except Exception as e:
@@ -2900,10 +2898,10 @@ class Interface:
             set_exit_status(1)
 
     @staticmethod
-    def delete_tag(ctx: click.Context, tag: str) -> None:
+    def delete_group(ctx: click.Context, group: str) -> None:
         try:
-            tag_id = Actions.delete_tag(ctx, tag)
-            Interface._write_success(f"Removed tag (id: {tag_id})")
+            group_id = Actions.delete_group(ctx, group)
+            Interface._write_success(f"Removed group (id: {group_id})")
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
@@ -2919,7 +2917,7 @@ class Interface:
                     for s in f.fields
                 ]
                 or "",
-                "Tags": ", ".join(f.tags),
+                "Groups": ", ".join(f.groups),
                 "Creation Date": reformat_datetime(f.creation_utc),
             }
             for f in canreps
@@ -2969,8 +2967,8 @@ class Interface:
                 "ID": journey.id,
                 "Title": journey.title,
                 "Description": journey.description,
-                "Trigger Guideline IDs": ", ".join(journey.triggers),
-                "Tags": ", ".join(journey.tags or []),
+                "Trigger Rule IDs": ", ".join(journey.triggers),
+                "Groups": ", ".join(journey.groups or []),
             }
             for journey in journeys
         ]
@@ -2980,10 +2978,10 @@ class Interface:
     @staticmethod
     def list_journeys(
         ctx: click.Context,
-        tag: Optional[str],
+        group: Optional[str],
     ) -> None:
         try:
-            journeys = Actions.list_journeys(ctx, tag)
+            journeys = Actions.list_journeys(ctx, group)
 
             if not journeys:
                 rich.print(Text("No data available", style="bold yellow"))
@@ -3001,10 +2999,10 @@ class Interface:
         title: str,
         description: str,
         triggers: list[str],
-        tags: list[str],
+        groups: list[str],
     ) -> None:
         try:
-            journey = Actions.create_journey(ctx, title, description, triggers, tags)
+            journey = Actions.create_journey(ctx, title, description, triggers, groups)
             Interface._write_success(f"Created journey (id: {journey.id})")
             Interface._render_journeys([journey])
 
@@ -3031,11 +3029,11 @@ class Interface:
     def add_journey_trigger(
         ctx: click.Context,
         journey_id: str,
-        guideline_id: Optional[str],
+        rule_id: Optional[str],
         trigger: Optional[str],
     ) -> None:
         try:
-            journey = Actions.add_journey_trigger(ctx, journey_id, guideline_id, trigger)
+            journey = Actions.add_journey_trigger(ctx, journey_id, rule_id, trigger)
             Interface._write_success(f"Added trigger to journey (id: {journey.id})")
             Interface._render_journeys([journey])
         except Exception as e:
@@ -3046,10 +3044,10 @@ class Interface:
     def remove_journey_trigger(
         ctx: click.Context,
         journey_id: str,
-        guideline_id: str,
+        rule_id: str,
     ) -> None:
         try:
-            journey = Actions.remove_journey_trigger(ctx, journey_id, guideline_id)
+            journey = Actions.remove_journey_trigger(ctx, journey_id, rule_id)
             Interface._write_success(f"Removed trigger from journey (id: {journey.id})")
             Interface._render_journeys([journey])
         except Exception as e:
@@ -3057,27 +3055,29 @@ class Interface:
             set_exit_status(1)
 
     @staticmethod
-    def add_journey_tag(
+    def add_journey_group(
         ctx: click.Context,
         journey_id: str,
-        tag: str,
+        group: str,
     ) -> None:
         try:
-            tag_id = Actions.add_journey_tag(ctx, journey_id, tag)
-            Interface._write_success(f"Added tag (id: {tag_id}) to journey (id: {journey_id})")
+            group_id = Actions.add_journey_group(ctx, journey_id, group)
+            Interface._write_success(f"Added group (id: {group_id}) to journey (id: {journey_id})")
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
 
     @staticmethod
-    def remove_journey_tag(
+    def remove_journey_group(
         ctx: click.Context,
         journey_id: str,
-        tag: str,
+        group: str,
     ) -> None:
         try:
-            tag_id = Actions.remove_journey_tag(ctx, journey_id, tag)
-            Interface._write_success(f"Removed tag (id: {tag_id}) from journey (id: {journey_id})")
+            group_id = Actions.remove_journey_group(ctx, journey_id, group)
+            Interface._write_success(
+                f"Removed group (id: {group_id}) from journey (id: {journey_id})"
+            )
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
             set_exit_status(1)
@@ -3099,7 +3099,7 @@ class Interface:
                 "Title": c.title,
                 "Description": c.description,
                 "Signals": ", ".join(c.signals),
-                "Tags": ", ".join(c.tags or []),
+                "Groups": ", ".join(c.groups or []),
             }
             for c in capabilities
         ]
@@ -3111,10 +3111,10 @@ class Interface:
         title: str,
         description: str,
         signals: list[str],
-        tags: list[str],
+        groups: list[str],
     ) -> None:
         try:
-            capability = Actions.create_capability(ctx, title, description, signals, tags)
+            capability = Actions.create_capability(ctx, title, description, signals, groups)
 
             Interface._write_success(f"Added capability (id: {getattr(capability, 'id', '')})")
 
@@ -3155,9 +3155,9 @@ class Interface:
             set_exit_status(1)
 
     @staticmethod
-    def list_capabilities(ctx: click.Context, tag: Optional[str]) -> None:
+    def list_capabilities(ctx: click.Context, group: Optional[str]) -> None:
         try:
-            capabilities = Actions.list_capabilities(ctx, tag)
+            capabilities = Actions.list_capabilities(ctx, group)
 
             if not capabilities:
                 rich.print(Text("No data available", style="bold yellow"))
@@ -3182,13 +3182,13 @@ class Interface:
     def add_capability_tag(
         ctx: click.Context,
         capability_id: str,
-        tag: str,
+        group: str,
     ) -> None:
         try:
-            tag_id = Actions.add_capability_tag(ctx, capability_id, tag)
+            group_id = Actions.add_capability_tag(ctx, capability_id, group)
 
             Interface._write_success(
-                f"Added tag (id: {tag_id}) to capability (id: {capability_id})"
+                f"Added group (id: {group_id}) to capability (id: {capability_id})"
             )
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
@@ -3198,13 +3198,13 @@ class Interface:
     def remove_capability_tag(
         ctx: click.Context,
         capability_id: str,
-        tag: str,
+        group: str,
     ) -> None:
         try:
-            tag_id = Actions.remove_capability_tag(ctx, capability_id, tag)
+            group_id = Actions.remove_capability_tag(ctx, capability_id, group)
 
             Interface._write_success(
-                f"Removed tag (id: {tag_id}) from capability (id: {capability_id})"
+                f"Removed group (id: {group_id}) from capability (id: {capability_id})"
             )
         except Exception as e:
             Interface.write_error(f"Error: {type(e).__name__}: {e}")
@@ -3233,10 +3233,10 @@ def tag_option(
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     def decorator(f: Callable[..., Any]) -> Callable[..., Any]:
         return click.option(
-            "--tag",
+            "--group",
             type=str,
-            metavar="TAG_NAME | TAG_ID",
-            help="Tag name or ID. May be specified multiple times.",
+            metavar="GROUP_NAME | GROUP_ID",
+            help="Group name or ID. May be specified multiple times.",
             required=required,
             multiple=multiple,
         )(f)
@@ -3315,7 +3315,7 @@ async def async_main() -> None:
         description: Optional[str],
         max_engine_iterations: Optional[int],
         composition_mode: Optional[str],
-        tag: tuple[str],
+        group: tuple[str],
     ) -> None:
         if composition_mode:
             composition_mode = composition_mode.replace("-", "_")
@@ -3326,7 +3326,7 @@ async def async_main() -> None:
             description=description,
             max_engine_iterations=max_engine_iterations,
             composition_mode=composition_mode,
-            tags=list(tag),
+            groups=list(group),
         )
 
     @agent.command("delete", help="Delete an agent")
@@ -3398,19 +3398,19 @@ async def async_main() -> None:
 
         Interface.update_agent(ctx, id, name, description, max_engine_iterations, composition_mode)
 
-    @agent.command("tag", help="Tag an agent")
+    @agent.command("group", help="Group an agent")
     @click.option("--id", type=str, metavar="ID", help="Agent ID", required=True)
     @tag_option(required=True)
     @click.pass_context
-    def agent_tag(ctx: click.Context, id: str, tag: str) -> None:
-        Interface.add_tag(ctx, id, tag)
+    def agent_group(ctx: click.Context, id: str, group: str) -> None:
+        Interface.add_tag(ctx, id, group)
 
     @agent.command("untag", help="Untag an agent")
     @click.option("--id", type=str, metavar="ID", help="Agent ID", required=True)
     @tag_option(required=True)
     @click.pass_context
-    def agent_remove_tag(ctx: click.Context, id: str, tag: str) -> None:
-        Interface.remove_tag(ctx, id, tag)
+    def agent_remove_group(ctx: click.Context, id: str, group: str) -> None:
+        Interface.remove_group(ctx, id, group)
 
     @cli.group(help="Manage sessions")
     def session() -> None:
@@ -3512,14 +3512,14 @@ async def async_main() -> None:
         name: str,
         description: str,
         synonyms: Optional[str],
-        tag: tuple[str],
+        group: tuple[str],
     ) -> None:
         Interface.create_term(
             ctx,
             name,
             description,
             (synonyms or "").split(","),
-            list(tag),
+            list(group),
         )
 
     @glossary.command("update", help="Update a term")
@@ -3574,23 +3574,23 @@ async def async_main() -> None:
     @click.pass_context
     def glossary_list(
         ctx: click.Context,
-        tag: Optional[str],
+        group: Optional[str],
     ) -> None:
-        Interface.list_terms(ctx, tag)
+        Interface.list_terms(ctx, group)
 
-    @glossary.command("tag", help="Tag a term")
+    @glossary.command("group", help="Group a term")
     @click.option("--id", type=str, metavar="ID", help="Term ID", required=True)
     @tag_option(required=True)
     @click.pass_context
     def glossary_tag(
         ctx: click.Context,
         id: str,
-        tag: str,
+        group: str,
     ) -> None:
         Interface.add_term_tag(
             ctx=ctx,
             term_id=id,
-            tag=tag,
+            group=group,
         )
 
     @glossary.command("untag", help="Untag from a term")
@@ -3600,70 +3600,70 @@ async def async_main() -> None:
     def glossary_untag(
         ctx: click.Context,
         id: str,
-        tag: str,
+        group: str,
     ) -> None:
         Interface.remove_term_tag(
             ctx=ctx,
             term_id=id,
-            tag=tag,
+            group=group,
         )
 
-    @cli.group(help="Manage an agent's guidelines")
-    def guideline() -> None:
+    @cli.group(help="Manage an agent's rules")
+    def rule() -> None:
         pass
 
-    @guideline.command("create", help="Create a guideline")
+    @rule.command("create", help="Create a rule")
     @click.option(
         "--condition",
         type=str,
-        help="A statement describing when the guideline should apply",
+        help="A statement describing when the rule should apply",
         required=True,
     )
     @click.option(
         "--action",
         type=str,
-        help="The instruction to perform when the guideline applies",
+        help="The instruction to perform when the rule applies",
         required=False,
     )
     @click.option(
         "--tool-id",
         type=str,
-        help="The ID of the tool to associate with the guideline, in the format service_name:tool_name",
+        help="The ID of the tool to associate with the rule, in the format service_name:tool_name",
         required=False,
     )
     @tag_option(multiple=True)
     @click.pass_context
-    def guideline_create(
+    def rule_create(
         ctx: click.Context,
         condition: str,
         action: Optional[str],
         tool_id: Optional[str],
-        tag: tuple[str],
+        group: tuple[str],
     ) -> None:
-        Interface.create_guideline(
+        Interface.create_rule(
             ctx=ctx,
             condition=condition,
             action=action,
             tool_id=tool_id,
-            tags=tag,
+            groups=group,
         )
 
-    @guideline.command("update", help="Update a guideline")
-    @click.option("--id", type=str, metavar="ID", help="Guideline ID", required=True)
+    @rule.command("update", help="Update a rule")
+    @click.option("--id", type=str, metavar="ID", help="Rule ID", required=True)
     @click.option(
         "--condition",
         type=str,
-        help="A statement describing when the guideline should apply",
+        help="A statement describing when the rule should apply",
         required=False,
     )
     @click.option(
         "--action",
         type=str,
-        help="The instruction to perform when the guideline applies",
+        help="The instruction to perform when the rule applies",
         required=False,
     )
     @click.pass_context
-    def guideline_update(
+    def rule_update(
         ctx: click.Context,
         id: str,
         condition: str,
@@ -3674,50 +3674,50 @@ async def async_main() -> None:
             set_exit_status(1)
             raise FastExit()
 
-        Interface.update_guideline(
+        Interface.update_rule(
             ctx=ctx,
-            guideline_id=id,
+            rule_id=id,
             condition=condition,
             action=action,
         )
 
-    @guideline.command("delete", help="Delete a guideline")
-    @click.option("--id", type=str, metavar="ID", help="Guideline ID", required=True)
+    @rule.command("delete", help="Delete a rule")
+    @click.option("--id", type=str, metavar="ID", help="Rule ID", required=True)
     @click.pass_context
-    def guideline_delete(
+    def rule_delete(
         ctx: click.Context,
         id: str,
     ) -> None:
-        Interface.delete_guideline(ctx, id)
+        Interface.delete_rule(ctx, id)
 
-    @guideline.command("view", help="View a guideline")
-    @click.option("--id", type=str, metavar="ID", help="Guideline ID", required=True)
+    @rule.command("view", help="View a rule")
+    @click.option("--id", type=str, metavar="ID", help="Rule ID", required=True)
     @click.pass_context
-    def guideline_view(
+    def rule_view(
         ctx: click.Context,
         id: str,
     ) -> None:
-        Interface.view_guideline(ctx, id)
+        Interface.view_rule(ctx, id)
 
-    @guideline.command("list", help="List guidelines")
+    @rule.command("list", help="List rules")
     @tag_option()
     @click.option(
         "--hide-disabled",
         type=bool,
         show_default=True,
         default=False,
-        help="Hide disabled guidelines",
+        help="Hide disabled rules",
     )
     @click.pass_context
-    def guideline_list(
+    def rule_list(
         ctx: click.Context,
-        tag: Optional[str],
+        group: Optional[str],
         hide_disabled: bool,
     ) -> None:
-        Interface.list_guidelines(ctx, tag, hide_disabled)
+        Interface.list_rules(ctx, group, hide_disabled)
 
-    @guideline.command("tool-enable", help="Allow a guideline to make use of a tool")
-    @click.option("--id", type=str, metavar="ID", help="Guideline ID", required=False)
+    @rule.command("tool-enable", help="Allow a rule to make use of a tool")
+    @click.option("--id", type=str, metavar="ID", help="Rule ID", required=False)
     @click.option(
         "--service",
         type=str,
@@ -3734,7 +3734,7 @@ async def async_main() -> None:
         required=False,
     )
     @click.pass_context
-    def guideline_enable_tool(
+    def rule_enable_tool(
         ctx: click.Context,
         id: str,
         service: Optional[str],
@@ -3760,15 +3760,15 @@ async def async_main() -> None:
             service_name = service
             tool_name = tool
 
-        Interface.add_guideline_tool_association(
+        Interface.add_rule_tool_association(
             ctx=ctx,
-            guideline_id=id,
+            rule_id=id,
             service_name=service_name,
             tool_name=tool_name,
         )
 
-    @guideline.command("tool-disable", help="Disallow a guideline to make use of a tool")
-    @click.option("--id", type=str, metavar="ID", help="Guideline ID", required=True)
+    @rule.command("tool-disable", help="Disallow a rule to make use of a tool")
+    @click.option("--id", type=str, metavar="ID", help="Rule ID", required=True)
     @click.option(
         "--service",
         type=str,
@@ -3778,103 +3778,103 @@ async def async_main() -> None:
     )
     @click.option("--tool", type=str, metavar="NAME", help="Tool name", required=True)
     @click.pass_context
-    def guideline_disable_tool(
+    def rule_disable_tool(
         ctx: click.Context,
         id: str,
         service: str,
         tool: str,
     ) -> None:
-        Interface.remove_guideline_tool_association(
+        Interface.remove_rule_tool_association(
             ctx=ctx,
-            guideline_id=id,
+            rule_id=id,
             service_name=service,
             tool_name=tool,
         )
 
-    @guideline.command("enable", help="Enable a guideline")
+    @rule.command("enable", help="Enable a rule")
     @click.option(
         "--id",
         "ids",
         type=str,
         metavar="ID",
-        help="Guideline ID, May be specified multiple times.",
+        help="Rule ID, May be specified multiple times.",
         required=True,
         multiple=True,
     )
     @click.pass_context
-    def guideline_enable(
+    def rule_enable(
         ctx: click.Context,
         ids: tuple[str],
     ) -> None:
-        Interface.enable_guideline(
+        Interface.enable_rule(
             ctx=ctx,
-            guideline_ids=ids,
+            rule_ids=ids,
         )
 
-    @guideline.command("disable", help="Disable a guideline")
+    @rule.command("disable", help="Disable a rule")
     @click.option(
         "--id",
         "ids",
         type=str,
         metavar="ID",
-        help="Guideline ID, May be specified multiple times.",
+        help="Rule ID, May be specified multiple times.",
         required=True,
         multiple=True,
     )
     @click.pass_context
-    def guideline_disable(
+    def rule_disable(
         ctx: click.Context,
         ids: tuple[str],
     ) -> None:
-        Interface.disable_guideline(
+        Interface.disable_rule(
             ctx=ctx,
-            guideline_ids=ids,
+            rule_ids=ids,
         )
 
-    @guideline.command("tag", help="Tag a guideline")
-    @click.option("--id", type=str, metavar="ID", help="Guideline ID", required=True)
+    @rule.command("group", help="Group a rule")
+    @click.option("--id", type=str, metavar="ID", help="Rule ID", required=True)
     @tag_option(required=True)
     @click.pass_context
-    def guideline_tag(
+    def rule_group(
         ctx: click.Context,
         id: str,
-        tag: str,
+        group: str,
     ) -> None:
-        Interface.add_guideline_tag(
+        Interface.add_rule_group(
             ctx=ctx,
-            guideline_id=id,
-            tag=tag,
+            rule_id=id,
+            group=group,
         )
 
-    @guideline.command("untag", help="Untag from a guideline")
-    @click.option("--id", type=str, metavar="ID", help="Guideline ID", required=True)
+    @rule.command("untag", help="Untag from a rule")
+    @click.option("--id", type=str, metavar="ID", help="Rule ID", required=True)
     @tag_option(required=True)
     @click.pass_context
-    def guideline_untag(
+    def rule_untag(
         ctx: click.Context,
         id: str,
-        tag: str,
+        group: str,
     ) -> None:
-        Interface.remove_guideline_tag(
+        Interface.remove_rule_group(
             ctx=ctx,
-            guideline_id=id,
-            tag=tag,
+            rule_id=id,
+            group=group,
         )
 
-    @guideline.command("set", help="Set metadata for a guideline using a key and value")
-    @click.option("--id", type=str, metavar="ID", help="Guideline ID", required=True)
+    @rule.command("set", help="Set metadata for a rule using a key and value")
+    @click.option("--id", type=str, metavar="ID", help="Rule ID", required=True)
     @click.option("--key", type=str, metavar="KEY", help="Key", required=True)
     @click.option("--value", type=str, metavar="VALUE", help="Value", required=True)
     @click.pass_context
-    def guideline_set(ctx: click.Context, id: str, key: str, value: str) -> None:
-        Interface.set_guideline_metadata(ctx, id, key, value)
+    def rule_set(ctx: click.Context, id: str, key: str, value: str) -> None:
+        Interface.set_rule_metadata(ctx, id, key, value)
 
-    @guideline.command("unset", help="Remove metadata for a guideline using a key")
-    @click.option("--id", type=str, metavar="ID", help="Guideline ID", required=True)
+    @rule.command("unset", help="Remove metadata for a rule using a key")
+    @click.option("--id", type=str, metavar="ID", help="Rule ID", required=True)
     @click.option("--key", type=str, metavar="KEY", help="Key", required=True)
     @click.pass_context
-    def guideline_unset(ctx: click.Context, id: str, key: str) -> None:
-        Interface.unset_guideline_metadata(ctx, id, key)
+    def rule_unset(ctx: click.Context, id: str, key: str) -> None:
+        Interface.unset_rule_metadata(ctx, id, key)
 
     @cli.group(help="Manage relationships")
     def relationship() -> None:
@@ -3884,15 +3884,15 @@ async def async_main() -> None:
     @click.option(
         "--source",
         type=str,
-        metavar="TAG_NAME | TAG_ID | GUIDELINE_ID | TOOL_ID",
-        help="Source tag or guideline ID or tool ID",
+        metavar="GROUP_NAME | GROUP_ID | RULE_ID | TOOL_ID",
+        help="Source group or rule ID or tool ID",
         required=True,
     )
     @click.option(
         "--target",
         type=str,
-        metavar="TAG_NAME | TAG_ID | GUIDELINE_ID | TOOL_ID",
-        help="Target tag or guideline ID or tool ID",
+        metavar="GROUP_NAME | GROUP_ID | RULE_ID | TOOL_ID",
+        help="Target group or rule ID or tool ID",
         required=True,
     )
     @click.option(
@@ -3924,19 +3924,19 @@ async def async_main() -> None:
             kind=kind,
         )
 
-    @relationship.command("delete", help="Delete a relationship between two guidelines")
+    @relationship.command("delete", help="Delete a relationship between two rules")
     @click.option("--id", type=str, metavar="ID", help="Relationship ID")
     @click.option(
         "--source",
         type=str,
-        metavar="GUIDELINE_ID",
+        metavar="RULE_ID",
         help="Source of the relationship",
     )
     @click.option(
         "--target",
         type=str,
-        metavar="TAG_NAME | TAG_ID | GUIDELINE_ID",
-        help="Target tag or guideline ID",
+        metavar="GROUP_NAME | GROUP_ID | RULE_ID",
+        help="Target group or rule ID",
     )
     @click.option(
         "--kind",
@@ -3996,10 +3996,10 @@ async def async_main() -> None:
         required=False,
     )
     @click.option(
-        "--guideline-id",
+        "--rule-id",
         type=str,
-        metavar="GUIDELINE_ID",
-        help="Guideline ID",
+        metavar="RULE_ID",
+        help="Rule ID",
         required=False,
     )
     @click.option(
@@ -4019,18 +4019,18 @@ async def async_main() -> None:
     @click.pass_context
     def relationship_list(
         ctx: click.Context,
-        guideline_id: Optional[str],
-        tag: Optional[str],
+        rule_id: Optional[str],
+        group: Optional[str],
         tool: Optional[str],
         kind: Optional[RelationshipKindDto],
         indirect: Optional[bool],
     ) -> None:
-        if guideline_id and tag:
-            Interface.write_error("Either --guideline-id or --tag must be provided, not both")
+        if rule_id and group:
+            Interface.write_error("Either --rule-id or --group must be provided, not both")
             set_exit_status(1)
             raise FastExit()
 
-        Interface.list_relationships(ctx, guideline_id, tag, tool, kind, indirect)
+        Interface.list_relationships(ctx, rule_id, group, tool, kind, indirect)
 
     @cli.group(help="Manage an agent's context variables")
     def variable() -> None:
@@ -4041,11 +4041,11 @@ async def async_main() -> None:
     @click.pass_context
     def variable_list(
         ctx: click.Context,
-        tag: Optional[str],
+        group: Optional[str],
     ) -> None:
         Interface.list_variables(
             ctx=ctx,
-            tag=tag,
+            group=group,
         )
 
     @variable.command("create", help="Create a context variable")
@@ -4069,7 +4069,7 @@ async def async_main() -> None:
         service: Optional[str],
         tool: Optional[str],
         freshness_rules: Optional[str],
-        tag: tuple[str],
+        group: tuple[str],
     ) -> None:
         if service or tool:
             assert service
@@ -4082,7 +4082,7 @@ async def async_main() -> None:
             service_name=service,
             tool_name=tool,
             freshness_rules=freshness_rules,
-            tags=list(tag),
+            groups=list(group),
         )
 
     @variable.command("update", help="Update a context variable")
@@ -4140,7 +4140,7 @@ async def async_main() -> None:
         "--key",
         type=str,
         metavar="NAME",
-        help='The key (e.g. <CUSTOMER_ID> or "tag:<TAG_ID>" or "DEFAULT" to set a default value)',
+        help='The key (e.g. <CUSTOMER_ID> or "group:<GROUP_ID>" or "DEFAULT" to set a default value)',
     )
     @click.option("--value", type=str, metavar="TEXT", help="The key's value")
     @click.pass_context
@@ -4163,7 +4163,7 @@ async def async_main() -> None:
         "--key",
         type=str,
         metavar="NAME",
-        help='The key (e.g. <CUSTOMER_ID> or "tag:<TAG_ID>" or "DEFAULT" to set a default value)',
+        help='The key (e.g. <CUSTOMER_ID> or "group:<GROUP_ID>" or "DEFAULT" to set a default value)',
     )
     @click.pass_context
     def variable_get(
@@ -4189,7 +4189,7 @@ async def async_main() -> None:
         "--key",
         type=str,
         metavar="NAME",
-        help='The key (e.g. <CUSTOMER_ID> or "tag:<TAG_ID>" or "DEFAULT" to set a default value)',
+        help='The key (e.g. <CUSTOMER_ID> or "group:<GROUP_ID>" or "DEFAULT" to set a default value)',
     )
     @click.pass_context
     def variable_value_delete(
@@ -4203,19 +4203,19 @@ async def async_main() -> None:
             key=key,
         )
 
-    @variable.command("tag", help="Tag a variable")
+    @variable.command("group", help="Group a variable")
     @click.option("--id", type=str, metavar="ID", help="Variable ID", required=True)
     @tag_option(required=True)
     @click.pass_context
-    def variable_tag(ctx: click.Context, id: str, tag: str) -> None:
-        Interface.add_variable_tag(ctx, id, tag)
+    def variable_tag(ctx: click.Context, id: str, group: str) -> None:
+        Interface.add_variable_tag(ctx, id, group)
 
     @variable.command("untag", help="Untag a variable")
     @click.option("--id", type=str, metavar="ID", help="Variable ID", required=True)
     @tag_option(required=True)
     @click.pass_context
-    def variable_untag(ctx: click.Context, id: str, tag: str) -> None:
-        Interface.remove_variable_tag(ctx, id, tag)
+    def variable_untag(ctx: click.Context, id: str, group: str) -> None:
+        Interface.remove_variable_tag(ctx, id, group)
 
     @cli.group(help="Manage services")
     def service() -> None:
@@ -4309,12 +4309,12 @@ async def async_main() -> None:
     def customer_create(
         ctx: click.Context,
         name: str,
-        tag: tuple[str],
+        group: tuple[str],
     ) -> None:
         Interface.create_customer(
             ctx,
             name,
-            list(tag),
+            list(group),
         )
 
     @customer.command("list", help="List customers")
@@ -4368,53 +4368,53 @@ async def async_main() -> None:
     def customer_unset(ctx: click.Context, id: str, key: str) -> None:
         Interface.remove_customer_extra(ctx, id, key)
 
-    @customer.command("tag", help="Tag a customer")
+    @customer.command("group", help="Group a customer")
     @click.option("--id", type=str, metavar="ID", help="Customer ID", required=True)
     @tag_option(required=True)
     @click.pass_context
-    def customer_tag(ctx: click.Context, id: str, tag: str) -> None:
-        Interface.add_customer_tag(ctx, id, tag)
+    def customer_tag(ctx: click.Context, id: str, group: str) -> None:
+        Interface.add_customer_tag(ctx, id, group)
 
     @customer.command("untag", help="Untag a customer")
     @click.option("--id", type=str, metavar="ID", help="Customer ID", required=True)
     @tag_option(required=True)
     @click.pass_context
-    def customer_untag(ctx: click.Context, id: str, tag: str) -> None:
-        Interface.remove_customer_tag(ctx, id, tag)
+    def customer_untag(ctx: click.Context, id: str, group: str) -> None:
+        Interface.remove_customer_tag(ctx, id, group)
 
-    @cli.group(help="Manage tags")
-    def tag() -> None:
-        """Group of commands to manage tags."""
+    @cli.group(help="Manage groups")
+    def group() -> None:
+        """Group of commands to manage groups."""
 
-    @tag.command("list", help="List tags")
+    @group.command("list", help="List groups")
     @click.pass_context
     def tag_list(ctx: click.Context) -> None:
-        Interface.list_tags(ctx)
+        Interface.list_groups(ctx)
 
-    @tag.command("create", help="Create a tag")
-    @click.option("--name", type=str, metavar="NAME", help="Tag name", required=True)
+    @group.command("create", help="Create a group")
+    @click.option("--name", type=str, metavar="NAME", help="Group name", required=True)
     @click.pass_context
     def tag_create(ctx: click.Context, name: str) -> None:
-        Interface.create_tag(ctx, name)
+        Interface.create_group(ctx, name)
 
-    @tag.command("view", help="View a tag")
+    @group.command("view", help="View a group")
     @tag_option(required=True)
     @click.pass_context
-    def tag_view(ctx: click.Context, tag: str) -> None:
-        Interface.view_tag(ctx, tag)
+    def tag_view(ctx: click.Context, group: str) -> None:
+        Interface.view_tag(ctx, group)
 
-    @tag.command("update", help="Update a tag")
-    @click.option("--id", type=str, metavar="ID", help="Tag ID", required=True)
-    @click.option("--name", type=str, metavar="NAME", help="Tag name", required=True)
+    @group.command("update", help="Update a group")
+    @click.option("--id", type=str, metavar="ID", help="Group ID", required=True)
+    @click.option("--name", type=str, metavar="NAME", help="Group name", required=True)
     @click.pass_context
     def tag_update(ctx: click.Context, id: str, name: str) -> None:
-        Interface.update_tag(ctx, id, name)
+        Interface.update_group(ctx, id, name)
 
-    @tag.command("delete", help="Delete a tag")
+    @group.command("delete", help="Delete a group")
     @tag_option(required=True)
     @click.pass_context
-    def tag_delete(ctx: click.Context, tag: str) -> None:
-        Interface.delete_tag(ctx, tag)
+    def tag_delete(ctx: click.Context, group: str) -> None:
+        Interface.delete_group(ctx, group)
 
     @cli.group(help="Manage canned responses")
     def canned_response() -> None:
@@ -4469,9 +4469,9 @@ async def async_main() -> None:
     @click.pass_context
     def journey_list(
         ctx: click.Context,
-        tag: Optional[str],
+        group: Optional[str],
     ) -> None:
-        Interface.list_journeys(ctx, tag)
+        Interface.list_journeys(ctx, group)
 
     @journey.command("create", help="Create a journey")
     @click.option("--title", type=str, metavar="TITLE", help="Journey title", required=True)
@@ -4497,14 +4497,14 @@ async def async_main() -> None:
         title: str,
         description: str,
         trigger: tuple[str],
-        tag: tuple[str],
+        group: tuple[str],
     ) -> None:
         Interface.create_journey(
             ctx=ctx,
             title=title,
             description=description,
             triggers=list(trigger),
-            tags=list(tag),
+            groups=list(group),
         )
 
     @journey.command("update", help="Update a journey")
@@ -4519,31 +4519,29 @@ async def async_main() -> None:
 
     @journey.command(
         "add-trigger",
-        help="Add a trigger to a journey, either by Guideline ID or by trigger text",
+        help="Add a trigger to a journey, either by Rule ID or by trigger text",
     )
     @click.option("--id", type=str, metavar="ID", help="Journey ID", required=True)
-    @click.option(
-        "--guideline-id", type=str, metavar="GUIDELINE_ID", help="Guideline ID", required=False
-    )
+    @click.option("--rule-id", type=str, metavar="RULE_ID", help="Rule ID", required=False)
     @click.option("--trigger", type=str, metavar="TRIGGER", help="Trigger", required=False)
     @click.pass_context
     def journey_add_trigger(
         ctx: click.Context,
         id: str,
         trigger: Optional[str],
-        guideline_id: Optional[str],
+        rule_id: Optional[str],
     ) -> None:
-        if not guideline_id and not trigger:
-            Interface.write_error("Either --guideline-id or --trigger must be provided")
+        if not rule_id and not trigger:
+            Interface.write_error("Either --rule-id or --trigger must be provided")
             set_exit_status(1)
             raise FastExit()
 
-        if guideline_id and trigger:
-            Interface.write_error("Only one of --guideline-id or --trigger can be provided")
+        if rule_id and trigger:
+            Interface.write_error("Only one of --rule-id or --trigger can be provided")
             set_exit_status(1)
             raise FastExit()
 
-        Interface.add_journey_trigger(ctx, id, guideline_id, trigger)
+        Interface.add_journey_trigger(ctx, id, rule_id, trigger)
 
     @journey.command("remove-trigger", help="Remove a trigger from a journey")
     @click.option("--id", type=str, metavar="ID", help="Journey ID", required=True)
@@ -4552,30 +4550,30 @@ async def async_main() -> None:
     def journey_remove_trigger(ctx: click.Context, id: str, trigger: str) -> None:
         Interface.remove_journey_trigger(ctx, id, trigger)
 
-    @journey.command("tag", help="Tag a journey")
+    @journey.command("group", help="Group a journey")
     @click.option("--id", type=str, metavar="ID", help="Journey ID", required=True)
     @tag_option(required=True)
     @click.pass_context
     def journey_add_tag(
         ctx: click.Context,
         id: str,
-        tag: str,
+        group: str,
     ) -> None:
-        Interface.add_journey_tag(
+        Interface.add_journey_group(
             ctx=ctx,
             journey_id=id,
-            tag=tag,
+            group=group,
         )
 
     @journey.command("untag", help="Untag from a journey")
     @click.option("--id", type=str, metavar="ID", help="Journey ID", required=True)
     @tag_option(required=True)
     @click.pass_context
-    def journey_untag(ctx: click.Context, id: str, tag: str) -> None:
-        Interface.remove_journey_tag(
+    def journey_untag(ctx: click.Context, id: str, group: str) -> None:
+        Interface.remove_journey_group(
             ctx=ctx,
             journey_id=id,
-            tag=tag,
+            group=group,
         )
 
     @journey.command("delete", help="Delete a journey")
@@ -4601,9 +4599,9 @@ async def async_main() -> None:
     @tag_option(multiple=True)
     @click.pass_context
     def capability_create(
-        ctx: click.Context, title: str, description: str, query: tuple[str], tag: tuple[str]
+        ctx: click.Context, title: str, description: str, query: tuple[str], group: tuple[str]
     ) -> None:
-        Interface.create_capability(ctx, title, description, list(query), list(tag))
+        Interface.create_capability(ctx, title, description, list(query), list(group))
 
     @capability.command(
         "update",
@@ -4638,33 +4636,33 @@ async def async_main() -> None:
     @capability.command("list", help="List capabilities")
     @tag_option()
     @click.pass_context
-    def capability_list(ctx: click.Context, tag: Optional[str]) -> None:
-        Interface.list_capabilities(ctx, tag)
+    def capability_list(ctx: click.Context, group: Optional[str]) -> None:
+        Interface.list_capabilities(ctx, group)
 
-    @capability.command("tag", help="Tag a capability")
+    @capability.command("group", help="Group a capability")
     @click.option("--id", type=str, metavar="ID", help="Capability ID", required=True)
     @tag_option(required=True)
     @click.pass_context
     def capability_add_tag(
         ctx: click.Context,
         id: str,
-        tag: str,
+        group: str,
     ) -> None:
         Interface.add_capability_tag(
             ctx=ctx,
             capability_id=id,
-            tag=tag,
+            group=group,
         )
 
     @capability.command("untag", help="Untag from a capability")
     @click.option("--id", type=str, metavar="ID", help="Capability ID", required=True)
     @tag_option(required=True)
     @click.pass_context
-    def capability_untag(ctx: click.Context, id: str, tag: str) -> None:
+    def capability_untag(ctx: click.Context, id: str, group: str) -> None:
         Interface.remove_capability_tag(
             ctx=ctx,
             capability_id=id,
-            tag=tag,
+            group=group,
         )
 
     @capability.command("delete", help="Delete a capability")
@@ -4677,9 +4675,7 @@ async def async_main() -> None:
         "log",
         help="Stream server logs",
     )
-    @click.option(
-        "--guideline-matcher", "-g", is_flag=True, help="Filter logs by [GuidelineMatcher]"
-    )
+    @click.option("--rule-matcher", "-g", is_flag=True, help="Filter logs by [RuleMatcher]")
     @click.option("--tool-caller", "-t", is_flag=True, help="Filter logs by [ToolCaller]")
     @click.option(
         "--message-event-composer",
@@ -4708,7 +4704,7 @@ async def async_main() -> None:
     @click.pass_context
     def log_view(
         ctx: click.Context,
-        guideline_matcher: bool,
+        rule_matcher: bool,
         tool_caller: bool,
         message_event_composer: bool,
         intersection_patterns: tuple[str],
@@ -4716,8 +4712,8 @@ async def async_main() -> None:
     ) -> None:
         union_pattern_list = list(union_patterns)
 
-        if guideline_matcher:
-            union_pattern_list.append("[GuidelineMatcher]")
+        if rule_matcher:
+            union_pattern_list.append("[RuleMatcher]")
         if tool_caller:
             union_pattern_list.append("[ToolCaller]")
         if message_event_composer:

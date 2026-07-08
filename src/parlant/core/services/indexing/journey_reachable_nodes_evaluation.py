@@ -1,14 +1,14 @@
 import copy
 from dataclasses import dataclass, field
-from enum import Enum
 import json
 import traceback
 from typing import Any, List, Optional, Sequence, Set, Tuple, cast
 from parlant.core.common import DefaultBaseModel, JSONSerializable
-from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
+from parlant.core.engines.alpha.rule_matching.generic.common import internal_representation
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.guidelines import Guideline, GuidelineId
+from parlant.core.rules import Rule, RuleId
+from parlant.core.journeys import JourneyNodeKind
 
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
@@ -16,6 +16,7 @@ from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.services.indexing.common import EvaluationError, ProgressReport
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.shots import Shot, ShotCollection
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 PRE_ROOT_INDEX = "0"
@@ -25,13 +26,6 @@ REMINDER_OF_ACTION_TYPE_CHILD = "Reminder: when stating whether child_action has
 REMINDER_OF_ACTION_TYPE_NOT_CHILD = "Reminder: when stating whether child_action has not been completed, consider the rules for CUSTOMER DEPENDENT ACTION - CUSTOMER'S perspective or REQUIRES AGENT ACTION - AGENT'S perspective"
 
 REMINDER_OPTIONS = "Reminder: when stating an action completion consider Condition Clarity and Specificity, include all options in conditions"
-
-
-class JourneyNodeKind(Enum):
-    FORK = "fork"
-    CHAT = "chat"
-    TOOL = "tool"
-    NA = "NA"
 
 
 @dataclass
@@ -53,7 +47,7 @@ class _JourneyNode:  # Refactor after node type is implemented
     action: str | None
     incoming_edges: list[_JourneyEdge]
     outgoing_edges: list[_JourneyEdge]
-    kind: JourneyNodeKind
+    kind: Optional[JourneyNodeKind]
     customer_dependent_action: bool
     customer_action_description: Optional[str] = None
     agent_dependent_action: Optional[bool] = None
@@ -107,35 +101,36 @@ class JourneyReachableNodesEvaluator:
         logger: Logger,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[ReachableNodesEvaluationSchema],
-        service_registry: ServiceRegistry,
+        store_provider: StoreProvider,
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._optimization_policy = optimization_policy
 
         self._schematic_generator = schematic_generator
-        self._service_registry = service_registry
 
-    def _build_node_wrappers(self, guidelines: Sequence[Guideline]) -> dict[str, _JourneyNode]:
-        def _get_guideline_node_index(guideline: Guideline) -> str:
+    @property
+    def _service_registry(self) -> ServiceRegistry:
+        return self._store_provider.get_store(
+            ServiceRegistry, StoreProviderHints(call_site="engine")
+        )
+
+    def _build_node_wrappers(self, rules: Sequence[Rule]) -> dict[str, _JourneyNode]:
+        def _get_rule_node_index(rule: Rule) -> str:
             return str(
-                cast(dict[str, JSONSerializable], guideline.metadata["journey_node"]).get(
-                    "index", "-1"
-                ),
+                cast(dict[str, JSONSerializable], rule.metadata["journey_node"]).get("index", "-1"),
             )
 
-        guideline_id_to_guideline: dict[GuidelineId, Guideline] = {g.id: g for g in guidelines}
-        guideline_id_to_node_index: dict[GuidelineId, str] = {
-            g.id: _get_guideline_node_index(g) for g in guidelines
-        }
+        rule_id_to_rule: dict[RuleId, Rule] = {g.id: g for g in rules}
+        rule_id_to_node_index: dict[RuleId, str] = {g.id: _get_rule_node_index(g) for g in rules}
         node_wrappers: dict[str, _JourneyNode] = {}
 
         # Build nodes
-        for g in guidelines:
-            node_index: str = _get_guideline_node_index(g)
+        for g in rules:
+            node_index: str = _get_rule_node_index(g)
             if node_index not in node_wrappers:
-                kind = JourneyNodeKind(
-                    cast(dict[str, Any], g.metadata.get("journey_node", {})).get("kind", "NA")
-                )
+                kind_str = cast(dict[str, Any], g.metadata.get("journey_node", {})).get("kind")
+                kind: Optional[JourneyNodeKind] = JourneyNodeKind(kind_str) if kind_str else None
                 customer_dependent_action = cast(
                     dict[str, bool], g.metadata.get("customer_dependent_action_data", {})
                 ).get("is_customer_dependent", False)
@@ -162,19 +157,19 @@ class JourneyReachableNodesEvaluator:
 
         # Build edges
         registered_edges: set[tuple[str, str]] = set()
-        for g in guidelines:
-            source_node_index: str = guideline_id_to_node_index[g.id]
+        for g in rules:
+            source_node_index: str = rule_id_to_node_index[g.id]
             for followup_id in cast(
-                dict[str, Sequence[GuidelineId]], g.metadata.get("journey_node", {})
+                dict[str, Sequence[RuleId]], g.metadata.get("journey_node", {})
             ).get("follow_ups", []):
-                followup_node_index: str = guideline_id_to_node_index[GuidelineId(followup_id)]
-                followup_guideline = next((g for g in guidelines if g.id == followup_id), None)
+                followup_node_index: str = rule_id_to_node_index[RuleId(followup_id)]
+                followup_rule = next((g for g in rules if g.id == followup_id), None)
                 if (
-                    followup_guideline
+                    followup_rule
                     and (source_node_index, followup_node_index) not in registered_edges
                 ):
                     edge = _JourneyEdge(
-                        condition=guideline_id_to_guideline[followup_id].content.condition,
+                        condition=rule_id_to_rule[followup_id].content.condition,
                         source_node_index=source_node_index,
                         target_node_index=followup_node_index,
                     )
@@ -327,7 +322,7 @@ class JourneyReachableNodesEvaluator:
 
     async def evaluate_reachable_follow_ups(
         self,
-        node_guidelines: Sequence[Guideline] = [],
+        node_rules: Sequence[Rule] = [],
         progress_report: Optional[ProgressReport] = None,
         max_depth: int = 3,
         max_transitions: int = 10,
@@ -336,7 +331,7 @@ class JourneyReachableNodesEvaluator:
             await progress_report.stretch(1)
 
         # Want to run the evaluation in topological order, so first need to find cycles and remove them by duplicate nodes
-        graph: dict[str, _JourneyNode] = self._build_node_wrappers(guidelines=node_guidelines)
+        graph: dict[str, _JourneyNode] = self._build_node_wrappers(rules=node_rules)
 
         cycles = self._find_cycles(graph)
         new_graph, duplicate_to_orig_id = self._break_cycles(cycles, graph)
@@ -678,7 +673,7 @@ OUTPUT FORMAT
         prompt = self._build_prompt(node, children_info, _baseline_shots)
 
         generation_attempt_temperatures = (
-            self._optimization_policy.get_guideline_matching_batch_retry_temperatures(
+            self._optimization_policy.get_rule_matching_batch_retry_temperatures(
                 hints={"type": self.__class__.__name__}
             )
         )

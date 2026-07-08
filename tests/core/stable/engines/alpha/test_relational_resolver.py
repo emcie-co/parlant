@@ -12,8 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from datetime import datetime, timezone
+
 from lagom import Container
 
+from parlant.core.common import Weight
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.relational_resolver import (
     RelationalResolver,
@@ -21,19 +24,23 @@ from parlant.core.engines.alpha.relational_resolver import (
     Resolution,
     ResolutionKind,
     ResolvedEntity,
-    ResolvedEntityId,
 )
-from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
-from parlant.core.journeys import JourneyStore
+from parlant.core.journey_rule_projection import JourneyRuleProjection as JourneyGuidelineProjection
+from parlant.core.journeys import JourneyNodeKind, JourneyStore
 from parlant.core.relationships import (
     RelationshipEntityKind,
     RelationshipKind,
     RelationshipEntity,
     RelationshipStore,
 )
-from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
+from parlant.core.rules import (
+    Rule as Guideline,
+    RuleContent as GuidelineContent,
+    RuleId as GuidelineId,
+    RuleStore as GuidelineStore,
+)
 from parlant.core.journeys import Journey, JourneyId
-from parlant.core.tags import TagStore, Tag
+from parlant.core.groups import GroupStore, GroupIds
 
 
 def _find_resolutions(
@@ -97,11 +104,11 @@ async def test_that_relational_resolver_prioritizes_indirectly_between_guideline
     rel_g1_g2 = await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=g1.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=g2.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.PRIORITY,
     )
@@ -109,11 +116,11 @@ async def test_that_relational_resolver_prioritizes_indirectly_between_guideline
     rel_g2_g3 = await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=g2.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=g3.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.PRIORITY,
     )
@@ -121,14 +128,14 @@ async def test_that_relational_resolver_prioritizes_indirectly_between_guideline
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=8, rationale=""),
-            GuidelineMatch(guideline=g2, score=5, rationale=""),
-            GuidelineMatch(guideline=g3, score=9, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
 
-    assert result.matches == [GuidelineMatch(guideline=g1, score=8, rationale="")]
+    assert result.matches == [GuidelineMatch(guideline=g1, rationale="")]
 
     assert_resolutions(result, g1.id, [ResolutionKind.NONE])
     assert_resolutions(result, g2.id, [ResolutionKind.DEPRIORITIZED])
@@ -183,12 +190,12 @@ async def test_that_relational_resolver_prioritizes_between_journey_nodes(
 
     journey_priority_rel = await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=GroupIds.for_journey_id(j1.id),
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(j2.id).id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=GroupIds.for_journey_id(j2.id),
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         kind=RelationshipKind.PRIORITY,
     )
@@ -199,20 +206,20 @@ async def test_that_relational_resolver_prioritizes_between_journey_nodes(
     result = await resolver.resolve(
         [j1_guidelines[0], j2_guidelines[0]],
         [
-            GuidelineMatch(guideline=j1_guidelines[0], score=8, rationale=""),
-            GuidelineMatch(guideline=j2_guidelines[0], score=5, rationale=""),
+            GuidelineMatch(guideline=j1_guidelines[0], rationale=""),
+            GuidelineMatch(guideline=j2_guidelines[0], rationale=""),
         ],
         journeys=[j1, j2],
     )
 
-    assert result.matches == [GuidelineMatch(guideline=j1_guidelines[0], score=8, rationale="")]
+    assert result.matches == [GuidelineMatch(guideline=j1_guidelines[0], rationale="")]
 
     assert_resolutions(result, j1_guidelines[0].id, [ResolutionKind.NONE])
     assert_resolutions(result, j2_guidelines[0].id, [ResolutionKind.DEPRIORITIZED])
 
     # The deprioritized journey-node guideline's resolution should identify
     # the prioritizing journey as a counterpart and reference the PRIORITY
-    # relationship between the journey tags.
+    # relationship between the journey groups.
     j2g_res = get_resolutions_by_kind(result, j2_guidelines[0].id, ResolutionKind.DEPRIORITIZED)
     assert len(j2g_res) == 1
     assert ResolvedEntity.journey(j1) in j2g_res[0].details.counterparts
@@ -249,12 +256,14 @@ async def test_that_relational_resolver_prioritizes_guideline_over_journey(
     # Add nodes to the journey to create a graph
     journey_node_1 = await journey_store.create_node(
         journey_id=journey.id,
+        kind=JourneyNodeKind.CHAT,
         action="Ask what drink they want",
         tools=[],
     )
 
     journey_node_2 = await journey_store.create_node(
         journey_id=journey.id,
+        kind=JourneyNodeKind.CHAT,
         action="Recommend Coca-Cola",
         tools=[],
     )
@@ -275,28 +284,27 @@ async def test_that_relational_resolver_prioritizes_guideline_over_journey(
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=standalone_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(journey.id).id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=GroupIds.for_journey_id(journey.id),
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         kind=RelationshipKind.PRIORITY,
     )
 
     # Both the standalone guideline and journey-guidelines match
     journey_matches = [
-        GuidelineMatch(guideline=g, score=5 + i, rationale="")
-        for i, g in enumerate(journey_guidelines)
+        GuidelineMatch(guideline=g, rationale="") for i, g in enumerate(journey_guidelines)
     ]
     result = await resolver.resolve(
         [standalone_guideline] + list(journey_guidelines),
-        [GuidelineMatch(guideline=standalone_guideline, score=8, rationale="")] + journey_matches,
+        [GuidelineMatch(guideline=standalone_guideline, rationale="")] + journey_matches,
         journeys=[journey],
     )
 
     # Only the standalone guideline should remain (all journey-guidelines are filtered out)
-    assert result.matches == [GuidelineMatch(guideline=standalone_guideline, score=8, rationale="")]
+    assert result.matches == [GuidelineMatch(guideline=standalone_guideline, rationale="")]
 
     assert_resolutions(result, standalone_guideline.id, [ResolutionKind.NONE])
     for jg in journey_guidelines:
@@ -326,12 +334,14 @@ async def test_that_relational_resolver_prioritizes_journey_over_guideline(
     # Add nodes to the journey to create a graph
     journey_node_1 = await journey_store.create_node(
         journey_id=journey.id,
+        kind=JourneyNodeKind.CHAT,
         action="Ask what drink they want",
         tools=[],
     )
 
     journey_node_2 = await journey_store.create_node(
         journey_id=journey.id,
+        kind=JourneyNodeKind.CHAT,
         action="Recommend Pepsi",
         tools=[],
     )
@@ -357,24 +367,23 @@ async def test_that_relational_resolver_prioritizes_journey_over_guideline(
     # Create priority relationship: journey > standalone guideline
     await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=Tag.for_journey_id(journey.id).id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=GroupIds.for_journey_id(journey.id),
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         target=RelationshipEntity(
             id=standalone_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.PRIORITY,
     )
 
     # Both journey-guidelines and standalone guideline match
     journey_matches = [
-        GuidelineMatch(guideline=g, score=8 - i, rationale="")
-        for i, g in enumerate(journey_guidelines)
+        GuidelineMatch(guideline=g, rationale="") for i, g in enumerate(journey_guidelines)
     ]
     result = await resolver.resolve(
         list(journey_guidelines) + [standalone_guideline],
-        journey_matches + [GuidelineMatch(guideline=standalone_guideline, score=10, rationale="")],
+        journey_matches + [GuidelineMatch(guideline=standalone_guideline, rationale="")],
         journeys=[journey],
     )
 
@@ -423,11 +432,11 @@ async def test_that_relational_resolver_filters_journey_dependent_guideline_when
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=guideline_x.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(journey.id).id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=GroupIds.for_journey_id(journey.id),
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -442,11 +451,11 @@ async def test_that_relational_resolver_filters_journey_dependent_guideline_when
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=guideline_y.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(journey.id).id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=GroupIds.for_journey_id(journey.id),
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         kind=RelationshipKind.PRIORITY,
     )
@@ -455,8 +464,8 @@ async def test_that_relational_resolver_filters_journey_dependent_guideline_when
     result = await resolver.resolve(
         [guideline_y, guideline_x],
         [
-            GuidelineMatch(guideline=guideline_y, score=8, rationale=""),
-            GuidelineMatch(guideline=guideline_x, score=6, rationale=""),
+            GuidelineMatch(guideline=guideline_y, rationale=""),
+            GuidelineMatch(guideline=guideline_x, rationale=""),
         ],
         journeys=[journey],
     )
@@ -464,7 +473,7 @@ async def test_that_relational_resolver_filters_journey_dependent_guideline_when
     # Only Y should remain:
     # - Y prioritizes over J, so J is effectively deprioritized
     # - X depends on J, so when J is deprioritized, X is also filtered out
-    assert result.matches == [GuidelineMatch(guideline=guideline_y, score=8, rationale="")]
+    assert result.matches == [GuidelineMatch(guideline=guideline_y, rationale="")]
 
     assert_resolutions(result, guideline_y.id, [ResolutionKind.NONE])
     assert_resolutions(result, guideline_x.id, [ResolutionKind.DEPRIORITIZED])
@@ -483,24 +492,22 @@ async def test_that_relational_resolver_does_not_ignore_a_deprioritized_guidelin
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=prioritized_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=deprioritized_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.PRIORITY,
     )
 
     matches: list[GuidelineMatch] = [
-        GuidelineMatch(guideline=deprioritized_guideline, score=5, rationale=""),
+        GuidelineMatch(guideline=deprioritized_guideline, rationale=""),
     ]
 
     result = await resolver.resolve([prioritized_guideline, deprioritized_guideline], matches, [])
 
-    assert result.matches == [
-        GuidelineMatch(guideline=deprioritized_guideline, score=5, rationale="")
-    ]
+    assert result.matches == [GuidelineMatch(guideline=deprioritized_guideline, rationale="")]
 
     assert_resolutions(result, deprioritized_guideline.id, [ResolutionKind.NONE])
 
@@ -534,12 +541,12 @@ async def test_that_relational_resolver_does_not_ignore_deprioritized_journey_no
 
     await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=Tag.for_journey_id(prioritized_journey.id).id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=GroupIds.for_journey_id(prioritized_journey.id),
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(deprioritized_journey.id).id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=GroupIds.for_journey_id(deprioritized_journey.id),
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         kind=RelationshipKind.PRIORITY,
     )
@@ -558,14 +565,12 @@ async def test_that_relational_resolver_does_not_ignore_deprioritized_journey_no
     result = await resolver.resolve(
         [prioritized_guideline, deprioritized_guideline],
         [
-            GuidelineMatch(guideline=deprioritized_guideline, score=5, rationale=""),
+            GuidelineMatch(guideline=deprioritized_guideline, rationale=""),
         ],
         journeys=[],
     )
 
-    assert result.matches == [
-        GuidelineMatch(guideline=deprioritized_guideline, score=5, rationale="")
-    ]
+    assert result.matches == [GuidelineMatch(guideline=deprioritized_guideline, rationale="")]
 
     assert_resolutions(result, deprioritized_guideline.id, [ResolutionKind.NONE])
 
@@ -583,25 +588,23 @@ async def test_that_relational_resolver_prioritizes_guidelines(
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=prioritized_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=deprioritized_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.PRIORITY,
     )
 
     matches: list[GuidelineMatch] = [
-        GuidelineMatch(guideline=prioritized_guideline, score=8, rationale=""),
-        GuidelineMatch(guideline=deprioritized_guideline, score=5, rationale=""),
+        GuidelineMatch(guideline=prioritized_guideline, rationale=""),
+        GuidelineMatch(guideline=deprioritized_guideline, rationale=""),
     ]
 
     result = await resolver.resolve([prioritized_guideline, deprioritized_guideline], matches, [])
 
-    assert result.matches == [
-        GuidelineMatch(guideline=prioritized_guideline, score=8, rationale="")
-    ]
+    assert result.matches == [GuidelineMatch(guideline=prioritized_guideline, rationale="")]
 
     assert_resolutions(result, prioritized_guideline.id, [ResolutionKind.NONE])
     assert_resolutions(result, deprioritized_guideline.id, [ResolutionKind.DEPRIORITIZED])
@@ -612,7 +615,7 @@ async def test_that_relational_resolver_infers_guidelines_from_tags(
 ) -> None:
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
     g1 = await guideline_store.create_guideline(condition="x", action="y")
@@ -620,23 +623,23 @@ async def test_that_relational_resolver_infers_guidelines_from_tags(
     g3 = await guideline_store.create_guideline(condition="z", action="t")
     g4 = await guideline_store.create_guideline(condition="t", action="u")
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
-    await guideline_store.upsert_tag(guideline_id=g2.id, tag_id=t1.id)
-    await guideline_store.upsert_tag(guideline_id=g3.id, tag_id=t1.id)
+    await guideline_store.upsert_group(guideline_id=g2.id, group_id=t1.id)
+    await guideline_store.upsert_group(guideline_id=g3.id, group_id=t1.id)
 
-    # Re-read after tagging so usable_guidelines has up-to-date tag lists
+    # Re-read after tagging so usable_guidelines has up-to-date group lists
     g2 = await guideline_store.read_guideline(g2.id)
     g3 = await guideline_store.read_guideline(g3.id)
 
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=g1.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=t1.id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         kind=RelationshipKind.ENTAILMENT,
     )
@@ -644,11 +647,11 @@ async def test_that_relational_resolver_infers_guidelines_from_tags(
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=t1.id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         target=RelationshipEntity(
             id=g4.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.ENTAILMENT,
     )
@@ -656,7 +659,7 @@ async def test_that_relational_resolver_infers_guidelines_from_tags(
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=8, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
         ],
         journeys=[],
     )
@@ -678,27 +681,27 @@ async def test_that_relational_resolver_does_not_ignore_a_deprioritized_tag_when
 ) -> None:
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
     prioritized_guideline = await guideline_store.create_guideline(condition="x", action="y")
     deprioritized_guideline = await guideline_store.create_guideline(condition="y", action="z")
 
-    deprioritized_tag = await tag_store.create_tag(name="t1")
+    deprioritized_tag = await group_store.create_group(name="t1")
 
-    await guideline_store.upsert_tag(deprioritized_guideline.id, deprioritized_tag.id)
+    await guideline_store.upsert_group(deprioritized_guideline.id, deprioritized_tag.id)
 
-    # Re-read after tagging so guideline.tags is up-to-date
+    # Re-read after tagging so guideline.groups is up-to-date
     deprioritized_guideline = await guideline_store.read_guideline(deprioritized_guideline.id)
 
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=prioritized_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=deprioritized_tag.id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         kind=RelationshipKind.PRIORITY,
     )
@@ -706,11 +709,11 @@ async def test_that_relational_resolver_does_not_ignore_a_deprioritized_tag_when
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=deprioritized_tag.id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         target=RelationshipEntity(
             id=deprioritized_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.PRIORITY,
     )
@@ -718,7 +721,7 @@ async def test_that_relational_resolver_does_not_ignore_a_deprioritized_tag_when
     result = await resolver.resolve(
         [prioritized_guideline, deprioritized_guideline],
         [
-            GuidelineMatch(guideline=deprioritized_guideline, score=5, rationale=""),
+            GuidelineMatch(guideline=deprioritized_guideline, rationale=""),
         ],
         journeys=[],
     )
@@ -734,27 +737,27 @@ async def test_that_relational_resolver_prioritizes_guidelines_from_tags(
 ) -> None:
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
     g1 = await guideline_store.create_guideline(condition="x", action="y")
     g2 = await guideline_store.create_guideline(condition="y", action="z")
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
-    await guideline_store.upsert_tag(g2.id, t1.id)
+    await guideline_store.upsert_group(g2.id, t1.id)
 
-    # Re-read after tagging so guideline.tags is up-to-date
+    # Re-read after tagging so guideline.groups is up-to-date
     g2 = await guideline_store.read_guideline(g2.id)
 
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=g1.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=t1.id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         kind=RelationshipKind.PRIORITY,
     )
@@ -762,11 +765,11 @@ async def test_that_relational_resolver_prioritizes_guidelines_from_tags(
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=t1.id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         target=RelationshipEntity(
             id=g2.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.PRIORITY,
     )
@@ -774,8 +777,8 @@ async def test_that_relational_resolver_prioritizes_guidelines_from_tags(
     result = await resolver.resolve(
         [g1, g2],
         [
-            GuidelineMatch(guideline=g1, score=8, rationale=""),
-            GuidelineMatch(guideline=g2, score=5, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
         ],
         journeys=[],
     )
@@ -792,28 +795,28 @@ async def test_that_relational_resolver_handles_indirect_guidelines_from_tags(
 ) -> None:
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
     g1 = await guideline_store.create_guideline(condition="x", action="y")
     g2 = await guideline_store.create_guideline(condition="y", action="z")
     g3 = await guideline_store.create_guideline(condition="z", action="t")
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
-    await guideline_store.upsert_tag(g2.id, t1.id)
+    await guideline_store.upsert_group(g2.id, t1.id)
 
-    # Re-read after tagging so guideline.tags is up-to-date
+    # Re-read after tagging so guideline.groups is up-to-date
     g2 = await guideline_store.read_guideline(g2.id)
 
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=g1.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=t1.id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         kind=RelationshipKind.PRIORITY,
     )
@@ -821,11 +824,11 @@ async def test_that_relational_resolver_handles_indirect_guidelines_from_tags(
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=t1.id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         target=RelationshipEntity(
             id=g3.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.PRIORITY,
     )
@@ -833,8 +836,8 @@ async def test_that_relational_resolver_handles_indirect_guidelines_from_tags(
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=8, rationale=""),
-            GuidelineMatch(guideline=g3, score=9, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -864,11 +867,11 @@ async def test_that_relational_resolver_filters_out_guidelines_with_unmet_depend
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=source_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=target_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -876,7 +879,7 @@ async def test_that_relational_resolver_filters_out_guidelines_with_unmet_depend
     result = await resolver.resolve(
         [source_guideline, target_guideline],
         [
-            GuidelineMatch(guideline=source_guideline, score=8, rationale=""),
+            GuidelineMatch(guideline=source_guideline, rationale=""),
         ],
         journeys=[],
     )
@@ -890,17 +893,17 @@ async def test_that_relational_resolver_keeps_guideline_depending_on_tag_when_at
     container: Container,
 ) -> None:
     """
-    Tag dependency uses ANY semantics: a guideline depending on a tag survives
-    as long as at least one tagged member is matched.
+    Group dependency uses ANY semantics: a guideline depending on a group survives
+    as long as at least one grouped member is matched.
 
-    - source_guideline depends on target_tag
-    - target_tag has tagged_guideline_1 and tagged_guideline_2
+    - source_guideline depends on target_group
+    - target_group has tagged_guideline_1 and tagged_guideline_2
     - Only tagged_guideline_1 is matched
     - Expected: source_guideline survives (ANY member matched)
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
     source_guideline = await guideline_store.create_guideline(condition="a", action="b")
@@ -908,23 +911,23 @@ async def test_that_relational_resolver_keeps_guideline_depending_on_tag_when_at
     tagged_guideline_1 = await guideline_store.create_guideline(condition="c", action="d")
     tagged_guideline_2 = await guideline_store.create_guideline(condition="e", action="f")
 
-    target_tag = await tag_store.create_tag(name="t1")
+    target_group = await group_store.create_group(name="t1")
 
-    await guideline_store.upsert_tag(tagged_guideline_1.id, target_tag.id)
-    await guideline_store.upsert_tag(tagged_guideline_2.id, target_tag.id)
+    await guideline_store.upsert_group(tagged_guideline_1.id, target_group.id)
+    await guideline_store.upsert_group(tagged_guideline_2.id, target_group.id)
 
-    # Re-read after tagging so usable_guidelines has up-to-date tag lists
+    # Re-read after tagging so usable_guidelines has up-to-date group lists
     tagged_guideline_1 = await guideline_store.read_guideline(tagged_guideline_1.id)
     tagged_guideline_2 = await guideline_store.read_guideline(tagged_guideline_2.id)
 
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=source_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
-            id=target_tag.id,
-            kind=RelationshipEntityKind.TAG_ANY,
+            id=target_group.id,
+            kind=RelationshipEntityKind.GROUP_ANY,
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -932,8 +935,8 @@ async def test_that_relational_resolver_keeps_guideline_depending_on_tag_when_at
     result = await resolver.resolve(
         [source_guideline, tagged_guideline_1, tagged_guideline_2],
         [
-            GuidelineMatch(guideline=source_guideline, score=8, rationale=""),
-            GuidelineMatch(guideline=tagged_guideline_1, score=10, rationale=""),
+            GuidelineMatch(guideline=source_guideline, rationale=""),
+            GuidelineMatch(guideline=tagged_guideline_1, rationale=""),
             # Missing match for tagged_guideline_2
         ],
         journeys=[],
@@ -975,12 +978,12 @@ async def test_that_relational_resolver_filters_out_journey_nodes_with_unmet_jou
 
     await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=Tag.for_journey_id(source_journey.id).id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=GroupIds.for_journey_id(source_journey.id),
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         target=RelationshipEntity(
             id=guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -990,7 +993,7 @@ async def test_that_relational_resolver_filters_out_journey_nodes_with_unmet_jou
     result = await resolver.resolve(
         [source_journey_guidelines[0], guideline],
         [
-            GuidelineMatch(guideline=source_journey_guidelines[0], score=8, rationale=""),
+            GuidelineMatch(guideline=source_journey_guidelines[0], rationale=""),
         ],
         journeys=[],
     )
@@ -1033,12 +1036,12 @@ async def test_that_relational_resolver_filters_out_journey_nodes_with_unmet_jou
 
     await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=Tag.for_journey_id(source_journey.id).id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=GroupIds.for_journey_id(source_journey.id),
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(target_journey.id).id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=GroupIds.for_journey_id(target_journey.id),
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -1049,7 +1052,7 @@ async def test_that_relational_resolver_filters_out_journey_nodes_with_unmet_jou
     result = await resolver.resolve(
         [source_journey_guidelines[0], target_journey_guidelines[0]],
         [
-            GuidelineMatch(guideline=source_journey_guidelines[0], score=8, rationale=""),
+            GuidelineMatch(guideline=source_journey_guidelines[0], rationale=""),
         ],
         journeys=[source_journey],
     )
@@ -1061,7 +1064,7 @@ async def test_that_relational_resolver_filters_out_journey_nodes_with_unmet_jou
     )
 
 
-async def test_that_relational_resolver_filters_dependent_guidelines_by_journey_tags_when_journeys_are_not_relatively_enabled(
+async def test_that_relational_resolver_filters_dependent_guidelines_by_journey_groups_when_journeys_are_not_relatively_enabled(
     container: Container,
 ) -> None:
     relationship_store = container[RelationshipStore]
@@ -1080,52 +1083,52 @@ async def test_that_relational_resolver_filters_dependent_guidelines_by_journey_
         triggers=[],
     )
 
-    enabled_journey_tagged_guideline = await guideline_store.create_guideline(
+    enabled_journey_groupged_guideline = await guideline_store.create_guideline(
         condition="a", action="b"
     )
-    disabled_journey_tagged_guideline = await guideline_store.create_guideline(
+    disabled_journey_groupged_guideline = await guideline_store.create_guideline(
         condition="c", action="d"
     )
 
     await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=enabled_journey_tagged_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            id=enabled_journey_groupged_guideline.id,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(enabled_journey.id).id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=GroupIds.for_journey_id(enabled_journey.id),
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=disabled_journey_tagged_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            id=disabled_journey_groupged_guideline.id,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(disabled_journey.id).id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=GroupIds.for_journey_id(disabled_journey.id),
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
-        [enabled_journey_tagged_guideline, disabled_journey_tagged_guideline],
+        [enabled_journey_groupged_guideline, disabled_journey_groupged_guideline],
         [
-            GuidelineMatch(guideline=enabled_journey_tagged_guideline, score=8, rationale=""),
-            GuidelineMatch(guideline=disabled_journey_tagged_guideline, score=10, rationale=""),
+            GuidelineMatch(guideline=enabled_journey_groupged_guideline, rationale=""),
+            GuidelineMatch(guideline=disabled_journey_groupged_guideline, rationale=""),
         ],
         journeys=[enabled_journey],
     )
 
     assert len(result.matches) == 1
-    assert result.matches[0].guideline.id == enabled_journey_tagged_guideline.id
+    assert result.matches[0].guideline.id == enabled_journey_groupged_guideline.id
 
-    assert_resolutions(result, enabled_journey_tagged_guideline.id, [ResolutionKind.NONE])
+    assert_resolutions(result, enabled_journey_groupged_guideline.id, [ResolutionKind.NONE])
     assert_resolutions(
-        result, disabled_journey_tagged_guideline.id, [ResolutionKind.UNMET_DEPENDENCY_ALL]
+        result, disabled_journey_groupged_guideline.id, [ResolutionKind.UNMET_DEPENDENCY_ALL]
     )
 
 
@@ -1168,11 +1171,11 @@ async def test_that_relational_resolver_iterates_until_stable_with_cascading_pri
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=guideline_a.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=guideline_b.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.PRIORITY,
     )
@@ -1181,11 +1184,11 @@ async def test_that_relational_resolver_iterates_until_stable_with_cascading_pri
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=guideline_b.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=guideline_c.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.PRIORITY,
     )
@@ -1194,11 +1197,11 @@ async def test_that_relational_resolver_iterates_until_stable_with_cascading_pri
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=guideline_c.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=guideline_b.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -1207,10 +1210,10 @@ async def test_that_relational_resolver_iterates_until_stable_with_cascading_pri
     result = await resolver.resolve(
         [guideline_a, guideline_b, guideline_c, guideline_d],
         [
-            GuidelineMatch(guideline=guideline_a, score=8, rationale=""),
-            GuidelineMatch(guideline=guideline_b, score=7, rationale=""),
-            GuidelineMatch(guideline=guideline_c, score=6, rationale=""),
-            GuidelineMatch(guideline=guideline_d, score=5, rationale=""),
+            GuidelineMatch(guideline=guideline_a, rationale=""),
+            GuidelineMatch(guideline=guideline_b, rationale=""),
+            GuidelineMatch(guideline=guideline_c, rationale=""),
+            GuidelineMatch(guideline=guideline_d, rationale=""),
         ],
         journeys=[],
     )
@@ -1268,11 +1271,11 @@ async def test_that_relational_resolver_handles_priority_affecting_dependency_in
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=guideline_x.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=guideline_y.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -1281,11 +1284,11 @@ async def test_that_relational_resolver_handles_priority_affecting_dependency_in
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=guideline_a.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=guideline_z.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.ENTAILMENT,
     )
@@ -1294,11 +1297,11 @@ async def test_that_relational_resolver_handles_priority_affecting_dependency_in
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=guideline_z.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=guideline_y.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.PRIORITY,
     )
@@ -1307,9 +1310,9 @@ async def test_that_relational_resolver_handles_priority_affecting_dependency_in
     result = await resolver.resolve(
         [guideline_a, guideline_x, guideline_y, guideline_z],
         [
-            GuidelineMatch(guideline=guideline_a, score=8, rationale=""),
-            GuidelineMatch(guideline=guideline_x, score=7, rationale=""),
-            GuidelineMatch(guideline=guideline_y, score=6, rationale=""),
+            GuidelineMatch(guideline=guideline_a, rationale=""),
+            GuidelineMatch(guideline=guideline_x, rationale=""),
+            GuidelineMatch(guideline=guideline_y, rationale=""),
         ],
         journeys=[],
     )
@@ -1356,8 +1359,8 @@ async def test_that_relational_resolver_filters_guidelines_by_priority_keeping_o
     result = await resolver.resolve(
         [guideline_a, guideline_b],
         [
-            GuidelineMatch(guideline=guideline_a, score=8, rationale=""),
-            GuidelineMatch(guideline=guideline_b, score=9, rationale=""),
+            GuidelineMatch(guideline=guideline_a, rationale=""),
+            GuidelineMatch(guideline=guideline_b, rationale=""),
         ],
         journeys=[],
     )
@@ -1416,8 +1419,8 @@ async def test_that_relational_resolver_filters_journeys_by_priority_keeping_onl
     result = await resolver.resolve(
         list(j1_guidelines) + list(j2_guidelines),
         [
-            GuidelineMatch(guideline=j1_guidelines[0], score=8, rationale=""),
-            GuidelineMatch(guideline=j2_guidelines[0], score=9, rationale=""),
+            GuidelineMatch(guideline=j1_guidelines[0], rationale=""),
+            GuidelineMatch(guideline=j2_guidelines[0], rationale=""),
         ],
         journeys=[j1, j2],
     )
@@ -1468,14 +1471,11 @@ async def test_that_relational_resolver_filters_mixed_entities_by_priority_with_
     journey_guidelines = await projection.project_journey_to_guidelines(journey.id)
     assert len(journey_guidelines) > 0
 
-    journey_matches = [
-        GuidelineMatch(guideline=g, score=7 + i, rationale="")
-        for i, g in enumerate(journey_guidelines)
-    ]
+    journey_matches = [GuidelineMatch(guideline=g, rationale="") for g in journey_guidelines]
 
     result = await resolver.resolve(
         [standalone_guideline] + list(journey_guidelines),
-        [GuidelineMatch(guideline=standalone_guideline, score=8, rationale="")] + journey_matches,
+        [GuidelineMatch(guideline=standalone_guideline, rationale="")] + journey_matches,
         journeys=[journey],
     )
 
@@ -1525,14 +1525,11 @@ async def test_that_relational_resolver_filters_mixed_entities_by_priority_with_
     journey_guidelines = await projection.project_journey_to_guidelines(journey.id)
     assert len(journey_guidelines) > 0
 
-    journey_matches = [
-        GuidelineMatch(guideline=g, score=7 + i, rationale="")
-        for i, g in enumerate(journey_guidelines)
-    ]
+    journey_matches = [GuidelineMatch(guideline=g, rationale="") for g in journey_guidelines]
 
     result = await resolver.resolve(
         [standalone_guideline] + list(journey_guidelines),
-        [GuidelineMatch(guideline=standalone_guideline, score=10, rationale="")] + journey_matches,
+        [GuidelineMatch(guideline=standalone_guideline, rationale="")] + journey_matches,
         journeys=[journey],
     )
 
@@ -1546,42 +1543,42 @@ async def test_that_relational_resolver_filters_mixed_entities_by_priority_with_
         assert_resolutions(result, jg.id, [ResolutionKind.NONE])
 
 
-async def test_that_relational_resolver_deprioritizes_target_guideline_when_source_is_custom_tag(
+async def test_that_relational_resolver_deprioritizes_target_guideline_when_source_is_custom_group(
     container: Container,
 ) -> None:
     """
-    Tests that a custom tag used as source in a PRIORITY relationship
-    deprioritizes the target guideline when a guideline tagged with that
-    tag is matched.
+    Tests that a custom group used as source in a PRIORITY relationship
+    deprioritizes the target guideline when a guideline grouped with that
+    group is matched.
 
-    - Tag t1 is attached to g1
+    - Group t1 is attached to g1
     - t1 PRIORITY → g2
     - Both g1 and g2 are matched
     - Expected: g2 is deprioritized, only g1 remains
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
     g1 = await guideline_store.create_guideline(condition="a", action="b")
     g2 = await guideline_store.create_guideline(condition="c", action="d")
 
-    t1 = await tag_store.create_tag(name="t1")
-    await guideline_store.upsert_tag(g1.id, t1.id)
+    t1 = await group_store.create_group(name="t1")
+    await guideline_store.upsert_group(g1.id, t1.id)
     g1 = await guideline_store.read_guideline(g1.id)
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.PRIORITY,
     )
 
     result = await resolver.resolve(
         [g1, g2],
         [
-            GuidelineMatch(guideline=g1, score=8, rationale=""),
-            GuidelineMatch(guideline=g2, score=5, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
         ],
         journeys=[],
     )
@@ -1593,40 +1590,40 @@ async def test_that_relational_resolver_deprioritizes_target_guideline_when_sour
     assert_resolutions(result, g2.id, [ResolutionKind.DEPRIORITIZED])
 
 
-async def test_that_relational_resolver_filters_tagged_guideline_when_custom_tag_dependency_is_unmet(
+async def test_that_relational_resolver_filters_tagged_guideline_when_custom_group_dependency_is_unmet(
     container: Container,
 ) -> None:
     """
-    Tests that a custom tag used as source in a DEPENDENCY relationship
-    deactivates the tagged guideline when the dependency target is not matched.
+    Tests that a custom group used as source in a DEPENDENCY relationship
+    deactivates the grouped guideline when the dependency target is not matched.
 
-    - Tag t1 is attached to g1
+    - Group t1 is attached to g1
     - t1 DEPENDENCY → g2  (g1, via t1, depends on g2)
     - g1 is matched but g2 is NOT matched
-    - Expected: g1 is filtered out (unmet dependency via tag)
+    - Expected: g1 is filtered out (unmet dependency via group)
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
     g1 = await guideline_store.create_guideline(condition="a", action="b")
     g2 = await guideline_store.create_guideline(condition="c", action="d")
 
-    t1 = await tag_store.create_tag(name="t1")
-    await guideline_store.upsert_tag(g1.id, t1.id)
+    t1 = await group_store.create_group(name="t1")
+    await guideline_store.upsert_group(g1.id, t1.id)
     g1 = await guideline_store.read_guideline(g1.id)
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2],
         [
-            GuidelineMatch(guideline=g1, score=8, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # g2 is NOT matched — dependency unmet
         ],
         journeys=[],
@@ -1637,59 +1634,59 @@ async def test_that_relational_resolver_filters_tagged_guideline_when_custom_tag
     assert_resolutions(result, g1.id, [ResolutionKind.UNMET_DEPENDENCY_ALL])
 
 
-async def test_that_relational_resolver_transitively_filters_guideline_depending_on_custom_tag_with_deprioritized_member(
+async def test_that_relational_resolver_transitively_filters_guideline_depending_on_custom_group_with_deprioritized_member(
     container: Container,
 ) -> None:
     """
-    Tests the transitive effect of priority + dependency via a custom tag:
+    Tests the transitive effect of priority + dependency via a custom group:
     - g1 prioritizes over g2
-    - g2 is tagged with t1
-    - g3 depends on tag t1
+    - g2 is grouped with t1
+    - g3 depends on group t1
     - When all three are matched, g2 is deprioritized by g1,
       then g3 is transitively filtered (t1 member g2 was deprioritized).
       Only g1 remains.
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
     g1 = await guideline_store.create_guideline(condition="a", action="Recommend Pepsi")
     g2 = await guideline_store.create_guideline(condition="b", action="Recommend Coke")
     g3 = await guideline_store.create_guideline(condition="c", action="Recommend Sprite")
 
-    t1 = await tag_store.create_tag(name="drink-group")
-    await guideline_store.upsert_tag(g2.id, t1.id)
+    t1 = await group_store.create_group(name="drink-group")
+    await guideline_store.upsert_group(g2.id, t1.id)
     g2 = await guideline_store.read_guideline(g2.id)
 
     # g1 prioritizes over g2 (g2 gets deprioritized)
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.PRIORITY,
     )
 
-    # g3 depends on tag t1 (i.e. at least one guideline tagged with t1 being active)
+    # g3 depends on group t1 (i.e. at least one guideline grouped with t1 being active)
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=9, rationale=""),
-            GuidelineMatch(guideline=g2, score=7, rationale=""),
-            GuidelineMatch(guideline=g3, score=6, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
 
     # Only g1 should remain:
     # - g2 is deprioritized by g1
-    # - g3 depends on tag t1, whose member g2 was deprioritized, so g3 is filtered
-    assert result.matches == [GuidelineMatch(guideline=g1, score=9, rationale="")]
+    # - g3 depends on group t1, whose member g2 was deprioritized, so g3 is filtered
+    assert result.matches == [GuidelineMatch(guideline=g1, rationale="")]
 
     assert_resolutions(result, g1.id, [ResolutionKind.NONE])
     assert_resolutions(result, g2.id, [ResolutionKind.DEPRIORITIZED])
@@ -1700,57 +1697,57 @@ async def test_that_tag_priority_excludes_all_target_members_regardless_of_indiv
     container: Container,
 ) -> None:
     """
-    Tests that tag-level prioritization is absolute — individual-level priority
-    relationships do NOT grant immunity from tag-level deprioritization:
-    - t1 prioritizes over t2 (tag-level: all of t1 beats all of t2)
+    Tests that group-level prioritization is absolute — individual-level priority
+    relationships do NOT grant immunity from group-level deprioritization:
+    - t1 prioritizes over t2 (group-level: all of t1 beats all of t2)
     - g2_1 prioritizes over g1_1 (guideline-level)
     - After resolution: g1_1 deprioritized by g2_1 (guideline-level),
-      g2_1 and g2_2 deprioritized by t1 (tag-level). Only g1_2 survives.
+      g2_1 and g2_2 deprioritized by t1 (group-level). Only g1_2 survives.
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
-    t2 = await tag_store.create_tag(name="t2")
+    t1 = await group_store.create_group(name="t1")
+    t2 = await group_store.create_group(name="t2")
 
     g1_1 = await guideline_store.create_guideline(condition="a", action="g1_1 action")
     g1_2 = await guideline_store.create_guideline(condition="b", action="g1_2 action")
     g2_1 = await guideline_store.create_guideline(condition="c", action="g2_1 action")
     g2_2 = await guideline_store.create_guideline(condition="d", action="g2_2 action")
 
-    await guideline_store.upsert_tag(g1_1.id, t1.id)
-    await guideline_store.upsert_tag(g1_2.id, t1.id)
-    await guideline_store.upsert_tag(g2_1.id, t2.id)
-    await guideline_store.upsert_tag(g2_2.id, t2.id)
+    await guideline_store.upsert_group(g1_1.id, t1.id)
+    await guideline_store.upsert_group(g1_2.id, t1.id)
+    await guideline_store.upsert_group(g2_1.id, t2.id)
+    await guideline_store.upsert_group(g2_2.id, t2.id)
 
     g1_1 = await guideline_store.read_guideline(g1_1.id)
     g1_2 = await guideline_store.read_guideline(g1_2.id)
     g2_1 = await guideline_store.read_guideline(g2_1.id)
     g2_2 = await guideline_store.read_guideline(g2_2.id)
 
-    # t1 prioritizes over t2 (tag-level)
+    # t1 prioritizes over t2 (group-level)
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.PRIORITY,
     )
 
-    # g2_1 prioritizes over g1_1 (guideline-level — does NOT grant immunity from tag-level)
+    # g2_1 prioritizes over g1_1 (guideline-level — does NOT grant immunity from group-level)
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g2_1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g1_1.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g2_1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g1_1.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.PRIORITY,
     )
 
     result = await resolver.resolve(
         [g1_1, g1_2, g2_1, g2_2],
         [
-            GuidelineMatch(guideline=g1_1, score=10, rationale=""),
-            GuidelineMatch(guideline=g1_2, score=10, rationale=""),
-            GuidelineMatch(guideline=g2_1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2_2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1_1, rationale=""),
+            GuidelineMatch(guideline=g1_2, rationale=""),
+            GuidelineMatch(guideline=g2_1, rationale=""),
+            GuidelineMatch(guideline=g2_2, rationale=""),
         ],
         journeys=[],
     )
@@ -1766,32 +1763,32 @@ async def test_that_tag_priority_excludes_all_target_members_regardless_of_indiv
     assert_resolutions(result, g2_2.id, [ResolutionKind.DEPRIORITIZED])
 
 
-async def test_that_tag_priority_deprioritizes_all_guidelines_of_target_tag(
+async def test_that_tag_priority_deprioritizes_all_guidelines_of_target_group(
     container: Container,
 ) -> None:
     """
-    Tests that tag-level prioritization filters out all guidelines of the target tag:
+    Tests that group-level prioritization filters out all guidelines of the target group:
     - t1 prioritizes over t2
-    - g1_1, g1_2 tagged with t1; g2_1, g2_2 tagged with t2
+    - g1_1, g1_2 grouped with t1; g2_1, g2_2 grouped with t2
     - After resolution only g1_1 and g1_2 remain (t2 guidelines are deprioritized).
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
-    t2 = await tag_store.create_tag(name="t2")
+    t1 = await group_store.create_group(name="t1")
+    t2 = await group_store.create_group(name="t2")
 
     g1_1 = await guideline_store.create_guideline(condition="a", action="g1_1 action")
     g1_2 = await guideline_store.create_guideline(condition="b", action="g1_2 action")
     g2_1 = await guideline_store.create_guideline(condition="c", action="g2_1 action")
     g2_2 = await guideline_store.create_guideline(condition="d", action="g2_2 action")
 
-    await guideline_store.upsert_tag(g1_1.id, t1.id)
-    await guideline_store.upsert_tag(g1_2.id, t1.id)
-    await guideline_store.upsert_tag(g2_1.id, t2.id)
-    await guideline_store.upsert_tag(g2_2.id, t2.id)
+    await guideline_store.upsert_group(g1_1.id, t1.id)
+    await guideline_store.upsert_group(g1_2.id, t1.id)
+    await guideline_store.upsert_group(g2_1.id, t2.id)
+    await guideline_store.upsert_group(g2_2.id, t2.id)
 
     g1_1 = await guideline_store.read_guideline(g1_1.id)
     g1_2 = await guideline_store.read_guideline(g1_2.id)
@@ -1800,18 +1797,18 @@ async def test_that_tag_priority_deprioritizes_all_guidelines_of_target_tag(
 
     # t1 prioritizes over t2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.PRIORITY,
     )
 
     result = await resolver.resolve(
         [g1_1, g1_2, g2_1, g2_2],
         [
-            GuidelineMatch(guideline=g1_1, score=10, rationale=""),
-            GuidelineMatch(guideline=g1_2, score=10, rationale=""),
-            GuidelineMatch(guideline=g2_1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2_2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1_1, rationale=""),
+            GuidelineMatch(guideline=g1_2, rationale=""),
+            GuidelineMatch(guideline=g2_1, rationale=""),
+            GuidelineMatch(guideline=g2_2, rationale=""),
         ],
         journeys=[],
     )
@@ -1825,29 +1822,29 @@ async def test_that_tag_priority_deprioritizes_all_guidelines_of_target_tag(
     assert_resolutions(result, g2_2.id, [ResolutionKind.DEPRIORITIZED])
 
 
-async def test_that_journey_tag_priority_deprioritizes_all_guidelines_of_target_tag(
+async def test_that_journey_group_priority_deprioritizes_all_guidelines_of_target_group(
     container: Container,
 ) -> None:
     """
-    Tests that a journey prioritizing over a custom tag filters out all
-    guidelines tagged with that tag:
+    Tests that a journey prioritizing over a custom group filters out all
+    guidelines grouped with that group:
     - Journey J (with j_cond) prioritizes over t1
-    - g1, g2 tagged with t1
+    - g1, g2 grouped with t1
     - After resolution only j_cond remains (t1 guidelines are deprioritized).
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
     g2 = await guideline_store.create_guideline(condition="b", action="g2 action")
 
-    await guideline_store.upsert_tag(g1.id, t1.id)
-    await guideline_store.upsert_tag(g2.id, t1.id)
+    await guideline_store.upsert_group(g1.id, t1.id)
+    await guideline_store.upsert_group(g2.id, t1.id)
     g1 = await guideline_store.read_guideline(g1.id)
     g2 = await guideline_store.read_guideline(g2.id)
 
@@ -1858,25 +1855,25 @@ async def test_that_journey_tag_priority_deprioritizes_all_guidelines_of_target_
         triggers=[j_cond.id],
     )
 
-    # Tag condition guideline with its journey tag (as the real projection does)
-    await guideline_store.upsert_tag(j_cond.id, Tag.for_journey_id(journey.id).id)
+    # Group condition guideline with its journey group (as the real projection does)
+    await guideline_store.upsert_group(j_cond.id, GroupIds.for_journey_id(journey.id))
     j_cond = await guideline_store.read_guideline(j_cond.id)
 
     # Journey J prioritizes over t1
     await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=Tag.for_journey_id(journey.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(journey.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.PRIORITY,
     )
 
     result = await resolver.resolve(
         [g1, g2, j_cond],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=j_cond, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=j_cond, rationale=""),
         ],
         journeys=[journey],
     )
@@ -1889,7 +1886,7 @@ async def test_that_journey_tag_priority_deprioritizes_all_guidelines_of_target_
     assert_resolutions(result, g2.id, [ResolutionKind.DEPRIORITIZED])
 
 
-async def test_that_journey_tag_priority_deprioritizes_target_journey_tag(
+async def test_that_journey_group_priority_deprioritizes_target_journey_group(
     container: Container,
 ) -> None:
     """
@@ -1921,10 +1918,10 @@ async def test_that_journey_tag_priority_deprioritizes_target_journey_tag(
     # J1 prioritizes over J2
     await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(j2.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j2.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
         kind=RelationshipKind.PRIORITY,
     )
@@ -1932,8 +1929,8 @@ async def test_that_journey_tag_priority_deprioritizes_target_journey_tag(
     result = await resolver.resolve(
         [j1_g, j2_g],
         [
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
-            GuidelineMatch(guideline=j2_g, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
+            GuidelineMatch(guideline=j2_g, rationale=""),
         ],
         journeys=[j1, j2],
     )
@@ -1949,24 +1946,24 @@ async def test_that_tag_priority_deprioritizes_target_journey(
     container: Container,
 ) -> None:
     """
-    Tests that a custom tag prioritizing over a journey filters out the
+    Tests that a custom group prioritizing over a journey filters out the
     journey's node guidelines:
     - t1 (with g1, g2) prioritizes over Journey J (with j_g node guideline)
     - After resolution g1 and g2 remain, j_g is deprioritized.
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
     g2 = await guideline_store.create_guideline(condition="b", action="g2 action")
 
-    await guideline_store.upsert_tag(g1.id, t1.id)
-    await guideline_store.upsert_tag(g2.id, t1.id)
+    await guideline_store.upsert_group(g1.id, t1.id)
+    await guideline_store.upsert_group(g2.id, t1.id)
     g1 = await guideline_store.read_guideline(g1.id)
     g2 = await guideline_store.read_guideline(g2.id)
 
@@ -1984,9 +1981,9 @@ async def test_that_tag_priority_deprioritizes_target_journey(
 
     # t1 prioritizes over Journey J
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(journey.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(journey.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
         kind=RelationshipKind.PRIORITY,
     )
@@ -1994,9 +1991,9 @@ async def test_that_tag_priority_deprioritizes_target_journey(
     result = await resolver.resolve(
         [g1, g2, j_g],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=j_g, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=j_g, rationale=""),
         ],
         journeys=[journey],
     )
@@ -2009,41 +2006,41 @@ async def test_that_tag_priority_deprioritizes_target_journey(
     assert_resolutions(result, j_g.id, [ResolutionKind.DEPRIORITIZED])
 
 
-# ── Tag-level dependency tests ──────────────────────────────────────────────
+# ── Group-level dependency tests ──────────────────────────────────────────────
 
 
 async def test_that_tag_dependency_deactivates_tagged_guidelines_when_target_guideline_not_met(
     container: Container,
 ) -> None:
     """
-    t1 depends on g2. g1 tagged t1, g2 untagged, g3 untagged.
+    t1 depends on g2. g1 grouped t1, g2 untagged, g3 untagged.
     g2 NOT matched → t1 dependency unmet → g1 deactivated.
     Result: {g3}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
-    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", tags=[t1.id])
+    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", groups=[t1.id])
     g2 = await guideline_store.create_guideline(condition="b", action="g2 action")
     g3 = await guideline_store.create_guideline(condition="c", action="g3 action")
 
     # t1 depends on g2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # g2 NOT matched
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -2055,39 +2052,39 @@ async def test_that_tag_dependency_deactivates_tagged_guidelines_when_target_gui
     assert_resolutions(result, g3.id, [ResolutionKind.NONE])
 
 
-async def test_that_tag_dependency_deactivates_tagged_guidelines_when_target_tag_not_met(
+async def test_that_tag_dependency_deactivates_tagged_guidelines_when_target_group_not_met(
     container: Container,
 ) -> None:
     """
-    t1 depends on t2. g1 tagged t1, g2 tagged t2, g3 untagged.
+    t1 depends on t2. g1 grouped t1, g2 grouped t2, g3 untagged.
     g2 is NOT matched → t2 dependency unmet → g1 deactivated.
     Result: {g3}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
-    t2 = await tag_store.create_tag(name="t2")
+    t1 = await group_store.create_group(name="t1")
+    t2 = await group_store.create_group(name="t2")
 
-    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", tags=[t1.id])
-    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", tags=[t2.id])
+    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", groups=[t1.id])
+    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", groups=[t2.id])
     g3 = await guideline_store.create_guideline(condition="c", action="g3 action")
 
     # t1 depends on t2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # g2 NOT matched
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -2099,23 +2096,23 @@ async def test_that_tag_dependency_deactivates_tagged_guidelines_when_target_tag
     assert_resolutions(result, g3.id, [ResolutionKind.NONE])
 
 
-async def test_that_journey_tag_dependency_deactivates_node_guidelines_when_target_tag_not_met(
+async def test_that_journey_group_dependency_deactivates_node_guidelines_when_target_group_not_met(
     container: Container,
 ) -> None:
     """
-    Journey j1 depends on t1. j1_g is a j1 node guideline, g1 tagged t1, g_extra untagged.
+    Journey j1 depends on t1. j1_g is a j1 node guideline, g1 grouped t1, g_extra untagged.
     g1 NOT matched → t1 dependency unmet → j1_g deactivated.
     Result: {g_extra}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
-    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", tags=[t1.id])
+    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", groups=[t1.id])
 
     j1 = await journey_store.create_journey(title="J1", description="Journey 1", triggers=[])
     j1_g = await guideline_store.create_guideline(
@@ -2129,9 +2126,9 @@ async def test_that_journey_tag_dependency_deactivates_node_guidelines_when_targ
     # j1 depends on t1
     await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
@@ -2139,8 +2136,8 @@ async def test_that_journey_tag_dependency_deactivates_node_guidelines_when_targ
         [g1, j1_g, g_extra],
         [
             # g1 NOT matched
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
-            GuidelineMatch(guideline=g_extra, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
+            GuidelineMatch(guideline=g_extra, rationale=""),
         ],
         journeys=[j1],
     )
@@ -2156,28 +2153,28 @@ async def test_that_tag_dependency_deactivates_tagged_guidelines_when_target_jou
     container: Container,
 ) -> None:
     """
-    t1 depends on journey j1. g1 tagged t1, g_extra untagged.
+    t1 depends on journey j1. g1 grouped t1, g_extra untagged.
     j1 NOT in active journeys → t1 dependency unmet → g1 deactivated.
     Result: {g_extra}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
-    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", tags=[t1.id])
+    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", groups=[t1.id])
     g_extra = await guideline_store.create_guideline(condition="b", action="extra action")
 
     j1 = await journey_store.create_journey(title="J1", description="Journey 1", triggers=[])
 
     # t1 depends on j1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -2185,8 +2182,8 @@ async def test_that_tag_dependency_deactivates_tagged_guidelines_when_target_jou
     result = await resolver.resolve(
         [g1, g_extra],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g_extra, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g_extra, rationale=""),
         ],
         journeys=[],  # j1 NOT active
     )
@@ -2198,7 +2195,7 @@ async def test_that_tag_dependency_deactivates_tagged_guidelines_when_target_jou
     assert_resolutions(result, g_extra.id, [ResolutionKind.NONE])
 
 
-async def test_that_journey_tag_dependency_deactivates_node_guidelines_when_target_journey_tag_not_active(
+async def test_that_journey_group_dependency_deactivates_node_guidelines_when_target_journey_group_not_active(
     container: Container,
 ) -> None:
     """
@@ -2225,10 +2222,10 @@ async def test_that_journey_tag_dependency_deactivates_node_guidelines_when_targ
     # j1 depends on j2
     await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(j2.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j2.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -2236,8 +2233,8 @@ async def test_that_journey_tag_dependency_deactivates_node_guidelines_when_targ
     result = await resolver.resolve(
         [j1_g, g_extra],
         [
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
-            GuidelineMatch(guideline=g_extra, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
+            GuidelineMatch(guideline=g_extra, rationale=""),
         ],
         journeys=[j1],  # j2 NOT active
     )
@@ -2249,43 +2246,43 @@ async def test_that_journey_tag_dependency_deactivates_node_guidelines_when_targ
     assert_resolutions(result, g_extra.id, [ResolutionKind.NONE])
 
 
-# ── ANY-semantics tag dependency tests ─────────────────────────────────────
+# ── ANY-semantics group dependency tests ─────────────────────────────────────
 
 
 async def test_that_guideline_depending_on_tag_is_filtered_when_no_tagged_guideline_is_matched(
     container: Container,
 ) -> None:
     """
-    g1 depends on tag t1. t1 has g2 and g3, neither matched.
+    g1 depends on group t1. t1 has g2 and g3, neither matched.
     0 of 2 matched → g1 filtered.
     Result: {g_extra}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
-    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", tags=[t1.id])
-    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", tags=[t1.id])
+    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", groups=[t1.id])
+    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", groups=[t1.id])
     g_extra = await guideline_store.create_guideline(condition="d", action="extra action")
 
     # g1 depends on t1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3, g_extra],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # g2 NOT matched
             # g3 NOT matched
-            GuidelineMatch(guideline=g_extra, score=10, rationale=""),
+            GuidelineMatch(guideline=g_extra, rationale=""),
         ],
         journeys=[],
     )
@@ -2301,33 +2298,33 @@ async def test_that_guideline_depending_on_tag_survives_when_at_least_one_tagged
     container: Container,
 ) -> None:
     """
-    g1 depends on tag t1. t1 has g2 and g3, only g2 matched.
+    g1 depends on group t1. t1 has g2 and g3, only g2 matched.
     1 of 2 matched → g1 survives (ANY semantics).
     Result: {g1, g2}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
-    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", tags=[t1.id])
-    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", tags=[t1.id])
+    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", groups=[t1.id])
+    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", groups=[t1.id])
 
     # g1 depends on t1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ANY),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ANY),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # g3 NOT matched
         ],
         journeys=[],
@@ -2344,17 +2341,17 @@ async def test_that_guideline_depending_on_tag_survives_when_at_least_one_tagged
     container: Container,
 ) -> None:
     """
-    g1 depends on tag t1. t1 has journey j1 and journey j2 (via journey tags).
+    g1 depends on group t1. t1 has journey j1 and journey j2 (via journey groups).
     Only j1 is active → g1 survives (ANY semantics).
     Result: {g1, j1_g}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
 
@@ -2363,7 +2360,7 @@ async def test_that_guideline_depending_on_tag_survives_when_at_least_one_tagged
         condition="b",
         action="j1 action",
         metadata={"journey_node": {"journey_id": j1.id}},
-        tags=[t1.id],
+        groups=[t1.id],
     )
 
     j2 = await journey_store.create_journey(title="J2", description="Journey 2", triggers=[])
@@ -2371,21 +2368,21 @@ async def test_that_guideline_depending_on_tag_survives_when_at_least_one_tagged
         condition="c",
         action="j2 action",
         metadata={"journey_node": {"journey_id": j2.id}},
-        tags=[t1.id],
+        groups=[t1.id],
     )
 
     # g1 depends on t1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ANY),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ANY),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, j1_g, j2_g],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
             # j2_g NOT matched
         ],
         journeys=[j1],  # only j1 active, j2 NOT active
@@ -2402,17 +2399,17 @@ async def test_that_guideline_depending_on_tag_is_filtered_when_no_tagged_journe
     container: Container,
 ) -> None:
     """
-    g1 depends on tag t1. t1 has journey j1 and journey j2 (via journey tags).
+    g1 depends on group t1. t1 has journey j1 and journey j2 (via journey groups).
     Neither j1 nor j2 is active → g1 filtered.
     Result: {g_extra}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
     g_extra = await guideline_store.create_guideline(condition="d", action="extra action")
@@ -2422,7 +2419,7 @@ async def test_that_guideline_depending_on_tag_is_filtered_when_no_tagged_journe
         condition="b",
         action="j1 action",
         metadata={"journey_node": {"journey_id": j1.id}},
-        tags=[t1.id],
+        groups=[t1.id],
     )
 
     j2 = await journey_store.create_journey(title="J2", description="Journey 2", triggers=[])
@@ -2430,23 +2427,23 @@ async def test_that_guideline_depending_on_tag_is_filtered_when_no_tagged_journe
         condition="c",
         action="j2 action",
         metadata={"journey_node": {"journey_id": j2.id}},
-        tags=[t1.id],
+        groups=[t1.id],
     )
 
     # g1 depends on t1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, j1_g, j2_g, g_extra],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # j1_g NOT matched
             # j2_g NOT matched
-            GuidelineMatch(guideline=g_extra, score=10, rationale=""),
+            GuidelineMatch(guideline=g_extra, rationale=""),
         ],
         journeys=[],  # neither j1 nor j2 active
     )
@@ -2458,38 +2455,38 @@ async def test_that_guideline_depending_on_tag_is_filtered_when_no_tagged_journe
     assert_resolutions(result, g_extra.id, [ResolutionKind.NONE])
 
 
-async def test_that_tag_to_tag_dependency_survives_when_at_least_one_target_tag_member_is_matched(
+async def test_that_tag_to_tag_dependency_survives_when_at_least_one_target_group_member_is_matched(
     container: Container,
 ) -> None:
     """
-    t1 depends on t2. g1 tagged t1, g2 and g3 tagged t2.
+    t1 depends on t2. g1 grouped t1, g2 and g3 grouped t2.
     Only g2 matched → t1 dependency met (ANY). g1 survives.
     Result: {g1, g2}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
-    t2 = await tag_store.create_tag(name="t2")
+    t1 = await group_store.create_group(name="t1")
+    t2 = await group_store.create_group(name="t2")
 
-    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", tags=[t1.id])
-    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", tags=[t2.id])
-    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", tags=[t2.id])
+    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", groups=[t1.id])
+    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", groups=[t2.id])
+    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", groups=[t2.id])
 
     # t1 depends on t2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.TAG_ANY),
+        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.GROUP_ANY),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # g3 NOT matched
         ],
         journeys=[],
@@ -2502,7 +2499,7 @@ async def test_that_tag_to_tag_dependency_survives_when_at_least_one_target_tag_
     assert_resolutions(result, g2.id, [ResolutionKind.NONE])
 
 
-async def test_that_journey_tag_dependency_survives_when_at_least_one_target_tag_member_is_matched(
+async def test_that_journey_group_dependency_survives_when_at_least_one_target_group_member_is_matched(
     container: Container,
 ) -> None:
     """
@@ -2512,14 +2509,14 @@ async def test_that_journey_tag_dependency_survives_when_at_least_one_target_tag
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
-    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", tags=[t1.id])
-    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", tags=[t1.id])
+    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", groups=[t1.id])
+    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", groups=[t1.id])
 
     j1 = await journey_store.create_journey(title="J1", description="Journey 1", triggers=[])
     j1_g = await guideline_store.create_guideline(
@@ -2531,18 +2528,18 @@ async def test_that_journey_tag_dependency_survives_when_at_least_one_target_tag
     # j1 depends on t1
     await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ANY),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ANY),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, j1_g],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # g2 NOT matched
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
         ],
         journeys=[j1],
     )
@@ -2558,42 +2555,42 @@ async def test_that_tag_dependency_survives_when_tagged_journey_is_active_but_ta
     container: Container,
 ) -> None:
     """
-    g1 depends on tag t1. t1 has both a guideline (g2) and a journey (j1 node).
+    g1 depends on group t1. t1 has both a guideline (g2) and a journey (j1 node).
     g2 is NOT matched but j1 is active → g1 survives (ANY semantics across entity types).
     Result: {g1, j1_g}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
-    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", tags=[t1.id])
+    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", groups=[t1.id])
 
     j1 = await journey_store.create_journey(title="J1", description="Journey 1", triggers=[])
     j1_g = await guideline_store.create_guideline(
         condition="c",
         action="j1 action",
         metadata={"journey_node": {"journey_id": j1.id}},
-        tags=[t1.id],
+        groups=[t1.id],
     )
 
     # g1 depends on t1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ANY),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ANY),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, j1_g],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # g2 NOT matched
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
         ],
         journeys=[j1],  # j1 active
     )
@@ -2630,15 +2627,15 @@ async def test_that_hierarchical_guideline_dependency_cascades_when_root_is_not_
 
     # G2 depends on G1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # G3 depends on G2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
@@ -2646,8 +2643,8 @@ async def test_that_hierarchical_guideline_dependency_cascades_when_root_is_not_
         [g1, g2, g3],
         [
             # G1 NOT matched
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -2681,24 +2678,24 @@ async def test_that_hierarchical_guideline_dependency_cascades_when_middle_is_no
 
     # G2 depends on G1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # G3 depends on G2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 NOT matched
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -2740,17 +2737,17 @@ async def test_that_hierarchical_journey_dependency_cascades_when_root_guideline
     # J1 depends on G1
     await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
-        target=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
+        target=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # G2 depends on J1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -2759,8 +2756,8 @@ async def test_that_hierarchical_journey_dependency_cascades_when_root_guideline
         [g1, j1_g, g2],
         [
             # G1 NOT matched
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
         ],
         journeys=[j1],
     )
@@ -2799,17 +2796,17 @@ async def test_that_hierarchical_journey_dependency_cascades_when_journey_is_not
     # J1 depends on G1
     await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
-        target=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
+        target=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # G2 depends on J1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -2817,9 +2814,9 @@ async def test_that_hierarchical_journey_dependency_cascades_when_journey_is_not
     result = await resolver.resolve(
         [g1, j1_g, g2],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # j1_g NOT matched (journey not active)
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
         ],
         journeys=[],  # J1 NOT active
     )
@@ -2828,7 +2825,7 @@ async def test_that_hierarchical_journey_dependency_cascades_when_journey_is_not
     assert result_ids == {g1.id}
 
 
-# Case 3: T1 -> T2 -> T3 (tag chain)
+# Case 3: T1 -> T2 -> T3 (group chain)
 
 
 async def test_that_hierarchical_tag_dependency_cascades_when_root_tag_member_is_not_matched(
@@ -2841,28 +2838,28 @@ async def test_that_hierarchical_tag_dependency_cascades_when_root_tag_member_is
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
-    t2 = await tag_store.create_tag(name="t2")
-    t3 = await tag_store.create_tag(name="t3")
+    t1 = await group_store.create_group(name="t1")
+    t2 = await group_store.create_group(name="t2")
+    t3 = await group_store.create_group(name="t3")
 
-    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", tags=[t1.id])
-    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", tags=[t2.id])
-    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", tags=[t3.id])
+    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", groups=[t1.id])
+    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", groups=[t2.id])
+    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", groups=[t3.id])
 
     # T2 depends on T1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # T3 depends on T2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t3.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=t3.id, kind=RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
@@ -2870,8 +2867,8 @@ async def test_that_hierarchical_tag_dependency_cascades_when_root_tag_member_is
         [g1, g2, g3],
         [
             # g1 NOT matched (T1 unmet)
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -2897,37 +2894,37 @@ async def test_that_hierarchical_tag_dependency_cascades_when_middle_tag_member_
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
-    t2 = await tag_store.create_tag(name="t2")
-    t3 = await tag_store.create_tag(name="t3")
+    t1 = await group_store.create_group(name="t1")
+    t2 = await group_store.create_group(name="t2")
+    t3 = await group_store.create_group(name="t3")
 
-    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", tags=[t1.id])
-    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", tags=[t2.id])
-    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", tags=[t3.id])
+    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", groups=[t1.id])
+    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", groups=[t2.id])
+    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", groups=[t3.id])
 
     # T2 depends on T1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # T3 depends on T2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t3.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=t3.id, kind=RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # g2 NOT matched (T2 unmet)
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -2939,10 +2936,10 @@ async def test_that_hierarchical_tag_dependency_cascades_when_middle_tag_member_
     assert_resolutions(result, g3.id, [ResolutionKind.UNMET_DEPENDENCY_ALL])
 
 
-# Case 4: T1 -> J1 -> T2 (tag → journey → tag)
+# Case 4: T1 -> J1 -> T2 (group → journey → group)
 
 
-async def test_that_hierarchical_tag_journey_tag_dependency_cascades_when_root_tag_is_not_matched(
+async def test_that_hierarchical_tag_journey_group_dependency_cascades_when_root_tag_is_not_matched(
     container: Container,
 ) -> None:
     """
@@ -2952,14 +2949,14 @@ async def test_that_hierarchical_tag_journey_tag_dependency_cascades_when_root_t
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
-    t2 = await tag_store.create_tag(name="t2")
+    t1 = await group_store.create_group(name="t1")
+    t2 = await group_store.create_group(name="t2")
 
-    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", tags=[t1.id])
+    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", groups=[t1.id])
 
     j1 = await journey_store.create_journey(title="J1", description="Journey 1", triggers=[])
     j1_g = await guideline_store.create_guideline(
@@ -2968,22 +2965,22 @@ async def test_that_hierarchical_tag_journey_tag_dependency_cascades_when_root_t
         metadata={"journey_node": {"journey_id": j1.id}},
     )
 
-    g2 = await guideline_store.create_guideline(condition="c", action="g2 action", tags=[t2.id])
+    g2 = await guideline_store.create_guideline(condition="c", action="g2 action", groups=[t2.id])
 
     # J1 depends on T1
     await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # T2 depends on J1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.GROUP_ALL),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -2992,8 +2989,8 @@ async def test_that_hierarchical_tag_journey_tag_dependency_cascades_when_root_t
         [g1, j1_g, g2],
         [
             # g1 NOT matched (T1 unmet)
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
         ],
         journeys=[j1],
     )
@@ -3005,7 +3002,7 @@ async def test_that_hierarchical_tag_journey_tag_dependency_cascades_when_root_t
     assert_resolutions(result, g2.id, [ResolutionKind.UNMET_DEPENDENCY_ALL])
 
 
-async def test_that_hierarchical_tag_journey_tag_dependency_cascades_when_journey_is_not_active(
+async def test_that_hierarchical_tag_journey_group_dependency_cascades_when_journey_is_not_active(
     container: Container,
 ) -> None:
     """
@@ -3015,14 +3012,14 @@ async def test_that_hierarchical_tag_journey_tag_dependency_cascades_when_journe
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
-    t2 = await tag_store.create_tag(name="t2")
+    t1 = await group_store.create_group(name="t1")
+    t2 = await group_store.create_group(name="t2")
 
-    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", tags=[t1.id])
+    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", groups=[t1.id])
 
     j1 = await journey_store.create_journey(title="J1", description="Journey 1", triggers=[])
     j1_g = await guideline_store.create_guideline(
@@ -3031,22 +3028,22 @@ async def test_that_hierarchical_tag_journey_tag_dependency_cascades_when_journe
         metadata={"journey_node": {"journey_id": j1.id}},
     )
 
-    g2 = await guideline_store.create_guideline(condition="c", action="g2 action", tags=[t2.id])
+    g2 = await guideline_store.create_guideline(condition="c", action="g2 action", groups=[t2.id])
 
     # J1 depends on T1
     await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # T2 depends on J1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.GROUP_ALL),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -3054,9 +3051,9 @@ async def test_that_hierarchical_tag_journey_tag_dependency_cascades_when_journe
     result = await resolver.resolve(
         [g1, j1_g, g2],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # j1_g NOT matched (journey not active)
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
         ],
         journeys=[],  # J1 NOT active
     )
@@ -3069,7 +3066,7 @@ async def test_that_hierarchical_tag_journey_tag_dependency_cascades_when_journe
     assert_resolutions(result, g2.id, [ResolutionKind.UNMET_DEPENDENCY_ALL])
 
 
-# Case 5: G1 -> T1 -> J1 (guideline → tag → journey)
+# Case 5: G1 -> T1 -> J1 (guideline → group → journey)
 
 
 async def test_that_hierarchical_guideline_tag_journey_dependency_cascades_when_root_is_not_matched(
@@ -3082,14 +3079,14 @@ async def test_that_hierarchical_guideline_tag_journey_dependency_cascades_when_
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
-    g_t1 = await guideline_store.create_guideline(condition="b", action="t1 action", tags=[t1.id])
+    g_t1 = await guideline_store.create_guideline(condition="b", action="t1 action", groups=[t1.id])
 
     j1 = await journey_store.create_journey(title="J1", description="Journey 1", triggers=[])
     j1_g = await guideline_store.create_guideline(
@@ -3100,17 +3097,17 @@ async def test_that_hierarchical_guideline_tag_journey_dependency_cascades_when_
 
     # T1 depends on G1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # J1 depends on T1
     await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
@@ -3118,8 +3115,8 @@ async def test_that_hierarchical_guideline_tag_journey_dependency_cascades_when_
         [g1, g_t1, j1_g],
         [
             # G1 NOT matched
-            GuidelineMatch(guideline=g_t1, score=10, rationale=""),
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
+            GuidelineMatch(guideline=g_t1, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
         ],
         journeys=[j1],
     )
@@ -3146,14 +3143,14 @@ async def test_that_hierarchical_guideline_tag_journey_dependency_cascades_when_
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
-    g_t1 = await guideline_store.create_guideline(condition="b", action="t1 action", tags=[t1.id])
+    g_t1 = await guideline_store.create_guideline(condition="b", action="t1 action", groups=[t1.id])
 
     j1 = await journey_store.create_journey(title="J1", description="Journey 1", triggers=[])
     j1_g = await guideline_store.create_guideline(
@@ -3164,26 +3161,26 @@ async def test_that_hierarchical_guideline_tag_journey_dependency_cascades_when_
 
     # T1 depends on G1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # J1 depends on T1
     await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g_t1, j1_g],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # g_t1 NOT matched (T1 member unmet)
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
         ],
         journeys=[j1],
     )
@@ -3203,7 +3200,7 @@ async def test_that_condition_guideline_survives_when_its_journey_is_deprioritiz
     container: Container,
 ) -> None:
     """
-    Condition guidelines (tagged with journey tag but no journey_node metadata)
+    Condition guidelines (grouped with journey group but no journey_node metadata)
     should NOT be deprioritized when the journey loses a priority fight.
     Only node guidelines (with journey_node metadata) are subject to journey-level
     deprioritization.
@@ -3222,7 +3219,7 @@ async def test_that_condition_guideline_survives_when_its_journey_is_deprioritiz
     j1_cond = await guideline_store.create_guideline(
         condition="customer is interested",
         action="observe interest",
-        tags=[Tag.for_journey_id(j1.id).id],
+        groups=[GroupIds.for_journey_id(j1.id)],
     )
 
     j1_node = await guideline_store.create_guideline(
@@ -3238,9 +3235,9 @@ async def test_that_condition_guideline_survives_when_its_journey_is_deprioritiz
 
     # g1 prioritizes over j1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
         kind=RelationshipKind.PRIORITY,
     )
@@ -3248,9 +3245,9 @@ async def test_that_condition_guideline_survives_when_its_journey_is_deprioritiz
     result = await resolver.resolve(
         [j1_cond, j1_node, g1],
         [
-            GuidelineMatch(guideline=j1_cond, score=10, rationale=""),
-            GuidelineMatch(guideline=j1_node, score=10, rationale=""),
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_cond, rationale=""),
+            GuidelineMatch(guideline=j1_node, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
         ],
         journeys=[j1],
     )
@@ -3267,32 +3264,36 @@ async def test_that_condition_guideline_survives_when_its_journey_is_deprioritiz
     assert any(ResolvedEntity.guideline(g1) in r.details.counterparts for r in deprioritized)
 
 
-async def test_that_tag_priority_does_not_deprioritize_when_no_source_tag_member_is_matched(
+async def test_that_tag_priority_does_not_deprioritize_when_no_source_group_member_is_matched(
     container: Container,
 ) -> None:
     """
-    Tag-level priority t1→t2 should not fire if no t1 member is matched.
+    Group-level priority t1→t2 should not fire if no t1 member is matched.
     t2 members should survive.
 
     - t1 prioritizes over t2
-    - g1_1 tagged t1 (NOT matched), g2_1 tagged t2 (matched)
+    - g1_1 grouped t1 (NOT matched), g2_1 grouped t2 (matched)
     - After resolution: g2_1 survives (no t1 member is active to trigger deprioritization)
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
-    t2 = await tag_store.create_tag(name="t2")
+    t1 = await group_store.create_group(name="t1")
+    t2 = await group_store.create_group(name="t2")
 
-    g1_1 = await guideline_store.create_guideline(condition="a", action="g1_1 action", tags=[t1.id])
-    g2_1 = await guideline_store.create_guideline(condition="b", action="g2_1 action", tags=[t2.id])
+    g1_1 = await guideline_store.create_guideline(
+        condition="a", action="g1_1 action", groups=[t1.id]
+    )
+    g2_1 = await guideline_store.create_guideline(
+        condition="b", action="g2_1 action", groups=[t2.id]
+    )
 
     # t1 prioritizes over t2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.PRIORITY,
     )
 
@@ -3300,7 +3301,7 @@ async def test_that_tag_priority_does_not_deprioritize_when_no_source_tag_member
         [g1_1, g2_1],
         [
             # g1_1 NOT matched
-            GuidelineMatch(guideline=g2_1, score=10, rationale=""),
+            GuidelineMatch(guideline=g2_1, rationale=""),
         ],
         journeys=[],
     )
@@ -3316,36 +3317,36 @@ async def test_that_tag_dependency_allows_tagged_guidelines_when_dependency_is_m
     container: Container,
 ) -> None:
     """
-    Happy-path for tag-level dependency: when the dependency IS met,
-    tagged guidelines should survive normally.
+    Happy-path for group-level dependency: when the dependency IS met,
+    grouped guidelines should survive normally.
 
     - t1 depends on t2
-    - g1 tagged t1, g2 tagged t2 — both matched
+    - g1 grouped t1, g2 grouped t2 — both matched
     - After resolution: both survive
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
-    t2 = await tag_store.create_tag(name="t2")
+    t1 = await group_store.create_group(name="t1")
+    t2 = await group_store.create_group(name="t2")
 
-    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", tags=[t1.id])
-    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", tags=[t2.id])
+    g1 = await guideline_store.create_guideline(condition="a", action="g1 action", groups=[t1.id])
+    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", groups=[t2.id])
 
     # t1 depends on t2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
         ],
         journeys=[],
     )
@@ -3362,47 +3363,51 @@ async def test_that_tag_priority_transitively_filters_guideline_depending_on_dep
     container: Container,
 ) -> None:
     """
-    Tag→tag priority causes deprioritization, then a guideline depending on the
-    deprioritized tag is transitively filtered.
+    Group→group priority causes deprioritization, then a guideline depending on the
+    deprioritized group is transitively filtered.
 
-    - t1 prioritizes over t2 (tag-level)
+    - t1 prioritizes over t2 (group-level)
     - g3 depends on t2
-    - g1_1 tagged t1, g2_1 tagged t2, g3 untagged — all matched
+    - g1_1 grouped t1, g2_1 grouped t2, g3 untagged — all matched
     - After resolution: g2_1 deprioritized by t1, g3 transitively filtered
       (depends on t2, whose member g2_1 was deprioritized). Only g1_1 survives.
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
-    t2 = await tag_store.create_tag(name="t2")
+    t1 = await group_store.create_group(name="t1")
+    t2 = await group_store.create_group(name="t2")
 
-    g1_1 = await guideline_store.create_guideline(condition="a", action="g1_1 action", tags=[t1.id])
-    g2_1 = await guideline_store.create_guideline(condition="b", action="g2_1 action", tags=[t2.id])
+    g1_1 = await guideline_store.create_guideline(
+        condition="a", action="g1_1 action", groups=[t1.id]
+    )
+    g2_1 = await guideline_store.create_guideline(
+        condition="b", action="g2_1 action", groups=[t2.id]
+    )
     g3 = await guideline_store.create_guideline(condition="c", action="g3 action")
 
     # t1 prioritizes over t2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.PRIORITY,
     )
 
     # g3 depends on t2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1_1, g2_1, g3],
         [
-            GuidelineMatch(guideline=g1_1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2_1, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1_1, rationale=""),
+            GuidelineMatch(guideline=g2_1, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -3418,51 +3423,51 @@ async def test_that_tag_priority_transitively_filters_guideline_depending_on_dep
     assert_resolutions(result, g3.id, [ResolutionKind.DEPRIORITIZED])
 
 
-# ── Custom journey tag propagation tests ───────────────────────────────────
+# ── Custom journey group propagation tests ───────────────────────────────────
 
 
-async def test_that_custom_tagged_journey_deprioritizes_guidelines_with_lower_priority_tag(
+async def test_that_custom_groupged_journey_deprioritizes_guidelines_with_lower_priority_tag(
     container: Container,
 ) -> None:
     """
-    Journey with custom tag t1, standalone guideline with t2, relationship t1 > t2.
-    Node guideline (with journey_node metadata and tags=[t1]) and t2-tagged guideline
+    Journey with custom group t1, standalone guideline with t2, relationship t1 > t2.
+    Node guideline (with journey_node metadata and groups=[t1]) and t2-grouped guideline
     both match → only node guideline survives.
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
-    t2 = await tag_store.create_tag(name="t2")
+    t1 = await group_store.create_group(name="t1")
+    t2 = await group_store.create_group(name="t2")
 
     j1 = await journey_store.create_journey(title="J1", description="Journey 1", triggers=[])
 
-    # Node guideline carrying the journey's custom tag
+    # Node guideline carrying the journey's custom group
     j1_node = await guideline_store.create_guideline(
         condition="a",
         action="j1 node action",
         metadata={"journey_node": {"journey_id": j1.id}},
-        tags=[t1.id],
+        groups=[t1.id],
     )
 
-    # Standalone guideline tagged t2
-    g1 = await guideline_store.create_guideline(condition="b", action="g1 action", tags=[t2.id])
+    # Standalone guideline grouped t2
+    g1 = await guideline_store.create_guideline(condition="b", action="g1 action", groups=[t2.id])
 
     # t1 prioritizes over t2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.PRIORITY,
     )
 
     result = await resolver.resolve(
         [j1_node, g1],
         [
-            GuidelineMatch(guideline=j1_node, score=10, rationale=""),
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_node, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
         ],
         journeys=[j1],
     )
@@ -3477,48 +3482,48 @@ async def test_that_custom_tagged_journey_deprioritizes_guidelines_with_lower_pr
     assert any(ResolvedEntity.guideline(j1_node) in r.details.counterparts for r in deprioritized)
 
 
-async def test_that_higher_priority_tag_deprioritizes_journey_with_matching_custom_tag(
+async def test_that_higher_priority_tag_deprioritizes_journey_with_matching_custom_group(
     container: Container,
 ) -> None:
     """
-    Standalone guideline with tag t2, journey node guideline with custom tag t1,
+    Standalone guideline with group t2, journey node guideline with custom group t1,
     relationship t2 > t1. Both match → node guideline is deprioritized.
-    Result: only t2-tagged guidelines survive.
+    Result: only t2-grouped guidelines survive.
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
-    t2 = await tag_store.create_tag(name="t2")
+    t1 = await group_store.create_group(name="t1")
+    t2 = await group_store.create_group(name="t2")
 
     j1 = await journey_store.create_journey(title="J1", description="Journey 1", triggers=[])
 
-    # Node guideline carrying the journey's custom tag
+    # Node guideline carrying the journey's custom group
     j1_node = await guideline_store.create_guideline(
         condition="a",
         action="j1 node action",
         metadata={"journey_node": {"journey_id": j1.id}},
-        tags=[t1.id],
+        groups=[t1.id],
     )
 
-    # Standalone guideline tagged t2
-    g1 = await guideline_store.create_guideline(condition="b", action="g1 action", tags=[t2.id])
+    # Standalone guideline grouped t2
+    g1 = await guideline_store.create_guideline(condition="b", action="g1 action", groups=[t2.id])
 
     # t2 prioritizes over t1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.PRIORITY,
     )
 
     result = await resolver.resolve(
         [j1_node, g1],
         [
-            GuidelineMatch(guideline=j1_node, score=10, rationale=""),
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_node, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
         ],
         journeys=[j1],
     )
@@ -3533,50 +3538,50 @@ async def test_that_higher_priority_tag_deprioritizes_journey_with_matching_cust
     assert any(ResolvedEntity.guideline(g1) in r.details.counterparts for r in deprioritized)
 
 
-async def test_that_custom_tagged_journey_dependency_deactivates_node_guidelines_when_target_tag_not_met(
+async def test_that_custom_groupged_journey_dependency_deactivates_node_guidelines_when_target_group_not_met(
     container: Container,
 ) -> None:
     """
-    Journey with custom tag t1, relationship t1 depends on t2.
-    t2-tagged guideline NOT matched → node guideline deactivated.
+    Journey with custom group t1, relationship t1 depends on t2.
+    t2-grouped guideline NOT matched → node guideline deactivated.
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
-    t2 = await tag_store.create_tag(name="t2")
+    t1 = await group_store.create_group(name="t1")
+    t2 = await group_store.create_group(name="t2")
 
     j1 = await journey_store.create_journey(title="J1", description="Journey 1", triggers=[])
 
-    # Node guideline carrying the journey's custom tag
+    # Node guideline carrying the journey's custom group
     j1_node = await guideline_store.create_guideline(
         condition="a",
         action="j1 node action",
         metadata={"journey_node": {"journey_id": j1.id}},
-        tags=[t1.id],
+        groups=[t1.id],
     )
 
-    # Standalone guideline tagged t2 (will NOT be matched)
-    g1 = await guideline_store.create_guideline(condition="b", action="g1 action", tags=[t2.id])
+    # Standalone guideline grouped t2 (will NOT be matched)
+    g1 = await guideline_store.create_guideline(condition="b", action="g1 action", groups=[t2.id])
 
     g_extra = await guideline_store.create_guideline(condition="c", action="extra action")
 
     # t1 depends on t2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [j1_node, g1, g_extra],
         [
-            GuidelineMatch(guideline=j1_node, score=10, rationale=""),
+            GuidelineMatch(guideline=j1_node, rationale=""),
             # g1 NOT matched
-            GuidelineMatch(guideline=g_extra, score=10, rationale=""),
+            GuidelineMatch(guideline=g_extra, rationale=""),
         ],
         journeys=[j1],
     )
@@ -3589,42 +3594,42 @@ async def test_that_custom_tagged_journey_dependency_deactivates_node_guidelines
     assert_resolutions(result, g_extra.id, [ResolutionKind.NONE])
 
 
-async def test_that_tag_dependency_on_custom_tagged_journey_deactivates_when_journey_not_active(
+async def test_that_tag_dependency_on_custom_groupged_journey_deactivates_when_journey_not_active(
     container: Container,
 ) -> None:
     """
     Standalone guideline with t2, relationship t2 depends on t1.
-    Journey with custom tag t1 not active (no node guidelines matched).
-    Result: t2-tagged guideline deactivated.
+    Journey with custom group t1 not active (no node guidelines matched).
+    Result: t2-grouped guideline deactivated.
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
-    t2 = await tag_store.create_tag(name="t2")
+    t1 = await group_store.create_group(name="t1")
+    t2 = await group_store.create_group(name="t2")
 
     j1 = await journey_store.create_journey(title="J1", description="Journey 1", triggers=[])
 
-    # Node guideline carrying the journey's custom tag (will NOT be matched)
+    # Node guideline carrying the journey's custom group (will NOT be matched)
     j1_node = await guideline_store.create_guideline(
         condition="a",
         action="j1 node action",
         metadata={"journey_node": {"journey_id": j1.id}},
-        tags=[t1.id],
+        groups=[t1.id],
     )
 
-    # Standalone guideline tagged t2
-    g1 = await guideline_store.create_guideline(condition="b", action="g1 action", tags=[t2.id])
+    # Standalone guideline grouped t2
+    g1 = await guideline_store.create_guideline(condition="b", action="g1 action", groups=[t2.id])
 
     g_extra = await guideline_store.create_guideline(condition="c", action="extra action")
 
     # t2 depends on t1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.TAG_ALL),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.GROUP_ALL),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
@@ -3632,8 +3637,8 @@ async def test_that_tag_dependency_on_custom_tagged_journey_deactivates_when_jou
         [j1_node, g1, g_extra],
         [
             # j1_node NOT matched (journey not active)
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g_extra, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g_extra, rationale=""),
         ],
         journeys=[],  # j1 NOT active
     )
@@ -3650,7 +3655,7 @@ async def test_that_relational_resolver_deprioritizes_journey_scoped_guideline_w
     container: Container,
 ) -> None:
     """When two journeys both have scoped guidelines (persisted, with dependency
-    on journey tag but without journey_node metadata), and one journey has
+    on journey group but without journey_node metadata), and one journey has
     priority over the other, only the prioritized journey's scoped guideline
     should survive resolution."""
     relationship_store = container[RelationshipStore]
@@ -3686,16 +3691,16 @@ async def test_that_relational_resolver_deprioritizes_journey_scoped_guideline_w
         action="Recommend Coca-Cola",
     )
 
-    # Create DEPENDENCY from each guideline to its journey's tag
+    # Create DEPENDENCY from each guideline to its journey's group
     # (this is what journey.create_guideline() does in the SDK)
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=g1.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=GroupIds.for_journey_id(j1.id),
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -3703,11 +3708,11 @@ async def test_that_relational_resolver_deprioritizes_journey_scoped_guideline_w
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=g2.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(j2.id).id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=GroupIds.for_journey_id(j2.id),
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -3715,12 +3720,12 @@ async def test_that_relational_resolver_deprioritizes_journey_scoped_guideline_w
     # Journey 1 has priority over Journey 2
     await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=GroupIds.for_journey_id(j1.id),
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(j2.id).id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=GroupIds.for_journey_id(j2.id),
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         kind=RelationshipKind.PRIORITY,
     )
@@ -3728,14 +3733,14 @@ async def test_that_relational_resolver_deprioritizes_journey_scoped_guideline_w
     result = await resolver.resolve(
         [g1, g2],
         [
-            GuidelineMatch(guideline=g1, score=8, rationale=""),
-            GuidelineMatch(guideline=g2, score=5, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
         ],
         journeys=[j1, j2],
     )
 
     # Only g1 (from the prioritized journey) should survive
-    assert result.matches == [GuidelineMatch(guideline=g1, score=8, rationale="")]
+    assert result.matches == [GuidelineMatch(guideline=g1, rationale="")]
 
     # Resolution assertions
     assert_resolutions(result, g1.id, [ResolutionKind.NONE])
@@ -3746,7 +3751,7 @@ async def test_that_relational_resolver_deprioritizes_journey_scoped_guideline_w
     container: Container,
 ) -> None:
     """When a standalone guideline has priority over a journey, the journey's
-    scoped guidelines (persisted, with dependency on journey tag) should be
+    scoped guidelines (persisted, with dependency on journey group) should be
     filtered out."""
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
@@ -3767,15 +3772,15 @@ async def test_that_relational_resolver_deprioritizes_journey_scoped_guideline_w
         action="Recommend Coca-Cola",
     )
 
-    # Dependency from scoped guideline to the journey tag
+    # Dependency from scoped guideline to the journey group
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=g_scoped.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=GroupIds.for_journey_id(j1.id),
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -3789,11 +3794,11 @@ async def test_that_relational_resolver_deprioritizes_journey_scoped_guideline_w
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=g_standalone.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=GroupIds.for_journey_id(j1.id),
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         kind=RelationshipKind.PRIORITY,
     )
@@ -3801,14 +3806,14 @@ async def test_that_relational_resolver_deprioritizes_journey_scoped_guideline_w
     result = await resolver.resolve(
         [g_standalone, g_scoped],
         [
-            GuidelineMatch(guideline=g_standalone, score=8, rationale=""),
-            GuidelineMatch(guideline=g_scoped, score=5, rationale=""),
+            GuidelineMatch(guideline=g_standalone, rationale=""),
+            GuidelineMatch(guideline=g_scoped, rationale=""),
         ],
         journeys=[j1],
     )
 
     # Only the standalone guideline should survive
-    assert result.matches == [GuidelineMatch(guideline=g_standalone, score=8, rationale="")]
+    assert result.matches == [GuidelineMatch(guideline=g_standalone, rationale="")]
 
     # Resolution assertions
     assert_resolutions(result, g_standalone.id, [ResolutionKind.NONE])
@@ -3837,38 +3842,38 @@ async def test_that_diamond_dependency_filters_all_dependents_when_root_is_not_m
 
     # G2 depends on G4
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # G3 depends on G4
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # G1 depends on G2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # G1 depends on G3
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
             # G4 NOT matched
         ],
         journeys=[],
@@ -3909,36 +3914,36 @@ async def test_that_diamond_dependency_keeps_all_when_root_is_matched(
     g4 = await guideline_store.create_guideline(condition="d", action="g4 action")
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
-            GuidelineMatch(guideline=g4, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
+            GuidelineMatch(guideline=g4, rationale=""),
         ],
         journeys=[],
     )
@@ -3964,36 +3969,36 @@ async def test_that_any_semantics_survives_cascading_failure_within_tag_member(
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
-    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", tags=[t1.id])
-    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", tags=[t1.id])
+    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", groups=[t1.id])
+    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", groups=[t1.id])
     g4 = await guideline_store.create_guideline(condition="d", action="g4 action")
 
     # G1 depends on T1 (ANY)
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ANY),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ANY),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # G2 depends on G4
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
             # G4 NOT matched → G2 will be filtered
         ],
         journeys=[],
@@ -4019,44 +4024,44 @@ async def test_that_any_semantics_filters_when_all_tag_members_cascade_fail(
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
-    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", tags=[t1.id])
-    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", tags=[t1.id])
+    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", groups=[t1.id])
+    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", groups=[t1.id])
     g4 = await guideline_store.create_guideline(condition="d", action="g4 action")
     g5 = await guideline_store.create_guideline(condition="e", action="g5 action")
 
     # G1 depends on T1 (ANY)
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ANY),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ANY),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # G2 depends on G4
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # G3 depends on G5
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g5.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g5.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3, g4, g5],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
             # G4 NOT matched
             # G5 NOT matched
         ],
@@ -4076,32 +4081,32 @@ async def test_that_empty_tag_dependency_filters_dependent_guideline(
     container: Container,
 ) -> None:
     """
-    G1 depends on T1. T1 has no tagged members at all.
+    G1 depends on T1. T1 has no grouped members at all.
     any([]) is False → G1 should be filtered.
     Result: {g_extra}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="empty-tag")
+    t1 = await group_store.create_group(name="empty-group")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
     g_extra = await guideline_store.create_guideline(condition="b", action="extra action")
 
     # G1 depends on T1 (which has no members)
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g_extra],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g_extra, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g_extra, rationale=""),
         ],
         journeys=[],
     )
@@ -4118,40 +4123,40 @@ async def test_that_multiple_independent_dependencies_must_all_be_met(
     container: Container,
 ) -> None:
     """
-    G1 depends on G2 (direct) AND on T1 (tag).
+    G1 depends on G2 (direct) AND on T1 (group).
     G2 matched, T1 member NOT matched → G1 filtered (both must be met).
     Result: {G2}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
     g2 = await guideline_store.create_guideline(condition="b", action="g2 action")
-    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", tags=[t1.id])
+    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", groups=[t1.id])
 
     # G1 depends on G2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # G1 depends on T1
     rel_t1 = await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # g3 NOT matched (T1 unmet)
         ],
         journeys=[],
@@ -4168,7 +4173,7 @@ async def test_that_multiple_independent_dependencies_must_all_be_met(
     # and reference the dependency relationship that caused the failure.
     g1_res = get_resolutions_by_kind(result, g1.id, ResolutionKind.UNMET_DEPENDENCY_ALL)
     assert len(g1_res) == 1
-    assert ResolvedEntity.tag(t1) in g1_res[0].details.counterparts
+    assert ResolvedEntity.group(t1) in g1_res[0].details.counterparts
     assert g1_res[0].details.relationship is not None
     assert g1_res[0].details.relationship.id == rel_t1.id
 
@@ -4177,41 +4182,41 @@ async def test_that_multiple_independent_dependencies_survive_when_all_met(
     container: Container,
 ) -> None:
     """
-    G1 depends on G2 (direct) AND on T1 (tag).
+    G1 depends on G2 (direct) AND on T1 (group).
     G2 matched, T1 member matched → G1 survives (both met).
     Result: {G1, G2, G3}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
     g2 = await guideline_store.create_guideline(condition="b", action="g2 action")
-    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", tags=[t1.id])
+    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", groups=[t1.id])
 
     # G1 depends on G2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # G1 depends on T1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -4249,22 +4254,22 @@ async def test_that_multi_iteration_convergence_filters_dependent_when_transitiv
 
     # G4 depends on G2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # G4 depends on G3
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # G3 depends on G1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
@@ -4272,9 +4277,9 @@ async def test_that_multi_iteration_convergence_filters_dependent_when_transitiv
         [g1, g2, g3, g4],
         [
             # G1 NOT matched
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
-            GuidelineMatch(guideline=g4, score=10, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
+            GuidelineMatch(guideline=g4, rationale=""),
         ],
         journeys=[],
     )
@@ -4315,17 +4320,17 @@ async def test_that_numerical_priority_filtering_removes_dependent_when_dependen
 
     # G1 depends on G2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -4367,16 +4372,16 @@ async def test_that_numerical_priority_filtering_keeps_dependent_when_dependency
 
     # G1 depends on G2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
         ],
         journeys=[],
     )
@@ -4400,30 +4405,30 @@ async def test_that_numerical_priority_filtering_cascades_through_tag_dependency
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action", priority=100)
     g2 = await guideline_store.create_guideline(
-        condition="b", action="g2 action", priority=0, tags=[t1.id]
+        condition="b", action="g2 action", priority=0, groups=[t1.id]
     )
     g3 = await guideline_store.create_guideline(condition="c", action="g3 action", priority=100)
 
     # G1 depends on T1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -4447,32 +4452,32 @@ async def test_that_numerical_priority_filtering_with_tag_any_keeps_dependent_wh
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action", priority=100)
     g2 = await guideline_store.create_guideline(
-        condition="b", action="g2 action", priority=0, tags=[t1.id]
+        condition="b", action="g2 action", priority=0, groups=[t1.id]
     )
     g3 = await guideline_store.create_guideline(
-        condition="c", action="g3 action", priority=100, tags=[t1.id]
+        condition="c", action="g3 action", priority=100, groups=[t1.id]
     )
 
     # G1 depends on T1
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ANY),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ANY),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -4486,39 +4491,39 @@ async def test_that_numerical_priority_filtering_with_tag_any_keeps_dependent_wh
     assert_resolutions(result, g3.id, [ResolutionKind.NONE])
 
 
-# ── TAG_ALL vs TAG_ANY explicit tests ──────────────────────────────────────
+# ── GROUP_ALL vs GROUP_ANY explicit tests ──────────────────────────────────────
 
 
 async def test_that_tag_all_dependency_filters_when_not_all_members_matched(
     container: Container,
 ) -> None:
     """
-    G1 depends on TAG_ALL(t1). t1 has G2 and G3. Only G2 matched.
-    TAG_ALL requires all members → G1 filtered.
+    G1 depends on GROUP_ALL(t1). t1 has G2 and G3. Only G2 matched.
+    GROUP_ALL requires all members → G1 filtered.
     Result: {G2}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
-    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", tags=[t1.id])
-    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", tags=[t1.id])
+    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", groups=[t1.id])
+    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", groups=[t1.id])
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # G3 NOT matched
         ],
         journeys=[],
@@ -4535,33 +4540,33 @@ async def test_that_tag_all_dependency_survives_when_all_members_matched(
     container: Container,
 ) -> None:
     """
-    G1 depends on TAG_ALL(t1). t1 has G2 and G3. Both matched.
-    TAG_ALL: all members active → G1 survives.
+    G1 depends on GROUP_ALL(t1). t1 has G2 and G3. Both matched.
+    GROUP_ALL: all members active → G1 survives.
     Result: {G1, G2, G3}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
-    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", tags=[t1.id])
-    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", tags=[t1.id])
+    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", groups=[t1.id])
+    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", groups=[t1.id])
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -4578,32 +4583,32 @@ async def test_that_tag_any_dependency_survives_when_one_of_two_members_matched(
     container: Container,
 ) -> None:
     """
-    G1 depends on TAG_ANY(t1). t1 has G2 and G3. Only G2 matched.
-    TAG_ANY: at least one member → G1 survives.
+    G1 depends on GROUP_ANY(t1). t1 has G2 and G3. Only G2 matched.
+    GROUP_ANY: at least one member → G1 survives.
     Result: {G1, G2}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
-    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", tags=[t1.id])
-    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", tags=[t1.id])
+    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", groups=[t1.id])
+    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", groups=[t1.id])
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ANY),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ANY),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # G3 NOT matched
         ],
         journeys=[],
@@ -4620,31 +4625,31 @@ async def test_that_tag_any_dependency_filters_when_no_members_matched(
     container: Container,
 ) -> None:
     """
-    G1 depends on TAG_ANY(t1). t1 has G2 and G3. Neither matched.
-    TAG_ANY: no members → G1 filtered.
+    G1 depends on GROUP_ANY(t1). t1 has G2 and G3. Neither matched.
+    GROUP_ANY: no members → G1 filtered.
     Result: {}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
-    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", tags=[t1.id])
-    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", tags=[t1.id])
+    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", groups=[t1.id])
+    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", groups=[t1.id])
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ANY),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ANY),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 NOT matched
             # G3 NOT matched
         ],
@@ -4661,44 +4666,44 @@ async def test_that_mixed_tag_all_and_tag_any_dependencies_both_evaluated(
     container: Container,
 ) -> None:
     """
-    G1 depends on TAG_ALL(t1) AND TAG_ANY(t2).
+    G1 depends on GROUP_ALL(t1) AND GROUP_ANY(t2).
     t1 has G2, G3 (both matched). t2 has G4, G5 (only G4 matched).
-    TAG_ALL(t1) met, TAG_ANY(t2) met → G1 survives.
+    GROUP_ALL(t1) met, GROUP_ANY(t2) met → G1 survives.
     Result: {G1, G2, G3, G4}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
-    t2 = await tag_store.create_tag(name="t2")
+    t1 = await group_store.create_group(name="t1")
+    t2 = await group_store.create_group(name="t2")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
-    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", tags=[t1.id])
-    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", tags=[t1.id])
-    g4 = await guideline_store.create_guideline(condition="d", action="g4 action", tags=[t2.id])
-    g5 = await guideline_store.create_guideline(condition="e", action="g5 action", tags=[t2.id])
+    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", groups=[t1.id])
+    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", groups=[t1.id])
+    g4 = await guideline_store.create_guideline(condition="d", action="g4 action", groups=[t2.id])
+    g5 = await guideline_store.create_guideline(condition="e", action="g5 action", groups=[t2.id])
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.TAG_ANY),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.GROUP_ANY),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3, g4, g5],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
-            GuidelineMatch(guideline=g4, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
+            GuidelineMatch(guideline=g4, rationale=""),
             # G5 NOT matched
         ],
         journeys=[],
@@ -4717,44 +4722,44 @@ async def test_that_mixed_tag_all_and_tag_any_filters_when_tag_all_not_fully_met
     container: Container,
 ) -> None:
     """
-    G1 depends on TAG_ALL(t1) AND TAG_ANY(t2).
+    G1 depends on GROUP_ALL(t1) AND GROUP_ANY(t2).
     t1 has G2, G3 (only G2 matched). t2 has G4, G5 (G4 matched).
-    TAG_ALL(t1) NOT met (G3 missing) → G1 filtered, even though TAG_ANY(t2) is met.
+    GROUP_ALL(t1) NOT met (G3 missing) → G1 filtered, even though GROUP_ANY(t2) is met.
     Result: {G2, G4}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
-    t2 = await tag_store.create_tag(name="t2")
+    t1 = await group_store.create_group(name="t1")
+    t2 = await group_store.create_group(name="t2")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
-    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", tags=[t1.id])
-    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", tags=[t1.id])
-    g4 = await guideline_store.create_guideline(condition="d", action="g4 action", tags=[t2.id])
-    g5 = await guideline_store.create_guideline(condition="e", action="g5 action", tags=[t2.id])
+    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", groups=[t1.id])
+    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", groups=[t1.id])
+    g4 = await guideline_store.create_guideline(condition="d", action="g4 action", groups=[t2.id])
+    g5 = await guideline_store.create_guideline(condition="e", action="g5 action", groups=[t2.id])
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.TAG_ANY),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t2.id, kind=RelationshipEntityKind.GROUP_ANY),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3, g4, g5],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # G3 NOT matched
-            GuidelineMatch(guideline=g4, score=10, rationale=""),
+            GuidelineMatch(guideline=g4, rationale=""),
             # G5 NOT matched
         ],
         journeys=[],
@@ -4790,8 +4795,8 @@ async def test_that_dependency_any_group_survives_when_one_target_is_matched(
     group_id = "test-group-1"
     for target in [g2, g3]:
         await relationship_store.create_relationship(
-            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE),
+            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.RULE),
             kind=RelationshipKind.DEPENDENCY_ANY,
             group_id=group_id,
         )
@@ -4799,8 +4804,8 @@ async def test_that_dependency_any_group_survives_when_one_target_is_matched(
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # G3 NOT matched
         ],
         journeys=[],
@@ -4833,8 +4838,8 @@ async def test_that_dependency_any_group_filters_when_no_target_is_matched(
     group_rel_ids = []
     for target in [g2, g3]:
         rel = await relationship_store.create_relationship(
-            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE),
+            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.RULE),
             kind=RelationshipKind.DEPENDENCY_ANY,
             group_id=group_id,
         )
@@ -4843,7 +4848,7 @@ async def test_that_dependency_any_group_filters_when_no_target_is_matched(
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 NOT matched
             # G3 NOT matched
         ],
@@ -4888,8 +4893,8 @@ async def test_that_mixed_dependency_all_and_dependency_any_requires_both(
 
     # G1 depends on G2 (AND)
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
@@ -4897,8 +4902,8 @@ async def test_that_mixed_dependency_all_and_dependency_any_requires_both(
     group_id = "test-group-1"
     for target in [g3, g4]:
         await relationship_store.create_relationship(
-            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE),
+            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.RULE),
             kind=RelationshipKind.DEPENDENCY_ANY,
             group_id=group_id,
         )
@@ -4906,10 +4911,10 @@ async def test_that_mixed_dependency_all_and_dependency_any_requires_both(
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # G3 NOT matched
-            GuidelineMatch(guideline=g4, score=10, rationale=""),
+            GuidelineMatch(guideline=g4, rationale=""),
         ],
         journeys=[],
     )
@@ -4941,16 +4946,16 @@ async def test_that_mixed_dependency_all_and_dependency_any_filters_when_and_dep
     g4 = await guideline_store.create_guideline(condition="d", action="g4 action")
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     group_id = "test-group-1"
     for target in [g3, g4]:
         await relationship_store.create_relationship(
-            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE),
+            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.RULE),
             kind=RelationshipKind.DEPENDENCY_ANY,
             group_id=group_id,
         )
@@ -4958,10 +4963,10 @@ async def test_that_mixed_dependency_all_and_dependency_any_filters_when_and_dep
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 NOT matched
             # G3 NOT matched
-            GuidelineMatch(guideline=g4, score=10, rationale=""),
+            GuidelineMatch(guideline=g4, rationale=""),
         ],
         journeys=[],
     )
@@ -4995,8 +5000,8 @@ async def test_that_two_dependency_any_groups_are_anded_together(
     # Group A: G2 or G3
     for target in [g2, g3]:
         await relationship_store.create_relationship(
-            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE),
+            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.RULE),
             kind=RelationshipKind.DEPENDENCY_ANY,
             group_id="group-a",
         )
@@ -5004,8 +5009,8 @@ async def test_that_two_dependency_any_groups_are_anded_together(
     # Group B: G4 or G5
     for target in [g4, g5]:
         await relationship_store.create_relationship(
-            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE),
+            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.RULE),
             kind=RelationshipKind.DEPENDENCY_ANY,
             group_id="group-b",
         )
@@ -5013,8 +5018,8 @@ async def test_that_two_dependency_any_groups_are_anded_together(
     result = await resolver.resolve(
         [g1, g2, g3, g4, g5],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # G3, G4, G5 NOT matched
         ],
         journeys=[],
@@ -5034,37 +5039,37 @@ async def test_that_dependency_any_group_with_tag_all_target_falls_back_to_guide
     container: Container,
 ) -> None:
     """
-    G1 depend_on_any(AllOf(tag=T1), G4).
+    G1 depend_on_any(AllOf(group=T1), G4).
     T1 has G2 and G3. Only G2 matched → AllOf(T1) fails.
     G4 matched → OR group passes via G4.
     Result: {G1, G2, G4}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
-    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", tags=[t1.id])
-    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", tags=[t1.id])
+    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", groups=[t1.id])
+    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", groups=[t1.id])
     g4 = await guideline_store.create_guideline(condition="d", action="g4 action")
 
-    group_id = "test-group-tag"
+    group_id = "test-group-group"
 
     # AllOf(T1) target
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY_ANY,
         group_id=group_id,
     )
 
     # G4 target
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY_ANY,
         group_id=group_id,
     )
@@ -5072,10 +5077,10 @@ async def test_that_dependency_any_group_with_tag_all_target_falls_back_to_guide
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # G3 NOT matched → AllOf(T1) fails
-            GuidelineMatch(guideline=g4, score=10, rationale=""),
+            GuidelineMatch(guideline=g4, rationale=""),
         ],
         journeys=[],
     )
@@ -5120,18 +5125,18 @@ async def test_that_dependency_any_group_with_journey_targets_survives_when_one_
     group_id = "test-journey-group"
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
         kind=RelationshipKind.DEPENDENCY_ANY,
         group_id=group_id,
     )
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(j2.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j2.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
         kind=RelationshipKind.DEPENDENCY_ANY,
         group_id=group_id,
@@ -5140,8 +5145,8 @@ async def test_that_dependency_any_group_with_journey_targets_survives_when_one_
     result = await resolver.resolve(
         [g1, j1_g, j2_g],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
         ],
         journeys=[j1],  # Only J1 active
     )
@@ -5174,25 +5179,25 @@ async def test_that_dependency_any_group_survives_when_one_target_cascading_fail
     group_id = "test-cascade-group"
     for target in [g2, g3]:
         await relationship_store.create_relationship(
-            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE),
+            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.RULE),
             kind=RelationshipKind.DEPENDENCY_ANY,
             group_id=group_id,
         )
 
     # G2 depends on G4 (AND)
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
             # G4 NOT matched → G2 will be filtered
         ],
         journeys=[],
@@ -5226,8 +5231,8 @@ async def test_that_dependency_any_group_survives_when_priority_removes_one_targ
     group_id = "test-priority-group"
     for target in [g2, g3]:
         await relationship_store.create_relationship(
-            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE),
+            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.RULE),
             kind=RelationshipKind.DEPENDENCY_ANY,
             group_id=group_id,
         )
@@ -5235,10 +5240,10 @@ async def test_that_dependency_any_group_survives_when_priority_removes_one_targ
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
-            GuidelineMatch(guideline=g4, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
+            GuidelineMatch(guideline=g4, rationale=""),
         ],
         journeys=[],
     )
@@ -5256,43 +5261,43 @@ async def test_that_tag_all_dependency_cascades_when_one_member_own_dependency_f
     container: Container,
 ) -> None:
     """
-    G1 depends on TAG_ALL(t1). t1 has G2 and G3.
+    G1 depends on GROUP_ALL(t1). t1 has G2 and G3.
     G2 depends on G4. G4 NOT matched → G2 filtered.
-    TAG_ALL requires all members — G2 gone → G1 filtered.
+    GROUP_ALL requires all members — G2 gone → G1 filtered.
     Result: {G3}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
-    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", tags=[t1.id])
-    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", tags=[t1.id])
+    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", groups=[t1.id])
+    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", groups=[t1.id])
     g4 = await guideline_store.create_guideline(condition="d", action="g4 action")
 
-    # G1 depends on TAG_ALL(t1)
+    # G1 depends on GROUP_ALL(t1)
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # G2 depends on G4
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
             # G4 NOT matched → G2 will be filtered
         ],
         journeys=[],
@@ -5322,8 +5327,8 @@ async def test_that_single_target_dependency_any_group_filters_when_target_not_m
     g2 = await guideline_store.create_guideline(condition="b", action="g2 action")
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY_ANY,
         group_id="single-group",
     )
@@ -5331,7 +5336,7 @@ async def test_that_single_target_dependency_any_group_filters_when_target_not_m
     result = await resolver.resolve(
         [g1, g2],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 NOT matched
         ],
         journeys=[],
@@ -5362,8 +5367,8 @@ async def test_that_shared_target_in_dependency_all_and_dependency_any_survives_
 
     # G1 depends on G2 (AND)
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
@@ -5371,8 +5376,8 @@ async def test_that_shared_target_in_dependency_all_and_dependency_any_survives_
     group_id = "shared-group"
     for target in [g2, g3]:
         await relationship_store.create_relationship(
-            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE),
+            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.RULE),
             kind=RelationshipKind.DEPENDENCY_ANY,
             group_id=group_id,
         )
@@ -5380,8 +5385,8 @@ async def test_that_shared_target_in_dependency_all_and_dependency_any_survives_
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # G3 NOT matched
         ],
         journeys=[],
@@ -5413,8 +5418,8 @@ async def test_that_shared_target_in_dependency_all_and_dependency_any_filters_w
 
     # G1 depends on G2 (AND)
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
@@ -5422,8 +5427,8 @@ async def test_that_shared_target_in_dependency_all_and_dependency_any_filters_w
     group_id = "shared-group"
     for target in [g2, g3]:
         await relationship_store.create_relationship(
-            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE),
+            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.RULE),
             kind=RelationshipKind.DEPENDENCY_ANY,
             group_id=group_id,
         )
@@ -5431,9 +5436,9 @@ async def test_that_shared_target_in_dependency_all_and_dependency_any_filters_w
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 NOT matched
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -5463,15 +5468,15 @@ async def test_that_numerical_priority_does_not_filter_entailer_when_entailed_ha
 
     # G1 entails G2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.ENTAILMENT,
     )
 
     result = await resolver.resolve(
         [g1, g2],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 NOT initially matched — should be added via entailment
         ],
         journeys=[],
@@ -5502,22 +5507,22 @@ async def test_that_chained_entailment_activates_all_linked_guidelines(
 
     # G1 entails G2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.ENTAILMENT,
     )
 
     # G2 entails G3
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.ENTAILMENT,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 and G3 NOT initially matched
         ],
         journeys=[],
@@ -5548,21 +5553,21 @@ async def test_that_entailed_guideline_is_filtered_when_its_dependency_is_unmet(
     g3 = await guideline_store.create_guideline(condition="c", action="g3 action")
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.ENTAILMENT,
     )
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 not initially matched (entailed by G1)
             # G3 NOT matched
         ],
@@ -5596,16 +5601,16 @@ async def test_that_entailed_guideline_survives_when_its_dependency_any_group_is
     g4 = await guideline_store.create_guideline(condition="d", action="g4 action")
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.ENTAILMENT,
     )
 
     group_id = "entailed-or-group"
     for target in [g3, g4]:
         await relationship_store.create_relationship(
-            source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
-            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE),
+            source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
+            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.RULE),
             kind=RelationshipKind.DEPENDENCY_ANY,
             group_id=group_id,
         )
@@ -5613,9 +5618,9 @@ async def test_that_entailed_guideline_survives_when_its_dependency_any_group_is
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 not initially matched (entailed)
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
             # G4 NOT matched
         ],
         journeys=[],
@@ -5649,26 +5654,26 @@ async def test_that_relational_priority_on_dependency_any_target_does_not_break_
     group_id = "prio-or-group"
     for target in [g2, g3]:
         await relationship_store.create_relationship(
-            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.GUIDELINE),
+            source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+            target=RelationshipEntity(id=target.id, kind=RelationshipEntityKind.RULE),
             kind=RelationshipKind.DEPENDENCY_ANY,
             group_id=group_id,
         )
 
     # G4 prioritizes over G2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.PRIORITY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
-            GuidelineMatch(guideline=g4, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
+            GuidelineMatch(guideline=g4, rationale=""),
         ],
         journeys=[],
     )
@@ -5686,35 +5691,35 @@ async def test_that_dependency_any_group_with_tag_all_target_succeeds_when_all_m
     container: Container,
 ) -> None:
     """
-    G1 depend_on_any(AllOf(tag=T1), G4).
+    G1 depend_on_any(AllOf(group=T1), G4).
     T1 has G2 and G3, both matched → AllOf(T1) succeeds.
-    OR group met via the tag target (G4 not needed).
+    OR group met via the group target (G4 not needed).
     Result: {G1, G2, G3}
     """
     relationship_store = container[RelationshipStore]
     guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     resolver = container[RelationalResolver]
 
-    t1 = await tag_store.create_tag(name="t1")
+    t1 = await group_store.create_group(name="t1")
 
     g1 = await guideline_store.create_guideline(condition="a", action="g1 action")
-    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", tags=[t1.id])
-    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", tags=[t1.id])
+    g2 = await guideline_store.create_guideline(condition="b", action="g2 action", groups=[t1.id])
+    g3 = await guideline_store.create_guideline(condition="c", action="g3 action", groups=[t1.id])
     g4 = await guideline_store.create_guideline(condition="d", action="g4 action")
 
-    group_id = "tag-all-success-group"
+    group_id = "group-all-success-group"
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.TAG_ALL),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=t1.id, kind=RelationshipEntityKind.GROUP_ALL),
         kind=RelationshipKind.DEPENDENCY_ANY,
         group_id=group_id,
     )
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY_ANY,
         group_id=group_id,
     )
@@ -5722,9 +5727,9 @@ async def test_that_dependency_any_group_with_tag_all_target_succeeds_when_all_m
     result = await resolver.resolve(
         [g1, g2, g3, g4],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=10, rationale=""),
-            GuidelineMatch(guideline=g3, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
             # G4 NOT matched — but AllOf(T1) succeeds so OR group is met
         ],
         journeys=[],
@@ -5759,29 +5764,29 @@ async def test_that_priority_chain_attributes_to_direct_deprioritizer(
 
     # A prio over B
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g_a.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g_b.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g_a.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g_b.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.PRIORITY,
     )
 
     # B prio over C
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g_b.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g_c.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g_b.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g_c.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.PRIORITY,
     )
 
     result = await resolver.resolve(
         [g_a, g_b, g_c],
         [
-            GuidelineMatch(guideline=g_a, score=10, rationale=""),
-            GuidelineMatch(guideline=g_b, score=8, rationale=""),
-            GuidelineMatch(guideline=g_c, score=6, rationale=""),
+            GuidelineMatch(guideline=g_a, rationale=""),
+            GuidelineMatch(guideline=g_b, rationale=""),
+            GuidelineMatch(guideline=g_c, rationale=""),
         ],
         journeys=[],
     )
 
-    assert result.matches == [GuidelineMatch(guideline=g_a, score=10, rationale="")]
+    assert result.matches == [GuidelineMatch(guideline=g_a, rationale="")]
 
     assert_resolutions(result, g_a.id, [ResolutionKind.NONE])
     assert_resolutions(result, g_b.id, [ResolutionKind.DEPRIORITIZED])
@@ -5818,32 +5823,32 @@ async def test_that_transitive_deprioritized_dependency_records_only_direct_reso
 
     # A depends on B
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g_a.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g_b.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g_a.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g_b.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # B depends on C
     rel_b_c = await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g_b.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g_c.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g_b.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g_c.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     # X prioritizes over C
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g_x.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g_c.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g_x.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g_c.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.PRIORITY,
     )
 
     result = await resolver.resolve(
         [g_a, g_b, g_c, g_x],
         [
-            GuidelineMatch(guideline=g_a, score=10, rationale=""),
-            GuidelineMatch(guideline=g_b, score=8, rationale=""),
-            GuidelineMatch(guideline=g_c, score=6, rationale=""),
-            GuidelineMatch(guideline=g_x, score=9, rationale=""),
+            GuidelineMatch(guideline=g_a, rationale=""),
+            GuidelineMatch(guideline=g_b, rationale=""),
+            GuidelineMatch(guideline=g_c, rationale=""),
+            GuidelineMatch(guideline=g_x, rationale=""),
         ],
         journeys=[],
     )
@@ -5868,11 +5873,11 @@ async def test_that_transitive_deprioritized_dependency_records_only_direct_reso
     assert_resolutions(result, g_a.id, [ResolutionKind.UNMET_DEPENDENCY_ALL])
 
 
-async def test_that_journey_tag_guideline_journey_tag_dependency_cascades(
+async def test_that_journey_group_guideline_journey_group_dependency_cascades(
     container: Container,
 ) -> None:
     """
-    Cross-entity cascade: J1 node depends on G, G depends on J2 tag, J2 not active.
+    Cross-entity cascade: J1 node depends on G, G depends on J2 group, J2 not active.
     Expected: G filtered (dep on J2 unmet), J1 node filtered (dep on G unmet).
     Each gets exactly one resolution.
     """
@@ -5895,20 +5900,20 @@ async def test_that_journey_tag_guideline_journey_tag_dependency_cascades(
     # Create J2 (NOT active — won't be in journeys list)
     j2 = await journey_store.create_journey(title="J2", description="Journey 2", triggers=[])
 
-    # J1 tag depends on G
+    # J1 group depends on G
     await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
-        target=RelationshipEntity(id=g.id, kind=RelationshipEntityKind.GUIDELINE),
+        target=RelationshipEntity(id=g.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
-    # G depends on J2 tag
+    # G depends on J2 group
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g.id, kind=RelationshipEntityKind.RULE),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(j2.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j2.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -5916,8 +5921,8 @@ async def test_that_journey_tag_guideline_journey_tag_dependency_cascades(
     result = await resolver.resolve(
         [j1_g, g],
         [
-            GuidelineMatch(guideline=j1_g, score=10, rationale=""),
-            GuidelineMatch(guideline=g, score=8, rationale=""),
+            GuidelineMatch(guideline=j1_g, rationale=""),
+            GuidelineMatch(guideline=g, rationale=""),
         ],
         journeys=[j1],  # J2 NOT active
     )
@@ -5925,7 +5930,7 @@ async def test_that_journey_tag_guideline_journey_tag_dependency_cascades(
     result_ids = {m.guideline.id for m in result.matches}
     assert result_ids == set()
 
-    # G: dep on J2 tag unmet (J2 not active) — single resolution
+    # G: dep on J2 group unmet (J2 not active) — single resolution
     assert_resolutions(result, g.id, [ResolutionKind.UNMET_DEPENDENCY_ALL])
     # J1 node: dep on G unmet (G was filtered) — single resolution
     assert_resolutions(result, j1_g.id, [ResolutionKind.UNMET_DEPENDENCY_ALL])
@@ -5951,22 +5956,22 @@ async def test_that_priority_chain_with_gaps_does_not_transitively_deprioritize(
 
     # G1 prio over G2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.PRIORITY,
     )
 
     # G2 prio over G3
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.PRIORITY,
     )
 
     # G3 prio over G4
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g4.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.PRIORITY,
     )
 
@@ -5974,8 +5979,8 @@ async def test_that_priority_chain_with_gaps_does_not_transitively_deprioritize(
         [g1, g2, g3, g4],
         [
             # Only G2 and G4 matched
-            GuidelineMatch(guideline=g2, score=8, rationale=""),
-            GuidelineMatch(guideline=g4, score=6, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
+            GuidelineMatch(guideline=g4, rationale=""),
         ],
         journeys=[],
     )
@@ -6007,16 +6012,16 @@ async def test_that_already_matched_entailment_target_gets_none_not_entailed(
 
     # G1 entails G2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.ENTAILMENT,
     )
 
     result = await resolver.resolve(
         [g1, g2],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=8, rationale=""),  # Already matched
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),  # Already matched
         ],
         journeys=[],
     )
@@ -6046,23 +6051,23 @@ async def test_that_guideline_entailed_by_two_sources_records_both_entailment_re
 
     # G1 entails G3
     r1 = await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.ENTAILMENT,
     )
 
     # G2 entails G3
     r2 = await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.ENTAILMENT,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
-            GuidelineMatch(guideline=g2, score=8, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
+            GuidelineMatch(guideline=g2, rationale=""),
             # G3 NOT matched — activated via entailment from both G1 and G2
         ],
         journeys=[],
@@ -6115,24 +6120,24 @@ async def test_that_entailed_guideline_satisfies_dependency_of_matched_guideline
 
     # G1 entails G2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.ENTAILMENT,
     )
 
     # G3 depends on G2
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     result = await resolver.resolve(
         [g1, g2, g3],
         [
-            GuidelineMatch(guideline=g1, score=10, rationale=""),
+            GuidelineMatch(guideline=g1, rationale=""),
             # G2 NOT matched — will be entailed by G1
-            GuidelineMatch(guideline=g3, score=8, rationale=""),
+            GuidelineMatch(guideline=g3, rationale=""),
         ],
         journeys=[],
     )
@@ -6147,3 +6152,36 @@ async def test_that_entailed_guideline_satisfies_dependency_of_matched_guideline
     assert_resolutions(result, g1.id, [ResolutionKind.NONE])
     assert_resolutions(result, g2.id, [ResolutionKind.ENTAILED])
     assert_resolutions(result, g3.id, [ResolutionKind.NONE])
+
+
+async def test_that_resolver_does_not_crash_on_transient_tool_returned_guideline(
+    container: Container,
+) -> None:
+    """Tool calls can inject guidelines that don't exist in the store.
+
+    Such guidelines arrive only via ``matches``, never via
+    ``usable_guidelines``. The resolver must include them in its internal
+    guideline-by-id map so downstream lookups don't KeyError.
+    """
+    resolver = container[RelationalResolver]
+
+    transient_guideline = Guideline(
+        id=GuidelineId("<tool-guideline-1>"),
+        creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
+        content=GuidelineContent(condition="x", action="y"),
+        enabled=True,
+        groups=[],
+        metadata={},
+        weight=Weight.MEDIUM,
+    )
+
+    # usable_guidelines is empty: the transient guideline isn't stored.
+    result = await resolver.resolve(
+        usable_guidelines=[],
+        matches=[GuidelineMatch(guideline=transient_guideline, rationale="")],
+        journeys=[],
+    )
+
+    assert result.matches == [GuidelineMatch(guideline=transient_guideline, rationale="")]
+    assert_resolutions(result, transient_guideline.id, [ResolutionKind.NONE])

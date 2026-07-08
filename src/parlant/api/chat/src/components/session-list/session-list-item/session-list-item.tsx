@@ -135,13 +135,13 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 						Timestamp: message.creation_utc || '',
 						Message: message.data?.message || '',
 						Draft: message.data?.draft || '',
-						Tags: message.data?.tags || '',
+						Groups: message.data?.groups || '',
 						Flag: flaggedItems?.[message.trace_id] || '',
 					});
 				});
 			}
 
-			const headers = ['Trace ID', 'Source', 'Participant', 'Timestamp', 'Message', 'Draft', 'Tags', 'Flag'];
+			const headers = ['Trace ID', 'Source', 'Participant', 'Timestamp', 'Message', 'Draft', 'Groups', 'Flag'];
 
 			const filename = `session_${session.id}_"${session.title.replace(/[^a-zA-Z0-9]/g, '_')}.csv`;
 

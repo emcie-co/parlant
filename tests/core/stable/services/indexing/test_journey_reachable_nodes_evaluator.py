@@ -15,17 +15,17 @@
 import re
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
-from lagom import Container
 from typing_extensions import override
 
-from parlant.core.common import Criticality
-from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
+from parlant.core.common import Weight
+from lagom import Container
+from parlant.core.engines.alpha.optimization_policy import BasicOptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
-from parlant.core.loggers import Logger
+from parlant.core.loggers import StdoutLogger
 from parlant.core.nlp.generation import SchematicGenerator, SchematicGenerationResult
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.nlp.tokenization import EstimatingTokenizer
+from parlant.core.rules import Rule, RuleContent, RuleId
 from parlant.core.services.indexing.journey_reachable_nodes_evaluation import (
     ChildEvaluation,
     JourneyReachableNodesEvaluator,
@@ -33,7 +33,8 @@ from parlant.core.services.indexing.journey_reachable_nodes_evaluation import (
     ReachableNodesEvaluation,
     ReachableNodesEvaluationSchema,
 )
-from parlant.core.services.tools.service_registry import ServiceRegistry
+from parlant.core.store_provider import BasicStoreProvider
+from parlant.core.tracer import LocalTracer
 
 
 class _ForwardAllReachableNodesGenerator(SchematicGenerator[ReachableNodesEvaluationSchema]):
@@ -117,17 +118,18 @@ def _node_guideline(
     index: str,
     action: str,
     follow_ups: Sequence[str],
-) -> Guideline:
-    return Guideline(
-        id=GuidelineId(index),
+) -> Rule:
+    return Rule(
+        id=RuleId(index),
         creation_utc=datetime.now(timezone.utc),
-        content=GuidelineContent(condition="", action=action),
+        modified_utc=datetime.now(timezone.utc),
+        content=RuleContent(condition="", action=action),
         enabled=True,
-        tags=[],
+        groups=[],
         metadata={
             "journey_node": {
                 "index": index,
-                "follow_ups": [GuidelineId(f) for f in follow_ups],
+                "follow_ups": [RuleId(f) for f in follow_ups],
                 "kind": "chat",
             },
             "customer_dependent_action_data": {
@@ -136,11 +138,11 @@ def _node_guideline(
                 "agent_action": "",
             },
         },
-        criticality=Criticality.MEDIUM,
+        weight=Weight.MEDIUM,
     )
 
 
-def _fan_in_journey(root_follow_ups: Sequence[str]) -> Sequence[Guideline]:
+def _fan_in_journey(root_follow_ups: Sequence[str]) -> Sequence[Rule]:
     # Diamond: root (1) branches to two parents B (2) and C (3) that reconverge on the
     # fan-in node D (4), followed by a chain D -> E (5) -> G (6) -> H (7). The depth of
     # the chain makes the look-ahead depth filter relevant at D's parents.
@@ -159,41 +161,32 @@ def _paths(result: ReachableNodesEvaluation, node_index: str) -> set[tuple[str, 
     return {tuple(path) for _, path in result.node_to_reachable_follow_ups[node_index]}
 
 
-async def _evaluate(
-    container: Container,
-    node_guidelines: Sequence[Guideline],
-) -> ReachableNodesEvaluation:
+async def _evaluate(node_rules: Sequence[Rule]) -> ReachableNodesEvaluation:
     evaluator = JourneyReachableNodesEvaluator(
-        logger=container[Logger],
-        optimization_policy=container[OptimizationPolicy],
+        logger=StdoutLogger(LocalTracer()),
+        optimization_policy=BasicOptimizationPolicy(),
         schematic_generator=_ForwardAllReachableNodesGenerator(),
-        service_registry=container[ServiceRegistry],
+        store_provider=BasicStoreProvider(lambda: Container()),
     )
-    return await evaluator.evaluate_reachable_follow_ups(node_guidelines=node_guidelines)
+    return await evaluator.evaluate_reachable_follow_ups(node_rules=node_rules)
 
 
-async def test_that_fan_in_node_parents_have_identical_reachable_follow_ups(
-    container: Container,
-) -> None:
-    result = await _evaluate(container, _fan_in_journey(["2", "3"]))
+async def test_that_fan_in_node_parents_have_identical_reachable_follow_ups() -> None:
+    result = await _evaluate(_fan_in_journey(["2", "3"]))
 
     assert _paths(result, "2") == _paths(result, "3")
 
 
-async def test_that_reachable_follow_ups_are_independent_of_node_visit_order(
-    container: Container,
-) -> None:
-    result_b_first = await _evaluate(container, _fan_in_journey(["2", "3"]))
-    result_c_first = await _evaluate(container, _fan_in_journey(["3", "2"]))
+async def test_that_reachable_follow_ups_are_independent_of_node_visit_order() -> None:
+    result_b_first = await _evaluate(_fan_in_journey(["2", "3"]))
+    result_c_first = await _evaluate(_fan_in_journey(["3", "2"]))
 
     for node_index in result_b_first.node_to_reachable_follow_ups:
         assert _paths(result_b_first, node_index) == _paths(result_c_first, node_index)
 
 
-async def test_that_reachable_follow_up_paths_have_no_repeated_consecutive_node(
-    container: Container,
-) -> None:
-    result = await _evaluate(container, _fan_in_journey(["2", "3"]))
+async def test_that_reachable_follow_up_paths_have_no_repeated_consecutive_node() -> None:
+    result = await _evaluate(_fan_in_journey(["2", "3"]))
 
     for node_index, follow_ups in result.node_to_reachable_follow_ups.items():
         for _, path in follow_ups:

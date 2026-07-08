@@ -1,9 +1,10 @@
 import asyncio
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Mapping, Sequence, Set
+from typing import Any, Mapping, Sequence, Set, cast
 
 from parlant.core.agents import AgentId, AgentStore
+from parlant.core.app_modules.request_context import RequestContext
 from parlant.core.async_utils import Timeout
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.common import JSONSerializable
@@ -13,7 +14,7 @@ from parlant.core.persistence.common import Cursor, SortDirection
 from parlant.core.tracer import Tracer
 from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.emissions import EventEmitterFactory
-from parlant.core.engines.types import Context, Engine, UtteranceRequest
+from parlant.core.engines.types import Context, Engine, EngineRegistry, UtteranceRequest
 from parlant.core.loggers import Logger
 from parlant.core.nlp.moderation import CustomerModerationContext, ModerationService
 from parlant.core.nlp.service import NLPService
@@ -35,6 +36,7 @@ from parlant.core.sessions import (
     SessionStore,
     StatusEventData,
 )
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 from dataclasses import dataclass
 from typing_extensions import TypedDict
 
@@ -82,6 +84,12 @@ class SessionListingModel:
     next_cursor: Cursor | None = None
 
 
+@dataclass(frozen=True)
+class _ActiveProcessingTask:
+    trace_id: str
+    tag: str
+
+
 class Moderation(Enum):
     """Content moderation settings."""
 
@@ -103,35 +111,63 @@ def _get_jailbreak_moderation_service(
 class SessionModule:
     def __init__(
         self,
+        request_context: RequestContext,
         logger: Logger,
         meter: Meter,
-        agent_store: AgentStore,
         tracer: Tracer,
-        session_store: SessionStore,
-        customer_store: CustomerStore,
         session_listener: SessionListener,
         nlp_service: NLPService,
-        engine: Engine,
+        engine_registry: EngineRegistry,
         event_emitter_factory: EventEmitterFactory,
         background_task_service: BackgroundTaskService,
         health_reporter: HealthReporter,
+        store_provider: StoreProvider,
     ):
+        self._request_context = request_context
         self._logger = logger
+        self._store_provider = store_provider
         self._meter = meter
-        self._agent_store = agent_store
         self._tracer = tracer
-
-        self._session_store = session_store
-        self._customer_store = customer_store
         self._session_listener = session_listener
         self._nlp_service = nlp_service
         self._health_reporter = health_reporter
 
-        self._engine = engine
+        self._engine_registry = engine_registry
         self._event_emitter_factory = event_emitter_factory
         self._background_task_service = background_task_service
 
         self._lock = asyncio.Lock()
+        self._active_processing_tasks: dict[SessionId, _ActiveProcessingTask] = {}
+
+    @property
+    def _agent_store(self) -> AgentStore:
+        return self._store_provider.get_store(
+            AgentStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._request_context.get_origin(),
+            ),
+        )
+
+    @property
+    def _session_store(self) -> SessionStore:
+        return self._store_provider.get_store(
+            SessionStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._request_context.get_origin(),
+            ),
+        )
+
+    @property
+    def _customer_store(self) -> CustomerStore:
+        return self._store_provider.get_store(
+            CustomerStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._request_context.get_origin(),
+            ),
+        )
 
     async def wait_for_more_events(
         self,
@@ -186,7 +222,7 @@ class SessionModule:
         metadata: Mapping[str, JSONSerializable] | None = None,
         labels: Set[str] | None = None,
     ) -> Session:
-        _ = await self._agent_store.read_agent(agent_id=agent_id)
+        agent = await self._agent_store.read_agent(agent_id=agent_id)
 
         session = await self._session_store.create_session(
             creation_utc=datetime.now(timezone.utc),
@@ -197,7 +233,13 @@ class SessionModule:
             labels=labels,
         )
 
-        if allow_greeting:
+        # Warm the engine's caches in the background as soon as the session
+        # exists, so the first response reads them instead of building them.
+        await self._initialize_session(session)
+
+        # TODO: For now, Compass engine doesn't support dynamic greetings.
+        # User the utter() method manually after creation to send a greeting, if needed.
+        if allow_greeting and agent.engine != "compass":
             await self.dispatch_processing_task(session)
 
         return session
@@ -214,6 +256,7 @@ class SessionModule:
         cursor: Cursor | None = None,
         sort_direction: SortDirection | None = None,
         labels: Set[str] | None = None,
+        min_modified_utc: datetime | None = None,
     ) -> SessionListingModel:
         result = await self._session_store.list_sessions(
             agent_id=agent_id,
@@ -222,6 +265,7 @@ class SessionModule:
             cursor=cursor,
             sort_direction=sort_direction,
             labels=labels,
+            min_modified_utc=min_modified_utc,
         )
 
         return SessionListingModel(
@@ -237,9 +281,13 @@ class SessionModule:
         params: SessionUpdateParamsModel,
         labels: SessionLabelsUpdateParams | None = None,
     ) -> Session:
-        session = await self._session_store.update_session(
-            session_id=session_id,
-            params=params,
+        session = (
+            await self._session_store.update_session(
+                session_id=session_id,
+                params=params,
+            )
+            if params
+            else await self._session_store.read_session(session_id)
         )
 
         if labels:
@@ -272,6 +320,32 @@ class SessionModule:
         metadata: Mapping[str, JSONSerializable] | None,
         source: EventSource = EventSource.CUSTOMER,
         trigger_processing: bool = True,
+    ) -> Event:
+        with self._tracer.span(
+            "session.create_event",
+            {
+                "session_id": session_id,
+                "event.kind": kind.value,
+                "event.source": source.value,
+            },
+        ):
+            return await self._create_event(
+                session_id=session_id,
+                kind=kind,
+                data=data,
+                metadata=metadata,
+                source=source,
+                trigger_processing=trigger_processing,
+            )
+
+    async def _create_event(
+        self,
+        session_id: SessionId,
+        kind: EventKind,
+        data: Mapping[str, Any],
+        metadata: Mapping[str, JSONSerializable] | None,
+        source: EventSource,
+        trigger_processing: bool,
     ) -> Event:
         event = await self._session_store.create_event(
             session_id=session_id,
@@ -321,7 +395,7 @@ class SessionModule:
         participant: Participant | None = None,
     ) -> Event:
         flagged = False
-        tags: Set[str] = set()
+        groups: Set[str] = set()
 
         session = await self._session_store.read_session(session_id)
 
@@ -330,7 +404,7 @@ class SessionModule:
             context = CustomerModerationContext(session=session, message=message)
             check = await moderation_service.moderate_customer(context)
             flagged |= check.flagged
-            tags.update(check.tags)
+            groups.update(check.tags)
 
         if moderation == Moderation.PARANOID:
             check = await _get_jailbreak_moderation_service(
@@ -338,7 +412,7 @@ class SessionModule:
             ).moderate_customer(context)
             if "jailbreak" in check.tags:
                 flagged = True
-                tags.update({"jailbreak"})
+                groups.update({"jailbreak"})
 
         if participant is None:
             try:
@@ -356,7 +430,7 @@ class SessionModule:
             "message": message,
             "participant": participant,
             "flagged": flagged,
-            "tags": list(tags),
+            "groups": list(groups),
         }
 
         return await self.create_event(
@@ -424,27 +498,124 @@ class SessionModule:
 
         return event
 
+    def _processing_task_tag(self, session_id: SessionId) -> str:
+        return f"process-session({session_id})"
+
     async def dispatch_processing_task(self, session: Session) -> str:
+        tag = self._processing_task_tag(session.id)
+        trace_id = self._tracer.trace_id
+
+        async with self._lock:
+            self._active_processing_tasks[session.id] = _ActiveProcessingTask(
+                trace_id=trace_id,
+                tag=tag,
+            )
+
         await self._background_task_service.restart(
             self._process_session(session),
-            tag=f"process-session({session.id})",
+            tag=tag,
         )
 
-        return self._tracer.trace_id
+        return trace_id
 
-    async def _process_session(self, session: Session) -> None:
+    async def _engine_for_agent(self, agent_id: AgentId) -> Engine:
+        agent = await self._agent_store.read_agent(agent_id)
+
+        return self._engine_registry.get_engine(agent.engine)
+
+    async def _initialize_session(self, session: Session) -> None:
         event_emitter = await self._event_emitter_factory.create_event_emitter(
             emitting_agent_id=session.agent_id,
             session_id=session.id,
         )
 
-        await self._engine.process(
+        engine = await self._engine_for_agent(session.agent_id)
+
+        await engine.initialize(
             Context(
                 session_id=session.id,
                 agent_id=session.agent_id,
             ),
             event_emitter=event_emitter,
         )
+
+    async def _process_session(self, session: Session) -> None:
+        try:
+            event_emitter = await self._event_emitter_factory.create_event_emitter(
+                emitting_agent_id=session.agent_id,
+                session_id=session.id,
+            )
+
+            engine = await self._engine_for_agent(session.agent_id)
+
+            await engine.process(
+                Context(
+                    session_id=session.id,
+                    agent_id=session.agent_id,
+                ),
+                event_emitter=event_emitter,
+            )
+        finally:
+            async with self._lock:
+                active_task = self._active_processing_tasks.get(session.id)
+                if active_task and active_task.trace_id == self._tracer.trace_id:
+                    del self._active_processing_tasks[session.id]
+
+    async def cancel_processing(
+        self,
+        session_id: SessionId,
+    ) -> Event:
+        _ = await self._session_store.read_session(session_id)
+
+        async with self._lock:
+            active_task = self._active_processing_tasks.get(session_id)
+
+        if not active_task:
+            raise ValueError(f"No active processing task for session '{session_id}'")
+
+        cancelled = await self._background_task_service.cancel(
+            tag=active_task.tag,
+            reason="cancelled_by_api",
+        )
+
+        if not cancelled:
+            raise ValueError(f"No active processing task for session '{session_id}'")
+
+        timeout = Timeout(60)
+        min_offset: int | None = None
+
+        while True:
+            status_events = await self._session_store.list_events(
+                session_id=session_id,
+                trace_id=active_task.trace_id,
+                kinds=[EventKind.STATUS],
+            )
+
+            cancellation_events = [
+                event
+                for event in status_events
+                if cast(dict[str, Any], event.data).get("status") == "cancelled"
+            ]
+
+            if cancellation_events:
+                return cancellation_events[-1]
+
+            if timeout.expired():
+                raise TimeoutError(
+                    f"Cancelled processing task for session '{session_id}', "
+                    "but no cancellation event was emitted"
+                )
+
+            if status_events:
+                min_offset = max(event.offset for event in status_events) + 1
+
+            await self._session_listener.wait_for_more_events(
+                session_id=session_id,
+                min_offset=min_offset,
+                trace_id=active_task.trace_id,
+                kinds=[EventKind.STATUS],
+                timeout=timeout,
+            )
 
     async def process(
         self,
@@ -485,7 +656,9 @@ class SessionModule:
                 session_id=session.id,
             )
 
-            await self._engine.utter(
+            engine = await self._engine_for_agent(session.agent_id)
+
+            await engine.utter(
                 context=Context(session_id=session.id, agent_id=session.agent_id),
                 event_emitter=event_emitter,
                 requests=requests,

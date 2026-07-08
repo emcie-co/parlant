@@ -13,8 +13,7 @@
 # limitations under the License.
 
 import asyncio
-from collections.abc import Sequence
-from typing import cast
+from typing import cast, Sequence
 from pytest_bdd import given, when, parsers
 from unittest.mock import AsyncMock
 
@@ -143,7 +142,7 @@ def _load_context_variables(
 
     keys_to_check_in_order_of_importance = (
         [customer_id]  # Customer-specific value
-        + [f"tag:{tag_id}" for tag_id in customer.tags]  # Tag-specific value
+        + [f"group:{group_id}" for group_id in customer.groups]  # Group-specific value
         + [ContextVariableStore.GLOBAL_KEY]  # Global value
     )
 

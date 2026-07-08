@@ -22,7 +22,7 @@ from parlant.core.context_variables import (
 )
 from parlant.core.customers import CustomerStore
 from parlant.core.sessions import SessionId, SessionStore
-from parlant.core.tags import Tag, TagStore
+from parlant.core.groups import GroupIds, GroupStore
 from parlant.core.tools import ToolId
 
 from tests.core.common.engines.alpha.utils import step
@@ -36,7 +36,7 @@ def get_or_create_variable(
     variable_name: str,
 ) -> ContextVariable:
     variables = context.sync_await(
-        context_variable_store.list_variables(tags=[Tag.for_agent_id(agent_id).id])
+        context_variable_store.list_variables(groups=[GroupIds.for_agent_id(agent_id)])
     )
     if variable := next(
         (variable for variable in variables if variable.name == variable_name), None
@@ -55,7 +55,7 @@ def get_or_create_variable(
     context.sync_await(
         context_variable_store.add_variable_tag(
             variable_id=variable.id,
-            tag_id=Tag.for_agent_id(agent_id).id,
+            group_id=GroupIds.for_agent_id(agent_id),
         )
     )
     return variable
@@ -86,7 +86,7 @@ def given_a_context_variable(
     context.sync_await(
         context_variable_store.add_variable_tag(
             variable_id=variable.id,
-            tag_id=Tag.for_agent_id(agent_id).id,
+            group_id=GroupIds.for_agent_id(agent_id),
         )
     )
 
@@ -133,7 +133,7 @@ def given_a_context_variable_to_specific_customer(
 @step(
     given,
     parsers.parse(
-        'a context variable "{variable_name}" set to "{variable_value}" for the tag "{name}"'
+        'a context variable "{variable_name}" set to "{variable_value}" for the group "{name}"'
     ),
 )
 def given_a_context_variable_for_a_tag(
@@ -144,9 +144,9 @@ def given_a_context_variable_for_a_tag(
     name: str,
 ) -> ContextVariableValue:
     context_variable_store = context.container[ContextVariableStore]
-    tag_store = context.container[TagStore]
+    group_store = context.container[GroupStore]
 
-    tag = next(t for t in context.sync_await(tag_store.list_tags()) if t.name == name)
+    group = next(t for t in context.sync_await(group_store.list_groups()) if t.name == name)
 
     variable = context.sync_await(
         context_variable_store.create_variable(
@@ -159,7 +159,7 @@ def given_a_context_variable_for_a_tag(
 
     return context.sync_await(
         context_variable_store.update_value(
-            key=f"tag:{tag.id}",
+            key=f"group:{group.id}",
             variable_id=variable.id,
             data=variable_value,
         )

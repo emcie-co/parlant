@@ -23,6 +23,13 @@ class OptimizationPolicy(ABC):
         """Gets the batch size for guideline matching."""
         ...
 
+    def get_rule_matching_batch_size(
+        self,
+        rule_count: int,
+        hints: Mapping[str, Any] = {},
+    ) -> int:
+        return self.get_guideline_matching_batch_size(rule_count, hints)
+
     @abstractmethod
     def get_message_generation_retry_temperatures(
         self,
@@ -36,6 +43,12 @@ class OptimizationPolicy(ABC):
     ) -> Sequence[float]:
         """Gets the retry temperatures (and number of generation attempts) for a guideline matching batch."""
         ...
+
+    def get_rule_matching_batch_retry_temperatures(
+        self,
+        hints: Mapping[str, Any] = {},
+    ) -> Sequence[float]:
+        return self.get_guideline_matching_batch_retry_temperatures(hints)
 
     @abstractmethod
     def get_response_analysis_batch_retry_temperatures(
@@ -60,6 +73,12 @@ class OptimizationPolicy(ABC):
     ) -> Sequence[float]:
         """Gets the retry temperatures (and number of generation attempts) for guideline propositions."""
         ...
+
+    def get_rule_proposition_retry_temperatures(
+        self,
+        hints: Mapping[str, Any] = {},
+    ) -> Sequence[float]:
+        return self.get_guideline_proposition_retry_temperatures(hints)
 
 
 class BasicOptimizationPolicy(OptimizationPolicy):

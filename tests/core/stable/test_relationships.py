@@ -25,7 +25,7 @@ from parlant.core.relationships import (
     RelationshipEntity,
     RelationshipStore,
 )
-from parlant.core.guidelines import GuidelineId
+from parlant.core.rules import RuleId
 from parlant.core.persistence.document_database import DocumentDatabase
 from parlant.adapters.db.transient import TransientDocumentDatabase
 
@@ -44,22 +44,20 @@ async def relationship_store(
 
 
 def has_relationship(
-    guidelines: Sequence[Relationship],
+    rules: Sequence[Relationship],
     relationship: tuple[str, str],
 ) -> bool:
-    return any(
-        g.source.id == relationship[0] and g.target.id == relationship[1] for g in guidelines
-    )
+    return any(g.source.id == relationship[0] and g.target.id == relationship[1] for g in rules)
 
 
-async def test_that_direct_guideline_relationships_can_be_listed(
+async def test_that_direct_rule_relationships_can_be_listed(
     relationship_store: RelationshipStore,
 ) -> None:
-    a_id = GuidelineId("a")
-    b_id = GuidelineId("b")
-    c_id = GuidelineId("c")
-    d_id = GuidelineId("d")
-    z_id = GuidelineId("z")
+    a_id = RuleId("a")
+    b_id = RuleId("b")
+    c_id = RuleId("c")
+    d_id = RuleId("d")
+    z_id = RuleId("z")
 
     for source, target in [
         (a_id, b_id),
@@ -70,11 +68,11 @@ async def test_that_direct_guideline_relationships_can_be_listed(
         await relationship_store.create_relationship(
             source=RelationshipEntity(
                 id=source,
-                kind=RelationshipEntityKind.GUIDELINE,
+                kind=RelationshipEntityKind.RULE,
             ),
             target=RelationshipEntity(
                 id=target,
-                kind=RelationshipEntityKind.GUIDELINE,
+                kind=RelationshipEntityKind.RULE,
             ),
             kind=RelationshipKind.ENTAILMENT,
         )
@@ -90,24 +88,24 @@ async def test_that_direct_guideline_relationships_can_be_listed(
     assert has_relationship(a_relationships, (a_id, c_id))
 
 
-async def test_that_indirect_guideline_relationships_can_be_listed(
+async def test_that_indirect_rule_relationships_can_be_listed(
     relationship_store: RelationshipStore,
 ) -> None:
-    a_id = GuidelineId("a")
-    b_id = GuidelineId("b")
-    c_id = GuidelineId("c")
-    d_id = GuidelineId("d")
-    z_id = GuidelineId("z")
+    a_id = RuleId("a")
+    b_id = RuleId("b")
+    c_id = RuleId("c")
+    d_id = RuleId("d")
+    z_id = RuleId("z")
 
     for source, target in [(a_id, b_id), (a_id, c_id), (b_id, d_id), (z_id, b_id)]:
         await relationship_store.create_relationship(
             source=RelationshipEntity(
                 id=source,
-                kind=RelationshipEntityKind.GUIDELINE,
+                kind=RelationshipEntityKind.RULE,
             ),
             target=RelationshipEntity(
                 id=target,
-                kind=RelationshipEntityKind.GUIDELINE,
+                kind=RelationshipEntityKind.RULE,
             ),
             kind=RelationshipKind.ENTAILMENT,
         )
@@ -128,21 +126,21 @@ async def test_that_db_data_is_loaded_correctly(
     relationship_store: RelationshipStore,
     underlying_database: DocumentDatabase,
 ) -> None:
-    a_id = GuidelineId("a")
-    b_id = GuidelineId("b")
-    c_id = GuidelineId("c")
-    d_id = GuidelineId("d")
-    z_id = GuidelineId("z")
+    a_id = RuleId("a")
+    b_id = RuleId("b")
+    c_id = RuleId("c")
+    d_id = RuleId("d")
+    z_id = RuleId("z")
 
     for source, target in [(a_id, b_id), (a_id, c_id), (b_id, d_id), (z_id, b_id)]:
         await relationship_store.create_relationship(
             source=RelationshipEntity(
                 id=source,
-                kind=RelationshipEntityKind.GUIDELINE,
+                kind=RelationshipEntityKind.RULE,
             ),
             target=RelationshipEntity(
                 id=target,
-                kind=RelationshipEntityKind.GUIDELINE,
+                kind=RelationshipEntityKind.RULE,
             ),
             kind=RelationshipKind.ENTAILMENT,
         )
@@ -165,29 +163,29 @@ async def test_that_db_data_is_loaded_correctly(
 async def test_that_relationships_are_returned_for_source_without_indirect_relationships(
     relationship_store: RelationshipStore,
 ) -> None:
-    a_id = GuidelineId("a")
-    b_id = GuidelineId("b")
-    c_id = GuidelineId("c")
+    a_id = RuleId("a")
+    b_id = RuleId("b")
+    c_id = RuleId("c")
 
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=a_id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=b_id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.ENTAILMENT,
     )
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=b_id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=c_id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.ENTAILMENT,
     )
@@ -206,29 +204,29 @@ async def test_that_relationships_are_returned_for_source_without_indirect_relat
 async def test_that_connections_are_returned_for_source_with_indirect_connections(
     relationship_store: RelationshipStore,
 ) -> None:
-    a_id = GuidelineId("a")
-    b_id = GuidelineId("b")
-    c_id = GuidelineId("c")
+    a_id = RuleId("a")
+    b_id = RuleId("b")
+    c_id = RuleId("c")
 
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=a_id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=b_id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.ENTAILMENT,
     )
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=b_id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=c_id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.ENTAILMENT,
     )
@@ -248,29 +246,29 @@ async def test_that_connections_are_returned_for_source_with_indirect_connection
 async def test_that_relationships_are_returned_for_target_without_indirect_connections(
     relationship_store: RelationshipStore,
 ) -> None:
-    a_id = GuidelineId("a")
-    b_id = GuidelineId("b")
-    c_id = GuidelineId("c")
+    a_id = RuleId("a")
+    b_id = RuleId("b")
+    c_id = RuleId("c")
 
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=a_id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=b_id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.ENTAILMENT,
     )
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=b_id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=c_id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.ENTAILMENT,
     )
@@ -289,29 +287,29 @@ async def test_that_relationships_are_returned_for_target_without_indirect_conne
 async def test_that_relationships_are_returned_for_target_with_indirect_connections(
     relationship_store: RelationshipStore,
 ) -> None:
-    a_id = GuidelineId("a")
-    b_id = GuidelineId("b")
-    c_id = GuidelineId("c")
+    a_id = RuleId("a")
+    b_id = RuleId("b")
+    c_id = RuleId("c")
 
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=a_id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=b_id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.ENTAILMENT,
     )
     await relationship_store.create_relationship(
         source=RelationshipEntity(
             id=b_id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
             id=c_id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.ENTAILMENT,
     )
@@ -331,9 +329,9 @@ async def test_that_relationships_are_returned_for_target_with_indirect_connecti
 async def test_that_all_relationships_can_be_listed(
     relationship_store: RelationshipStore,
 ) -> None:
-    a_id = GuidelineId("a")
-    b_id = GuidelineId("b")
-    c_id = GuidelineId("c")
+    a_id = RuleId("a")
+    b_id = RuleId("b")
+    c_id = RuleId("c")
 
     relationships_data = [
         (a_id, b_id, RelationshipKind.ENTAILMENT),
@@ -345,8 +343,8 @@ async def test_that_all_relationships_can_be_listed(
 
     for source, target, kind in relationships_data:
         await relationship_store.create_relationship(
-            source=RelationshipEntity(id=source, kind=RelationshipEntityKind.GUIDELINE),
-            target=RelationshipEntity(id=target, kind=RelationshipEntityKind.GUIDELINE),
+            source=RelationshipEntity(id=source, kind=RelationshipEntityKind.RULE),
+            target=RelationshipEntity(id=target, kind=RelationshipEntityKind.RULE),
             kind=kind,
         )
 
@@ -360,31 +358,31 @@ async def test_that_all_relationships_can_be_listed(
 async def test_that_relationships_can_be_listed_by_kind_without_entity_filters(
     relationship_store: RelationshipStore,
 ) -> None:
-    a_id = GuidelineId("a")
-    b_id = GuidelineId("b")
-    c_id = GuidelineId("c")
+    a_id = RuleId("a")
+    b_id = RuleId("b")
+    c_id = RuleId("c")
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.ENTAILMENT,
     )
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.PRIORITY,
     )
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DISAMBIGUATION,
     )
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.REEVALUATION,
     )
 
@@ -401,19 +399,19 @@ async def test_that_relationships_can_be_listed_by_kind_without_entity_filters(
 async def test_that_relationships_can_be_listed_by_source_id_without_kind_filter(
     relationship_store: RelationshipStore,
 ) -> None:
-    a_id = GuidelineId("a")
-    b_id = GuidelineId("b")
-    c_id = GuidelineId("c")
+    a_id = RuleId("a")
+    b_id = RuleId("b")
+    c_id = RuleId("c")
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.ENTAILMENT,
     )
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.PRIORITY,
     )
 
@@ -427,19 +425,19 @@ async def test_that_relationships_can_be_listed_by_source_id_without_kind_filter
 async def test_that_relationships_can_be_listed_by_target_id_without_kind_filter(
     relationship_store: RelationshipStore,
 ) -> None:
-    a_id = GuidelineId("a")
-    b_id = GuidelineId("b")
-    c_id = GuidelineId("c")
+    a_id = RuleId("a")
+    b_id = RuleId("b")
+    c_id = RuleId("c")
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.ENTAILMENT,
     )
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.PRIORITY,
     )
 
@@ -453,19 +451,19 @@ async def test_that_relationships_can_be_listed_by_target_id_without_kind_filter
 async def test_that_relationships_can_be_listed_with_both_source_and_target_filters(
     relationship_store: RelationshipStore,
 ) -> None:
-    a_id = GuidelineId("a")
-    b_id = GuidelineId("b")
-    c_id = GuidelineId("c")
+    a_id = RuleId("a")
+    b_id = RuleId("b")
+    c_id = RuleId("c")
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.ENTAILMENT,
     )
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.PRIORITY,
     )
 
@@ -484,19 +482,19 @@ async def test_that_creating_a_direct_circular_dependency_raises_an_error(
     relationship_store: RelationshipStore,
 ) -> None:
     """G1 depends on G2, then G2 depends on G1 → should raise."""
-    a_id = GuidelineId("a")
-    b_id = GuidelineId("b")
+    a_id = RuleId("a")
+    b_id = RuleId("b")
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     with pytest.raises(ValueError, match="[Cc]ircular"):
         await relationship_store.create_relationship(
-            source=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.GUIDELINE),
-            target=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
+            source=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.RULE),
+            target=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.RULE),
             kind=RelationshipKind.DEPENDENCY,
         )
 
@@ -505,26 +503,26 @@ async def test_that_creating_an_indirect_circular_dependency_raises_an_error(
     relationship_store: RelationshipStore,
 ) -> None:
     """G1 depends on G2, G2 depends on G3, then G3 depends on G1 → should raise."""
-    a_id = GuidelineId("a")
-    b_id = GuidelineId("b")
-    c_id = GuidelineId("c")
+    a_id = RuleId("a")
+    b_id = RuleId("b")
+    c_id = RuleId("c")
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     with pytest.raises(ValueError, match="[Cc]ircular"):
         await relationship_store.create_relationship(
-            source=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.GUIDELINE),
-            target=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
+            source=RelationshipEntity(id=c_id, kind=RelationshipEntityKind.RULE),
+            target=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.RULE),
             kind=RelationshipKind.DEPENDENCY,
         )
 
@@ -533,11 +531,11 @@ async def test_that_creating_a_self_dependency_is_allowed(
     relationship_store: RelationshipStore,
 ) -> None:
     """G1 depends on G1 → harmless self-loop, should not raise."""
-    a_id = GuidelineId("a")
+    a_id = RuleId("a")
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
@@ -546,19 +544,19 @@ async def test_that_creating_a_cycle_across_dependency_and_dependency_any_raises
     relationship_store: RelationshipStore,
 ) -> None:
     """G1 →(DEPENDENCY)→ G2 →(DEPENDENCY_ANY)→ G1 should raise."""
-    a_id = GuidelineId("a")
-    b_id = GuidelineId("b")
+    a_id = RuleId("a")
+    b_id = RuleId("b")
 
     await relationship_store.create_relationship(
-        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     with pytest.raises(ValueError, match="[Cc]ircular"):
         await relationship_store.create_relationship(
-            source=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.GUIDELINE),
-            target=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.GUIDELINE),
+            source=RelationshipEntity(id=b_id, kind=RelationshipEntityKind.RULE),
+            target=RelationshipEntity(id=a_id, kind=RelationshipEntityKind.RULE),
             kind=RelationshipKind.DEPENDENCY_ANY,
             group_id="test-group",
         )

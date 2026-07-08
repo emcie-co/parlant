@@ -20,7 +20,7 @@ from pydantic import Field
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.core.app_modules.canned_responses import (
-    CannedResponseTagUpdateParamsModel,
+    CannedResponseGroupUpdateParamsModel,
     CannedResponseMetadataUpdateParamsModel,
 )
 from parlant.core.application import Application
@@ -29,8 +29,13 @@ from parlant.core.canned_responses import (
     CannedResponseId,
     CannedResponseField,
 )
-from parlant.core.tags import TagId
-from parlant.api.common import ExampleJson, JSONSerializableDTO, apigen_config, example_json_content
+from parlant.core.groups import GroupId
+from parlant.api.common import (
+    ExampleJson,
+    JSONSerializableDTO,
+    apigen_config,
+    example_json_content,
+)
 
 
 API_GROUP = "canned_responses"
@@ -89,18 +94,18 @@ CannedResponseFieldSequenceField: TypeAlias = Annotated[
     ),
 ]
 
-TagIdField: TypeAlias = Annotated[
-    TagId,
+GroupIdField: TypeAlias = Annotated[
+    GroupId,
     Field(
-        description="Unique identifier for the tag",
+        description="Unique identifier for the group",
         examples=["t9a8g703f4"],
     ),
 ]
 
-TagIdSequenceField: TypeAlias = Annotated[
-    Sequence[TagIdField],
+GroupIdSequenceField: TypeAlias = Annotated[
+    Sequence[GroupIdField],
     Field(
-        description="Collection of tag IDs associated with the canned response.",
+        description="Collection of group IDs associated with the canned response.",
         examples=[["tag123", "tag456"], []],
     ),
 ]
@@ -144,7 +149,7 @@ CannedResponseMetadataUnsetField: TypeAlias = Annotated[
 CannedResponseIdField: TypeAlias = Annotated[
     CannedResponseId,
     Field(
-        description="Unique identifier for the tag",
+        description="Unique identifier for the group",
         examples=["t9a8g703f4"],
     ),
 ]
@@ -154,6 +159,13 @@ CannedResponseCreationUTCField: TypeAlias = Annotated[
     Field(
         description="UTC timestamp of when the canned response was created",
         examples=[dateutil.parser.parse("2024-03-24T12:00:00Z")],
+    ),
+]
+
+CannedResponseLastModifiedField: TypeAlias = Annotated[
+    datetime,
+    Field(
+        description="UTC timestamp of the last modification to the canned response",
     ),
 ]
 
@@ -171,7 +183,7 @@ canned_response_example: ExampleJson = {
     "creation_utc": "2024-03-24T12:00:00Z",
     "value": "Your account balance is {balance}",
     "fields": [{"name": "balance", "description": "Account's balance", "examples": [9000]}],
-    "tags": ["private", "office"],
+    "groups": ["private", "office"],
     "signals": ["What is your balance?", "How much money do I have?"],
     "metadata": {"category": "account", "priority": 1},
     "field_dependencies": ["account"],
@@ -184,9 +196,10 @@ class CannedResponseDTO(
 ):
     id: CannedResponseIdField
     creation_utc: CannedResponseCreationUTCField
+    modified_utc: CannedResponseLastModifiedField
     value: CannedResponseValueField
     fields: CannedResponseFieldSequenceField
-    tags: TagIdSequenceField
+    groups: GroupIdSequenceField
     signals: CannedResponseSignalSequenceField
     metadata: CannedResponseMetadataField
     field_dependencies: CannedResponseFieldDependenciesField = []
@@ -214,51 +227,51 @@ class CannedResponseCreationParamsDTO(
 
     value: CannedResponseValueField
     fields: CannedResponseFieldSequenceField
-    tags: TagIdSequenceField | None = None
+    groups: GroupIdSequenceField | None = None
     signals: CannedResponseSignalSequenceField | None = None
     metadata: CannedResponseMetadataField | None = None
     field_dependencies: CannedResponseFieldDependenciesField | None = None
 
 
-CannedResponseTagUpdateAddField: TypeAlias = Annotated[
-    Sequence[TagIdField],
+CannedResponseGroupUpdateAddField: TypeAlias = Annotated[
+    Sequence[GroupIdField],
     Field(
-        description="Optional collection of tag ids to add to the canned response's tags",
+        description="Optional collection of group ids to add to the canned response's groups",
     ),
 ]
 
-CannedResponseTagUpdateRemoveField: TypeAlias = Annotated[
-    Sequence[TagIdField],
+CannedResponseGroupUpdateRemoveField: TypeAlias = Annotated[
+    Sequence[GroupIdField],
     Field(
-        description="Optional collection of tag ids to remove from the canned response's tags",
+        description="Optional collection of group ids to remove from the canned response's groups",
     ),
 ]
 
-tags_update_params_example: ExampleJson = {
+groups_update_params_example: ExampleJson = {
     "add": [
         "t9a8g703f4",
-        "tag_456abc",
+        "group_456abc",
     ],
     "remove": [
-        "tag_789def",
-        "tag_012ghi",
+        "group_789def",
+        "group_012ghi",
     ],
 }
 
 
-class CannedResponseTagUpdateParamsDTO(
+class CannedResponseGroupUpdateParamsDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": tags_update_params_example},
+    json_schema_extra={"example": groups_update_params_example},
 ):
     """
-    Parameters for updating a canned response's tags.
+    Parameters for updating a canned response's groups.
 
-    Allows adding new tags to and removing existing tags from a canned response.
+    Allows adding new groups to and removing existing groups from a canned response.
     Both operations can be performed in a single request.
     """
 
-    add: CannedResponseTagUpdateAddField | None = None
-    remove: CannedResponseTagUpdateRemoveField | None = None
+    add: CannedResponseGroupUpdateAddField | None = None
+    remove: CannedResponseGroupUpdateRemoveField | None = None
 
 
 canned_response_metadata_update_params_example: ExampleJson = {
@@ -308,7 +321,7 @@ class CannedResponseUpdateParamsDTO(
 
     value: CannedResponseValueField | None = None
     fields: CannedResponseFieldSequenceField | None = None
-    tags: CannedResponseTagUpdateParamsDTO | None = None
+    groups: CannedResponseGroupUpdateParamsDTO | None = None
     metadata: CannedResponseMetadataUpdateParamsDTO | None = None
 
 
@@ -330,9 +343,9 @@ def _canned_response_field_to_dto(
     )
 
 
-TagsQuery: TypeAlias = Annotated[
-    Sequence[TagId],
-    Query(description="Filter canned responses by tags", examples=["tag1", "tag2"]),
+GroupsQuery: TypeAlias = Annotated[
+    Sequence[GroupId],
+    Query(description="Filter canned responses by groups", examples=["group1", "group2"]),
 ]
 
 
@@ -364,7 +377,7 @@ def create_router(
         canrep = await app.canned_responses.create(
             value=params.value,
             fields=[_dto_to_canned_response_field(s) for s in params.fields],
-            tags=params.tags or None,
+            groups=params.groups or None,
             signals=params.signals or None,
             metadata=params.metadata or {},
             field_dependencies=params.field_dependencies or None,
@@ -373,9 +386,10 @@ def create_router(
         return CannedResponseDTO(
             id=canrep.id,
             creation_utc=canrep.creation_utc,
+            modified_utc=canrep.modified_utc,
             value=canrep.value,
             fields=[_canned_response_field_to_dto(s) for s in canrep.fields],
-            tags=canrep.tags,
+            groups=canrep.groups,
             signals=canrep.signals,
             metadata=canrep.metadata,
             field_dependencies=canrep.field_dependencies,
@@ -408,9 +422,10 @@ def create_router(
         return CannedResponseDTO(
             id=canrep.id,
             creation_utc=canrep.creation_utc,
+            modified_utc=canrep.modified_utc,
             value=canrep.value,
             fields=[_canned_response_field_to_dto(s) for s in canrep.fields],
-            tags=canrep.tags,
+            groups=canrep.groups,
             signals=canrep.signals,
             metadata=canrep.metadata,
             field_dependencies=canrep.field_dependencies,
@@ -429,20 +444,21 @@ def create_router(
         **apigen_config(group_name=API_GROUP, method_name="list"),
     )
     async def list_canned_responses(
-        request: Request, tags: TagsQuery = []
+        request: Request, groups: GroupsQuery = []
     ) -> Sequence[CannedResponseDTO]:
-        """Lists all canned responses, optionally filtered by tags."""
+        """Lists all canned responses, optionally filtered by groups."""
         await authorization_policy.authorize(request, Operation.LIST_CANNED_RESPONSES)
 
-        canreps = await app.canned_responses.find(tags=tags)
+        canreps = await app.canned_responses.find(groups=groups)
 
         return [
             CannedResponseDTO(
                 id=f.id,
                 creation_utc=f.creation_utc,
+                modified_utc=f.modified_utc,
                 value=f.value,
                 fields=[_canned_response_field_to_dto(s) for s in f.fields],
-                tags=f.tags,
+                groups=f.groups,
                 signals=f.signals,
                 metadata=f.metadata,
                 field_dependencies=f.field_dependencies,
@@ -478,7 +494,7 @@ def create_router(
 
         Only provided attributes will be updated; others remain unchanged.
         The canned response's ID and creation timestamp cannot be modified.
-        Extra metadata and tags can be added or removed independently.
+        Extra metadata and groups can be added or removed independently.
         """
         await authorization_policy.authorize(request, Operation.UPDATE_CANNED_RESPONSE)
 
@@ -501,8 +517,10 @@ def create_router(
             fields=(
                 [_dto_to_canned_response_field(s) for s in params.fields] if params.fields else []
             ),
-            tags=CannedResponseTagUpdateParamsModel(add=params.tags.add, remove=params.tags.remove)
-            if params.tags
+            groups=CannedResponseGroupUpdateParamsModel(
+                add=params.groups.add, remove=params.groups.remove
+            )
+            if params.groups
             else None,
             metadata=metadata_params,
         )
@@ -510,9 +528,10 @@ def create_router(
         return CannedResponseDTO(
             id=canrep.id,
             creation_utc=canrep.creation_utc,
+            modified_utc=canrep.modified_utc,
             value=canrep.value,
             fields=[_canned_response_field_to_dto(s) for s in canrep.fields],
-            tags=canrep.tags,
+            groups=canrep.groups,
             signals=canrep.signals,
             metadata=canrep.metadata,
             field_dependencies=canrep.field_dependencies,

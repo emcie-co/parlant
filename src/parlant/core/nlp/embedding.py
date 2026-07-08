@@ -14,18 +14,18 @@
 
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
 import json
 import zlib
 from lagom import Container
-from typing import Any, Callable, Optional, Sequence, TypedDict, cast
-from typing_extensions import override
+from typing import Any, Callable, Optional, Mapping, Sequence, TypedDict, cast
+from typing_extensions import NotRequired, override
 
 from parlant.core.async_utils import Stopwatch
 from parlant.core.common import Version
+from parlant.core.nlp.common import ModelSize, UsageInfo
 from parlant.core.health import (
     NLP_EMBED_KIND,
     NLP_REQUESTS_COUNTER,
@@ -42,6 +42,11 @@ from parlant.core.persistence.document_database import (
     DocumentDatabase,
 )
 from parlant.core.tracer import Tracer
+from parlant.core.usage_reporter import UsageReporter
+
+
+class EmbedderHints(TypedDict, total=False):
+    model_size: NotRequired[ModelSize]
 
 
 @dataclass(frozen=True)
@@ -49,6 +54,7 @@ class EmbeddingResult:
     """Result of an embedding operation."""
 
     vectors: Sequence[Sequence[float]]
+    usage: UsageInfo = field(default_factory=lambda: UsageInfo(input_tokens=0, output_tokens=0))
 
 
 @dataclass
@@ -101,12 +107,14 @@ class BaseEmbedder(Embedder):
         meter: Meter,
         model_name: str,
         health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
     ) -> None:
         self.logger = logger
         self.tracer = tracer
         self.meter = meter
         self.model_name = model_name
         self.health_reporter = health_reporter
+        self.usage_reporter = usage_reporter
 
         # LRU cache: checksum -> cache entry
         self._cache: OrderedDict[int, _EmbeddingCacheEntry] = OrderedDict()
@@ -252,6 +260,8 @@ class BaseEmbedder(Embedder):
                     },
                 )
                 self._report_health(start.elapsed, success=True, error=None)
+                if self.usage_reporter is not None:
+                    self.usage_reporter.report_usage(self.id, result.usage)
 
             # Cache new results and merge with cached results
             for (orig_idx, text), vector in zip(texts_to_embed, result.vectors):
@@ -259,7 +269,10 @@ class BaseEmbedder(Embedder):
                 cached_results[orig_idx] = vector
 
         # Reconstruct results in original order
-        return EmbeddingResult(vectors=[cached_results[i] for i in range(len(texts))])
+        return EmbeddingResult(
+            vectors=[cached_results[i] for i in range(len(texts))],
+            usage=result.usage,
+        )
 
     def _report_health(
         self,

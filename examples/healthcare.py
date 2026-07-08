@@ -166,7 +166,7 @@ async def main() -> None:
     async with p.Server() as server:
         agent = await server.create_agent(
             name="Healthcare Agent",
-            description="Is empathetic and calming to the patient.",
+            prompt="Is empathetic and calming to the patient.",
         )
 
         await add_domain_glossary(agent)

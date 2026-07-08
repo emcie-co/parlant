@@ -24,8 +24,8 @@ from parlant.core.customers import Customer
 from parlant.core.engines.types import UtteranceRequest
 from parlant.core.journeys import Journey, JourneyNode
 from parlant.core.tools import Tool
-from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
-from parlant.core.guidelines import Guideline
+from parlant.core.engines.rule_match import RuleMatch
+from parlant.core.rules import Rule
 from parlant.core.sessions import Event, EventKind, MessageEventData, EventSource, EventId
 
 from tests.test_utilities import SyncAwaiter
@@ -36,8 +36,8 @@ class ContextOfTest:
     sync_await: SyncAwaiter
     container: Container
     events: list[Event]
-    guidelines: dict[str, Guideline]
-    guideline_matches: dict[str, GuidelineMatch]
+    rules: dict[str, Rule]
+    rule_matches: dict[str, RuleMatch]
     tools: dict[str, Tool]
     actions: list[UtteranceRequest]
     journeys: dict[str, Journey]
@@ -58,6 +58,8 @@ def create_event_message(
         },
     }
 
+    creation_utc = datetime.now(timezone.utc)
+
     event = Event(
         id=EventId(generate_id()),
         source=source,
@@ -66,7 +68,8 @@ def create_event_message(
         trace_id="<main>",
         data=cast(JSONSerializable, message_data),
         metadata=metadata,
-        creation_utc=datetime.now(timezone.utc),
+        creation_utc=creation_utc,
+        modified_utc=creation_utc,
         deleted=False,
     )
 

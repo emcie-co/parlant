@@ -14,7 +14,6 @@
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from itertools import chain
 from typing import Sequence, cast
 
 from lagom import Container
@@ -22,7 +21,7 @@ from pytest import fixture
 
 from parlant.core.agents import Agent
 from parlant.core.capabilities import Capability
-from parlant.core.common import Criticality, generate_id, JSONSerializable
+from parlant.core.common import Weight, generate_id, JSONSerializable
 from parlant.core.context_variables import (
     ContextVariable,
     ContextVariableId,
@@ -47,14 +46,18 @@ from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.engines.types import Context
 from parlant.core.entity_cq import EntityCommands
-from parlant.core.evaluations import GuidelinePayload, PayloadOperation
+from parlant.core.evaluations import RulePayload as GuidelinePayload, PayloadOperation
 from parlant.core.glossary import Term
 from parlant.core.journeys import Journey
 from parlant.core.nlp.generation import SchematicGenerator
 
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
-from parlant.core.services.indexing.behavioral_change_evaluation import GuidelineEvaluator
+from parlant.core.rules import (
+    Rule as Guideline,
+    RuleContent as GuidelineContent,
+    RuleId as GuidelineId,
+)
+from parlant.core.services.indexing.evaluation_service import RuleEvaluator as GuidelineEvaluator
 from parlant.core.sessions import (
     AgentState,
     Event,
@@ -68,7 +71,7 @@ from parlant.core.sessions import (
 from parlant.core.loggers import Logger
 from parlant.core.glossary import TermId
 
-from parlant.core.tags import TagId, Tag
+from parlant.core.groups import GroupId, GroupIds
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter
 
@@ -329,14 +332,14 @@ async def match_guidelines(
         guidelines=context.guidelines,
     )
 
-    return list(chain.from_iterable(guideline_matching_result.batches))
+    return list(guideline_matching_result.matched)
 
 
 async def create_guideline(
     context: ContextOfTest,
     condition: str,
     action: str | None = None,
-    tags: list[TagId] = [],
+    groups: list[GroupId] = [],
 ) -> Guideline:
     metadata: dict[str, JSONSerializable] = {}
     if action:
@@ -362,13 +365,14 @@ async def create_guideline(
     guideline = Guideline(
         id=GuidelineId(generate_id()),
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         content=GuidelineContent(
             condition=condition,
             action=action,
         ),
-        criticality=Criticality.MEDIUM,
+        weight=Weight.MEDIUM,
         enabled=True,
-        tags=tags,
+        groups=groups,
         metadata=metadata,
     )
 
@@ -378,34 +382,36 @@ async def create_guideline(
 
 
 def create_term(
-    name: str, description: str, synonyms: list[str] = [], tags: list[TagId] = []
+    name: str, description: str, synonyms: list[str] = [], groups: list[GroupId] = []
 ) -> Term:
     return Term(
         id=TermId("-"),
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         name=name,
         description=description,
         synonyms=synonyms,
-        tags=tags,
+        groups=groups,
     )
 
 
 def create_context_variable(
     name: str,
     data: JSONSerializable,
-    tags: list[TagId],
+    groups: list[GroupId],
 ) -> tuple[ContextVariable, ContextVariableValue]:
     return ContextVariable(
         id=ContextVariableId("-"),
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         name=name,
         description="",
         tool_id=None,
         freshness_rules=None,
-        tags=tags,
+        groups=groups,
     ), ContextVariableValue(
         ContextVariableValueId("-"),
-        last_modified=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         data=data,
     )
 
@@ -473,7 +479,6 @@ async def analyze_response_and_update_session(
         GuidelineMatch(
             guideline=g,
             rationale="",
-            score=10,
         )
         for g in previously_matched_guidelines
         if (not session.agent_states or g.id not in session.agent_states[-1].applied_guideline_ids)
@@ -823,7 +828,7 @@ async def test_that_guidelines_based_on_context_variables_arent_matched_repetiti
         create_context_variable(
             name="season",
             data={"season": "Summer"},
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         )
     ]
 
@@ -894,7 +899,7 @@ async def test_that_observational_guidelines_arent_wrongly_implied(
         create_context_variable(
             name="Date",
             data={"Year": "2025", "Month": "January", "Day": 24},
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ),
     ]
 
@@ -945,19 +950,19 @@ async def test_that_observational_guidelines_are_detected_correctly_when_lots_of
         create_term(
             name="blorgnet",
             description="a figure of speech, meaning being annoyed by whoever you're interacting with",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ),
     ]
     context_variables = [
         create_context_variable(
             name="customer_location",
             data={"location": "Australia"},
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ),
         create_context_variable(
             name="date",
             data={"date": "August 15th, 2024"},
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ),
     ]
     tool_result = cast(

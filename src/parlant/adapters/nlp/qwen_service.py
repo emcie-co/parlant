@@ -24,7 +24,7 @@ from openai import (
     InternalServerError,
     RateLimitError,
 )
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 from typing_extensions import override
 import json
 import jsonfinder  # type: ignore
@@ -34,9 +34,11 @@ from pydantic import ValidationError
 import tiktoken
 
 from parlant.adapters.nlp.common import normalize_json_output, record_llm_metrics
+from parlant.adapters.nlp.openai_service import OpenAIReactGenerator
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
+from parlant.core.nlp.common import ModelSize, UsageInfo
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import (
@@ -52,10 +54,19 @@ from parlant.core.nlp.generation import (
     SchematicGenerationResult,
     StreamingTextGenerator,
 )
-from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
+from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.nlp.moderation import (
     ModerationService,
     NoModeration,
+)
+from parlant.core.nlp.react import (
+    CacheConfig,
+    Message,
+    ReactGenerator,
+    ReactGeneratorHints,
+    ReasoningConfig,
+    ToolChoice,
+    ToolSpec,
 )
 from parlant.core.tracer import Tracer
 from parlant.core.health import HealthReporter
@@ -76,6 +87,7 @@ Recommended actions:
 QWEN_REGION_BASE_URLS = {
     "international": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
     "domestic": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "us": "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
 }
 
 
@@ -84,15 +96,17 @@ def get_qwen_base_url() -> str:
 
     Priority:
     1. QWEN_BASE_URL environment variable (explicit override)
-    2. QWEN_REGION environment variable (international/domestic)
+    2. QWEN_REGION environment variable (international/domestic/us)
     3. Default to international region
     """
     if base_url := os.environ.get("QWEN_BASE_URL"):
         return base_url
 
-    region = os.environ.get("QWEN_REGION", "international").lower()
+    region = os.environ.get("QWEN_REGION", "domestic").lower()
     if region not in QWEN_REGION_BASE_URLS:
-        raise ValueError(f"Invalid QWEN_REGION '{region}'. Must be 'international' or 'domestic'.")
+        raise ValueError(
+            f"Invalid QWEN_REGION '{region}'. Must be 'international', 'domestic', or 'us'."
+        )
     return QWEN_REGION_BASE_URLS[region]
 
 
@@ -109,9 +123,23 @@ class QwenEstimatingTokenizer(EstimatingTokenizer):
 
 class QwenEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
+    max_batch_size = 10
 
-    def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+    def __init__(
+        self,
+        model_name: str,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+    ) -> None:
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name=model_name,
+        )
 
         self._client = AsyncClient(
             base_url=get_qwen_base_url(),
@@ -150,23 +178,122 @@ class QwenEmbedder(BaseEmbedder):
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
         filtered_hints = {k: v for k, v in hints.items() if k in self.supported_arguments}
+        vectors: list[list[float]] = []
+        input_tokens = 0
+
         try:
-            response = await self._client.embeddings.create(
-                model=self.model_name,
-                input=texts,
-                **filtered_hints,
-            )
+            for i in range(0, len(texts), self.max_batch_size):
+                response = await self._client.embeddings.create(
+                    model=self.model_name,
+                    input=texts[i : i + self.max_batch_size],
+                    **filtered_hints,
+                )
+                vectors.extend(data_point.embedding for data_point in response.data)
+                if response.usage:
+                    input_tokens += response.usage.prompt_tokens or 0
         except RateLimitError:
             self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
             raise
 
-        vectors = [data_point.embedding for data_point in response.data]
-        return EmbeddingResult(vectors=vectors)
+        return EmbeddingResult(
+            vectors=vectors,
+            usage=UsageInfo(input_tokens=input_tokens, output_tokens=0),
+        )
+
+
+class QwenReactGenerator(OpenAIReactGenerator):
+    """Qwen Cloud ReAct generator over the OpenAI-compatible Responses API."""
+
+    _MODEL_BY_SIZE: dict[ModelSize, str] = {
+        ModelSize.SMALL: "qwen3.6-flash-us",
+        ModelSize.MEDIUM: "qwen3.7-plus-us",
+        ModelSize.LARGE: "qwen3.7-max-us",
+    }
+
+    def __init__(
+        self,
+        *,
+        model: str = "qwen3.7-plus-us",
+        logger: Logger,
+        cache: CacheConfig | None = None,
+        client: AsyncClient | None = None,
+        api_key: str | None = None,
+    ) -> None:
+        super().__init__(
+            model=model,
+            logger=logger,
+            cache=cache,
+            client=client
+            or AsyncClient(
+                api_key=api_key or os.environ.get("DASHSCOPE_API_KEY"),
+                base_url=get_qwen_base_url(),
+            ),
+        )
+
+    @property
+    @override
+    def id(self) -> str:
+        return f"qwen/{self.model}"
+
+    @property
+    @override
+    def provider_name(self) -> str:
+        return "qwen"
+
+    @override
+    def _resolve_model(self, hints: ReactGeneratorHints) -> str:
+        size = hints.get("model_size", ModelSize.AUTO)
+        return self._MODEL_BY_SIZE.get(size, self.model)
+
+    @override
+    def _encode(
+        self,
+        history: Sequence[Message],
+        tools: Sequence[ToolSpec],
+        tool_choice: ToolChoice,
+        *,
+        reasoning: ReasoningConfig,
+        hints: ReactGeneratorHints = {},
+    ) -> dict[str, Any]:
+        request = super()._encode(
+            history,
+            tools,
+            tool_choice,
+            reasoning=reasoning,
+            hints=hints,
+        )
+
+        # Qwen exposes thinking mode as a provider-specific flag, not OpenAI's
+        # `reasoning` object. The compatible API ignores unsupported parameters,
+        # but omitting them keeps requests explicit and easier to inspect.
+        request.pop("reasoning", None)
+        request.pop("include", None)
+        request.pop("prompt_cache_key", None)
+        request.pop("service_tier", None)
+
+        if reasoning.effort != "minimal" and reasoning.visibility != "none":
+            request["extra_body"] = {"enable_thinking": True}
+
+        return request
+
+    @override
+    def _encode_message(self, message: Message) -> list[dict[str, Any]]:
+        return [
+            item for item in super()._encode_message(message) if item.get("type") != "reasoning"
+        ]
 
 
 class QwenTextEmbedding_V4(QwenEmbedder):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(model_name="text-embedding-v4", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
+        super().__init__(
+            model_name="text-embedding-v4",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+        )
 
     @property
     @override
@@ -181,13 +308,21 @@ class QwenTextEmbedding_V4(QwenEmbedder):
 class QwenSchematicGenerator(BaseSchematicGenerator[T]):
     supported_qwen_params = ["temperature", "max_tokens"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name=model_name,
+        )
 
         self._client = AsyncClient(
             base_url=get_qwen_base_url(),
@@ -205,6 +340,11 @@ class QwenSchematicGenerator(BaseSchematicGenerator[T]):
     @override
     def tokenizer(self) -> QwenEstimatingTokenizer:
         return self._tokenizer
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 128 * 1024
 
     @policy(
         [
@@ -238,12 +378,13 @@ class QwenSchematicGenerator(BaseSchematicGenerator[T]):
             prompt = prompt.build()
 
         qwen_api_arguments = {k: v for k, v in hints.items() if k in self.supported_qwen_params}
+        max_tokens = qwen_api_arguments.pop("max_tokens", 8 * 1024)
 
         t_start = time.time()
         response = await self._client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
             model=self.model_name,
-            max_tokens=8 * 1024,
+            max_tokens=max_tokens,
             response_format={"type": "json_object"},
             **qwen_api_arguments,
         )
@@ -304,8 +445,16 @@ class QwenSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class Qwen_MAX(QwenSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(model_name="qwen-max", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
+        super().__init__(
+            model_name="qwen-max",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+        )
 
     @property
     @override
@@ -314,8 +463,16 @@ class Qwen_MAX(QwenSchematicGenerator[T]):
 
 
 class Qwen_Plus(QwenSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(model_name="qwen-plus", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
+        super().__init__(
+            model_name="qwen-plus",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+        )
 
     @property
     @override
@@ -324,9 +481,15 @@ class Qwen_Plus(QwenSchematicGenerator[T]):
 
 
 class Qwen_2_5_72b(QwenSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
-            model_name="qwen2.5-72b-instruct", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter
+            model_name="qwen2.5-72b-instruct",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -355,17 +518,19 @@ Must be one of: {", ".join(QWEN_REGION_BASE_URLS.keys())}
 
         return None
 
-    def __init__(self,
+    def __init__(
+        self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
         self.logger = logger
         self._tracer = tracer
         self._meter = meter
 
         self._health_reporter = health_reporter
-        self.model_name = os.environ.get("QWEN_MODEL", "qwen-plus")
+        self.model_name = os.environ.get("QWEN_MODEL", "qwen3.7-plus")
 
         self.logger.info(f"Initialized QwenService with model: {self.model_name}")
 
@@ -374,11 +539,20 @@ Must be one of: {", ".join(QWEN_REGION_BASE_URLS.keys())}
     def supports_streaming(self) -> bool:
         return False
 
+    @property
+    @override
+    def supports_react(self) -> bool:
+        return True
+
     @override
     async def get_streaming_text_generator(
         self, hints: StreamingTextGeneratorHints = {}
     ) -> StreamingTextGenerator:
         raise NotImplementedError("Streaming is not supported. Check supports_streaming first.")
+
+    @override
+    async def get_react_generator(self) -> ReactGenerator:
+        return QwenReactGenerator(model=self.model_name, logger=self.logger)
 
     def _get_specialized_generator_class(
         self,
@@ -404,8 +578,16 @@ Must be one of: {", ".join(QWEN_REGION_BASE_URLS.keys())}
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> QwenSchematicGenerator[T]:
         qwen_generator = self._get_specialized_generator_class(self.model_name, t)
-        assert qwen_generator is not None, f"Unsupported Qwen model: {self.model_name}"
-        return qwen_generator(self.logger, self._tracer, self._meter, self._health_reporter)
+        if qwen_generator is not None:
+            return qwen_generator(self.logger, self._tracer, self._meter, self._health_reporter)
+
+        return QwenSchematicGenerator[t](  # type: ignore
+            model_name=self.model_name,
+            logger=self.logger,
+            tracer=self._tracer,
+            meter=self._meter,
+            health_reporter=self._health_reporter,
+        )
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:

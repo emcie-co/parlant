@@ -106,7 +106,7 @@ def test_where_clause_supports_nested_or_and_in() -> None:
                 {
                     "$and": [
                         {"customer_id": {"$eq": "cust-9"}},
-                        {"tag_id": {"$in": ["alpha", "beta"]}},
+                        {"group_id": {"$in": ["alpha", "beta"]}},
                         {"offset": {"$gte": 3}},
                     ]
                 },
@@ -117,7 +117,7 @@ def test_where_clause_supports_nested_or_and_in() -> None:
     clause, params = _build_where_clause(filters, {"agent_id", "customer_id", "offset"})
 
     assert '"AGENT_ID"' in clause
-    assert 'DATA:"tag_id"' in clause
+    assert 'DATA:"group_id"' in clause
     assert "TO_VARIANT" in clause
     assert '"OFFSET" >=' in clause
     assert params["param_0"] == "agent-1"

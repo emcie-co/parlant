@@ -15,7 +15,7 @@
 from pytest_bdd import given, parsers
 
 from parlant.core.agents import AgentId
-from parlant.core.common import Criticality, JSONSerializable
+from parlant.core.common import Weight, JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.entity_cq import EntityCommands
 from parlant.core.evaluations import GuidelinePayload, PayloadOperation
@@ -25,11 +25,15 @@ from parlant.core.relationships import (
     RelationshipEntity,
     RelationshipStore,
 )
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineStore
+from parlant.core.rules import (
+    Rule as Guideline,
+    RuleContent as GuidelineContent,
+    RuleStore as GuidelineStore,
+)
 
-from parlant.core.services.indexing.behavioral_change_evaluation import GuidelineEvaluator
+from parlant.core.services.indexing.evaluation_service import GuidelineEvaluator
 from parlant.core.sessions import AgentState, SessionId, SessionStore, SessionUpdateParams
-from parlant.core.tags import Tag
+from parlant.core.groups import GroupIds
 from parlant.core.tools import ToolId
 from tests.core.common.engines.alpha.utils import step
 from tests.core.common.utils import ContextOfTest
@@ -97,9 +101,9 @@ def given_a_guideline_to_when_with_criticality(
 
     metadata = get_guideline_properties(context, a_condition_holds, do_something)
     guideline_criticality = {
-        "high": Criticality.HIGH,
-        "medium": Criticality.MEDIUM,
-        "low": Criticality.LOW,
+        "high": Weight.HIGH,
+        "medium": Weight.MEDIUM,
+        "low": Weight.LOW,
     }[criticality]
     context.sync_await(
         guideline_store.create_guideline(
@@ -191,9 +195,9 @@ def given_a_guideline_name_to_when(
     )
 
     _ = context.sync_await(
-        guideline_store.upsert_tag(
+        guideline_store.upsert_group(
             context.guidelines[guideline_name].id,
-            Tag.for_agent_id(agent_id).id,
+            GroupIds.for_agent_id(agent_id),
         )
     )
 
@@ -241,9 +245,9 @@ def given_50_other_random_guidelines(
         )
 
         _ = context.sync_await(
-            guideline_store.upsert_tag(
+            guideline_store.upsert_group(
                 guideline.id,
-                Tag.for_agent_id(agent_id).id,
+                GroupIds.for_agent_id(agent_id),
             )
         )
 
@@ -494,9 +498,9 @@ def given_the_guideline_called(
         )
 
         _ = context.sync_await(
-            guideline_store.upsert_tag(
+            guideline_store.upsert_group(
                 guideline.id,
-                Tag.for_agent_id(agent_id).id,
+                GroupIds.for_agent_id(agent_id),
             )
         )
 
@@ -577,7 +581,6 @@ def given_was_matched_in_previous_iteration(
 
     context.guideline_matches[guideline_name] = GuidelineMatch(
         guideline=guideline,
-        score=10,
         rationale="",
     )
 
@@ -585,20 +588,18 @@ def given_was_matched_in_previous_iteration(
 @step(
     given,
     parsers.parse(
-        'that the "{guideline_name}" guideline is matched with a priority of {score} because {rationale}'  # noqb
+        'that the "{guideline_name}" guideline is matched because {rationale}'  # noqb
     ),
 )
 def given_a_guideline_match(
     context: ContextOfTest,
     guideline_name: str,
-    score: int,
     rationale: str,
 ) -> None:
     guideline = context.guidelines[guideline_name]
 
     context.guideline_matches[guideline_name] = GuidelineMatch(
         guideline=guideline,
-        score=score,
         rationale=rationale,
     )
 
@@ -618,11 +619,11 @@ def given_an_entailment_guideline_relationship(
         store.create_relationship(
             source=RelationshipEntity(
                 id=context.guidelines[guideline_a].id,
-                kind=RelationshipEntityKind.GUIDELINE,
+                kind=RelationshipEntityKind.RULE,
             ),
             target=RelationshipEntity(
                 id=context.guidelines[guideline_b].id,
-                kind=RelationshipEntityKind.GUIDELINE,
+                kind=RelationshipEntityKind.RULE,
             ),
             kind=RelationshipKind.ENTAILMENT,
         )
@@ -644,11 +645,11 @@ def given_an_guideline_grouped_under(
         store.create_relationship(
             source=RelationshipEntity(
                 id=context.guidelines[disambiguation_head].id,
-                kind=RelationshipEntityKind.GUIDELINE,
+                kind=RelationshipEntityKind.RULE,
             ),
             target=RelationshipEntity(
                 id=context.guidelines[guideline].id,
-                kind=RelationshipEntityKind.GUIDELINE,
+                kind=RelationshipEntityKind.RULE,
             ),
             kind=RelationshipKind.DISAMBIGUATION,
         )
@@ -673,11 +674,11 @@ def given_an_dependency_between_guideline_and_a_journey(
         store.create_relationship(
             source=RelationshipEntity(
                 id=context.guidelines[guideline_name].id,
-                kind=RelationshipEntityKind.GUIDELINE,
+                kind=RelationshipEntityKind.RULE,
             ),
             target=RelationshipEntity(
-                id=Tag.for_journey_id(journey.id).id,
-                kind=RelationshipEntityKind.TAG_ALL,
+                id=GroupIds.for_journey_id(journey.id),
+                kind=RelationshipEntityKind.GROUP_ALL,
             ),
             kind=RelationshipKind.DEPENDENCY,
         )
@@ -701,7 +702,7 @@ def given_an_reevaluation_between_guideline_and_a_tool(
         store.create_relationship(
             source=RelationshipEntity(
                 id=context.guidelines[guideline_name].id,
-                kind=RelationshipEntityKind.GUIDELINE,
+                kind=RelationshipEntityKind.RULE,
             ),
             target=RelationshipEntity(
                 id=ToolId(service_name="local", tool_name=tool_name),

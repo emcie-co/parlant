@@ -61,7 +61,7 @@ async def test_that_partially_fulfilled_action_with_missing_behavioral_part_is_m
             title="Reset Password",
             description="The ability to send the customer an email with a link to reset their password. The password can only be reset via this link",
             signals=["reset password", "password"],
-            tags=[],
+            groups=[],
         )
     ]
     conversation_context: list[tuple[EventSource, str]] = [

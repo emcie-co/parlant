@@ -12,10 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Mapping
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from typing_extensions import override
 import torch  # type: ignore
 from typing import cast
@@ -34,8 +33,10 @@ from parlant.core.tracer import Tracer
 from parlant.core.meter import Meter
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
+from parlant.core.nlp.common import UsageInfo
 from parlant.core.nlp.embedding import BaseEmbedder, EmbeddingResult
 from parlant.core.health import HealthReporter
+from parlant.core.usage_reporter import UsageReporter
 
 
 _TOKENIZER_MODELS: dict[str, PreTrainedTokenizerBase] = {}
@@ -115,8 +116,23 @@ class HuggingFaceEstimatingTokenizer(EstimatingTokenizer):
 
 
 class HuggingFaceEmbedder(BaseEmbedder):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter, model_name: str) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+        model_name: str,
+        usage_reporter: UsageReporter | None = None,
+    ) -> None:
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name=model_name,
+            usage_reporter=usage_reporter,
+        )
 
         self._model = _create_auto_model(model_name)
         self._tokenizer = HuggingFaceEstimatingTokenizer(model_name=model_name)
@@ -159,20 +175,35 @@ class HuggingFaceEmbedder(BaseEmbedder):
             texts, padding=True, truncation=True, return_tensors="pt"
         )
         tokenized_texts = {key: value.to(_get_device()) for key, value in tokenized_texts.items()}
+        input_tokens = int(
+            tokenized_texts.get("attention_mask", tokenized_texts["input_ids"]).sum().item()
+        )
 
         with torch.no_grad():
             embeddings = self._model(**tokenized_texts).last_hidden_state[:, 0, :]
 
-        return EmbeddingResult(vectors=embeddings.tolist())
+        return EmbeddingResult(
+            vectors=embeddings.tolist(),
+            usage=UsageInfo(input_tokens=input_tokens, output_tokens=0),
+        )
 
 
 class JinaAIEmbedder(HuggingFaceEmbedder):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
+    ) -> None:
         super().__init__(
             logger=logger,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
             tracer=tracer,
             model_name="jinaai/jina-embeddings-v2-base-en",
+            usage_reporter=usage_reporter,
         )
 
     @property

@@ -20,7 +20,7 @@ from typing import Mapping, Sequence
 from lagom import Container
 from pytest import fixture
 from parlant.core.agents import Agent
-from parlant.core.common import Criticality, generate_id
+from parlant.core.common import Weight, generate_id
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.guideline_matching.generic.response_analysis_batch import (
@@ -32,12 +32,16 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     ResponseAnalysisContext,
 )
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.rules import (
+    Rule as Guideline,
+    RuleContent as GuidelineContent,
+    RuleId as GuidelineId,
+)
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import EventSource, Session, SessionId, SessionStore
-from parlant.core.tags import TagId
+from parlant.core.groups import GroupId
 from parlant.core.tools import ToolId
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter
@@ -133,19 +137,20 @@ def create_guideline(
     context: ContextOfTest,
     condition: str,
     action: str | None = None,
-    tags: list[TagId] = [],
+    groups: list[GroupId] = [],
 ) -> Guideline:
     guideline = Guideline(
         id=GuidelineId(generate_id()),
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         content=GuidelineContent(
             condition=condition,
             action=action,
         ),
         enabled=True,
-        tags=tags,
+        groups=groups,
         metadata={},
-        criticality=Criticality.MEDIUM,
+        weight=Weight.MEDIUM,
     )
 
     context.guidelines.append(guideline)
@@ -158,19 +163,20 @@ def create_guideline_with_tools(
     condition: str,
     action: str | None = None,
     tool_ids: list[ToolId] = [],
-    tags: list[TagId] = [],
+    groups: list[GroupId] = [],
 ) -> Guideline:
     guideline = Guideline(
         id=GuidelineId(generate_id()),
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         content=GuidelineContent(
             condition=condition,
             action=action,
         ),
         enabled=True,
-        tags=tags,
+        groups=groups,
         metadata={},
-        criticality=Criticality.MEDIUM,
+        weight=Weight.MEDIUM,
     )
 
     context.guidelines_to_tools = {guideline: tool_ids}
@@ -220,7 +226,6 @@ async def base_test_that_correct_guidelines_are_detected_as_previously_applied(
     guideline_matches = [
         GuidelineMatch(
             guideline=guideline,
-            score=10,
             rationale="",
         )
         for guideline in context.guidelines

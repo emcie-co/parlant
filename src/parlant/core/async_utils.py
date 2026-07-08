@@ -131,7 +131,7 @@ async def safe_gather(
     | asyncio.Task[_TResult2]
     | Coroutine[Any, Any, _TResult2]
     | Awaitable[_TResult2],
-) -> tuple[_TResult0, _TResult2]: ...
+) -> tuple[_TResult0, _TResult1, _TResult2]: ...
 
 
 @overload
@@ -152,7 +152,7 @@ async def safe_gather(
     | asyncio.Task[_TResult3]
     | Coroutine[Any, Any, _TResult3]
     | Awaitable[_TResult3],
-) -> tuple[_TResult0, _TResult3]: ...
+) -> tuple[_TResult0, _TResult1, _TResult2, _TResult3]: ...
 
 
 async def safe_gather(  # type: ignore[misc]
@@ -312,16 +312,28 @@ class CancellationSuppressionLatch(Generic[_TResult0]):
     def enable(self) -> None:
         self._enabled = True
 
-    async def _get_result(self) -> _TResult0:
-        if self._exception is not None:
-            if isinstance(self._exception, Exception):
-                raise Exception("Task failed") from self._exception
-            elif isinstance(self._exception, BaseException):
-                raise BaseException("Task failed") from self._exception
-            else:
-                raise self._exception
+    def disable(self) -> None:
+        self._enabled = False
 
+    def _raise_exception_if_any(self) -> None:
+        if self._exception is None:
+            return
+
+        if isinstance(self._exception, Exception):
+            raise Exception("Task failed") from self._exception
+        elif isinstance(self._exception, BaseException):
+            raise BaseException("Task failed") from self._exception
+        else:
+            raise self._exception
+
+    def _raise_deferred_cancellation_if_unsuppressed(self) -> None:
+        if self._cancellation_error and not self._enabled:
+            raise asyncio.CancelledError() from self._cancellation_error
+
+    async def _get_result(self) -> _TResult0:
         await self._done.wait()
+        self._raise_exception_if_any()
+        self._raise_deferred_cancellation_if_unsuppressed()
         return self._result
 
 
@@ -332,3 +344,11 @@ async def latched_shield(
         pass
 
     return await latch._get_result()
+
+
+async def delay(
+    delay: float,
+    coro: asyncio.Future[_TResult0] | asyncio.Task[_TResult0] | Coroutine[Any, Any, _TResult0],
+) -> _TResult0:
+    await asyncio.sleep(delay)
+    return await coro

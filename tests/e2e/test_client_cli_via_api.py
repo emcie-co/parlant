@@ -255,7 +255,7 @@ async def test_that_session_can_be_updated(
 async def test_that_a_term_can_be_created_with_synonyms(
     context: ContextOfTest,
 ) -> None:
-    term_name = "guideline"
+    term_name = "rule"
     description = "when and then statements"
     synonyms = "rule, principle"
 
@@ -282,8 +282,8 @@ async def test_that_a_term_can_be_created_with_synonyms(
 async def test_that_a_term_can_be_created_without_synonyms(
     context: ContextOfTest,
 ) -> None:
-    term_name = "guideline_no_synonyms"
-    description = "simple guideline with no synonyms"
+    term_name = "rule_no_synonyms"
+    description = "simple rule with no synonyms"
 
     with run_server(context):
         process = await run_cli(
@@ -311,11 +311,11 @@ async def test_that_a_term_can_be_created_without_synonyms(
 async def test_that_a_term_can_be_updated(
     context: ContextOfTest,
 ) -> None:
-    name = "guideline"
+    name = "rule"
     description = "when and then statements"
     synonyms = "rule, principle"
 
-    new_name = "updated guideline"
+    new_name = "updated rule"
     new_description = "then and when statements "
     new_synonyms = "instructions"
 
@@ -351,7 +351,7 @@ async def test_that_a_term_can_be_updated(
 async def test_that_a_term_can_be_deleted(
     context: ContextOfTest,
 ) -> None:
-    name = "guideline_delete"
+    name = "rule_delete"
     description = "to be deleted"
     synonyms = "rule, principle"
 
@@ -376,7 +376,7 @@ async def test_that_a_term_can_be_deleted(
         assert len(terms) == 0
 
 
-async def test_that_a_guideline_can_be_added(
+async def test_that_a_rule_can_be_added(
     context: ContextOfTest,
 ) -> None:
     condition = "the customer greets you"
@@ -384,7 +384,7 @@ async def test_that_a_guideline_can_be_added(
 
     with run_server(context):
         process = await run_cli(
-            "guideline",
+            "rule",
             "create",
             "--condition",
             condition,
@@ -399,11 +399,11 @@ async def test_that_a_guideline_can_be_added(
         assert "Traceback (most recent call last):" not in output_view
         assert process.returncode == os.EX_OK
 
-        guidelines = await context.api.list_guidelines()
-        assert any(g["condition"] == condition and g["action"] == action for g in guidelines)
+        rules = await context.api.list_rules()
+        assert any(g["condition"] == condition and g["action"] == action for g in rules)
 
 
-async def test_that_a_guideline_can_be_updated(
+async def test_that_a_rule_can_be_updated(
     context: ContextOfTest,
 ) -> None:
     condition = "the customer asks for help"
@@ -411,13 +411,13 @@ async def test_that_a_guideline_can_be_updated(
     updated_action = "provide detailed support information"
 
     with run_server(context):
-        guideline = await context.api.create_guideline(condition=condition, action=initial_action)
+        rule = await context.api.create_rule(condition=condition, action=initial_action)
 
         process = await run_cli(
-            "guideline",
+            "rule",
             "update",
             "--id",
-            guideline["id"],
+            rule["id"],
             "--condition",
             condition,
             "--action",
@@ -431,15 +431,13 @@ async def test_that_a_guideline_can_be_updated(
         assert "Traceback (most recent call last):" not in output_view
         assert process.returncode == os.EX_OK
 
-        updated_guideline = (await context.api.read_guideline(guideline_id=guideline["id"]))[
-            "guideline"
-        ]
+        updated_rule = (await context.api.read_rule(rule_id=rule["id"]))["rule"]
 
-        assert updated_guideline["condition"] == condition
-        assert updated_guideline["action"] == updated_action
+        assert updated_rule["condition"] == condition
+        assert updated_rule["action"] == updated_action
 
 
-async def test_that_guidelines_can_be_entailed(
+async def test_that_rules_can_be_entailed(
     context: ContextOfTest,
 ) -> None:
     condition1 = "the customer needs assistance"
@@ -450,7 +448,7 @@ async def test_that_guidelines_can_be_entailed(
 
     with run_server(context):
         process = await run_cli(
-            "guideline",
+            "rule",
             "create",
             "--condition",
             condition1,
@@ -466,7 +464,7 @@ async def test_that_guidelines_can_be_entailed(
         assert process.returncode == os.EX_OK
 
         process = await run_cli(
-            "guideline",
+            "rule",
             "create",
             "--condition",
             condition2,
@@ -481,13 +479,13 @@ async def test_that_guidelines_can_be_entailed(
         assert "Traceback (most recent call last):" not in output_view
         assert process.returncode == os.EX_OK
 
-        guidelines = await context.api.list_guidelines()
+        rules = await context.api.list_rules()
 
-        first_guideline = next(
-            g for g in guidelines if g["condition"] == condition1 and g["action"] == action1
+        first_rule = next(
+            g for g in rules if g["condition"] == condition1 and g["action"] == action1
         )
-        second_guideline = next(
-            g for g in guidelines if g["condition"] == condition2 and g["action"] == action2
+        second_rule = next(
+            g for g in rules if g["condition"] == condition2 and g["action"] == action2
         )
 
         process = await run_cli(
@@ -496,9 +494,9 @@ async def test_that_guidelines_can_be_entailed(
             "--kind",
             "entailment",
             "--source",
-            first_guideline["id"],
+            first_rule["id"],
             "--target",
-            second_guideline["id"],
+            second_rule["id"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             address=context.api.server_address,
@@ -507,28 +505,25 @@ async def test_that_guidelines_can_be_entailed(
         await process.wait()
         assert process.returncode == os.EX_OK
 
-        guideline = await context.api.read_guideline(guideline_id=first_guideline["id"])
-        assert "relationships" in guideline and len(guideline["relationships"]) == 1
-        connection = guideline["relationships"][0]
-        assert (
-            connection["source_guideline"] == first_guideline
-            and connection["target_guideline"] == second_guideline
-        )
+        rule = await context.api.read_rule(rule_id=first_rule["id"])
+        assert "relationships" in rule and len(rule["relationships"]) == 1
+        connection = rule["relationships"][0]
+        assert connection["source_rule"] == first_rule and connection["target_rule"] == second_rule
 
 
-async def test_that_a_guideline_can_be_deleted(
+async def test_that_a_rule_can_be_deleted(
     context: ContextOfTest,
 ) -> None:
     with run_server(context):
-        guideline = await context.api.create_guideline(
+        rule = await context.api.create_rule(
             condition="the customer greets you", action="greet them back with 'Hello'"
         )
 
         process = await run_cli(
-            "guideline",
+            "rule",
             "delete",
             "--id",
-            guideline["id"],
+            rule["id"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             address=context.api.server_address,
@@ -538,15 +533,15 @@ async def test_that_a_guideline_can_be_deleted(
         assert "Traceback (most recent call last):" not in output_view
         assert process.returncode == os.EX_OK
 
-        guidelines = await context.api.list_guidelines()
-        assert len(guidelines) == 0
+        rules = await context.api.list_rules()
+        assert len(rules) == 0
 
 
-async def test_that_a_tool_can_be_enabled_for_a_guideline(
+async def test_that_a_tool_can_be_enabled_for_a_rule(
     context: ContextOfTest,
 ) -> None:
     with run_server(context):
-        guideline = await context.api.create_guideline(
+        rule = await context.api.create_rule(
             condition="the customer wants to get meeting details",
             action="get meeting event information",
         )
@@ -578,10 +573,10 @@ async def test_that_a_tool_can_be_enabled_for_a_guideline(
 
             assert (
                 await run_cli_and_get_exit_status(
-                    "guideline",
+                    "rule",
                     "tool-enable",
                     "--id",
-                    guideline["id"],
+                    rule["id"],
                     "--service",
                     service_name,
                     "--tool",
@@ -591,20 +586,20 @@ async def test_that_a_tool_can_be_enabled_for_a_guideline(
                 == os.EX_OK
             )
 
-            guideline = await context.api.read_guideline(guideline_id=guideline["id"])
+            rule = await context.api.read_rule(rule_id=rule["id"])
 
             assert any(
                 assoc["tool_id"]["service_name"] == service_name
                 and assoc["tool_id"]["tool_name"] == tool_name
-                for assoc in guideline["tool_associations"]
+                for assoc in rule["tool_associations"]
             )
 
 
-async def test_that_a_tool_can_be_disabled_for_a_guideline(
+async def test_that_a_tool_can_be_disabled_for_a_rule(
     context: ContextOfTest,
 ) -> None:
     with run_server(context):
-        guideline = await context.api.create_guideline(
+        rule = await context.api.create_rule(
             condition="the customer wants to get meeting details",
             action="get meeting event information",
         )
@@ -634,14 +629,14 @@ async def test_that_a_tool_can_be_disabled_for_a_guideline(
                 == os.EX_OK
             )
 
-            _ = await context.api.add_association(guideline["id"], service_name, tool_name)
+            _ = await context.api.add_association(rule["id"], service_name, tool_name)
 
             assert (
                 await run_cli_and_get_exit_status(
-                    "guideline",
+                    "rule",
                     "tool-disable",
                     "--id",
-                    guideline["id"],
+                    rule["id"],
                     "--service",
                     service_name,
                     "--tool",
@@ -651,9 +646,9 @@ async def test_that_a_tool_can_be_disabled_for_a_guideline(
                 == os.EX_OK
             )
 
-            guideline = await context.api.read_guideline(guideline_id=guideline["id"])
+            rule = await context.api.read_rule(rule_id=rule["id"])
 
-            assert guideline["tool_associations"] == []
+            assert rule["tool_associations"] == []
 
 
 async def test_that_variables_can_be_listed(
@@ -1376,30 +1371,30 @@ async def test_that_a_customer_metadata_can_be_unset(context: ContextOfTest) -> 
 async def test_that_a_customer_tag_can_be_added(context: ContextOfTest) -> None:
     with run_server(context):
         customer_id = (await context.api.create_customer(name="TestCustomer"))["id"]
-        tag_id = (await context.api.create_tag(name="TestTag"))["id"]
+        group_id = (await context.api.create_group(name="TestTag"))["id"]
 
         assert (
             await run_cli_and_get_exit_status(
                 "customer",
-                "tag",
+                "group",
                 "--id",
                 customer_id,
-                "--tag",
+                "--group",
                 "TestTag",
                 address=context.api.server_address,
             )
             == os.EX_OK
         )
         customer = await context.api.read_customer(id=customer_id)
-        tags = customer["tags"]
-        assert tag_id in tags
+        groups = customer["groups"]
+        assert group_id in groups
 
 
 async def test_that_a_customer_tag_can_be_deleted(context: ContextOfTest) -> None:
     with run_server(context):
         customer_id = (await context.api.create_customer(name="TestCustomer"))["id"]
-        tag_id = (await context.api.create_tag(name="TestTag"))["id"]
-        await context.api.add_customer_tag(customer_id, tag_id)
+        group_id = (await context.api.create_group(name="TestTag"))["id"]
+        await context.api.add_customer_tag(customer_id, group_id)
 
         assert (
             await run_cli_and_get_exit_status(
@@ -1407,43 +1402,43 @@ async def test_that_a_customer_tag_can_be_deleted(context: ContextOfTest) -> Non
                 "untag",
                 "--id",
                 customer_id,
-                "--tag",
-                tag_id,
+                "--group",
+                group_id,
                 address=context.api.server_address,
             )
             == os.EX_OK
         )
         customer = await context.api.read_customer(id=customer_id)
-        tags = customer["tags"]
-        assert tag_id not in tags
+        groups = customer["groups"]
+        assert group_id not in groups
 
 
 async def test_that_a_tag_can_be_added(context: ContextOfTest) -> None:
     with run_server(context):
-        tag_name = "TestTag"
+        group_name = "TestTag"
 
         assert (
             await run_cli_and_get_exit_status(
-                "tag",
+                "group",
                 "create",
                 "--name",
-                tag_name,
+                group_name,
                 address=context.api.server_address,
             )
             == os.EX_OK
         )
 
-        tags = await context.api.list_tags()
-        assert any(t["name"] == tag_name for t in tags)
+        groups = await context.api.list_groups()
+        assert any(t["name"] == group_name for t in groups)
 
 
 async def test_that_tags_can_be_listed(context: ContextOfTest) -> None:
     with run_server(context):
-        await context.api.create_tag("FirstTag")
-        await context.api.create_tag("SecondTag")
+        await context.api.create_group("FirstTag")
+        await context.api.create_group("SecondTag")
 
         process = await run_cli(
-            "tag",
+            "group",
             "list",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -1459,15 +1454,15 @@ async def test_that_tags_can_be_listed(context: ContextOfTest) -> None:
 
 async def test_that_a_tag_can_be_updated(context: ContextOfTest) -> None:
     with run_server(context):
-        tag_id = (await context.api.create_tag("TestViewTag"))["id"]
+        group_id = (await context.api.create_group("TestViewTag"))["id"]
         new_name = "UpdatedTagName"
 
         assert (
             await run_cli_and_get_exit_status(
-                "tag",
+                "group",
                 "update",
                 "--id",
-                tag_id,
+                group_id,
                 "--name",
                 new_name,
                 address=context.api.server_address,
@@ -1475,7 +1470,7 @@ async def test_that_a_tag_can_be_updated(context: ContextOfTest) -> None:
             == os.EX_OK
         )
 
-        updated_tag = await context.api.read_tag(tag_id)
+        updated_tag = await context.api.read_group(group_id)
         assert updated_tag["name"] == new_name
 
 
@@ -1506,8 +1501,8 @@ async def test_that_canned_responses_can_be_initialized(context: ContextOfTest) 
 
 async def test_that_canned_responses_can_be_loaded(context: ContextOfTest) -> None:
     with run_server(context):
-        await context.api.create_tag("testTag1")
-        await context.api.create_tag("testTag2")
+        await context.api.create_group("testTag1")
+        await context.api.create_group("testTag2")
 
         test_canned_responses = {
             "canned_responses": [
@@ -1520,7 +1515,7 @@ async def test_that_canned_responses_can_be_loaded(context: ContextOfTest) -> No
                             "examples": ["Alice", "Bob"],
                         }
                     ],
-                    "tags": ["testTag1", "testTag2"],
+                    "groups": ["testTag1", "testTag2"],
                 },
                 {
                     "value": "Your balance is {{balance}}.",
@@ -1531,7 +1526,7 @@ async def test_that_canned_responses_can_be_loaded(context: ContextOfTest) -> No
                             "examples": ["1000", "2000"],
                         }
                     ],
-                    "tags": [],
+                    "groups": [],
                 },
                 {
                     "value": "You are welcome (:",
@@ -1556,88 +1551,88 @@ async def test_that_canned_responses_can_be_loaded(context: ContextOfTest) -> No
 
         first = canned_responses_in_system[0]
         assert first["value"] == "Hello, {{username}}!"
-        assert "tags" in first
+        assert "groups" in first
         assert "fields" in first
 
         os.remove(tmp_file_path)
 
 
-async def test_that_guidelines_can_be_enabled(context: ContextOfTest) -> None:
+async def test_that_rules_can_be_enabled(context: ContextOfTest) -> None:
     with run_server(context):
-        first_guideline = await context.api.create_guideline(
+        first_rule = await context.api.create_rule(
             condition="the customer greets you",
             action="greet them back with 'Hello'",
         )
 
-        second_guideline = await context.api.create_guideline(
+        second_rule = await context.api.create_rule(
             condition="the customer greets you",
             action="greet them back with 'Goodbye'",
         )
 
-        disabled_first_guideline = await context.api.update_guideline(
-            first_guideline["id"],
+        disabled_first_rule = await context.api.update_rule(
+            first_rule["id"],
             enabled=False,
         )
 
-        disabled_second_guideline = await context.api.update_guideline(
-            second_guideline["id"],
+        disabled_second_rule = await context.api.update_rule(
+            second_rule["id"],
             enabled=False,
         )
 
-        assert disabled_first_guideline["enabled"] is False
-        assert disabled_second_guideline["enabled"] is False
+        assert disabled_first_rule["enabled"] is False
+        assert disabled_second_rule["enabled"] is False
 
         assert (
             await run_cli_and_get_exit_status(
-                "guideline",
+                "rule",
                 "enable",
                 "--id",
-                first_guideline["id"],
+                first_rule["id"],
                 "--id",
-                second_guideline["id"],
+                second_rule["id"],
                 address=context.api.server_address,
             )
         ) == os.EX_OK
 
-        enabled_first_guideline = await context.api.read_guideline(first_guideline["id"])
-        assert enabled_first_guideline["guideline"]["enabled"] is True
+        enabled_first_rule = await context.api.read_rule(first_rule["id"])
+        assert enabled_first_rule["rule"]["enabled"] is True
 
-        enabled_second_guideline = await context.api.read_guideline(second_guideline["id"])
-        assert enabled_second_guideline["guideline"]["enabled"] is True
+        enabled_second_rule = await context.api.read_rule(second_rule["id"])
+        assert enabled_second_rule["rule"]["enabled"] is True
 
 
-async def test_that_guidelines_can_be_disabled(context: ContextOfTest) -> None:
+async def test_that_rules_can_be_disabled(context: ContextOfTest) -> None:
     with run_server(context):
-        first_guideline = await context.api.create_guideline(
+        first_rule = await context.api.create_rule(
             condition="the customer greets you",
             action="greet them back with 'Hello'",
         )
 
-        second_guideline = await context.api.create_guideline(
+        second_rule = await context.api.create_rule(
             condition="the customer greets you",
             action="greet them back with 'Goodbye'",
         )
 
         assert (
             await run_cli_and_get_exit_status(
-                "guideline",
+                "rule",
                 "disable",
                 "--id",
-                first_guideline["id"],
+                first_rule["id"],
                 "--id",
-                second_guideline["id"],
+                second_rule["id"],
                 address=context.api.server_address,
             )
         ) == os.EX_OK
 
-        disabled_guideline = await context.api.read_guideline(first_guideline["id"])
-        assert disabled_guideline["guideline"]["enabled"] is False
+        disabled_rule = await context.api.read_rule(first_rule["id"])
+        assert disabled_rule["rule"]["enabled"] is False
 
-        disabled_guideline = await context.api.read_guideline(second_guideline["id"])
-        assert disabled_guideline["guideline"]["enabled"] is False
+        disabled_rule = await context.api.read_rule(second_rule["id"])
+        assert disabled_rule["rule"]["enabled"] is False
 
 
-async def test_that_a_guideline_can_be_created_with_tool_id(
+async def test_that_a_rule_can_be_created_with_tool_id(
     context: ContextOfTest,
 ) -> None:
     condition = "user provides list of numbers and an optional number"
@@ -1667,7 +1662,7 @@ async def test_that_a_guideline_can_be_created_with_tool_id(
 
             assert (
                 await run_cli_and_get_exit_status(
-                    "guideline",
+                    "rule",
                     "create",
                     "--condition",
                     condition,
@@ -1677,17 +1672,15 @@ async def test_that_a_guideline_can_be_created_with_tool_id(
                 )
             ) == os.EX_OK
 
-            guidelines = await context.api.list_guidelines()
-            created_guideline = next((g for g in guidelines if g["condition"] == condition), None)
-            assert created_guideline is not None, "Guideline was not created"
+            rules = await context.api.list_rules()
+            created_rule = next((g for g in rules if g["condition"] == condition), None)
+            assert created_rule is not None, "Rule was not created"
 
-            guideline_details = await context.api.read_guideline(
-                guideline_id=created_guideline["id"]
-            )
+            rule_details = await context.api.read_rule(rule_id=created_rule["id"])
             assert any(
                 assoc["tool_id"]["service_name"] == service_name
                 and assoc["tool_id"]["tool_name"] == tool_name
-                for assoc in guideline_details["tool_associations"]
+                for assoc in rule_details["tool_associations"]
             ), "Tool association was not created"
 
 
@@ -1726,15 +1719,15 @@ async def test_that_a_mcp_service_can_be_added(
                 )
 
 
-async def test_that_a_mcp_tool_can_be_enabled_and_disabled_for_a_guideline(
+async def test_that_a_mcp_tool_can_be_enabled_and_disabled_for_a_rule(
     context: ContextOfTest,
 ) -> None:
     with run_server(context):
-        guideline = await context.api.create_guideline(
+        rule = await context.api.create_rule(
             condition="the customer wants to get meeting details",
             action="get meeting event information",
         )
-        guideline_id = guideline["id"]
+        rule_id = rule["id"]
 
         service_name = "google_calendar"
         tool_name = "fetch_event_data"
@@ -1761,10 +1754,10 @@ async def test_that_a_mcp_tool_can_be_enabled_and_disabled_for_a_guideline(
 
             assert (
                 await run_cli_and_get_exit_status(
-                    "guideline",
+                    "rule",
                     "tool-enable",
                     "--id",
-                    guideline_id,
+                    rule_id,
                     "--service",
                     service_name,
                     "--tool",
@@ -1774,20 +1767,20 @@ async def test_that_a_mcp_tool_can_be_enabled_and_disabled_for_a_guideline(
                 == os.EX_OK
             )
 
-            guideline = await context.api.read_guideline(guideline_id=guideline_id)
+            rule = await context.api.read_rule(rule_id=rule_id)
 
             assert any(
                 assoc["tool_id"]["service_name"] == service_name
                 and assoc["tool_id"]["tool_name"] == tool_name
-                for assoc in guideline["tool_associations"]
+                for assoc in rule["tool_associations"]
             )
 
             assert (
                 await run_cli_and_get_exit_status(
-                    "guideline",
+                    "rule",
                     "tool-disable",
                     "--id",
-                    guideline_id,
+                    rule_id,
                     "--service",
                     service_name,
                     "--tool",
@@ -1797,9 +1790,9 @@ async def test_that_a_mcp_tool_can_be_enabled_and_disabled_for_a_guideline(
                 == os.EX_OK
             )
 
-            guideline = await context.api.read_guideline(guideline_id=guideline_id)
+            rule = await context.api.read_rule(rule_id=rule_id)
 
-            assert guideline["tool_associations"] == []
+            assert rule["tool_associations"] == []
 
 
 async def test_that_a_variable_can_be_added_with_mcp_tool_then_updated(

@@ -21,7 +21,7 @@ class Test_that_a_glossary_term_can_be_created(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Rel Agent",
-            description="Agent for guideline relationships",
+            prompt="Agent for rule relationships",
         )
 
         self.term = await self.agent.create_term(
@@ -44,7 +44,7 @@ class Test_that_a_glossary_term_can_be_created_with_custom_id(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Test Agent",
-            description="Agent for testing custom ID",
+            prompt="Agent for testing custom ID",
         )
 
         self.custom_id = TermId("custom-sdk-term-456")

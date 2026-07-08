@@ -35,8 +35,8 @@ async def test_that_an_evaluation_can_be_created_and_fetched_with_completed_stat
         json={
             "payloads": [
                 {
-                    "kind": "guideline",
-                    "guideline": {
+                    "kind": "rule",
+                    "rule": {
                         "content": {
                             "condition": "the customer greets you",
                             "action": "greet them back with 'Hello'",
@@ -66,7 +66,7 @@ async def test_that_an_evaluation_can_be_created_and_fetched_with_completed_stat
     assert invoice["approved"]
 
     assert invoice["data"]
-    assert invoice["data"]["guideline"]["properties_proposition"]["internal_action"] is None
+    assert invoice["data"]["rule"]["properties_proposition"]["internal_action"] is None
 
 
 async def test_that_an_evaluation_can_be_fetched_with_running_status(
@@ -77,8 +77,8 @@ async def test_that_an_evaluation_can_be_fetched_with_running_status(
         json={
             "payloads": [
                 {
-                    "kind": "guideline",
-                    "guideline": {
+                    "kind": "rule",
+                    "rule": {
                         "content": {
                             "condition": "the customer greets you",
                             "action": "greet them back with 'Hello'",
@@ -128,8 +128,8 @@ async def test_that_properties_proposition_is_evaluated(
         json={
             "payloads": [
                 {
-                    "kind": "guideline",
-                    "guideline": {
+                    "kind": "rule",
+                    "rule": {
                         "content": {
                             "condition": "the customer asks for a discount",
                             "action": "maintain a helpful tone and ask the customer what discount they would like",
@@ -158,14 +158,14 @@ async def test_that_properties_proposition_is_evaluated(
     assert invoice["approved"]
 
     assert invoice["data"]
-    assert invoice["data"]["guideline"]["properties_proposition"]["continuous"]
-    assert invoice["data"]["guideline"]["properties_proposition"]["customer_dependent_action_data"][
+    assert invoice["data"]["rule"]["properties_proposition"]["continuous"]
+    assert invoice["data"]["rule"]["properties_proposition"]["customer_dependent_action_data"][
         "is_customer_dependent"
     ]
-    assert invoice["data"]["guideline"]["properties_proposition"]["customer_dependent_action_data"][
+    assert invoice["data"]["rule"]["properties_proposition"]["customer_dependent_action_data"][
         "customer_action"
     ]
-    assert invoice["data"]["guideline"]["properties_proposition"]["customer_dependent_action_data"][
+    assert invoice["data"]["rule"]["properties_proposition"]["customer_dependent_action_data"][
         "agent_action"
     ]
 
@@ -192,8 +192,8 @@ async def test_that_action_proposition_is_evaluated(
             json={
                 "payloads": [
                     {
-                        "kind": "guideline",
-                        "guideline": {
+                        "kind": "rule",
+                        "rule": {
                             "content": {
                                 "condition": "the customer asks for a discount",
                             },
@@ -222,10 +222,10 @@ async def test_that_action_proposition_is_evaluated(
         assert invoice["approved"]
 
         assert invoice["data"]
-        guideline_data = invoice["data"]["guideline"]
-        assert isinstance(guideline_data["properties_proposition"], dict)
-        assert guideline_data["properties_proposition"].get("internal_action") is not None
-        assert guideline_data["action_proposition"] is not None
+        rule_data = invoice["data"]["rule"]
+        assert isinstance(rule_data["properties_proposition"], dict)
+        assert rule_data["properties_proposition"].get("internal_action") is not None
+        assert rule_data["action_proposition"] is not None
 
 
 async def test_that_agent_intention_condition_is_included_in_properties_proposition(
@@ -236,8 +236,8 @@ async def test_that_agent_intention_condition_is_included_in_properties_proposit
         json={
             "payloads": [
                 {
-                    "kind": "guideline",
-                    "guideline": {
+                    "kind": "rule",
+                    "rule": {
                         "content": {
                             "condition": "you want to upsell the customer",
                             "action": "recommend the premium plan",
@@ -264,7 +264,7 @@ async def test_that_agent_intention_condition_is_included_in_properties_proposit
     assert invoice["approved"]
 
     assert invoice["data"]
-    properties = invoice["data"]["guideline"]["properties_proposition"]
+    properties = invoice["data"]["rule"]["properties_proposition"]
     assert "agent_intention_condition" in properties
 
 
@@ -276,8 +276,8 @@ async def test_that_payload_proposition_flags_are_correctly_returned_in_invoice(
         json={
             "payloads": [
                 {
-                    "kind": "guideline",
-                    "guideline": {
+                    "kind": "rule",
+                    "rule": {
                         "content": {
                             "condition": "the customer greets you",
                             "action": "greet them back with 'Hello'",
@@ -301,9 +301,99 @@ async def test_that_payload_proposition_flags_are_correctly_returned_in_invoice(
     assert len(content["invoices"]) == 1
 
     invoice = content["invoices"][0]
-    payload_guideline = invoice["payload"]["guideline"]
-    assert payload_guideline["action_proposition"] is True
-    assert payload_guideline["properties_proposition"] is False
+    payload_rule = invoice["payload"]["rule"]
+    assert payload_rule["action_proposition"] is True
+    assert payload_rule["properties_proposition"] is False
+    assert payload_rule["signal_proposition"] is False
+
+
+async def test_that_signal_proposition_is_evaluated(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/evaluations",
+        json={
+            "payloads": [
+                {
+                    "kind": "rule",
+                    "rule": {
+                        "content": {
+                            "condition": "the customer wants to report a lost card",
+                            "action": "help them secure the card",
+                            "description": "Prioritize urgent account protection.",
+                        },
+                        "title": "Lost Card",
+                        "operation": "add",
+                        "signal_proposition": True,
+                        "tool_ids": [],
+                    },
+                }
+            ],
+        },
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+
+    evaluation_id = response.raise_for_status().json()["id"]
+
+    content = (await async_client.get(f"/evaluations/{evaluation_id}")).raise_for_status().json()
+
+    assert content["status"] == "completed"
+    assert len(content["invoices"]) == 1
+
+    invoice = content["invoices"][0]
+    assert invoice["approved"]
+    assert invoice["payload"]["rule"]["signal_proposition"] is True
+
+    signals = invoice["data"]["rule"]["signals_proposition"]
+    assert isinstance(signals, list)
+    assert signals
+    assert all(isinstance(signal, str) and signal for signal in signals)
+
+    anti_signals = invoice["data"]["rule"]["anti_signals_proposition"]
+    assert isinstance(anti_signals, list)
+    assert anti_signals
+    assert all(isinstance(anti_signal, str) and anti_signal for anti_signal in anti_signals)
+
+
+async def test_that_title_proposition_is_evaluated(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.post(
+        "/evaluations",
+        json={
+            "payloads": [
+                {
+                    "kind": "rule",
+                    "rule": {
+                        "content": {
+                            "condition": "",
+                            "action": None,
+                            "description": "Do not proactively offer compensation unless the customer explicitly asks for it.",
+                        },
+                        "operation": "add",
+                        "title_proposition": True,
+                        "tool_ids": [],
+                    },
+                }
+            ],
+        },
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+
+    evaluation_id = response.raise_for_status().json()["id"]
+
+    content = (await async_client.get(f"/evaluations/{evaluation_id}")).raise_for_status().json()
+
+    assert content["status"] == "completed"
+    assert len(content["invoices"]) == 1
+
+    invoice = content["invoices"][0]
+    assert invoice["approved"]
+    assert invoice["payload"]["rule"]["title_proposition"] is True
+
+    title = invoice["data"]["rule"]["title_proposition"]
+    assert isinstance(title, str)
+    assert title
 
 
 async def test_that_error_is_returned_when_no_propositions_are_provided_in_a_payload(
@@ -314,8 +404,8 @@ async def test_that_error_is_returned_when_no_propositions_are_provided_in_a_pay
         json={
             "payloads": [
                 {
-                    "kind": "guideline",
-                    "guideline": {
+                    "kind": "rule",
+                    "rule": {
                         "content": {
                             "condition": "the customer greets you",
                             "action": "greet them back with 'Hello'",
@@ -336,7 +426,7 @@ async def test_that_error_is_returned_when_no_propositions_are_provided_in_a_pay
     assert "detail" in data
     assert (
         data["detail"]
-        == "At least one of action_proposition, properties_proposition or journey_node_proposition must be enabled"
+        == "At least one of action_proposition, properties_proposition, journey_node_proposition, signal_proposition or title_proposition must be enabled"
     )
 
 
@@ -348,8 +438,8 @@ async def test_that_error_is_returned_when_all_propositions_are_disabled_in_a_pa
         json={
             "payloads": [
                 {
-                    "kind": "guideline",
-                    "guideline": {
+                    "kind": "rule",
+                    "rule": {
                         "content": {
                             "condition": "the customer greets you",
                             "action": "greet them back with 'Hello'",
@@ -372,5 +462,5 @@ async def test_that_error_is_returned_when_all_propositions_are_disabled_in_a_pa
     assert "detail" in data
     assert (
         data["detail"]
-        == "At least one of action_proposition, properties_proposition or journey_node_proposition must be enabled"
+        == "At least one of action_proposition, properties_proposition, journey_node_proposition, signal_proposition or title_proposition must be enabled"
     )

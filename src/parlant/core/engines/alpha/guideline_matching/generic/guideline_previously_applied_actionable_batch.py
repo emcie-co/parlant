@@ -41,7 +41,11 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matching_context im
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
 from parlant.core.entity_cq import EntityQueries
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.rules import (
+    Rule as Guideline,
+    RuleContent as GuidelineContent,
+    RuleId as GuidelineId,
+)
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
@@ -125,24 +129,31 @@ class GenericPreviouslyAppliedActionableGuidelineMatchingBatch(GuidelineMatching
                             f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                         )
 
-                    matches = []
+                    matched_guidelines = []
+                    skipped_guidelines = []
 
                     for match in inference.content.checks:
                         if match.should_reapply:
                             self._logger.debug(f"Matched:\n{match.model_dump_json(indent=2)}")
 
-                            matches.append(
+                            matched_guidelines.append(
                                 GuidelineMatch(
                                     guideline=self._guidelines[match.guideline_id],
-                                    score=10 if match.should_reapply else 1,
-                                    rationale="",
+                                    rationale="Context has shifted in a way that justifies reapplying the guideline",
                                 )
                             )
                         else:
                             self._logger.debug(f"Not matched:\n{match.model_dump_json(indent=2)}")
+                            skipped_guidelines.append(
+                                GuidelineMatch(
+                                    guideline=self._guidelines[match.guideline_id],
+                                    rationale="Context has not shifted in a way that justifies reapplying the guideline",
+                                )
+                            )
 
                     return GuidelineMatchingBatchResult(
-                        matches=matches,
+                        matched_guidelines=matched_guidelines,
+                        skipped_guidelines=skipped_guidelines,
                         generation_info=inference.info,
                     )
 
@@ -452,6 +463,7 @@ def _make_event(e_id: str, source: EventSource, message: str) -> Event:
         source=source,
         kind=EventKind.MESSAGE,
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         offset=0,
         trace_id="",
         data={"message": message},

@@ -62,19 +62,17 @@ DEFAULT_NLP_SCHEMA_THRESHOLDS: Mapping[str, SchemaThresholds] = {
     "FollowUpCannedResponseSelectionSchema": _t(p50_deg=5, p50_unh=10, p95_deg=15, p95_unh=20),
     "CannedResponseFieldExtractionSchema": _t(p50_deg=5, p50_unh=10, p95_deg=15, p95_unh=20),
     "StreamingText": _t(p50_deg=5, p50_unh=8, p95_deg=10, p95_unh=15),
-    # Guideline matching
-    "GenericActionableGuidelineMatchesSchema": _t(p50_deg=8, p50_unh=12, p95_deg=15, p95_unh=20),
-    "GenericLowCriticalityGuidelineMatchesSchema": _t(
+    # Rule matching
+    "GenericActionableRuleMatchesSchema": _t(p50_deg=8, p50_unh=12, p95_deg=15, p95_unh=20),
+    "GenericLowCriticalityRuleMatchesSchema": _t(p50_deg=8, p50_unh=12, p95_deg=15, p95_unh=20),
+    "GenericObservationalRuleMatchesSchema": _t(p50_deg=8, p50_unh=12, p95_deg=15, p95_unh=20),
+    "GenericPreviouslyAppliedActionableRuleMatchesSchema": _t(
         p50_deg=8, p50_unh=12, p95_deg=15, p95_unh=20
     ),
-    "GenericObservationalGuidelineMatchesSchema": _t(p50_deg=8, p50_unh=12, p95_deg=15, p95_unh=20),
-    "GenericPreviouslyAppliedActionableGuidelineMatchesSchema": _t(
+    "GenericPreviouslyAppliedActionableCustomerDependentRuleMatchesSchema": _t(
         p50_deg=8, p50_unh=12, p95_deg=15, p95_unh=20
     ),
-    "GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchesSchema": _t(
-        p50_deg=8, p50_unh=12, p95_deg=15, p95_unh=20
-    ),
-    "DisambiguationGuidelineMatchesSchema": _t(p50_deg=8, p50_unh=12, p95_deg=15, p95_unh=20),
+    "DisambiguationRuleMatchesSchema": _t(p50_deg=8, p50_unh=12, p95_deg=15, p95_unh=20),
     # Tool calling
     "SingleToolBatchSchema": _t(p50_deg=15, p50_unh=20, p95_deg=25, p95_unh=30),
     "NonConsequentialToolBatchSchema": _t(p50_deg=10, p50_unh=15, p95_deg=20, p95_unh=25),

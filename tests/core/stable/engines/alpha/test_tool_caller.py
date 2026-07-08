@@ -24,7 +24,7 @@ from typing_extensions import override
 from ast import literal_eval
 
 from parlant.core.agents import Agent
-from parlant.core.common import Criticality, generate_id
+from parlant.core.common import Weight, generate_id
 from parlant.core.customers import Customer, CustomerStore, CustomerId
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
 from parlant.core.engines.alpha.tool_calling.tool_caller import (
@@ -38,7 +38,11 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
     ToolCaller,
     ToolInsights,
 )
-from parlant.core.guidelines import Guideline, GuidelineId, GuidelineContent
+from parlant.core.rules import (
+    Rule as Guideline,
+    RuleId as GuidelineId,
+    RuleContent as GuidelineContent,
+)
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.relationships import (
     RelationshipEntityKind,
@@ -50,7 +54,7 @@ from parlant.core.services.tools.plugins import tool
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.emissions import EmittedEvent
 from parlant.core.sessions import Event, EventKind, EventSource, SessionId, SessionStore
-from parlant.core.tags import TagId, Tag
+from parlant.core.groups import GroupId, GroupIds
 from parlant.core.tools import (
     LocalToolService,
     Tool,
@@ -113,24 +117,24 @@ def create_interaction_history(
 def create_guideline_match(
     condition: str,
     action: str,
-    score: int,
     rationale: str,
-    tags: list[TagId],
+    groups: list[GroupId],
 ) -> GuidelineMatch:
     guideline = Guideline(
         id=GuidelineId(generate_id()),
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         content=GuidelineContent(
             condition=condition,
             action=action,
         ),
-        criticality=Criticality.MEDIUM,
+        weight=Weight.MEDIUM,
         enabled=True,
-        tags=tags,
+        groups=groups,
         metadata={},
     )
 
-    return GuidelineMatch(guideline=guideline, score=score, rationale=rationale)
+    return GuidelineMatch(guideline=guideline, rationale=rationale)
 
 
 async def create_local_tool(
@@ -208,9 +212,8 @@ async def test_that_a_tool_from_a_local_service_gets_called_with_an_enum_paramet
         create_guideline_match(
             condition="get all products by a specific category",
             action="a customer asks for the availability of products from a certain category",
-            score=9,
             rationale="customer asks for keyboards availability",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [ToolId(service_name="local", tool_name=tool.name)]
     }
 
@@ -262,9 +265,8 @@ async def test_that_a_tool_from_a_plugin_gets_called_with_an_enum_parameter(
         create_guideline_match(
             condition="get all products by a specific category",
             action="a customer asks for the availability of products from a certain category",
-            score=9,
             rationale="customer asks for keyboards availability",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [ToolId(service_name="my_sdk_service", tool_name="available_products_by_category")]
     }
 
@@ -333,9 +335,8 @@ async def test_that_a_plugin_tool_is_called_with_required_parameters_with_defaul
         create_guideline_match(
             condition="customer asks to schedule an appointment",
             action="schedule an appointment for the customer",
-            score=9,
             rationale="customer wants to schedule some kind of an appointment",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [ToolId(service_name="my_appointment_service", tool_name="schedule_appointment")]
     }
 
@@ -392,9 +393,8 @@ async def test_that_a_tool_from_a_plugin_gets_called_with_an_enum_list_parameter
         create_guideline_match(
             condition="get all products by a specific category",
             action="a customer asks for the availability of products from a certain category",
-            score=9,
             rationale="customer asks for keyboards availability",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [ToolId(service_name="my_sdk_service", tool_name="available_products_by_category")]
     }
 
@@ -461,9 +461,8 @@ async def test_that_a_tool_is_called_with_typing_lists(
         create_guideline_match(
             condition="get all products by a specific category",
             action="a customer asks for the availability of products from a certain category",
-            score=9,
             rationale="customer asks for keyboards availability",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [ToolId(service_name="my_sdk_service", tool_name="available_products_by_category")]
     }
 
@@ -529,9 +528,8 @@ async def test_that_a_tool_from_a_plugin_gets_called_with_a_parameter_attached_t
         create_guideline_match(
             condition="get all products by a specific category",
             action="a customer asks for the availability of products from a certain category",
-            score=9,
             rationale="customer asks for keyboards availability",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [ToolId(service_name="my_sdk_service", tool_name="available_products_by_category")]
     }
 
@@ -619,9 +617,8 @@ async def test_that_a_tool_with_a_parameter_attached_to_a_choice_provider_gets_t
         create_guideline_match(
             condition="get all products by a category or categories",
             action="a customer asks for the availability of products from a certain category or categories",
-            score=9,
             rationale="customer wants to know what products are available",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [ToolId(service_name="my_sdk_service", tool_name="available_products_by_category")]
     }
 
@@ -707,9 +704,8 @@ async def test_that_a_tool_from_a_plugin_with_missing_parameters_returns_the_mis
         create_guideline_match(
             condition="customer explicitly asks to be registered for a sweepstake",
             action="register the customer for the sweepstake using all provided information",
-            score=9,
             rationale="customer wants to register for the sweepstake and provides all the relevant information",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [ToolId(service_name="my_charlatan_service", tool_name="register_sweepstake")]
     }
 
@@ -731,9 +727,13 @@ async def test_that_a_tool_from_a_plugin_with_missing_parameters_returns_the_mis
 
     assert len(tool_calls) == 0
     # Check missing parameters by name
-    missing_parameters = set(
-        map(lambda x: x.parameter, inference_tool_calls_result.insights.missing_data)
-    )
+    flat_missing = [
+        item
+        for tc_dict in inference_tool_calls_result.insights.missing_data.values()
+        for items in tc_dict.values()
+        for item in items
+    ]
+    missing_parameters = set(map(lambda x: x.parameter, flat_missing))
     assert missing_parameters == {"full_name", "city", "street", "house_number"}
 
 
@@ -766,9 +766,8 @@ async def test_that_a_tool_with_an_invalid_choice_provider_parameter_and_a_missi
         create_guideline_match(
             condition="customer wants to book a flight",
             action="book a flight for the customer",
-            score=9,
             rationale="customer wants to book a flight",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [ToolId(service_name="my_sdk_service", tool_name="book_flight")]
     }
 
@@ -789,8 +788,20 @@ async def test_that_a_tool_with_an_invalid_choice_provider_parameter_and_a_missi
     tool_calls = list(chain.from_iterable(inference_tool_calls_result.batches))
     assert len(tool_calls) == 0 or tool_calls[0] == []
     insights = inference_tool_calls_result.insights
-    assert len(insights.missing_data) == 1 and insights.missing_data[0].parameter == "passenger_id"
-    assert len(insights.invalid_data) == 1 and insights.invalid_data[0].parameter == "destination"
+    flat_missing = [
+        item
+        for tc_dict in insights.missing_data.values()
+        for items in tc_dict.values()
+        for item in items
+    ]
+    flat_invalid = [
+        item
+        for tc_dict in insights.invalid_data.values()
+        for items in tc_dict.values()
+        for item in items
+    ]
+    assert len(flat_missing) == 1 and flat_missing[0].parameter == "passenger_id"
+    assert len(flat_invalid) == 1 and flat_invalid[0].parameter == "destination"
 
 
 async def test_that_a_tool_with_an_invalid_enum_parameter_and_a_missing_parameter_interacts_correctly(
@@ -827,9 +838,8 @@ async def test_that_a_tool_with_an_invalid_enum_parameter_and_a_missing_paramete
         create_guideline_match(
             condition="customer wants to book a flight",
             action="book a flight for the customer",
-            score=9,
             rationale="customer wants to book a flight",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [ToolId(service_name="my_sdk_service", tool_name="book_flight")]
     }
 
@@ -850,11 +860,21 @@ async def test_that_a_tool_with_an_invalid_enum_parameter_and_a_missing_paramete
     tool_calls = list(chain.from_iterable(inference_tool_calls_result.batches))
     insights = inference_tool_calls_result.insights
     assert len(tool_calls) == 0 or tool_calls[0] == []
-    assert len(insights.missing_data) == 1 and insights.missing_data[0].parameter == "passenger_id"
-    assert len(insights.invalid_data) == 1 and insights.invalid_data[0].parameter == "destination"
-    assert (
-        insights.invalid_data[0].choices is not None and len(insights.invalid_data[0].choices) > 0
-    )
+    flat_missing = [
+        item
+        for tc_dict in insights.missing_data.values()
+        for items in tc_dict.values()
+        for item in items
+    ]
+    flat_invalid = [
+        item
+        for tc_dict in insights.invalid_data.values()
+        for items in tc_dict.values()
+        for item in items
+    ]
+    assert len(flat_missing) == 1 and flat_missing[0].parameter == "passenger_id"
+    assert len(flat_invalid) == 1 and flat_invalid[0].parameter == "destination"
+    assert flat_invalid[0].choices is not None and len(flat_invalid[0].choices) > 0
 
 
 async def test_that_mcp_tool_with_uuid_path_timedelta_and_datetime_parameters_interacts_correctly(
@@ -885,9 +905,8 @@ async def test_that_mcp_tool_with_uuid_path_timedelta_and_datetime_parameters_in
         create_guideline_match(
             condition="agent wants to report an update duration",
             action="report the update duration and relevant details",
-            score=9,
             rationale="agent wants to report that a file update took a long time",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [ToolId(service_name="my_mcp_service", tool_name="report_update_duration")]
     }
 
@@ -966,9 +985,8 @@ async def test_that_mcp_tool_with_optional_lists_of_enum_date_and_bool_can_run(
         create_guideline_match(
             condition="customer wants to prepare birds for delivery",
             action="prepare the birds for delivery as customer requested",
-            score=9,
             rationale="customer wants to deliver a list of birds",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [ToolId(service_name="my_mcp_service", tool_name="prepare_bird_delivery")]
     }
 
@@ -1019,6 +1037,7 @@ async def test_that_tool_calling_batchers_can_be_overridden(
                 tool_calls=[
                     ToolCall(
                         id=ToolCallId(generate_id()),
+                        rationale="Auto-approved non-consequential tool with no parameters",
                         tool_id=k[0],
                         arguments={},
                     )
@@ -1035,7 +1054,7 @@ async def test_that_tool_calling_batchers_can_be_overridden(
                     ),
                 ),
                 insights=ToolInsights(
-                    missing_data=[],
+                    missing_data={},
                 ),
             )
 
@@ -1058,7 +1077,7 @@ async def test_that_tool_calling_batchers_can_be_overridden(
                     ),
                 ),
                 insights=ToolInsights(
-                    missing_data=[],
+                    missing_data={},
                 ),
             )
 
@@ -1106,16 +1125,14 @@ async def test_that_tool_calling_batchers_can_be_overridden(
         create_guideline_match(
             condition="customer asks to echo",
             action="echo the customer's message",
-            score=9,
             rationale="customer wants to echo their message",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [echo_tool_id],
         create_guideline_match(
             condition="customer asks to ping",
             action="ping the customer's message",
-            score=9,
             rationale="customer wants to ping their message",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [ping_tool_id],
     }
 
@@ -1164,23 +1181,20 @@ async def test_that_two_non_overlapping_tools_are_overlapping_with_a_third_tool_
         create_guideline_match(
             condition="customer asks to a",
             action="do a",
-            score=9,
             rationale="customer wants to a",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [a_tool_id],
         create_guideline_match(
             condition="customer asks to b",
             action="do b",
-            score=9,
             rationale="customer wants to b",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [b_tool_id],
         create_guideline_match(
             condition="customer asks to c",
             action="do c",
-            score=9,
             rationale="customer wants to c",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [c_tool_id],
     }
 
@@ -1268,16 +1282,14 @@ async def test_that_a_tool_with_unmatched_guideline_is_not_included_in_the_evalu
         create_guideline_match(
             condition="customer asks to a",
             action="do a",
-            score=9,
             rationale="customer wants to a",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [a_tool_id],
         create_guideline_match(
             condition="customer asks to c",
             action="do c",
-            score=9,
             rationale="customer wants to c",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [c_tool_id],
     }
 
@@ -1359,9 +1371,8 @@ async def test_that_non_consequential_tool_with_no_parameters_is_auto_approved_w
         create_guideline_match(
             condition="customer asks to ping",
             action="ping for the customer",
-            score=9,
             rationale="customer wants to ping",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [ToolId(service_name="local", tool_name=tool.name)]
     }
 
@@ -1432,9 +1443,8 @@ async def test_that_staged_non_consequential_tool_with_no_parameters_is_not_auto
         create_guideline_match(
             condition="customer asks to ping",
             action="ping for the customer",
-            score=9,
             rationale="customer wants to ping",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [tool_id]
     }
 
@@ -1481,9 +1491,8 @@ async def test_that_non_consequential_tool_with_parameters_uses_simplified_mode(
         create_guideline_match(
             condition="customer asks about weather",
             action="get the weather for the requested city",
-            score=9,
             rationale="customer wants weather info",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [ToolId(service_name="local", tool_name=tool.name)]
     }
 
@@ -1538,9 +1547,8 @@ async def test_that_consequential_tool_with_parameters_uses_full_mode(
         create_guideline_match(
             condition="customer asks to transfer money",
             action="transfer money to the specified recipient",
-            score=9,
             rationale="customer wants to transfer money",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [ToolId(service_name="local", tool_name=tool.name)]
     }
 
@@ -1582,9 +1590,8 @@ async def test_that_a_tool_call_is_deferred_when_an_ordinary_guideline_requires_
         create_guideline_match(
             condition="the user wants to transfer money",
             action="run transfer_money with the requested amount and accounts",
-            score=9,
             rationale="customer asked to transfer $500 to John's account",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ): [ToolId(service_name="local", tool_name=tool.name)]
     }
 
@@ -1592,9 +1599,8 @@ async def test_that_a_tool_call_is_deferred_when_an_ordinary_guideline_requires_
         create_guideline_match(
             condition="you are about to transfer money",
             action="first get the user's clear and explicit confirmation before continuing",
-            score=10,
             rationale="confirmation must be obtained before any money transfer",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         )
     ]
 

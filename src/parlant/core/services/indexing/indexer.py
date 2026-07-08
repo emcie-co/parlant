@@ -26,7 +26,7 @@ from parlant.core.canned_responses import CannedResponseStore
 from parlant.core.common import JSONSerializable, xxh3_checksum
 from parlant.core.context_variables import ContextVariableStore
 from parlant.core.glossary import GlossaryStore
-from parlant.core.guidelines import GuidelineStore
+from parlant.core.rules import RuleStore
 from parlant.core.journeys import JourneyStore
 from parlant.core.relationships import RelationshipStore
 from parlant.core.services.indexing.common import ProgressReport
@@ -46,7 +46,7 @@ class Indexer(ABC):
     def __init__(
         self,
         agent_store: AgentStore,
-        guideline_store: GuidelineStore,
+        rule_store: RuleStore,
         journey_store: JourneyStore,
         relationship_store: RelationshipStore,
         glossary_store: GlossaryStore,
@@ -55,7 +55,7 @@ class Indexer(ABC):
         service_registry: ServiceRegistry,
     ) -> None:
         self._agent_store = agent_store
-        self._guideline_store = guideline_store
+        self._rule_store = rule_store
         self._journey_store = journey_store
         self._relationship_store = relationship_store
         self._glossary_store = glossary_store
@@ -76,7 +76,7 @@ class Indexer(ABC):
     ) -> None:
         payload: dict[str, dict[str, IndexRequest]] = {
             "agents": {},
-            "guidelines": {},
+            "rules": {},
             "journeys": {},
             "relationships": {},
             "glossary": {},
@@ -88,10 +88,8 @@ class Indexer(ABC):
         for agent in await self._agent_store.list_agents():
             payload["agents"][str(agent.id)] = self._build_request(type="agent", entity=agent)
 
-        for guideline in await self._guideline_store.list_guidelines():
-            payload["guidelines"][str(guideline.id)] = self._build_request(
-                type="guideline", entity=guideline
-            )
+        for rule in await self._rule_store.list_rules():
+            payload["rules"][str(rule.id)] = self._build_request(type="rule", entity=rule)
 
         for journey in await self._journey_store.list_journeys():
             payload["journeys"][str(journey.id)] = self._build_request(

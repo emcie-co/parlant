@@ -18,16 +18,16 @@ import parlant.sdk as p
 from tests.sdk.utils import Context, SDKTest
 
 
-class Test_that_matched_guideline_labels_are_added_to_session(SDKTest):
-    """Test that when a guideline with labels matches, its labels are added to the session."""
+class Test_that_matched_rule_labels_are_added_to_session(SDKTest):
+    """Test that when a rule with labels matches, its labels are added to the session."""
 
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Label Test Agent",
-            description="Agent for testing label propagation",
+            prompt="Agent for testing label propagation",
         )
 
-        await self.agent.create_guideline(
+        await self.agent.create_rule(
             condition="Customer asks about pricing",
             action="Provide pricing information",
             labels=["pricing", "sales"],
@@ -57,7 +57,7 @@ class Test_that_matched_journey_labels_are_added_to_session(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Journey Label Agent",
-            description="Agent for testing journey label propagation",
+            prompt="Agent for testing journey label propagation",
         )
 
         await self.agent.create_journey(
@@ -95,7 +95,7 @@ class Test_that_matched_journey_state_labels_are_added_to_session(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="State Label Agent",
-            description="Agent for testing journey state label propagation",
+            prompt="Agent for testing journey state label propagation",
         )
 
         # Create a journey with labels that will be propagated when the journey matches

@@ -5,6 +5,7 @@ import {Button} from '../ui/button';
 import {BASE_URL, deleteData, postData} from '@/utils/api';
 import {groupBy} from '@/utils/obj';
 import Message from '../message/message';
+import Markdown from '../markdown/markdown';
 import {EventInterface, ServerStatus, SessionInterface} from '@/utils/interfaces';
 import Spacer from '../ui/custom/spacer';
 import {toast} from 'sonner';
@@ -19,7 +20,7 @@ import DateHeader from './date-header/date-header';
 // import SessoinViewHeader from './session-view-header/session-view-header';
 import {getIndexedItemsFromIndexedDB, isSameDay} from '@/lib/utils';
 import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '../ui/dropdown-menu';
-import {ShieldEllipsis} from 'lucide-react';
+import {LoaderCircle, ShieldEllipsis, Square} from 'lucide-react';
 import {soundDoubleBlip} from '@/utils/sounds';
 
 const SessionView = (): ReactElement => {
@@ -27,10 +28,13 @@ const SessionView = (): ReactElement => {
 	const submitButtonRef = useRef<HTMLButtonElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const messagesRef = useRef<HTMLDivElement>(null);
+	const scrollContainerRef = useRef<HTMLDivElement>(null);
+	const shouldStickToBottomRef = useRef(true);
 
 	const [message, setMessage] = useState('');
 	const [lastOffset, setLastOffset] = useState(0);
 	const [messages, setMessages] = useState<EventInterface[]>([]);
+	const [streamingStatusEvents, setStreamingStatusEvents] = useState<EventInterface[]>([]);
 	const [showTyping, setShowTyping] = useState(false);
 	const [showThinking, setShowThinking] = useState(false);
 	const [thinkingDisplay, setThinkingDisplay] = useState('');
@@ -40,6 +44,11 @@ const SessionView = (): ReactElement => {
 	const [showLogsForMessage, setShowLogsForMessage] = useState<EventInterface | null>(null);
 	const [isMissingAgent, setIsMissingAgent] = useState<boolean | null>(null);
 	const [isContentFilterMenuOpen, setIsContentFilterMenuOpen] = useState(false);
+	const [isStoppingProcessing, setIsStoppingProcessing] = useState(false);
+	// True while a brand-new session's create request is in flight (sessions are
+	// created lazily on the first message); drives the "Initializing session..."
+	// indicator under the pending customer message.
+	const [isInitializingSession, setIsInitializingSession] = useState(false);
 	const [flaggedItems, setFlaggedItems] = useState<Record<string, string>>({});
 	const [refreshFlag, setRefreshFlag] = useState(false);
 	const [pendingMessage, setPendingMessage] = useAtom<EventInterface>(pendingMessageAtom);
@@ -54,6 +63,24 @@ const SessionView = (): ReactElement => {
 	const [lastEvents, setLastEvents] = useState<EventInterface[]>([]);
 	const listEventsConnectionRef = useRef<EventSource | null>(null);
 	const [sseReconnectTrigger, setSseReconnectTrigger] = useState(0);
+
+	const isScrolledToBottom = useCallback((el: HTMLElement) => el.scrollHeight - el.scrollTop - el.clientHeight <= 4, []);
+
+	const shouldAutoScroll = useCallback(() => isFirstScroll || shouldStickToBottomRef.current, [isFirstScroll]);
+
+	const handleMessagesScroll = useCallback(() => {
+		const el = scrollContainerRef.current;
+		if (!el) return;
+		shouldStickToBottomRef.current = isScrolledToBottom(el);
+	}, [isScrolledToBottom]);
+
+	const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+		const el = scrollContainerRef.current;
+		if (!el) return;
+
+		el.scrollTo({top: el.scrollHeight, behavior});
+		shouldStickToBottomRef.current = true;
+	}, []);
 
 	// Refetch function for manual reconnection
 	const refetch = useCallback(() => {
@@ -239,7 +266,9 @@ const SessionView = (): ReactElement => {
 			setShowThinking(lastStatusEventStatus === 'processing');
 
 			if (lastStatusEventStatus === 'processing') {
-				setThinkingDisplay(lastStatusEvent?.data?.data?.stage ?? 'Thinking');
+				// Prefer the chunked-status `message` (joined chunks); fall back to the
+				// legacy `data.stage` field or the generic "Thinking" placeholder.
+				setThinkingDisplay(lastStatusEvent?.data?.message ?? lastStatusEvent?.data?.data?.stage ?? 'Thinking');
 			}
 
 			// Don't show typing if we already have a streaming message arriving
@@ -248,12 +277,24 @@ const SessionView = (): ReactElement => {
 			// Clear typing indicator when streaming message chunks arrive (even without status event)
 			setShowTyping(false);
 		}
+		// Track any status events that arrived with a `chunks` property so the
+		// streaming-status SSE effect can open per-event connections for them.
+		const newStreamingStatuses = (lastEvents || []).filter(isStatusStreaming);
+		if (newStreamingStatuses.length) {
+			setStreamingStatusEvents((prev) => {
+				const byId = new Map(prev.map((e) => [e.id, e]));
+				for (const s of newStreamingStatuses) if (s.id) byId.set(s.id, s);
+				return Array.from(byId.values());
+			});
+		}
+
 		// Clear processed events to avoid reprocessing them
 		setLastEvents([]);
 	};
 
 	const scrollToLastMessage = () => {
-		lastMessageRef?.current?.scrollIntoView?.({behavior: isFirstScroll ? 'instant' : 'smooth'});
+		if (!shouldAutoScroll()) return;
+		scrollToBottom(isFirstScroll ? 'instant' : 'smooth');
 		if (lastMessageRef?.current && isFirstScroll) setIsFirstScroll(false);
 	};
 
@@ -290,7 +331,7 @@ const SessionView = (): ReactElement => {
 	useEffect(scrollToLastMessage, [messages?.length, pendingMessage, isFirstScroll]);
 	useEffect(resetSession, [session?.id]);
 	useEffect(() => {
-		if (showThinking || showTyping) lastMessageRef?.current?.scrollIntoView({behavior: 'smooth'});
+		if ((showThinking || showTyping) && shouldAutoScroll()) scrollToBottom('smooth');
 	}, [showThinking, showTyping]);
 	useEffect(() => {
 		if (agents && agent?.id) setIsMissingAgent(!agents?.find((a) => a.id === agent?.id));
@@ -303,6 +344,97 @@ const SessionView = (): ReactElement => {
 		if (chunks.length === 0) return true; // Empty chunks = streaming started but no data yet
 		return chunks[chunks.length - 1] !== null; // Not null-terminated = still streaming
 	};
+
+	// Helper to check if a status event is still streaming (has chunks but not completed with null terminator)
+	const isStatusStreaming = (event: EventInterface): boolean => {
+		if (event.kind !== 'status') return false;
+		const chunks = event?.data?.chunks;
+		if (chunks === undefined) return false;
+		if (chunks.length === 0) return true;
+		return chunks[chunks.length - 1] !== null;
+	};
+
+	// Buffered reveal for the thinking-status text. Unlike message-bubble, we
+	// intentionally do NOT "finish up" the reveal when streaming ends — when
+	// the chunked status closes or a new event takes over, whatever was already
+	// shown stays put. No fade overlay either: we want a steady character-level
+	// reveal so the text doesn't appear to "pop in" in batches on the right.
+	const [thinkingRevealed, setThinkingRevealed] = useState(0);
+	const thinkingRevealedRef = useRef(0);
+
+	// Keep the latest thinkingDisplay accessible to the long-lived reveal timer
+	// without recreating the interval on every text update (which would
+	// otherwise reset the 30ms tick clock on every chunk and produce jitter).
+	const thinkingTargetRef = useRef('');
+	thinkingTargetRef.current = thinkingDisplay;
+
+	// Reset revealed→0 whenever a *new* chunked status event ID enters the
+	// streaming set. Using event IDs (rather than the isThinkingStreamingActive
+	// bool) is robust to multi-step turns: even when an old reasoning event
+	// hasn't been null-terminated yet by the time the next one starts, the new
+	// ID still triggers a reset. Without this, subsequent reasoning rounds
+	// would inherit the previous round's revealed offset.
+	const seenStreamingIdsRef = useRef<Set<string>>(new Set());
+	useEffect(() => {
+		const currentIds = new Set<string>();
+		let hasNewId = false;
+		for (const e of streamingStatusEvents) {
+			if (!isStatusStreaming(e) || !e.id) continue;
+			currentIds.add(e.id);
+			if (!seenStreamingIdsRef.current.has(e.id)) hasNewId = true;
+		}
+		seenStreamingIdsRef.current = currentIds;
+		if (hasNewId) {
+			thinkingRevealedRef.current = 0;
+			setThinkingRevealed(0);
+		}
+	}, [streamingStatusEvents]);
+
+	// Snap revealed to full ONLY when the current thinkingDisplay does not match
+	// any chunked status event's message — i.e. it came from a non-chunked
+	// source (e.g. "Evaluating tools"). While the text still matches a chunked
+	// event (including after null-termination, where data.message holds the
+	// final reasoning string), we leave revealed alone so the reveal timer can
+	// catch up smoothly rather than the full text popping in instantly.
+	useEffect(() => {
+		const matchesChunkedEvent = streamingStatusEvents.some((e) => e?.data?.message === thinkingDisplay);
+		if (matchesChunkedEvent) return;
+		thinkingRevealedRef.current = thinkingDisplay.length;
+		setThinkingRevealed(thinkingDisplay.length);
+	}, [thinkingDisplay, streamingStatusEvents]);
+
+	// One long-lived reveal timer, gated on whether the thinking indicator is
+	// visible at all. We intentionally keep ticking after a chunked stream's
+	// null-terminator: if revealed hasn't caught up to the final text yet, we
+	// let the animation finish naturally rather than popping the full text in.
+	// When a new event replaces the text, the snap effect above takes over.
+	useEffect(() => {
+		if (!showThinking) return;
+
+		const revealInterval = 30;
+		const charsPerReveal = 4;
+
+		const timer = setInterval(() => {
+			const target = thinkingTargetRef.current;
+			const cur = thinkingRevealedRef.current;
+			if (cur >= target.length) return; // caught up — idle
+			const next = Math.min(cur + charsPerReveal, target.length);
+			thinkingRevealedRef.current = next;
+			setThinkingRevealed(next);
+		}, revealInterval);
+
+		return () => clearInterval(timer);
+	}, [showThinking]);
+
+	// Follow the reasoning as it types out: pin the scroll container to its bottom
+	// on every reveal tick (and on each new chunk), so the growing multi-line
+	// reasoning stays visible. Setting scrollTop directly is more reliable than
+	// scrollIntoView here, which doesn't consistently follow an element that grows
+	// in place (and lastMessageRef is shared across every message + the indicator).
+	useEffect(() => {
+		if (!showThinking || !shouldAutoScroll()) return;
+		scrollToBottom('instant');
+	}, [showThinking, thinkingRevealed, thinkingDisplay]);
 
 	// Track active SSE connections for streaming messages
 	const streamingConnectionsRef = useRef<Map<string, EventSource>>(new Map());
@@ -370,6 +502,73 @@ const SessionView = (): ReactElement => {
 		};
 	}, [messages, session?.id]);
 
+	// Track active SSE connections for streaming status events (mirrors the messages variant)
+	const streamingStatusConnectionsRef = useRef<Map<string, EventSource>>(new Map());
+
+	// Use SSE to subscribe to streaming status-event updates (any status event whose data carries `chunks`)
+	useEffect(() => {
+		if (!session?.id || session?.id === NEW_SESSION_ID) return;
+
+		const activeConnections = streamingStatusConnectionsRef.current;
+
+		// Close connections for status events that are no longer streaming
+		for (const [eventId, eventSource] of activeConnections) {
+			const stillStreaming = streamingStatusEvents.some((e) => e.id === eventId && isStatusStreaming(e));
+			if (!stillStreaming) {
+				eventSource.close();
+				activeConnections.delete(eventId);
+			}
+		}
+
+		// Open SSE connections for new streaming status events
+		for (const streamingStatus of streamingStatusEvents) {
+			if (!streamingStatus.id || activeConnections.has(streamingStatus.id)) continue;
+			if (!isStatusStreaming(streamingStatus)) continue;
+
+			const eventSource = new EventSource(`${BASE_URL}/sessions/${session.id}/events/${streamingStatus.id}?sse=true`);
+
+			eventSource.onmessage = (event) => {
+				try {
+					const updatedEvent = JSON.parse(event.data);
+
+					// Mirror the latest data onto the tracked status event
+					setStreamingStatusEvents((prev) => prev.map((e) => (e.id === streamingStatus.id ? {...e, data: {...e.data, ...updatedEvent.data}} : e)));
+
+					// Surface the joined message into the thinking indicator if present
+					const joinedMessage = updatedEvent?.data?.message;
+					if (typeof joinedMessage === 'string' && joinedMessage) {
+						setThinkingDisplay(joinedMessage);
+					}
+
+					// Check if streaming is complete and close connection
+					const chunks = updatedEvent?.data?.chunks;
+					if (chunks && chunks.length > 0 && chunks[chunks.length - 1] === null) {
+						eventSource.close();
+						activeConnections.delete(streamingStatus.id!);
+					}
+				} catch (error) {
+					console.error('Error parsing SSE event:', error);
+				}
+			};
+
+			eventSource.onerror = (error) => {
+				console.error('SSE connection error:', error);
+				eventSource.close();
+				activeConnections.delete(streamingStatus.id!);
+			};
+
+			activeConnections.set(streamingStatus.id, eventSource);
+		}
+
+		// Cleanup on unmount or session change
+		return () => {
+			for (const eventSource of activeConnections.values()) {
+				eventSource.close();
+			}
+			activeConnections.clear();
+		};
+	}, [streamingStatusEvents, session?.id]);
+
 	const createSession = async (): Promise<SessionInterface | undefined> => {
 		if (!newSession) return;
 		const {customer_id, title} = newSession;
@@ -391,7 +590,19 @@ const SessionView = (): ReactElement => {
 	const postMessage = async (content: string): Promise<void> => {
 		setPendingMessage((pendingMessage) => ({...pendingMessage, sessionId: session?.id, data: {message: content}}));
 		setMessage('');
-		const eventSession = newSession ? (await createSession())?.id : session?.id;
+		let eventSession: string | undefined;
+		if (newSession) {
+			// Lazily create the session for the first message, surfacing an
+			// "Initializing session..." indicator while the create is in flight.
+			setIsInitializingSession(true);
+			try {
+				eventSession = (await createSession())?.id;
+			} finally {
+				setIsInitializingSession(false);
+			}
+		} else {
+			eventSession = session?.id;
+		}
 		const useContentFilteringStatus = useContentFiltering ? 'auto' : 'none';
 		postData(`sessions/${eventSession}/events?moderation=${useContentFilteringStatus}`, {kind: 'message', message: content, source: 'customer'})
 			.then(() => {
@@ -399,6 +610,21 @@ const SessionView = (): ReactElement => {
 				refetch();
 			})
 			.catch(() => toast.error('Something went wrong'));
+	};
+
+	const stopProcessing = async (): Promise<void> => {
+		if (!session?.id || session.id === NEW_SESSION_ID || isStoppingProcessing) return;
+
+		setIsStoppingProcessing(true);
+		try {
+			const cancellationEvent = await postData(`sessions/${session.id}/events`, {kind: 'status', source: 'human_agent', status: 'cancelled'});
+			if (cancellationEvent) setLastEvents((prev) => [...prev, cancellationEvent]);
+			refetch();
+		} catch {
+			toast.error('Could not stop processing');
+		} finally {
+			setIsStoppingProcessing(false);
+		}
 	};
 
 	const handleTextareaKeydown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -416,6 +642,8 @@ const SessionView = (): ReactElement => {
 		const chunks = msg?.data?.chunks;
 		return chunks !== undefined && (chunks.length === 0 || chunks[chunks.length - 1] !== null);
 	});
+	const canStopProcessing = !!session?.id && session.id !== NEW_SESSION_ID && (showThinking || showTyping || hasStreamingMessage);
+	const showStopButton = canStopProcessing && !message.trim();
 
 	const showLogs = (i: number) => (event: EventInterface) => {
 		event.index = i;
@@ -432,6 +660,8 @@ const SessionView = (): ReactElement => {
 						{/* <div className={twMerge('h-[21px] border-t-0 bg-white')}></div> */}
 						<div className={twMerge('flex flex-col rounded-es-[16px] rounded-ee-[16px] items-center bg-white mx-auto w-full flex-1 overflow-hidden')}>
 							<div
+								ref={scrollContainerRef}
+								onScroll={handleMessagesScroll}
 								className={twJoin(
 									'messages fixed-scroll flex-1 flex flex-col w-full pb-4 overflow-x-hidden'
 									// '[scroll-snap-type:y_mandatory]'
@@ -451,6 +681,7 @@ const SessionView = (): ReactElement => {
 												flagged={flaggedItems[event.trace_id]}
 												isFirstMessageInDate={!isSameDay(messages[i - 1]?.creation_utc, event.creation_utc)}
 												isRegenerateHidden={!!isMissingAgent}
+												isInitializing={isInitializingSession}
 												event={event}
 												sameTraceMessages={visibleMessages.filter((e) => e.trace_id === event.trace_id)}
 												isContinual={(event.trace_id === visibleMessages[i - 1]?.trace_id && event.source === visibleMessages[i - 1]?.source) || (event.source === 'customer' && visibleMessages[i - 1]?.source === 'customer')}
@@ -458,17 +689,34 @@ const SessionView = (): ReactElement => {
 												resendMessageFn={resendMessageDialog(i)}
 												showLogsForMessage={showLogsForMessage}
 												showLogs={showLogs(i)}
+												shouldAutoScroll={shouldAutoScroll}
+												scrollToBottom={scrollToBottom}
 											/>
 										</div>
 									</React.Fragment>
 								))}
 								{((showTyping && !hasStreamingMessage) || showThinking) && (
 									<div ref={lastMessageRef} className='flex snap-end max-w-[min(1020px,100%)] w-[1020px] self-center'>
-										<div className='bubblesWrapper snap-end' aria-hidden='true'>
-											<div className='bubbles' />
-										</div>
-										{showTyping && !hasStreamingMessage && <p className={twMerge('flex items-center font-normal text-[#A9AFB7] text-[14px] font-inter')}>Typing...</p>}
-										{showThinking && <p className={twMerge('flex items-center font-normal text-[#A9AFB7] text-[14px] font-inter')}>{thinkingDisplay}...</p>}
+										{showTyping && !hasStreamingMessage && (
+											<>
+												<div className='bubblesWrapper snap-end' aria-hidden='true'>
+													<div className='bubbles' />
+												</div>
+												<p className={twMerge('flex items-center font-normal text-[#A9AFB7] text-[14px] font-inter')}>Typing...</p>
+											</>
+										)}
+										{showThinking && (
+											<div className={twMerge('flex items-start gap-[8px] ps-[16px] font-normal text-[#A9AFB7] text-[14px] font-inter')}>
+												{/* Spinner pinned to the top (items-start + shrink-0) so it stays put as the stage text grows/wraps. */}
+												<LoaderCircle aria-hidden='true' className='shrink-0 size-[16px] mt-[2px] animate-spin' />
+												{/* items-center keeps the revealed markdown and the trailing "..." inline, as before. */}
+												<div className='flex items-center min-w-0'>
+													{/* Live markdown rendering of the in-flight reveal prefix. */}
+													<Markdown parseIncomplete>{thinkingDisplay.slice(0, thinkingRevealed)}</Markdown>
+													...
+												</div>
+											</div>
+										)}
 									</div>
 								)}
 							</div>
@@ -514,8 +762,24 @@ const SessionView = (): ReactElement => {
 										rows={1}
 										className='box-shadow-none placeholder:text-[#282828] resize-none border-none h-full rounded-none min-h-[unset] p-0 whitespace-nowrap no-scrollbar font-inter font-light text-[16px] leading-[100%] bg-white'
 									/>
-									<Button variant='ghost' data-testid='submit-button' className='max-w-[60px] rounded-full hover:bg-white' ref={submitButtonRef} disabled={!message?.trim() || !agent?.id} onClick={() => postMessage(message)}>
-										<img src='icons/send.svg' alt='Send' height={19.64} width={21.52} className='h-10' />
+									<Button
+										variant='ghost'
+										data-testid='submit-button'
+										aria-label={showStopButton ? 'Stop current processing' : 'Send message'}
+										title={showStopButton ? 'Stop current processing' : 'Send message'}
+										className={twMerge('max-w-[60px] rounded-full hover:bg-white', showStopButton && 'text-[#D84E4E] hover:text-[#C73939]')}
+										ref={submitButtonRef}
+										disabled={showStopButton ? isStoppingProcessing : !message?.trim() || !agent?.id}
+										onClick={() => (showStopButton ? stopProcessing() : postMessage(message))}>
+										{showStopButton ? (
+											isStoppingProcessing ? (
+												<LoaderCircle aria-hidden='true' className='size-[18px] animate-spin' />
+											) : (
+												<Square aria-hidden='true' className='size-[16px] fill-current' />
+											)
+										) : (
+											<img src='icons/send.svg' alt='' height={19.64} width={21.52} className='h-10' />
+										)}
 									</Button>
 								</div>
 								<Spacer />

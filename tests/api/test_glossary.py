@@ -17,13 +17,13 @@ import httpx
 from lagom import Container
 
 from parlant.core.glossary import GlossaryStore
-from parlant.core.tags import TagId, TagStore
+from parlant.core.groups import GroupId, GroupStore
 
 
 async def test_that_a_term_can_be_created(
     async_client: httpx.AsyncClient,
 ) -> None:
-    name = "guideline"
+    name = "rule"
     description = "when and then statements"
     synonyms = ["rule", "principle"]
 
@@ -43,24 +43,25 @@ async def test_that_a_term_can_be_created(
     assert data["name"] == name
     assert data["description"] == description
     assert data["synonyms"] == synonyms
-    assert data["tags"] == []
+    assert data["groups"] == []
+    assert "modified_utc" in data
 
 
 async def test_that_a_term_can_be_created_with_tags(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
 
-    tag1 = await tag_store.create_tag(name="tag1")
-    tag2 = await tag_store.create_tag(name="tag2")
+    group1 = await group_store.create_group(name="group1")
+    group2 = await group_store.create_group(name="group2")
 
     response = await async_client.post(
         "/terms",
         json={
-            "name": "guideline",
+            "name": "rule",
             "description": "when and then statements",
-            "tags": [tag1.id, tag1.id, tag2.id],
+            "groups": [group1.id, group1.id, group2.id],
         },
     )
 
@@ -68,18 +69,18 @@ async def test_that_a_term_can_be_created_with_tags(
 
     term_dto = (await async_client.get(f"/terms/{response.json()['id']}")).raise_for_status().json()
 
-    assert term_dto["name"] == "guideline"
+    assert term_dto["name"] == "rule"
     assert term_dto["description"] == "when and then statements"
 
-    assert len(term_dto["tags"]) == 2
-    assert set(term_dto["tags"]) == {tag1.id, tag2.id}
+    assert len(term_dto["groups"]) == 2
+    assert set(term_dto["groups"]) == {group1.id, group2.id}
 
 
 async def test_that_a_term_can_be_read(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    name = "guideline"
+    name = "rule"
     description = "when and then statements"
     synonyms = ["rule", "principle"]
 
@@ -101,15 +102,15 @@ async def test_that_a_term_can_be_read(
     assert data["name"] == name
     assert data["description"] == description
     assert data["synonyms"] == synonyms
-    assert data["tags"] == []
+    assert data["groups"] == []
 
 
 async def test_that_terms_can_be_listed(
     async_client: httpx.AsyncClient,
 ) -> None:
     terms = [
-        {"name": "guideline1", "description": "description 1", "synonyms": ["synonym1"]},
-        {"name": "guideline2", "description": "description 2", "synonyms": ["synonym2"]},
+        {"name": "rule1", "description": "description 1", "synonyms": ["synonym1"]},
+        {"name": "rule2", "description": "description 2", "synonyms": ["synonym2"]},
     ]
 
     for term in terms:
@@ -147,36 +148,36 @@ async def test_that_terms_can_be_listed_with_a_tag(
     glossary_store = container[GlossaryStore]
 
     first_term = await glossary_store.create_term(
-        name="guideline1",
+        name="rule1",
         description="description 1",
         synonyms=["synonym1"],
     )
-    await glossary_store.upsert_tag(
+    await glossary_store.upsert_group(
         term_id=first_term.id,
-        tag_id=TagId("tag1"),
+        group_id=GroupId("group1"),
     )
 
     second_term = await glossary_store.create_term(
-        name="guideline2",
+        name="rule2",
         description="description 2",
         synonyms=["synonym2"],
     )
-    await glossary_store.upsert_tag(
+    await glossary_store.upsert_group(
         term_id=second_term.id,
-        tag_id=TagId("tag2"),
+        group_id=GroupId("group2"),
     )
 
     third_term = await glossary_store.create_term(
-        name="guideline3",
+        name="rule3",
         description="description 3",
         synonyms=["synonym3"],
     )
-    await glossary_store.upsert_tag(
+    await glossary_store.upsert_group(
         term_id=third_term.id,
-        tag_id=TagId("tag1"),
+        group_id=GroupId("group1"),
     )
 
-    response = await async_client.get("/terms?tag_id=tag1")
+    response = await async_client.get("/terms?group_id=group1")
     assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert len(data) == 2
@@ -196,10 +197,10 @@ async def test_that_terms_can_be_listed_with_a_tag(
 async def test_that_a_term_can_be_updated_with_new_values(
     async_client: httpx.AsyncClient,
 ) -> None:
-    tag1 = (await async_client.post("/tags", json={"name": "tag1"})).raise_for_status().json()
-    tag2 = (await async_client.post("/tags", json={"name": "tag2"})).raise_for_status().json()
+    group1 = (await async_client.post("/groups", json={"name": "group1"})).raise_for_status().json()
+    group2 = (await async_client.post("/groups", json={"name": "group2"})).raise_for_status().json()
 
-    name = "guideline"
+    name = "rule"
     description = "when and then statements"
     synonyms = ["rule", "principle"]
 
@@ -218,10 +219,10 @@ async def test_that_a_term_can_be_updated_with_new_values(
         .json()
     )
 
-    updated_name = "updated guideline"
-    updated_description = "Updated guideline description"
+    updated_name = "updated rule"
+    updated_description = "Updated rule description"
     updated_synonyms = ["instruction"]
-    tags_to_add = [tag1["id"], tag2["id"]]
+    tags_to_add = [group1["id"], group2["id"]]
 
     update_response = await async_client.patch(
         f"/terms/{term['id']}",
@@ -229,7 +230,7 @@ async def test_that_a_term_can_be_updated_with_new_values(
             "name": updated_name,
             "description": updated_description,
             "synonyms": updated_synonyms,
-            "tags": {
+            "groups": {
                 "add": tags_to_add,
             },
         },
@@ -241,16 +242,17 @@ async def test_that_a_term_can_be_updated_with_new_values(
     assert data["name"] == updated_name
     assert data["description"] == updated_description
     assert data["synonyms"] == updated_synonyms
-    assert set(data["tags"]) == set(tags_to_add)
+    assert set(data["groups"]) == set(tags_to_add)
+    assert data["modified_utc"] != term["modified_utc"]
 
 
 async def test_that_tags_can_be_removed_from_a_term(
     async_client: httpx.AsyncClient,
 ) -> None:
-    tag1 = (await async_client.post("/tags", json={"name": "tag1"})).raise_for_status().json()
-    tag2 = (await async_client.post("/tags", json={"name": "tag2"})).raise_for_status().json()
+    group1 = (await async_client.post("/groups", json={"name": "group1"})).raise_for_status().json()
+    group2 = (await async_client.post("/groups", json={"name": "group2"})).raise_for_status().json()
 
-    name = "guideline"
+    name = "rule"
     description = "when and then statements"
     synonyms = ["rule", "principle"]
 
@@ -272,8 +274,8 @@ async def test_that_tags_can_be_removed_from_a_term(
     await async_client.patch(
         f"/terms/{term['id']}",
         json={
-            "tags": {
-                "add": [tag1["id"], tag2["id"]],
+            "groups": {
+                "add": [group1["id"], group2["id"]],
             },
         },
     )
@@ -281,21 +283,21 @@ async def test_that_tags_can_be_removed_from_a_term(
     update_response = await async_client.patch(
         f"/terms/{term['id']}",
         json={
-            "tags": {
-                "remove": [tag1["id"]],
+            "groups": {
+                "remove": [group1["id"]],
             },
         },
     )
 
     assert update_response.status_code == status.HTTP_200_OK
     data = update_response.json()
-    assert set(data["tags"]) == {tag2["id"]}
+    assert set(data["groups"]) == {group2["id"]}
 
 
 async def test_that_a_term_can_be_deleted(
     async_client: httpx.AsyncClient,
 ) -> None:
-    name = "guideline"
+    name = "rule"
     description = "when and then statements"
     synonyms = ["rule", "principle"]
 
@@ -320,41 +322,41 @@ async def test_that_a_term_can_be_deleted(
     assert read_response.status_code == status.HTTP_404_NOT_FOUND
 
 
-async def test_that_adding_nonexistent_agent_tag_to_term_returns_404(
+async def test_that_adding_nonexistent_agent_group_to_term_returns_404(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     glossary_store = container[GlossaryStore]
 
     term = await glossary_store.create_term(
-        name="guideline",
+        name="rule",
         description="when and then statements",
         synonyms=["rule", "principle"],
     )
 
     response = await async_client.patch(
         f"/terms/{term.id}",
-        json={"tags": {"add": ["agent-id:nonexistent_agent"]}},
+        json={"groups": {"add": ["agent-id:nonexistent_agent"]}},
     )
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-async def test_that_adding_nonexistent_tag_to_term_returns_404(
+async def test_that_adding_nonexistent_group_to_term_returns_404(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     glossary_store = container[GlossaryStore]
 
     term = await glossary_store.create_term(
-        name="guideline",
+        name="rule",
         description="when and then statements",
         synonyms=["rule", "principle"],
     )
 
     response = await async_client.patch(
         f"/terms/{term.id}",
-        json={"tags": {"add": ["nonexistent_tag"]}},
+        json={"groups": {"add": ["nonexistent_group"]}},
     )
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -386,7 +388,7 @@ async def test_that_a_term_can_be_created_with_custom_id(
     assert data["name"] == name
     assert data["description"] == description
     assert data["synonyms"] == synonyms
-    assert data["tags"] == []
+    assert data["groups"] == []
 
 
 async def test_that_creating_term_with_duplicate_id_returns_422(

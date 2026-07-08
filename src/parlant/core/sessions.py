@@ -15,11 +15,12 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
 from dataclasses import field
 from typing import (
+    Callable,
     Iterator,
     Literal,
     Mapping,
@@ -32,10 +33,12 @@ from typing import (
 )
 from typing_extensions import override, TypedDict, NotRequired, Required, Self
 
+from itertools import chain
 from parlant.core import async_utils
-from parlant.core.async_utils import ReaderWriterLock, Timeout
+from parlant.core.async_utils import ReaderWriterLock, Timeout, safe_gather
 from parlant.core.common import (
     ItemNotFoundError,
+    try_or_none,
     JSONSerializable,
     UniqueId,
     Version,
@@ -44,7 +47,8 @@ from parlant.core.common import (
 from parlant.core.agents import AgentId
 from parlant.core.context_variables import ContextVariableId
 from parlant.core.customers import CustomerId
-from parlant.core.guidelines import GuidelineId
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
+from parlant.core.rules import RuleId
 from parlant.core.journeys import JourneyId
 from parlant.core.persistence.common import (
     ObjectId,
@@ -75,10 +79,10 @@ EventId = NewType("EventId", str)
 class EventSource(Enum):
     """The source of an event in a session."""
 
-    CUSTOMER = "customer"
+    CUSTOMER = "user"
     """Represents an event from the customer, such as a message or action."""
 
-    CUSTOMER_UI = "customer_ui"
+    CUSTOMER_UI = "user_ui"
     """Represents an event from the customer UI, such as a page navigation or button click."""
 
     HUMAN_AGENT = "human_agent"
@@ -118,6 +122,7 @@ class Event:
     source: EventSource
     kind: EventKind
     creation_utc: datetime
+    modified_utc: datetime
     offset: int
     trace_id: str
     data: JSONSerializable
@@ -151,7 +156,7 @@ class MessageEventData(TypedDict):
     message: str
     participant: Participant
     flagged: NotRequired[bool]
-    tags: NotRequired[Sequence[str]]
+    groups: NotRequired[Sequence[str]]
     draft: NotRequired[str]
     canned_responses: NotRequired[Sequence[tuple[CannedResponseId, str]]]
     chunks: NotRequired[list[str | None]]
@@ -164,7 +169,7 @@ class ControlOptions(TypedDict, total=False):
     lifespan: LifeSpan
 
 
-class TransientGuideline(TypedDict, total=False):
+class TransientRule(TypedDict, total=False):
     action: Required[str]
     condition: str
     priority: int
@@ -178,11 +183,12 @@ class ToolResult(TypedDict):
     control: ControlOptions
     canned_responses: Sequence[str]
     canned_response_fields: Mapping[str, JSONSerializable]
-    guidelines: NotRequired[Sequence[TransientGuideline]]
+    rules: NotRequired[Sequence[TransientRule]]
 
 
 class ToolCall(TypedDict):
     tool_id: str
+    rationale: str
     arguments: Mapping[str, JSONSerializable]
     result: ToolResult
 
@@ -203,11 +209,13 @@ SessionStatus: TypeAlias = Literal[
 
 class StatusEventData(TypedDict):
     status: SessionStatus
-    data: JSONSerializable
+    data: NotRequired[JSONSerializable]
+    message: NotRequired[str]
+    chunks: NotRequired[list[str | None]]
 
 
-class GuidelineMatch(TypedDict):
-    guideline_id: GuidelineId
+class RuleMatch(TypedDict):
+    rule_id: RuleId
     condition: str
     action: str | None
     score: int
@@ -235,14 +243,14 @@ ConsumerId: TypeAlias = Literal["client"]
 SessionMode: TypeAlias = Literal["auto", "manual"]
 """The mode of the session, either 'auto' for automatic handling or 'manual' for manual handling by a human agent."""
 
-LifeSpan: TypeAlias = Literal["response", "session"]
-"""The lifespan of a tool result, either 'response' for just the current response or 'session' for the entire session."""
+LifeSpan: TypeAlias = Literal["response", "session", "auto"]
+"""The lifespan of a tool result, either 'response' for just the current response, 'session' for the entire session, or 'auto' for automatically determined based on token count."""
 
 
 @dataclass(frozen=True)
 class AgentState:
     trace_id: str
-    applied_guideline_ids: Sequence[GuidelineId]
+    applied_rule_ids: Sequence[RuleId]
     journey_paths: Mapping[JourneyId, Sequence[str | None]]
 
 
@@ -250,6 +258,7 @@ class AgentState:
 class Session:
     id: SessionId
     creation_utc: datetime
+    modified_utc: datetime
     customer_id: CustomerId
     agent_id: AgentId
     mode: SessionMode
@@ -330,6 +339,7 @@ class SessionStore(ABC):
         cursor: Cursor | None = None,
         sort_direction: SortDirection | None = None,
         labels: Optional[Set[str]] = None,
+        min_modified_utc: datetime | None = None,
     ) -> SessionListing: ...
 
     @abstractmethod
@@ -418,14 +428,14 @@ class _SessionDocument_v0_4_0(TypedDict, total=False):
 
 
 class _AgentStateDocument_v0_6_0(TypedDict):
-    correlation_id: str
-    applied_guideline_ids: Sequence[GuidelineId]
-    journey_paths: Mapping[JourneyId, Sequence[GuidelineId | None]]
+    trace_id: str
+    applied_rule_ids: Sequence[RuleId]
+    journey_paths: Mapping[JourneyId, Sequence[RuleId | None]]
 
 
 class _AgentStateDocument(TypedDict):
     trace_id: str
-    applied_guideline_ids: Sequence[GuidelineId]
+    applied_rule_ids: Sequence[RuleId]
     journey_paths: Mapping[JourneyId, Sequence[str | None]]
 
 
@@ -470,6 +480,7 @@ class _SessionDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
+    modified_utc: str
     customer_id: CustomerId
     agent_id: AgentId
     mode: SessionMode
@@ -488,7 +499,7 @@ class _EventDocument_v0_6_0(TypedDict, total=False):
     source: str
     kind: str
     offset: int
-    correlation_id: str
+    trace_id: str
     data: JSONSerializable
     deleted: bool
 
@@ -510,6 +521,7 @@ class _EventDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
+    modified_utc: str
     session_id: SessionId
     source: str
     kind: str
@@ -523,7 +535,7 @@ class _EventDocument(TypedDict, total=False):
 class _UsageInfoDocument(TypedDict):
     input_tokens: int
     output_tokens: int
-    extra: Mapping[str, int] | None
+    extra: Mapping[str, int | float | str] | None
 
 
 class _GenerationInfoDocument(TypedDict):
@@ -533,18 +545,18 @@ class _GenerationInfoDocument(TypedDict):
     usage: _UsageInfoDocument
 
 
-class _GuidelineMatchInspectionDocument(TypedDict):
+class _RuleMatchInspectionDocument(TypedDict):
     total_duration: float
     batches: Sequence[_GenerationInfoDocument]
 
 
 class _PreparationIterationGenerationsDocument_v0_2_0(TypedDict):
-    guideline_proposition: _GuidelineMatchInspectionDocument
+    rule_proposition: _RuleMatchInspectionDocument
     tool_calls: Sequence[_GenerationInfoDocument]
 
 
 class _PreparationIterationGenerationsDocument(TypedDict):
-    guideline_match: _GuidelineMatchInspectionDocument
+    rule_match: _RuleMatchInspectionDocument
     tool_calls: Sequence[_GenerationInfoDocument]
 
 
@@ -565,7 +577,7 @@ class _MessageGenerationInspectionDocument(TypedDict):
 
 
 class _PreparationIterationDocument_v0_2_0(TypedDict):
-    guideline_propositions: Sequence[GuidelineMatch]
+    rule_propositions: Sequence[RuleMatch]
     tool_calls: Sequence[ToolCall]
     terms: Sequence[Term]
     context_variables: Sequence[ContextVariable]
@@ -576,7 +588,7 @@ _PreparationIterationDocument_v0_1_0: TypeAlias = _PreparationIterationDocument_
 
 
 class _PreparationIterationDocument(TypedDict):
-    guideline_matches: Sequence[GuidelineMatch]
+    rule_matches: Sequence[RuleMatch]
     tool_calls: Sequence[ToolCall]
     terms: Sequence[Term]
     context_variables: Sequence[ContextVariable]
@@ -624,6 +636,7 @@ class _MessageEventData_v0_5_0(TypedDict):
     participant: Participant
     flagged: NotRequired[bool]
     tags: NotRequired[Sequence[str]]
+    groups: NotRequired[Sequence[str]]
     draft: NotRequired[str]
     utterances: NotRequired[Sequence[tuple[CannedResponseId, str]]]
 
@@ -647,13 +660,19 @@ class _ToolEventData_v0_5_0(TypedDict):
 
 
 class SessionDocumentStore(SessionStore):
-    VERSION = Version.from_string("0.9.0")
+    VERSION = Version.from_string("0.10.0")
 
-    def __init__(self, database: DocumentDatabase, allow_migration: bool = False):
+    def __init__(
+        self,
+        database: DocumentDatabase,
+        allow_migration: bool = False,
+        collections_prefix: str | None = None,
+    ):
         self._database = database
         self._session_collection: DocumentCollection[_SessionDocument]
         self._event_collection: DocumentCollection[_EventDocument]
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
 
         self._lock = ReaderWriterLock()
 
@@ -685,9 +704,9 @@ class SessionDocumentStore(SessionStore):
                 title=doc["title"],
                 consumption_offsets=doc["consumption_offsets"],
                 agent_state=_AgentStateDocument_v0_6_0(
-                    applied_guideline_ids=[],
+                    applied_rule_ids=[],
                     journey_paths={},
-                    correlation_id="N/A",
+                    trace_id="N/A",
                 ),
             )
 
@@ -720,8 +739,8 @@ class SessionDocumentStore(SessionStore):
                 consumption_offsets=doc["consumption_offsets"],
                 agent_states=[
                     _AgentStateDocument(
-                        trace_id=s["correlation_id"],
-                        applied_guideline_ids=s["applied_guideline_ids"],
+                        trace_id=s["trace_id"],
+                        applied_rule_ids=s["applied_rule_ids"],
                         journey_paths=s["journey_paths"],
                     )
                     for s in doc.get("agent_states", [])
@@ -762,6 +781,24 @@ class SessionDocumentStore(SessionStore):
                 labels=[],  # Default to empty labels for existing sessions
             )
 
+        async def v0_9_0_to_v0_10_0(doc: BaseDocument) -> BaseDocument | None:
+            doc = cast(_SessionDocument, doc)
+
+            return _SessionDocument(
+                id=doc["id"],
+                version=Version.String("0.10.0"),
+                creation_utc=doc["creation_utc"],
+                modified_utc=doc.get("modified_utc", doc["creation_utc"]),
+                customer_id=doc["customer_id"],
+                agent_id=doc["agent_id"],
+                mode=doc["mode"],
+                title=doc["title"],
+                consumption_offsets=doc["consumption_offsets"],
+                agent_states=doc["agent_states"],
+                metadata=doc.get("metadata", {}),
+                labels=doc.get("labels", []),
+            )
+
         return await DocumentMigrationHelper[_SessionDocument](
             self,
             {
@@ -773,6 +810,7 @@ class SessionDocumentStore(SessionStore):
                 "0.6.0": v0_6_0_to_v0_7_0,
                 "0.7.0": v0_7_0_to_v0_8_0,
                 "0.8.0": v0_8_0_to_v0_9_0,
+                "0.9.0": v0_9_0_to_v0_10_0,
             },
         ).migrate(doc)
 
@@ -788,7 +826,7 @@ class SessionDocumentStore(SessionStore):
                 source=doc["source"],
                 kind=doc["kind"],
                 offset=doc["offset"],
-                correlation_id=doc["correlation_id"],
+                trace_id=doc["trace_id"],
                 data=doc["data"],
                 deleted=doc["deleted"],
             )
@@ -805,7 +843,7 @@ class SessionDocumentStore(SessionStore):
                         message=doc_data["message"],
                         participant=doc_data["participant"],
                         flagged=doc_data.get("flagged", False),
-                        tags=doc_data.get("tags", []),
+                        groups=doc_data.get("groups", doc_data.get("tags", [])),
                         draft=doc_data.get("draft", ""),
                         canned_responses=doc_data.get("utterances", []),
                     ),
@@ -820,6 +858,7 @@ class SessionDocumentStore(SessionStore):
                         tool_calls=[
                             ToolCall(
                                 tool_id=tc["tool_id"],
+                                rationale="",
                                 arguments=tc["arguments"],
                                 result=ToolResult(
                                     data=tc["result"]["data"],
@@ -844,7 +883,7 @@ class SessionDocumentStore(SessionStore):
                 source=doc["source"],
                 kind=doc["kind"],
                 offset=doc["offset"],
-                correlation_id=doc["correlation_id"],
+                trace_id=doc["trace_id"],
                 data=data,
                 deleted=doc["deleted"],
             )
@@ -862,7 +901,7 @@ class SessionDocumentStore(SessionStore):
                 source=doc["source"],
                 kind=doc["kind"],
                 offset=doc["offset"],
-                trace_id=doc["correlation_id"],
+                trace_id=doc["trace_id"],
                 data=data,
                 deleted=doc["deleted"],
             )
@@ -884,6 +923,41 @@ class SessionDocumentStore(SessionStore):
                 deleted=doc["deleted"],
             )
 
+        async def v0_8_0_to_v0_9_0(doc: BaseDocument) -> BaseDocument | None:
+            doc = cast(_EventDocument, doc)
+
+            return _EventDocument(
+                id=doc["id"],
+                version=Version.String("0.9.0"),
+                creation_utc=doc["creation_utc"],
+                session_id=doc["session_id"],
+                source=doc["source"],
+                kind=doc["kind"],
+                offset=doc["offset"],
+                trace_id=doc["trace_id"],
+                data=doc["data"],
+                metadata=doc.get("metadata"),
+                deleted=doc["deleted"],
+            )
+
+        async def v0_9_0_to_v0_10_0(doc: BaseDocument) -> BaseDocument | None:
+            doc = cast(_EventDocument, doc)
+
+            return _EventDocument(
+                id=doc["id"],
+                version=Version.String("0.10.0"),
+                creation_utc=doc["creation_utc"],
+                modified_utc=doc.get("modified_utc", doc["creation_utc"]),
+                session_id=doc["session_id"],
+                source=doc["source"],
+                kind=doc["kind"],
+                offset=doc["offset"],
+                trace_id=doc["trace_id"],
+                data=doc["data"],
+                metadata=doc.get("metadata"),
+                deleted=doc["deleted"],
+            )
+
         return await DocumentMigrationHelper[_EventDocument](
             self,
             {
@@ -894,6 +968,8 @@ class SessionDocumentStore(SessionStore):
                 "0.5.0": v0_5_0_to_v0_6_0,
                 "0.6.0": v0_6_0_to_v0_7_0,
                 "0.7.0": v0_7_0_to_v0_8_0,
+                "0.8.0": v0_8_0_to_v0_9_0,
+                "0.9.0": v0_9_0_to_v0_10_0,
             },
         ).migrate(doc)
 
@@ -902,14 +978,17 @@ class SessionDocumentStore(SessionStore):
             store=self,
             database=self._database,
             allow_migration=self._allow_migration,
+            collections_prefix=self._collections_prefix,
         ):
             self._session_collection = await self._database.get_or_create_collection(
-                name="sessions",
+                name=f"{self._collections_prefix}_sessions"
+                if self._collections_prefix
+                else "sessions",
                 schema=_SessionDocument,
                 document_loader=self._session_document_loader,
             )
             self._event_collection = await self._database.get_or_create_collection(
-                name="events",
+                name=f"{self._collections_prefix}_events" if self._collections_prefix else "events",
                 schema=_EventDocument,
                 document_loader=self._event_document_loader,
             )
@@ -919,6 +998,12 @@ class SessionDocumentStore(SessionStore):
                     CollectionIndex(
                         fields=(
                             ("creation_utc", SortDirection.ASC),
+                            ("id", SortDirection.ASC),
+                        )
+                    ),
+                    CollectionIndex(
+                        fields=(
+                            ("modified_utc", SortDirection.ASC),
                             ("id", SortDirection.ASC),
                         )
                     ),
@@ -945,6 +1030,12 @@ class SessionDocumentStore(SessionStore):
                         fields=(
                             ("session_id", SortDirection.ASC),
                             ("offset", SortDirection.ASC),
+                        )
+                    ),
+                    CollectionIndex(
+                        fields=(
+                            ("modified_utc", SortDirection.ASC),
+                            ("session_id", SortDirection.ASC),
                         )
                     ),
                     CollectionIndex(
@@ -984,7 +1075,7 @@ class SessionDocumentStore(SessionStore):
             doc_params["agent_states"] = [
                 _AgentStateDocument(
                     trace_id=s.trace_id,
-                    applied_guideline_ids=s.applied_guideline_ids,
+                    applied_rule_ids=s.applied_rule_ids,
                     journey_paths=s.journey_paths,
                 )
                 for s in params["agent_states"]
@@ -1002,6 +1093,7 @@ class SessionDocumentStore(SessionStore):
             id=ObjectId(session.id),
             version=self.VERSION.to_string(),
             creation_utc=session.creation_utc.isoformat(),
+            modified_utc=session.modified_utc.isoformat(),
             customer_id=session.customer_id,
             agent_id=session.agent_id,
             mode=session.mode,
@@ -1010,7 +1102,7 @@ class SessionDocumentStore(SessionStore):
             agent_states=[
                 _AgentStateDocument(
                     trace_id=s.trace_id,
-                    applied_guideline_ids=s.applied_guideline_ids,
+                    applied_rule_ids=s.applied_rule_ids,
                     journey_paths=s.journey_paths,
                 )
                 for s in session.agent_states
@@ -1026,6 +1118,7 @@ class SessionDocumentStore(SessionStore):
         return Session(
             id=SessionId(session_document["id"]),
             creation_utc=datetime.fromisoformat(session_document["creation_utc"]),
+            modified_utc=datetime.fromisoformat(session_document["modified_utc"]),
             customer_id=session_document["customer_id"],
             agent_id=session_document["agent_id"],
             mode=session_document["mode"],
@@ -1034,7 +1127,7 @@ class SessionDocumentStore(SessionStore):
             agent_states=[
                 AgentState(
                     trace_id=s["trace_id"],
-                    applied_guideline_ids=s["applied_guideline_ids"],
+                    applied_rule_ids=s["applied_rule_ids"],
                     journey_paths=s["journey_paths"],
                 )
                 for s in session_document["agent_states"]
@@ -1052,6 +1145,7 @@ class SessionDocumentStore(SessionStore):
             id=ObjectId(event.id),
             version=self.VERSION.to_string(),
             creation_utc=event.creation_utc.isoformat(),
+            modified_utc=event.modified_utc.isoformat(),
             session_id=session_id,
             source=event.source.value,
             kind=event.kind.value,
@@ -1069,6 +1163,7 @@ class SessionDocumentStore(SessionStore):
         return Event(
             id=EventId(event_document["id"]),
             creation_utc=datetime.fromisoformat(event_document["creation_utc"]),
+            modified_utc=datetime.fromisoformat(event_document["modified_utc"]),
             source=EventSource(event_document["source"]),
             kind=EventKind(event_document["kind"]),
             offset=event_document["offset"],
@@ -1097,6 +1192,7 @@ class SessionDocumentStore(SessionStore):
             session = Session(
                 id=SessionId(generate_id()),
                 creation_utc=creation_utc,
+                modified_utc=creation_utc,
                 customer_id=customer_id,
                 agent_id=agent_id,
                 mode=mode or "auto",
@@ -1158,7 +1254,10 @@ class SessionDocumentStore(SessionStore):
 
             result = await self._session_collection.update_one(
                 filters={"id": {"$eq": session_id}},
-                params=self._serialize_session_update_params(params),
+                params={
+                    **self._serialize_session_update_params(params),
+                    "modified_utc": datetime.now(timezone.utc).isoformat(),
+                },
             )
 
         assert result.updated_document
@@ -1174,12 +1273,116 @@ class SessionDocumentStore(SessionStore):
         cursor: Cursor | None = None,
         sort_direction: SortDirection | None = None,
         labels: Optional[Set[str]] = None,
+        min_modified_utc: datetime | None = None,
     ) -> SessionListing:
         async with self._lock.reader_lock:
             filters = {
                 **({"agent_id": {"$eq": agent_id}} if agent_id else {}),
                 **({"customer_id": {"$eq": customer_id}} if customer_id else {}),
             }
+
+            if min_modified_utc:
+                min_modified_utc_str = min_modified_utc.isoformat()
+
+                event_result = await self._event_collection.find(
+                    filters={"modified_utc": {"$gte": min_modified_utc_str}},
+                )
+
+                event_session_ids = {d["session_id"] for d in event_result.items}
+                latest_event_modified_utc_by_session_id: dict[SessionId, datetime] = {}
+
+                for event_document in event_result.items:
+                    event_modified_utc = datetime.fromisoformat(event_document["modified_utc"])
+                    session_id = event_document["session_id"]
+                    latest_event_modified_utc_by_session_id[session_id] = max(
+                        latest_event_modified_utc_by_session_id.get(session_id, event_modified_utc),
+                        event_modified_utc,
+                    )
+
+                modified_filters: list[Where] = [
+                    {"modified_utc": {"$gte": min_modified_utc_str}},
+                ]
+                if event_session_ids:
+                    modified_filters.append(
+                        {
+                            "id": {
+                                "$in": [ObjectId(session_id) for session_id in event_session_ids],
+                            }
+                        }
+                    )
+
+                session_filters: Where = (
+                    cast(Where, {"$and": [filters, {"$or": modified_filters}]})
+                    if filters
+                    else cast(Where, {"$or": modified_filters})
+                )
+
+                result = await self._session_collection.find(
+                    filters=session_filters,
+                    sort_direction=sort_direction,
+                )
+
+                matching_session_documents = list(result.items)
+
+                if labels:
+                    matching_session_documents = [
+                        d
+                        for d in matching_session_documents
+                        if labels.issubset(set(d.get("labels", [])))
+                    ]
+
+                sessions = []
+                for session_document in matching_session_documents:
+                    session = self._deserialize_session(session_document)
+                    latest_event_modified_utc = latest_event_modified_utc_by_session_id.get(
+                        session.id,
+                    )
+                    if latest_event_modified_utc:
+                        session = replace(
+                            session,
+                            modified_utc=max(session.modified_utc, latest_event_modified_utc),
+                        )
+                    sessions.append(session)
+
+                sessions.sort(
+                    key=lambda s: (s.modified_utc.isoformat(), str(s.id)),
+                    reverse=sort_direction == SortDirection.DESC,
+                )
+
+                if cursor:
+                    if sort_direction == SortDirection.DESC:
+                        sessions = [
+                            s
+                            for s in sessions
+                            if (s.modified_utc.isoformat(), str(s.id))
+                            < (cursor.creation_utc, str(cursor.id))
+                        ]
+                    else:
+                        sessions = [
+                            s
+                            for s in sessions
+                            if (s.modified_utc.isoformat(), str(s.id))
+                            > (cursor.creation_utc, str(cursor.id))
+                        ]
+
+                total_count = len(sessions)
+                paginated_sessions = sessions[:limit] if limit else sessions
+                has_more = bool(limit and len(sessions) > limit)
+                next_cursor = (
+                    Cursor(
+                        creation_utc=paginated_sessions[-1].modified_utc.isoformat(),
+                        id=ObjectId(paginated_sessions[-1].id),
+                    )
+                    if has_more and paginated_sessions
+                    else None
+                )
+
+                return SessionListing(
+                    items=paginated_sessions,
+                    total_count=total_count,
+                    has_more=has_more,
+                    next_cursor=next_cursor,
+                )
 
             result = await self._session_collection.find(
                 filters=cast(Where, filters),
@@ -1224,6 +1427,7 @@ class SessionDocumentStore(SessionStore):
                 filters={"id": {"$eq": session_id}},
                 params={
                     "metadata": updated_metadata,
+                    "modified_utc": datetime.now(timezone.utc).isoformat(),
                 },
             )
 
@@ -1249,6 +1453,7 @@ class SessionDocumentStore(SessionStore):
                 filters={"id": {"$eq": session_id}},
                 params={
                     "metadata": updated_metadata,
+                    "modified_utc": datetime.now(timezone.utc).isoformat(),
                 },
             )
 
@@ -1273,7 +1478,10 @@ class SessionDocumentStore(SessionStore):
 
             result = await self._session_collection.update_one(
                 filters={"id": {"$eq": session_id}},
-                params={"labels": updated_labels},
+                params={
+                    "labels": updated_labels,
+                    "modified_utc": datetime.now(timezone.utc).isoformat(),
+                },
             )
 
         assert result.updated_document
@@ -1297,7 +1505,10 @@ class SessionDocumentStore(SessionStore):
 
             result = await self._session_collection.update_one(
                 filters={"id": {"$eq": session_id}},
-                params={"labels": updated_labels},
+                params={
+                    "labels": updated_labels,
+                    "modified_utc": datetime.now(timezone.utc).isoformat(),
+                },
             )
 
         assert result.updated_document
@@ -1332,6 +1543,7 @@ class SessionDocumentStore(SessionStore):
                 kind=kind,
                 offset=offset,
                 creation_utc=creation_utc,
+                modified_utc=creation_utc,
                 trace_id=trace_id,
                 data=data,
                 metadata=metadata,
@@ -1369,7 +1581,10 @@ class SessionDocumentStore(SessionStore):
         async with self._lock.writer_lock:
             result = await self._event_collection.update_one(
                 filters={"id": {"$eq": event_id}},
-                params={"deleted": True},
+                params={
+                    "deleted": True,
+                    "modified_utc": datetime.now(timezone.utc).isoformat(),
+                },
             )
 
         if result.matched_count == 0:
@@ -1442,6 +1657,8 @@ class SessionDocumentStore(SessionStore):
             if not update_params:
                 return self._deserialize_event(event_document)
 
+            update_params["modified_utc"] = datetime.now(timezone.utc).isoformat()
+
             result = await self._event_collection.update_one(
                 filters={
                     "id": {"$eq": ObjectId(event_id)},
@@ -1503,8 +1720,14 @@ class SessionListener(ABC):
 
 
 class PollingSessionListener(SessionListener):
-    def __init__(self, session_store: SessionStore) -> None:
-        self._session_store = session_store
+    def __init__(self, store_provider_factory: Callable[[], StoreProvider]) -> None:
+        self._store_provider_factory = store_provider_factory
+
+    @property
+    def _session_store(self) -> SessionStore:
+        return self._store_provider_factory().get_store(
+            SessionStore, StoreProviderHints(call_site="engine")
+        )
 
     @override
     async def wait_for_more_events(
@@ -1592,3 +1815,209 @@ class PollingSessionListener(SessionListener):
                 return False
             else:
                 await timeout.wait_up_to(0.1)
+
+
+class CompositeSessionStore(SessionStore):
+    def __init__(
+        self,
+        writable_store: SessionStore,
+        readable_stores: Sequence[SessionStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[SessionStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_session(
+        self,
+        customer_id: CustomerId,
+        agent_id: AgentId,
+        creation_utc: datetime | None = None,
+        title: str | None = None,
+        mode: SessionMode | None = None,
+        metadata: Mapping[str, JSONSerializable] = {},
+        labels: Optional[Set[str]] = None,
+    ) -> Session:
+        return await self._writable_store.create_session(
+            customer_id=customer_id,
+            agent_id=agent_id,
+            creation_utc=creation_utc,
+            title=title,
+            mode=mode,
+            metadata=metadata,
+            labels=labels,
+        )
+
+    @override
+    async def read_session(
+        self,
+        session_id: SessionId,
+    ) -> Session:
+        results = await safe_gather(
+            *[try_or_none(store.read_session(session_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(session_id))
+        return result
+
+    @override
+    async def delete_session(
+        self,
+        session_id: SessionId,
+    ) -> None:
+        return await self._writable_store.delete_session(session_id)
+
+    @override
+    async def update_session(
+        self,
+        session_id: SessionId,
+        params: SessionUpdateParams,
+    ) -> Session:
+        return await self._writable_store.update_session(session_id, params)
+
+    @override
+    async def list_sessions(
+        self,
+        agent_id: AgentId | None = None,
+        customer_id: CustomerId | None = None,
+        limit: int | None = None,
+        cursor: Cursor | None = None,
+        sort_direction: SortDirection | None = None,
+        labels: Optional[Set[str]] = None,
+        min_modified_utc: datetime | None = None,
+    ) -> SessionListing:
+        results = await safe_gather(
+            *[
+                store.list_sessions(
+                    agent_id=agent_id,
+                    customer_id=customer_id,
+                    limit=limit,
+                    cursor=cursor,
+                    sort_direction=sort_direction,
+                    labels=labels,
+                    min_modified_utc=min_modified_utc,
+                )
+                for store in self._all_stores
+            ]
+        )
+        all_items = list(chain.from_iterable(r.items for r in results))
+        return SessionListing(
+            items=all_items,
+            total_count=sum(r.total_count for r in results),
+            has_more=any(r.has_more for r in results),
+        )
+
+    @override
+    async def set_metadata(
+        self,
+        session_id: SessionId,
+        key: str,
+        value: JSONSerializable,
+    ) -> Session:
+        return await self._writable_store.set_metadata(session_id, key, value)
+
+    @override
+    async def unset_metadata(
+        self,
+        session_id: SessionId,
+        key: str,
+    ) -> Session:
+        return await self._writable_store.unset_metadata(session_id, key)
+
+    @override
+    async def upsert_labels(
+        self,
+        session_id: SessionId,
+        labels: Set[str],
+    ) -> Session:
+        return await self._writable_store.upsert_labels(session_id, labels)
+
+    @override
+    async def remove_labels(
+        self,
+        session_id: SessionId,
+        labels: Set[str],
+    ) -> Session:
+        return await self._writable_store.remove_labels(session_id, labels)
+
+    @override
+    async def create_event(
+        self,
+        session_id: SessionId,
+        source: EventSource,
+        kind: EventKind,
+        trace_id: str,
+        data: JSONSerializable,
+        metadata: Mapping[str, JSONSerializable] = {},
+        creation_utc: datetime | None = None,
+    ) -> Event:
+        try:
+            return await self._writable_store.create_event(
+                session_id=session_id,
+                source=source,
+                kind=kind,
+                trace_id=trace_id,
+                data=data,
+                metadata=metadata,
+                creation_utc=creation_utc,
+            )
+        except Exception as e:
+            raise e
+
+    @override
+    async def read_event(
+        self,
+        session_id: SessionId,
+        event_id: EventId,
+    ) -> Event:
+        results = await safe_gather(
+            *[try_or_none(store.read_event(session_id, event_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(event_id))
+        return result
+
+    @override
+    async def delete_event(
+        self,
+        event_id: EventId,
+    ) -> None:
+        return await self._writable_store.delete_event(event_id)
+
+    @override
+    async def list_events(
+        self,
+        session_id: SessionId,
+        source: EventSource | None = None,
+        trace_id: str | None = None,
+        kinds: Sequence[EventKind] = [],
+        min_offset: int | None = None,
+        exclude_deleted: bool = True,
+    ) -> Sequence[Event]:
+        for store in self._all_stores:
+            result = await try_or_none(
+                store.list_events(
+                    session_id=session_id,
+                    source=source,
+                    trace_id=trace_id,
+                    kinds=kinds,
+                    min_offset=min_offset,
+                    exclude_deleted=exclude_deleted,
+                )
+            )
+
+            if result is not None:
+                return result
+
+        raise ItemNotFoundError(item_id=UniqueId(session_id))
+
+    @override
+    async def update_event(
+        self,
+        session_id: SessionId,
+        event_id: EventId,
+        params: EventUpdateParams,
+    ) -> Event:
+        return await self._writable_store.update_event(session_id, event_id, params)

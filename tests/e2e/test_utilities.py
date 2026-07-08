@@ -344,37 +344,37 @@ class API:
 
             return response.json()
 
-    async def list_guidelines(self) -> Any:
+    async def list_rules(self) -> Any:
         async with self.make_client() as client:
             response = await client.get(
-                "/guidelines",
+                "/rules",
             )
 
             response.raise_for_status()
 
             return response.json()
 
-    async def read_guideline(
+    async def read_rule(
         self,
-        guideline_id: str,
+        rule_id: str,
     ) -> Any:
         async with self.make_client() as client:
             response = await client.get(
-                f"/guidelines/{guideline_id}",
+                f"/rules/{rule_id}",
             )
 
             response.raise_for_status()
 
             return response.json()
 
-    async def create_guideline(
+    async def create_rule(
         self,
         condition: str,
         action: str,
     ) -> Any:
         async with self.make_client() as client:
             response = await client.post(
-                "/guidelines",
+                "/rules",
                 json={
                     "condition": condition,
                     "action": action,
@@ -385,30 +385,30 @@ class API:
 
             return response.json()
 
-    async def update_guideline(
+    async def update_rule(
         self,
-        guideline_id: str,
+        rule_id: str,
         enabled: bool,
     ) -> Any:
         async with self.make_client() as client:
             response = await client.patch(
-                f"/guidelines/{guideline_id}",
+                f"/rules/{rule_id}",
                 json={"enabled": enabled},
             )
 
             response.raise_for_status()
 
-            return response.json()["guideline"]
+            return response.json()["rule"]
 
     async def add_association(
         self,
-        guideline_id: str,
+        rule_id: str,
         service_name: str,
         tool_name: str,
     ) -> Any:
         async with self.make_client() as client:
             response = await client.patch(
-                f"/guidelines/{guideline_id}",
+                f"/rules/{rule_id}",
                 json={
                     "tool_associations": {
                         "add": [
@@ -518,21 +518,21 @@ class API:
 
         return cast(list[_ServiceDTO], response.json())
 
-    async def create_tag(self, name: str) -> Any:
+    async def create_group(self, name: str) -> Any:
         async with self.make_client() as client:
-            response = await client.post("/tags", json={"name": name})
+            response = await client.post("/groups", json={"name": name})
         return response.json()
 
-    async def list_tags(
+    async def list_groups(
         self,
     ) -> Any:
         async with self.make_client() as client:
-            response = await client.get("/tags")
+            response = await client.get("/groups")
         return response.json()
 
-    async def read_tag(self, id: str) -> Any:
+    async def read_group(self, id: str) -> Any:
         async with self.make_client() as client:
-            response = await client.get(f"/tags/{id}")
+            response = await client.get(f"/groups/{id}")
         return response.json()
 
     async def create_customer(
@@ -562,9 +562,9 @@ class API:
 
         return response.json()
 
-    async def add_customer_tag(self, id: str, tag_id: str) -> None:
+    async def add_customer_tag(self, id: str, group_id: str) -> None:
         async with self.make_client() as client:
-            response = await client.patch(f"/customers/{id}", json={"tags": {"add": [tag_id]}})
+            response = await client.patch(f"/customers/{id}", json={"groups": {"add": [group_id]}})
             response.raise_for_status()
 
     async def create_evaluation(self, agent_id: str, payloads: Any) -> Any:

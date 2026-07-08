@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import ast
+from collections import defaultdict
 from enum import Enum
 import json
 import traceback
@@ -49,6 +50,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
     measure_tool_call_batch,
 )
 from parlant.core.tools import Tool, ToolId, ToolParameterDescriptor, ToolParameterOptions
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 class ValidationStatus(Enum):
@@ -103,19 +105,25 @@ class OverlappingToolsBatch(ToolCallBatch):
         logger: Logger,
         meter: Meter,
         optimization_policy: OptimizationPolicy,
-        service_registry: ServiceRegistry,
         schematic_generator: SchematicGenerator[OverlappingToolsBatchSchema],
         overlapping_tools_batch: Sequence[tuple[ToolId, Tool, Sequence[GuidelineMatch]]],
         context: ToolCallContext,
+        store_provider: StoreProvider,
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._meter = meter
 
         self._optimization_policy = optimization_policy
-        self._service_registry = service_registry
         self._schematic_generator = schematic_generator
         self._context = context
         self._overlapping_tools_batch = overlapping_tools_batch
+
+    @property
+    def _service_registry(self) -> ServiceRegistry:
+        return self._store_provider.get_store(
+            ServiceRegistry, StoreProviderHints(call_site="engine")
+        )
 
     async def process(self) -> ToolCallBatchResult:
         async with measure_tool_call_batch(self._meter, self):
@@ -158,9 +166,9 @@ class OverlappingToolsBatch(ToolCallBatch):
     ) -> tuple[
         GenerationInfo,
         list[ToolCall],
-        list[tuple[ToolId, ToolCallEvaluation]],
-        list[MissingToolData],
-        list[InvalidToolData],
+        dict[ToolId, dict[ToolCallId, ToolCallEvaluation]],
+        dict[ToolId, dict[ToolCallId, list[MissingToolData]]],
+        dict[ToolId, dict[ToolCallId, list[InvalidToolData]]],
     ]:
         inference_prompt = self._build_tool_call_inference_prompt(
             agent,
@@ -239,14 +247,19 @@ class OverlappingToolsBatch(ToolCallBatch):
         overlapping_tools_batch: Sequence[tuple[ToolId, Tool, Sequence[GuidelineMatch]]],
     ) -> tuple[
         list[ToolCall],
-        list[tuple[ToolId, ToolCallEvaluation]],
-        list[MissingToolData],
-        list[InvalidToolData],
+        dict[ToolId, dict[ToolCallId, ToolCallEvaluation]],
+        dict[ToolId, dict[ToolCallId, list[MissingToolData]]],
+        dict[ToolId, dict[ToolCallId, list[InvalidToolData]]],
     ]:
-        tool_calls = []
-        evaluations: list[tuple[ToolId, ToolCallEvaluation]] = []  # FIXME: handle evaluations
-        missing_data = []
-        invalid_data = []
+        tool_calls: list[ToolCall] = []
+        # FIXME: handle evaluations
+        evaluations: dict[ToolId, dict[ToolCallId, ToolCallEvaluation]] = defaultdict(dict)
+        missing_data: dict[ToolId, dict[ToolCallId, list[MissingToolData]]] = defaultdict(
+            lambda: defaultdict(list)
+        )
+        invalid_data: dict[ToolId, dict[ToolCallId, list[InvalidToolData]]] = defaultdict(
+            lambda: defaultdict(list)
+        )
 
         for tool_inference in inference_output:
             tool_name = tool_inference.name
@@ -259,10 +272,11 @@ class OverlappingToolsBatch(ToolCallBatch):
                 and tool_inference.calls
             ):
                 tool_id, tool = result
-                for tc in tool_inference.calls:
+                tc_ids = [ToolCallId(generate_id()) for _ in tool_inference.calls]
+
+                for tc, tc_id in zip(tool_inference.calls, tc_ids):
                     all_values_valid = True
                     for evaluation in tc.argument_evaluations or []:
-                        tool_id, tool = result
                         descriptor, options = tool.parameters[evaluation.parameter_name]
 
                         if evaluation.value_as_string and not await self._validate_argument_value(
@@ -271,7 +285,7 @@ class OverlappingToolsBatch(ToolCallBatch):
                         ):
                             all_values_valid = False
                             if not options.hidden:
-                                invalid_data.append(
+                                invalid_data[tool_id][tc_id].append(
                                     InvalidToolData(
                                         parameter=options.display_name or evaluation.parameter_name,
                                         invalid_value=evaluation.value_as_string,
@@ -282,7 +296,7 @@ class OverlappingToolsBatch(ToolCallBatch):
                                     )
                                 )
 
-                for tc in tool_inference.calls:
+                for tc, tc_id in zip(tool_inference.calls, tc_ids):
                     if not tc.same_call_is_already_staged:
                         if all(
                             not evaluation.valid_invalid_or_missing == ValidationStatus.MISSING
@@ -310,7 +324,8 @@ class OverlappingToolsBatch(ToolCallBatch):
                             if all_values_valid:
                                 tool_calls.append(
                                     ToolCall(
-                                        id=ToolCallId(generate_id()),
+                                        id=tc_id,
+                                        rationale=tool_inference.applicability_rationale,
                                         tool_id=tool_id,
                                         arguments=arguments,
                                     )
@@ -332,7 +347,7 @@ class OverlappingToolsBatch(ToolCallBatch):
                                     and not evaluation.is_optional
                                     and not tool_options.hidden
                                 ):
-                                    missing_data.append(
+                                    missing_data[tool_id][tc_id].append(
                                         MissingToolData(
                                             parameter=tool_options.display_name
                                             or evaluation.parameter_name,

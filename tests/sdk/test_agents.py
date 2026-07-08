@@ -16,10 +16,11 @@ import asyncio
 import time
 from typing import Any
 from parlant.core.capabilities import CapabilityStore
-from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
-from parlant.core.guidelines import GuidelineStore
+from parlant.core.rule_tool_associations import RuleToolAssociationStore
+from parlant.core.rules import RuleStore
+from parlant.core.relationships import RelationshipKind, RelationshipStore
 from parlant.core.services.tools.plugins import tool
-from parlant.core.tags import Tag
+from parlant.core.groups import GroupIds
 from parlant.core.tools import ToolContext, ToolResult
 from parlant.core.canned_responses import CannedResponseStore
 import parlant.sdk as p
@@ -32,7 +33,7 @@ class Test_that_an_agent_can_be_created(SDKTest):
     async def setup(self, server: p.Server) -> None:
         await server.create_agent(
             name="Test Agent",
-            description="This is a test agent",
+            prompt="This is a test agent",
             composition_mode=p.CompositionMode.COMPOSITED,
         )
 
@@ -45,7 +46,7 @@ class Test_that_a_capability_can_be_created(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Test Agent",
-            description="This is a test agent",
+            prompt="This is a test agent",
         )
 
         self.capability = await self.agent.experimental_features.create_capability(
@@ -70,7 +71,7 @@ class Test_that_an_agent_can_be_read_by_id(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="ReadById Agent",
-            description="Agent to be read by ID",
+            prompt="Agent to be read by ID",
         )
 
     async def run(self, ctx: Context) -> None:
@@ -79,62 +80,116 @@ class Test_that_an_agent_can_be_read_by_id(SDKTest):
         assert agent.description == "Agent to be read by ID"
 
 
-class Test_that_an_agent_can_create_guideline(SDKTest):
+class Test_that_an_agent_can_create_rule(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
-            name="Guideline Agent",
-            description="Agent for guideline test",
+            name="Rule Agent",
+            prompt="Agent for rule test",
         )
-        self.guideline = await self.agent.create_guideline(
+        self.rule = await self.agent.create_rule(
             condition="Always say hello", action="Say hello to the user"
         )
 
     async def run(self, ctx: Context) -> None:
-        guideline_store = ctx.container[GuidelineStore]
+        rule_store = ctx.container[RuleStore]
 
-        guideline = await guideline_store.read_guideline(guideline_id=self.guideline.id)
+        rule = await rule_store.read_rule(rule_id=self.rule.id)
 
-        assert guideline.content.condition == "Always say hello"
-        assert guideline.content.action == "Say hello to the user"
-        assert guideline.tags == [Tag.for_agent_id(self.agent.id).id]
+        assert rule.content.condition == "Always say hello"
+        assert rule.content.action == "Say hello to the user"
+        assert rule.groups == [GroupIds.for_agent_id(self.agent.id)]
+        assert len(rule.signals) == 10
+        assert all(signal for signal in rule.signals)
+        assert len(rule.anti_signals) == 10
+        assert all(anti_signal for anti_signal in rule.anti_signals)
+
+
+class Test_that_an_agent_gets_specific_rule_objects_when_creating_rules(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Rule Agent",
+            prompt="Agent for rule object tests",
+        )
+
+        self.observation = await self.agent.create_observation(
+            condition="The customer is discussing billing",
+            note="Billing is the active topic.",
+        )
+        self.rule = await self.agent.create_rule(
+            condition="The customer is discussing billing",
+            action="Ask for the invoice number.",
+        )
+        self.policy = await self.agent.create_policy(
+            title="Billing privacy",
+            content="Never reveal billing information without verification.",
+        )
+        self.relationships = await self.policy.depend_on(self.observation)
+
+    async def run(self, ctx: Context) -> None:
+        assert isinstance(self.observation, p.Rule)
+        assert isinstance(self.observation, p.Observation)
+        assert not isinstance(self.observation, p.Rule)
+
+        assert isinstance(self.rule, p.Rule)
+        assert isinstance(self.rule, p.Rule)
+
+        assert isinstance(self.policy, p.Rule)
+        assert isinstance(self.policy, p.Policy)
+        assert self.policy.content == "Never reveal billing information without verification."
+
+        rule_store = ctx.container[RuleStore]
+
+        stored_observation = await rule_store.read_rule(self.observation.id)
+        assert stored_observation.content.condition == "The customer is discussing billing"
+        assert stored_observation.content.action is None
+
+        stored_policy = await rule_store.read_rule(self.policy.id)
+        assert stored_policy.title == "Billing privacy"
+        assert stored_policy.content.description == self.policy.content
+
+        relationship_store = ctx.container[RelationshipStore]
+        relationship = await relationship_store.read_relationship(self.relationships[0].id)
+        assert relationship.kind == RelationshipKind.DEPENDENCY
+        assert relationship.source.id == self.policy.id
+        assert relationship.target.id == self.observation.id
 
 
 class Test_that_an_agent_can_attach_tool(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Tool Agent",
-            description="Agent for tool test",
+            prompt="Agent for tool test",
         )
 
         @tool
         def test_tool(context: ToolContext) -> ToolResult:
             return ToolResult(data={})
 
-        self.guideline_id = await self.agent.attach_tool(
+        self.rule_id = await self.agent.attach_tool(
             tool=test_tool, condition="If user asks for dummy tool"
         )
 
     async def run(self, ctx: Context) -> None:
-        guideline_store = ctx.container[GuidelineStore]
-        guideline_tooL_store = ctx.container[GuidelineToolAssociationStore]
+        rule_store = ctx.container[RuleStore]
+        rule_tooL_store = ctx.container[RuleToolAssociationStore]
 
-        guideline = await guideline_store.read_guideline(guideline_id=self.guideline_id)
+        rule = await rule_store.read_rule(rule_id=self.rule_id)
 
-        assert guideline.content.condition == "If user asks for dummy tool"
+        assert rule.content.condition == "If user asks for dummy tool"
 
-        associations = await guideline_tooL_store.list_associations()
+        associations = await rule_tooL_store.list_associations()
         assert associations
         assert len(associations) == 1
 
         association = associations[0]
-        assert association.guideline_id == guideline.id
+        assert association.rule_id == rule.id
 
 
 class Test_that_an_agent_can_create_canned_response(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Canned Response Agent",
-            description="Agent for canned response test",
+            prompt="Agent for canned response test",
         )
         self.canrep_id = await self.agent.create_canned_response(template="Hello, {user}!")
 
@@ -144,19 +199,19 @@ class Test_that_an_agent_can_create_canned_response(SDKTest):
         canrep = await canrep_store.read_canned_response(canned_response_id=self.canrep_id)
 
         assert canrep.value == "Hello, {user}!"
-        assert Tag.for_agent_id(self.agent.id).id in canrep.tags
+        assert GroupIds.for_agent_id(self.agent.id) in canrep.groups
 
 
 class Test_that_agents_can_be_listed(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.a1 = await server.create_agent(
             name="List Agent 1",
-            description="First agent for listing",
+            prompt="First agent for listing",
         )
 
         self.a2 = await server.create_agent(
             name="List Agent 2",
-            description="Second agent for listing",
+            prompt="Second agent for listing",
         )
 
     async def run(self, ctx: Context) -> None:
@@ -170,7 +225,7 @@ class Test_that_an_agent_can_be_found_by_id(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.a1 = await server.create_agent(
             name="List Agent 1",
-            description="First agent for listing",
+            prompt="First agent for listing",
         )
 
     async def run(self, ctx: Context) -> None:
@@ -182,7 +237,7 @@ class Test_that_an_agent_can_be_found_using_tool_context(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Tool Context Agent",
-            description="Agent for tool context test",
+            prompt="Agent for tool context test",
         )
 
         @p.tool
@@ -227,7 +282,7 @@ class Test_that_the_output_of_an_agent_can_be_intercepted(SDKTest):
         return hooks
 
     async def setup(self, server: p.Server) -> None:
-        self.agent = await server.create_agent(name="Dummy Agent", description="")
+        self.agent = await server.create_agent(name="Dummy Agent", prompt="")
 
     async def run(self, ctx: Context) -> None:
         answer = await ctx.send_and_receive_message(customer_message="Hello", recipient=self.agent)
@@ -239,7 +294,7 @@ class Test_that_an_agent_can_be_created_with_custom_id(SDKTest):
         self.agent = await server.create_agent(
             id="my-custom-agent-id",
             name="Custom ID Agent",
-            description="This agent has a custom ID",
+            prompt="This agent has a custom ID",
         )
 
     async def run(self, ctx: Context) -> None:
@@ -260,7 +315,7 @@ class Test_that_an_agent_with_basic_policy_sends_preamble_and_message(SDKTest):
 
         self.agent = await server.create_agent(
             name="Basic Policy Agent",
-            description="Agent with basic perceived performance policy",
+            prompt="Agent with basic perceived performance policy",
             perceived_performance_policy=BasicPerceivedPerformancePolicy(),
         )
 
@@ -298,14 +353,14 @@ class Test_that_an_agent_with_basic_policy_sends_preamble_and_message(SDKTest):
                 await asyncio.sleep(0.5)
 
         # With BasicPerceivedPerformancePolicy, we expect 2 messages:
-        # 1. A preamble message (tagged with preamble tag)
+        # 1. A preamble message (grouped with preamble group)
         # 2. The actual response message
         assert len(agent_messages) == 2
 
         # Check that the first message is a preamble
         first_message_data = agent_messages[0].model_dump().get("data", {})
-        first_message_tags = first_message_data.get("tags", [])
-        assert any("preamble" in str(tag) for tag in first_message_tags)
+        first_message_tags = first_message_data.get("groups", [])
+        assert any("preamble" in str(group) for group in first_message_tags)
 
         # Check that the second message is the actual response
         second_message_data = agent_messages[1].model_dump().get("data", {})
@@ -320,8 +375,10 @@ class Test_that_an_agent_with_null_policy_sends_only_message(SDKTest):
 
         self.agent = await server.create_agent(
             name="Null Policy Agent",
-            description="Agent with null perceived performance policy",
+            prompt="Agent with null perceived performance policy",
             perceived_performance_policy=NullPerceivedPerformancePolicy(),
+            output_mode=p.OutputMode.STREAM,
+            engine="compass",
         )
 
     async def run(self, ctx: Context) -> None:
@@ -351,15 +408,15 @@ class Test_that_an_agent_with_null_policy_sends_only_message(SDKTest):
 
         # Check that the message is the actual response (not a preamble)
         message_data = agent_messages[0].model_dump().get("data", {})
-        message_tags = message_data.get("tags", [])
-        assert not any("preamble" in str(tag) for tag in message_tags)
+        message_tags = message_data.get("groups", [])
+        assert not any("preamble" in str(group) for group in message_tags)
 
 
 class Test_that_an_agent_can_be_created_with_streaming_output_mode(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Streaming Agent",
-            description="Agent with streaming output mode",
+            prompt="Agent with streaming output mode",
             output_mode=p.OutputMode.STREAM,
         )
 

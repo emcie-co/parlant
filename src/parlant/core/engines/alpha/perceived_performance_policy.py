@@ -20,7 +20,7 @@ from typing_extensions import override
 from parlant.core.agents import AgentId
 from parlant.core.engines.alpha.engine_context import EngineContext
 from parlant.core.sessions import EventKind, EventSource, MessageEventData
-from parlant.core.tags import Tag
+from parlant.core.groups import GroupIds
 
 
 class PerceivedPerformancePolicy(ABC):
@@ -188,7 +188,7 @@ class BasicPerceivedPerformancePolicy(PerceivedPerformancePolicy):
 
         message_data = cast(MessageEventData, last_agent_message.data)
 
-        return Tag.preamble().id in message_data.get("tags", [])
+        return GroupIds.preamble() in message_data.get("groups", [])
 
     def _calculate_previous_customer_wait_times(self, context: EngineContext) -> list[float]:
         result = []

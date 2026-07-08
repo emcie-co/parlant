@@ -20,7 +20,7 @@ from typing import Mapping, Optional, Sequence, cast
 from typing_extensions import override
 
 from parlant.core import async_utils
-from parlant.core.common import Criticality, JSONSerializable, generate_id
+from parlant.core.common import Weight, JSONSerializable, generate_id
 from parlant.core.engines.alpha.guideline_matching.generic.common import internal_representation
 from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch import (
     DisambiguationGuidelineMatchesSchema,
@@ -73,12 +73,18 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matching_context im
 )
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.entity_cq import EntityQueries
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
+from parlant.core.rules import (
+    Rule as Guideline,
+    RuleContent as GuidelineContent,
+    RuleId as GuidelineId,
+    RuleStore as GuidelineStore,
+)
 from parlant.core.journeys import Journey, JourneyId, JourneyStore
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.relationships import RelationshipKind, RelationshipStore
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
@@ -87,9 +93,6 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         logger: Logger,
         meter: Meter,
         optimization_policy: OptimizationPolicy,
-        guideline_store: GuidelineStore,
-        journey_store: JourneyStore,
-        relationship_store: RelationshipStore,
         entity_queries: EntityQueries,
         observational_guideline_schematic_generator: SchematicGenerator[
             GenericObservationalGuidelineMatchesSchema
@@ -119,13 +122,11 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
             JourneyBacktrackCheckSchema
         ],
         response_analysis_schematic_generator: SchematicGenerator[GenericResponseAnalysisSchema],
+        store_provider: StoreProvider,
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._meter = meter
-
-        self._guideline_store = guideline_store
-        self._journey_store = journey_store
-        self._relationship_store = relationship_store
 
         self._optimization_policy = optimization_policy
         self._entity_queries = entity_queries
@@ -156,6 +157,22 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
             journey_backtrack_check_schematic_generator
         )
         self._response_analysis_schematic_generator = response_analysis_schematic_generator
+
+    @property
+    def _guideline_store(self) -> GuidelineStore:
+        return self._store_provider.get_store(
+            GuidelineStore, StoreProviderHints(call_site="engine")
+        )
+
+    @property
+    def _journey_store(self) -> JourneyStore:
+        return self._store_provider.get_store(JourneyStore, StoreProviderHints(call_site="engine"))
+
+    @property
+    def _relationship_store(self) -> RelationshipStore:
+        return self._store_provider.get_store(
+            RelationshipStore, StoreProviderHints(call_site="engine")
+        )
 
     @override
     async def create_matching_batches(
@@ -210,7 +227,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                         else:
                             previously_applied_actionable_guidelines.append(g)
                     else:
-                        if g.criticality == Criticality.LOW:
+                        if g.weight == Weight.LOW:
                             low_criticality_guidelines.append(g)
                         else:
                             actionable_guidelines.append(g)
@@ -305,6 +322,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                         guideline=Guideline(
                             id=cast(GuidelineId, f"<transient_{generate_id()}>"),
                             creation_utc=datetime.now(),
+                            modified_utc=datetime.now(),
                             content=GuidelineContent(
                                 condition=internal_representation(m.guideline).condition,
                                 action=cast(
@@ -314,12 +332,11 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
                                     ],
                                 ),
                             ),
-                            criticality=Criticality.MEDIUM,
+                            weight=Weight.MEDIUM,
                             enabled=True,
-                            tags=[],
+                            groups=[],
                             metadata={},
                         ),
-                        score=10,
                         rationale=m.rationale,
                         metadata=m.metadata,
                     )
@@ -336,7 +353,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     ) -> Sequence[GuidelineMatchingBatch]:
         journeys = list(
             chain.from_iterable(
-                self._entity_queries.guideline_and_journeys_it_depends_on.get(g.id, [])
+                self._entity_queries.rule_and_journeys_it_depends_on.get(g.id, [])
                 for g in guidelines
             )
         )
@@ -398,7 +415,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     ) -> Sequence[GuidelineMatchingBatch]:
         journeys = list(
             chain.from_iterable(
-                self._entity_queries.guideline_and_journeys_it_depends_on.get(g.id, [])
+                self._entity_queries.rule_and_journeys_it_depends_on.get(g.id, [])
                 for g in guidelines
             )
         )
@@ -460,7 +477,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     ) -> Sequence[GuidelineMatchingBatch]:
         journeys = list(
             chain.from_iterable(
-                self._entity_queries.guideline_and_journeys_it_depends_on.get(g.id, [])
+                self._entity_queries.rule_and_journeys_it_depends_on.get(g.id, [])
                 for g in guidelines
             )
         )
@@ -523,7 +540,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     ) -> Sequence[GuidelineMatchingBatch]:
         journeys = list(
             chain.from_iterable(
-                self._entity_queries.guideline_and_journeys_it_depends_on.get(g.id, [])
+                self._entity_queries.rule_and_journeys_it_depends_on.get(g.id, [])
                 for g in guidelines
             )
         )
@@ -585,7 +602,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     ) -> Sequence[GuidelineMatchingBatch]:
         journeys = list(
             chain.from_iterable(
-                self._entity_queries.guideline_and_journeys_it_depends_on.get(g.id, [])
+                self._entity_queries.rule_and_journeys_it_depends_on.get(g.id, [])
                 for g in guidelines
             )
         )
@@ -666,7 +683,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
     ) -> GenericDisambiguationGuidelineMatchingBatch:
         journeys = list(
             chain.from_iterable(
-                self._entity_queries.guideline_and_journeys_it_depends_on.get(g.id, [])
+                self._entity_queries.rule_and_journeys_it_depends_on.get(g.id, [])
                 for g in [disambiguation_guideline, *disambiguation_targets]
             )
         )
@@ -674,7 +691,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         return GenericDisambiguationGuidelineMatchingBatch(
             logger=self._logger,
             meter=self._meter,
-            journey_store=self._journey_store,
+            store_provider=self._store_provider,
             optimization_policy=self._optimization_policy,
             schematic_generator=self._disambiguation_guidelines_schematic_generator,
             disambiguation_guideline=disambiguation_guideline,
@@ -702,7 +719,7 @@ class GenericGuidelineMatchingStrategy(GuidelineMatchingStrategy):
         return GenericJourneyNodeSelectionBatch(
             logger=self._logger,
             meter=self._meter,
-            guideline_store=self._guideline_store,
+            store_provider=self._store_provider,
             optimization_policy=self._optimization_policy,
             schematic_generator_journey_node_selection=self._journey_node_selection_schematic_generator,
             schematic_generator_next_step_selection=self._journey_next_step_selection_schematic_generator,

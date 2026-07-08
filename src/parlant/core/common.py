@@ -16,10 +16,12 @@ from __future__ import annotations
 import base64
 from collections import defaultdict
 from enum import Enum
+import os
 import xxhash
 
 from typing import (
     Any,
+    Awaitable,
     Generic,
     Mapping,
     NewType,
@@ -36,6 +38,16 @@ import nanoid  # type: ignore
 from pydantic import BaseModel, ConfigDict
 import semver
 
+
+DISABLE_WARNINGS = os.getenv("PARLANT_WARNINGS", "1") in (
+    "0",
+    "false",
+    "False",
+    "no",
+    "No",
+    "n",
+    "N",
+)
 
 _ClassPropertyReturnType = TypeVar("_ClassPropertyReturnType")
 
@@ -157,6 +169,16 @@ class ItemNotFoundError(Exception):
             super().__init__(f"Item '{item_id}' not found")
 
 
+_T = TypeVar("_T")
+
+
+async def try_or_none(coro: Awaitable[_T]) -> Optional[_T]:
+    try:
+        return await coro
+    except ItemNotFoundError:
+        return None
+
+
 id_generation_alphabet: str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 
@@ -210,14 +232,14 @@ def to_json_dict(d: Mapping[str, Any]) -> Mapping[str, Any]:
     return {k: adapt_value(v) for k, v in d.items()}
 
 
-class Criticality(Enum):
-    """Enumeration of guideline criticality levels."""
+class Weight(Enum):
+    """Enumeration of rule weight levels."""
 
     LOW = "low"
-    """Low priority guideline."""
+    """Low-weight rule."""
 
     MEDIUM = "medium"
-    """Medium priority guideline (default)."""
+    """Medium-weight rule (default)."""
 
     HIGH = "high"
-    """High priority guideline."""
+    """High-weight rule."""

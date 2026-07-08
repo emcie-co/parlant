@@ -17,15 +17,16 @@ import json
 import traceback
 from typing import Optional, Sequence
 from parlant.core.common import DefaultBaseModel
-from parlant.core.engines.alpha.guideline_matching.generic.common import escape_json_string
+from parlant.core.engines.alpha.rule_matching.generic.common import escape_json_string
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.guidelines import GuidelineContent
+from parlant.core.rules import RuleContent
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.services.indexing.common import EvaluationError, ProgressReport
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.shots import Shot, ShotCollection
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 class CustomerDependentActionProposition(DefaultBaseModel):
@@ -43,7 +44,7 @@ class CustomerDependentActionSchema(DefaultBaseModel):
 
 @dataclass
 class CustomerDependentActionShot(Shot):
-    guideline: GuidelineContent
+    rule: RuleContent
     expected_result: CustomerDependentActionSchema
 
 
@@ -53,17 +54,23 @@ class CustomerDependentActionDetector:
         logger: Logger,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[CustomerDependentActionSchema],
-        service_registry: ServiceRegistry,
+        store_provider: StoreProvider,
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._optimization_policy = optimization_policy
 
         self._schematic_generator = schematic_generator
-        self._service_registry = service_registry
+
+    @property
+    def _service_registry(self) -> ServiceRegistry:
+        return self._store_provider.get_store(
+            ServiceRegistry, StoreProviderHints(call_site="engine")
+        )
 
     async def detect_if_customer_dependent(
         self,
-        guideline: GuidelineContent,
+        rule: RuleContent,
         progress_report: Optional[ProgressReport] = None,
     ) -> CustomerDependentActionProposition:
         if progress_report:
@@ -71,7 +78,7 @@ class CustomerDependentActionDetector:
 
         with self._logger.scope("CustomerDependentActionDetector"):
             generation_attempt_temperatures = (
-                self._optimization_policy.get_guideline_proposition_retry_temperatures(
+                self._optimization_policy.get_rule_proposition_retry_temperatures(
                     hints={"type": self.__class__.__name__}
                 )
             )
@@ -81,7 +88,7 @@ class CustomerDependentActionDetector:
             for generation_attempt in range(3):
                 try:
                     proposition = await self._generate_customer_dependent(
-                        guideline, temperature=generation_attempt_temperatures[generation_attempt]
+                        rule, temperature=generation_attempt_temperatures[generation_attempt]
                     )
 
                     if progress_report:
@@ -103,7 +110,7 @@ class CustomerDependentActionDetector:
             raise EvaluationError() from last_generation_exception
 
     async def _build_prompt(
-        self, guideline: GuidelineContent, shots: Sequence[CustomerDependentActionShot]
+        self, rule: RuleContent, shots: Sequence[CustomerDependentActionShot]
     ) -> PromptBuilder:
         builder = PromptBuilder()
 
@@ -112,10 +119,10 @@ class CustomerDependentActionDetector:
             template="""
 GENERAL INSTRUCTIONS
 -----------------
-In our system, the behavior of a conversational AI agent is guided by "guidelines". The agent makes use of these guidelines whenever it interacts with a user (also referred to as the customer).
-Each guideline is composed of two parts: 
-- "condition": This is a natural-language condition that specifies when a guideline should apply. We test against this condition to determine whether this guideline should be applied when generating the agent's next reply.
-- "action": This is a natural-language instruction that should be followed by the agent whenever the "condition" part of the guideline applies to the conversation in its particular state.
+In our system, the behavior of a conversational AI agent is guided by "rules". The agent makes use of these rules whenever it interacts with a user (also referred to as the customer).
+Each rule is composed of two parts:
+- "condition": This is a natural-language condition that specifies when a rule should apply. We test against this condition to determine whether this rule should be applied when generating the agent's next reply.
+- "action": This is a natural-language instruction that should be followed by the agent whenever the "condition" part of the rule applies to the conversation in its particular state.
 Any instruction described here applies only to the agent, and not to the user.
 
 While an action can only instruct the agent to do something, it may require something from the customer to be considered completed.
@@ -128,11 +135,11 @@ For example, the action "get the customer's account number" requires the custome
             template="""
 TASK DESCRIPTION
 -----------------
-Your task is to determine whether a given guideline’s action requires something from the customer in order for the action to be considered complete.
+Your task is to determine whether a given rule’s action requires something from the customer in order for the action to be considered complete.
 
 Actions that require input or behavior from the customer are called customer-dependent actions.
 
-Later in this prompt, you will be provided with a single guideline. The guideline’s condition is included for context, but your decision should be based only on the action.
+Later in this prompt, you will be provided with a single rule. The rule’s condition is included for context, but your decision should be based only on the action.
 
 Ask yourself: what must happen for this action to be considered complete? Is it something the agent alone must do, or does it also rely on a response or action from the customer?
 
@@ -143,9 +150,9 @@ Edge Cases to Consider:
 
 If you determine the action is customer dependent, you must also split it into:
  - the portion that depends solely on the agent (agent_action)
- - the portion that depends on the customer (customer_action). 
+ - the portion that depends on the customer (customer_action).
 
-Your decision will be used to asses whether this guideline was completed at different stages of the conversation. You should split the action such that it is considered complete if and only if both the agent and customer portions were completed.
+Your decision will be used to asses whether this rule was completed at different stages of the conversation. You should split the action such that it is considered complete if and only if both the agent and customer portions were completed.
 For example, the customer dependent action "ask the customer for their age" should be split into the agent_action "the agent asked the customer for their age" and the customer_action "the customer provided their age"
 """,
         )
@@ -158,24 +165,24 @@ EXAMPLES
             props={"shots_text": self._format_shots(shots)},
         )
         builder.add_section(
-            name="customer-dependent-action-detector-guideline",
+            name="customer-dependent-action-detector-rule",
             template="""
-GUIDELINE
+RULE
 -----------
 condition: {condition}
 action: {action}
 """,
             props={
-                "condition": escape_json_string(guideline.condition),
-                "action": escape_json_string(guideline.action) if guideline.action else None,
+                "condition": escape_json_string(rule.condition),
+                "action": escape_json_string(rule.action) if rule.action else None,
             },
         )
 
         builder.add_section(
-            name="guideline-action-proposer-output-format",
+            name="rule-action-proposer-output-format",
             template="""OUTPUT FORMAT
 -----------
-Use the following format to evaluate whether the guideline has a customer dependent action:
+Use the following format to evaluate whether the rule has a customer dependent action:
 Expected output (JSON):
 ```json
 {{
@@ -186,17 +193,17 @@ Expected output (JSON):
 }}
 ```
 """,
-            props={"action": escape_json_string(guideline.action) if guideline.action else None},
+            props={"action": escape_json_string(rule.action) if rule.action else None},
         )
 
         return builder
 
     async def _generate_customer_dependent(
         self,
-        guideline: GuidelineContent,
+        rule: RuleContent,
         temperature: float,
     ) -> CustomerDependentActionSchema:
-        prompt = await self._build_prompt(guideline, _baseline_shots)
+        prompt = await self._build_prompt(rule, _baseline_shots)
 
         response = await self._schematic_generator.generate(
             prompt=prompt,
@@ -209,9 +216,9 @@ Expected output (JSON):
         return "\n".join(
             [
                 f"""Example {i}: {shot.description}
-Guideline:
-    Condition: {shot.guideline.condition}
-    Action: {shot.guideline.action}
+Rule:
+    Condition: {shot.rule.condition}
+    Action: {shot.rule.action}
 
 Expected Response:
 {json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
@@ -222,29 +229,29 @@ Expected Response:
         )
 
 
-example_1_guideline = GuidelineContent(
+example_1_rule = RuleContent(
     condition="the customer wishes to submit an order",
     action="ask for their account number and shipping address. Inform them that it would take 3-5 business days.",
 )
 example_1_shot = CustomerDependentActionShot(
-    description="A guideline with a customer dependent action",
-    guideline=example_1_guideline,
+    description="A rule with a customer dependent action",
+    rule=example_1_rule,
     expected_result=CustomerDependentActionSchema(
-        action=example_1_guideline.action or "",
+        action=example_1_rule.action or "",
         is_customer_dependent=True,
         customer_action="The customer provided both their account number and shipping address",
         agent_action="The agent asks for the customer's account number and shipping address, and informs them that it would take 3-5 business days.",
     ),
 )
 
-example_2_guideline = GuidelineContent(
+example_2_rule = RuleContent(
     condition='asked "whats up dog"', action='reply with "nothing much, what\'s up with you?"'
 )
 example_2_shot = CustomerDependentActionShot(
-    description="A guideline whose action involves a question, but is not customer dependent",
-    guideline=example_2_guideline,
+    description="A rule whose action involves a question, but is not customer dependent",
+    rule=example_2_rule,
     expected_result=CustomerDependentActionSchema(
-        action=example_2_guideline.action or "", is_customer_dependent=False
+        action=example_2_rule.action or "", is_customer_dependent=False
     ),
 )
 

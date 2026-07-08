@@ -19,20 +19,23 @@ from typing import Annotated, Sequence, TypeAlias
 from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import (
     CompositionModeDTO,
+    EffortDTO,
     ExampleJson,
     MessageOutputModeDTO,
     apigen_config,
     composition_mode_dto_to_composition_mode,
     composition_mode_to_composition_mode_dto,
+    effort_dto_to_effort,
+    effort_to_effort_dto,
     example_json_content,
     message_output_mode_dto_to_message_output_mode,
     message_output_mode_to_message_output_mode_dto,
 )
-from parlant.core.app_modules.agents import AgentTagUpdateParamsModel
+from parlant.core.app_modules.agents import AgentGroupUpdateParamsModel
 from parlant.core.agents import AgentId
 from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
-from parlant.core.tags import TagId
+from parlant.core.groups import GroupId
 
 API_GROUP = "agents"
 
@@ -72,27 +75,27 @@ AgentMaxEngineIterationsField: TypeAlias = Annotated[
     ),
 ]
 
-AgentTagsField: TypeAlias = Annotated[
-    list[TagId],
+AgentGroupsField: TypeAlias = Annotated[
+    list[GroupId],
     Field(
-        description="List of tag IDs associated with the agent",
-        examples=[["tag1", "tag2"]],
+        description="List of group IDs associated with the agent",
+        examples=[["group1", "group2"]],
     ),
 ]
 
 AgentTagUpdateAddField: TypeAlias = Annotated[
-    list[TagId],
+    list[GroupId],
     Field(
-        description="List of tag IDs to add to the agent",
-        examples=[["tag1", "tag2"]],
+        description="List of group IDs to add to the agent",
+        examples=[["group1", "group2"]],
     ),
 ]
 
 AgentTagUpdateRemoveField: TypeAlias = Annotated[
-    list[TagId],
+    list[GroupId],
     Field(
-        description="List of tag IDs to remove from the agent",
-        examples=[["tag1", "tag2"]],
+        description="List of group IDs to remove from the agent",
+        examples=[["group1", "group2"]],
     ),
 ]
 agent_example: ExampleJson = {
@@ -103,7 +106,8 @@ agent_example: ExampleJson = {
     "max_engine_iterations": 3,
     "composition_mode": "fluid",
     "message_output_mode": "block",
-    "tags": ["tag1", "tag2"],
+    "effort": "medium",
+    "groups": ["group1", "group2"],
 }
 
 
@@ -126,7 +130,8 @@ class AgentDTO(
     max_engine_iterations: AgentMaxEngineIterationsField = 1
     composition_mode: CompositionModeDTO
     message_output_mode: MessageOutputModeDTO
-    tags: AgentTagsField = []
+    effort: EffortDTO
+    groups: AgentGroupsField = []
 
 
 agent_creation_params_example: ExampleJson = {
@@ -135,7 +140,8 @@ agent_creation_params_example: ExampleJson = {
     "max_engine_iterations": 3,
     "composition_mode": "fluid",
     "message_output_mode": "block",
-    "tags": ["tag1", "tag2"],
+    "effort": "medium",
+    "groups": ["group1", "group2"],
 }
 
 
@@ -154,7 +160,8 @@ class AgentCreationParamsDTO(
     - `max_engine_iterations`: Processing limit per request
     - `composition_mode`: How the agent composes responses
     - `message_output_mode`: How the agent outputs messages (block or streaming)
-    - `tags`: List of tag IDs to associate with the agent
+    - `effort`: How much effort the agent invests in processing
+    - `groups`: List of group IDs to associate with the agent
 
     Note: Agents must be created via the API before they can be used.
     """
@@ -165,7 +172,8 @@ class AgentCreationParamsDTO(
     max_engine_iterations: AgentMaxEngineIterationsField | None = None
     composition_mode: CompositionModeDTO | None = None
     message_output_mode: MessageOutputModeDTO | None = None
-    tags: AgentTagsField | None = None
+    effort: EffortDTO | None = None
+    groups: AgentGroupsField | None = None
 
 
 agent_update_params_example: ExampleJson = {
@@ -174,27 +182,28 @@ agent_update_params_example: ExampleJson = {
     "max_engine_iterations": 3,
     "composition_mode": "fluid",
     "message_output_mode": "block",
+    "effort": "medium",
 }
 
 
-tags_update_params_example: ExampleJson = {
+groups_update_params_example: ExampleJson = {
     "add": [
         "t9a8g703f4",
-        "tag_456abc",
+        "group_456abc",
     ],
     "remove": [
-        "tag_789def",
-        "tag_012ghi",
+        "group_789def",
+        "group_012ghi",
     ],
 }
 
 
-class AgentTagUpdateParamsDTO(
+class AgentGroupUpdateParamsDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": tags_update_params_example},
+    json_schema_extra={"example": groups_update_params_example},
 ):
     """
-    Parameters for updating an existing agent's tags.
+    Parameters for updating an existing agent's groups.
     """
 
     add: AgentTagUpdateAddField | None = None
@@ -217,7 +226,8 @@ class AgentUpdateParamsDTO(
     max_engine_iterations: AgentMaxEngineIterationsField | None = None
     composition_mode: CompositionModeDTO | None = None
     message_output_mode: MessageOutputModeDTO | None = None
-    tags: AgentTagUpdateParamsDTO | None = None
+    effort: EffortDTO | None = None
+    groups: AgentGroupUpdateParamsDTO | None = None
 
 
 def create_router(
@@ -275,7 +285,8 @@ def create_router(
             )
             if params and params.message_output_mode
             else None,
-            tags=params.tags,
+            effort=effort_dto_to_effort(params.effort) if params and params.effort else None,
+            groups=params.groups,
             id=params.id if params else None,
         )
 
@@ -289,7 +300,8 @@ def create_router(
             message_output_mode=message_output_mode_to_message_output_mode_dto(
                 agent.message_output_mode
             ),
-            tags=agent.tags,
+            effort=effort_to_effort_dto(agent.effort),
+            groups=agent.groups,
         )
 
     @router.get(
@@ -329,7 +341,8 @@ def create_router(
                 message_output_mode=message_output_mode_to_message_output_mode_dto(
                     a.message_output_mode
                 ),
-                tags=a.tags,
+                effort=effort_to_effort_dto(a.effort),
+                groups=a.groups,
             )
             for a in agents
         ]
@@ -378,7 +391,8 @@ def create_router(
             message_output_mode=message_output_mode_to_message_output_mode_dto(
                 agent.message_output_mode
             ),
-            tags=agent.tags,
+            effort=effort_to_effort_dto(agent.effort),
+            groups=agent.groups,
         )
 
     @router.patch(
@@ -428,8 +442,9 @@ def create_router(
             )
             if params.message_output_mode
             else None,
-            tags=AgentTagUpdateParamsModel(add=params.tags.add, remove=params.tags.remove)
-            if params.tags
+            effort=effort_dto_to_effort(params.effort) if params.effort else None,
+            groups=AgentGroupUpdateParamsModel(add=params.groups.add, remove=params.groups.remove)
+            if params.groups
             else None,
         )
 
@@ -443,7 +458,8 @@ def create_router(
             message_output_mode=message_output_mode_to_message_output_mode_dto(
                 agent.message_output_mode
             ),
-            tags=agent.tags,
+            effort=effort_to_effort_dto(agent.effort),
+            groups=agent.groups,
         )
 
     @router.delete(

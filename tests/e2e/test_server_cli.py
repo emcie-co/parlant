@@ -62,18 +62,18 @@ async def test_that_the_server_starts_and_generates_a_message(
         )
 
 
-async def test_that_guidelines_are_loaded_after_server_restarts(
+async def test_that_rules_are_loaded_after_server_restarts(
     context: ContextOfTest,
 ) -> None:
     with run_server(context) as server_process:
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
-        first = await context.api.create_guideline(
+        first = await context.api.create_rule(
             condition="the customer greets you",
             action="greet them back with 'Hello'",
         )
 
-        second = await context.api.create_guideline(
+        second = await context.api.create_rule(
             condition="the customer say goodbye",
             action="say goodbye",
         )
@@ -85,13 +85,13 @@ async def test_that_guidelines_are_loaded_after_server_restarts(
     with run_server(context) as server_process:
         await asyncio.sleep(EXTENDED_AMOUNT_OF_TIME)
 
-        guidelines = await context.api.list_guidelines()
+        rules = await context.api.list_rules()
 
-        assert any(first["condition"] == g["condition"] for g in guidelines)
-        assert any(first["action"] == g["action"] for g in guidelines)
+        assert any(first["condition"] == g["condition"] for g in rules)
+        assert any(first["action"] == g["action"] for g in rules)
 
-        assert any(second["condition"] == g["condition"] for g in guidelines)
-        assert any(second["action"] == g["action"] for g in guidelines)
+        assert any(second["condition"] == g["condition"] for g in rules)
+        assert any(second["action"] == g["action"] for g in rules)
 
 
 async def test_that_context_variable_values_load_after_server_restart(
@@ -174,12 +174,12 @@ async def test_that_server_starts_with_single_module(context: ContextOfTest) -> 
 
         agent = await context.api.get_first_agent()
 
-        guideline = await context.api.create_guideline(
+        rule = await context.api.create_rule(
             condition="the user asks about product categories",
             action="tell them what product categories are available",
         )
         _ = await context.api.add_association(
-            guideline_id=guideline["id"],
+            rule_id=rule["id"],
             service_name="tech-store",
             tool_name="list_categories",
         )

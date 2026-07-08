@@ -42,6 +42,7 @@ from parlant.core.persistence.vector_database import (
     InsertResult,
     SimilarDocumentResult,
     UpdateResult,
+    VectorCollectionIndex,
     VectorDatabase,
     TDocument,
     identity_loader,
@@ -472,6 +473,13 @@ class ChromaCollection(Generic[TDocument], BaseVectorCollection[TDocument]):
         self._lock = ReaderWriterLock()
         self._unembedded_collection = unembedded_collection
         self.embedded_collection = embedded_collection
+
+    @override
+    async def ensure_indexes(
+        self,
+        indexes: Sequence[VectorCollectionIndex],
+    ) -> None:
+        pass
 
     @override
     async def find(

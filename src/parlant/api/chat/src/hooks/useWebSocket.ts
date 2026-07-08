@@ -9,7 +9,10 @@ interface WebSocketOptions {
 
 export const useWebSocket = (url: string, defaultRunning?: boolean, options?: WebSocketOptions | null, lastMessageFn?: (message: any) => void) => {
 	const [isConnected, setIsConnected] = useState(false);
-	const [lastMessage, setLastMessage] = useState<string | null>(null);
+	// Held in a ref, not state: the /logs socket can deliver a high-volume firehose,
+	// and calling setState on every frame would re-render the consumer per log. No
+	// caller reads this reactively, so a ref keeps the API without the churn.
+	const lastMessageRef = useRef<string | null>(null);
 	const [isRunning, setIsRunning] = useState(false);
 	const socketRef = useRef<WebSocket | null>(null);
 
@@ -52,7 +55,7 @@ export const useWebSocket = (url: string, defaultRunning?: boolean, options?: We
 
 		socket.addEventListener('message', (event) => {
 			const data = JSON.parse(event.data || '{}');
-			setLastMessage(event.data);
+			lastMessageRef.current = event.data;
 			lastMessageFn?.(data);
 			options?.onMessage?.(event.data);
 		});
@@ -92,5 +95,5 @@ export const useWebSocket = (url: string, defaultRunning?: boolean, options?: We
 		};
 	}, []);
 
-	return {isConnected, lastMessage, sendMessage, start, pause, isRunning};
+	return {isConnected, lastMessage: lastMessageRef.current, sendMessage, start, pause, isRunning};
 };

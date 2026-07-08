@@ -17,12 +17,12 @@ from pydantic import Field
 from typing import Annotated, Sequence, TypeAlias
 
 from parlant.api.authorization import AuthorizationPolicy, Operation
-from parlant.core.app_modules.capabilities import CapabilityTagUpdateParamsModel
+from parlant.core.app_modules.capabilities import CapabilityGroupUpdateParamsModel
 from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
 from parlant.api.common import ExampleJson, apigen_config, example_json_content
 from parlant.core.capabilities import CapabilityId
-from parlant.core.tags import TagId
+from parlant.core.groups import GroupId
 
 API_GROUP = "capabilities"
 
@@ -61,11 +61,11 @@ CapabilitySignalsField: TypeAlias = Annotated[
     ),
 ]
 
-CapabilityTagsField: TypeAlias = Annotated[
-    list[TagId],
+CapabilityGroupsField: TypeAlias = Annotated[
+    list[GroupId],
     Field(
-        description="List of tag IDs associated with the capability",
-        examples=[["tag1", "tag2"]],
+        description="List of group IDs associated with the capability",
+        examples=[["group1", "group2"]],
     ),
 ]
 
@@ -74,7 +74,7 @@ capability_example: ExampleJson = {
     "title": "Provide Replacement Phone",
     "description": "Provide a replacement phone when a customer needs repair for their phone.",
     "signals": ["My phone is broken", "I need a replacement while my phone is being repaired"],
-    "tags": ["tag1", "tag2"],
+    "groups": ["group1", "group2"],
 }
 
 
@@ -90,7 +90,7 @@ class CapabilityDTO(
     title: CapabilityTitleField
     description: CapabilityDescriptionField
     signals: CapabilitySignalsField
-    tags: CapabilityTagsField = []
+    groups: CapabilityGroupsField = []
 
 
 class CapabilityCreationParamsDTO(
@@ -104,37 +104,37 @@ class CapabilityCreationParamsDTO(
     title: CapabilityTitleField
     description: CapabilityDescriptionField
     signals: CapabilitySignalsField
-    tags: CapabilityTagsField | None = None
+    groups: CapabilityGroupsField | None = None
 
 
 CapabilityTagUpdateAddField: TypeAlias = Annotated[
-    list[TagId],
+    list[GroupId],
     Field(
-        description="List of tag IDs to add to the capability",
-        examples=[["tag1", "tag2"]],
+        description="List of group IDs to add to the capability",
+        examples=[["group1", "group2"]],
     ),
 ]
 
 CapabilityTagUpdateRemoveField: TypeAlias = Annotated[
-    list[TagId],
+    list[GroupId],
     Field(
-        description="List of tag IDs to remove from the capability",
-        examples=[["tag1", "tag2"]],
+        description="List of group IDs to remove from the capability",
+        examples=[["group1", "group2"]],
     ),
 ]
 
-capability_tag_update_params_example: ExampleJson = {
-    "add": ["tag1", "tag2"],
-    "remove": ["tag3"],
+capability_group_update_params_example: ExampleJson = {
+    "add": ["group1", "group2"],
+    "remove": ["group3"],
 }
 
 
-class CapabilityTagUpdateParamsDTO(
+class CapabilityGroupUpdateParamsDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": capability_tag_update_params_example},
+    json_schema_extra={"example": capability_group_update_params_example},
 ):
     """
-    Parameters for updating an existing capability's tags.
+    Parameters for updating an existing capability's groups.
     """
 
     add: CapabilityTagUpdateAddField | None = None
@@ -153,14 +153,14 @@ class CapabilityUpdateParamsDTO(
     title: CapabilityTitleField | None = None
     description: CapabilityDescriptionField | None = None
     signals: CapabilitySignalsField | None = None
-    tags: CapabilityTagUpdateParamsDTO | None = None
+    groups: CapabilityGroupUpdateParamsDTO | None = None
 
 
-TagIdQuery: TypeAlias = Annotated[
-    TagId | None,
+GroupIdQuery: TypeAlias = Annotated[
+    GroupId | None,
     Query(
-        description="The tag ID to filter capabilities by",
-        examples=["tag:123"],
+        description="The group ID to filter capabilities by",
+        examples=["group:123"],
     ),
 ]
 
@@ -194,7 +194,7 @@ def create_router(
         """
         Creates a new capability in the system.
 
-        The capability will be initialized with the provided title, description, signals, and optional tags.
+        The capability will be initialized with the provided title, description, signals, and optional groups.
         A unique identifier will be automatically generated.
 
         Default behaviors:
@@ -203,7 +203,7 @@ def create_router(
         await authorization_policy.authorize(request, Operation.CREATE_CAPABILITY)
 
         capability = await app.capabilities.create(
-            params.title, params.description, params.signals, params.tags
+            params.title, params.description, params.signals, params.groups
         )
 
         return CapabilityDTO(
@@ -211,7 +211,7 @@ def create_router(
             title=capability.title,
             description=capability.description,
             signals=capability.signals,
-            tags=capability.tags,
+            groups=capability.groups,
         )
 
     @router.get(
@@ -228,7 +228,7 @@ def create_router(
     )
     async def list_capabilities(
         request: Request,
-        tag_id: TagIdQuery = None,
+        group_id: GroupIdQuery = None,
     ) -> Sequence[CapabilityDTO]:
         """
         Retrieves a list of all capabilities in the system.
@@ -238,7 +238,7 @@ def create_router(
         """
         await authorization_policy.authorize(request, Operation.LIST_CAPABILITIES)
 
-        capabilities = await app.capabilities.find(tag_id)
+        capabilities = await app.capabilities.find(group_id)
 
         return [
             CapabilityDTO(
@@ -246,7 +246,7 @@ def create_router(
                 title=capability.title,
                 description=capability.description,
                 signals=capability.signals,
-                tags=capability.tags,
+                groups=capability.groups,
             )
             for capability in capabilities
         ]
@@ -284,7 +284,7 @@ def create_router(
             title=capability.title,
             description=capability.description,
             signals=capability.signals,
-            tags=capability.tags,
+            groups=capability.groups,
         )
 
     @router.patch(
@@ -323,11 +323,11 @@ def create_router(
             title=params.title,
             description=params.description,
             signals=params.signals,
-            tags=CapabilityTagUpdateParamsModel(
-                add=params.tags.add,
-                remove=params.tags.remove,
+            groups=CapabilityGroupUpdateParamsModel(
+                add=params.groups.add,
+                remove=params.groups.remove,
             )
-            if params.tags
+            if params.groups
             else None,
         )
 
@@ -336,7 +336,7 @@ def create_router(
             title=capability.title,
             description=capability.description,
             signals=capability.signals,
-            tags=capability.tags,
+            groups=capability.groups,
         )
 
     @router.delete(

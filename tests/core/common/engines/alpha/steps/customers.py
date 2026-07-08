@@ -16,7 +16,7 @@ from pytest_bdd import given, parsers
 
 from parlant.core.customers import CustomerStore, CustomerId
 from parlant.core.sessions import SessionStore, SessionId
-from parlant.core.tags import TagStore, TagId
+from parlant.core.groups import GroupStore, GroupId
 
 from tests.core.common.engines.alpha.utils import step
 from tests.core.common.utils import ContextOfTest
@@ -34,33 +34,33 @@ def given_a_customer(
     return customer.id
 
 
-@step(given, parsers.parse('a tag "{tag_name}"'))
+@step(given, parsers.parse('a group "{group_name}"'))
 def given_a_tag(
     context: ContextOfTest,
-    tag_name: str,
-) -> TagId:
-    tag_store = context.container[TagStore]
+    group_name: str,
+) -> GroupId:
+    group_store = context.container[GroupStore]
 
-    tag = context.sync_await(tag_store.create_tag(tag_name))
+    group = context.sync_await(group_store.create_group(group_name))
 
-    return tag.id
+    return group.id
 
 
-@step(given, parsers.parse('a customer tagged as "{tag_name}"'))
+@step(given, parsers.parse('a customer grouped as "{group_name}"'))
 def given_a_customer_tag(
     context: ContextOfTest,
     session_id: SessionId,
-    tag_name: str,
+    group_name: str,
 ) -> None:
     session_store = context.container[SessionStore]
     customer_store = context.container[CustomerStore]
-    tag_store = context.container[TagStore]
-    tag = next(t for t in context.sync_await(tag_store.list_tags()) if t.name == tag_name)
+    group_store = context.container[GroupStore]
+    group = next(t for t in context.sync_await(group_store.list_groups()) if t.name == group_name)
     customer_id = context.sync_await(session_store.read_session(session_id)).customer_id
 
     context.sync_await(
-        customer_store.upsert_tag(
+        customer_store.upsert_group(
             customer_id=customer_id,
-            tag_id=tag.id,
+            group_id=group.id,
         )
     )

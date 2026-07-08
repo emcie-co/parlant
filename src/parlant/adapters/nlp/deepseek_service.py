@@ -76,13 +76,21 @@ class DeepSeekSchematicGenerator(BaseSchematicGenerator[T]):
     supported_deepseek_params = ["temperature", "logit_bias", "max_tokens"]
     supported_hints = supported_deepseek_params + ["strict"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name=model_name,
+        )
 
         self._client = AsyncClient(
             base_url="https://api.deepseek.com",
@@ -203,8 +211,16 @@ class DeepSeekSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class DeepSeek_Chat(DeepSeekSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(model_name="deepseek-chat", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
+        super().__init__(
+            model_name="deepseek-chat",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+        )
 
     @property
     @override
@@ -225,10 +241,12 @@ Please set DEEPSEEK_API_KEY in your environment before running Parlant.
 
         return None
 
-    def __init__(self,
+    def __init__(
+        self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
         self._logger = logger
         self._tracer = tracer

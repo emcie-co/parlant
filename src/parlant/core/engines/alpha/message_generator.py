@@ -42,7 +42,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
     ToolInsights,
     InvalidToolData,
 )
-from parlant.core.guidelines import GuidelineId
+from parlant.core.rules import RuleId as GuidelineId
 from parlant.core.journeys import Journey
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
@@ -545,8 +545,21 @@ If you inform of missing data that contains choices then present all of of the c
 
 """,
                 props={
-                    "formatted_missing_data": self._format_missing_data(tool_insights.missing_data),
-                    "missing_data": tool_insights.missing_data,
+                    "formatted_missing_data": self._format_missing_data(
+                        list(
+                            chain.from_iterable(
+                                [
+                                    missing_data
+                                    for missing_data_params in tool_insights.missing_data.values()
+                                    for missing_data in missing_data_params.values()
+                                ]
+                            )
+                        )
+                    ),
+                    "missing_data": {
+                        tid.to_string(): tool_insights.missing_data[tid]
+                        for tid in tool_insights.missing_data
+                    },
                 },
             )
 
@@ -564,8 +577,16 @@ You should inform the user about this invalid data and if it includes choices th
 
 """,
                 props={
-                    "formatted_invalid_data": self._format_invalid_data(tool_insights.invalid_data),
-                    "invalid_data": tool_insights.invalid_data,
+                    "formatted_invalid_data": self._format_invalid_data(
+                        list(
+                            chain.from_iterable(
+                                invalid_data
+                                for invalid_data_params in tool_insights.invalid_data.values()
+                                for invalid_data in invalid_data_params.values()
+                            )
+                        )
+                    ),
+                    "invalid_data": json.dumps(tool_insights.invalid_data),
                 },
             )
 

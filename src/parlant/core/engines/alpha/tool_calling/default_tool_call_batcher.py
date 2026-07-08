@@ -38,6 +38,7 @@ from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.relationships import RelationshipStore, RelationshipKind
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.tools import Tool, ToolId, ToolOverlap
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 class DefaultToolCallBatcher(ToolCallBatcher):
@@ -46,20 +47,30 @@ class DefaultToolCallBatcher(ToolCallBatcher):
         logger: Logger,
         meter: Meter,
         optimization_policy: OptimizationPolicy,
-        service_registry: ServiceRegistry,
         single_tool_schematic_generator: SchematicGenerator[SingleToolBatchSchema],
         simple_tool_schematic_generator: SchematicGenerator[NonConsequentialToolBatchSchema],
         overlapping_tools_schematic_generator: SchematicGenerator[OverlappingToolsBatchSchema],
-        relationship_store: RelationshipStore,
+        store_provider: StoreProvider,
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._meter = meter
         self._optimization_policy = optimization_policy
-        self._service_registry = service_registry
         self._single_tool_schematic_generator = single_tool_schematic_generator
         self._simple_tool_schematic_generator = simple_tool_schematic_generator
         self._overlapping_tools_schematic_generator = overlapping_tools_schematic_generator
-        self._relationship_store = relationship_store
+
+    @property
+    def _service_registry(self) -> ServiceRegistry:
+        return self._store_provider.get_store(
+            ServiceRegistry, StoreProviderHints(call_site="engine")
+        )
+
+    @property
+    def _relationship_store(self) -> RelationshipStore:
+        return self._store_provider.get_store(
+            RelationshipStore, StoreProviderHints(call_site="engine")
+        )
 
     async def create_batches(
         self,
@@ -175,7 +186,7 @@ class DefaultToolCallBatcher(ToolCallBatcher):
             logger=self._logger,
             meter=self._meter,
             optimization_policy=self._optimization_policy,
-            service_registry=self._service_registry,
+            store_provider=self._store_provider,
             consequential_schema_generator=self._single_tool_schematic_generator,
             non_consequential_schema_generator=self._simple_tool_schematic_generator,
             candidate_tool=candidate_tool,
@@ -191,7 +202,7 @@ class DefaultToolCallBatcher(ToolCallBatcher):
             logger=self._logger,
             meter=self._meter,
             optimization_policy=self._optimization_policy,
-            service_registry=self._service_registry,
+            store_provider=self._store_provider,
             schematic_generator=self._overlapping_tools_schematic_generator,
             overlapping_tools_batch=overlapping_tools_batch,
             context=context,

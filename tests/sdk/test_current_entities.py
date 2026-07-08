@@ -35,7 +35,7 @@ class Test_that_hooks_can_access_current_sdk_entities(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Test Agent",
-            description="A test agent",
+            prompt="A test agent",
         )
 
     async def run(self, ctx: Context) -> None:

@@ -13,12 +13,11 @@
 # limitations under the License.
 
 from collections import defaultdict
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import traceback
 import json
-from typing import Optional
+from typing import Optional, Sequence
 from typing_extensions import override
 from parlant.core.common import DefaultBaseModel, JSONSerializable
 from parlant.core.engines.alpha.guideline_matching.common import measure_guideline_matching_batch
@@ -39,14 +38,19 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matching_context im
 )
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.rules import (
+    Rule as Guideline,
+    RuleContent as GuidelineContent,
+    RuleId as GuidelineId,
+)
 from parlant.core.journeys import JourneyId, JourneyStore
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import Event, EventId, EventKind, EventSource
 from parlant.core.shots import Shot, ShotCollection
-from parlant.core.tags import Tag
+from parlant.core.groups import GroupIds
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 class GuidelineCheck(DefaultBaseModel):
@@ -86,22 +90,25 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
         self,
         logger: Logger,
         meter: Meter,
-        journey_store: JourneyStore,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[DisambiguationGuidelineMatchesSchema],
         disambiguation_guideline: Guideline,
         disambiguation_targets: Sequence[Guideline],
         context: GuidelineMatchingContext,
+        store_provider: StoreProvider,
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._meter = meter
-
-        self._journey_store = journey_store
         self._optimization_policy = optimization_policy
         self._schematic_generator = schematic_generator
         self._disambiguation_guideline = disambiguation_guideline
         self._disambiguation_targets = disambiguation_targets
         self._context = context
+
+    @property
+    def _journey_store(self) -> JourneyStore:
+        return self._store_provider.get_store(JourneyStore, StoreProviderHints(call_site="engine"))
 
     @property
     @override
@@ -115,13 +122,13 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
         journey_to_conditions = defaultdict(list)
         guidelines_targets = []
         for g in disambiguation_targets:
-            for t in g.tags:
-                if journey_id := Tag.extract_journey_id(t):
+            for t in g.groups:
+                if journey_id := GroupIds.extract_journey_id(t):
                     journey_to_conditions[journey_id].append(g)
                 else:
                     guidelines_targets.append(g)
                     continue
-            if not g.tags:
+            if not g.groups:
                 guidelines_targets.append(g)
 
         guidelines = {}
@@ -200,17 +207,28 @@ class GenericDisambiguationGuidelineMatchingBatch(GuidelineMatchingBatch):
                             f"Not matched (disambiguation):\n{inference.content.model_dump_json(indent=2)}"
                         )
 
-                    matches = [
-                        GuidelineMatch(
-                            guideline=self._disambiguation_guideline,
-                            score=10 if inference.content.is_ambiguous else 1,
-                            rationale=f'''Disambiguation rationale: "{inference.content.tldr}"''',
-                            metadata=metadata,
-                        )
-                    ]
+                    if inference.content.is_ambiguous:
+                        matched_guidelines = [
+                            GuidelineMatch(
+                                guideline=self._disambiguation_guideline,
+                                rationale=f'''Disambiguation rationale: "{inference.content.tldr}"''',
+                                metadata=metadata,
+                            )
+                        ]
+                        skipped_guidelines = []
+                    else:
+                        matched_guidelines = []
+                        skipped_guidelines = [
+                            GuidelineMatch(
+                                guideline=self._disambiguation_guideline,
+                                rationale=inference.content.tldr,
+                                metadata=metadata,
+                            )
+                        ]
 
                     return GuidelineMatchingBatchResult(
-                        matches=matches,
+                        matched_guidelines=matched_guidelines,
+                        skipped_guidelines=skipped_guidelines,
                         generation_info=inference.info,
                     )
 
@@ -450,6 +468,7 @@ def _make_event(e_id: str, source: EventSource, message: str) -> Event:
         source=source,
         kind=EventKind.MESSAGE,
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         offset=0,
         trace_id="",
         data={"message": message},

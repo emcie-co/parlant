@@ -21,10 +21,10 @@ from lagom import Container
 
 from parlant.core.agents import AgentStore, CompositionMode, MessageOutputMode
 from parlant.core.canned_responses import CannedResponseField, CannedResponseStore
-from parlant.core.common import Criticality
+from parlant.core.common import Weight
 from parlant.core.context_variables import ContextVariableStore
 from parlant.core.glossary import GlossaryStore
-from parlant.core.guidelines import GuidelineStore
+from parlant.core.rules import RuleStore
 from parlant.core.journeys import JourneyStore
 from parlant.core.relationships import (
     RelationshipEntity,
@@ -35,7 +35,7 @@ from parlant.core.relationships import (
 from parlant.core.services.indexing.common import ProgressReport
 from parlant.core.services.indexing.indexer import IndexRequest, Indexer
 from parlant.core.services.tools.service_registry import ServiceRegistry
-from parlant.core.tags import TagId
+from parlant.core.groups import GroupId
 from parlant.core.tools import LocalToolService, ToolId, ToolOverlap, ToolParameterOptions
 
 
@@ -43,7 +43,7 @@ class _CapturingIndexer(Indexer):
     def __init__(
         self,
         agent_store: AgentStore,
-        guideline_store: GuidelineStore,
+        rule_store: RuleStore,
         journey_store: JourneyStore,
         relationship_store: RelationshipStore,
         glossary_store: GlossaryStore,
@@ -53,7 +53,7 @@ class _CapturingIndexer(Indexer):
     ) -> None:
         super().__init__(
             agent_store=agent_store,
-            guideline_store=guideline_store,
+            rule_store=rule_store,
             journey_store=journey_store,
             relationship_store=relationship_store,
             glossary_store=glossary_store,
@@ -74,7 +74,7 @@ class _CapturingIndexer(Indexer):
 def _make_indexer(container: Container) -> _CapturingIndexer:
     return _CapturingIndexer(
         agent_store=container[AgentStore],
-        guideline_store=container[GuidelineStore],
+        rule_store=container[RuleStore],
         journey_store=container[JourneyStore],
         relationship_store=container[RelationshipStore],
         glossary_store=container[GlossaryStore],
@@ -88,7 +88,7 @@ async def test_that_indexer_run_walks_all_stores_and_yields_one_request_per_enti
     container: Container,
 ) -> None:
     agent = await container[AgentStore].create_agent(name="Agent A", description="d")
-    guideline = await container[GuidelineStore].create_guideline(
+    rule = await container[RuleStore].create_rule(
         condition="customer says hi",
         action="reply",
     )
@@ -109,8 +109,8 @@ async def test_that_indexer_run_walks_all_stores_and_yields_one_request_per_enti
         value="Hello!",
     )
     relationship = await container[RelationshipStore].create_relationship(
-        source=RelationshipEntity(id=guideline.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=guideline.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=rule.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=rule.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.ENTAILMENT,
     )
 
@@ -120,7 +120,7 @@ async def test_that_indexer_run_walks_all_stores_and_yields_one_request_per_enti
     payload = indexer.captured_payload
 
     assert agent.id in payload["agents"]
-    assert guideline.id in payload["guidelines"]
+    assert rule.id in payload["rules"]
     assert journey.id in payload["journeys"]
     assert term.id in payload["glossary"]
     assert variable.id in payload["context_variables"]
@@ -145,7 +145,7 @@ async def test_that_run_invokes_progress_callback_and_reaches_one_hundred_percen
 
     indexer = _CountingIndexer(
         agent_store=container[AgentStore],
-        guideline_store=container[GuidelineStore],
+        rule_store=container[RuleStore],
         journey_store=container[JourneyStore],
         relationship_store=container[RelationshipStore],
         glossary_store=container[GlossaryStore],
@@ -171,7 +171,7 @@ async def test_that_null_indexer_advances_progress_to_full(
     from parlant.core.services.indexing.indexer import NullIndexer
 
     await container[AgentStore].create_agent(name="Agent", description=None)
-    await container[GuidelineStore].create_guideline(condition="c", action="a")
+    await container[RuleStore].create_rule(condition="c", action="a")
 
     captured: list[float] = []
 
@@ -180,7 +180,7 @@ async def test_that_null_indexer_advances_progress_to_full(
 
     indexer = NullIndexer(
         agent_store=container[AgentStore],
-        guideline_store=container[GuidelineStore],
+        rule_store=container[RuleStore],
         journey_store=container[JourneyStore],
         relationship_store=container[RelationshipStore],
         glossary_store=container[GlossaryStore],
@@ -197,18 +197,18 @@ async def test_that_null_indexer_advances_progress_to_full(
 async def test_that_payload_is_keyed_by_category_then_entity_id(
     container: Container,
 ) -> None:
-    g1 = await container[GuidelineStore].create_guideline(condition="c1", action="a1")
-    g2 = await container[GuidelineStore].create_guideline(condition="c2", action="a2")
+    g1 = await container[RuleStore].create_rule(condition="c1", action="a1")
+    g2 = await container[RuleStore].create_rule(condition="c2", action="a2")
 
     indexer = _make_indexer(container)
     await indexer.run()
 
     payload = indexer.captured_payload
 
-    assert "guidelines" in payload
-    assert set(payload["guidelines"].keys()) >= {g1.id, g2.id}
-    assert payload["guidelines"][g1.id].id == g1.id
-    assert payload["guidelines"][g2.id].id == g2.id
+    assert "rules" in payload
+    assert set(payload["rules"].keys()) >= {g1.id, g2.id}
+    assert payload["rules"][g1.id].id == g1.id
+    assert payload["rules"][g2.id].id == g2.id
 
 
 async def test_that_existing_checksum_is_preferred_over_computed_one(
@@ -367,25 +367,25 @@ async def test_that_agent_is_serialized_with_all_fields_including_composition_an
     assert data["max_engine_iterations"] == 5
     assert data["composition_mode"] == "canned_strict"
     assert data["message_output_mode"] == "stream"
-    assert data["tags"] == []
+    assert data["groups"] == []
 
 
-async def test_that_actionable_guideline_is_serialized_with_action_metadata_and_criticality(
+async def test_that_actionable_rule_is_serialized_with_action_metadata_and_criticality(
     container: Container,
 ) -> None:
-    guideline = await container[GuidelineStore].create_guideline(
+    rule = await container[RuleStore].create_rule(
         condition="customer says hi",
         action="reply with a greeting",
-        criticality=Criticality.HIGH,
+        weight=Weight.HIGH,
         metadata={"foo": "bar"},
     )
 
     indexer = _make_indexer(container)
     await indexer.run()
 
-    data = indexer.captured_payload["guidelines"][guideline.id].data
+    data = indexer.captured_payload["rules"][rule.id].data
     assert isinstance(data, dict)
-    assert data["id"] == guideline.id
+    assert data["id"] == rule.id
     assert isinstance(data["content"], dict)
     assert data["content"]["condition"] == "customer says hi"
     assert data["content"]["action"] == "reply with a greeting"
@@ -394,10 +394,10 @@ async def test_that_actionable_guideline_is_serialized_with_action_metadata_and_
     assert data["metadata"] == {"foo": "bar"}
 
 
-async def test_that_observational_guideline_is_serialized_with_null_action(
+async def test_that_observational_rule_is_serialized_with_null_action(
     container: Container,
 ) -> None:
-    guideline = await container[GuidelineStore].create_guideline(
+    rule = await container[RuleStore].create_rule(
         condition="customer is silent",
         action=None,
     )
@@ -405,7 +405,7 @@ async def test_that_observational_guideline_is_serialized_with_null_action(
     indexer = _make_indexer(container)
     await indexer.run()
 
-    data = indexer.captured_payload["guidelines"][guideline.id].data
+    data = indexer.captured_payload["rules"][rule.id].data
     assert isinstance(data, dict)
     assert isinstance(data["content"], dict)
     assert data["content"]["condition"] == "customer is silent"
@@ -415,14 +415,14 @@ async def test_that_observational_guideline_is_serialized_with_null_action(
 async def test_that_journey_is_serialized_with_triggers_and_root_node_id(
     container: Container,
 ) -> None:
-    trigger_guideline = await container[GuidelineStore].create_guideline(
+    trigger_rule = await container[RuleStore].create_rule(
         condition="customer asks to onboard",
         action=None,
     )
     journey = await container[JourneyStore].create_journey(
         title="Onboarding",
         description="Walks the customer through onboarding",
-        triggers=[trigger_guideline.id],
+        triggers=[trigger_rule.id],
     )
 
     indexer = _make_indexer(container)
@@ -433,7 +433,7 @@ async def test_that_journey_is_serialized_with_triggers_and_root_node_id(
     assert data["id"] == journey.id
     assert data["title"] == "Onboarding"
     assert data["description"] == "Walks the customer through onboarding"
-    assert data["triggers"] == [trigger_guideline.id]
+    assert data["triggers"] == [trigger_rule.id]
     assert data["root_id"] == journey.root_id
 
 
@@ -444,7 +444,7 @@ async def test_that_term_is_serialized_with_synonyms_and_tags(
         name="SLA",
         description="Service-level agreement",
         synonyms=["service level agreement", "service-level"],
-        tags=[TagId("compliance"), TagId("legal")],
+        groups=[GroupId("compliance"), GroupId("legal")],
     )
 
     indexer = _make_indexer(container)
@@ -455,8 +455,8 @@ async def test_that_term_is_serialized_with_synonyms_and_tags(
     assert data["name"] == "SLA"
     assert data["description"] == "Service-level agreement"
     assert data["synonyms"] == ["service level agreement", "service-level"]
-    assert isinstance(data["tags"], list)
-    assert set(data["tags"]) == {"compliance", "legal"}
+    assert isinstance(data["groups"], list)
+    assert set(data["groups"]) == {"compliance", "legal"}
 
 
 async def test_that_context_variable_with_tool_id_is_serialized_with_tool_id_and_freshness_rules(
@@ -514,13 +514,11 @@ async def test_that_canned_response_is_serialized_with_fields_signals_and_metada
 async def test_that_relationship_is_serialized_with_source_target_and_kind(
     container: Container,
 ) -> None:
-    guideline = await container[GuidelineStore].create_guideline(
-        condition="customer is angry", action="apologize"
-    )
+    rule = await container[RuleStore].create_rule(condition="customer is angry", action="apologize")
 
     relationship = await container[RelationshipStore].create_relationship(
-        source=RelationshipEntity(id=guideline.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=TagId("vip"), kind=RelationshipEntityKind.TAG_ANY),
+        source=RelationshipEntity(id=rule.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=GroupId("vip"), kind=RelationshipEntityKind.GROUP_ANY),
         kind=RelationshipKind.PRIORITY,
     )
 
@@ -530,7 +528,7 @@ async def test_that_relationship_is_serialized_with_source_target_and_kind(
     data = indexer.captured_payload["relationships"][relationship.id].data
     assert isinstance(data, dict)
     assert data["kind"] == "priority"
-    assert data["source"] == {"id": guideline.id, "kind": "guideline"}
+    assert data["source"] == {"id": rule.id, "kind": "rule"}
     assert data["target"] == {"id": "vip", "kind": "tag_any"}
 
 

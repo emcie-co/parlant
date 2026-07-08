@@ -18,13 +18,14 @@ from pydantic import Field
 
 from parlant.api import common
 from parlant.api.authorization import Operation, AuthorizationPolicy
+from datetime import datetime
 from parlant.api.common import apigen_config, ExampleJson
-from parlant.core.app_modules.glossary import TermTagsUpdateParamsModel
+from parlant.core.app_modules.glossary import TermGroupsUpdateParamsModel
 from parlant.core.agents import AgentId
 from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
 from parlant.core.glossary import TermId
-from parlant.core.tags import TagId
+from parlant.core.groups import GroupId
 
 API_GROUP = "glossary"
 
@@ -80,11 +81,18 @@ TermAgentIdPath: TypeAlias = Annotated[
     ),
 ]
 
-TermTagsField: TypeAlias = Annotated[
-    list[TagId],
+TermGroupsField: TypeAlias = Annotated[
+    list[GroupId],
     Field(
-        description="List of tag IDs associated with the term",
-        examples=[["tag1", "tag2"]],
+        description="List of group IDs associated with the term",
+        examples=[["group1", "group2"]],
+    ),
+]
+
+TermLastModifiedField: TypeAlias = Annotated[
+    datetime,
+    Field(
+        description="UTC timestamp of the last modification to the term",
     ),
 ]
 
@@ -102,7 +110,7 @@ class TermCreationParamsDTO(
     name: TermNameField
     description: TermDescriptionField
     synonyms: TermSynonymsField = []
-    tags: TermTagsField | None = None
+    groups: TermGroupsField | None = None
     id: TermId | None = None
 
 
@@ -111,27 +119,27 @@ term_example: ExampleJson = {
     "name": "Gas",
     "description": "A unit in Ethereum that measures the computational effort to execute transactions or smart contracts",
     "synonyms": ["Transaction Fee", "Blockchain Fuel"],
-    "tags": ["tag1", "tag2"],
+    "groups": ["group1", "group2"],
 }
 
 term_update_params_example: ExampleJson = {
     "name": "Gas",
     "description": "A unit in Ethereum that measures the computational effort to execute transactions or smart contracts",
     "synonyms": ["Transaction Fee", "Blockchain Fuel"],
-    "tags": {
-        "add": ["tag1", "tag2"],
-        "remove": ["tag3", "tag4"],
+    "groups": {
+        "add": ["group1", "group2"],
+        "remove": ["group3", "group4"],
     },
 }
 
-term_tags_update_params_example: ExampleJson = {
+term_groups_update_params_example: ExampleJson = {
     "add": [
         "t9a8g703f4",
-        "tag_456abc",
+        "group_456abc",
     ],
     "remove": [
-        "tag_789def",
-        "tag_012ghi",
+        "group_789def",
+        "group_012ghi",
     ],
 }
 
@@ -150,36 +158,37 @@ class TermDTO(
     name: TermNameField
     description: TermDescriptionField
     synonyms: TermSynonymsField = []
-    tags: TermTagsField
+    groups: TermGroupsField
+    modified_utc: TermLastModifiedField
 
 
-TermTagsUpdateAddField: TypeAlias = Annotated[
-    list[TagId],
+TermGroupsUpdateAddField: TypeAlias = Annotated[
+    list[GroupId],
     Field(
-        description="List of tag IDs to add to the term",
-        examples=[["tag1", "tag2"]],
+        description="List of group IDs to add to the term",
+        examples=[["group1", "group2"]],
     ),
 ]
 
-TermTagsUpdateRemoveField: TypeAlias = Annotated[
-    list[TagId],
+TermGroupsUpdateRemoveField: TypeAlias = Annotated[
+    list[GroupId],
     Field(
-        description="List of tag IDs to remove from the term",
-        examples=[["tag1", "tag2"]],
+        description="List of group IDs to remove from the term",
+        examples=[["group1", "group2"]],
     ),
 ]
 
 
-class TermTagsUpdateParamsDTO(
+class TermGroupsUpdateParamsDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": term_tags_update_params_example},
+    json_schema_extra={"example": term_groups_update_params_example},
 ):
     """
-    Parameters for updating the tags of an existing glossary term.
+    Parameters for updating the groups of an existing glossary term.
     """
 
-    add: TermTagsUpdateAddField | None = None
-    remove: TermTagsUpdateRemoveField | None = None
+    add: TermGroupsUpdateAddField | None = None
+    remove: TermGroupsUpdateRemoveField | None = None
 
 
 class TermUpdateParamsDTO(
@@ -187,7 +196,7 @@ class TermUpdateParamsDTO(
     json_schema_extra={"example": term_update_params_example},
 ):
     """
-    Parameters for updating an existing glossary term including tags.
+    Parameters for updating an existing glossary term including groups.
 
     All fields are optional. Only the provided fields will be updated.
     """
@@ -195,14 +204,14 @@ class TermUpdateParamsDTO(
     name: TermNameField | None = None
     description: TermDescriptionField | None = None
     synonyms: TermSynonymsField | None = None
-    tags: TermTagsUpdateParamsDTO | None = None
+    groups: TermGroupsUpdateParamsDTO | None = None
 
 
-TagIdQuery: TypeAlias = Annotated[
-    TagId | None,
+GroupIdQuery: TypeAlias = Annotated[
+    GroupId | None,
     Query(
-        description="Filter terms by tag ID",
-        examples=["tag1", "tag2"],
+        description="Filter terms by group ID",
+        examples=["group1", "group2"],
     ),
 ]
 
@@ -249,7 +258,7 @@ def create_router(
                 name=params.name,
                 description=params.description,
                 synonyms=params.synonyms,
-                tags=params.tags,
+                groups=params.groups,
                 id=params.id,
             )
         except ValueError as e:
@@ -263,7 +272,8 @@ def create_router(
             name=term.name,
             description=term.description,
             synonyms=term.synonyms,
-            tags=term.tags,
+            groups=term.groups,
+            modified_utc=term.modified_utc,
         )
 
     @router.get(
@@ -297,7 +307,8 @@ def create_router(
             name=term.name,
             description=term.description,
             synonyms=term.synonyms,
-            tags=term.tags,
+            groups=term.groups,
+            modified_utc=term.modified_utc,
         )
 
     @router.get(
@@ -314,7 +325,7 @@ def create_router(
     )
     async def list_terms(
         request: Request,
-        tag_id: TagIdQuery = None,
+        group_id: GroupIdQuery = None,
     ) -> Sequence[TermDTO]:
         """
         Retrieves a list of all terms in the glossary.
@@ -324,7 +335,7 @@ def create_router(
         """
         await authorization_policy.authorize(request, Operation.LIST_TERMS)
 
-        terms = await app.glossary.find(tag_id)
+        terms = await app.glossary.find(group_id)
 
         return [
             TermDTO(
@@ -332,7 +343,8 @@ def create_router(
                 name=term.name,
                 description=term.description,
                 synonyms=term.synonyms,
-                tags=term.tags,
+                groups=term.groups,
+                modified_utc=term.modified_utc,
             )
             for term in terms
         ]
@@ -373,11 +385,11 @@ def create_router(
             name=params.name,
             description=params.description,
             synonyms=params.synonyms,
-            tags=TermTagsUpdateParamsModel(
-                add=params.tags.add,
-                remove=params.tags.remove,
+            groups=TermGroupsUpdateParamsModel(
+                add=params.groups.add,
+                remove=params.groups.remove,
             )
-            if params.tags
+            if params.groups
             else None,
         )
 
@@ -386,7 +398,8 @@ def create_router(
             name=term.name,
             description=term.description,
             synonyms=term.synonyms,
-            tags=term.tags,
+            groups=term.groups,
+            modified_utc=term.modified_utc,
         )
 
     @router.delete(

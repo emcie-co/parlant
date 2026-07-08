@@ -28,7 +28,7 @@ load_steps(
     "terms",
     "tools",
     "customers",
-    "tags",
+    "groups",
 )
 
 scenarios(

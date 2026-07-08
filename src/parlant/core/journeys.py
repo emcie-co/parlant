@@ -15,15 +15,24 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+from enum import Enum
 from itertools import chain
 from typing import Awaitable, Callable, Mapping, NewType, Optional, Sequence, Set, cast
 from typing_extensions import override, TypedDict, Self, Required
 
 from parlant.core.agents import CompositionMode
 from parlant.core.async_utils import ReaderWriterLock, safe_gather
-from parlant.core.common import JSONSerializable, xxh3_checksum
-from parlant.core.common import ItemNotFoundError, UniqueId, Version, IdGenerator, to_json_dict
-from parlant.core.guidelines import GuidelineId
+from parlant.core.common import (
+    JSONSerializable,
+    ItemNotFoundError,
+    try_or_none,
+    UniqueId,
+    Version,
+    IdGenerator,
+    to_json_dict,
+    xxh3_checksum,
+)
+from parlant.core.rules import RuleId
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.common import (
     ObjectId,
@@ -40,6 +49,7 @@ from parlant.core.persistence.document_database_helper import (
 )
 from parlant.core.persistence.vector_database import (
     VectorCollection,
+    VectorCollectionIndex,
     VectorDatabase,
     BaseDocument as VectorDocument,
 )
@@ -48,18 +58,28 @@ from parlant.core.persistence.vector_database_helper import (
     VectorDocumentStoreMigrationHelper,
     query_chunks,
 )
-from parlant.core.tags import TagId
+from parlant.core.groups import GroupId
 from parlant.core.tools import ToolId
 
 JourneyId = NewType("JourneyId", str)
 JourneyNodeId = NewType("JourneyNodeId", str)
 JourneyEdgeId = NewType("JourneyEdgeId", str)
+JourneyLinkId = NewType("JourneyLinkId", str)
+
+
+class JourneyNodeKind(Enum):
+    ROOT = "root"
+    CHAT = "chat"
+    TOOL = "tool"
+    FORK = "fork"
+    END = "end"
 
 
 @dataclass(frozen=True)
 class JourneyNode:
     id: JourneyNodeId
     creation_utc: datetime
+    kind: JourneyNodeKind
     action: Optional[str]
     tools: Sequence[ToolId]
     metadata: Mapping[str, JSONSerializable]
@@ -85,17 +105,34 @@ class JourneyEdge:
 
 
 @dataclass(frozen=True)
+class JourneyLink:
+    id: JourneyLinkId
+    creation_utc: datetime
+    journey_id: JourneyId
+    source_node_id: JourneyNodeId
+    sub_journey_id: JourneyId
+    condition: Optional[str]
+    merge_node_id: JourneyNodeId
+
+    def __hash__(self) -> int:
+        return hash(self.id)
+
+
+@dataclass(frozen=True)
 class Journey:
     id: JourneyId
     creation_utc: datetime
+    modified_utc: datetime
     description: str
-    triggers: Sequence[GuidelineId]
+    triggers: Sequence[RuleId]
     title: str
     root_id: JourneyNodeId
-    tags: Sequence[TagId]
+    groups: Sequence[GroupId]
     composition_mode: Optional[CompositionMode] = None
     labels: Set[str] = field(default_factory=set)
     priority: int = 0
+    metadata: Mapping[str, JSONSerializable] = field(default_factory=dict)
+    node_properties: Optional[Mapping[str, JSONSerializable]] = None
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -106,6 +143,7 @@ class JourneyUpdateParams(TypedDict, total=False):
     description: str
     composition_mode: Optional[CompositionMode]
     priority: int
+    metadata: Mapping[str, JSONSerializable]
 
 
 class JourneyNodeUpdateParams(TypedDict, total=False):
@@ -130,9 +168,9 @@ class JourneyStore(ABC):
         self,
         title: str,
         description: str,
-        triggers: Sequence[GuidelineId],
+        triggers: Sequence[RuleId],
         creation_utc: Optional[datetime] = None,
-        tags: Optional[Sequence[TagId]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
         id: Optional[JourneyId] = None,
         composition_mode: Optional[CompositionMode] = None,
         labels: Optional[Set[str]] = None,
@@ -142,8 +180,8 @@ class JourneyStore(ABC):
     @abstractmethod
     async def list_journeys(
         self,
-        tags: Optional[Sequence[TagId]] = None,
-        trigger: Optional[GuidelineId] = None,
+        groups: Optional[Sequence[GroupId]] = None,
+        trigger: Optional[RuleId] = None,
     ) -> Sequence[Journey]: ...
 
     @abstractmethod
@@ -169,29 +207,29 @@ class JourneyStore(ABC):
     async def add_trigger(
         self,
         journey_id: JourneyId,
-        trigger: GuidelineId,
+        trigger: RuleId,
     ) -> bool: ...
 
     @abstractmethod
     async def remove_trigger(
         self,
         journey_id: JourneyId,
-        trigger: GuidelineId,
+        trigger: RuleId,
     ) -> bool: ...
 
     @abstractmethod
-    async def upsert_tag(
+    async def upsert_group(
         self,
         journey_id: JourneyId,
-        tag_id: TagId,
+        group_id: GroupId,
         creation_utc: Optional[datetime] = None,
     ) -> bool: ...
 
     @abstractmethod
-    async def remove_tag(
+    async def remove_group(
         self,
         journey_id: JourneyId,
-        tag_id: TagId,
+        group_id: GroupId,
     ) -> None: ...
 
     @abstractmethod
@@ -206,6 +244,7 @@ class JourneyStore(ABC):
     async def create_node(
         self,
         journey_id: JourneyId,
+        kind: JourneyNodeKind,
         action: Optional[str],
         tools: Sequence[ToolId],
         description: Optional[str] = None,
@@ -253,6 +292,28 @@ class JourneyStore(ABC):
         node_id: JourneyNodeId,
         key: str,
     ) -> JourneyNode: ...
+
+    @abstractmethod
+    async def set_journey_metadata(
+        self,
+        journey_id: JourneyId,
+        key: str,
+        value: JSONSerializable,
+    ) -> Journey: ...
+
+    @abstractmethod
+    async def unset_journey_metadata(
+        self,
+        journey_id: JourneyId,
+        key: str,
+    ) -> Journey: ...
+
+    @abstractmethod
+    async def set_node_properties(
+        self,
+        journey_id: JourneyId,
+        node_properties: Mapping[str, JSONSerializable],
+    ) -> Journey: ...
 
     @abstractmethod
     async def create_edge(
@@ -332,6 +393,34 @@ class JourneyStore(ABC):
         labels: Set[str],
     ) -> JourneyNode: ...
 
+    @abstractmethod
+    async def create_link(
+        self,
+        journey_id: JourneyId,
+        source_node_id: JourneyNodeId,
+        sub_journey_id: JourneyId,
+        condition: Optional[str] = None,
+        id: Optional[JourneyLinkId] = None,
+    ) -> JourneyLink: ...
+
+    @abstractmethod
+    async def read_link(
+        self,
+        link_id: JourneyLinkId,
+    ) -> JourneyLink: ...
+
+    @abstractmethod
+    async def list_links(
+        self,
+        journey_id: JourneyId,
+    ) -> Sequence[JourneyLink]: ...
+
+    @abstractmethod
+    async def delete_link(
+        self,
+        link_id: JourneyLinkId,
+    ) -> None: ...
+
 
 class JourneyDocument_v0_1_0(TypedDict, total=False):
     id: ObjectId
@@ -389,7 +478,7 @@ class JourneyDocument_v0_5_0(TypedDict, total=False):
     labels: Sequence[str]
 
 
-class JourneyDocument(TypedDict, total=False):
+class JourneyDocument_v0_6_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
@@ -401,18 +490,31 @@ class JourneyDocument(TypedDict, total=False):
     priority: int
 
 
-class JourneyConditionAssociationDocument_v0_6_0(TypedDict, total=False):
-    """Pre-rename (≤ v0.6.0) shape for the legacy ``journey_conditions`` collection.
+class JourneyDocument(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    last_modified: str
+    title: str
+    description: str
+    root_id: JourneyNodeId
+    composition_mode: Optional[str]
+    labels: Sequence[str]
+    priority: int
+    metadata: Mapping[str, JSONSerializable]
+    node_properties: Optional[Mapping[str, JSONSerializable]]
 
+
+class JourneyConditionAssociationDocument_v0_6_0(TypedDict, total=False):
+    """Pre-rename (<=v0.6.0) shape for the legacy ``journey_conditions`` collection.
     Kept only so the prepare-migration script can read records from the old
-    collection before copying them into ``journey_triggers``.
-    """
+    collection before copying them into ``journey_triggers``."""
 
     id: ObjectId
     version: Version.String
     creation_utc: str
     journey_id: JourneyId
-    condition: GuidelineId
+    condition: RuleId
 
 
 class JourneyTriggerAssociationDocument(TypedDict, total=False):
@@ -420,7 +522,7 @@ class JourneyTriggerAssociationDocument(TypedDict, total=False):
     version: Version.String
     creation_utc: str
     journey_id: JourneyId
-    trigger: GuidelineId
+    trigger: RuleId
 
 
 class JourneyNodeAssociationDocument_v0_3_0(TypedDict, total=False):
@@ -448,6 +550,20 @@ class JourneyNodeAssociationDocument_v0_4_0(TypedDict, total=False):
     composition_mode: Optional[str]
 
 
+class JourneyNodeAssociationDocument_v0_6_0(TypedDict, total=False):
+    id: ObjectId
+    node_id: JourneyNodeId
+    version: Version.String
+    creation_utc: str
+    journey_id: JourneyId
+    action: Optional[str]
+    tools: Sequence[ToolId]
+    metadata: Mapping[str, JSONSerializable]
+    description: Optional[str]
+    composition_mode: Optional[str]
+    labels: Sequence[str]
+
+
 class JourneyNodeAssociationDocument(TypedDict, total=False):
     id: ObjectId
     node_id: JourneyNodeId
@@ -460,6 +576,7 @@ class JourneyNodeAssociationDocument(TypedDict, total=False):
     description: Optional[str]
     composition_mode: Optional[str]
     labels: Sequence[str]
+    kind: Optional[str]
 
 
 class JourneyEdgeAssociationDocument(TypedDict, total=False):
@@ -478,7 +595,18 @@ class JourneyTagAssociationDocument(TypedDict, total=False):
     version: Version.String
     creation_utc: str
     journey_id: JourneyId
-    tag_id: TagId
+    group_id: GroupId
+
+
+class JourneyLinkAssociationDocument(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    journey_id: str
+    source_node_id: str
+    sub_journey_id: str
+    condition: Optional[str]
+    merge_node_id: str
 
 
 class JourneyVectorStore(JourneyStore):
@@ -492,6 +620,7 @@ class JourneyVectorStore(JourneyStore):
         embedder_type_provider: Callable[[], Awaitable[type[Embedder]]],
         embedder_factory: EmbedderFactory,
         allow_migration: bool = True,
+        collections_prefix: str | None = None,
     ):
         self._id_generator = id_generator
 
@@ -503,11 +632,11 @@ class JourneyVectorStore(JourneyStore):
         self._edge_association_collection: DocumentCollection[JourneyEdgeAssociationDocument]
 
         self._tag_association_collection: DocumentCollection[JourneyTagAssociationDocument]
-        self._trigger_association_collection: DocumentCollection[
-            JourneyTriggerAssociationDocument
-        ]
+        self._trigger_association_collection: DocumentCollection[JourneyTriggerAssociationDocument]
+        self._link_association_collection: DocumentCollection[JourneyLinkAssociationDocument]
 
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
 
         self._embedder_factory = embedder_factory
         self._embedder_type_provider = embedder_type_provider
@@ -557,7 +686,7 @@ class JourneyVectorStore(JourneyStore):
 
         async def v0_5_0_to_v0_6_0(doc: BaseDocument) -> Optional[BaseDocument]:
             d = cast(JourneyDocument_v0_5_0, doc)
-            return JourneyDocument(
+            return JourneyDocument_v0_6_0(
                 id=d["id"],
                 version=Version.String("0.6.0"),
                 creation_utc=d["creation_utc"],
@@ -570,11 +699,21 @@ class JourneyVectorStore(JourneyStore):
             )
 
         async def v0_6_0_to_v0_7_0(doc: BaseDocument) -> Optional[BaseDocument]:
-            # Journey shape itself is unchanged; only the side collection
-            # `journey_conditions` was renamed to `journey_triggers`. That
-            # data move is handled by the prepare-migration script.
-            d = cast(JourneyDocument, doc)
-            return JourneyDocument(**{**d, "version": Version.String("0.7.0")})
+            d = cast(JourneyDocument_v0_6_0, doc)
+            return JourneyDocument(
+                id=d["id"],
+                version=Version.String("0.7.0"),
+                creation_utc=d["creation_utc"],
+                last_modified=d["creation_utc"],
+                title=d["title"],
+                description=d["description"],
+                root_id=d["root_id"],
+                composition_mode=d.get("composition_mode"),
+                labels=d.get("labels", []),
+                priority=d.get("priority", 0),
+                metadata={},  # Default to empty metadata for existing journeys
+                node_properties=None,  # Will be populated on next evaluation
+            )
 
         async def v0_1_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise Exception(
@@ -643,7 +782,7 @@ class JourneyVectorStore(JourneyStore):
 
         async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
             d = cast(JourneyNodeAssociationDocument_v0_4_0, doc)
-            return JourneyNodeAssociationDocument(
+            return JourneyNodeAssociationDocument_v0_6_0(
                 id=d["id"],
                 node_id=d["node_id"],
                 version=Version.String("0.5.0"),
@@ -657,6 +796,28 @@ class JourneyVectorStore(JourneyStore):
                 labels=[],  # Default to empty labels for existing nodes
             )
 
+        async def v0_5_0_to_v0_7_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(JourneyNodeAssociationDocument_v0_6_0, doc)
+            # Extract kind from metadata["journey_node"]["kind"] if present, default to "root"
+            kind: str = JourneyNodeKind.ROOT.value
+            journey_node_meta = d.get("metadata", {}).get("journey_node")
+            if isinstance(journey_node_meta, dict) and journey_node_meta.get("kind"):
+                kind = journey_node_meta["kind"]
+            return JourneyNodeAssociationDocument(
+                id=d["id"],
+                node_id=d["node_id"],
+                version=Version.String("0.7.0"),
+                creation_utc=d["creation_utc"],
+                journey_id=d["journey_id"],
+                action=d["action"],
+                tools=d["tools"],
+                metadata=d["metadata"],
+                description=d.get("description"),
+                composition_mode=d.get("composition_mode"),
+                labels=d.get("labels", []),
+                kind=kind,
+            )
+
         async def v0_1_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
@@ -668,6 +829,8 @@ class JourneyVectorStore(JourneyStore):
                 "0.1.0": v0_1_0_to_v0_3_0,
                 "0.3.0": v0_3_0_to_v0_4_0,
                 "0.4.0": v0_4_0_to_v0_5_0,
+                "0.5.0": v0_5_0_to_v0_7_0,
+                "0.6.0": v0_5_0_to_v0_7_0,
             },
         ).migrate(doc)
 
@@ -686,6 +849,11 @@ class JourneyVectorStore(JourneyStore):
             },
         ).migrate(doc)
 
+    async def _link_association_loader(
+        self, doc: BaseDocument
+    ) -> Optional[JourneyLinkAssociationDocument]:
+        return cast(JourneyLinkAssociationDocument, doc)
+
     async def __aenter__(self) -> Self:
         embedder_type = await self._embedder_type_provider()
         self._embedder = self._embedder_factory.create_embedder(embedder_type)
@@ -696,47 +864,69 @@ class JourneyVectorStore(JourneyStore):
             allow_migration=self._allow_migration,
         ):
             self._vector_collection = await self._vector_db.get_or_create_collection(
-                name="journeys",
+                name=f"{self._collections_prefix}_journeys"
+                if self._collections_prefix
+                else "journeys",
                 schema=JourneyVectorDocument,
                 embedder_type=embedder_type,
                 document_loader=self._vector_document_loader,
+            )
+            await self._vector_collection.ensure_indexes(
+                [VectorCollectionIndex(field="journey_id")]
             )
 
         async with DocumentStoreMigrationHelper(
             store=self,
             database=self._document_db,
             allow_migration=self._allow_migration,
+            collections_prefix=self._collections_prefix,
         ):
             self._collection = await self._document_db.get_or_create_collection(
-                name="journeys",
+                name=f"{self._collections_prefix}_journeys"
+                if self._collections_prefix
+                else "journeys",
                 schema=JourneyDocument,
                 document_loader=self._document_loader,
             )
 
             self._node_association_collection = await self._document_db.get_or_create_collection(
-                name="journey_nodes",
+                name=f"{self._collections_prefix}_journey_nodes"
+                if self._collections_prefix
+                else "journey_nodes",
                 schema=JourneyNodeAssociationDocument,
                 document_loader=self._node_association_loader,
             )
 
             self._edge_association_collection = await self._document_db.get_or_create_collection(
-                name="journey_edges",
+                name=f"{self._collections_prefix}_journey_edges"
+                if self._collections_prefix
+                else "journey_edges",
                 schema=JourneyEdgeAssociationDocument,
                 document_loader=self._edge_association_loader,
             )
 
             self._tag_association_collection = await self._document_db.get_or_create_collection(
-                name="journey_tags",
+                name=f"{self._collections_prefix}_journey_groups"
+                if self._collections_prefix
+                else "journey_groups",
                 schema=JourneyTagAssociationDocument,
                 document_loader=self._tag_association_loader,
             )
 
-            self._trigger_association_collection = (
-                await self._document_db.get_or_create_collection(
-                    name="journey_triggers",
-                    schema=JourneyTriggerAssociationDocument,
-                    document_loader=self._trigger_association_loader,
-                )
+            self._trigger_association_collection = await self._document_db.get_or_create_collection(
+                name=f"{self._collections_prefix}_journey_triggers"
+                if self._collections_prefix
+                else "journey_triggers",
+                schema=JourneyTriggerAssociationDocument,
+                document_loader=self._trigger_association_loader,
+            )
+
+            self._link_association_collection = await self._document_db.get_or_create_collection(
+                name=f"{self._collections_prefix}_journey_links"
+                if self._collections_prefix
+                else "journey_links",
+                schema=JourneyLinkAssociationDocument,
+                document_loader=self._link_association_loader,
             )
 
         return self
@@ -757,17 +947,20 @@ class JourneyVectorStore(JourneyStore):
             id=ObjectId(journey.id),
             version=self.VERSION.to_string(),
             creation_utc=journey.creation_utc.isoformat(),
+            last_modified=journey.modified_utc.isoformat(),
             title=journey.title,
             description=journey.description,
             root_id=journey.root_id,
             composition_mode=(journey.composition_mode.value if journey.composition_mode else None),
             labels=list(journey.labels),
             priority=journey.priority,
+            metadata=journey.metadata,
+            node_properties=journey.node_properties,
         )
 
     async def _deserialize(self, doc: JourneyDocument) -> Journey:
-        tags = [
-            d["tag_id"]
+        groups = [
+            d["group_id"]
             for d in await self._tag_association_collection.find({"journey_id": {"$eq": doc["id"]}})
         ]
 
@@ -784,14 +977,17 @@ class JourneyVectorStore(JourneyStore):
         return Journey(
             id=JourneyId(doc["id"]),
             creation_utc=datetime.fromisoformat(doc["creation_utc"]),
+            modified_utc=datetime.fromisoformat(doc.get("last_modified", doc["creation_utc"])),
             triggers=triggers,
             title=doc["title"],
             description=doc["description"],
             root_id=JourneyNodeId(doc["root_id"]),
-            tags=tags,
+            groups=groups,
             composition_mode=composition_mode,
             labels=set(doc.get("labels", [])),
             priority=doc.get("priority", 0),
+            metadata=doc.get("metadata", {}),
+            node_properties=doc.get("node_properties"),
         )
 
     async def _deserialize_batch(
@@ -799,29 +995,31 @@ class JourneyVectorStore(JourneyStore):
         journey_documents: Sequence[JourneyDocument],
     ) -> Sequence[Journey]:
         from collections import defaultdict
-        
+
         journey_ids = [d["id"] for d in journey_documents]
         tags_by_journey: dict[str, list[str]] = defaultdict(list)
         triggers_by_journey: dict[str, list[str]] = defaultdict(list)
-        
+
         if journey_ids:
             all_tags = await self._tag_association_collection.find(
                 {"journey_id": {"$in": journey_ids}}
             )
             for tag_doc in all_tags:
                 tags_by_journey[tag_doc["journey_id"]].append(tag_doc["tag_id"])
-                
+
             all_triggers = await self._trigger_association_collection.find(
                 {"journey_id": {"$in": journey_ids}}
             )
             for trig_doc in all_triggers:
                 triggers_by_journey[trig_doc["journey_id"]].append(trig_doc["trigger"])
-                
+
         journeys: list[Journey] = []
         for d in journey_documents:
             composition_mode_str = d.get("composition_mode")
-            composition_mode = CompositionMode(composition_mode_str) if composition_mode_str else None
-            
+            composition_mode = (
+                CompositionMode(composition_mode_str) if composition_mode_str else None
+            )
+
             journeys.append(
                 Journey(
                     id=JourneyId(d["id"]),
@@ -857,11 +1055,14 @@ class JourneyVectorStore(JourneyStore):
             description=node.description,
             composition_mode=(node.composition_mode.value if node.composition_mode else None),
             labels=list(node.labels),
+            kind=node.kind.value,
         )
 
     def _deserialize_node(self, doc: JourneyNodeAssociationDocument) -> JourneyNode:
         composition_mode_str = doc.get("composition_mode")
         composition_mode = CompositionMode(composition_mode_str) if composition_mode_str else None
+        kind_str = doc.get("kind")
+        kind = JourneyNodeKind(kind_str) if kind_str else JourneyNodeKind.ROOT
 
         return JourneyNode(
             id=JourneyNodeId(doc["node_id"]),
@@ -872,6 +1073,7 @@ class JourneyVectorStore(JourneyStore):
             description=doc.get("description"),
             composition_mode=composition_mode,
             labels=set(doc.get("labels", [])),
+            kind=kind,
         )
 
     def _serialize_edge(
@@ -900,6 +1102,39 @@ class JourneyVectorStore(JourneyStore):
             metadata=doc["metadata"],
         )
 
+    def _serialize_link(
+        self,
+        link: JourneyLink,
+    ) -> JourneyLinkAssociationDocument:
+        return JourneyLinkAssociationDocument(
+            id=ObjectId(link.id),
+            version=self.VERSION.to_string(),
+            creation_utc=link.creation_utc.isoformat(),
+            journey_id=link.journey_id,
+            source_node_id=link.source_node_id,
+            sub_journey_id=link.sub_journey_id,
+            condition=link.condition,
+            merge_node_id=link.merge_node_id,
+        )
+
+    def _deserialize_link(self, doc: JourneyLinkAssociationDocument) -> JourneyLink:
+        return JourneyLink(
+            id=JourneyLinkId(doc["id"]),
+            creation_utc=datetime.fromisoformat(doc["creation_utc"]),
+            journey_id=JourneyId(doc["journey_id"]),
+            source_node_id=JourneyNodeId(doc["source_node_id"]),
+            sub_journey_id=JourneyId(doc["sub_journey_id"]),
+            condition=doc.get("condition"),
+            merge_node_id=JourneyNodeId(doc["merge_node_id"]),
+        )
+
+    async def _update_journey_last_modified(self, journey_id: JourneyId) -> None:
+        """Update the journey's last_modified timestamp."""
+        await self._collection.update_one(
+            filters={"id": {"$eq": journey_id}},
+            params={"last_modified": datetime.now(timezone.utc).isoformat()},
+        )
+
     @staticmethod
     def assemble_content(
         title: str,
@@ -916,9 +1151,9 @@ class JourneyVectorStore(JourneyStore):
         self,
         title: str,
         description: str,
-        triggers: Sequence[GuidelineId],
+        triggers: Sequence[RuleId],
         creation_utc: Optional[datetime] = None,
-        tags: Optional[Sequence[TagId]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
         id: Optional[JourneyId] = None,
         composition_mode: Optional[CompositionMode] = None,
         labels: Optional[Set[str]] = None,
@@ -943,6 +1178,7 @@ class JourneyVectorStore(JourneyStore):
             root = JourneyNode(
                 id=journey_root_id,
                 creation_utc=creation_utc,
+                kind=JourneyNodeKind.ROOT,
                 action=None,
                 tools=[],
                 metadata={},
@@ -956,14 +1192,16 @@ class JourneyVectorStore(JourneyStore):
             journey = Journey(
                 id=journey_id,
                 creation_utc=creation_utc,
+                modified_utc=creation_utc,
                 triggers=triggers,
                 title=title,
                 description=description,
                 root_id=journey_root_id,
-                tags=tags or [],
+                groups=groups or [],
                 composition_mode=composition_mode,
                 labels=labels or set(),
                 priority=priority,
+                metadata={},
             )
 
             content = self.assemble_content(
@@ -984,8 +1222,8 @@ class JourneyVectorStore(JourneyStore):
                 }
             )
 
-            for tag_id in tags or []:
-                tag_checksum = xxh3_checksum(f"{journey.id}{tag_id}")
+            for group_id in groups or []:
+                tag_checksum = xxh3_checksum(f"{journey.id}{group_id}")
 
                 await self._tag_association_collection.insert_one(
                     document={
@@ -993,7 +1231,7 @@ class JourneyVectorStore(JourneyStore):
                         "version": self.VERSION.to_string(),
                         "creation_utc": creation_utc.isoformat(),
                         "journey_id": journey.id,
-                        "tag_id": tag_id,
+                        "group_id": group_id,
                     }
                 )
 
@@ -1037,7 +1275,11 @@ class JourneyVectorStore(JourneyStore):
             nodes = await self.list_nodes(journey_id=journey_id)
             edges = await self.list_edges(journey_id=journey_id)
 
-            updated = {**doc, **params}
+            updated = {
+                **doc,
+                **params,
+                "last_modified": datetime.now(timezone.utc).isoformat(),
+            }
 
             content = self.assemble_content(
                 title=cast(str, updated["title"]),
@@ -1066,16 +1308,16 @@ class JourneyVectorStore(JourneyStore):
     @override
     async def list_journeys(
         self,
-        tags: Optional[Sequence[TagId]] = None,
-        trigger: Optional[GuidelineId] = None,
+        groups: Optional[Sequence[GroupId]] = None,
+        trigger: Optional[RuleId] = None,
     ) -> Sequence[Journey]:
         filters: Where = {}
         journey_ids: set[JourneyId] = set()
         trigger_journey_ids: set[JourneyId] = set()
 
         async with self._lock.reader_lock:
-            if tags is not None:
-                if len(tags) == 0:
+            if groups is not None:
+                if len(groups) == 0:
                     journey_ids = {
                         doc["journey_id"]
                         for doc in await self._tag_association_collection.find(filters={})
@@ -1091,7 +1333,7 @@ class JourneyVectorStore(JourneyStore):
                         filters = {"$and": [{"id": {"$ne": id}} for id in journey_ids]}
 
                 else:
-                    tag_filters: Where = {"$or": [{"tag_id": {"$eq": tag}} for tag in tags]}
+                    tag_filters: Where = {"$or": [{"group_id": {"$eq": group}} for group in groups]}
                     tag_associations = await self._tag_association_collection.find(
                         filters=tag_filters
                     )
@@ -1176,7 +1418,7 @@ class JourneyVectorStore(JourneyStore):
     async def add_trigger(
         self,
         journey_id: JourneyId,
-        trigger: GuidelineId,
+        trigger: RuleId,
     ) -> bool:
         async with self._lock.writer_lock:
             journey = await self.read_journey(journey_id)
@@ -1202,7 +1444,7 @@ class JourneyVectorStore(JourneyStore):
     async def remove_trigger(
         self,
         journey_id: JourneyId,
-        trigger: GuidelineId,
+        trigger: RuleId,
     ) -> bool:
         async with self._lock.writer_lock:
             await self._trigger_association_collection.delete_one(
@@ -1215,10 +1457,10 @@ class JourneyVectorStore(JourneyStore):
             return True
 
     @override
-    async def upsert_tag(
+    async def upsert_group(
         self,
         journey_id: JourneyId,
-        tag_id: TagId,
+        group_id: GroupId,
         creation_utc: Optional[datetime] = None,
     ) -> bool:
         creation_utc = creation_utc or datetime.now(timezone.utc)
@@ -1226,17 +1468,17 @@ class JourneyVectorStore(JourneyStore):
         async with self._lock.writer_lock:
             journey = await self.read_journey(journey_id)
 
-            if tag_id in journey.tags:
+            if group_id in journey.groups:
                 return False
 
-            association_checksum = xxh3_checksum(f"{journey_id}{tag_id}")
+            association_checksum = xxh3_checksum(f"{journey_id}{group_id}")
 
             association_document: JourneyTagAssociationDocument = {
                 "id": ObjectId(self._id_generator.generate(association_checksum)),
                 "version": self.VERSION.to_string(),
                 "creation_utc": creation_utc.isoformat(),
                 "journey_id": journey_id,
-                "tag_id": tag_id,
+                "group_id": group_id,
             }
 
             _ = await self._tag_association_collection.insert_one(document=association_document)
@@ -1244,21 +1486,21 @@ class JourneyVectorStore(JourneyStore):
         return True
 
     @override
-    async def remove_tag(
+    async def remove_group(
         self,
         journey_id: JourneyId,
-        tag_id: TagId,
+        group_id: GroupId,
     ) -> None:
         async with self._lock.writer_lock:
             delete_result = await self._tag_association_collection.delete_one(
                 {
                     "journey_id": {"$eq": journey_id},
-                    "tag_id": {"$eq": tag_id},
+                    "group_id": {"$eq": group_id},
                 }
             )
 
             if delete_result.deleted_count == 0:
-                raise ItemNotFoundError(item_id=UniqueId(tag_id))
+                raise ItemNotFoundError(item_id=UniqueId(group_id))
 
     @override
     async def find_relevant_journeys(
@@ -1279,7 +1521,7 @@ class JourneyVectorStore(JourneyStore):
                     filters=filters,
                     query=q,
                     k=max_journeys,
-                    hints={"tag": "journeys"},
+                    hints={"group": "journeys"},
                 )
                 for q in queries
             ]
@@ -1308,6 +1550,7 @@ class JourneyVectorStore(JourneyStore):
     async def create_node(
         self,
         journey_id: JourneyId,
+        kind: JourneyNodeKind,
         action: Optional[str],
         tools: Sequence[ToolId],
         description: Optional[str] = None,
@@ -1334,11 +1577,14 @@ class JourneyVectorStore(JourneyStore):
                 description=description,
                 composition_mode=composition_mode,
                 labels=labels or set(),
+                kind=kind,
             )
 
             await self._node_association_collection.insert_one(
                 document=self._serialize_node(node, journey_id)
             )
+
+            await self._update_journey_last_modified(journey_id)
 
         return node
 
@@ -1387,6 +1633,8 @@ class JourneyVectorStore(JourneyStore):
                 params=cast(JourneyNodeAssociationDocument, to_json_dict(updated)),
             )
 
+            await self._update_journey_last_modified(doc["journey_id"])
+
         assert result.updated_document
 
         return self._deserialize_node(result.updated_document)
@@ -1404,7 +1652,9 @@ class JourneyVectorStore(JourneyStore):
             if not node_doc:
                 raise ItemNotFoundError(item_id=UniqueId(node_id))
 
-            edges = await self.list_edges(journey_id=node_doc["journey_id"], node_id=node_id)
+            journey_id = node_doc["journey_id"]
+
+            edges = await self.list_edges(journey_id=journey_id, node_id=node_id)
 
             for edge in edges:
                 await self.delete_edge(edge.id)
@@ -1412,6 +1662,8 @@ class JourneyVectorStore(JourneyStore):
             result = await self._node_association_collection.delete_one(
                 filters={"node_id": {"$eq": node_id}}
             )
+
+            await self._update_journey_last_modified(journey_id)
 
         if result.deleted_count == 0:
             raise ItemNotFoundError(item_id=UniqueId(node_id))
@@ -1422,10 +1674,13 @@ class JourneyVectorStore(JourneyStore):
         journey_id: JourneyId,
     ) -> Sequence[JourneyNode]:
         async with self._lock.reader_lock:
-            journey = await self.read_journey(journey_id)
+            try:
+                journey = await self.read_journey(journey_id)
+            except ItemNotFoundError:
+                return []
 
             if not journey:
-                raise ItemNotFoundError(item_id=UniqueId(journey_id))
+                return []
 
             docs = await self._node_association_collection.find(
                 filters={"journey_id": {"$eq": journey_id}}
@@ -1439,6 +1694,7 @@ class JourneyVectorStore(JourneyStore):
                 tools=[],
                 metadata={},
                 description=None,
+                kind=JourneyNodeKind.END,
             )
         ]
 
@@ -1494,6 +1750,83 @@ class JourneyVectorStore(JourneyStore):
         return self._deserialize_node(result.updated_document)
 
     @override
+    async def set_journey_metadata(
+        self,
+        journey_id: JourneyId,
+        key: str,
+        value: JSONSerializable,
+    ) -> Journey:
+        async with self._lock.writer_lock:
+            doc = await self._collection.find_one({"id": {"$eq": journey_id}})
+
+            if not doc:
+                raise ItemNotFoundError(item_id=UniqueId(journey_id))
+
+            updated_metadata = {**doc.get("metadata", {}), key: value}
+
+            result = await self._collection.update_one(
+                filters={"id": {"$eq": journey_id}},
+                params={
+                    "metadata": updated_metadata,
+                    "last_modified": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+
+        assert result.updated_document
+
+        return await self._deserialize(result.updated_document)
+
+    @override
+    async def unset_journey_metadata(
+        self,
+        journey_id: JourneyId,
+        key: str,
+    ) -> Journey:
+        async with self._lock.writer_lock:
+            doc = await self._collection.find_one({"id": {"$eq": journey_id}})
+
+            if not doc:
+                raise ItemNotFoundError(item_id=UniqueId(journey_id))
+
+            updated_metadata = {k: v for k, v in doc.get("metadata", {}).items() if k != key}
+
+            result = await self._collection.update_one(
+                filters={"id": {"$eq": journey_id}},
+                params={
+                    "metadata": updated_metadata,
+                    "last_modified": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+
+        assert result.updated_document
+
+        return await self._deserialize(result.updated_document)
+
+    @override
+    async def set_node_properties(
+        self,
+        journey_id: JourneyId,
+        node_properties: Mapping[str, JSONSerializable],
+    ) -> Journey:
+        async with self._lock.writer_lock:
+            doc = await self._collection.find_one({"id": {"$eq": journey_id}})
+
+            if not doc:
+                raise ItemNotFoundError(item_id=UniqueId(journey_id))
+
+            result = await self._collection.update_one(
+                filters={"id": {"$eq": journey_id}},
+                params={
+                    "node_properties": node_properties,
+                    "last_modified": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+
+        assert result.updated_document
+
+        return await self._deserialize(result.updated_document)
+
+    @override
     async def create_edge(
         self,
         journey_id: JourneyId,
@@ -1516,6 +1849,8 @@ class JourneyVectorStore(JourneyStore):
             await self._edge_association_collection.insert_one(
                 document=self._serialize_edge(edge, journey_id)
             )
+
+            await self._update_journey_last_modified(journey_id)
 
         return edge
 
@@ -1551,6 +1886,8 @@ class JourneyVectorStore(JourneyStore):
                 params=cast(JourneyEdgeAssociationDocument, to_json_dict(updated)),
             )
 
+            await self._update_journey_last_modified(doc["journey_id"])
+
         assert result.updated_document
 
         return self._deserialize_edge(result.updated_document)
@@ -1563,10 +1900,13 @@ class JourneyVectorStore(JourneyStore):
     ) -> Sequence[JourneyEdge]:
         async with self._lock.reader_lock:
             if journey_id is not None:
-                journey = await self.read_journey(journey_id)
+                try:
+                    journey = await self.read_journey(journey_id)
+                except ItemNotFoundError:
+                    return []
 
                 if not journey:
-                    raise ItemNotFoundError(item_id=UniqueId(journey_id))
+                    return []
 
                 filters: Where = {"journey_id": {"$eq": journey_id}}
 
@@ -1588,9 +1928,14 @@ class JourneyVectorStore(JourneyStore):
         edge_id: JourneyEdgeId,
     ) -> None:
         async with self._lock.writer_lock:
+            edge_doc = await self._edge_association_collection.find_one({"id": {"$eq": edge_id}})
+
             result = await self._edge_association_collection.delete_one(
                 filters={"id": {"$eq": edge_id}}
             )
+
+            if result.deleted_count > 0 and edge_doc:
+                await self._update_journey_last_modified(edge_doc["journey_id"])
 
         if result.deleted_count == 0:
             raise ItemNotFoundError(item_id=UniqueId(edge_id))
@@ -1741,3 +2086,462 @@ class JourneyVectorStore(JourneyStore):
         assert result.updated_document
 
         return self._deserialize_node(result.updated_document)
+
+    @override
+    async def create_link(
+        self,
+        journey_id: JourneyId,
+        source_node_id: JourneyNodeId,
+        sub_journey_id: JourneyId,
+        condition: Optional[str] = None,
+        id: Optional[JourneyLinkId] = None,
+    ) -> JourneyLink:
+        creation_utc = datetime.now(timezone.utc)
+
+        # Create the merge fork node in the parent journey
+        merge_node = await self.create_node(
+            journey_id=journey_id,
+            action=None,
+            tools=[],
+            description=None,
+            kind=JourneyNodeKind.FORK,
+        )
+        await self.set_node_metadata(
+            node_id=merge_node.id,
+            key="journey_node",
+            value={"sub_journey_id": sub_journey_id},
+        )
+
+        link_id = id or JourneyLinkId(
+            self._id_generator.generate(
+                xxh3_checksum(f"{journey_id}{source_node_id}{sub_journey_id}")
+            )
+        )
+
+        link = JourneyLink(
+            id=link_id,
+            creation_utc=creation_utc,
+            journey_id=journey_id,
+            source_node_id=source_node_id,
+            sub_journey_id=sub_journey_id,
+            condition=condition,
+            merge_node_id=merge_node.id,
+        )
+
+        async with self._lock.writer_lock:
+            await self._link_association_collection.insert_one(document=self._serialize_link(link))
+            await self._update_journey_last_modified(journey_id)
+
+        return link
+
+    @override
+    async def read_link(
+        self,
+        link_id: JourneyLinkId,
+    ) -> JourneyLink:
+        async with self._lock.reader_lock:
+            doc = await self._link_association_collection.find_one({"id": {"$eq": link_id}})
+
+            if not doc:
+                raise ItemNotFoundError(item_id=UniqueId(link_id))
+
+        return self._deserialize_link(doc)
+
+    @override
+    async def list_links(
+        self,
+        journey_id: JourneyId,
+    ) -> Sequence[JourneyLink]:
+        async with self._lock.reader_lock:
+            docs = await self._link_association_collection.find(
+                filters={"journey_id": {"$eq": journey_id}}
+            )
+
+        return [self._deserialize_link(doc) for doc in docs]
+
+    @override
+    async def delete_link(
+        self,
+        link_id: JourneyLinkId,
+    ) -> None:
+        async with self._lock.reader_lock:
+            link_doc = await self._link_association_collection.find_one({"id": {"$eq": link_id}})
+
+        if not link_doc:
+            raise ItemNotFoundError(item_id=UniqueId(link_id))
+
+        link = self._deserialize_link(link_doc)
+
+        # Delete the merge fork node (also touches last_modified via delete_node)
+        await self.delete_node(link.merge_node_id)
+
+        async with self._lock.writer_lock:
+            result = await self._link_association_collection.delete_one(
+                filters={"id": {"$eq": link_id}}
+            )
+
+        if result.deleted_count == 0:
+            raise ItemNotFoundError(item_id=UniqueId(link_id))
+
+
+class CompositeJourneyStore(JourneyStore):
+    def __init__(
+        self,
+        writable_store: JourneyStore,
+        readable_stores: Sequence[JourneyStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[JourneyStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_journey(
+        self,
+        title: str,
+        description: str,
+        triggers: Sequence[RuleId],
+        creation_utc: Optional[datetime] = None,
+        groups: Optional[Sequence[GroupId]] = None,
+        id: Optional[JourneyId] = None,
+        composition_mode: Optional[CompositionMode] = None,
+        labels: Optional[Set[str]] = None,
+        priority: int = 0,
+    ) -> Journey:
+        return await self._writable_store.create_journey(
+            title=title,
+            description=description,
+            triggers=triggers,
+            creation_utc=creation_utc,
+            groups=groups,
+            id=id,
+            composition_mode=composition_mode,
+            labels=labels,
+            priority=priority,
+        )
+
+    @override
+    async def list_journeys(
+        self,
+        groups: Optional[Sequence[GroupId]] = None,
+        trigger: Optional[RuleId] = None,
+    ) -> Sequence[Journey]:
+        results = await safe_gather(
+            *[store.list_journeys(groups=groups, trigger=trigger) for store in self._all_stores]
+        )
+        return list(chain.from_iterable(results))
+
+    @override
+    async def read_journey(
+        self,
+        journey_id: JourneyId,
+    ) -> Journey:
+        results = await safe_gather(
+            *[try_or_none(store.read_journey(journey_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(journey_id))
+        return result
+
+    @override
+    async def update_journey(
+        self,
+        journey_id: JourneyId,
+        params: JourneyUpdateParams,
+    ) -> Journey:
+        return await self._writable_store.update_journey(journey_id, params)
+
+    @override
+    async def delete_journey(
+        self,
+        journey_id: JourneyId,
+    ) -> None:
+        return await self._writable_store.delete_journey(journey_id)
+
+    @override
+    async def add_trigger(
+        self,
+        journey_id: JourneyId,
+        trigger: RuleId,
+    ) -> bool:
+        return await self._writable_store.add_trigger(journey_id, trigger)
+
+    @override
+    async def remove_trigger(
+        self,
+        journey_id: JourneyId,
+        trigger: RuleId,
+    ) -> bool:
+        return await self._writable_store.remove_trigger(journey_id, trigger)
+
+    @override
+    async def upsert_group(
+        self,
+        journey_id: JourneyId,
+        group_id: GroupId,
+        creation_utc: Optional[datetime] = None,
+    ) -> bool:
+        return await self._writable_store.upsert_group(journey_id, group_id, creation_utc)
+
+    @override
+    async def remove_group(
+        self,
+        journey_id: JourneyId,
+        group_id: GroupId,
+    ) -> None:
+        return await self._writable_store.remove_group(journey_id, group_id)
+
+    @override
+    async def find_relevant_journeys(
+        self,
+        query: str,
+        available_journeys: Sequence[Journey],
+        max_journeys: int = 5,
+    ) -> Sequence[Journey]:
+        return await self._writable_store.find_relevant_journeys(
+            query, available_journeys, max_journeys
+        )
+
+    @override
+    async def create_node(
+        self,
+        journey_id: JourneyId,
+        kind: JourneyNodeKind,
+        action: Optional[str],
+        tools: Sequence[ToolId],
+        description: Optional[str] = None,
+        composition_mode: Optional[CompositionMode] = None,
+        id: Optional[JourneyNodeId] = None,
+        labels: Optional[Set[str]] = None,
+    ) -> JourneyNode:
+        return await self._writable_store.create_node(
+            journey_id=journey_id,
+            kind=kind,
+            action=action,
+            tools=tools,
+            description=description,
+            composition_mode=composition_mode,
+            id=id,
+            labels=labels,
+        )
+
+    @override
+    async def read_node(
+        self,
+        node_id: JourneyNodeId,
+    ) -> JourneyNode:
+        results = await safe_gather(
+            *[try_or_none(store.read_node(node_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(node_id))
+        return result
+
+    @override
+    async def update_node(
+        self,
+        node_id: JourneyNodeId,
+        params: JourneyNodeUpdateParams,
+    ) -> JourneyNode:
+        return await self._writable_store.update_node(node_id, params)
+
+    @override
+    async def delete_node(
+        self,
+        node_id: JourneyNodeId,
+    ) -> None:
+        return await self._writable_store.delete_node(node_id)
+
+    @override
+    async def list_nodes(
+        self,
+        journey_id: JourneyId,
+    ) -> Sequence[JourneyNode]:
+        results = await safe_gather(*[store.list_nodes(journey_id) for store in self._all_stores])
+        return list(chain.from_iterable(results))
+
+    @override
+    async def set_node_metadata(
+        self,
+        node_id: JourneyNodeId,
+        key: str,
+        value: JSONSerializable,
+    ) -> JourneyNode:
+        return await self._writable_store.set_node_metadata(node_id, key, value)
+
+    @override
+    async def unset_node_metadata(
+        self,
+        node_id: JourneyNodeId,
+        key: str,
+    ) -> JourneyNode:
+        return await self._writable_store.unset_node_metadata(node_id, key)
+
+    @override
+    async def set_journey_metadata(
+        self,
+        journey_id: JourneyId,
+        key: str,
+        value: JSONSerializable,
+    ) -> Journey:
+        return await self._writable_store.set_journey_metadata(journey_id, key, value)
+
+    @override
+    async def unset_journey_metadata(
+        self,
+        journey_id: JourneyId,
+        key: str,
+    ) -> Journey:
+        return await self._writable_store.unset_journey_metadata(journey_id, key)
+
+    @override
+    async def set_node_properties(
+        self,
+        journey_id: JourneyId,
+        node_properties: Mapping[str, JSONSerializable],
+    ) -> Journey:
+        return await self._writable_store.set_node_properties(journey_id, node_properties)
+
+    @override
+    async def create_edge(
+        self,
+        journey_id: JourneyId,
+        source: JourneyNodeId,
+        target: JourneyNodeId,
+        condition: Optional[str],
+    ) -> JourneyEdge:
+        return await self._writable_store.create_edge(journey_id, source, target, condition)
+
+    @override
+    async def read_edge(
+        self,
+        edge_id: JourneyEdgeId,
+    ) -> JourneyEdge:
+        results = await safe_gather(
+            *[try_or_none(store.read_edge(edge_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(edge_id))
+        return result
+
+    @override
+    async def update_edge(
+        self,
+        edge_id: JourneyEdgeId,
+        params: JourneyEdgeUpdateParams,
+    ) -> JourneyEdge:
+        return await self._writable_store.update_edge(edge_id, params)
+
+    @override
+    async def list_edges(
+        self,
+        journey_id: JourneyId,
+        node_id: Optional[JourneyNodeId] = None,
+    ) -> Sequence[JourneyEdge]:
+        results = await safe_gather(
+            *[store.list_edges(journey_id, node_id) for store in self._all_stores]
+        )
+        return list(chain.from_iterable(results))
+
+    @override
+    async def delete_edge(
+        self,
+        edge_id: JourneyEdgeId,
+    ) -> None:
+        return await self._writable_store.delete_edge(edge_id)
+
+    @override
+    async def set_edge_metadata(
+        self,
+        edge_id: JourneyEdgeId,
+        key: str,
+        value: JSONSerializable,
+    ) -> JourneyEdge:
+        return await self._writable_store.set_edge_metadata(edge_id, key, value)
+
+    @override
+    async def unset_edge_metadata(
+        self,
+        edge_id: JourneyEdgeId,
+        key: str,
+    ) -> JourneyEdge:
+        return await self._writable_store.unset_edge_metadata(edge_id, key)
+
+    @override
+    async def upsert_journey_labels(
+        self,
+        journey_id: JourneyId,
+        labels: Set[str],
+    ) -> Journey:
+        return await self._writable_store.upsert_journey_labels(journey_id, labels)
+
+    @override
+    async def remove_journey_labels(
+        self,
+        journey_id: JourneyId,
+        labels: Set[str],
+    ) -> Journey:
+        return await self._writable_store.remove_journey_labels(journey_id, labels)
+
+    @override
+    async def upsert_node_labels(
+        self,
+        node_id: JourneyNodeId,
+        labels: Set[str],
+    ) -> JourneyNode:
+        return await self._writable_store.upsert_node_labels(node_id, labels)
+
+    @override
+    async def remove_node_labels(
+        self,
+        node_id: JourneyNodeId,
+        labels: Set[str],
+    ) -> JourneyNode:
+        return await self._writable_store.remove_node_labels(node_id, labels)
+
+    @override
+    async def create_link(
+        self,
+        journey_id: JourneyId,
+        source_node_id: JourneyNodeId,
+        sub_journey_id: JourneyId,
+        condition: Optional[str] = None,
+        id: Optional[JourneyLinkId] = None,
+    ) -> JourneyLink:
+        return await self._writable_store.create_link(
+            journey_id=journey_id,
+            source_node_id=source_node_id,
+            sub_journey_id=sub_journey_id,
+            condition=condition,
+            id=id,
+        )
+
+    @override
+    async def read_link(
+        self,
+        link_id: JourneyLinkId,
+    ) -> JourneyLink:
+        results = await safe_gather(
+            *[try_or_none(store.read_link(link_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(link_id))
+        return result
+
+    @override
+    async def list_links(
+        self,
+        journey_id: JourneyId,
+    ) -> Sequence[JourneyLink]:
+        results = await safe_gather(*[store.list_links(journey_id) for store in self._all_stores])
+        return list(chain.from_iterable(results))
+
+    @override
+    async def delete_link(
+        self,
+        link_id: JourneyLinkId,
+    ) -> None:
+        return await self._writable_store.delete_link(link_id)

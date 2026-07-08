@@ -3,22 +3,23 @@ import json
 import traceback
 from typing import Optional, Sequence
 from parlant.core.common import DefaultBaseModel
-from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
+from parlant.core.journeys import JourneyNodeKind
+from parlant.core.engines.alpha.rule_matching.generic.journey.journey_backtrack_node_selection import (
     _JourneyEdge,
     _JourneyNode,
-    JourneyNodeKind,
     build_node_wrappers,
     get_journey_transition_map_text,
 )
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.guidelines import Guideline
+from parlant.core.rules import Rule
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.services.indexing.common import EvaluationError, ProgressReport
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.shots import Shot, ShotCollection
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 class RewrittenActionResult(DefaultBaseModel):
@@ -57,32 +58,38 @@ class RelativeActionProposer:
         logger: Logger,
         optimization_policy: OptimizationPolicy,
         schematic_generator: SchematicGenerator[RelativeActionSchema],
-        service_registry: ServiceRegistry,
+        store_provider: StoreProvider,
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._optimization_policy = optimization_policy
 
         self._schematic_generator = schematic_generator
-        self._service_registry = service_registry
+
+    @property
+    def _service_registry(self) -> ServiceRegistry:
+        return self._store_provider.get_store(
+            ServiceRegistry, StoreProviderHints(call_site="engine")
+        )
 
     async def propose_relative_action(
         self,
         examined_journey: Journey,
-        step_guidelines: Sequence[Guideline] = [],
-        journey_triggers: Sequence[Guideline] = [],
+        step_rules: Sequence[Rule] = [],
+        journey_triggers: Sequence[Rule] = [],
         progress_report: Optional[ProgressReport] = None,
     ) -> RelativeActionProposition:
         if progress_report:
             await progress_report.stretch(1)
 
-        to_eval = [g for g in step_guidelines if g.content.action]
+        to_eval = [g for g in step_rules if g.content.action]
 
         if not to_eval:
             return RelativeActionProposition(actions=[])
 
         with self._logger.scope("RelativeActionProposer"):
             generation_attempt_temperatures = (
-                self._optimization_policy.get_guideline_proposition_retry_temperatures(
+                self._optimization_policy.get_rule_proposition_retry_temperatures(
                     hints={"type": self.__class__.__name__}
                 )
             )
@@ -93,7 +100,7 @@ class RelativeActionProposer:
                 try:
                     result = await self._generate_relative_action_step_proposer(
                         examined_journey,
-                        step_guidelines,
+                        step_rules,
                         journey_triggers,
                         temperature=generation_attempt_temperatures[generation_attempt],
                     )
@@ -124,10 +131,10 @@ class RelativeActionProposer:
     def get_journey_text(
         self,
         examined_journey: Journey,
-        step_guidelines: Sequence[Guideline],
-        journey_triggers: Sequence[Guideline],
+        step_rules: Sequence[Rule],
+        journey_triggers: Sequence[Rule],
     ) -> str:
-        node_wrappers: dict[str, _JourneyNode] = build_node_wrappers(step_guidelines)
+        node_wrappers: dict[str, _JourneyNode] = build_node_wrappers(step_rules)
         return get_journey_transition_map_text(
             nodes=node_wrappers,
             journey_title=examined_journey.title,
@@ -137,8 +144,8 @@ class RelativeActionProposer:
     async def _build_prompt(
         self,
         examined_journey: Journey,
-        step_guidelines: Sequence[Guideline],
-        journey_triggers: Sequence[Guideline],
+        step_rules: Sequence[Rule],
+        journey_triggers: Sequence[Rule],
         shots: Sequence[RelativeActionShot],
     ) -> PromptBuilder:
         builder = PromptBuilder()
@@ -204,7 +211,7 @@ EXAMPLES
             name="relative-action-proposer-journey-steps",
             template=self.get_journey_text(
                 examined_journey,
-                step_guidelines,
+                step_rules,
                 journey_triggers,
             ),
         )
@@ -220,16 +227,16 @@ Expected output (JSON):
 {result_structure_text}
 ```
 """,
-            props={"result_structure_text": self._format_text(step_guidelines)},
+            props={"result_structure_text": self._format_text(step_rules)},
         )
 
         return builder
 
     def _format_text(
         self,
-        step_guidelines: Sequence[Guideline],
+        step_rules: Sequence[Rule],
     ) -> str:
-        node_wrappers: dict[str, _JourneyNode] = build_node_wrappers(step_guidelines)
+        node_wrappers: dict[str, _JourneyNode] = build_node_wrappers(step_rules)
         to_eval = {idx: node for idx, node in node_wrappers.items() if node.action}
         result_structure = [
             {
@@ -250,13 +257,13 @@ Expected output (JSON):
     async def _generate_relative_action_step_proposer(
         self,
         examined_journey: Journey,
-        step_guidelines: Sequence[Guideline],
-        journey_triggers: Sequence[Guideline],
+        step_rules: Sequence[Rule],
+        journey_triggers: Sequence[Rule],
         temperature: float,
     ) -> RelativeActionSchema:
         prompt = await self._build_prompt(
             examined_journey,
-            step_guidelines,
+            step_rules,
             journey_triggers,
             _baseline_shots,
         )
@@ -310,7 +317,7 @@ book_hotel_shot_journey_steps = {
         incoming_edges=[],
         outgoing_edges=[
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The customer has specified the hotel name",
                 source_node_index="1",
                 target_node_index="2",
@@ -324,7 +331,7 @@ book_hotel_shot_journey_steps = {
         action="Ask them how many guests will be staying.",
         incoming_edges=[
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The customer has specified the hotel name",
                 source_node_index="1",
                 target_node_index="2",
@@ -332,7 +339,7 @@ book_hotel_shot_journey_steps = {
         ],
         outgoing_edges=[
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The customer has specified the number of guests.",
                 source_node_index="2",
                 target_node_index="3",
@@ -346,7 +353,7 @@ book_hotel_shot_journey_steps = {
         action="Ask the customer for the check-in and check-out dates.",
         incoming_edges=[
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The customer has specified the number of guests.",
                 source_node_index="2",
                 target_node_index="3",
@@ -354,7 +361,7 @@ book_hotel_shot_journey_steps = {
         ],
         outgoing_edges=[
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The customer has provided check-in and check-out dates.",
                 source_node_index="3",
                 target_node_index="4",
@@ -368,7 +375,7 @@ book_hotel_shot_journey_steps = {
         action="Make sure it's available",
         incoming_edges=[
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The customer has provided check-in and check-out dates.",
                 source_node_index="3",
                 target_node_index="4",
@@ -376,13 +383,13 @@ book_hotel_shot_journey_steps = {
         ],
         outgoing_edges=[
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The availability check passed",
                 source_node_index="4",
                 target_node_index="5",
             ),
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The availability check failed",
                 source_node_index="4",
                 target_node_index="6",
@@ -396,7 +403,7 @@ book_hotel_shot_journey_steps = {
         action="Book it.",
         incoming_edges=[
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The availability check passed",
                 source_node_index="4",
                 target_node_index="5",
@@ -404,7 +411,7 @@ book_hotel_shot_journey_steps = {
         ],
         outgoing_edges=[
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The hotel booking was successful",
                 source_node_index="5",
                 target_node_index="7",
@@ -418,7 +425,7 @@ book_hotel_shot_journey_steps = {
         action="Explain it to the user",
         incoming_edges=[
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The availability check failed",
                 source_node_index="4",
                 target_node_index="6",
@@ -433,7 +440,7 @@ book_hotel_shot_journey_steps = {
         action="Ask the customer to provide their email address to send the booking confirmation.",
         incoming_edges=[
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The hotel booking was successful",
                 source_node_index="5",
                 target_node_index="7",
@@ -441,13 +448,13 @@ book_hotel_shot_journey_steps = {
         ],
         outgoing_edges=[
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The customer has provided a valid email address",
                 source_node_index="7",
                 target_node_index="8",
             ),
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The customer has provided an invalid email address",
                 source_node_index="7",
                 target_node_index="9",
@@ -461,13 +468,13 @@ book_hotel_shot_journey_steps = {
         action="send it to them",
         incoming_edges=[
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The customer has provided a valid email address",
                 source_node_index="7",
                 target_node_index="8",
             ),
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The customer has provided a valid email address",
                 source_node_index="9",
                 target_node_index="8",
@@ -475,7 +482,7 @@ book_hotel_shot_journey_steps = {
         ],
         outgoing_edges=[
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The booking confirmation was sent successfully",
                 source_node_index="8",
                 target_node_index="10",
@@ -489,13 +496,13 @@ book_hotel_shot_journey_steps = {
         action="Inform them that the email address is invalid and ask for a valid one.",
         incoming_edges=[
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The customer has provided an invalid email address",
                 source_node_index="7",
                 target_node_index="9",
             ),
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The customer has provided an invalid email address",
                 source_node_index="9",
                 target_node_index="9",
@@ -503,13 +510,13 @@ book_hotel_shot_journey_steps = {
         ],
         outgoing_edges=[
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The customer has provided an invalid email address",
                 source_node_index="9",
                 target_node_index="9",
             ),
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The customer has provided a valid email address",
                 source_node_index="9",
                 target_node_index="8",
@@ -523,7 +530,7 @@ book_hotel_shot_journey_steps = {
         action="Ask the customer if there is anything else you can help with.",
         incoming_edges=[
             _JourneyEdge(
-                target_guideline=None,
+                target_rule=None,
                 condition="The booking confirmation was sent successfully",
                 source_node_index="8",
                 target_node_index="10",

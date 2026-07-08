@@ -21,7 +21,7 @@ from pytest import fixture
 
 from parlant.core.agents import Agent
 from parlant.core.capabilities import Capability
-from parlant.core.common import Criticality, JSONSerializable, generate_id
+from parlant.core.common import Weight, JSONSerializable, generate_id
 from parlant.core.context_variables import (
     ContextVariable,
     ContextVariableId,
@@ -38,16 +38,20 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matching_context im
     GuidelineMatchingContext,
 )
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
-from parlant.core.evaluations import GuidelinePayload, PayloadOperation
-from parlant.core.journeys import JourneyStore
+from parlant.core.evaluations import RulePayload as GuidelinePayload, PayloadOperation
 from parlant.core.glossary import Term, TermId
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.rules import (
+    Rule as Guideline,
+    RuleContent as GuidelineContent,
+    RuleId as GuidelineId,
+)
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.services.indexing.behavioral_change_evaluation import GuidelineEvaluator
+from parlant.core.services.indexing.evaluation_service import RuleEvaluator as GuidelineEvaluator
 from parlant.core.sessions import EventSource, Session
-from parlant.core.tags import TagId
+from parlant.core.store_provider import BasicStoreProvider
+from parlant.core.groups import GroupId
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter, nlp_test
 
@@ -170,34 +174,36 @@ CONDITION_HEAD_DICT = {
 
 
 def create_term(
-    name: str, description: str, synonyms: list[str] = [], tags: list[TagId] = []
+    name: str, description: str, synonyms: list[str] = [], groups: list[GroupId] = []
 ) -> Term:
     return Term(
         id=TermId("-"),
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         name=name,
         description=description,
         synonyms=synonyms,
-        tags=tags,
+        groups=groups,
     )
 
 
 def create_context_variable(
     name: str,
     data: JSONSerializable,
-    tags: list[TagId],
+    groups: list[GroupId],
 ) -> tuple[ContextVariable, ContextVariableValue]:
     return ContextVariable(
         id=ContextVariableId("-"),
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         name=name,
         description="",
         tool_id=None,
         freshness_rules=None,
-        tags=tags,
+        groups=groups,
     ), ContextVariableValue(
         id=ContextVariableValueId("-"),
-        last_modified=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         data=data,
     )
 
@@ -206,7 +212,7 @@ async def create_guideline(
     context: ContextOfTest,
     condition: str,
     action: str | None = None,
-    tags: list[TagId] = [],
+    groups: list[GroupId] = [],
 ) -> Guideline:
     metadata: dict[str, JSONSerializable] = {}
     if action:
@@ -232,13 +238,14 @@ async def create_guideline(
     guideline = Guideline(
         id=GuidelineId(generate_id()),
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         content=GuidelineContent(
             condition=condition,
             action=action,
         ),
-        criticality=Criticality.MEDIUM,
+        weight=Weight.MEDIUM,
         enabled=True,
-        tags=tags,
+        groups=groups,
         metadata=metadata,
     )
 
@@ -322,18 +329,18 @@ async def base_test_that_ambiguity_detected_with_relevant_guidelines(
     disambiguation_resolver = GenericDisambiguationGuidelineMatchingBatch(
         logger=context.logger,
         meter=context.container[Meter],
-        journey_store=context.container[JourneyStore],
         optimization_policy=context.container[OptimizationPolicy],
         schematic_generator=context.schematic_generator,
         disambiguation_guideline=guideline_head,
         disambiguation_targets=guideline_targets,
         context=guideline_matching_context,
+        store_provider=BasicStoreProvider(lambda: context.container),
     )
     result = await disambiguation_resolver.process()
 
-    assert (result.matches[0].score == 10) == is_ambiguous
+    assert len(result.matched_guidelines) == is_ambiguous
 
-    data = result.matches[0].metadata
+    data = result.matched_guidelines[0].metadata
     if data and isinstance(data, dict):
         if is_ambiguous:
             disambiguation = data.get("disambiguation")

@@ -12,16 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Mapping, cast
+from typing import Callable, Mapping, cast
 from typing_extensions import override
 
 from parlant.core.common import JSONSerializable
 from parlant.core.agents import Agent, AgentId, AgentStore
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 from parlant.core.emissions import (
     EmittedEvent,
     EventEmitter,
     EventEmitterFactory,
     MessageEventHandle,
+    StatusEventHandle,
 )
 from parlant.core.sessions import (
     EventKind,
@@ -55,6 +57,28 @@ class EventBufferMessageUpdater:
         return MessageEventHandle(event=new_event, update=self)
 
 
+class EventBufferStatusUpdater:
+    """StatusEventUpdater implementation that updates events in an EventBuffer."""
+
+    def __init__(self, buffer: "EventBuffer", event_index: int) -> None:
+        self._buffer = buffer
+        self._event_index = event_index
+
+    async def __call__(self, data: StatusEventData) -> StatusEventHandle:
+        # EmittedEvent is frozen, so we need to replace with a new event
+        old_event = self._buffer.events[self._event_index]
+        new_event = EmittedEvent(
+            source=old_event.source,
+            kind=old_event.kind,
+            trace_id=old_event.trace_id,
+            data=cast(JSONSerializable, data),
+            metadata=old_event.metadata,
+        )
+        self._buffer.events[self._event_index] = new_event
+
+        return StatusEventHandle(event=new_event, update=self)
+
+
 class EventBuffer(EventEmitter):
     def __init__(self, emitting_agent: Agent) -> None:
         self.agent = emitting_agent
@@ -66,7 +90,7 @@ class EventBuffer(EventEmitter):
         trace_id: str,
         data: StatusEventData,
         metadata: Mapping[str, JSONSerializable] | None = None,
-    ) -> EmittedEvent:
+    ) -> StatusEventHandle:
         event = EmittedEvent(
             source=EventSource.AI_AGENT,
             kind=EventKind.STATUS,
@@ -75,9 +99,11 @@ class EventBuffer(EventEmitter):
             metadata=metadata,
         )
 
+        event_index = len(self.events)
         self.events.append(event)
 
-        return event
+        updater = EventBufferStatusUpdater(buffer=self, event_index=event_index)
+        return StatusEventHandle(event=event, update=updater)
 
     @override
     async def emit_message_event(
@@ -85,23 +111,36 @@ class EventBuffer(EventEmitter):
         trace_id: str,
         data: str | MessageEventData,
         metadata: Mapping[str, JSONSerializable] | None = None,
+        *,
+        source: EventSource = EventSource.AI_AGENT,
     ) -> MessageEventHandle:
+        if source not in (EventSource.AI_AGENT, EventSource.SYSTEM):
+            raise ValueError(f"Unsupported message event source: {source}")
+
         if isinstance(data, str):
+            participant = (
+                {
+                    "id": self.agent.id,
+                    "display_name": self.agent.name,
+                }
+                if source == EventSource.AI_AGENT
+                else {
+                    "id": None,
+                    "display_name": "System",
+                }
+            )
             message_data = cast(
                 JSONSerializable,
                 MessageEventData(
                     message=data,
-                    participant={
-                        "id": self.agent.id,
-                        "display_name": self.agent.name,
-                    },
+                    participant=participant,
                 ),
             )
         else:
             message_data = cast(JSONSerializable, data)
 
         event = EmittedEvent(
-            source=EventSource.AI_AGENT,
+            source=source,
             kind=EventKind.MESSAGE,
             trace_id=trace_id,
             data=message_data,
@@ -154,8 +193,8 @@ class EventBuffer(EventEmitter):
 
 
 class EventBufferFactory(EventEmitterFactory):
-    def __init__(self, agent_store: AgentStore) -> None:
-        self._agent_store = agent_store
+    def __init__(self, store_provider_factory: Callable[[], StoreProvider]) -> None:
+        self._store_provider_factory = store_provider_factory
 
     @override
     async def create_event_emitter(
@@ -164,5 +203,8 @@ class EventBufferFactory(EventEmitterFactory):
         session_id: SessionId,
     ) -> EventEmitter:
         _ = session_id
-        agent = await self._agent_store.read_agent(emitting_agent_id)
+        agent_store = self._store_provider_factory().get_store(
+            AgentStore, StoreProviderHints(call_site="engine")
+        )
+        agent = await agent_store.read_agent(emitting_agent_id)
         return EventBuffer(emitting_agent=agent)

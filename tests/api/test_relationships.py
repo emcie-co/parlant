@@ -26,9 +26,9 @@ from parlant.core.relationships import (
     RelationshipEntity,
     RelationshipStore,
 )
-from parlant.core.guidelines import GuidelineStore
+from parlant.core.rules import RuleStore
 from parlant.core.services.tools.service_registry import ServiceRegistry
-from parlant.core.tags import Tag, TagStore
+from parlant.core.groups import GroupIds, GroupStore
 from parlant.core.common import ItemNotFoundError
 from parlant.core.tools import ToolId, ToolContext, ToolResult
 from parlant.core.services.tools.plugins import tool
@@ -36,18 +36,18 @@ from parlant.core.services.tools.plugins import tool
 from tests.test_utilities import run_service_server
 
 
-async def test_that_relationship_can_be_created_between_two_guidelines(
+async def test_that_relationship_can_be_created_between_two_rules(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
 
-    source_guideline = await guideline_store.create_guideline(
+    source_rule = await rule_store.create_rule(
         condition="source condition",
         action="source action",
     )
 
-    target_guideline = await guideline_store.create_guideline(
+    target_rule = await rule_store.create_rule(
         condition="target condition",
         action="target action",
     )
@@ -55,203 +55,203 @@ async def test_that_relationship_can_be_created_between_two_guidelines(
     response = await async_client.post(
         "/relationships",
         json={
-            "source_guideline": source_guideline.id,
-            "target_guideline": target_guideline.id,
+            "source_rule": source_rule.id,
+            "target_rule": target_rule.id,
             "kind": "entailment",
         },
     )
 
     assert response.status_code == status.HTTP_201_CREATED
     relationship = response.json()
-    assert relationship["source_guideline"]["id"] == source_guideline.id
-    assert relationship["source_guideline"]["condition"] == "source condition"
-    assert relationship["source_guideline"]["action"] == "source action"
+    assert relationship["source_rule"]["id"] == source_rule.id
+    assert relationship["source_rule"]["condition"] == "source condition"
+    assert relationship["source_rule"]["action"] == "source action"
 
-    assert relationship["source_tag"] is None
+    assert relationship["source_group"] is None
 
-    assert relationship["target_guideline"]["id"] == target_guideline.id
-    assert relationship["target_guideline"]["condition"] == "target condition"
-    assert relationship["target_guideline"]["action"] == "target action"
+    assert relationship["target_rule"]["id"] == target_rule.id
+    assert relationship["target_rule"]["condition"] == "target condition"
+    assert relationship["target_rule"]["action"] == "target action"
 
-    assert relationship["target_tag"] is None
+    assert relationship["target_group"] is None
 
 
 async def test_that_relationship_can_be_created_between_two_tags(
     async_client: httpx.AsyncClient, container: Container
 ) -> None:
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
 
-    source_tag = await tag_store.create_tag(
-        name="source tag",
+    source_group = await group_store.create_group(
+        name="source group",
     )
 
-    target_tag = await tag_store.create_tag(
-        name="target tag",
+    target_group = await group_store.create_group(
+        name="target group",
     )
 
     response = await async_client.post(
         "/relationships",
         json={
-            "source_tag": source_tag.id,
-            "target_tag": target_tag.id,
+            "source_group": source_group.id,
+            "target_group": target_group.id,
             "kind": "entailment",
         },
     )
 
     assert response.status_code == status.HTTP_201_CREATED
     relationship = response.json()
-    assert relationship["source_tag"]["id"] == source_tag.id
-    assert relationship["source_tag"]["name"] == "source tag"
+    assert relationship["source_group"]["id"] == source_group.id
+    assert relationship["source_group"]["name"] == "source group"
 
-    assert relationship["source_guideline"] is None
+    assert relationship["source_rule"] is None
 
-    assert relationship["target_tag"]["id"] == target_tag.id
-    assert relationship["target_tag"]["name"] == "target tag"
+    assert relationship["target_group"]["id"] == target_group.id
+    assert relationship["target_group"]["name"] == "target group"
 
-    assert relationship["target_guideline"] is None
+    assert relationship["target_rule"] is None
 
 
-async def test_that_relationship_can_be_created_between_a_guideline_and_a_tag(
+async def test_that_relationship_can_be_created_between_a_rule_and_a_tag(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    rule_store = container[RuleStore]
+    group_store = container[GroupStore]
 
-    source_guideline = await guideline_store.create_guideline(
+    source_rule = await rule_store.create_rule(
         condition="source condition",
         action="source action",
     )
 
-    target_tag = await tag_store.create_tag(
-        name="target tag",
+    target_group = await group_store.create_group(
+        name="target group",
     )
 
     response = await async_client.post(
         "/relationships",
         json={
-            "source_guideline": source_guideline.id,
-            "target_tag": target_tag.id,
+            "source_rule": source_rule.id,
+            "target_group": target_group.id,
             "kind": "entailment",
         },
     )
 
     assert response.status_code == status.HTTP_201_CREATED
     relationship = response.json()
-    assert relationship["source_guideline"]["id"] == source_guideline.id
-    assert relationship["source_guideline"]["condition"] == "source condition"
-    assert relationship["source_guideline"]["action"] == "source action"
+    assert relationship["source_rule"]["id"] == source_rule.id
+    assert relationship["source_rule"]["condition"] == "source condition"
+    assert relationship["source_rule"]["action"] == "source action"
 
-    assert relationship["source_tag"] is None
+    assert relationship["source_group"] is None
 
-    assert relationship["target_tag"]["id"] == target_tag.id
-    assert relationship["target_tag"]["name"] == "target tag"
+    assert relationship["target_group"]["id"] == target_group.id
+    assert relationship["target_group"]["name"] == "target group"
 
-    assert relationship["target_guideline"] is None
+    assert relationship["target_rule"] is None
 
 
-async def test_that_relationships_can_be_listed_by_guideline_id(
+async def test_that_relationships_can_be_listed_by_rule_id(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    rule_store = container[RuleStore]
+    group_store = container[GroupStore]
     relationship_store = container[RelationshipStore]
 
-    guideline = await guideline_store.create_guideline(
+    rule = await rule_store.create_rule(
         condition="condition",
         action="action",
     )
 
-    tag = await tag_store.create_tag(
-        name="tag",
+    group = await group_store.create_group(
+        name="group",
     )
 
     relationship = await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            id=rule.id,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
-            id=tag.id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=group.id,
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         kind=RelationshipKind.PRIORITY,
     )
 
-    response = await async_client.get(f"/relationships?guideline_id={guideline.id}&kind=priority")
+    response = await async_client.get(f"/relationships?rule_id={rule.id}&kind=priority")
     assert response.status_code == status.HTTP_200_OK
     relationships = response.json()
     assert len(relationships) == 1
     assert relationships[0]["id"] == relationship.id
-    assert relationships[0]["source_guideline"]["id"] == guideline.id
-    assert relationships[0]["target_tag"]["id"] == tag.id
+    assert relationships[0]["source_rule"]["id"] == rule.id
+    assert relationships[0]["target_group"]["id"] == group.id
     assert relationships[0]["kind"] == "priority"
 
 
-async def test_that_relationships_can_be_listed_by_tag_id(
+async def test_that_relationships_can_be_listed_by_group_id(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    rule_store = container[RuleStore]
+    group_store = container[GroupStore]
     relationship_store = container[RelationshipStore]
 
-    guideline = await guideline_store.create_guideline(
+    rule = await rule_store.create_rule(
         condition="condition",
         action="action",
     )
 
-    tag = await tag_store.create_tag(
-        name="tag",
+    group = await group_store.create_group(
+        name="group",
     )
 
     relationship = await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            id=rule.id,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
-            id=tag.id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=group.id,
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         kind=RelationshipKind.PRIORITY,
     )
 
-    response = await async_client.get(f"/relationships?tag_id={tag.id}&kind=priority")
+    response = await async_client.get(f"/relationships?group_id={group.id}&kind=priority")
     assert response.status_code == status.HTTP_200_OK
     relationships = response.json()
     assert len(relationships) == 1
     assert relationships[0]["id"] == relationship.id
-    assert relationships[0]["source_guideline"]["id"] == guideline.id
-    assert relationships[0]["target_tag"]["id"] == tag.id
+    assert relationships[0]["source_rule"]["id"] == rule.id
+    assert relationships[0]["target_group"]["id"] == group.id
 
 
 async def test_that_relationship_can_be_read(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    guideline_store = container[GuidelineStore]
-    tag_store = container[TagStore]
+    rule_store = container[RuleStore]
+    group_store = container[GroupStore]
     relationship_store = container[RelationshipStore]
 
-    guideline = await guideline_store.create_guideline(
+    rule = await rule_store.create_rule(
         condition="condition",
         action="action",
     )
 
-    tag = await tag_store.create_tag(
-        name="tag",
+    group = await group_store.create_group(
+        name="group",
     )
 
     relationship = await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            id=rule.id,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
-            id=tag.id,
-            kind=RelationshipEntityKind.TAG_ALL,
+            id=group.id,
+            kind=RelationshipEntityKind.GROUP_ALL,
         ),
         kind=RelationshipKind.ENTAILMENT,
     )
@@ -262,8 +262,8 @@ async def test_that_relationship_can_be_read(
 
     relationship_data = response.json()
     assert relationship_data["id"] == relationship.id
-    assert relationship_data["source_guideline"]["id"] == guideline.id
-    assert relationship_data["target_tag"]["id"] == tag.id
+    assert relationship_data["source_rule"]["id"] == rule.id
+    assert relationship_data["target_group"]["id"] == group.id
     assert relationship_data["kind"] == "entailment"
 
 
@@ -271,14 +271,14 @@ async def test_that_entailment_relationship_can_be_created(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
 
-    source_guideline = await guideline_store.create_guideline(
+    source_rule = await rule_store.create_rule(
         condition="source condition",
         action="source action",
     )
 
-    target_guideline = await guideline_store.create_guideline(
+    target_rule = await rule_store.create_rule(
         condition="target condition",
         action="target action",
     )
@@ -286,43 +286,43 @@ async def test_that_entailment_relationship_can_be_created(
     response = await async_client.post(
         "/relationships",
         json={
-            "source_guideline": source_guideline.id,
-            "target_guideline": target_guideline.id,
+            "source_rule": source_rule.id,
+            "target_rule": target_rule.id,
             "kind": "entailment",
         },
     )
 
     assert response.status_code == status.HTTP_201_CREATED
     relationship = response.json()
-    assert relationship["source_guideline"]["id"] == source_guideline.id
-    assert relationship["target_guideline"]["id"] == target_guideline.id
+    assert relationship["source_rule"]["id"] == source_rule.id
+    assert relationship["target_rule"]["id"] == target_rule.id
     assert relationship["kind"] == "entailment"
 
 
 async def test_that_entailment_relationship_can_be_deleted(
     async_client: httpx.AsyncClient, container: Container
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
     relationship_store = container[RelationshipStore]
 
-    source_guideline = await guideline_store.create_guideline(
+    source_rule = await rule_store.create_rule(
         condition="source condition",
         action="source action",
     )
 
-    target_guideline = await guideline_store.create_guideline(
+    target_rule = await rule_store.create_rule(
         condition="target condition",
         action="target action",
     )
 
     relationship = await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=source_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            id=source_rule.id,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
-            id=target_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            id=target_rule.id,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.ENTAILMENT,
     )
@@ -338,14 +338,14 @@ async def test_that_dependency_relationship_can_be_created(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
 
-    source_guideline = await guideline_store.create_guideline(
+    source_rule = await rule_store.create_rule(
         condition="source condition",
         action="source action",
     )
 
-    target_guideline = await guideline_store.create_guideline(
+    target_rule = await rule_store.create_rule(
         condition="target condition",
         action="target action",
     )
@@ -353,38 +353,38 @@ async def test_that_dependency_relationship_can_be_created(
     response = await async_client.post(
         "/relationships",
         json={
-            "source_guideline": source_guideline.id,
-            "target_guideline": target_guideline.id,
+            "source_rule": source_rule.id,
+            "target_rule": target_rule.id,
             "kind": "dependency",
         },
     )
 
     assert response.status_code == status.HTTP_201_CREATED
     relationship = response.json()
-    assert relationship["source_guideline"]["id"] == source_guideline.id
-    assert relationship["target_guideline"]["id"] == target_guideline.id
+    assert relationship["source_rule"]["id"] == source_rule.id
+    assert relationship["target_rule"]["id"] == target_rule.id
     assert relationship["kind"] == "dependency"
 
 
 async def test_that_dependency_relationship_can_be_deleted(
     async_client: httpx.AsyncClient, container: Container
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
     relationship_store = container[RelationshipStore]
 
-    source_guideline = await guideline_store.create_guideline(
+    source_rule = await rule_store.create_rule(
         condition="condition",
         action="action",
     )
 
     relationship = await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=source_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            id=source_rule.id,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
-            id=source_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            id=source_rule.id,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
@@ -396,18 +396,18 @@ async def test_that_dependency_relationship_can_be_deleted(
         await relationship_store.read_relationship(relationship_id=relationship.id)
 
 
-async def test_that_priority_relationship_can_be_created(
+async def test_that_dependency_any_relationship_can_be_created_with_group_id(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
 
-    source_guideline = await guideline_store.create_guideline(
+    source_rule = await rule_store.create_rule(
         condition="source condition",
         action="source action",
     )
 
-    target_guideline = await guideline_store.create_guideline(
+    target_rule = await rule_store.create_rule(
         condition="target condition",
         action="target action",
     )
@@ -415,43 +415,104 @@ async def test_that_priority_relationship_can_be_created(
     response = await async_client.post(
         "/relationships",
         json={
-            "source_guideline": source_guideline.id,
-            "target_guideline": target_guideline.id,
+            "source_rule": source_rule.id,
+            "target_rule": target_rule.id,
+            "kind": "dependency_any",
+            "group_id": "group-1",
+        },
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    relationship = response.json()
+    assert relationship["source_rule"]["id"] == source_rule.id
+    assert relationship["target_rule"]["id"] == target_rule.id
+    assert relationship["kind"] == "dependency_any"
+    assert relationship["group_id"] == "group-1"
+
+
+async def test_that_dependency_any_relationships_can_be_listed_by_kind(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    rule_store = container[RuleStore]
+    relationship_store = container[RelationshipStore]
+
+    g1 = await rule_store.create_rule(condition="A", action="B")
+    g2 = await rule_store.create_rule(condition="C", action="D")
+
+    relationship = await relationship_store.create_relationship(
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
+        kind=RelationshipKind.DEPENDENCY_ANY,
+        group_id="group-xyz",
+    )
+
+    response = await async_client.get("/relationships?kind=dependency_any")
+    assert response.status_code == status.HTTP_200_OK
+
+    relationships = response.json()
+    assert len(relationships) == 1
+    assert relationships[0]["id"] == relationship.id
+    assert relationships[0]["kind"] == "dependency_any"
+    assert relationships[0]["group_id"] == "group-xyz"
+
+
+async def test_that_priority_relationship_can_be_created(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    rule_store = container[RuleStore]
+
+    source_rule = await rule_store.create_rule(
+        condition="source condition",
+        action="source action",
+    )
+
+    target_rule = await rule_store.create_rule(
+        condition="target condition",
+        action="target action",
+    )
+
+    response = await async_client.post(
+        "/relationships",
+        json={
+            "source_rule": source_rule.id,
+            "target_rule": target_rule.id,
             "kind": "priority",
         },
     )
 
     assert response.status_code == status.HTTP_201_CREATED
     relationship = response.json()
-    assert relationship["source_guideline"]["id"] == source_guideline.id
-    assert relationship["target_guideline"]["id"] == target_guideline.id
+    assert relationship["source_rule"]["id"] == source_rule.id
+    assert relationship["target_rule"]["id"] == target_rule.id
     assert relationship["kind"] == "priority"
 
 
 async def test_that_priority_relationship_can_be_deleted(
     async_client: httpx.AsyncClient, container: Container
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
     relationship_store = container[RelationshipStore]
 
-    source_guideline = await guideline_store.create_guideline(
+    source_rule = await rule_store.create_rule(
         condition="source condition",
         action="source action",
     )
 
-    target_guideline = await guideline_store.create_guideline(
+    target_rule = await rule_store.create_rule(
         condition="target condition",
         action="target action",
     )
 
     relationship = await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=source_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            id=source_rule.id,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
-            id=target_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            id=target_rule.id,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.PRIORITY,
     )
@@ -467,14 +528,14 @@ async def test_that_disambiguation_relationship_can_be_created(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
 
-    source_guideline = await guideline_store.create_guideline(
+    source_rule = await rule_store.create_rule(
         condition="source condition",
         action="source action",
     )
 
-    target_guideline = await guideline_store.create_guideline(
+    target_rule = await rule_store.create_rule(
         condition="target condition",
         action="target action",
     )
@@ -482,43 +543,43 @@ async def test_that_disambiguation_relationship_can_be_created(
     response = await async_client.post(
         "/relationships",
         json={
-            "source_guideline": source_guideline.id,
-            "target_guideline": target_guideline.id,
+            "source_rule": source_rule.id,
+            "target_rule": target_rule.id,
             "kind": "disambiguation",
         },
     )
 
     assert response.status_code == status.HTTP_201_CREATED
     relationship = response.json()
-    assert relationship["source_guideline"]["id"] == source_guideline.id
-    assert relationship["target_guideline"]["id"] == target_guideline.id
+    assert relationship["source_rule"]["id"] == source_rule.id
+    assert relationship["target_rule"]["id"] == target_rule.id
     assert relationship["kind"] == "disambiguation"
 
 
 async def test_that_disambiguation_relationship_can_be_deleted(
     async_client: httpx.AsyncClient, container: Container
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
     relationship_store = container[RelationshipStore]
 
-    source_guideline = await guideline_store.create_guideline(
+    source_rule = await rule_store.create_rule(
         condition="source condition",
         action="source action",
     )
 
-    target_guideline = await guideline_store.create_guideline(
+    target_rule = await rule_store.create_rule(
         condition="target condition",
         action="target action",
     )
 
     relationship = await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=source_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            id=source_rule.id,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
-            id=target_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            id=target_rule.id,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.DISAMBIGUATION,
     )
@@ -534,14 +595,14 @@ async def test_that_reevaluation_relationship_can_be_created(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
 
-    source_guideline = await guideline_store.create_guideline(
+    source_rule = await rule_store.create_rule(
         condition="source condition",
         action="source action",
     )
 
-    target_guideline = await guideline_store.create_guideline(
+    target_rule = await rule_store.create_rule(
         condition="target condition",
         action="target action",
     )
@@ -549,43 +610,43 @@ async def test_that_reevaluation_relationship_can_be_created(
     response = await async_client.post(
         "/relationships",
         json={
-            "source_guideline": source_guideline.id,
-            "target_guideline": target_guideline.id,
+            "source_rule": source_rule.id,
+            "target_rule": target_rule.id,
             "kind": "reevaluation",
         },
     )
 
     assert response.status_code == status.HTTP_201_CREATED
     relationship = response.json()
-    assert relationship["source_guideline"]["id"] == source_guideline.id
-    assert relationship["target_guideline"]["id"] == target_guideline.id
+    assert relationship["source_rule"]["id"] == source_rule.id
+    assert relationship["target_rule"]["id"] == target_rule.id
     assert relationship["kind"] == "reevaluation"
 
 
 async def test_that_reevaluation_relationship_can_be_deleted(
     async_client: httpx.AsyncClient, container: Container
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
     relationship_store = container[RelationshipStore]
 
-    source_guideline = await guideline_store.create_guideline(
+    source_rule = await rule_store.create_rule(
         condition="source condition",
         action="source action",
     )
 
-    target_guideline = await guideline_store.create_guideline(
+    target_rule = await rule_store.create_rule(
         condition="target condition",
         action="target action",
     )
 
     relationship = await relationship_store.create_relationship(
         source=RelationshipEntity(
-            id=source_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            id=source_rule.id,
+            kind=RelationshipEntityKind.RULE,
         ),
         target=RelationshipEntity(
-            id=target_guideline.id,
-            kind=RelationshipEntityKind.GUIDELINE,
+            id=target_rule.id,
+            kind=RelationshipEntityKind.RULE,
         ),
         kind=RelationshipKind.REEVALUATION,
     )
@@ -674,34 +735,34 @@ async def test_that_overlap_relationship_can_be_deleted(
 async def test_that_all_relationships_can_be_listed(
     async_client: httpx.AsyncClient, container: Container
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
     relationship_store = container[RelationshipStore]
 
-    g1 = await guideline_store.create_guideline(condition="A", action="B")
-    g2 = await guideline_store.create_guideline(condition="C", action="D")
-    g3 = await guideline_store.create_guideline(condition="E", action="F")
+    g1 = await rule_store.create_rule(condition="A", action="B")
+    g2 = await rule_store.create_rule(condition="C", action="D")
+    g3 = await rule_store.create_rule(condition="E", action="F")
 
     r1 = await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.PRIORITY,
     )
 
     r2 = await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
     r3 = await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DISAMBIGUATION,
     )
 
     r4 = await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.REEVALUATION,
     )
 
@@ -721,21 +782,21 @@ async def test_that_all_relationships_can_be_listed(
 async def test_that_relationships_can_be_listed_by_kind_only(
     async_client: httpx.AsyncClient, container: Container
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
     relationship_store = container[RelationshipStore]
 
-    g1 = await guideline_store.create_guideline(condition="AA", action="BB")
-    g2 = await guideline_store.create_guideline(condition="CC", action="DD")
+    g1 = await rule_store.create_rule(condition="AA", action="BB")
+    g2 = await rule_store.create_rule(condition="CC", action="DD")
 
     priority_relationship = await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.PRIORITY,
     )
 
     _ = await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.ENTAILMENT,
     )
 
@@ -749,29 +810,29 @@ async def test_that_relationships_can_be_listed_by_kind_only(
     assert relationships[0]["kind"] == "priority"
 
 
-async def test_that_relationships_can_be_listed_by_guideline_id_without_kind_filter_via_api(
+async def test_that_relationships_can_be_listed_by_rule_id_without_kind_filter_via_api(
     async_client: httpx.AsyncClient, container: Container
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
     relationship_store = container[RelationshipStore]
 
-    g1 = await guideline_store.create_guideline(condition="X", action="Y")
-    g2 = await guideline_store.create_guideline(condition="Y", action="Z")
-    g3 = await guideline_store.create_guideline(condition="Z", action="W")
+    g1 = await rule_store.create_rule(condition="X", action="Y")
+    g2 = await rule_store.create_rule(condition="Y", action="Z")
+    g3 = await rule_store.create_rule(condition="Z", action="W")
 
     rel1 = await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g2.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.ENTAILMENT,
     )
 
     rel2 = await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.GUIDELINE),
-        target=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g3.id, kind=RelationshipEntityKind.RULE),
+        target=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
         kind=RelationshipKind.DEPENDENCY,
     )
 
-    response = await async_client.get(f"/relationships?guideline_id={g1.id}")
+    response = await async_client.get(f"/relationships?rule_id={g1.id}")
     assert response.status_code == status.HTTP_200_OK
 
     relationships = response.json()
@@ -836,14 +897,14 @@ async def test_that_relationships_can_be_listed_by_tool_id(
         assert rel2.id in returned_ids
 
 
-async def test_that_relationships_of_guideline_and_a_journey_can_be_listed(
+async def test_that_relationships_of_rule_and_a_journey_can_be_listed(
     async_client: httpx.AsyncClient, container: Container
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
     journey_store = container[JourneyStore]
     relationship_store = container[RelationshipStore]
 
-    g1 = await guideline_store.create_guideline(condition="A", action="B")
+    g1 = await rule_store.create_rule(condition="A", action="B")
 
     j1 = await journey_store.create_journey(
         title="Journey 1",
@@ -852,14 +913,14 @@ async def test_that_relationships_of_guideline_and_a_journey_can_be_listed(
     )
 
     r1 = await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
 
-    response = await async_client.get(f"/relationships?guideline_id={g1.id}")
+    response = await async_client.get(f"/relationships?rule_id={g1.id}")
     assert response.status_code == status.HTTP_200_OK
 
     relationships = response.json()
@@ -873,11 +934,11 @@ async def test_that_relationships_of_a_journey_can_be_listed(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
     journey_store = container[JourneyStore]
     relationship_store = container[RelationshipStore]
 
-    g1 = await guideline_store.create_guideline(condition="A", action="B")
+    g1 = await rule_store.create_rule(condition="A", action="B")
 
     j1 = await journey_store.create_journey(
         title="Journey 1",
@@ -886,14 +947,14 @@ async def test_that_relationships_of_a_journey_can_be_listed(
     )
 
     r1 = await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
         target=RelationshipEntity(
-            id=Tag.for_journey_id(j1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_journey_id(j1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
 
-    response = await async_client.get(f"/relationships?tag_id=journey:{j1.id}")
+    response = await async_client.get(f"/relationships?group_id=journey:{j1.id}")
     assert response.status_code == status.HTTP_200_OK
 
     relationships = response.json()
@@ -903,26 +964,26 @@ async def test_that_relationships_of_a_journey_can_be_listed(
     assert r1.id in returned_ids
 
 
-async def test_that_relationships_of_guideline_and_an_agent_can_be_listed(
+async def test_that_relationships_of_rule_and_an_agent_can_be_listed(
     async_client: httpx.AsyncClient, container: Container
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
     agent_store = container[AgentStore]
     relationship_store = container[RelationshipStore]
 
-    g1 = await guideline_store.create_guideline(condition="A", action="B")
+    g1 = await rule_store.create_rule(condition="A", action="B")
 
     a1 = await agent_store.create_agent(name="Agent 1", description="Description of Agent 1")
 
     r1 = await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
         target=RelationshipEntity(
-            id=Tag.for_agent_id(a1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_agent_id(a1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
 
-    response = await async_client.get(f"/relationships?guideline_id={g1.id}")
+    response = await async_client.get(f"/relationships?rule_id={g1.id}")
     assert response.status_code == status.HTTP_200_OK
 
     relationships = response.json()
@@ -936,23 +997,23 @@ async def test_that_relationships_of_an_agent_can_be_listed(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
     agent_store = container[AgentStore]
     relationship_store = container[RelationshipStore]
 
-    g1 = await guideline_store.create_guideline(condition="A", action="B")
+    g1 = await rule_store.create_rule(condition="A", action="B")
 
     a1 = await agent_store.create_agent(name="Agent 1", description="Description of Agent 1")
 
     r1 = await relationship_store.create_relationship(
-        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.GUIDELINE),
+        source=RelationshipEntity(id=g1.id, kind=RelationshipEntityKind.RULE),
         target=RelationshipEntity(
-            id=Tag.for_agent_id(a1.id).id, kind=RelationshipEntityKind.TAG_ALL
+            id=GroupIds.for_agent_id(a1.id), kind=RelationshipEntityKind.GROUP_ALL
         ),
         kind=RelationshipKind.DEPENDENCY,
     )
 
-    response = await async_client.get(f"/relationships?tag_id=agent:{a1.id}")
+    response = await async_client.get(f"/relationships?group_id=agent:{a1.id}")
     assert response.status_code == status.HTTP_200_OK
 
     relationships = response.json()

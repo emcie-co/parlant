@@ -17,13 +17,13 @@ from enum import Enum
 from pydantic import Field
 from typing import Annotated, Any, Mapping, Sequence, TypeAlias
 
-from parlant.core.agents import CompositionMode, MessageOutputMode
+from parlant.core.agents import CompositionMode, Effort, MessageOutputMode
 from parlant.core.common import DefaultBaseModel
 from parlant.core.evaluations import PayloadOperation
 from parlant.core.persistence.common import SortDirection
 from parlant.core.relationships import RelationshipId
-from parlant.core.guidelines import GuidelineId
-from parlant.core.tags import TagId
+from parlant.core.rules import RuleId
+from parlant.core.groups import GroupId
 from parlant.core.tools import Tool, ToolParameterDescriptor
 
 
@@ -107,6 +107,55 @@ def message_output_mode_to_message_output_mode_dto(
             return MessageOutputModeDTO.STREAM
 
 
+class EffortDTO(Enum):
+    """
+    Defines how much effort the agent invests in processing.
+
+    Available options:
+    - min
+    - low
+    - medium
+    - high
+    - max
+    """
+
+    MIN = "min"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    MAX = "max"
+
+
+def effort_dto_to_effort(dto: EffortDTO) -> Effort:
+    """Convert EffortDTO to core Effort."""
+    match dto:
+        case EffortDTO.MIN:
+            return Effort.MIN
+        case EffortDTO.LOW:
+            return Effort.LOW
+        case EffortDTO.MEDIUM:
+            return Effort.MEDIUM
+        case EffortDTO.HIGH:
+            return Effort.HIGH
+        case EffortDTO.MAX:
+            return Effort.MAX
+
+
+def effort_to_effort_dto(effort: Effort) -> EffortDTO:
+    """Convert core Effort to EffortDTO."""
+    match effort:
+        case Effort.MIN:
+            return EffortDTO.MIN
+        case Effort.LOW:
+            return EffortDTO.LOW
+        case Effort.MEDIUM:
+            return EffortDTO.MEDIUM
+        case Effort.HIGH:
+            return EffortDTO.HIGH
+        case Effort.MAX:
+            return EffortDTO.MAX
+
+
 def apigen_config(group_name: str, method_name: str) -> Mapping[str, Any]:
     return {
         "openapi_extra": {
@@ -148,7 +197,7 @@ class EvaluationStatusDTO(Enum):
     FAILED = "failed"
 
 
-GuidelineConditionField: TypeAlias = Annotated[
+RuleConditionField: TypeAlias = Annotated[
     str,
     Field(
         description="If this condition is satisfied, the action will be performed",
@@ -156,7 +205,7 @@ GuidelineConditionField: TypeAlias = Annotated[
     ),
 ]
 
-GuidelineActionField: TypeAlias = Annotated[
+RuleActionField: TypeAlias = Annotated[
     str,
     Field(
         description="This action will be performed if the condition is satisfied",
@@ -164,15 +213,15 @@ GuidelineActionField: TypeAlias = Annotated[
     ),
 ]
 
-GuidelineDescriptionField: TypeAlias = Annotated[
+RuleDescriptionField: TypeAlias = Annotated[
     str,
     Field(
-        description="Optional description providing additional context for the guideline",
+        description="Optional description providing additional context for the rule",
         examples=["This applies only to premium customers with active subscriptions."],
     ),
 ]
 
-GuidelineTitleField: TypeAlias = Annotated[
+RuleTitleField: TypeAlias = Annotated[
     str,
     Field(
         description="Optional short title for display purposes only",
@@ -181,9 +230,9 @@ GuidelineTitleField: TypeAlias = Annotated[
 ]
 
 
-class CriticalityDTO(Enum):
+class WeightDTO(Enum):
     """
-    The criticality level of a guideline.
+    The criticality level of a rule.
     """
 
     LOW = "low"
@@ -191,36 +240,38 @@ class CriticalityDTO(Enum):
     HIGH = "high"
 
 
-GuidelineCriticalityField: TypeAlias = Annotated[
-    CriticalityDTO,
+RuleWeightField: TypeAlias = Annotated[
+    WeightDTO,
     Field(
-        description="The criticality level of the guideline",
+        description="The criticality level of the rule",
         examples=["high"],
     ),
 ]
 
-guideline_content_example: ExampleJson = {
+rule_content_example: ExampleJson = {
     "condition": "User asks about product pricing",
     "action": "Provide current price list and any active discounts",
+    "description": "Use the public pricing sheet for the customer's region.",
 }
 
 
-class GuidelineContentDTO(
+class RuleContentDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": guideline_content_example},
+    json_schema_extra={"example": rule_content_example},
 ):
     """
-    Represention of a guideline with a condition-action pair.
+    Represention of a rule with a condition-action pair.
 
-    This model defines a structure for guidelines where specific actions should be taken
+    This model defines a structure for rules where specific actions should be taken
     when certain conditions are met. It follows a simple "if condition then action" pattern.
     """
 
-    condition: GuidelineConditionField
-    action: GuidelineActionField | None = None
+    condition: RuleConditionField
+    action: RuleActionField | None = None
+    description: RuleDescriptionField | None = None
 
 
-class GuidelinePayloadOperationDTO(Enum):
+class RulePayloadOperationDTO(Enum):
     """
     The kind of operation that should be performed on the payload.
     """
@@ -233,25 +284,25 @@ class PayloadKindDTO(Enum):
     """
     The kind of payload.
 
-    At this point only `"guideline"` is supported.
+    At this point only `"rule"` is supported.
     """
 
-    GUIDELINE = "guideline"
+    RULE = "rule"
 
 
-GuidelineIdField: TypeAlias = Annotated[
-    GuidelineId,
+RuleIdField: TypeAlias = Annotated[
+    RuleId,
     Field(
-        description="Unique identifier for the guideline",
+        description="Unique identifier for the rule",
         examples=["IUCGT-l4pS"],
     ),
 ]
 
 
-def operation_dto_to_operation(dto: GuidelinePayloadOperationDTO) -> PayloadOperation:
+def operation_dto_to_operation(dto: RulePayloadOperationDTO) -> PayloadOperation:
     if operation := {
-        GuidelinePayloadOperationDTO.ADD: PayloadOperation.ADD,
-        GuidelinePayloadOperationDTO.UPDATE: PayloadOperation.UPDATE,
+        RulePayloadOperationDTO.ADD: PayloadOperation.ADD,
+        RulePayloadOperationDTO.UPDATE: PayloadOperation.UPDATE,
     }.get(dto):
         return operation
 
@@ -292,68 +343,101 @@ def example_json_content(json_example: ExampleJson) -> ExtraSchema:
     return {"application/json": {"example": json_example}}
 
 
-GuidelineMetadataField: TypeAlias = Annotated[
-    Mapping[str, JSONSerializableDTO],
-    Field(description="Metadata for the guideline"),
+RuleLastModifiedField: TypeAlias = Annotated[
+    datetime,
+    Field(
+        description="UTC timestamp of the last modification to the rule",
+    ),
 ]
 
-GuidelineEnabledField: TypeAlias = Annotated[
+RuleMetadataField: TypeAlias = Annotated[
+    Mapping[str, JSONSerializableDTO],
+    Field(description="Metadata for the rule"),
+]
+
+RuleEnabledField: TypeAlias = Annotated[
     bool,
     Field(
-        description="Whether the guideline is enabled",
+        description="Whether the rule is enabled",
         examples=[True, False],
     ),
 ]
 
 
-guideline_dto_example = {
+rule_dto_example = {
     "id": "guid_123xz",
     "condition": "when the customer asks about pricing",
     "action": "provide current pricing information and mention any ongoing promotions",
     "enabled": True,
-    "tags": ["tag1", "tag2"],
+    "groups": ["group1", "group2"],
     "metadata": {"key1": "value1", "key2": "value2"},
     "composition_mode": None,
+    "effort": None,
     "labels": ["vip", "priority"],
+    "signals": ["What does this cost?"],
+    "anti_signals": ["Can I update my account email?"],
 }
 
-GuidelineTagsField: TypeAlias = Annotated[
-    Sequence[TagId],
+RuleGroupsField: TypeAlias = Annotated[
+    Sequence[GroupId],
     Field(
-        description="The tags associated with the guideline",
-        examples=[["tag1", "tag2"], []],
+        description="The groups associated with the rule",
+        examples=[["group1", "group2"], []],
     ),
 ]
 
 
-GuidelineLabelsField: TypeAlias = Annotated[
+RuleLabelsField: TypeAlias = Annotated[
     set[str],
     Field(
-        description="The labels associated with the guideline",
+        description="The labels associated with the rule",
         examples=[{"vip", "priority"}, set()],
     ),
 ]
 
 
-class GuidelineDTO(
-    DefaultBaseModel,
-    json_schema_extra={"example": guideline_dto_example},
-):
-    """Represents a guideline."""
+RuleSignalsField: TypeAlias = Annotated[
+    Sequence[str],
+    Field(
+        description="Signals associated with the rule, embedded as independent "
+        "vectors to help with retrieval and matching.",
+        examples=[["I want a refund", "money back please"], []],
+    ),
+]
 
-    id: GuidelineIdField
-    condition: GuidelineConditionField
-    action: GuidelineActionField | None = None
-    description: GuidelineDescriptionField | None = None
-    title: GuidelineTitleField | None = None
-    criticality: GuidelineCriticalityField = CriticalityDTO.MEDIUM
-    enabled: GuidelineEnabledField = True
-    tags: GuidelineTagsField
-    metadata: GuidelineMetadataField
+RuleAntiSignalsField: TypeAlias = Annotated[
+    Sequence[str],
+    Field(
+        description="In-domain user messages that should not activate this rule. "
+        "Used as negative examples for Compass recall training.",
+        examples=[["Can I update my account email?", "Where is my package?"], []],
+    ),
+]
+
+
+class RuleDTO(
+    DefaultBaseModel,
+    json_schema_extra={"example": rule_dto_example},
+):
+    """Represents a rule."""
+
+    id: RuleIdField
+    condition: RuleConditionField
+    action: RuleActionField | None = None
+    description: RuleDescriptionField | None = None
+    title: RuleTitleField | None = None
+    criticality: RuleWeightField = WeightDTO.MEDIUM
+    enabled: RuleEnabledField = True
+    groups: RuleGroupsField
+    metadata: RuleMetadataField
+    modified_utc: RuleLastModifiedField
     composition_mode: CompositionModeDTO | None = None
+    effort: EffortDTO | None = None
     track: bool = True
-    labels: GuidelineLabelsField = set()
+    labels: RuleLabelsField = set()
     priority: int = 0
+    signals: RuleSignalsField = []
+    anti_signals: RuleAntiSignalsField = []
 
 
 EnumValueTypeDTO: TypeAlias = str | int
@@ -511,50 +595,50 @@ def tool_to_dto(tool: Tool) -> ToolDTO:
     )
 
 
-TagIdField: TypeAlias = Annotated[
-    TagId,
+GroupIdField: TypeAlias = Annotated[
+    GroupId,
     Field(
-        description="Unique identifier for the tag",
-        examples=["tag_123xyz", "tag_premium42"],
+        description="Unique identifier for the group",
+        examples=["group_123xyz", "group_premium42"],
     ),
 ]
 
 
-TagNameField: TypeAlias = Annotated[
+GroupNameField: TypeAlias = Annotated[
     str,
     Field(
-        description="Human-readable name for the tag, used for display and organization",
+        description="Human-readable name for the group, used for display and organization",
         examples=["premium", "enterprise", "beta-tester"],
         min_length=1,
         max_length=50,
     ),
 ]
 
-tag_example: ExampleJson = {
-    "id": "tag_123xyz",
+group_example: ExampleJson = {
+    "id": "group_123xyz",
     "name": "premium",
     "creation_utc": "2024-03-24T12:00:00Z",
 }
 
 
-class TagDTO(
+class GroupDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": tag_example},
+    json_schema_extra={"example": group_example},
 ):
     """
-    Represents a tag in the system.
+    Represents a group in the system.
 
-    Tags can be used to categorize and label various resources like customers, sessions,
+    Groups can be used to categorize and label various resources like customers, sessions,
     or content. They provide a flexible way to organize and filter data.
     """
 
-    id: TagIdField
-    name: TagNameField
+    id: GroupIdField
+    name: GroupNameField
 
 
-relationship_tag_dto_example: ExampleJson = {
+relationship_group_dto_example: ExampleJson = {
     "id": "tid_123xz",
-    "name": "tag1",
+    "name": "group1",
 }
 
 
@@ -568,16 +652,16 @@ RelationshipIdField: TypeAlias = Annotated[
 
 relationship_example: ExampleJson = {
     "id": "123",
-    "source_guideline": {
+    "source_rule": {
         "id": "456",
         "condition": "when the customer asks about pricing",
         "action": "provide current pricing information",
         "enabled": True,
-        "tags": ["tag1", "tag2"],
+        "groups": ["group1", "group2"],
     },
-    "target_tag": {
+    "target_group": {
         "id": "789",
-        "name": "tag1",
+        "name": "group1",
     },
     "indirect": False,
     "kind": "entailment",
@@ -590,6 +674,7 @@ class RelationshipKindDTO(Enum):
     ENTAILMENT = "entailment"
     PRIORITY = "priority"
     DEPENDENCY = "dependency"
+    DEPENDENCY_ANY = "dependency_any"
     DISAMBIGUATION = "disambiguation"
     OVERLAP = "overlap"
     REEVALUATION = "reevaluation"
@@ -620,16 +705,17 @@ class RelationshipDTO(
 ):
     """Represents a relationship.
 
-    Only one of `source_guideline` and `source_tag` can have a value.
-    Only one of `target_guideline` and `target_tag` can have a value.
+    Only one of `source_rule` and `source_group` can have a value.
+    Only one of `target_rule` and `target_group` can have a value.
     Only one of `source_tool` and `target_tool` can have a value.
     """
 
     id: RelationshipIdField
-    source_guideline: GuidelineDTO | None = None
-    source_tag: TagDTO | None = None
-    target_guideline: GuidelineDTO | None = None
-    target_tag: TagDTO | None = None
+    source_rule: RuleDTO | None = None
+    source_group: GroupDTO | None = None
+    target_rule: RuleDTO | None = None
+    target_group: GroupDTO | None = None
     source_tool: ToolDTO | None = None
     target_tool: ToolDTO | None = None
     kind: RelationshipKindDTO
+    group_id: str | None = None

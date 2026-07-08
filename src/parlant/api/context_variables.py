@@ -13,7 +13,6 @@
 # limitations under the License.
 
 from pydantic import Field, field_validator
-from datetime import datetime
 from croniter import croniter
 from fastapi import HTTPException, Path, Query, Request, status
 from typing import Annotated, Sequence, TypeAlias, cast
@@ -21,6 +20,7 @@ from typing import Annotated, Sequence, TypeAlias, cast
 from fastapi import APIRouter
 from parlant.api import common
 from parlant.api.authorization import AuthorizationPolicy, Operation
+from datetime import datetime
 from parlant.api.common import (
     ToolIdDTO,
     JSONSerializableDTO,
@@ -37,7 +37,7 @@ from parlant.core.context_variables import (
     ContextVariableId,
     ContextVariableValueId,
 )
-from parlant.core.tags import TagId
+from parlant.core.groups import GroupId
 from parlant.core.tools import ToolId
 
 API_GROUP = "context-variables"
@@ -96,13 +96,6 @@ ValueIdField: TypeAlias = Annotated[
     ),
 ]
 
-LastModifiedField: TypeAlias = Annotated[
-    datetime,
-    Field(
-        description="Timestamp of the last modification",
-    ),
-]
-
 
 DataField: TypeAlias = Annotated[
     JSONSerializableDTO,
@@ -111,9 +104,23 @@ DataField: TypeAlias = Annotated[
     ),
 ]
 
+LastModifiedField: TypeAlias = Annotated[
+    datetime,
+    Field(
+        description="Timestamp of the last modification",
+    ),
+]
+
+ContextVariableLastModifiedField: TypeAlias = Annotated[
+    datetime,
+    Field(
+        description="UTC timestamp of the last modification to the context variable",
+    ),
+]
+
 context_variable_value_example: ExampleJson = {
     "id": "val_789abc",
-    "last_modified": "2024-03-24T12:00:00Z",
+    "modified_utc": "2024-03-24T12:00:00Z",
     "data": {
         "balance": 5000.50,
         "currency": "USD",
@@ -128,15 +135,15 @@ class ContextVariableValueDTO(
     json_schema_extra={"example": context_variable_value_example},
 ):
     """
-    Represents the actual stored value for a specific customer's or tag's context.
+    Represents the actual stored value for a specific customer's or group's context.
 
     This could be their subscription details, feature usage history,
-    preferences, or any other customer or tag information that helps
+    preferences, or any other customer or group information that helps
     personalize the agent's responses.
     """
 
     id: ValueIdField
-    last_modified: LastModifiedField
+    modified_utc: LastModifiedField
     data: DataField
 
 
@@ -195,9 +202,9 @@ IncludeValuesQuery: TypeAlias = Annotated[
 
 
 ContextVariableTagsField: TypeAlias = Annotated[
-    list[TagId],
+    list[GroupId],
     Field(
-        description="List of tags associated with the context variable",
+        description="List of groups associated with the context variable",
     ),
 ]
 
@@ -207,7 +214,7 @@ context_variable_example: ExampleJson = {
     "description": "Stores the account balances of users",
     "tool_id": {"service_name": "finance_service", "tool_name": "balance_checker"},
     "freshness_rules": "0 8,20 * * *",
-    "tags": ["tag:123", "tag:456"],
+    "groups": ["group:123", "group:456"],
 }
 
 
@@ -224,44 +231,45 @@ class ContextVariableDTO(
     description: ContextVariableDescriptionField | None = None
     tool_id: ToolIdDTO | None = None
     freshness_rules: FreshnessRulesField | None = None
-    tags: ContextVariableTagsField | None = None
+    groups: ContextVariableTagsField | None = None
+    modified_utc: ContextVariableLastModifiedField
 
 
-context_variable_tags_update_params_example: ExampleJson = {
+context_variable_groups_update_params_example: ExampleJson = {
     "add": [
         "t9a8g703f4",
-        "tag_456abc",
+        "group_456abc",
     ],
     "remove": [
-        "tag_789def",
-        "tag_012ghi",
+        "group_789def",
+        "group_012ghi",
     ],
 }
 
 
 ContextVariableTagsUpdateAddField: TypeAlias = Annotated[
-    list[TagId],
+    list[GroupId],
     Field(
-        description="List of tag IDs to add to the context variable",
-        examples=[["tag1", "tag2"]],
+        description="List of group IDs to add to the context variable",
+        examples=[["group1", "group2"]],
     ),
 ]
 
 ContextVariableTagsUpdateRemoveField: TypeAlias = Annotated[
-    list[TagId],
+    list[GroupId],
     Field(
-        description="List of tag IDs to remove from the context variable",
-        examples=[["tag1", "tag2"]],
+        description="List of group IDs to remove from the context variable",
+        examples=[["group1", "group2"]],
     ),
 ]
 
 
 class ContextVariableTagsUpdateParamsDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": context_variable_tags_update_params_example},
+    json_schema_extra={"example": context_variable_groups_update_params_example},
 ):
     """
-    Parameters for updating the tags of an existing context variable.
+    Parameters for updating the groups of an existing context variable.
     """
 
     add: ContextVariableTagsUpdateAddField | None = None
@@ -273,9 +281,9 @@ context_variable_update_params_example: ExampleJson = {
     "description": "Stores the account balances of users",
     "tool_id": {"service_name": "finance_service", "tool_name": "balance_checker"},
     "freshness_rules": "0 8,20 * * *",
-    "tags": {
-        "add": ["tag:123", "tag:456"],
-        "remove": ["tag:789", "tag:012"],
+    "groups": {
+        "add": ["group:123", "group:456"],
+        "remove": ["group:789", "group:012"],
     },
 }
 
@@ -290,7 +298,7 @@ class ContextVariableUpdateParamsDTO(
     description: ContextVariableDescriptionField | None = None
     tool_id: ToolIdDTO | None = None
     freshness_rules: FreshnessRulesField | None = None
-    tags: ContextVariableTagsUpdateParamsDTO | None = None
+    groups: ContextVariableTagsUpdateParamsDTO | None = None
 
     @field_validator("freshness_rules")
     @classmethod
@@ -306,11 +314,11 @@ class ContextVariableUpdateParamsDTO(
         return value
 
 
-TagIdQuery: TypeAlias = Annotated[
-    TagId | None,
+GroupIdQuery: TypeAlias = Annotated[
+    GroupId | None,
     Query(
-        description="The tag ID to filter context variables by",
-        examples=["tag:123"],
+        description="The group ID to filter context variables by",
+        examples=["group:123"],
     ),
 ]
 
@@ -335,7 +343,7 @@ class ContextVariableCreationParamsDTO(
     description: ContextVariableDescriptionField | None = None
     tool_id: ToolIdDTO | None = None
     freshness_rules: FreshnessRulesField | None = None
-    tags: ContextVariableTagsField | None = None
+    groups: ContextVariableTagsField | None = None
 
     @field_validator("freshness_rules")
     @classmethod
@@ -398,7 +406,7 @@ def create_router(
             if params.tool_id
             else None,
             freshness_rules=params.freshness_rules,
-            tags=params.tags,
+            groups=params.groups,
         )
 
         return ContextVariableDTO(
@@ -411,7 +419,8 @@ def create_router(
             if variable.tool_id
             else None,
             freshness_rules=variable.freshness_rules,
-            tags=variable.tags,
+            groups=variable.groups,
+            modified_utc=variable.modified_utc,
         )
 
     @router.patch(
@@ -453,11 +462,11 @@ def create_router(
             if params.tool_id
             else None,
             freshness_rules=params.freshness_rules,
-            tags=ContextVariableTagsUpdateParams(
-                add=params.tags.add,
-                remove=params.tags.remove,
+            groups=ContextVariableTagsUpdateParams(
+                add=params.groups.add,
+                remove=params.groups.remove,
             )
-            if params.tags
+            if params.groups
             else None,
         )
 
@@ -472,7 +481,8 @@ def create_router(
             if updated_variable.tool_id
             else None,
             freshness_rules=updated_variable.freshness_rules,
-            tags=updated_variable.tags,
+            groups=updated_variable.groups,
+            modified_utc=updated_variable.modified_utc,
         )
 
     @router.get(
@@ -490,12 +500,12 @@ def create_router(
     )
     async def list_variables(
         request: Request,
-        tag_id: TagIdQuery = None,
+        group_id: GroupIdQuery = None,
     ) -> Sequence[ContextVariableDTO]:
-        """Lists all context variables set for the provided tag or all context variables if no tag is provided"""
+        """Lists all context variables set for the provided group or all context variables if no group is provided"""
         await authorization_policy.authorize(request, Operation.LIST_CONTEXT_VARIABLES)
 
-        variables = await app.variables.find(tag_id=tag_id)
+        variables = await app.variables.find(group_id=group_id)
 
         return [
             ContextVariableDTO(
@@ -508,7 +518,8 @@ def create_router(
                 if v.tool_id
                 else None,
                 freshness_rules=v.freshness_rules,
-                tags=v.tags,
+                groups=v.groups,
+                modified_utc=v.modified_utc,
             )
             for v in variables
         ]
@@ -534,7 +545,7 @@ def create_router(
         """
         Retrieves a context variable's details and optionally its values.
 
-        Can return all customer or tag values for this variable type if include_values=True.
+        Can return all customer or group values for this variable type if include_values=True.
         """
         await authorization_policy.authorize(
             request=request,
@@ -553,7 +564,8 @@ def create_router(
             if variable.tool_id
             else None,
             freshness_rules=variable.freshness_rules,
-            tags=variable.tags,
+            groups=variable.groups,
+            modified_utc=variable.modified_utc,
         )
 
         if not include_values:
@@ -569,7 +581,7 @@ def create_router(
             key_value_pairs={
                 key: ContextVariableValueDTO(
                     id=value.id,
-                    last_modified=value.last_modified,
+                    modified_utc=value.modified_utc,
                     data=cast(JSONSerializableDTO, value.data),
                 )
                 for key, value in key_value_pairs
@@ -582,21 +594,21 @@ def create_router(
         operation_id="delete_variables",
         responses={
             status.HTTP_204_NO_CONTENT: {"description": "All context variables deleted"},
-            status.HTTP_404_NOT_FOUND: {"description": "Tag not found"},
+            status.HTTP_404_NOT_FOUND: {"description": "Group not found"},
         },
         **apigen_config(group_name=API_GROUP, method_name="delete_many"),
     )
     async def delete_variables(
         request: Request,
-        tag_id: TagIdQuery = None,
+        group_id: GroupIdQuery = None,
     ) -> None:
-        """Deletes all context variables for the provided tag"""
+        """Deletes all context variables for the provided group"""
         await authorization_policy.authorize(
             request=request,
             operation=Operation.DELETE_CONTEXT_VARIABLES,
         )
 
-        await app.variables.delete_many(tag_id)
+        await app.variables.delete_many(group_id)
 
     @router.delete(
         "/{variable_id}",
@@ -626,7 +638,7 @@ def create_router(
         response_model=ContextVariableValueDTO,
         responses={
             status.HTTP_200_OK: {
-                "description": "Retrieved context value for the customer or tag",
+                "description": "Retrieved context value for the customer or group",
                 "content": common.example_json_content(context_variable_value_example),
             },
             status.HTTP_404_NOT_FOUND: {"description": "Variable, agent, or key not found"},
@@ -638,7 +650,7 @@ def create_router(
         variable_id: ContextVariableIdPath,
         key: ContextVariableKeyPath,
     ) -> ContextVariableValueDTO:
-        """Retrieves a customer or tag value for the provided context variable"""
+        """Retrieves a customer or group value for the provided context variable"""
         await authorization_policy.authorize(
             request=request,
             operation=Operation.READ_CONTEXT_VARIABLE_VALUE,
@@ -649,7 +661,7 @@ def create_router(
         if value:
             return ContextVariableValueDTO(
                 id=value.id,
-                last_modified=value.last_modified,
+                modified_utc=value.modified_utc,
                 data=cast(JSONSerializableDTO, value.data),
             )
 
@@ -661,7 +673,7 @@ def create_router(
         response_model=ContextVariableValueDTO,
         responses={
             status.HTTP_200_OK: {
-                "description": "Context value successfully updated for the customer or tag",
+                "description": "Context value successfully updated for the customer or group",
                 "content": common.example_json_content(context_variable_value_example),
             },
             status.HTTP_404_NOT_FOUND: {"description": "Variable, agent, or key not found"},
@@ -677,7 +689,7 @@ def create_router(
         key: ContextVariableKeyPath,
         params: ContextVariableValueUpdateParamsDTO,
     ) -> ContextVariableValueDTO:
-        """Updates a customer or tag value for the provided context variable"""
+        """Updates a customer or group value for the provided context variable"""
         await authorization_policy.authorize(
             request=request,
             operation=Operation.UPDATE_CONTEXT_VARIABLE_VALUE,
@@ -691,7 +703,7 @@ def create_router(
 
         return ContextVariableValueDTO(
             id=value.id,
-            last_modified=value.last_modified,
+            modified_utc=value.modified_utc,
             data=cast(JSONSerializableDTO, value.data),
         )
 
@@ -701,7 +713,7 @@ def create_router(
         operation_id="delete_value",
         responses={
             status.HTTP_204_NO_CONTENT: {
-                "description": "Context value deleted for the customer or tag"
+                "description": "Context value deleted for the customer or group"
             },
             status.HTTP_404_NOT_FOUND: {"description": "Variable, agent, or key not found"},
         },
@@ -712,7 +724,7 @@ def create_router(
         variable_id: ContextVariableIdPath,
         key: ContextVariableKeyPath,
     ) -> None:
-        """Deletes a customer or tag value for the provided context variable"""
+        """Deletes a customer or group value for the provided context variable"""
         await authorization_policy.authorize(
             request=request,
             operation=Operation.DELETE_CONTEXT_VARIABLE_VALUE,

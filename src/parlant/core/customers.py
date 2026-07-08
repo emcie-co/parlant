@@ -15,13 +15,21 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from itertools import chain
 from typing import Iterator, Mapping, NewType, Optional, Sequence, cast
 from typing_extensions import override, TypedDict, Self
 
-from parlant.core.async_utils import ReaderWriterLock
+from parlant.core.async_utils import ReaderWriterLock, safe_gather
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
-from parlant.core.tags import TagId
-from parlant.core.common import ItemNotFoundError, UniqueId, Version, IdGenerator, xxh3_checksum
+from parlant.core.groups import GroupId
+from parlant.core.common import (
+    ItemNotFoundError,
+    try_or_none,
+    UniqueId,
+    Version,
+    IdGenerator,
+    xxh3_checksum,
+)
 from parlant.core.persistence.common import Cursor, ObjectId, SortDirection, Where
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -39,7 +47,7 @@ class Customer:
     creation_utc: datetime
     name: str
     extra: Mapping[str, str]
-    tags: Sequence[TagId]
+    groups: Sequence[GroupId]
 
 
 @dataclass(frozen=True)
@@ -69,7 +77,7 @@ class CustomerStore(ABC):
         name: str,
         extra: Mapping[str, str] = {},
         creation_utc: Optional[datetime] = None,
-        tags: Optional[Sequence[TagId]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
         id: Optional[CustomerId] = None,
     ) -> Customer: ...
 
@@ -95,25 +103,25 @@ class CustomerStore(ABC):
     @abstractmethod
     async def list_customers(
         self,
-        tags: Optional[Sequence[TagId]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
         sort_direction: Optional[SortDirection] = None,
     ) -> CustomerListing: ...
 
     @abstractmethod
-    async def upsert_tag(
+    async def upsert_group(
         self,
         customer_id: CustomerId,
-        tag_id: TagId,
+        group_id: GroupId,
         creation_utc: Optional[datetime] = None,
     ) -> bool: ...
 
     @abstractmethod
-    async def remove_tag(
+    async def remove_group(
         self,
         customer_id: CustomerId,
-        tag_id: TagId,
+        group_id: GroupId,
     ) -> None: ...
 
     @abstractmethod
@@ -139,12 +147,12 @@ class _CustomerDocument(TypedDict, total=False):
     extra: Mapping[str, str]
 
 
-class _CustomerTagAssociationDocument(TypedDict, total=False):
+class _CustomerGroupAssociationDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
     customer_id: CustomerId
-    tag_id: TagId
+    group_id: GroupId
 
 
 class CustomerDocumentStore(CustomerStore):
@@ -155,14 +163,16 @@ class CustomerDocumentStore(CustomerStore):
         id_generator: IdGenerator,
         database: DocumentDatabase,
         allow_migration: bool = False,
+        collections_prefix: str | None = None,
     ) -> None:
         self._id_generator = id_generator
 
         self._database = database
         self._customers_collection: DocumentCollection[_CustomerDocument]
-        self._tag_association_collection: DocumentCollection[_CustomerTagAssociationDocument]
+        self._tag_association_collection: DocumentCollection[_CustomerGroupAssociationDocument]
 
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
 
         self._lock = ReaderWriterLock()
 
@@ -174,19 +184,19 @@ class CustomerDocumentStore(CustomerStore):
 
     async def _association_document_loader(
         self, doc: BaseDocument
-    ) -> Optional[_CustomerTagAssociationDocument]:
+    ) -> Optional[_CustomerGroupAssociationDocument]:
         if doc["version"] == "0.1.0":
-            doc = cast(_CustomerTagAssociationDocument, doc)
-            return _CustomerTagAssociationDocument(
+            doc = cast(_CustomerGroupAssociationDocument, doc)
+            return _CustomerGroupAssociationDocument(
                 id=doc["id"],
                 version=Version.String("0.2.0"),
                 creation_utc=doc["creation_utc"],
                 customer_id=doc["customer_id"],
-                tag_id=doc["tag_id"],
+                group_id=doc["group_id"],
             )
 
         if Version.from_string(doc["version"]) >= Version.from_string("0.2.0"):
-            return cast(_CustomerTagAssociationDocument, doc)
+            return cast(_CustomerGroupAssociationDocument, doc)
 
         return None
 
@@ -195,16 +205,21 @@ class CustomerDocumentStore(CustomerStore):
             store=self,
             database=self._database,
             allow_migration=self._allow_migration,
+            collections_prefix=self._collections_prefix,
         ):
             self._customers_collection = await self._database.get_or_create_collection(
-                name="customers",
+                name=f"{self._collections_prefix}_customers"
+                if self._collections_prefix
+                else "customers",
                 schema=_CustomerDocument,
                 document_loader=self._document_loader,
             )
 
             self._tag_association_collection = await self._database.get_or_create_collection(
-                name="customer_tag_associations",
-                schema=_CustomerTagAssociationDocument,
+                name=f"{self._collections_prefix}_customer_tag_associations"
+                if self._collections_prefix
+                else "customer_tag_associations",
+                schema=_CustomerGroupAssociationDocument,
                 document_loader=self._association_document_loader,
             )
             await self._customers_collection.ensure_indexes(
@@ -213,11 +228,11 @@ class CustomerDocumentStore(CustomerStore):
             await self._tag_association_collection.ensure_indexes(
                 [
                     CollectionIndex(fields=(("customer_id", SortDirection.ASC),)),
-                    CollectionIndex(fields=(("tag_id", SortDirection.ASC),)),
+                    CollectionIndex(fields=(("group_id", SortDirection.ASC),)),
                     CollectionIndex(
                         fields=(
                             ("customer_id", SortDirection.ASC),
-                            ("tag_id", SortDirection.ASC),
+                            ("group_id", SortDirection.ASC),
                         )
                     ),
                 ]
@@ -243,8 +258,8 @@ class CustomerDocumentStore(CustomerStore):
         )
 
     async def _deserialize_customer(self, customer_document: _CustomerDocument) -> Customer:
-        tags = [
-            doc["tag_id"]
+        groups = [
+            doc["group_id"]
             for doc in await self._tag_association_collection.find(
                 {"customer_id": {"$eq": customer_document["id"]}}
             )
@@ -255,7 +270,7 @@ class CustomerDocumentStore(CustomerStore):
             creation_utc=datetime.fromisoformat(customer_document["creation_utc"]),
             name=customer_document["name"],
             extra=customer_document["extra"],
-            tags=tags,
+            groups=groups,
         )
 
     @override
@@ -264,7 +279,7 @@ class CustomerDocumentStore(CustomerStore):
         name: str,
         extra: Mapping[str, str] = {},
         creation_utc: Optional[datetime] = None,
-        tags: Optional[Sequence[TagId]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
         id: Optional[CustomerId] = None,
     ) -> Customer:
         async with self._lock.writer_lock:
@@ -281,7 +296,7 @@ class CustomerDocumentStore(CustomerStore):
                 if existing:
                     raise ValueError(f"Customer with id '{customer_id}' already exists")
             else:
-                customer_checksum = xxh3_checksum(f"{name}{extra}{tags}")
+                customer_checksum = xxh3_checksum(f"{name}{extra}{groups}")
                 customer_id = CustomerId(self._id_generator.generate(customer_checksum))
 
             customer = Customer(
@@ -289,15 +304,15 @@ class CustomerDocumentStore(CustomerStore):
                 name=name,
                 extra=extra,
                 creation_utc=creation_utc,
-                tags=tags or [],
+                groups=groups or [],
             )
 
             await self._customers_collection.insert_one(
                 document=self._serialize_customer(customer=customer)
             )
 
-            for tag_id in tags or []:
-                tag_checksum = xxh3_checksum(f"{customer.id}{tag_id}")
+            for group_id in groups or []:
+                tag_checksum = xxh3_checksum(f"{customer.id}{group_id}")
 
                 await self._tag_association_collection.insert_one(
                     document={
@@ -305,7 +320,7 @@ class CustomerDocumentStore(CustomerStore):
                         "version": self.VERSION.to_string(),
                         "creation_utc": creation_utc.isoformat(),
                         "customer_id": customer.id,
-                        "tag_id": tag_id,
+                        "group_id": group_id,
                     }
                 )
 
@@ -323,7 +338,7 @@ class CustomerDocumentStore(CustomerStore):
                     name="Guest",
                     creation_utc=datetime.now(timezone.utc),
                     extra={},
-                    tags=[],
+                    groups=[],
                 )
 
             customer_document = await self._customers_collection.find_one(
@@ -360,7 +375,7 @@ class CustomerDocumentStore(CustomerStore):
 
     async def list_customers(
         self,
-        tags: Optional[Sequence[TagId]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
         limit: Optional[int] = None,
         cursor: Optional[Cursor] = None,
         sort_direction: Optional[SortDirection] = None,
@@ -368,8 +383,8 @@ class CustomerDocumentStore(CustomerStore):
         filters: Where = {}
 
         async with self._lock.reader_lock:
-            if tags is not None:
-                if len(tags) == 0:
+            if groups is not None:
+                if len(groups) == 0:
                     customer_ids = {
                         doc["customer_id"]
                         for doc in await self._tag_association_collection.find(filters={})
@@ -380,7 +395,7 @@ class CustomerDocumentStore(CustomerStore):
                         else {}
                     )
                 else:
-                    tag_filters: Where = {"$or": [{"tag_id": {"$eq": tag}} for tag in tags]}
+                    tag_filters: Where = {"$or": [{"group_id": {"$eq": group}} for group in groups]}
                     tag_associations = await self._tag_association_collection.find(
                         filters=tag_filters
                     )
@@ -411,7 +426,7 @@ class CustomerDocumentStore(CustomerStore):
             customers = [await self._deserialize_customer(doc) for doc in result.items]
 
             # Handle guest customer and total count
-            if tags is None:
+            if groups is None:
                 # Always include guest in total count
                 total_count = result.total_count + 1
 
@@ -420,7 +435,7 @@ class CustomerDocumentStore(CustomerStore):
                     guest = await self.read_customer(CustomerStore.GUEST_ID)
                     customers = [guest] + customers
             else:
-                # Filtered by tags: no guest customer
+                # Filtered by groups: no guest customer
                 total_count = result.total_count
 
             has_more = result.has_more
@@ -447,28 +462,28 @@ class CustomerDocumentStore(CustomerStore):
             raise ItemNotFoundError(item_id=UniqueId(customer_id))
 
     @override
-    async def upsert_tag(
+    async def upsert_group(
         self,
         customer_id: CustomerId,
-        tag_id: TagId,
+        group_id: GroupId,
         creation_utc: Optional[datetime] = None,
     ) -> bool:
         async with self._lock.writer_lock:
             customer = await self.read_customer(customer_id)
 
-            if tag_id in customer.tags:
+            if group_id in customer.groups:
                 return False
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            association_checksum = xxh3_checksum(f"{customer_id}{tag_id}")
+            association_checksum = xxh3_checksum(f"{customer_id}{group_id}")
 
-            association_document: _CustomerTagAssociationDocument = {
+            association_document: _CustomerGroupAssociationDocument = {
                 "id": ObjectId(self._id_generator.generate(association_checksum)),
                 "version": self.VERSION.to_string(),
                 "creation_utc": creation_utc.isoformat(),
                 "customer_id": customer_id,
-                "tag_id": tag_id,
+                "group_id": group_id,
             }
 
             _ = await self._tag_association_collection.insert_one(document=association_document)
@@ -483,21 +498,21 @@ class CustomerDocumentStore(CustomerStore):
         return True
 
     @override
-    async def remove_tag(
+    async def remove_group(
         self,
         customer_id: CustomerId,
-        tag_id: TagId,
+        group_id: GroupId,
     ) -> None:
         async with self._lock.writer_lock:
             delete_result = await self._tag_association_collection.delete_one(
                 {
                     "customer_id": {"$eq": customer_id},
-                    "tag_id": {"$eq": tag_id},
+                    "group_id": {"$eq": group_id},
                 }
             )
 
             if delete_result.deleted_count == 0:
-                raise ItemNotFoundError(item_id=UniqueId(tag_id))
+                raise ItemNotFoundError(item_id=UniqueId(group_id))
 
             customer_document = await self._customers_collection.find_one(
                 {"id": {"$eq": customer_id}}
@@ -557,3 +572,118 @@ class CustomerDocumentStore(CustomerStore):
         assert result.updated_document
 
         return await self._deserialize_customer(customer_document=result.updated_document)
+
+
+class CompositeCustomerStore(CustomerStore):
+    def __init__(
+        self,
+        writable_store: CustomerStore,
+        readable_stores: Sequence[CustomerStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[CustomerStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_customer(
+        self,
+        name: str,
+        extra: Mapping[str, str] = {},
+        creation_utc: Optional[datetime] = None,
+        groups: Optional[Sequence[GroupId]] = None,
+        id: Optional[CustomerId] = None,
+    ) -> Customer:
+        return await self._writable_store.create_customer(
+            name=name,
+            extra=extra,
+            creation_utc=creation_utc,
+            groups=groups,
+            id=id,
+        )
+
+    @override
+    async def read_customer(
+        self,
+        customer_id: CustomerId,
+    ) -> Customer:
+        results = await safe_gather(
+            *[try_or_none(store.read_customer(customer_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(customer_id))
+        return result
+
+    @override
+    async def update_customer(
+        self,
+        customer_id: CustomerId,
+        params: CustomerUpdateParams,
+    ) -> Customer:
+        return await self._writable_store.update_customer(customer_id, params)
+
+    @override
+    async def delete_customer(
+        self,
+        customer_id: CustomerId,
+    ) -> None:
+        return await self._writable_store.delete_customer(customer_id)
+
+    @override
+    async def list_customers(
+        self,
+        groups: Optional[Sequence[GroupId]] = None,
+        limit: Optional[int] = None,
+        cursor: Optional[Cursor] = None,
+        sort_direction: Optional[SortDirection] = None,
+    ) -> CustomerListing:
+        results = await safe_gather(
+            *[
+                store.list_customers(
+                    groups=groups,
+                    limit=limit,
+                    cursor=cursor,
+                    sort_direction=sort_direction,
+                )
+                for store in self._all_stores
+            ]
+        )
+        all_items = list(chain.from_iterable(r.items for r in results))
+        return CustomerListing(
+            items=all_items,
+            total_count=sum(r.total_count for r in results),
+            has_more=any(r.has_more for r in results),
+        )
+
+    @override
+    async def upsert_group(
+        self,
+        customer_id: CustomerId,
+        group_id: GroupId,
+        creation_utc: Optional[datetime] = None,
+    ) -> bool:
+        return await self._writable_store.upsert_group(customer_id, group_id, creation_utc)
+
+    @override
+    async def remove_group(
+        self,
+        customer_id: CustomerId,
+        group_id: GroupId,
+    ) -> None:
+        return await self._writable_store.remove_group(customer_id, group_id)
+
+    @override
+    async def upsert_extra(
+        self,
+        customer_id: CustomerId,
+        extra: Mapping[str, str],
+    ) -> Customer:
+        return await self._writable_store.upsert_extra(customer_id, extra)
+
+    @override
+    async def remove_extra(
+        self,
+        customer_id: CustomerId,
+        keys: Sequence[str],
+    ) -> Customer:
+        return await self._writable_store.remove_extra(customer_id, keys)

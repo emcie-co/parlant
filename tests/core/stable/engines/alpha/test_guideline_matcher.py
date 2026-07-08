@@ -14,17 +14,15 @@
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from itertools import chain
 from typing import Sequence, cast
 from typing_extensions import override
 
 from lagom import Container
-from more_itertools import unique
 from pytest import fixture, raises
 
 from parlant.core.agents import Agent, AgentId
 from parlant.core.capabilities import Capability, CapabilityId
-from parlant.core.common import Criticality, generate_id, JSONSerializable
+from parlant.core.common import Weight, generate_id, JSONSerializable
 from parlant.core.context_variables import (
     ContextVariable,
     ContextVariableId,
@@ -61,7 +59,7 @@ from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.engines.types import Context
 from parlant.core.entity_cq import EntityCommands
-from parlant.core.evaluations import GuidelinePayload, PayloadOperation
+from parlant.core.evaluations import RulePayload as GuidelinePayload, PayloadOperation
 from parlant.core.glossary import Term
 from parlant.core.journeys import Journey
 from parlant.core.nlp.generation import SchematicGenerator
@@ -70,7 +68,11 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch,
     AnalyzedGuideline,
 )
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.rules import (
+    Rule as Guideline,
+    RuleContent as GuidelineContent,
+    RuleId as GuidelineId,
+)
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.relationships import (
     RelationshipKind,
@@ -78,7 +80,7 @@ from parlant.core.relationships import (
     RelationshipEntityKind,
     RelationshipStore,
 )
-from parlant.core.services.indexing.behavioral_change_evaluation import GuidelineEvaluator
+from parlant.core.services.indexing.evaluation_service import RuleEvaluator as GuidelineEvaluator
 from parlant.core.sessions import (
     AgentState,
     Event,
@@ -92,7 +94,7 @@ from parlant.core.sessions import (
 from parlant.core.loggers import Logger
 from parlant.core.glossary import TermId
 
-from parlant.core.tags import TagId, Tag
+from parlant.core.groups import GroupId, GroupIds
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter
 
@@ -422,14 +424,14 @@ async def match_guidelines(
         guidelines=context.guidelines,
     )
 
-    return list(chain.from_iterable(guideline_matching_result.batches))
+    return list(guideline_matching_result.matched)
 
 
 async def create_guideline(
     context: ContextOfTest,
     condition: str,
     action: str | None = None,
-    tags: list[TagId] = [],
+    groups: list[GroupId] = [],
 ) -> Guideline:
     metadata: dict[str, JSONSerializable] = {}
     if action:
@@ -455,14 +457,15 @@ async def create_guideline(
     guideline = Guideline(
         id=GuidelineId(generate_id()),
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         content=GuidelineContent(
             condition=condition,
             action=action,
         ),
         enabled=True,
-        tags=tags,
+        groups=groups,
         metadata=metadata,
-        criticality=Criticality.MEDIUM,
+        weight=Weight.MEDIUM,
     )
 
     context.guidelines.append(guideline)
@@ -476,14 +479,15 @@ async def create_disambiguation_guideline(
     guideline = Guideline(
         id=GuidelineId(generate_id()),
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         content=GuidelineContent(
             condition=condition,
             action=None,
         ),
         enabled=True,
-        tags=[],
+        groups=[],
         metadata={},
-        criticality=Criticality.MEDIUM,
+        weight=Weight.MEDIUM,
     )
 
     context.guidelines.append(guideline)
@@ -492,11 +496,11 @@ async def create_disambiguation_guideline(
         await context.container[RelationshipStore].create_relationship(
             source=RelationshipEntity(
                 id=guideline.id,
-                kind=RelationshipEntityKind.GUIDELINE,
+                kind=RelationshipEntityKind.RULE,
             ),
             target=RelationshipEntity(
                 id=g.id,
-                kind=RelationshipEntityKind.GUIDELINE,
+                kind=RelationshipEntityKind.RULE,
             ),
             kind=RelationshipKind.DISAMBIGUATION,
         )
@@ -505,34 +509,36 @@ async def create_disambiguation_guideline(
 
 
 def create_term(
-    name: str, description: str, synonyms: list[str] = [], tags: list[TagId] = []
+    name: str, description: str, synonyms: list[str] = [], groups: list[GroupId] = []
 ) -> Term:
     return Term(
         id=TermId("-"),
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         name=name,
         description=description,
         synonyms=synonyms,
-        tags=tags,
+        groups=groups,
     )
 
 
 def create_context_variable(
     name: str,
     data: JSONSerializable,
-    tags: list[TagId],
+    groups: list[GroupId],
 ) -> tuple[ContextVariable, ContextVariableValue]:
     return ContextVariable(
         id=ContextVariableId("-"),
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         name=name,
         description="",
         tool_id=None,
         freshness_rules=None,
-        tags=tags,
+        groups=groups,
     ), ContextVariableValue(
         ContextVariableValueId("-"),
-        last_modified=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         data=data,
     )
 
@@ -607,7 +613,6 @@ async def analyze_response_and_update_session(
         GuidelineMatch(
             guideline=g,
             rationale="",
-            score=10,
         )
         for g in previously_matched_guidelines
         if (not session.agent_states or g.id not in session.agent_states[-1].applied_guideline_ids)
@@ -861,62 +866,6 @@ async def test_that_irrelevant_guidelines_are_not_matched_parametrized_1(
     )
 
 
-async def test_that_guidelines_with_the_same_conditions_are_scored_similarly(
-    context: ContextOfTest,
-    agent: Agent,
-    new_session: Session,
-    customer: Customer,
-) -> None:
-    relevant_guidelines = [
-        await create_guideline(
-            context=context,
-            condition="the customer greets you",
-            action="talk about apples",
-        ),
-        await create_guideline(
-            context=context,
-            condition="the customer greets you",
-            action="talk about oranges",
-        ),
-    ]
-
-    _ = [  # irrelevant guidelines
-        await create_guideline(
-            context=context,
-            condition="talking about the weather",
-            action="talk about apples",
-        ),
-        await create_guideline(
-            context=context,
-            condition="talking about the weather",
-            action="talk about oranges",
-        ),
-    ]
-
-    interaction_history = [
-        create_event_message(
-            offset=0,
-            source=EventSource.CUSTOMER,
-            message="Hello there",
-        )
-    ]
-
-    guideline_matches = await match_guidelines(
-        context,
-        agent,
-        customer,
-        new_session.id,
-        interaction_history,
-    )
-
-    assert len(guideline_matches) == len(relevant_guidelines)
-    assert all(gp.guideline in relevant_guidelines for gp in guideline_matches)
-    matches_scores = list(unique(gp.score for gp in guideline_matches))
-    assert len(matches_scores) == 1 or (
-        len(matches_scores) == 2 and abs(matches_scores[0] - matches_scores[1]) <= 1
-    )
-
-
 async def test_that_guidelines_are_matched_based_on_agent_description(
     context: ContextOfTest,
     customer: Customer,
@@ -924,11 +873,13 @@ async def test_that_guidelines_are_matched_based_on_agent_description(
     agent = Agent(
         id=AgentId("123"),
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         name="skateboard-sales-agent",
         description="You are an agent working for a skateboarding manufacturer. You help customers by discussing and recommending our products."
         "Your role is only to consult customers, and not to actually sell anything, as we sell our products in-store.",
         max_engine_iterations=3,
-        tags=[],
+        groups=[],
+        engine="alpha",
     )
 
     session = await context.container[SessionStore].create_session(
@@ -989,13 +940,13 @@ async def test_that_guidelines_are_matched_based_on_glossary(
         create_term(
             name="skateboard",
             description="a time-traveling device",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ),
         create_term(
             name="Pinewood Rash Syndrome",
             description="allergy to pinewood trees",
             synonyms=["Pine Rash", "PRS"],
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ),
     ]
     conversation_context: list[tuple[EventSource, str]] = [
@@ -1177,17 +1128,17 @@ async def test_that_guidelines_are_matched_based_on_staged_tool_calls_and_contex
         create_context_variable(
             name="user_id_1",
             data={"name": "Jimmy McGill", "ID": 566317},
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ),
         create_context_variable(
             name="user_id_2",
             data={"name": "Bob Bobberson", "ID": 199877},
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ),
         create_context_variable(
             name="user_id_3",
             data={"name": "Dorothy Dortmund", "ID": 816779},
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ),
     ]
     conversation_guideline_names: list[str] = ["suggest_drink_underage", "suggest_drink_adult"]
@@ -1519,14 +1470,14 @@ class ActivateEveryGuidelineBatch(GuidelineMatchingBatch):
     @override
     async def process(self) -> GuidelineMatchingBatchResult:
         return GuidelineMatchingBatchResult(
-            matches=[
+            matched_guidelines=[
                 GuidelineMatch(
                     guideline=g,
-                    score=10,
                     rationale="",
                 )
                 for g in self.guidelines
             ],
+            skipped_guidelines=[],
             generation_info=GenerationInfo(
                 schema_name="",
                 model="",
@@ -1558,7 +1509,8 @@ async def test_that_guideline_matching_strategies_can_be_overridden(
         @override
         async def process(self) -> GuidelineMatchingBatchResult:
             return GuidelineMatchingBatchResult(
-                matches=[],
+                matched_guidelines=[],
+                skipped_guidelines=[],
                 generation_info=GenerationInfo(
                     schema_name="",
                     model="",
@@ -1858,7 +1810,7 @@ async def test_that_irrelevant_observational_guidelines_are_not_detected_2(
         create_context_variable(
             name="customer_location",
             data={"location": "Australia"},
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ),
     ]
 
@@ -2035,12 +1987,12 @@ async def test_that_observational_guidelines_are_detected_based_on_context_varia
         create_context_variable(
             name="user_id_1",
             data={"name": "Jimmy McGill", "ID": 566317},
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ),
         create_context_variable(
             name="season",
             data={"season": "Winter"},
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ),
     ]
 
@@ -2131,7 +2083,7 @@ async def test_that_observational_guidelines_are_matched_based_on_glossary(
         create_term(
             name="play the old tambourine",
             description="local slang for getting your order delivered to your home",
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ),
     ]
 
@@ -2142,7 +2094,7 @@ async def test_that_observational_guidelines_are_matched_based_on_glossary(
             title="Delivery",
             description="The ability to deliver orders of pizza",
             signals=["delivery"],
-            tags=[],
+            groups=[],
         )
     ]
     conversation_context: list[tuple[EventSource, str]] = [
@@ -2487,7 +2439,7 @@ async def test_that_both_observational_and_actionable_guidelines_are_matched_tog
         create_context_variable(
             name="season",
             data={"season": "Spring"},
-            tags=[Tag.for_agent_id(agent.id).id],
+            groups=[GroupIds.for_agent_id(agent.id)],
         ),
     ]
 
@@ -2520,7 +2472,6 @@ async def analyze_response(
         GuidelineMatch(
             guideline=g,
             rationale="",
-            score=10,
         )
         for g in context.guidelines
         if (not session.agent_states or g.id not in session.agent_states[-1].applied_guideline_ids)
@@ -2740,14 +2691,14 @@ async def test_that_batch_processing_retries_on_key_error(
                 raise KeyError(f"Simulated failure on attempt {self.attempt_count}")
 
             return GuidelineMatchingBatchResult(
-                matches=[
+                matched_guidelines=[
                     GuidelineMatch(
                         guideline=g,
-                        score=10,
                         rationale="Success after retry",
                     )
                     for g in self.guidelines
                 ],
+                skipped_guidelines=[],
                 generation_info=GenerationInfo(
                     schema_name="test",
                     model="test-model",
@@ -3359,7 +3310,7 @@ async def test_that_observational_guidelines_are_matched_based_on_capabilities_1
             title="Reset Password",
             description="The ability to send the customer an email with a link to reset their password. The password can only be reset via this link",
             signals=["reset password", "password"],
-            tags=[],
+            groups=[],
         )
     ]
     conversation_context: list[tuple[EventSource, str]] = [
@@ -3391,7 +3342,7 @@ async def test_that_observational_guidelines_are_not_falsely_matched_based_on_ca
             title="Reset Password",
             description="The ability to send the customer an email with a link to reset their password. The password can only be reset via this link",
             signals=["reset password", "password"],
-            tags=[],
+            groups=[],
         )
     ]
     conversation_context: list[tuple[EventSource, str]] = [

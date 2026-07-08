@@ -35,7 +35,7 @@ from parlant.core.canned_responses import CannedResponseStore
 from parlant.core.context_variables import ContextVariableStore
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.glossary import GlossaryStore
-from parlant.core.guidelines import GuidelineStore
+from parlant.core.rules import RuleStore
 from parlant.core.journeys import JourneyStore
 from parlant.core.loggers import Logger
 from parlant.core.relationships import RelationshipStore
@@ -85,7 +85,10 @@ GenerationModelTier: TypeAlias = Literal["jackal", "bison"]
 EmbeddingModelTier: TypeAlias = Literal["jackal-embedding", "bison-embedding"]
 ModelRole: TypeAlias = Literal["teacher", "student", "auto"]
 
-BASE_URL = os.environ.get("PARLANT_CLOUD_API_URL", "https://api.parlant.cloud/inference")
+BASE_URL = os.environ.get(
+    "PARLANT_CLOUD_API_URL",
+    f"{(os.environ.get('PARLANT_CLOUD_BASE_URL') or 'https://api.parlant.cloud').rstrip('/')}/inference",
+)
 
 # Pattern to detect word boundaries for chunking
 # Matches after any whitespace character
@@ -721,7 +724,7 @@ class ParlantCloudIndexer(Indexer):
     def __init__(
         self,
         agent_store: AgentStore,
-        guideline_store: GuidelineStore,
+        rule_store: RuleStore,
         journey_store: JourneyStore,
         relationship_store: RelationshipStore,
         glossary_store: GlossaryStore,
@@ -733,7 +736,7 @@ class ParlantCloudIndexer(Indexer):
     ) -> None:
         super().__init__(
             agent_store=agent_store,
-            guideline_store=guideline_store,
+            rule_store=rule_store,
             journey_store=journey_store,
             relationship_store=relationship_store,
             glossary_store=glossary_store,

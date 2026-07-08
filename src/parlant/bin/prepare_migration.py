@@ -38,13 +38,13 @@ TODO for full database abstraction:
 
 3. Migration functions requiring updates:
    - migrate_agents_0_1_0_to_0_2_0
-   - migrate_guidelines_0_1_0_to_0_3_0
+   - migrate_rules_0_1_0_to_0_3_0
    - migrate_context_variables_0_1_0_to_0_2_0
    - migrate_glossary_0_1_0_to_0_2_0
    - migrate_utterances_0_1_0_to_0_2_0
    - migrate_journeys_0_1_0_to_0_2_0
    - migrate_evaluations_0_1_0_to_0_2_0
-   - migrate_guideline_relationships_0_1_0_to_0_2_0
+   - migrate_rule_relationships_0_1_0_to_0_2_0
    - migrate_relationships_0_2_0_to_0_3_0
    - migrate_journeys_0_2_0_to_0_3_0
    - migrate_canned_responses_0_2_0_to_0_4_0
@@ -91,10 +91,10 @@ from parlant.core.evaluations import (
     EvaluationDocument_v0_2_0,
     EvaluationId,
     EvaluationTagAssociationDocument,
-    GuidelineContentDocument,
-    GuidelinePayloadDocument_v0_2_0,
+    RuleContentDocument,
+    RulePayloadDocument_v0_2_0,
     InvoiceDocument_v0_2_0,
-    InvoiceGuidelineDataDocument_v0_2_0,
+    InvoiceRuleDataDocument_v0_2_0,
 )
 from parlant.core.glossary import (
     GlossaryVectorStore,
@@ -119,17 +119,17 @@ from parlant.core.journeys import (
     JourneyVectorStore,
 )
 from parlant.core.relationships import (
-    GuidelineRelationshipDocument_v0_1_0,
-    GuidelineRelationshipDocument_v0_2_0,
+    RuleRelationshipDocument_v0_1_0,
+    RuleRelationshipDocument_v0_2_0,
     RelationshipDocument,
 )
-from parlant.core.guidelines import (
-    GuidelineDocument_v0_2_0,
-    GuidelineTagAssociationDocument,
-    GuidelineDocument,
-    GuidelineId,
-    guideline_document_converter_0_1_0_to_0_2_0,
-    GuidelineDocument_v0_1_0,
+from parlant.core.rules import (
+    RuleDocument_v0_2_0,
+    RuleTagAssociationDocument,
+    RuleDocument,
+    RuleId,
+    rule_document_converter_0_1_0_to_0_2_0,
+    RuleDocument_v0_1_0,
 )
 from parlant.core.loggers import LogLevel, StdoutLogger
 from parlant.core.nlp.embedding import EmbedderFactory, NullEmbeddingCache
@@ -143,10 +143,10 @@ from parlant.core.persistence.document_database_helper import (
     MetadataDocument,
     load_metadata_document,
 )
-from parlant.core.tags import Tag
+from parlant.core.groups import GroupIds
 from parlant.core.canned_responses import (
     CannedResponseDocument,
-    CannedResponseTagAssociationDocument,
+    CannedResponseGroupAssociationDocument,
     CannedResponseVectorDocument,
     UtteranceDocument_v0_2_0,
     UtteranceDocument_v0_3_0,
@@ -259,12 +259,12 @@ async def get_component_versions(
     if agents_version:
         versions.append(("agents", agents_version))
 
-    guidelines_version = _get_version_from_document_database(
-        PARLANT_HOME_DIR / "guidelines.json",
-        "guidelines",
+    rules_version = _get_version_from_document_database(
+        PARLANT_HOME_DIR / "rules.json",
+        "rules",
     )
-    if guidelines_version:
-        versions.append(("guidelines", guidelines_version))
+    if rules_version:
+        versions.append(("rules", rules_version))
 
     context_vars_version = _get_version_from_document_database(
         PARLANT_HOME_DIR / "context_variables.json",
@@ -280,19 +280,19 @@ async def get_component_versions(
     if evaluations_version:
         versions.append(("evaluations", evaluations_version))
 
-    guideline_connections_version = _get_version_from_document_database(
-        PARLANT_HOME_DIR / "guideline_connections.json",
-        "guideline_connections",
+    rule_connections_version = _get_version_from_document_database(
+        PARLANT_HOME_DIR / "rule_connections.json",
+        "rule_connections",
     )
-    if guideline_connections_version:
-        versions.append(("guideline_connections", guideline_connections_version))
+    if rule_connections_version:
+        versions.append(("rule_connections", rule_connections_version))
 
-    guideline_relationships_version = _get_version_from_document_database(
-        PARLANT_HOME_DIR / "guideline_relationships.json",
-        "guideline_relationships",
+    rule_relationships_version = _get_version_from_document_database(
+        PARLANT_HOME_DIR / "rule_relationships.json",
+        "rule_relationships",
     )
-    if guideline_relationships_version:
-        versions.append(("guideline_relationships", guideline_relationships_version))
+    if rule_relationships_version:
+        versions.append(("rule_relationships", rule_relationships_version))
 
     vector_db, vector_db_metadata = await _get_version_from_vector_database()
     # TODO: Refactor - _collections is ChromaDatabase specific attribute
@@ -551,9 +551,9 @@ async def migrate_agents_0_1_0_to_0_2_0(
     await create_metadata_collection(context_variables_db, "variables")
 
     tags_db = await EXIT_STACK.enter_async_context(
-        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "tags.json")
+        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "groups.json")
     )
-    await create_metadata_collection(tags_db, "tags")
+    await create_metadata_collection(tags_db, "groups")
 
     customers_db = await EXIT_STACK.enter_async_context(
         JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "customers.json")
@@ -565,20 +565,20 @@ async def migrate_agents_0_1_0_to_0_2_0(
     )
     await create_metadata_collection(sessions_db, "sessions")
 
-    guideline_tool_associations_db = await EXIT_STACK.enter_async_context(
-        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "guideline_tool_associations.json")
+    rule_tool_associations_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "rule_tool_associations.json")
     )
-    await create_metadata_collection(guideline_tool_associations_db, "associations")
+    await create_metadata_collection(rule_tool_associations_db, "associations")
 
-    guidelines_db = await EXIT_STACK.enter_async_context(
-        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "guidelines.json")
+    rules_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "rules.json")
     )
-    await create_metadata_collection(guidelines_db, "guidelines")
+    await create_metadata_collection(rules_db, "rules")
 
-    guideline_connections_db = await EXIT_STACK.enter_async_context(
-        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "guideline_connections.json")
+    rule_connections_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "rule_connections.json")
     )
-    await create_metadata_collection(guideline_connections_db, "guideline_connections")
+    await create_metadata_collection(rule_connections_db, "rule_connections")
 
     evaluations_db = await EXIT_STACK.enter_async_context(
         JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "evaluations.json")
@@ -607,72 +607,70 @@ async def migrate_agents_0_1_0_to_0_2_0(
     await upgrade_document_database_metadata(agents_db, Version.String("0.2.0"))
 
 
-@register_migration("guidelines", "0.1.0", "0.3.0")
-async def migrate_guidelines_0_1_0_to_0_3_0(
+@register_migration("rules", "0.1.0", "0.3.0")
+async def migrate_rules_0_1_0_to_0_3_0(
     document_database_type: type[DocumentDatabase],
     vector_database_type: type[VectorDatabase],
 ) -> None:
     async def _association_document_loader(
         doc: BaseDocument,
-    ) -> Optional[GuidelineTagAssociationDocument]:
-        return cast(GuidelineTagAssociationDocument, doc)
+    ) -> Optional[RuleTagAssociationDocument]:
+        return cast(RuleTagAssociationDocument, doc)
 
-    rich.print("[green]Starting migration for guidelines 0.1.0 -> 0.3.0")
-    guidelines_db = await EXIT_STACK.enter_async_context(
-        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "guidelines.json")
+    rich.print("[green]Starting migration for rules 0.1.0 -> 0.3.0")
+    rules_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "rules.json")
     )
 
-    guideline_collection = await guidelines_db.get_or_create_collection(
-        "guidelines",
+    rule_collection = await rules_db.get_or_create_collection(
+        "rules",
         BaseDocument,
         identity_loader,
     )
 
-    guideline_tags_collection = await guidelines_db.get_or_create_collection(
-        "guideline_tag_associations",
-        GuidelineTagAssociationDocument,
+    rule_groups_collection = await rules_db.get_or_create_collection(
+        "rule_group_associations",
+        RuleTagAssociationDocument,
         _association_document_loader,
     )
 
-    for guideline in await guideline_collection.find(filters={}):
-        guideline_to_use = cast(GuidelineDocument_v0_2_0, guideline)
-        if guideline["version"] == "0.1.0":
-            converted_guideline = await guideline_document_converter_0_1_0_to_0_2_0(guideline)
-            if not converted_guideline:
-                rich.print(f"[red]Failed to migrate guideline {guideline['id']}")
+    for rule in await rule_collection.find(filters={}):
+        rule_to_use = cast(RuleDocument_v0_2_0, rule)
+        if rule["version"] == "0.1.0":
+            converted_rule = await rule_document_converter_0_1_0_to_0_2_0(rule)
+            if not converted_rule:
+                rich.print(f"[red]Failed to migrate rule {rule['id']}")
                 continue
-            guideline_to_use = cast(GuidelineDocument_v0_2_0, converted_guideline)
+            rule_to_use = cast(RuleDocument_v0_2_0, converted_rule)
 
-        new_guideline = GuidelineDocument(
-            id=guideline_to_use["id"],
+        new_rule = RuleDocument(
+            id=rule_to_use["id"],
             version=Version.String("0.3.0"),
-            creation_utc=guideline_to_use["creation_utc"],
-            condition=guideline_to_use["condition"],
-            action=guideline_to_use["action"],
-            enabled=guideline_to_use["enabled"],
+            creation_utc=rule_to_use["creation_utc"],
+            condition=rule_to_use["condition"],
+            action=rule_to_use["action"],
+            enabled=rule_to_use["enabled"],
         )
 
-        await guideline_collection.delete_one(
-            filters={"id": {"$eq": ObjectId(guideline["id"])}},
+        await rule_collection.delete_one(
+            filters={"id": {"$eq": ObjectId(rule["id"])}},
         )
 
-        await guideline_collection.insert_one(new_guideline)
+        await rule_collection.insert_one(new_rule)
 
-        await guideline_tags_collection.insert_one(
+        await rule_groups_collection.insert_one(
             {
                 "id": ObjectId(generate_id()),
                 "version": Version.String("0.3.0"),
                 "creation_utc": datetime.now(timezone.utc).isoformat(),
-                "guideline_id": GuidelineId(guideline["id"]),
-                "tag_id": Tag.for_agent_id(
-                    cast(GuidelineDocument_v0_1_0, guideline)["guideline_set"]
-                ).id,
+                "rule_id": RuleId(rule["id"]),
+                "group_id": GroupIds.for_agent_id(cast(RuleDocument_v0_1_0, rule)["rule_set"]),
             }
         )
 
-    await upgrade_document_database_metadata(guidelines_db, Version.String("0.3.0"))
+    await upgrade_document_database_metadata(rules_db, Version.String("0.3.0"))
 
-    rich.print("[green]Successfully migrated guidelines to 0.3.0")
+    rich.print("[green]Successfully migrated rules to 0.3.0")
 
 
 @register_migration("context_variables", "0.1.0", "0.2.0")
@@ -707,9 +705,9 @@ async def migrate_context_variables_0_1_0_to_0_2_0(
                 "version": Version.String("0.2.0"),
                 "creation_utc": datetime.now(timezone.utc).isoformat(),
                 "variable_id": ContextVariableId(context_variable["id"]),
-                "tag_id": Tag.for_agent_id(
+                "group_id": GroupIds.for_agent_id(
                     cast(ContextVariableDocument_v0_1_0, context_variable)["variable_set"]
-                ).id,
+                ),
             }
         )
 
@@ -757,7 +755,7 @@ async def migrate_agents_0_2_0_to_0_3_0(
     )
 
     await agent_db.get_or_create_collection(
-        "agent_tags",
+        "agent_groups",
         BaseDocument,
         identity_loader,
     )
@@ -852,7 +850,7 @@ async def migrate_glossary_0_1_0_to_0_2_0(
                     "version": Version.String("0.2.0"),
                     "creation_utc": datetime.now(timezone.utc).isoformat(),
                     "term_id": TermId(cast(str, doc["id"])),
-                    "tag_id": Tag.for_agent_id(cast(TermDocument_v0_1_0, doc)["term_set"]).id,
+                    "group_id": GroupIds.for_agent_id(cast(TermDocument_v0_1_0, doc)["term_set"]),
                 }
             )
 
@@ -964,7 +962,7 @@ async def migrate_utterances_0_1_0_to_0_2_0(
                 "version": Version.String("0.2.0"),
                 "creation_utc": tag_doc["creation_utc"],
                 "utterance_id": tag_doc["utterance_id"],
-                "tag_id": tag_doc["tag_id"],
+                "group_id": tag_doc["group_id"],
             }
         )
 
@@ -1017,8 +1015,8 @@ async def migrate_journeys_0_1_0_to_0_2_0(
         identity_loader,
     )
 
-    journey_tags_collection = await journeys_db.get_or_create_collection(
-        "journey_tag_associations",
+    journey_groups_collection = await journeys_db.get_or_create_collection(
+        "journey_group_associations",
         JourneyTagAssociationDocument,
         _tag_association_document_loader,
     )
@@ -1052,8 +1050,8 @@ async def migrate_journeys_0_1_0_to_0_2_0(
         None,
     ) or db.chroma_client.create_collection(name="journeys_unembedded")
 
-    new_journey_tags_collection = await journey_associations_db.get_or_create_collection(
-        "journey_tags",
+    new_journey_groups_collection = await journey_associations_db.get_or_create_collection(
+        "journey_groups",
         JourneyTagAssociationDocument,
         _tag_association_document_loader,
     )
@@ -1095,14 +1093,14 @@ async def migrate_journeys_0_1_0_to_0_2_0(
 
             migrated_count += 1
 
-    for tag_doc in await journey_tags_collection.find(filters={}):
-        await new_journey_tags_collection.insert_one(
+    for tag_doc in await journey_groups_collection.find(filters={}):
+        await new_journey_groups_collection.insert_one(
             {
                 "id": tag_doc["id"],
                 "version": Version.String("0.2.0"),
                 "creation_utc": tag_doc["creation_utc"],
                 "journey_id": tag_doc["journey_id"],
-                "tag_id": tag_doc["tag_id"],
+                "group_id": tag_doc["group_id"],
             }
         )
 
@@ -1167,8 +1165,8 @@ async def migrate_evaluations_0_1_0_to_0_2_0(
                 invoices=[
                     InvoiceDocument_v0_2_0(
                         kind=i["kind"],
-                        payload=GuidelinePayloadDocument_v0_2_0(
-                            content=GuidelineContentDocument(
+                        payload=RulePayloadDocument_v0_2_0(
+                            content=RuleContentDocument(
                                 condition=i["payload"]["content"]["condition"],
                                 action=i["payload"]["content"]["action"],
                             ),
@@ -1183,7 +1181,7 @@ async def migrate_evaluations_0_1_0_to_0_2_0(
                         checksum=i["checksum"],
                         state_version=i["state_version"],
                         approved=i["approved"],
-                        data=InvoiceGuidelineDataDocument_v0_2_0(
+                        data=InvoiceRuleDataDocument_v0_2_0(
                             coherence_checks=i["data"]["coherence_checks"],
                             connection_propositions=i["data"]["connection_propositions"],
                             action_proposition=None,
@@ -1210,7 +1208,7 @@ async def migrate_evaluations_0_1_0_to_0_2_0(
                     "version": Version.String("0.2.0"),
                     "creation_utc": datetime.now(timezone.utc).isoformat(),
                     "evaluation_id": EvaluationId(evaluation_doc["id"]),
-                    "tag_id": Tag.for_agent_id(evaluation_doc["agent_id"]).id,
+                    "group_id": GroupIds.for_agent_id(evaluation_doc["agent_id"]),
                 }
             )
 
@@ -1219,41 +1217,41 @@ async def migrate_evaluations_0_1_0_to_0_2_0(
     rich.print("[green]Successfully migrated evaluations from 0.1.0 to 0.2.0")
 
 
-@register_migration("guideline_connections", "0.1.0", "0.2.0")
-async def migrate_guideline_relationships_0_1_0_to_0_2_0(
+@register_migration("rule_connections", "0.1.0", "0.2.0")
+async def migrate_rule_relationships_0_1_0_to_0_2_0(
     document_database_type: type[DocumentDatabase],
     vector_database_type: type[VectorDatabase],
 ) -> None:
-    rich.print("[green]Starting migration for guideline relationships 0.1.0 -> 0.2.0")
+    rich.print("[green]Starting migration for rule relationships 0.1.0 -> 0.2.0")
 
-    guideline_relationships_db = await EXIT_STACK.enter_async_context(
-        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "guideline_relationships.json")
+    rule_relationships_db = await EXIT_STACK.enter_async_context(
+        JSONFileDocumentDatabase(LOGGER, PARLANT_HOME_DIR / "rule_relationships.json")
     )
 
-    guideline_relationships_collection = await guideline_relationships_db.get_or_create_collection(
-        "guideline_relationships",
+    rule_relationships_collection = await rule_relationships_db.get_or_create_collection(
+        "rule_relationships",
         BaseDocument,
         identity_loader,
     )
 
-    relationships_metadata_collection = await guideline_relationships_db.get_or_create_collection(
+    relationships_metadata_collection = await rule_relationships_db.get_or_create_collection(
         "metadata",
         MetadataDocument,
         load_metadata_document,
     )
 
     async with JSONFileDocumentDatabase(
-        LOGGER, PARLANT_HOME_DIR / "guideline_connections.json"
-    ) as guideline_connections_db:
-        guideline_connections_collection = await guideline_connections_db.get_or_create_collection(
-            "guideline_connections",
+        LOGGER, PARLANT_HOME_DIR / "rule_connections.json"
+    ) as rule_connections_db:
+        rule_connections_collection = await rule_connections_db.get_or_create_collection(
+            "rule_connections",
             BaseDocument,
             identity_loader,
         )
 
-        for doc in await guideline_connections_collection.find(filters={}):
-            doc = cast(GuidelineRelationshipDocument_v0_1_0, doc)
-            await guideline_relationships_collection.insert_one(
+        for doc in await rule_connections_collection.find(filters={}):
+            doc = cast(RuleRelationshipDocument_v0_1_0, doc)
+            await rule_relationships_collection.insert_one(
                 cast(
                     RelationshipDocument,
                     {
@@ -1267,7 +1265,7 @@ async def migrate_guideline_relationships_0_1_0_to_0_2_0(
                 )
             )
 
-        connections_metadata_collection = await guideline_connections_db.get_or_create_collection(
+        connections_metadata_collection = await rule_connections_db.get_or_create_collection(
             "metadata",
             MetadataDocument,
             load_metadata_document,
@@ -1284,12 +1282,12 @@ async def migrate_guideline_relationships_0_1_0_to_0_2_0(
                 )
             )
 
-    (PARLANT_HOME_DIR / "guideline_connections.json").unlink()
+    (PARLANT_HOME_DIR / "rule_connections.json").unlink()
 
-    rich.print("[green]Successfully migrated guideline connections to guideline relationships")
+    rich.print("[green]Successfully migrated rule connections to rule relationships")
 
 
-@register_migration("guideline_relationships", "0.2.0", "0.3.0")
+@register_migration("rule_relationships", "0.2.0", "0.3.0")
 async def migrate_relationships_0_2_0_to_0_3_0(
     document_database_type: type[DocumentDatabase],
     vector_database_type: type[VectorDatabase],
@@ -1313,18 +1311,16 @@ async def migrate_relationships_0_2_0_to_0_3_0(
     )
 
     async with JSONFileDocumentDatabase(
-        LOGGER, PARLANT_HOME_DIR / "guideline_relationships.json"
-    ) as guideline_relationships_db:
-        guideline_relationships_collection = (
-            await guideline_relationships_db.get_or_create_collection(
-                "guideline_relationships",
-                BaseDocument,
-                identity_loader,
-            )
+        LOGGER, PARLANT_HOME_DIR / "rule_relationships.json"
+    ) as rule_relationships_db:
+        rule_relationships_collection = await rule_relationships_db.get_or_create_collection(
+            "rule_relationships",
+            BaseDocument,
+            identity_loader,
         )
 
-        for doc in await guideline_relationships_collection.find(filters={}):
-            doc = cast(GuidelineRelationshipDocument_v0_2_0, doc)
+        for doc in await rule_relationships_collection.find(filters={}):
+            doc = cast(RuleRelationshipDocument_v0_2_0, doc)
             await relationships_collection.insert_one(
                 cast(
                     RelationshipDocument,
@@ -1333,23 +1329,23 @@ async def migrate_relationships_0_2_0_to_0_3_0(
                         "version": Version.String("0.3.0"),
                         "creation_utc": doc["creation_utc"],
                         "source": doc["source"],
-                        "source_type": "guideline",
+                        "source_type": "rule",
                         "target": doc["target"],
-                        "target_type": "guideline",
+                        "target_type": "rule",
                         "kind": doc["kind"],
                     },
                 )
             )
 
-        guideline_relationships_metadata_collection = (
-            await guideline_relationships_db.get_or_create_collection(
+        rule_relationships_metadata_collection = (
+            await rule_relationships_db.get_or_create_collection(
                 "metadata",
                 MetadataDocument,
                 load_metadata_document,
             )
         )
 
-        if metadata_doc := await guideline_relationships_metadata_collection.find_one(filters={}):
+        if metadata_doc := await rule_relationships_metadata_collection.find_one(filters={}):
             await relationships_metadata_collection.insert_one(
                 cast(
                     MetadataDocument,
@@ -1360,9 +1356,9 @@ async def migrate_relationships_0_2_0_to_0_3_0(
                 )
             )
 
-    (PARLANT_HOME_DIR / "guideline_relationships.json").unlink()
+    (PARLANT_HOME_DIR / "rule_relationships.json").unlink()
 
-    rich.print("[green]Successfully migrated guideline connections to guideline relationships")
+    rich.print("[green]Successfully migrated rule connections to rule relationships")
 
 
 @register_migration("journeys", "0.2.0", "0.3.0")
@@ -1432,8 +1428,8 @@ async def migrate_journeys_0_2_0_to_0_3_0(
         None,
     ) or chroma_db.chroma_client.create_collection(name="journeys_unembedded")
 
-    journey_tags_collection = await journey_associations_db.get_or_create_collection(
-        "journey_tags",
+    journey_groups_collection = await journey_associations_db.get_or_create_collection(
+        "journey_groups",
         JourneyTagAssociationDocument,
         _tag_association_document_loader,
     )
@@ -1511,15 +1507,15 @@ async def migrate_journeys_0_2_0_to_0_3_0(
 
     chroma_unembedded_collection.modify(metadata={"version": 1 + migrated_count})
 
-    for tag_doc in await journey_tags_collection.find(filters={}):
-        await journey_tags_collection.update_one(
+    for tag_doc in await journey_groups_collection.find(filters={}):
+        await journey_groups_collection.update_one(
             filters={"id": {"$eq": tag_doc["id"]}},
             params={
                 "id": tag_doc["id"],
                 "creation_utc": tag_doc["creation_utc"],
                 "version": Version.String("0.3.0"),
                 "journey_id": tag_doc["journey_id"],
-                "tag_id": tag_doc["tag_id"],
+                "group_id": tag_doc["group_id"],
             },
         )
 
@@ -1640,8 +1636,8 @@ async def migrate_canned_responses_0_2_0_to_0_4_0(
 
     async def _new_association_document_loader(
         doc: BaseDocument,
-    ) -> Optional[CannedResponseTagAssociationDocument]:
-        return cast(CannedResponseTagAssociationDocument, doc)
+    ) -> Optional[CannedResponseGroupAssociationDocument]:
+        return cast(CannedResponseGroupAssociationDocument, doc)
 
     async def _document_loader(
         doc: BaseDocument,
@@ -1684,7 +1680,7 @@ async def migrate_canned_responses_0_2_0_to_0_4_0(
 
     canned_response_tags_collection = await canned_response_db.get_or_create_collection(
         "canned_responses_tags",
-        CannedResponseTagAssociationDocument,
+        CannedResponseGroupAssociationDocument,
         _new_association_document_loader,
     )
 
@@ -1791,7 +1787,7 @@ async def migrate_canned_responses_0_2_0_to_0_4_0(
                 "version": Version.String("0.4.0"),
                 "creation_utc": tag_doc["creation_utc"],
                 "canned_response_id": tag_doc["utterance_id"],
-                "tag_id": tag_doc["tag_id"],
+                "group_id": tag_doc["group_id"],
             }
         )
 
@@ -1950,7 +1946,7 @@ async def migrate_capabilities_0_1_0_to_0_2_0(
                 "version": Version.String("0.2.0"),
                 "creation_utc": tag_doc["creation_utc"],
                 "capability_id": tag_doc["capability_id"],
-                "tag_id": tag_doc["tag_id"],
+                "group_id": tag_doc["group_id"],
             }
         )
 

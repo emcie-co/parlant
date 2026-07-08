@@ -14,14 +14,13 @@
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from itertools import chain
 from typing import Sequence
 from lagom import Container
 from pytest import fixture
 
 from parlant.core.agents import Agent
 from parlant.core.capabilities import Capability, CapabilityId
-from parlant.core.common import Criticality, JSONSerializable, generate_id
+from parlant.core.common import Weight, JSONSerializable, generate_id
 from parlant.core.meter import Meter
 from parlant.core.tracer import Tracer
 from parlant.core.customers import Customer
@@ -40,11 +39,15 @@ from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
 from parlant.core.engines.types import Context
 from parlant.core.entity_cq import EntityCommands
-from parlant.core.evaluations import GuidelinePayload, PayloadOperation
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.evaluations import RulePayload as GuidelinePayload, PayloadOperation
+from parlant.core.rules import (
+    Rule as Guideline,
+    RuleContent as GuidelineContent,
+    RuleId as GuidelineId,
+)
 from parlant.core.loggers import Logger
 from parlant.core.nlp.generation import SchematicGenerator
-from parlant.core.services.indexing.behavioral_change_evaluation import GuidelineEvaluator
+from parlant.core.services.indexing.evaluation_service import RuleEvaluator as GuidelineEvaluator
 from parlant.core.services.indexing.guideline_agent_intention_proposer import AgentIntentionProposer
 from parlant.core.sessions import (
     AgentState,
@@ -152,7 +155,7 @@ def match_guidelines(
         )
     )
 
-    return list(chain.from_iterable(guideline_matching_result.batches))
+    return list(guideline_matching_result.matched)
 
 
 def create_guideline(
@@ -186,13 +189,14 @@ def create_guideline(
     guideline = Guideline(
         id=GuidelineId(generate_id()),
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         content=GuidelineContent(
             condition=condition,
             action=action,
         ),
-        criticality=Criticality.MEDIUM,
+        weight=Weight.MEDIUM,
         enabled=True,
-        tags=[],
+        groups=[],
         metadata=metadata,
     )
 
@@ -255,7 +259,6 @@ def analyze_response_and_update_session(
         GuidelineMatch(
             guideline=g,
             rationale="",
-            score=10,
         )
         for g in previously_matched_guidelines
         if g.id not in session.agent_states[-1].applied_guideline_ids
@@ -387,7 +390,7 @@ def test_that_agent_intention_guideline_is_matched_based_on_capabilities_2(
             title="Order Pizza",
             description="The ability to order a pizza to the customer's residence",
             signals=["pizza", "food", "delivery"],
-            tags=[],
+            groups=[],
         ),
         Capability(
             id=CapabilityId("cap_456"),
@@ -395,7 +398,7 @@ def test_that_agent_intention_guideline_is_matched_based_on_capabilities_2(
             title="Order Groceries",
             description="The ability to help the customer in ordering groceries",
             signals=["groceries", "food", "delivery"],
-            tags=[],
+            groups=[],
         ),
         Capability(
             id=CapabilityId("cap_789"),
@@ -403,7 +406,7 @@ def test_that_agent_intention_guideline_is_matched_based_on_capabilities_2(
             title="Provide customized recipe",
             description="The ability to provide the customer with a recipe based on their preferences and available groceries",
             signals=["recipe", "food", "delivery", "hungry"],
-            tags=[],
+            groups=[],
         ),
     ]
     conversation_context: list[tuple[EventSource, str]] = [

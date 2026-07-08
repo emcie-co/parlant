@@ -16,6 +16,7 @@ from __future__ import annotations
 from itertools import chain
 import re
 import time
+import httpx
 from openai import (
     APIConnectionError,
     APIResponseValidationError,
@@ -25,7 +26,7 @@ from openai import (
     InternalServerError,
     RateLimitError,
 )
-from typing import Any, AsyncIterator, Callable, Mapping
+from typing import Any, AsyncIterator, Callable, Mapping, Optional, Sequence
 from typing_extensions import override
 import json
 import jsonfinder  # type: ignore
@@ -40,40 +41,44 @@ from parlant.core.engines.alpha.canned_response_generator import (
     CannedResponseSelectionSchema,
 )
 
-from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
+from parlant.core.engines.alpha.rule_matching.generic.journey.journey_backtrack_check import (
     JourneyBacktrackCheckSchema,
 )
-from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
+from parlant.core.engines.alpha.rule_matching.generic.journey.journey_backtrack_node_selection import (
     JourneyBacktrackNodeSelectionSchema,
 )
-from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_step_selection import (
+from parlant.core.engines.alpha.rule_matching.generic.journey.journey_next_step_selection import (
     JourneyNextStepSelectionSchema,
 )
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.engines.compass.matching.rule_ranker import RuleRankSchema
+from parlant.core.engines.compass.reviewer import LowEffortReviewSchema
 from parlant.core.engines.alpha.tool_calling.single_tool_batch import (
     NonConsequentialToolBatchSchema,
     SingleToolBatchSchema,
 )
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
+from parlant.core.nlp.common import UsageInfo
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import (
-    EmbedderHints,
     ModelSize,
     NLPService,
     SchematicGeneratorHints,
     StreamingTextGeneratorHints,
 )
-from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbeddingResult
+from parlant.core.nlp.embedding import BaseEmbedder, Embedder, EmbedderHints, EmbeddingResult
 from parlant.core.nlp.generation import (
+    REASONING_EFFORT_HINT,
     T,
     BaseSchematicGenerator,
     BaseStreamingTextGenerator,
+    ReasoningEffort,
     SchematicGenerationResult,
     StreamingTextGenerator,
 )
-from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
+from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.nlp.moderation import (
     CustomerModerationContext,
     BaseModerationService,
@@ -81,8 +86,41 @@ from parlant.core.nlp.moderation import (
     ModerationService,
     ModerationTag,
 )
+from parlant.core.nlp.react import (
+    CacheConfig,
+    FinishReason,
+    Message,
+    ReactError,
+    ReactGenerator,
+    ReactGeneratorHints,
+    ReasoningConfig,
+    Role,
+    ServiceTier,
+    StreamEvent,
+    TextDelta,
+    TextPart,
+    ReasoningDelta,
+    ToolCallPart,
+    ToolCallStarted,
+    ToolChoice,
+    ToolResultPart,
+    ToolSpec,
+    TurnBuilder,
+    Usage,
+)
 from parlant.core.tracer import Tracer
+from parlant.core.usage_reporter import UsageReporter
 from parlant.core.health import HealthReporter
+
+
+# Explicit request timeout for the OpenAI client. Without it the SDK defaults to a
+# 600s read timeout, so a stalled call hangs ~10 minutes and freezes session
+# processing (no agent events → the /events endpoint appears to hang). connect
+# stays short. max_retries=0 leaves retrying to our own policy / the loop rather
+# than triple-stacking the timeout. For streaming the read timeout is per-chunk
+# (max gap between tokens), so it doesn't cut off long-but-active responses.
+_OPENAI_TIMEOUT = httpx.Timeout(60.0, connect=5.0)
+_OPENAI_MAX_RETRIES = 0
 
 
 RATE_LIMIT_ERROR_MESSAGE = (
@@ -122,16 +160,30 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
         "gpt-5": ["temperature"],
     }
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
         tokenizer_model_name: str | None = None,
+        usage_reporter: UsageReporter | None = None,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name=model_name,
+            usage_reporter=usage_reporter,
+        )
 
-        self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
+        self._client = AsyncClient(
+            api_key=os.environ["OPENAI_API_KEY"],
+            timeout=_OPENAI_TIMEOUT,
+            max_retries=_OPENAI_MAX_RETRIES,
+        )
 
         self._tokenizer = OpenAIEstimatingTokenizer(
             model_name=tokenizer_model_name or self.model_name
@@ -184,6 +236,28 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
             if k in self.supported_openai_params and k not in exclude_params
         }
 
+    @staticmethod
+    def _supports_reasoning_effort(model: str) -> bool:
+        # reasoning_effort applies to the reasoning families (gpt-5*, o-series);
+        # standard chat models (gpt-4o, gpt-4.1, ...) reject it.
+        return model.startswith("gpt-5") or bool(re.match(r"o\d", model))
+
+    @staticmethod
+    def _supports_minimal_effort(model: str) -> bool:
+        # The original gpt-5 family exposed effort="minimal"; gpt-5.1+ dropped it
+        # in favor of "none" (the "as little reasoning as possible" tier).
+        return not re.search(r"gpt-5\.\d", model)
+
+    def _reasoning_arguments(self, effort: ReasoningEffort) -> dict[str, Any]:
+        """Map the normalized reasoning effort to OpenAI's ``reasoning_effort``
+        param, or an empty dict for models without reasoning support."""
+        if not self._supports_reasoning_effort(self.model_name):
+            return {}
+        value: str = effort
+        if effort == "minimal" and not self._supports_minimal_effort(self.model_name):
+            value = "none"
+        return {"reasoning_effort": value}
+
     async def _do_generate(
         self,
         prompt: str | PromptBuilder,
@@ -192,126 +266,117 @@ class OpenAISchematicGenerator(BaseSchematicGenerator[T]):
         if isinstance(prompt, PromptBuilder):
             prompt = prompt.build()
 
-        openai_api_arguments = self._list_arguments(hints)
+        # Route through the Responses API (not Chat Completions): the React generator
+        # uses Responses and its prompt cache engages, whereas Chat Completions wasn't
+        # caching for the schematic fan-out.
+        list_arguments = self._list_arguments(hints)
 
-        if hints.get("strict", False):
-            t_start = time.time()
-            try:
-                response = await self._client.beta.chat.completions.parse(
-                    messages=[{"role": "developer", "content": prompt}],
-                    model=self.model_name,
-                    response_format=self.schema,
-                    **openai_api_arguments,
+        request: dict[str, Any] = {
+            "model": self.model_name,
+            "input": [{"role": "developer", "content": prompt}],
+            "store": False,
+        }
+        if "temperature" in list_arguments:
+            request["temperature"] = list_arguments["temperature"]
+        if "max_tokens" in list_arguments:
+            request["max_output_tokens"] = list_arguments["max_tokens"]
+
+        effort = hints.get(REASONING_EFFORT_HINT)
+        if effort is not None:
+            reasoning_arguments = self._reasoning_arguments(effort)
+            if reasoning_arguments:
+                request["reasoning"] = {"effort": reasoning_arguments["reasoning_effort"]}
+
+        # `prompt_cache_key` keeps same-prefix requests (a fan-out and its prefill) on the
+        # same cache node so they reuse it. OpenAI ignores the breakpoint — it has no
+        # explicit cache resource, it auto-caches the longest common prefix.
+        cache_key = (hints.get("cache") or {}).get("key")
+        if cache_key is not None:
+            request["prompt_cache_key"] = cache_key
+
+        t_start = time.time()
+        try:
+            if hints.get("strict", False):
+                parsed = await self._client.responses.parse(text_format=self.schema, **request)
+                content = parsed.output_parsed
+                assert content is not None
+                usage = parsed.usage
+            else:
+                response = await self._client.responses.create(
+                    text={"format": {"type": "json_object"}}, **request
                 )
-            except RateLimitError:
-                self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
-                raise
+                raw_content = response.output_text or "{}"
+                try:
+                    json_content = json.loads(normalize_json_output(raw_content))
+                except json.JSONDecodeError:
+                    self.logger.warning(
+                        f"Invalid JSON returned by {self.model_name}:\n{raw_content})"
+                    )
+                    json_content = jsonfinder.only_json(raw_content)[2]
+                    self.logger.warning("Found JSON content within model response; continuing...")
+                content = self.schema.model_validate(json_content)
+                usage = response.usage
 
             t_end = time.time()
 
-            if response.usage:
-                self.logger.trace(response.usage.model_dump_json(indent=2))
-
-            parsed_object = response.choices[0].message.parsed
-            assert parsed_object
-
-            assert response.usage
-            assert response.usage.prompt_tokens_details
+            input_tokens = (usage.input_tokens if usage else 0) or 0
+            output_tokens = (usage.output_tokens if usage else 0) or 0
+            cached_input_tokens = (
+                usage.input_tokens_details.cached_tokens
+                if usage and usage.input_tokens_details
+                else 0
+            ) or 0
 
             await record_llm_metrics(
                 self.meter,
                 self.model_name,
                 schema_name=self.schema.__name__,
-                input_tokens=response.usage.prompt_tokens,
-                output_tokens=response.usage.completion_tokens,
-                cached_input_tokens=response.usage.prompt_tokens_details.cached_tokens or 0,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cached_input_tokens=cached_input_tokens,
             )
 
             return SchematicGenerationResult[T](
-                content=parsed_object,
+                content=content,
                 info=GenerationInfo(
                     schema_name=self.schema.__name__,
                     model=self.id,
                     duration=(t_end - t_start),
                     usage=UsageInfo(
-                        input_tokens=response.usage.prompt_tokens,
-                        output_tokens=response.usage.completion_tokens,
-                        extra={
-                            "cached_input_tokens": response.usage.prompt_tokens_details.cached_tokens
-                            or 0
-                        },
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        cached_input_tokens=cached_input_tokens,
                     ),
                 ),
             )
-
-        else:
-            try:
-                t_start = time.time()
-                response = await self._client.chat.completions.create(
-                    messages=[{"role": "developer", "content": prompt}],
-                    model=self.model_name,
-                    response_format={"type": "json_object"},
-                    **openai_api_arguments,
-                )
-                t_end = time.time()
-            except RateLimitError:
-                self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
-                raise
-
-            if response.usage:
-                self.logger.trace(response.usage.model_dump_json(indent=2))
-
-            raw_content = response.choices[0].message.content or "{}"
-
-            try:
-                json_content = json.loads(normalize_json_output(raw_content))
-            except json.JSONDecodeError:
-                self.logger.warning(f"Invalid JSON returned by {self.model_name}:\n{raw_content})")
-                json_content = jsonfinder.only_json(raw_content)[2]
-                self.logger.warning("Found JSON content within model response; continuing...")
-
-            try:
-                content = self.schema.model_validate(json_content)
-
-                assert response.usage
-                assert response.usage.prompt_tokens_details
-
-                await record_llm_metrics(
-                    self.meter,
-                    self.model_name,
-                    schema_name=self.schema.__name__,
-                    input_tokens=response.usage.prompt_tokens,
-                    output_tokens=response.usage.completion_tokens,
-                    cached_input_tokens=response.usage.prompt_tokens_details.cached_tokens or 0,
-                )
-
-                return SchematicGenerationResult(
-                    content=content,
-                    info=GenerationInfo(
-                        schema_name=self.schema.__name__,
-                        model=self.id,
-                        duration=(t_end - t_start),
-                        usage=UsageInfo(
-                            input_tokens=response.usage.prompt_tokens,
-                            output_tokens=response.usage.completion_tokens,
-                            extra={
-                                "cached_input_tokens": response.usage.prompt_tokens_details.cached_tokens
-                                or 0
-                            },
-                        ),
-                    ),
-                )
-
-            except ValidationError as e:
-                self.logger.error(
-                    f"Error: {e.json(indent=2)}\nJSON content returned by {self.model_name} does not match expected schema:\n{raw_content}"
-                )
-                raise
+        except RateLimitError:
+            self.logger.error(RATE_LIMIT_ERROR_MESSAGE)
+            raise
+        except ValidationError as e:
+            self.logger.error(
+                f"Error: {e.json(indent=2)}\n"
+                f"JSON returned by {self.model_name} does not match the expected schema."
+            )
+            raise
 
 
 class GPT_4o(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(model_name="gpt-4o-2024-11-20", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
+    ) -> None:
+        super().__init__(
+            model_name="gpt-4o-2024-11-20",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            usage_reporter=usage_reporter,
+        )
 
     @property
     @override
@@ -320,8 +385,22 @@ class GPT_4o(OpenAISchematicGenerator[T]):
 
 
 class GPT_4o_24_08_06(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(model_name="gpt-4o-2024-08-06", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
+    ) -> None:
+        super().__init__(
+            model_name="gpt-4o-2024-08-06",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            usage_reporter=usage_reporter,
+        )
 
     @property
     @override
@@ -330,13 +409,22 @@ class GPT_4o_24_08_06(OpenAISchematicGenerator[T]):
 
 
 class GPT_4_1(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
+    ) -> None:
         super().__init__(
             model_name="gpt-4.1",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
             tokenizer_model_name="gpt-4o-2024-11-20",
+            usage_reporter=usage_reporter,
         )
 
     @property
@@ -346,8 +434,22 @@ class GPT_4_1(OpenAISchematicGenerator[T]):
 
 
 class GPT_4o_Mini(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(model_name="gpt-4o-mini", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
+    ) -> None:
+        super().__init__(
+            model_name="gpt-4o-mini",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            usage_reporter=usage_reporter,
+        )
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -357,8 +459,22 @@ class GPT_4o_Mini(OpenAISchematicGenerator[T]):
 
 
 class GPT_4_1_Mini(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(model_name="gpt-4.1-mini", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
+    ) -> None:
+        super().__init__(
+            model_name="gpt-4.1-mini",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            usage_reporter=usage_reporter,
+        )
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -368,8 +484,22 @@ class GPT_4_1_Mini(OpenAISchematicGenerator[T]):
 
 
 class GPT_4_1_Nano(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(model_name="gpt-4.1-nano", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
+    ) -> None:
+        super().__init__(
+            model_name="gpt-4.1-nano",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            usage_reporter=usage_reporter,
+        )
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -379,8 +509,22 @@ class GPT_4_1_Nano(OpenAISchematicGenerator[T]):
 
 
 class GPT_5_1(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(model_name="gpt-5.1", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
+    ) -> None:
+        super().__init__(
+            model_name="gpt-5.1",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            usage_reporter=usage_reporter,
+        )
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -390,8 +534,22 @@ class GPT_5_1(OpenAISchematicGenerator[T]):
 
 
 class GPT_5_Mini(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(model_name="gpt-5-mini", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
+    ) -> None:
+        super().__init__(
+            model_name="gpt-5-mini",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            usage_reporter=usage_reporter,
+        )
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -401,9 +559,102 @@ class GPT_5_Mini(OpenAISchematicGenerator[T]):
 
 
 class GPT_5_Nano(OpenAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(model_name="gpt-5-nano", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
+    ) -> None:
+        super().__init__(
+            model_name="gpt-5-nano",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            usage_reporter=usage_reporter,
+        )
         self._token_estimator = OpenAIEstimatingTokenizer(model_name=self.model_name)
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 400_000
+
+
+class GPT_5_4_Nano(OpenAISchematicGenerator[T]):
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
+    ) -> None:
+        super().__init__(
+            model_name="gpt-5.4-nano",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            # tiktoken doesn't know gpt-5.4-nano; use the gpt-5 tokenizer (same
+            # family) for estimation.
+            tokenizer_model_name="gpt-5",
+            usage_reporter=usage_reporter,
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 400_000
+
+
+class GPT_5_4_Mini(OpenAISchematicGenerator[T]):
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
+    ) -> None:
+        super().__init__(
+            model_name="gpt-5.4-mini",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            # tiktoken doesn't know gpt-5.4-mini; use the gpt-5 tokenizer (same family).
+            tokenizer_model_name="gpt-5",
+            usage_reporter=usage_reporter,
+        )
+
+    @property
+    @override
+    def max_tokens(self) -> int:
+        return 400_000
+
+
+class GPT_5_4(OpenAISchematicGenerator[T]):
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
+    ) -> None:
+        super().__init__(
+            model_name="gpt-5.4",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            # tiktoken doesn't know gpt-5.4; use the gpt-5 tokenizer (same family).
+            tokenizer_model_name="gpt-5",
+            usage_reporter=usage_reporter,
+        )
 
     @property
     @override
@@ -431,16 +682,30 @@ class OpenAIStreamingTextGenerator(BaseStreamingTextGenerator):
 
     supported_openai_params = ["temperature", "max_tokens"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
         tokenizer_model_name: str | None = None,
+        usage_reporter: UsageReporter | None = None,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name=model_name,
+            usage_reporter=usage_reporter,
+        )
 
-        self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
+        self._client = AsyncClient(
+            api_key=os.environ["OPENAI_API_KEY"],
+            timeout=_OPENAI_TIMEOUT,
+            max_retries=_OPENAI_MAX_RETRIES,
+        )
         self._tokenizer = OpenAIEstimatingTokenizer(
             model_name=tokenizer_model_name or self.model_name
         )
@@ -502,7 +767,7 @@ class OpenAIStreamingTextGenerator(BaseStreamingTextGenerator):
                     usage_info = UsageInfo(
                         input_tokens=chunk.usage.prompt_tokens,
                         output_tokens=chunk.usage.completion_tokens,
-                        extra={"cached_input_tokens": cached_tokens},
+                        cached_input_tokens=cached_tokens,
                     )
 
                 if chunk.choices and chunk.choices[0].delta.content:
@@ -530,9 +795,7 @@ class OpenAIStreamingTextGenerator(BaseStreamingTextGenerator):
                     schema_name="streaming",
                     input_tokens=usage_info.input_tokens,
                     output_tokens=usage_info.output_tokens,
-                    cached_input_tokens=usage_info.extra.get("cached_input_tokens", 0)
-                    if usage_info.extra
-                    else 0,
+                    cached_input_tokens=usage_info.cached_input_tokens,
                 )
 
             # Signal completion
@@ -548,13 +811,22 @@ class OpenAIStreamingTextGenerator(BaseStreamingTextGenerator):
 
 
 class GPT_4_1_Streaming(OpenAIStreamingTextGenerator):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
+    ) -> None:
         super().__init__(
             model_name="gpt-4.1",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
             tokenizer_model_name="gpt-4o-2024-11-20",
+            usage_reporter=usage_reporter,
         )
 
 
@@ -566,10 +838,22 @@ class GPT_4_1_Streaming(OpenAIStreamingTextGenerator):
 class OpenAIEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
-    def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(logger, tracer, meter, model_name, health_reporter)
+    def __init__(
+        self,
+        model_name: str,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
+    ) -> None:
+        super().__init__(logger, tracer, meter, model_name, health_reporter, usage_reporter)
 
-        self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
+        self._client = AsyncClient(
+            api_key=os.environ["OPENAI_API_KEY"],
+            timeout=_OPENAI_TIMEOUT,
+            max_retries=_OPENAI_MAX_RETRIES,
+        )
         self._tokenizer = OpenAIEstimatingTokenizer(model_name=self.model_name)
 
     @property
@@ -614,13 +898,31 @@ class OpenAIEmbedder(BaseEmbedder):
             raise
 
         vectors = [data_point.embedding for data_point in response.data]
-        return EmbeddingResult(vectors=vectors)
+        return EmbeddingResult(
+            vectors=vectors,
+            usage=UsageInfo(
+                input_tokens=(response.usage.prompt_tokens if response.usage else 0) or 0,
+                output_tokens=0,
+            ),
+        )
 
 
 class OpenAITextEmbedding3Large(OpenAIEmbedder):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
+    ) -> None:
         super().__init__(
-            model_name="text-embedding-3-large", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter
+            model_name="text-embedding-3-large",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            usage_reporter=usage_reporter,
         )
 
     @property
@@ -634,9 +936,21 @@ class OpenAITextEmbedding3Large(OpenAIEmbedder):
 
 
 class OpenAITextEmbedding3Small(OpenAIEmbedder):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
+    ) -> None:
         super().__init__(
-            model_name="text-embedding-3-small", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter
+            model_name="text-embedding-3-small",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            usage_reporter=usage_reporter,
         )
 
     @property
@@ -650,12 +964,18 @@ class OpenAITextEmbedding3Small(OpenAIEmbedder):
 
 
 class OpenAIModerationService(BaseModerationService):
-    def __init__(self, model_name: str, logger: Logger, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, model_name: str, logger: Logger, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(logger, meter, health_reporter)
 
         self.model_name = model_name
 
-        self._client = AsyncClient(api_key=os.environ["OPENAI_API_KEY"])
+        self._client = AsyncClient(
+            api_key=os.environ["OPENAI_API_KEY"],
+            timeout=_OPENAI_TIMEOUT,
+            max_retries=_OPENAI_MAX_RETRIES,
+        )
 
         self._hist_moderation_request_duration = meter.create_duration_histogram(
             name="moderation",
@@ -706,10 +1026,390 @@ class OpenAIModerationService(BaseModerationService):
 
 class OmniModeration(OpenAIModerationService):
     def __init__(self, logger: Logger, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(model_name="omni-moderation-latest", logger=logger, meter=meter, health_reporter=health_reporter)
+        super().__init__(
+            model_name="omni-moderation-latest",
+            logger=logger,
+            meter=meter,
+            health_reporter=health_reporter,
+        )
 
 
-class OpenAIService(NLPService):
+# The key under which an OpenAI Responses output item (reasoning / function_call)
+# is preserved verbatim on a canonical Part's provider_data so it can be replayed
+# in a later stateless (store=False) request.
+OPENAI_ITEM_KEY = "openai_item"
+
+
+class OpenAIReactGenerator(ReactGenerator):
+    """A ReAct generator backed by the OpenAI Responses API (google-genai's peer).
+
+    Implements the ``ReactGenerator`` provider seam against the streaming
+    Responses API. Runs statelessly (``store=False``): the caller fully owns the
+    history, and reasoning / function-call output items round-trip verbatim via
+    each Part's ``provider_data`` (under :data:`OPENAI_ITEM_KEY`), with
+    ``include=["reasoning.encrypted_content"]`` so reasoning replays correctly.
+
+    Caching is automatic prefix caching: a :attr:`Message.cache_key` is passed as
+    ``prompt_cache_key`` (a routing hint). There is no explicit cache resource to
+    manage, so :class:`CacheConfig` ``ttl`` / ``provider_options`` are unused.
+    """
+
+    def __init__(
+        self,
+        *,
+        model: str = "gpt-5.4-nano",
+        logger: Logger,
+        cache: Optional[CacheConfig] = None,
+        client: Optional[AsyncClient] = None,
+        api_key: Optional[str] = None,
+    ) -> None:
+        super().__init__(model=model, cache=cache)
+        self._logger = logger
+        self._client = client or AsyncClient(
+            api_key=api_key or os.environ.get("OPENAI_API_KEY"),
+            timeout=_OPENAI_TIMEOUT,
+            max_retries=_OPENAI_MAX_RETRIES,
+        )
+
+    # Mapping from canonical ModelSize to a concrete OpenAI model id, used to
+    # resolve per-call ``hints`` overrides on ``_encode``.
+    _MODEL_BY_SIZE: dict[ModelSize, str] = {
+        ModelSize.SMALL: "gpt-5.4-nano",
+        ModelSize.MEDIUM: "gpt-5.4-mini",
+        ModelSize.LARGE: "gpt-5.4",
+    }
+
+    # Cache minimum assumed for models we don't recognize — large enough that
+    # prefill is skipped rather than warming a cache that may never engage.
+    _UNKNOWN_MIN_CACHE_SIZE = 1 << 20
+
+    @property
+    def id(self) -> str:
+        return f"openai/{self.model}"
+
+    @property
+    @override
+    def provider_name(self) -> str:
+        return "openai"
+
+    def _resolve_model(self, hints: ReactGeneratorHints) -> str:
+        """Return the model id for this call, applying ``hints['model_size']``
+        if present (falling back to the generator's default)."""
+        size = hints.get("model_size", ModelSize.AUTO)
+        return self._MODEL_BY_SIZE.get(size, self.model)
+
+    # OpenAI's service_tier accepts "auto"/"default"/"flex"/"priority";
+    # "standard" maps to "default".
+    _SERVICE_TIER: dict[ServiceTier, str] = {
+        "standard": "default",
+        "flex": "flex",
+        "priority": "priority",
+    }
+
+    # ---- provider seam -----------------------------------------------------
+
+    @override
+    def _encode(
+        self,
+        history: Sequence[Message],
+        tools: Sequence[ToolSpec],
+        tool_choice: ToolChoice,
+        *,
+        reasoning: ReasoningConfig,
+        hints: ReactGeneratorHints = {},
+    ) -> dict[str, Any]:
+        instruction_chunks: list[str] = []
+        input_items: list[dict[str, Any]] = []
+        cache_key: Optional[str] = None
+
+        seen_non_system = False
+        for message in history:
+            # OpenAI accepts a single prompt_cache_key (a routing hint). Use the
+            # FIRST marked message's key — including a marked system message —
+            # since the earliest breakpoint is the most stable prefix boundary
+            # and does not shift as the conversation grows.
+            if self.cache.enabled and cache_key is None and message.cache_key is not None:
+                cache_key = message.cache_key
+            if message.role == Role.SYSTEM:
+                if not seen_non_system:
+                    # Leading system prompt → top-level instructions.
+                    if message.text:
+                        instruction_chunks.append(message.text)
+                elif message.text:
+                    # Mid-conversation system message → inline "developer" turn
+                    # (OpenAI's role for operator instructions in the input).
+                    input_items.append({"role": "developer", "content": message.text})
+                continue
+            seen_non_system = True
+            input_items.extend(self._encode_message(message))
+
+        request: dict[str, Any] = {
+            "model": self._resolve_model(hints),
+            "input": input_items,
+            "instructions": "\n\n".join(chunk for chunk in instruction_chunks if chunk) or None,
+        }
+
+        if tools:
+            request["tools"] = [self._encode_tool(spec) for spec in tools]
+            request["tool_choice"] = self._encode_tool_choice(tool_choice)
+
+        # Always emit the reasoning block — the depth is controlled by ``effort``,
+        # mapped to what the resolved model supports. ``include`` is needed so
+        # reasoning items round-trip verbatim across stateless calls.
+        request["reasoning"] = self._encode_reasoning(reasoning, request["model"])
+        request["include"] = ["reasoning.encrypted_content"]
+
+        if cache_key is not None:
+            # OpenAI's prefix caching is automatic; the key is only a routing hint.
+            request["prompt_cache_key"] = cache_key
+
+        request["service_tier"] = self._SERVICE_TIER[hints.get("service_tier", "standard")]
+
+        return request
+
+    def _encode_message(self, message: Message) -> list[dict[str, Any]]:
+        if message.role == Role.TOOL:
+            return [
+                self._encode_tool_result(part)
+                for part in message.parts
+                if isinstance(part, ToolResultPart)
+            ]
+
+        if message.role == Role.USER:
+            content = [
+                {"type": "input_text", "text": part.text}
+                for part in message.parts
+                if isinstance(part, TextPart)
+            ]
+            return [{"role": "user", "content": content}] if content else []
+
+        # ASSISTANT: emit items in part order, replaying raw items verbatim.
+        items: list[dict[str, Any]] = []
+        for part in message.parts:
+            raw_item = part.provider_data.get(OPENAI_ITEM_KEY)
+            if raw_item is not None:
+                items.append(dict(raw_item))
+                continue
+            if isinstance(part, TextPart) and part.text:
+                items.append(
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": part.text}],
+                    }
+                )
+            elif isinstance(part, ToolCallPart):
+                items.append(
+                    {
+                        "type": "function_call",
+                        "call_id": part.id,
+                        "name": part.name,
+                        "arguments": json.dumps(part.args),
+                    }
+                )
+            # A ReasoningPart without its raw item cannot be reconstructed
+            # (encrypted_content is opaque); dropping a reasoning part is safe.
+        return items
+
+    def _encode_tool_result(self, part: ToolResultPart) -> dict[str, Any]:
+        output = part.content if isinstance(part.content, str) else json.dumps(part.content)
+        return {"type": "function_call_output", "call_id": part.call_id, "output": output}
+
+    def _encode_tool(self, spec: ToolSpec) -> dict[str, Any]:
+        return {
+            "type": "function",
+            "name": spec.name,
+            "description": spec.description,
+            "parameters": self._to_openai_schema(spec.json_schema()),
+        }
+
+    def _to_openai_schema(self, schema: Mapping[str, Any]) -> dict[str, Any]:
+        """Translate ToolSpec.json_schema()'s OpenAPI-flavored output into the
+        JSON Schema dialect the Responses API honors: nullability is a ``"null"``
+        member of ``type``, not an OpenAPI ``nullable`` flag (which OpenAI
+        silently ignores). Applied recursively to properties and array items."""
+        result = {key: value for key, value in schema.items() if key != "nullable"}
+
+        if schema.get("nullable"):
+            current = result.get("type")
+            if isinstance(current, str):
+                result["type"] = [current, "null"]
+            elif isinstance(current, list) and "null" not in current:
+                result["type"] = [*current, "null"]
+
+        if isinstance(result.get("properties"), dict):
+            result["properties"] = {
+                name: self._to_openai_schema(sub) for name, sub in result["properties"].items()
+            }
+        if isinstance(result.get("items"), dict):
+            result["items"] = self._to_openai_schema(result["items"])
+
+        return result
+
+    def _encode_tool_choice(self, tool_choice: ToolChoice) -> Any:
+        if isinstance(tool_choice, Mapping):
+            return {"type": "function", "name": tool_choice.get("name")}
+        return tool_choice  # "auto" | "none" | "required"
+
+    @staticmethod
+    def _supports_minimal_effort(model: str) -> bool:
+        # The original gpt-5 family exposed effort="minimal"; gpt-5.1+ dropped it
+        # in favor of "none" (the "as little reasoning as possible" tier).
+        return not re.search(r"gpt-5\.\d", model)
+
+    def _encode_reasoning(self, reasoning: ReasoningConfig, model: str) -> dict[str, Any]:
+        # OpenAI's Responses API controls reasoning depth via ``effort`` tiers.
+        # Our canonical "as little as possible" level is ``"minimal"``; newer
+        # models call that tier ``"none"`` instead, so remap where unsupported.
+        effort: str = reasoning.effort
+        if effort == "minimal" and not self._supports_minimal_effort(model):
+            effort = "none"
+
+        config: dict[str, Any] = {"effort": effort}
+        summary = {"none": None, "summary": "auto", "full": "detailed"}[reasoning.visibility]
+        if summary is not None:
+            config["summary"] = summary
+        return config
+
+    @override
+    async def _raw_stream(self, request: Any) -> AsyncIterator[Any]:
+        kwargs = {key: value for key, value in request.items() if value is not None}
+        try:
+            stream = await self._client.responses.create(stream=True, store=False, **kwargs)
+            # `async with` guarantees the stream (and its HTTP response) is closed
+            # on cancellation or any early exit, rather than leaked.
+            async with stream:
+                async for event in stream:
+                    yield event
+        except RateLimitError as exc:
+            self._logger.error(RATE_LIMIT_ERROR_MESSAGE)
+            raise ReactError(str(exc), retryable=True) from exc
+        except (
+            APIConnectionError,
+            APITimeoutError,
+            ConflictError,
+            APIResponseValidationError,
+            InternalServerError,
+        ) as exc:
+            # Transient — mirror the schematic generator's retry set. The consumer
+            # (BaseLoop) retries these before any event of the step is emitted.
+            raise ReactError(str(exc), retryable=True) from exc
+
+    def _build_prefill_request(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Turn an encoded request into a cache-warming request: same input
+        prefix / instructions / tools / prompt_cache_key, plus a tiny dummy user
+        item and a 16-token output cap. Reasoning is dropped so the small cap is
+        valid; it doesn't affect the cached input prefix."""
+        input_items = list(request["input"])
+        if not input_items or input_items[-1].get("role") != "user":
+            input_items = input_items + [{"role": "user", "content": "."}]
+
+        prefill = {
+            key: value
+            for key, value in request.items()
+            if value is not None and key not in ("reasoning", "include")
+        }
+        prefill["input"] = input_items
+        prefill["max_output_tokens"] = 16
+        return prefill
+
+    def _min_cache_size(self, model: str) -> int:
+        """Minimum prompt size (in tokens) at which OpenAI automatic prompt
+        caching engages. It is 1024 tokens across current models; unknown models
+        are assumed not to cache cheaply."""
+        if model.startswith(("gpt-", "o1", "o3", "o4", "chatgpt-")):
+            return 1024
+        return self._UNKNOWN_MIN_CACHE_SIZE
+
+    @override
+    async def _should_prefill(
+        self,
+        history: Sequence[Message],
+        tools: Sequence[ToolSpec],
+        hints: ReactGeneratorHints,
+        reasoning: Optional[ReasoningConfig] = None,
+    ) -> bool:
+        token_count = self._estimate_prefill_tokens(history, tools)
+        return token_count >= self._min_cache_size(self._resolve_model(hints))
+
+    async def _prefill(self, request: Any) -> Usage:
+        prefill_request = self._build_prefill_request(request)
+        response = await self._client.responses.create(stream=False, store=False, **prefill_request)
+        return self._decode_usage(response.usage, getattr(response, "model", "") or "")
+
+    @override
+    def _decode(self, raw_event: Any, builder: TurnBuilder) -> list[StreamEvent]:
+        event_type = raw_event.type
+
+        if event_type == "response.output_text.delta":
+            builder.text_delta(raw_event.delta)
+            return [TextDelta(text=raw_event.delta)]
+
+        if event_type == "response.reasoning_summary_text.delta":
+            builder.reasoning_delta(raw_event.delta)
+            return [ReasoningDelta(text=raw_event.delta)]
+
+        if event_type == "response.output_item.added":
+            item = raw_event.item
+            if item.type == "function_call":
+                builder.tool_call(item.call_id, name=item.name)
+                return [ToolCallStarted(id=item.call_id, name=item.name)]
+            return []
+
+        if event_type == "response.output_item.done":
+            item = raw_event.item
+            if item.type == "function_call":
+                builder.tool_call(
+                    item.call_id,
+                    name=item.name,
+                    args=json.loads(item.arguments or "{}"),
+                    provider_data={OPENAI_ITEM_KEY: item.model_dump(exclude_none=True)},
+                )
+            elif item.type == "reasoning":
+                # Attach the raw reasoning item (with encrypted_content) for replay,
+                # even when no visible summary text was streamed.
+                builder.reasoning_delta(
+                    "", provider_data={OPENAI_ITEM_KEY: item.model_dump(exclude_none=True)}
+                )
+            return []
+
+        if event_type == "response.completed":
+            response = raw_event.response
+            builder.usage = self._decode_usage(response.usage, getattr(response, "model", "") or "")
+            builder.finish_reason = self._map_finish_reason(response)
+            return []
+
+        return []
+
+    def _decode_usage(self, usage: Any, model_name: str) -> Usage:
+        if usage is None:
+            return Usage(model_name=model_name)
+        output_details = usage.output_tokens_details
+        input_details = usage.input_tokens_details
+        return Usage(
+            input_tokens=usage.input_tokens or 0,
+            # OpenAI's output_tokens already includes reasoning tokens.
+            output_tokens=usage.output_tokens or 0,
+            cached_input_tokens=(input_details.cached_tokens if input_details else 0) or 0,
+            reasoning_tokens=(output_details.reasoning_tokens if output_details else 0) or 0,
+            model_name=model_name,
+        )
+
+    def _map_finish_reason(self, response: Any) -> FinishReason:
+        if response.status == "completed":
+            return FinishReason.STOP
+        if response.status == "failed":
+            return FinishReason.ERROR
+        if response.status == "incomplete":
+            reason = response.incomplete_details.reason if response.incomplete_details else None
+            if reason == "max_output_tokens":
+                return FinishReason.MAX_TOKENS
+            if reason == "content_filter":
+                return FinishReason.CONTENT_FILTER
+        return FinishReason.STOP
+
+
+class OpenAIService(NLPService, EstimatingTokenizer):
     @staticmethod
     def verify_environment() -> str | None:
         """Returns an error message if the environment is not set up correctly."""
@@ -722,18 +1422,26 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
 
         return None
 
-    def __init__(self,
+    def __init__(
+        self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
     ) -> None:
         self._logger = logger
         self._tracer = tracer
         self._meter = meter
 
         self._health_reporter = health_reporter
+        self._usage_reporter = usage_reporter
 
         self._logger.info("Initialized OpenAIService")
+
+    @override
+    async def estimate_token_count(self, prompt: str) -> int:
+        return len(tiktoken.get_encoding("o200k_base").encode(prompt))
 
     @property
     @override
@@ -744,67 +1452,109 @@ Please set OPENAI_API_KEY in your environment before running Parlant.
     async def get_streaming_text_generator(
         self, hints: StreamingTextGeneratorHints = {}
     ) -> StreamingTextGenerator:
-        return GPT_4_1_Streaming(self._logger, self._tracer, self._meter, self._health_reporter)
+        return GPT_4_1_Streaming(
+            self._logger,
+            self._tracer,
+            self._meter,
+            self._health_reporter,
+            usage_reporter=self._usage_reporter,
+        )
+
+    @property
+    @override
+    def supports_react(self) -> bool:
+        return True
+
+    @override
+    async def get_react_generator(self) -> ReactGenerator:
+        return OpenAIReactGenerator(logger=self._logger)
 
     @override
     async def get_schematic_generator(
         self, t: type[T], hints: SchematicGeneratorHints = {}
     ) -> OpenAISchematicGenerator[T]:
+        def create(
+            generator_type: type[OpenAISchematicGenerator[T]],
+        ) -> OpenAISchematicGenerator[T]:
+            return generator_type(
+                self._logger,
+                self._tracer,
+                self._meter,
+                self._health_reporter,
+                usage_reporter=self._usage_reporter,
+            )
+
         match hints.get("model_size", ModelSize.AUTO):
             case ModelSize.AUTO:
-                return {
-                    SingleToolBatchSchema: GPT_4o[SingleToolBatchSchema],
-                    NonConsequentialToolBatchSchema: GPT_4_1[NonConsequentialToolBatchSchema],
-                    JourneyBacktrackNodeSelectionSchema: GPT_4_1[
-                        JourneyBacktrackNodeSelectionSchema
-                    ],
-                    CannedResponseDraftSchema: GPT_4_1[CannedResponseDraftSchema],
-                    CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
-                    JourneyNextStepSelectionSchema: GPT_4_1[JourneyNextStepSelectionSchema],
-                    JourneyBacktrackCheckSchema: GPT_4_1_Mini[JourneyBacktrackCheckSchema],
-                }.get(t, GPT_4o_24_08_06[t])(self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
-            case ModelSize.NANO:
+                return create(
+                    {
+                        SingleToolBatchSchema: GPT_4o[SingleToolBatchSchema],
+                        NonConsequentialToolBatchSchema: GPT_4_1[NonConsequentialToolBatchSchema],
+                        JourneyBacktrackNodeSelectionSchema: GPT_4_1[
+                            JourneyBacktrackNodeSelectionSchema
+                        ],
+                        CannedResponseDraftSchema: GPT_4_1[CannedResponseDraftSchema],
+                        CannedResponseSelectionSchema: GPT_4_1[CannedResponseSelectionSchema],
+                        JourneyNextStepSelectionSchema: GPT_4_1[JourneyNextStepSelectionSchema],
+                        JourneyBacktrackCheckSchema: GPT_4_1_Mini[JourneyBacktrackCheckSchema],
+                        RuleRankSchema: GPT_5_4_Nano[RuleRankSchema],
+                        LowEffortReviewSchema: GPT_5_4_Mini[LowEffortReviewSchema],
+                    }.get(t, GPT_4o_24_08_06[t])
+                )  # type: ignore
+            case ModelSize.SMALL:
                 match hints.get("model_generation", "auto"):
                     case "auto" | "stable":
                         match hints.get("model_type", "auto"):
                             case "auto" | "standard":
-                                return GPT_4_1_Nano[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
+                                return create(GPT_4_1_Nano[t])  # type: ignore
                             case "reasoning":
-                                return GPT_5_Nano[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
+                                return create(GPT_5_Nano[t])  # type: ignore
                     case "latest":
                         match hints.get("model_type", "auto"):
                             case "standard":
-                                return GPT_4_1_Nano[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
+                                return create(GPT_4_1_Nano[t])  # type: ignore
                             case "auto" | "reasoning":
-                                return GPT_5_Nano[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
-            case ModelSize.MINI:
+                                return create(GPT_5_Nano[t])  # type: ignore
+            case ModelSize.MEDIUM:
                 match hints.get("model_generation", "auto"):
                     case "auto" | "stable":
                         match hints.get("model_type", "auto"):
                             case "auto" | "standard":
-                                return GPT_4_1_Mini[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
+                                return create(GPT_4_1_Mini[t])  # type: ignore
                             case "reasoning":
-                                return GPT_5_Mini[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
+                                return create(GPT_5_Mini[t])  # type: ignore
                     case "latest":
                         match hints.get("model_type", "auto"):
                             case "standard":
-                                return GPT_4_1_Mini[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
+                                return create(GPT_4_1_Mini[t])  # type: ignore
                             case "auto" | "reasoning":
-                                return GPT_5_Mini[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
+                                return create(GPT_5_Mini[t])  # type: ignore
             case _:
                 match hints.get("model_type", "auto"):
                     case "reasoning":
-                        return GPT_5_1[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
+                        return create(GPT_5_1[t])  # type: ignore
                     case _:
-                        return GPT_4o_24_08_06[t](self._logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
+                        return create(GPT_4o_24_08_06[t])  # type: ignore
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:
         match hints.get("model_size", ModelSize.AUTO):
             case ModelSize.AUTO | ModelSize.LARGE:
-                return OpenAITextEmbedding3Large(self._logger, self._tracer, self._meter, self._health_reporter)
+                return OpenAITextEmbedding3Large(
+                    self._logger,
+                    self._tracer,
+                    self._meter,
+                    self._health_reporter,
+                    usage_reporter=self._usage_reporter,
+                )
             case _:
-                return OpenAITextEmbedding3Small(self._logger, self._tracer, self._meter, self._health_reporter)
+                return OpenAITextEmbedding3Small(
+                    self._logger,
+                    self._tracer,
+                    self._meter,
+                    self._health_reporter,
+                    usage_reporter=self._usage_reporter,
+                )
 
     @override
     async def get_moderation_service(self) -> ModerationService:

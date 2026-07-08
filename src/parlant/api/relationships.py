@@ -19,14 +19,15 @@ from parlant.api import common
 from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import (
     ExampleJson,
-    GuidelineDTO,
-    GuidelineIdField,
+    RuleDTO,
+    RuleIdField,
     RelationshipDTO,
     RelationshipKindDTO,
-    TagDTO,
-    TagIdField,
+    GroupDTO,
+    GroupIdField,
     ToolIdDTO,
     apigen_config,
+    effort_to_effort_dto,
     tool_to_dto,
 )
 from parlant.core.app_modules.relationships import RelationshipModel
@@ -36,8 +37,8 @@ from parlant.core.relationships import (
     RelationshipKind,
     RelationshipId,
 )
-from parlant.core.guidelines import GuidelineId
-from parlant.core.tags import TagId
+from parlant.core.rules import RuleId
+from parlant.core.groups import GroupId
 from parlant.api.common import relationship_example
 from parlant.core.tools import ToolId
 
@@ -45,8 +46,8 @@ API_GROUP = "relationships"
 
 
 relationship_creation_params_example: ExampleJson = {
-    "source_guideline": "gid_123",
-    "target_tag": "tid_456",
+    "source_rule": "gid_123",
+    "target_group": "tid_456",
     "kind": "entailment",
 }
 
@@ -71,24 +72,25 @@ class RelationshipCreationParamsDTO(
         "tool_example": relationship_creation_tool_example,
     },
 ):
-    source_guideline: GuidelineIdField | None = None
-    source_tag: TagIdField | None = None
+    source_rule: RuleIdField | None = None
+    source_group: GroupIdField | None = None
     source_tool: ToolIdDTO | None = None
-    target_guideline: GuidelineIdField | None = None
-    target_tag: TagIdField | None = None
+    target_rule: RuleIdField | None = None
+    target_group: GroupIdField | None = None
     target_tool: ToolIdDTO | None = None
     kind: RelationshipKindDTO
+    group_id: str | None = None
 
 
-GuidelineIdQuery: TypeAlias = Annotated[
-    GuidelineId,
-    Query(description="The ID of the guideline to list relationships for"),
+RuleIdQuery: TypeAlias = Annotated[
+    RuleId,
+    Query(description="The ID of the rule to list relationships for"),
 ]
 
 
-TagIdQuery: TypeAlias = Annotated[
-    TagId,
-    Query(description="The ID of the tag to list relationships for"),
+GroupIdQuery: TypeAlias = Annotated[
+    GroupId,
+    Query(description="The ID of the group to list relationships for"),
 ]
 
 
@@ -131,6 +133,8 @@ def _relationship_kind_to_dto(
             return RelationshipKindDTO.PRIORITY
         case RelationshipKind.DEPENDENCY:
             return RelationshipKindDTO.DEPENDENCY
+        case RelationshipKind.DEPENDENCY_ANY:
+            return RelationshipKindDTO.DEPENDENCY_ANY
         case RelationshipKind.DISAMBIGUATION:
             return RelationshipKindDTO.DISAMBIGUATION
         case RelationshipKind.REEVALUATION:
@@ -151,6 +155,8 @@ def _relationship_kind_dto_to_kind(
             return RelationshipKind.PRIORITY
         case RelationshipKindDTO.DEPENDENCY:
             return RelationshipKind.DEPENDENCY
+        case RelationshipKindDTO.DEPENDENCY_ANY:
+            return RelationshipKind.DEPENDENCY_ANY
         case RelationshipKindDTO.DISAMBIGUATION:
             return RelationshipKind.DISAMBIGUATION
         case RelationshipKindDTO.REEVALUATION:
@@ -170,43 +176,52 @@ def create_router(
     ) -> RelationshipDTO:
         return RelationshipDTO(
             id=model.id,
-            source_guideline=GuidelineDTO(
-                id=model.source_guideline.id,
-                condition=model.source_guideline.content.condition,
-                action=model.source_guideline.content.action,
-                enabled=model.source_guideline.enabled,
-                tags=model.source_guideline.tags,
-                metadata=model.source_guideline.metadata,
-                priority=model.source_guideline.priority,
+            source_rule=RuleDTO(
+                id=model.source_rule.id,
+                condition=model.source_rule.content.condition,
+                action=model.source_rule.content.action,
+                enabled=model.source_rule.enabled,
+                groups=model.source_rule.groups,
+                metadata=model.source_rule.metadata,
+                modified_utc=model.source_rule.modified_utc,
+                effort=effort_to_effort_dto(model.source_rule.effort_lift)
+                if model.source_rule.effort_lift
+                else None,
+                priority=model.source_rule.priority,
             )
-            if model.source_guideline
+            if model.source_rule
             else None,
-            source_tag=TagDTO(
-                id=model.source_tag.id,
-                name=model.source_tag.name,
+            source_group=GroupDTO(
+                id=model.source_group.id,
+                name=model.source_group.name,
             )
-            if model.source_tag
+            if model.source_group
             else None,
-            target_guideline=GuidelineDTO(
-                id=model.target_guideline.id,
-                condition=model.target_guideline.content.condition,
-                action=model.target_guideline.content.action,
-                enabled=model.target_guideline.enabled,
-                tags=model.target_guideline.tags,
-                metadata=model.target_guideline.metadata,
-                priority=model.target_guideline.priority,
+            target_rule=RuleDTO(
+                id=model.target_rule.id,
+                condition=model.target_rule.content.condition,
+                action=model.target_rule.content.action,
+                enabled=model.target_rule.enabled,
+                groups=model.target_rule.groups,
+                metadata=model.target_rule.metadata,
+                modified_utc=model.target_rule.modified_utc,
+                effort=effort_to_effort_dto(model.target_rule.effort_lift)
+                if model.target_rule.effort_lift
+                else None,
+                priority=model.target_rule.priority,
             )
-            if model.target_guideline
+            if model.target_rule
             else None,
-            target_tag=TagDTO(
-                id=model.target_tag.id,
-                name=model.target_tag.name,
+            target_group=GroupDTO(
+                id=model.target_group.id,
+                name=model.target_group.name,
             )
-            if model.target_tag
+            if model.target_group
             else None,
             source_tool=tool_to_dto(model.source_tool) if model.source_tool else None,
             target_tool=tool_to_dto(model.target_tool) if model.target_tool else None,
             kind=_relationship_kind_to_dto(model.kind),
+            group_id=model.group_id,
         )
 
     router = APIRouter()
@@ -234,45 +249,48 @@ def create_router(
         """
         Create a relationship.
 
-        A relationship is a relationship between a guideline and a tag.
-        It can be created between a guideline and a tag, or between two guidelines, or between two tags.
+        A relationship is a relationship between a rule and a group.
+        It can be created between a rule and a group, or between two rules, or between two groups.
         """
         await authorization_policy.authorize(
             request=request, operation=Operation.CREATE_RELATIONSHIP
         )
 
-        if params.source_guideline and params.source_tag:
+        if params.source_rule and params.source_group:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="A relationship cannot have both a source guideline and a source tag",
+                detail="A relationship cannot have both a source rule and a source group",
             )
-        elif params.target_guideline and params.target_tag:
+        elif params.target_rule and params.target_group:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="A relationship cannot have both a target guideline and a target tag",
+                detail="A relationship cannot have both a target rule and a target group",
             )
         elif (
-            params.source_guideline
-            and params.target_guideline
-            and params.source_guideline == params.target_guideline
-        ) or (params.source_tag and params.target_tag and params.source_tag == params.target_tag):
+            params.source_rule and params.target_rule and params.source_rule == params.target_rule
+        ) or (
+            params.source_group
+            and params.target_group
+            and params.source_group == params.target_group
+        ):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="source and target cannot be the same entity",
             )
 
         model = await app.relationships.create(
-            source_guideline=params.source_guideline,
-            source_tag=params.source_tag,
+            source_rule=params.source_rule,
+            source_group=params.source_group,
             source_tool=ToolId(params.source_tool.service_name, params.source_tool.tool_name)
             if params.source_tool
             else None,
-            target_guideline=params.target_guideline,
-            target_tag=params.target_tag,
+            target_rule=params.target_rule,
+            target_group=params.target_group,
             target_tool=ToolId(params.target_tool.service_name, params.target_tool.tool_name)
             if params.target_tool
             else None,
             kind=_relationship_kind_dto_to_kind(params.kind),
+            group_id=params.group_id,
         )
 
         return model_to_dto(model=model)
@@ -293,14 +311,14 @@ def create_router(
         request: Request,
         kind: RelationshipKindQuery | None = None,
         indirect: IndirectQuery = True,
-        guideline_id: GuidelineIdQuery | None = None,
-        tag_id: TagIdQuery | None = None,
+        rule_id: RuleIdQuery | None = None,
+        group_id: GroupIdQuery | None = None,
         tool_id: ToolIdQuery | None = None,
     ) -> Sequence[RelationshipDTO]:
         """
         List relationships.
 
-        Either `guideline_id` or `tag_id` or `tool_id` must be provided.
+        Either `rule_id` or `group_id` or `tool_id` must be provided.
         """
         await authorization_policy.authorize(
             request=request, operation=Operation.LIST_RELATIONSHIPS
@@ -315,8 +333,8 @@ def create_router(
         models = await app.relationships.find(
             kind=_relationship_kind_dto_to_kind(kind) if kind else None,
             indirect=indirect,
-            guideline_id=guideline_id,
-            tag_id=tag_id,
+            rule_id=rule_id,
+            group_id=group_id,
             tool_id=t_id,
         )
 

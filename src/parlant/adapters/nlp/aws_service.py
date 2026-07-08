@@ -67,13 +67,21 @@ class AnthropicBedrockEstimatingTokenizer(EstimatingTokenizer):
 class AnthropicBedrockAISchematicGenerator(BaseSchematicGenerator[T]):
     supported_hints = ["temperature"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name=model_name,
+        )
 
         self._client = AsyncAnthropicBedrock(
             aws_access_key=os.environ["AWS_ACCESS_KEY_ID"],
@@ -192,12 +200,15 @@ class AnthropicBedrockAISchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class Claude_Sonnet_3_5(AnthropicBedrockAISchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
             model_name="anthropic.claude-3-5-sonnet-20240620-v1:0",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @override
@@ -223,7 +234,9 @@ Please consider setting the following your environment before running Parlant.
 """
         return None
 
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         self._logger = logger
         self._tracer = tracer
         self._meter = meter

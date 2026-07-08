@@ -38,6 +38,7 @@ from parlant.core.engines.alpha.tool_calling.tool_caller import (
 )
 from parlant.core.emissions import EmittedEvent, EventEmitter
 from parlant.core.tools import ToolId
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 @dataclass(frozen=True)
@@ -68,14 +69,13 @@ class ToolEventGenerator:
         meter: Meter,
         tracer: Tracer,
         tool_caller: ToolCaller,
-        service_registry: ServiceRegistry,
+        store_provider: StoreProvider,
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._tracer = tracer
         self._meter = meter
-        self._service_registry = service_registry
         self._tool_caller = tool_caller
-
         self._hist_tool_call_duration = self._meter.create_duration_histogram(
             "tc",
             description="Duration of tool call requests",
@@ -87,6 +87,12 @@ class ToolEventGenerator:
         self._hist_tool_call_execution_duration = self._meter.create_duration_histogram(
             "tc.run",
             description="Duration of tool call execution",
+        )
+
+    @property
+    def _service_registry(self) -> ServiceRegistry:
+        return self._store_provider.get_store(
+            ServiceRegistry, StoreProviderHints(call_site="engine")
         )
 
     async def create_preexecution_state(
@@ -185,6 +191,7 @@ class ToolEventGenerator:
                         "tool_id": r.tool_call.tool_id.to_string(),
                         "arguments": r.tool_call.arguments,
                         "result": r.result,
+                        "rationale": r.tool_call.rationale,
                     }
                 ]
             }
@@ -277,6 +284,7 @@ class ToolEventGenerator:
                     "tool_calls": [
                         {
                             "tool_id": r.tool_call.tool_id.to_string(),
+                            "rationale": r.tool_call.rationale,
                             "arguments": r.tool_call.arguments,
                             "result": r.result,
                         }

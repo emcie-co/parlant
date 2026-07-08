@@ -29,7 +29,7 @@ class Test_that_transition_to_validates_invalid_combinations_like_state_and_tool
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Validation Agent",
-            description="Agent for testing parameter validation",
+            prompt="Agent for testing parameter validation",
         )
 
         self.journey = await self.agent.create_journey(
@@ -79,7 +79,7 @@ class Test_that_transition_to_validates_conflicting_parameters(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Validation Agent",
-            description="Agent for testing parameter validation",
+            prompt="Agent for testing parameter validation",
         )
 
         self.journey = await self.agent.create_journey(
@@ -144,7 +144,7 @@ class Test_that_transition_to_requires_at_least_one_target_parameter(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Validation Agent",
-            description="Agent for testing parameter validation",
+            prompt="Agent for testing parameter validation",
         )
 
         self.journey = await self.agent.create_journey(
@@ -171,7 +171,7 @@ class Test_that_fork_journey_state_requires_condition_except_for_journey_transit
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Fork Validation Agent",
-            description="Agent for testing fork state validation",
+            prompt="Agent for testing fork state validation",
         )
 
         self.journey = await self.agent.create_journey(
@@ -234,7 +234,7 @@ class Test_that_tool_journey_state_validates_parameters(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Tool Validation Agent",
-            description="Agent for testing tool state validation",
+            prompt="Agent for testing tool state validation",
         )
 
         self.journey = await self.agent.create_journey(
@@ -276,7 +276,7 @@ class Test_that_chat_journey_state_validates_parameters(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Chat Validation Agent",
-            description="Agent for testing chat state validation",
+            prompt="Agent for testing chat state validation",
         )
 
         self.journey = await self.agent.create_journey(
@@ -307,7 +307,7 @@ class Test_that_unknown_parameters_are_caught(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Valid Param Agent",
-            description="Agent for testing valid parameter validation",
+            prompt="Agent for testing valid parameter validation",
         )
 
         self.journey = await self.agent.create_journey(
@@ -326,7 +326,7 @@ class Test_that_all_journey_state_types_have_validation(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="All States Agent",
-            description="Agent for testing all state types validation",
+            prompt="Agent for testing all state types validation",
         )
 
         self.journey = await self.agent.create_journey(
@@ -364,7 +364,7 @@ class Test_that_valid_parameters_still_work_after_validation_added(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Valid Usage Agent",
-            description="Agent for testing that valid usage still works",
+            prompt="Agent for testing that valid usage still works",
         )
 
         self.journey = await self.agent.create_journey(
@@ -429,7 +429,7 @@ class Test_that_journey_transitions_reject_invalid_parameters(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Journey Param Agent",
-            description="Agent for testing journey parameter validation",
+            prompt="Agent for testing journey parameter validation",
         )
 
         self.journey = await self.agent.create_journey(
@@ -517,7 +517,7 @@ class Test_that_tool_instruction_parameter_validation_works_correctly(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Tool Instruction Agent",
-            description="Agent for testing tool_instruction validation",
+            prompt="Agent for testing tool_instruction validation",
         )
 
         self.journey = await self.agent.create_journey(
@@ -583,7 +583,7 @@ class Test_that_fork_state_condition_validation_is_comprehensive(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Fork Condition Agent",
-            description="Agent for testing fork condition validation",
+            prompt="Agent for testing fork condition validation",
         )
 
         self.journey = await self.agent.create_journey(

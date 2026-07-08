@@ -20,9 +20,16 @@ from pydantic import Field
 from typing import Annotated, AsyncIterator, Mapping, Sequence, TypeAlias, Union, cast
 
 
-from parlant.api.authorization import AuthorizationPolicy, Operation
+from parlant.api.authentication import AdminPrincipal, CustomerPrincipal, GuestPrincipal
+from parlant.api.authorization import (
+    AuthorizationException,
+    AuthorizationPolicy,
+    GUEST_SESSION_METADATA_KEY,
+    GUEST_TOKEN_HEADER,
+    Operation,
+)
 from parlant.api.common import (
-    GuidelineIdField,
+    RuleIdField,
     ExampleJson,
     JSONSerializableDTO,
     SortDirectionDTO,
@@ -41,7 +48,7 @@ from parlant.core.app_modules.sessions import (
 from parlant.core.agents import AgentId
 from parlant.core.application import Application
 from parlant.core.async_utils import Timeout
-from parlant.core.common import DefaultBaseModel, ItemNotFoundError
+from parlant.core.common import DefaultBaseModel, ItemNotFoundError, generate_id
 from parlant.core.customers import CustomerId, CustomerStore
 from parlant.core.engines.types import UtteranceRationale, UtteranceRequest
 from parlant.core.nlp.generation_info import GenerationInfo
@@ -51,6 +58,7 @@ from parlant.core.sessions import (
     EventKind,
     EventSource,
     Participant,
+    Session,
     SessionId,
     SessionStatus,
 )
@@ -161,6 +169,14 @@ SessionCreationUTCField: TypeAlias = Annotated[
     ),
 ]
 
+SessionModifiedUTCField: TypeAlias = Annotated[
+    datetime,
+    Field(
+        description="UTC timestamp of when the session was last modified",
+        examples=["2024-03-24T12:00:00Z"],
+    ),
+]
+
 SessionTitleField: TypeAlias = Annotated[
     str,
     Field(
@@ -208,6 +224,7 @@ session_example: ExampleJson = {
     "agent_id": "ag_123xyz",
     "customer_id": "cust_123xy",
     "creation_utc": "2024-03-24T12:00:00Z",
+    "modified_utc": "2024-03-24T12:00:00Z",
     "title": "Product inquiry session",
     "mode": "auto",
     "consumption_offsets": consumption_offsets_example,
@@ -226,6 +243,7 @@ class SessionDTO(
     agent_id: SessionAgentIdPath
     customer_id: SessionCustomerIdField
     creation_utc: SessionCreationUTCField
+    modified_utc: SessionModifiedUTCField
     title: SessionTitleField | None = None
     mode: SessionModeField
     consumption_offsets: ConsumptionOffsetsDTO
@@ -284,7 +302,7 @@ SessionEventCreationParamsMessageField: TypeAlias = Annotated[
     ),
 ]
 
-AgentMessageGuidelineActionField: TypeAlias = Annotated[
+AgentMessageRuleActionField: TypeAlias = Annotated[
     str,
     Field(
         description='A single action that explains what to say; i.e. "Tell the customer that you are thinking and will be right back with an answer."',
@@ -299,17 +317,17 @@ event_creation_params_example: ExampleJson = {
 }
 
 
-class AgentMessageGuidelineRationaleDTO(Enum):
-    """Defines the rationale for the guideline"""
+class AgentMessageRuleRationaleDTO(Enum):
+    """Defines the rationale for the rule"""
 
     UNSPECIFIED = "unspecified"
     BUY_TIME = "buy_time"
     FOLLOW_UP = "follow_up"
 
 
-class AgentMessageGuidelineDTO(DefaultBaseModel):
-    action: AgentMessageGuidelineActionField
-    rationale: AgentMessageGuidelineRationaleDTO = AgentMessageGuidelineRationaleDTO.UNSPECIFIED
+class AgentMessageRuleDTO(DefaultBaseModel):
+    action: AgentMessageRuleActionField
+    rationale: AgentMessageRuleRationaleDTO = AgentMessageRuleRationaleDTO.UNSPECIFIED
 
 
 ParticipantIdDTO = AgentId | CustomerId | None
@@ -358,7 +376,7 @@ class EventCreationParamsDTO(
     message: SessionEventCreationParamsMessageField | None = None
     data: JSONSerializableDTO | None = None
     metadata: EventMetadataField | None = None
-    guidelines: list[AgentMessageGuidelineDTO] | None = None
+    rules: list[AgentMessageRuleDTO] | None = None
     participant: ParticipantDTO | None = None
     status: SessionStatusDTO | None = None
 
@@ -385,15 +403,10 @@ EventCreationUTCField: TypeAlias = Annotated[
     Field(description="UTC timestamp of when the event was created"),
 ]
 
-EventCorrelationIdField: TypeAlias = Annotated[
-    str,
-    Field(
-        deprecated=True,
-        description="ID linking related events together",
-        examples=["corr_13xyz"],
-    ),
+EventModifiedUTCField: TypeAlias = Annotated[
+    datetime,
+    Field(description="UTC timestamp of when the event was last modified"),
 ]
-
 
 EventTraceIdField: TypeAlias = Annotated[
     str,
@@ -409,7 +422,8 @@ event_example: ExampleJson = {
     "kind": "message",
     "offset": 0,
     "creation_utc": "2024-03-24T12:00:00Z",
-    "trace_id": "corr_13xyz",
+    "modified_utc": "2024-03-24T12:00:00Z",
+    "trace_id": "trace_13xyz",
     "data": {
         "message": "Hello, I need help with my account",
         "participant": {"id": "cust_123xy", "display_name": "John Doe"},
@@ -428,8 +442,8 @@ class EventDTO(
     kind: EventKindDTO
     offset: EventOffsetField
     creation_utc: EventCreationUTCField
+    modified_utc: EventModifiedUTCField
     trace_id: EventTraceIdField
-    correlation_id: EventCorrelationIdField
     data: JSONSerializableDTO
     metadata: EventMetadataField
     deleted: bool
@@ -630,58 +644,58 @@ class ToolCallDTO(
     result: ToolResultDTO
 
 
-GuidelineMatchConditionField: TypeAlias = Annotated[
+RuleMatchConditionField: TypeAlias = Annotated[
     str,
     Field(
-        description="The condition for the guideline",
+        description="The condition for the rule",
         examples=["when customer asks about their balance"],
     ),
 ]
 
-GuidelineMatchActionField: TypeAlias = Annotated[
+RuleMatchActionField: TypeAlias = Annotated[
     str,
     Field(
-        description="The action for the guideline",
+        description="The action for the rule",
         examples=["check their current balance and provide the amount with currency"],
     ),
 ]
 
-GuidelineMatchScoreField: TypeAlias = Annotated[
+RuleMatchScoreField: TypeAlias = Annotated[
     int,
     Field(
-        description="The score for the guideline",
+        description="The score for the rule",
         examples=[95],
     ),
 ]
 
-GuidelineMatchRationaleField: TypeAlias = Annotated[
+RuleMatchRationaleField: TypeAlias = Annotated[
     str,
     Field(
-        description="The rationale for the guideline",
-        examples=["This guideline directly addresses balance inquiries with specific actions"],
+        description="The rationale for the rule",
+        examples=["This rule directly addresses balance inquiries with specific actions"],
     ),
 ]
 
-guideline_match_example = {
-    "guideline_id": "guide_123x",
+rule_match_example = {
+    "rule_id": "guide_123x",
     "condition": "when customer asks about their balance",
     "action": "check their current balance and provide the amount with currency",
     "score": 95,
-    "rationale": "This guideline directly addresses balance inquiries with specific actions",
+    "rationale": "This rule directly addresses balance inquiries with specific actions",
 }
 
 
-class GuidelineMatchDTO(
+class RuleMatchDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": guideline_match_example},
+    json_schema_extra={"example": rule_match_example},
 ):
-    """A matched guideline."""
+    """A matched rule."""
 
-    guideline_id: GuidelineIdField
-    condition: GuidelineMatchConditionField
-    action: GuidelineMatchActionField
-    score: GuidelineMatchScoreField
-    rationale: GuidelineMatchRationaleField
+    rule_id: RuleIdField
+    condition: RuleMatchConditionField
+    action: RuleMatchActionField
+    score: RuleMatchScoreField
+    rationale: RuleMatchRationaleField
 
 
 ContextVariableIdPath: TypeAlias = Annotated[
@@ -862,7 +876,7 @@ MessageEventDataFlaggedField: TypeAlias = Annotated[
 MessageEventDataTagsField: TypeAlias = Annotated[
     Sequence[str] | None,
     Field(
-        description="Sequence of tags providing additional context about the message",
+        description="Sequence of groups providing additional context about the message",
         examples=[["greeting", "urgent"], ["support-request"]],
     ),
 ]
@@ -879,7 +893,7 @@ message_event_data_example = {
     "message": "Hello, I need help with my order",
     "participant": participant_example,
     "flagged": False,
-    "tags": ["greeting", "help-request"],
+    "groups": ["greeting", "help-request"],
     "canned_responses": ["frag_123xyz", "frag_789abc"],
 }
 
@@ -895,7 +909,7 @@ class MessageEventDataDTO(
     message: MessageEventDataMessageField
     participant: ParticipantDTO
     flagged: MessageEventDataFlaggedField = None
-    tags: MessageEventDataTagsField = None
+    groups: MessageEventDataTagsField = None
     canned_responses: MessageEventDataCannedResponsesField = None
 
 
@@ -917,7 +931,7 @@ message_generation_inspection_example = {
             "message": "Based on your request, I can confirm that your order is being processed.",
             "participant": participant_example,
             "flagged": False,
-            "tags": ["order-status"],
+            "groups": ["order-status"],
             "canned_responses": ["frag_987abc"],
         },
     ],
@@ -934,16 +948,16 @@ class MessageGenerationInspectionDTO(
     messages: Sequence[str | None]
 
 
-GuidelineMatchingInspectionTotalDurationField: TypeAlias = Annotated[
+RuleMatchingInspectionTotalDurationField: TypeAlias = Annotated[
     float,
     Field(
-        description="Amount of time spent matching guidelines",
+        description="Amount of time spent matching rules",
         examples=[3.5],
     ),
 ]
 
 
-GuidelineMatchingInspectionBatchesField: TypeAlias = Annotated[
+RuleMatchingInspectionBatchesField: TypeAlias = Annotated[
     Sequence[GenerationInfoDTO],
     Field(
         description="A list of `GenerationInfoDTO` describing the batches of generation executed",
@@ -951,20 +965,20 @@ GuidelineMatchingInspectionBatchesField: TypeAlias = Annotated[
 ]
 
 
-guideline_matching_inspection_example = {
+rule_matching_inspection_example = {
     "total_duration": 3.5,
     "batches": [generation_info_example],
 }
 
 
-class GuidelineMatchingInspectionDTO(
+class RuleMatchingInspectionDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": guideline_matching_inspection_example},
+    json_schema_extra={"example": rule_matching_inspection_example},
 ):
-    """Inspection data for guideline matching."""
+    """Inspection data for rule matching."""
 
-    total_duration: GuidelineMatchingInspectionTotalDurationField
-    batches: GuidelineMatchingInspectionBatchesField
+    total_duration: RuleMatchingInspectionTotalDurationField
+    batches: RuleMatchingInspectionBatchesField
 
 
 PreparationIterationGenerationsToolCallsField: TypeAlias = Annotated[
@@ -975,7 +989,7 @@ PreparationIterationGenerationsToolCallsField: TypeAlias = Annotated[
 ]
 
 preparation_iteration_generations_example = {
-    "guideline_matching": guideline_matching_inspection_example,
+    "rule_matching": rule_matching_inspection_example,
     "tool_calls": [generation_info_example],
 }
 
@@ -986,14 +1000,14 @@ class PreparationIterationGenerationsDTO(
 ):
     """Generation information for a preparation iteration."""
 
-    guideline_matching: GuidelineMatchingInspectionDTO
+    rule_matching: RuleMatchingInspectionDTO
     tool_calls: PreparationIterationGenerationsToolCallsField
 
 
-PreparationIterationGuidelineMatchField: TypeAlias = Annotated[
-    Sequence[GuidelineMatchDTO],
+PreparationIterationRuleMatchField: TypeAlias = Annotated[
+    Sequence[RuleMatchDTO],
     Field(
-        description="List of guideline matches used in preparation for this iteration",
+        description="List of rule matches used in preparation for this iteration",
     ),
 ]
 
@@ -1042,7 +1056,7 @@ PreparationIterationContextVariablesField: TypeAlias = Annotated[
 
 preparation_iteration_example = {
     "generations": preparation_iteration_generations_example,
-    "guideline_matches": [guideline_match_example],
+    "rule_matches": [rule_match_example],
     "tool_calls": [tool_call_example],
     "terms": [
         {
@@ -1063,7 +1077,7 @@ class PreparationIterationDTO(
     """Information about a preparation iteration."""
 
     generations: PreparationIterationGenerationsDTO
-    guideline_matches: PreparationIterationGuidelineMatchField
+    rule_matches: PreparationIterationRuleMatchField
     tool_calls: PreparationIterationToolCallsField
     terms: PreparationIterationTermsField
     context_variables: PreparationIterationContextVariablesField
@@ -1133,11 +1147,26 @@ def event_to_dto(event: Event) -> EventDTO:
         kind=_event_kind_to_event_kind_dto(event.kind),
         offset=event.offset,
         creation_utc=event.creation_utc,
+        modified_utc=event.modified_utc,
         trace_id=event.trace_id,
-        correlation_id=event.trace_id,
         data=cast(JSONSerializableDTO, event.data),
         metadata=event.metadata,
         deleted=event.deleted,
+    )
+
+
+def session_to_dto(session: Session) -> SessionDTO:
+    return SessionDTO(
+        id=session.id,
+        agent_id=session.agent_id,
+        customer_id=session.customer_id,
+        creation_utc=session.creation_utc,
+        modified_utc=session.modified_utc,
+        consumption_offsets=ConsumptionOffsetsDTO(client=session.consumption_offsets["client"]),
+        title=session.title,
+        mode=SessionModeDTO(session.mode),
+        metadata=session.metadata,
+        labels=session.labels,
     )
 
 
@@ -1203,16 +1232,7 @@ TraceIdQuery: TypeAlias = Annotated[
     str,
     Query(
         description="ID linking related events together",
-        examples=["corr_13xyz"],
-    ),
-]
-
-CorrelationIdQuery: TypeAlias = Annotated[
-    str,
-    Query(
-        deprecated=True,
-        description="ID linking related events together",
-        examples=["corr_13xyz"],
+        examples=["trace_13xyz"],
     ),
 ]
 
@@ -1251,19 +1271,27 @@ SortQuery: TypeAlias = Annotated[
     ),
 ]
 
+MinModifiedUTCQuery: TypeAlias = Annotated[
+    datetime,
+    Query(
+        description="Only return sessions modified at or after this UTC timestamp",
+        examples=["2024-03-24T12:00:00Z"],
+    ),
+]
 
-def agent_message_guideline_dto_to_utterance_request(
-    guideline: AgentMessageGuidelineDTO,
+
+def agent_message_rule_dto_to_utterance_request(
+    rule: AgentMessageRuleDTO,
 ) -> UtteranceRequest:
     rationale_to_reason = {
-        AgentMessageGuidelineRationaleDTO.UNSPECIFIED: UtteranceRationale.UNSPECIFIED,
-        AgentMessageGuidelineRationaleDTO.BUY_TIME: UtteranceRationale.BUY_TIME,
-        AgentMessageGuidelineRationaleDTO.FOLLOW_UP: UtteranceRationale.FOLLOW_UP,
+        AgentMessageRuleRationaleDTO.UNSPECIFIED: UtteranceRationale.UNSPECIFIED,
+        AgentMessageRuleRationaleDTO.BUY_TIME: UtteranceRationale.BUY_TIME,
+        AgentMessageRuleRationaleDTO.FOLLOW_UP: UtteranceRationale.FOLLOW_UP,
     }
 
     return UtteranceRequest(
-        action=guideline.action,
-        rationale=rationale_to_reason[guideline.rationale],
+        action=rule.action,
+        rationale=rationale_to_reason[rule.rationale],
     )
 
 
@@ -1361,44 +1389,98 @@ def create_router(
     )
     async def create_session(
         request: Request,
+        response: Response,
         params: SessionCreationParamsDTO,
         allow_greeting: AllowGreetingQuery = False,
     ) -> SessionDTO:
         """Creates a new session between an agent and customer.
 
-        The session will be initialized with the specified agent and optional customer.
-        If no customer_id is provided, a guest customer will be created.
+        The session's customer identity is derived from the authenticated
+        principal when one is present: customer tokens bind the session to the
+        token's customer; guest tokens (or anonymous callers, for whom a guest
+        token is minted and returned via a response header) bind it to the guest
+        customer, tagged with the owning guest instance. Policies without
+        authentication (e.g. development) trust the request body as-is.
         """
-        if params.customer_id:
-            await authorization_policy.authorize(
-                request=request, operation=Operation.CREATE_CUSTOMER_SESSION
-            )
+        principal = await authorization_policy.resolve_principal(request)
 
-        else:
-            await authorization_policy.authorize(
-                request=request, operation=Operation.CREATE_GUEST_SESSION
-            )
+        customer_id = params.customer_id
+        metadata = dict(params.metadata or {})
+        guest_token_to_issue: str | None = None
+
+        match principal:
+            case CustomerPrincipal():
+                if customer_id is not None and customer_id != principal.customer_id:
+                    raise AuthorizationException(
+                        request,
+                        Operation.CREATE_CUSTOMER_SESSION,
+                        message_prefix=(
+                            "The requested session customer does not match "
+                            "the authenticated customer"
+                        ),
+                    )
+
+                await authorization_policy.authorize(
+                    request=request, operation=Operation.CREATE_CUSTOMER_SESSION
+                )
+
+                customer_id = principal.customer_id
+            case GuestPrincipal():
+                if customer_id is not None and customer_id != CustomerStore.GUEST_ID:
+                    # A guest asking for a named customer's session: let the
+                    # permission gate reject this as a customer-session attempt.
+                    await authorization_policy.authorize(
+                        request=request, operation=Operation.CREATE_CUSTOMER_SESSION
+                    )
+
+                await authorization_policy.authorize(
+                    request=request, operation=Operation.CREATE_GUEST_SESSION
+                )
+
+                customer_id = CustomerStore.GUEST_ID
+                metadata[GUEST_SESSION_METADATA_KEY] = principal.guest_instance_id
+            case AdminPrincipal() | None:
+                # Full-access callers (and policies without principals, like
+                # development) keep the legacy body-driven behavior.
+                if customer_id:
+                    await authorization_policy.authorize(
+                        request=request, operation=Operation.CREATE_CUSTOMER_SESSION
+                    )
+                else:
+                    await authorization_policy.authorize(
+                        request=request, operation=Operation.CREATE_GUEST_SESSION
+                    )
+
+                customer_id = customer_id or CustomerStore.GUEST_ID
+            case _:  # AnonymousPrincipal
+                if customer_id is not None and customer_id != CustomerStore.GUEST_ID:
+                    await authorization_policy.authorize(
+                        request=request, operation=Operation.CREATE_CUSTOMER_SESSION
+                    )
+
+                await authorization_policy.authorize(
+                    request=request, operation=Operation.CREATE_GUEST_SESSION
+                )
+
+                customer_id = CustomerStore.GUEST_ID
+
+                guest_instance_id = str(generate_id())
+                metadata[GUEST_SESSION_METADATA_KEY] = guest_instance_id
+                guest_token_to_issue = authorization_policy.issue_guest_token(guest_instance_id)
 
         session = await app.sessions.create(
-            customer_id=params.customer_id or CustomerStore.GUEST_ID,
+            customer_id=customer_id,
             agent_id=params.agent_id,
             title=params.title,
             allow_greeting=allow_greeting,
-            metadata=params.metadata or {},
+            metadata=metadata,
             labels=params.labels,
         )
 
-        return SessionDTO(
-            id=session.id,
-            agent_id=session.agent_id,
-            customer_id=session.customer_id,
-            creation_utc=session.creation_utc,
-            consumption_offsets=ConsumptionOffsetsDTO(client=session.consumption_offsets["client"]),
-            title=session.title,
-            mode=SessionModeDTO(session.mode),
-            metadata=session.metadata,
-            labels=session.labels,
-        )
+        if guest_token_to_issue is not None:
+            response.headers[GUEST_TOKEN_HEADER] = guest_token_to_issue
+
+        return session_to_dto(session)
 
     @router.get(
         "/{session_id}",
@@ -1422,19 +1504,9 @@ def create_router(
 
         session = await app.sessions.read(session_id=session_id)
 
-        return SessionDTO(
-            id=session.id,
-            agent_id=session.agent_id,
-            creation_utc=session.creation_utc,
-            title=session.title,
-            customer_id=session.customer_id,
-            consumption_offsets=ConsumptionOffsetsDTO(
-                client=session.consumption_offsets["client"],
-            ),
-            mode=SessionModeDTO(session.mode),
-            metadata=session.metadata,
-            labels=session.labels,
-        )
+        await authorization_policy.authorize_session_access(request=request, session=session)
+
+        return session_to_dto(session)
 
     @router.get(
         "",
@@ -1471,12 +1543,29 @@ def create_router(
         limit: LimitQuery | None = None,
         cursor: CursorQuery | None = None,
         sort: SortQuery | None = None,
+        min_modified_utc: MinModifiedUTCQuery | None = None,
     ) -> SessionListingDTO | Sequence[SessionDTO]:
         """Lists all sessions matching the specified filters with pagination support.
 
         Can filter by agent_id and/or customer_id. Supports cursor-based pagination
         with configurable sort direction."""
         await authorization_policy.authorize(request=request, operation=Operation.LIST_SESSIONS)
+
+        principal = await authorization_policy.resolve_principal(request)
+
+        if isinstance(principal, CustomerPrincipal):
+            # A customer may only ever list its own sessions.
+            if customer_id is not None and customer_id != principal.customer_id:
+                raise AuthorizationException(
+                    request,
+                    Operation.LIST_SESSIONS,
+                    message_prefix=(
+                        "The requested session listing customer does not match "
+                        "the authenticated customer"
+                    ),
+                )
+
+            customer_id = principal.customer_id
 
         sessions_result = await app.sessions.find(
             agent_id=agent_id,
@@ -1485,43 +1574,14 @@ def create_router(
             cursor=decode_cursor(cursor) if cursor else None,
             sort_direction=sort_direction_dto_to_sort_direction(sort) if sort else None,
             labels=set(labels) if labels else None,
+            min_modified_utc=min_modified_utc,
         )
 
         if limit is None:
-            return [
-                SessionDTO(
-                    id=s.id,
-                    agent_id=s.agent_id,
-                    creation_utc=s.creation_utc,
-                    title=s.title,
-                    customer_id=s.customer_id,
-                    consumption_offsets=ConsumptionOffsetsDTO(
-                        client=s.consumption_offsets["client"],
-                    ),
-                    mode=SessionModeDTO(s.mode),
-                    metadata=s.metadata,
-                    labels=s.labels,
-                )
-                for s in sessions_result.items
-            ]
+            return [session_to_dto(s) for s in sessions_result.items]
 
         return SessionListingDTO(
-            items=[
-                SessionDTO(
-                    id=s.id,
-                    agent_id=s.agent_id,
-                    creation_utc=s.creation_utc,
-                    title=s.title,
-                    customer_id=s.customer_id,
-                    consumption_offsets=ConsumptionOffsetsDTO(
-                        client=s.consumption_offsets["client"],
-                    ),
-                    mode=SessionModeDTO(s.mode),
-                    metadata=s.metadata,
-                    labels=s.labels,
-                )
-                for s in sessions_result.items
-            ],
+            items=[session_to_dto(s) for s in sessions_result.items],
             total_count=sessions_result.total_count,
             has_more=sessions_result.has_more,
             next_cursor=encode_cursor(sessions_result.next_cursor)
@@ -1655,19 +1715,7 @@ def create_router(
             else None,
         )
 
-        return SessionDTO(
-            id=session.id,
-            agent_id=session.agent_id,
-            creation_utc=session.creation_utc,
-            title=session.title,
-            customer_id=session.customer_id,
-            consumption_offsets=ConsumptionOffsetsDTO(
-                client=session.consumption_offsets["client"],
-            ),
-            mode=SessionModeDTO(session.mode),
-            metadata=session.metadata,
-            labels=session.labels,
-        )
+        return session_to_dto(session)
 
     @router.post(
         "/{session_id}/events",
@@ -1682,6 +1730,12 @@ def create_router(
             status.HTTP_404_NOT_FOUND: {"description": "Session not found"},
             status.HTTP_422_UNPROCESSABLE_CONTENT: {
                 "description": "Validation error in event parameters"
+            },
+            status.HTTP_409_CONFLICT: {
+                "description": "Cancellation requested, but no processing task is active"
+            },
+            status.HTTP_504_GATEWAY_TIMEOUT: {
+                "description": "Cancellation requested, but no cancellation event was emitted"
             },
         },
         **apigen_config(group_name=API_GROUP, method_name="create_event"),
@@ -1700,6 +1754,10 @@ def create_router(
             if params.source == EventSourceDTO.CUSTOMER:
                 await authorization_policy.authorize(
                     request=request, operation=Operation.CREATE_CUSTOMER_EVENT
+                )
+                await authorization_policy.authorize_session_access(
+                    request=request,
+                    session=await app.sessions.read(session_id=session_id),
                 )
                 if params.participant:
                     await authorization_policy.authorize(
@@ -1739,6 +1797,10 @@ def create_router(
             await authorization_policy.authorize(
                 request=request, operation=Operation.CREATE_STATUS_EVENT
             )
+            await authorization_policy.authorize_session_access(
+                request=request,
+                session=await app.sessions.read(session_id=session_id),
+            )
             return await _add_status_event(session_id, params)
 
         else:
@@ -1772,6 +1834,8 @@ def create_router(
                 detail='Missing "status" field for status event',
             )
 
+        session_status = status_dto_to_status(params.status)
+
         raw_data = params.data or {}
         if not isinstance(raw_data, dict):
             raise HTTPException(
@@ -1779,9 +1843,23 @@ def create_router(
                 detail='Status event "data" must be a JSON object',
             )
 
+        if session_status == "cancelled":
+            try:
+                return event_to_dto(await app.sessions.cancel_processing(session_id))
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=str(exc),
+                ) from exc
+            except TimeoutError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail=str(exc),
+                ) from exc
+
         event = await app.sessions.create_status_event(
             session_id=session_id,
-            status=status_dto_to_status(params.status),
+            status=session_status,
             data=raw_data,
             metadata=params.metadata,
             source=_event_source_dto_to_event_source(params.source),
@@ -1824,10 +1902,8 @@ def create_router(
                 detail="If you add an agent message, you cannot specify what the message will be, as it will be auto-generated by the agent.",
             )
 
-        if params.guidelines:
-            requests = [
-                agent_message_guideline_dto_to_utterance_request(a) for a in params.guidelines
-            ]
+        if params.rules:
+            requests = [agent_message_rule_dto_to_utterance_request(a) for a in params.rules]
             event = await app.sessions.utter(session_id, requests)
             return event_to_dto(event)
         else:
@@ -1874,18 +1950,7 @@ def create_router(
             metadata=params.metadata,
         )
 
-        return EventDTO(
-            id=event.id,
-            source=_event_source_to_event_source_dto(event.source),
-            kind=_event_kind_to_event_kind_dto(event.kind),
-            offset=event.offset,
-            creation_utc=event.creation_utc,
-            trace_id=event.trace_id,
-            correlation_id=event.trace_id,
-            data=cast(JSONSerializableDTO, event.data),
-            metadata=event.metadata,
-            deleted=event.deleted,
-        )
+        return event_to_dto(event)
 
     async def _add_custom_event(
         session_id: SessionIdPath,
@@ -1906,18 +1971,7 @@ def create_router(
             trigger_processing=False,
         )
 
-        return EventDTO(
-            id=event.id,
-            source=_event_source_to_event_source_dto(event.source),
-            kind=_event_kind_to_event_kind_dto(event.kind),
-            offset=event.offset,
-            creation_utc=event.creation_utc,
-            trace_id=event.trace_id,
-            correlation_id=event.trace_id,
-            data=cast(JSONSerializableDTO, event.data),
-            metadata=event.metadata,
-            deleted=event.deleted,
-        )
+        return event_to_dto(event)
 
     @router.get(
         "/{session_id}/events",
@@ -1945,7 +1999,6 @@ def create_router(
         session_id: SessionIdPath,
         min_offset: MinOffsetQuery | None = None,
         source: EventSourceDTO | None = None,
-        correlation_id: CorrelationIdQuery | None = None,
         trace_id: TraceIdQuery | None = None,
         kinds: KindsQuery | None = None,
         wait_for_data: int = 60,
@@ -1974,6 +2027,11 @@ def create_router(
             - wait_for_data is used as the timeout between events before closing the stream
         """
         await authorization_policy.authorize(request=request, operation=Operation.LIST_EVENTS)
+
+        await authorization_policy.authorize_session_access(
+            request=request,
+            session=await app.sessions.read(session_id=session_id),
+        )
 
         kind_list: Sequence[EventKind] = [
             _event_kind_dto_to_event_kind(EventKindDTO(k))
@@ -2051,21 +2109,7 @@ def create_router(
             trace_id=trace_id,
         )
 
-        return [
-            EventDTO(
-                id=e.id,
-                source=_event_source_to_event_source_dto(e.source),
-                kind=_event_kind_to_event_kind_dto(e.kind),
-                offset=e.offset,
-                creation_utc=e.creation_utc,
-                trace_id=e.trace_id,
-                correlation_id=e.trace_id,
-                data=cast(JSONSerializableDTO, e.data),
-                metadata=e.metadata,
-                deleted=e.deleted,
-            )
-            for e in events
-        ]
+        return [event_to_dto(e) for e in events]
 
     @router.get(
         "/{session_id}/events/{event_id}",
@@ -2113,6 +2157,11 @@ def create_router(
             - Closes when the event is complete (chunks ends with None)
         """
         await authorization_policy.authorize(request=request, operation=Operation.READ_EVENT)
+
+        await authorization_policy.authorize_session_access(
+            request=request,
+            session=await app.sessions.read(session_id=session_id),
+        )
 
         if sse:
             # Return SSE stream that sends event updates until completion

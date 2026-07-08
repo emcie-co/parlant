@@ -21,9 +21,9 @@ from parlant.api import common
 from parlant.api.authorization import AuthorizationPolicy, Operation
 from parlant.api.common import (
     EvaluationStatusDTO,
-    GuidelineContentDTO,
-    GuidelineIdField,
-    GuidelinePayloadOperationDTO,
+    RuleContentDTO,
+    RuleIdField,
+    RulePayloadOperationDTO,
     JSONSerializableDTO,
     PayloadKindDTO,
     ExampleJson,
@@ -31,6 +31,7 @@ from parlant.api.common import (
     apigen_config,
     operation_dto_to_operation,
 )
+from parlant.core.agents import AgentId
 from parlant.core.application import Application
 from parlant.core.async_utils import Timeout
 from parlant.core.common import DefaultBaseModel
@@ -38,16 +39,16 @@ from parlant.core.evaluations import (
     Evaluation,
     EvaluationId,
     EvaluationStatus,
-    GuidelinePayload,
-    InvoiceGuidelineData,
+    RulePayload,
+    InvoiceRuleData,
     PayloadOperation,
     InvoiceData,
     Payload,
     PayloadDescriptor,
     PayloadKind,
 )
-from parlant.core.guidelines import GuidelineContent
-from parlant.core.services.indexing.behavioral_change_evaluation import (
+from parlant.core.rules import RuleContent
+from parlant.core.services.indexing.evaluation_service import (
     EvaluationValidationError,
 )
 from parlant.core.tools import ToolId
@@ -69,7 +70,7 @@ def _evaluation_status_to_dto(
     )
 
 
-GuidelinePayloadActionPropositionField: TypeAlias = Annotated[
+RulePayloadActionPropositionField: TypeAlias = Annotated[
     bool,
     Field(
         description="Whether the action proposition is enabled",
@@ -77,7 +78,7 @@ GuidelinePayloadActionPropositionField: TypeAlias = Annotated[
     ),
 ]
 
-GuidelinePayloadPropertiesPropositionField: TypeAlias = Annotated[
+RulePayloadPropertiesPropositionField: TypeAlias = Annotated[
     bool,
     Field(
         description="Properties proposition",
@@ -85,7 +86,7 @@ GuidelinePayloadPropertiesPropositionField: TypeAlias = Annotated[
     ),
 ]
 
-GuidelinePayloadJourneyNodePropositionField: TypeAlias = Annotated[
+RulePayloadJourneyNodePropositionField: TypeAlias = Annotated[
     bool,
     Field(
         description="Journey step proposition",
@@ -93,7 +94,31 @@ GuidelinePayloadJourneyNodePropositionField: TypeAlias = Annotated[
     ),
 ]
 
-guideline_payload_example: ExampleJson = {
+RulePayloadSignalPropositionField: TypeAlias = Annotated[
+    bool,
+    Field(
+        description="Signals proposition",
+        examples=[True],
+    ),
+]
+
+RulePayloadTitlePropositionField: TypeAlias = Annotated[
+    bool,
+    Field(
+        description="Title proposition",
+        examples=[True],
+    ),
+]
+
+EvaluationAgentIdField: TypeAlias = Annotated[
+    AgentId,
+    Field(
+        description="Agent context to use when evaluating agent-dependent propositions such as rule signals.",
+        examples=["agent_123xz"],
+    ),
+]
+
+rule_payload_example: ExampleJson = {
     "content": {
         "condition": "User asks about product pricing",
         "action": "Provide current price list and any active discounts",
@@ -106,24 +131,28 @@ guideline_payload_example: ExampleJson = {
 }
 
 
-class GuidelinePayloadDTO(
+class RulePayloadDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": guideline_payload_example},
+    json_schema_extra={"example": rule_payload_example},
 ):
-    """Payload data for a Guideline operation"""
+    """Payload data for a Rule operation"""
 
-    content: GuidelineContentDTO
+    content: RuleContentDTO
     tool_ids: Sequence[ToolIdDTO]
-    operation: GuidelinePayloadOperationDTO
-    updated_id: GuidelineIdField | None = None
-    action_proposition: GuidelinePayloadActionPropositionField = False
-    properties_proposition: GuidelinePayloadPropertiesPropositionField = False
-    journey_node_proposition: GuidelinePayloadJourneyNodePropositionField = False
+    operation: RulePayloadOperationDTO
+    updated_id: RuleIdField | None = None
+    title: common.RuleTitleField | None = None
+    agent_id: EvaluationAgentIdField | None = None
+    action_proposition: RulePayloadActionPropositionField = False
+    properties_proposition: RulePayloadPropertiesPropositionField = False
+    journey_node_proposition: RulePayloadJourneyNodePropositionField = False
+    signal_proposition: RulePayloadSignalPropositionField = False
+    title_proposition: RulePayloadTitlePropositionField = False
 
 
 payload_example: ExampleJson = {
-    "kind": "guideline",
-    "guideline": {
+    "kind": "rule",
+    "rule": {
         "content": {
             "condition": "User asks about product pricing",
             "action": None,
@@ -141,7 +170,7 @@ class PayloadDTO(
     json_schema_extra={"example": payload_example},
 ):
     kind: PayloadKindDTO
-    guideline: GuidelinePayloadDTO | None = None
+    rule: RulePayloadDTO | None = None
 
 
 properties_proposition_example: ExampleJson = {
@@ -194,8 +223,8 @@ PropertiesPropositionField: TypeAlias = Annotated[
 
 invoice_example: ExampleJson = {
     "payload": {
-        "kind": "guideline",
-        "guideline": {
+        "kind": "rule",
+        "rule": {
             "content": {
                 "condition": "when customer asks about pricing",
                 "action": "provide current pricing information",
@@ -209,7 +238,7 @@ invoice_example: ExampleJson = {
     "checksum": "abc123def456",
     "approved": True,
     "data": {
-        "guideline": {
+        "rule": {
             "action_proposition": {
                 "content": {
                     "condition": "when customer asks about pricing",
@@ -224,22 +253,25 @@ invoice_example: ExampleJson = {
     "error": None,
 }
 
-guideline_invoice_data_example: ExampleJson = {
+rule_invoice_data_example: ExampleJson = {
     "properties_proposition": properties_proposition_example,
 }
 
 
-class GuidelineInvoiceDataDTO(
+class RuleInvoiceDataDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": guideline_invoice_data_example},
+    json_schema_extra={"example": rule_invoice_data_example},
 ):
-    """Evaluation results for a Guideline, including action propositions"""
+    """Evaluation results for a Rule, including action propositions"""
 
     action_proposition: ActionPropositionField | None = None
     properties_proposition: PropertiesPropositionField | None = None
+    signals_proposition: Sequence[str] | None = None
+    anti_signals_proposition: Sequence[str] | None = None
+    title_proposition: str | None = None
 
 
-invoice_data_example: ExampleJson = {"guideline": guideline_invoice_data_example}
+invoice_data_example: ExampleJson = {"rule": rule_invoice_data_example}
 
 
 class InvoiceDataDTO(
@@ -249,10 +281,10 @@ class InvoiceDataDTO(
     """
     Contains the relevant invoice data.
 
-    At this point only `guideline` is supported.
+    At this point only `rule` is supported.
     """
 
-    guideline: GuidelineInvoiceDataDTO | None = None
+    rule: RuleInvoiceDataDTO | None = None
 
 
 class InvoiceDTO(
@@ -271,38 +303,45 @@ class InvoiceDTO(
     error: ErrorField | None = None
 
 
-def _payload_from_dto(dto: PayloadDTO) -> Payload:
-    if dto.kind == PayloadKindDTO.GUIDELINE:
-        if not dto.guideline:
+def _payload_from_dto(dto: PayloadDTO, agent_id: AgentId | None = None) -> Payload:
+    if dto.kind == PayloadKindDTO.RULE:
+        if not dto.rule:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Missing Guideline payload",
+                detail="Missing Rule payload",
             )
 
         if (
-            not dto.guideline.action_proposition
-            and not dto.guideline.properties_proposition
-            and not dto.guideline.journey_node_proposition
+            not dto.rule.action_proposition
+            and not dto.rule.properties_proposition
+            and not dto.rule.journey_node_proposition
+            and not dto.rule.signal_proposition
+            and not dto.rule.title_proposition
         ):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="At least one of action_proposition, properties_proposition or journey_node_proposition must be enabled",
+                detail="At least one of action_proposition, properties_proposition, journey_node_proposition, signal_proposition or title_proposition must be enabled",
             )
 
-        return GuidelinePayload(
-            content=GuidelineContent(
-                condition=dto.guideline.content.condition,
-                action=dto.guideline.content.action,
+        return RulePayload(
+            content=RuleContent(
+                condition=dto.rule.content.condition,
+                action=dto.rule.content.action,
+                description=dto.rule.content.description,
             ),
             tool_ids=[
                 ToolId(service_name=t.service_name, tool_name=t.tool_name)
-                for t in dto.guideline.tool_ids
+                for t in dto.rule.tool_ids
             ],
-            operation=operation_dto_to_operation(dto.guideline.operation),
-            updated_id=dto.guideline.updated_id,
-            action_proposition=dto.guideline.action_proposition,
-            properties_proposition=dto.guideline.properties_proposition,
-            journey_node_proposition=dto.guideline.journey_node_proposition,
+            operation=operation_dto_to_operation(dto.rule.operation),
+            updated_id=dto.rule.updated_id,
+            title=dto.rule.title,
+            agent_id=dto.rule.agent_id or agent_id,
+            action_proposition=dto.rule.action_proposition,
+            properties_proposition=dto.rule.properties_proposition,
+            journey_node_proposition=dto.rule.journey_node_proposition,
+            signal_proposition=dto.rule.signal_proposition,
+            title_proposition=dto.rule.title_proposition,
         )
 
     raise HTTPException(
@@ -313,10 +352,10 @@ def _payload_from_dto(dto: PayloadDTO) -> Payload:
 
 def _operation_to_operation_dto(
     operation: PayloadOperation,
-) -> GuidelinePayloadOperationDTO:
+) -> RulePayloadOperationDTO:
     if dto := {
-        PayloadOperation.ADD: GuidelinePayloadOperationDTO.ADD,
-        PayloadOperation.UPDATE: GuidelinePayloadOperationDTO.UPDATE,
+        PayloadOperation.ADD: RulePayloadOperationDTO.ADD,
+        PayloadOperation.UPDATE: RulePayloadOperationDTO.UPDATE,
     }.get(operation):
         return dto
 
@@ -324,27 +363,30 @@ def _operation_to_operation_dto(
 
 
 def _payload_descriptor_to_dto(descriptor: PayloadDescriptor) -> PayloadDTO:
-    if descriptor.kind == PayloadKind.GUIDELINE:
+    if descriptor.kind == PayloadKind.RULE:
         return PayloadDTO(
-            kind=PayloadKindDTO.GUIDELINE,
-            guideline=GuidelinePayloadDTO(
-                content=GuidelineContentDTO(
-                    condition=cast(GuidelinePayload, descriptor.payload).content.condition,
-                    action=cast(GuidelinePayload, descriptor.payload).content.action,
+            kind=PayloadKindDTO.RULE,
+            rule=RulePayloadDTO(
+                content=RuleContentDTO(
+                    condition=cast(RulePayload, descriptor.payload).content.condition,
+                    action=cast(RulePayload, descriptor.payload).content.action,
+                    description=cast(RulePayload, descriptor.payload).content.description,
                 ),
                 tool_ids=[
                     ToolIdDTO(service_name=t.service_name, tool_name=t.tool_name)
-                    for t in cast(GuidelinePayload, descriptor.payload).tool_ids
+                    for t in cast(RulePayload, descriptor.payload).tool_ids
                 ],
                 operation=_operation_to_operation_dto(descriptor.payload.operation),
-                updated_id=cast(GuidelinePayload, descriptor.payload).updated_id,
-                action_proposition=cast(GuidelinePayload, descriptor.payload).action_proposition,
-                properties_proposition=cast(
-                    GuidelinePayload, descriptor.payload
-                ).properties_proposition,
+                updated_id=cast(RulePayload, descriptor.payload).updated_id,
+                title=cast(RulePayload, descriptor.payload).title,
+                agent_id=cast(RulePayload, descriptor.payload).agent_id,
+                action_proposition=cast(RulePayload, descriptor.payload).action_proposition,
+                properties_proposition=cast(RulePayload, descriptor.payload).properties_proposition,
                 journey_node_proposition=cast(
-                    GuidelinePayload, descriptor.payload
+                    RulePayload, descriptor.payload
                 ).journey_node_proposition,
+                signal_proposition=cast(RulePayload, descriptor.payload).signal_proposition,
+                title_proposition=cast(RulePayload, descriptor.payload).title_proposition,
             ),
         )
 
@@ -358,15 +400,18 @@ def _invoice_data_to_dto(
     kind: PayloadKind,
     invoice_data: InvoiceData,
 ) -> InvoiceDataDTO:
-    if kind == PayloadKind.GUIDELINE:
-        guideline_data = cast(InvoiceGuidelineData, invoice_data)
-        properties = guideline_data.properties_proposition or {}
+    if kind == PayloadKind.RULE:
+        rule_data = cast(InvoiceRuleData, invoice_data)
+        properties = rule_data.properties_proposition or {}
         action_proposition = cast(str | None, properties.get("internal_action"))
 
         return InvoiceDataDTO(
-            guideline=GuidelineInvoiceDataDTO(
+            rule=RuleInvoiceDataDTO(
                 action_proposition=action_proposition,
-                properties_proposition=guideline_data.properties_proposition,
+                properties_proposition=rule_data.properties_proposition,
+                signals_proposition=rule_data.signals_proposition,
+                anti_signals_proposition=rule_data.anti_signals_proposition,
+                title_proposition=rule_data.title_proposition,
             ),
         )
 
@@ -380,8 +425,8 @@ evaluation_creation_params_example: ExampleJson = {
     "agent_id": "a1g2e3n4t5",
     "payloads": [
         {
-            "kind": "guideline",
-            "guideline": {
+            "kind": "rule",
+            "rule": {
                 "content": {
                     "condition": "when customer asks about pricing",
                     "action": None,
@@ -400,6 +445,7 @@ class EvaluationCreationParamsDTO(
 ):
     """Parameters for creating a new evaluation task"""
 
+    agent_id: EvaluationAgentIdField | None = None
     payloads: Sequence[PayloadDTO]
 
 
@@ -438,8 +484,8 @@ evaluation_example: ExampleJson = {
     "invoices": [
         {
             "payload": {
-                "kind": "guideline",
-                "guideline": {
+                "kind": "rule",
+                "rule": {
                     "content": {
                         "condition": "when customer asks about pricing",
                         "action": "provide current pricing information",
@@ -453,7 +499,7 @@ evaluation_example: ExampleJson = {
             "checksum": "abc123def456",
             "approved": True,
             "data": {
-                "guideline": {
+                "rule": {
                     "properties_proposition": {
                         "continuous": True,
                         "internal_action": "Provide current price list and any active discounts",
@@ -549,7 +595,7 @@ def create_router(
 
         try:
             evaluation = await app.evaluations.create(
-                payloads=[_payload_from_dto(p) for p in params.payloads]
+                payloads=[_payload_from_dto(p, params.agent_id) for p in params.payloads]
             )
 
         except EvaluationValidationError as exc:

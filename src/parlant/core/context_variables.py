@@ -14,14 +14,16 @@
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from itertools import chain
 from typing import NewType, Optional, Sequence, cast
 from typing_extensions import TypedDict, override, Self
 from datetime import datetime, timezone
 from dataclasses import dataclass
 
-from parlant.core.async_utils import ReaderWriterLock
+from parlant.core.async_utils import ReaderWriterLock, safe_gather
 from parlant.core.common import (
     ItemNotFoundError,
+    try_or_none,
     JSONSerializable,
     UniqueId,
     Version,
@@ -38,7 +40,7 @@ from parlant.core.persistence.document_database_helper import (
     DocumentMigrationHelper,
     DocumentStoreMigrationHelper,
 )
-from parlant.core.tags import TagId
+from parlant.core.groups import GroupId
 from parlant.core.tools import ToolId
 
 ContextVariableId = NewType("ContextVariableId", str)
@@ -51,9 +53,10 @@ class ContextVariable:
     name: str
     description: Optional[str]
     creation_utc: datetime
+    modified_utc: datetime
     tool_id: Optional[ToolId]
     freshness_rules: Optional[str]
-    tags: Sequence[TagId]
+    groups: Sequence[GroupId]
     """If None, the variable will only be updated on session creation"""
 
     def __hash__(self) -> int:
@@ -63,7 +66,7 @@ class ContextVariable:
 @dataclass(frozen=True)
 class ContextVariableValue:
     id: ContextVariableValueId
-    last_modified: datetime
+    modified_utc: datetime
     data: JSONSerializable
 
 
@@ -85,7 +88,7 @@ class ContextVariableStore(ABC):
         creation_utc: Optional[datetime] = None,
         tool_id: Optional[ToolId] = None,
         freshness_rules: Optional[str] = None,
-        tags: Optional[Sequence[TagId]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
     ) -> ContextVariable: ...
 
     @abstractmethod
@@ -104,7 +107,7 @@ class ContextVariableStore(ABC):
     @abstractmethod
     async def list_variables(
         self,
-        tags: Optional[Sequence[TagId]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
     ) -> Sequence[ContextVariable]: ...
 
     @abstractmethod
@@ -145,7 +148,7 @@ class ContextVariableStore(ABC):
     async def add_variable_tag(
         self,
         variable_id: ContextVariableId,
-        tag_id: TagId,
+        group_id: GroupId,
         creation_utc: Optional[datetime] = None,
     ) -> ContextVariable: ...
 
@@ -153,7 +156,7 @@ class ContextVariableStore(ABC):
     async def remove_variable_tag(
         self,
         variable_id: ContextVariableId,
-        tag_id: TagId,
+        group_id: GroupId,
     ) -> ContextVariable: ...
 
 
@@ -176,9 +179,20 @@ class _ContextVariableDocument_v0_2_0(TypedDict, total=False):
     freshness_rules: Optional[str]
 
 
+class _ContextVariableDocument_v0_3_0(TypedDict, total=False):
+    id: ObjectId
+    creation_utc: str
+    version: Version.String
+    name: str
+    description: Optional[str]
+    tool_id: Optional[str]
+    freshness_rules: Optional[str]
+
+
 class _ContextVariableDocument(TypedDict, total=False):
     id: ObjectId
     creation_utc: str
+    last_modified: str
     version: Version.String
     name: str
     description: Optional[str]
@@ -221,17 +235,18 @@ class ContextVariableTagAssociationDocument(TypedDict, total=False):
     version: Version.String
     creation_utc: str
     variable_id: ContextVariableId
-    tag_id: TagId
+    group_id: GroupId
 
 
 class ContextVariableDocumentStore(ContextVariableStore):
-    VERSION = Version.from_string("0.3.0")
+    VERSION = Version.from_string("0.4.0")
 
     def __init__(
         self,
         id_generator: IdGenerator,
         database: DocumentDatabase,
         allow_migration: bool = False,
+        collections_prefix: str | None = None,
     ):
         self._id_generator = id_generator
 
@@ -242,6 +257,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
         ]
         self._value_collection: DocumentCollection[_ContextVariableValueDocument]
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
 
         self._lock = ReaderWriterLock()
 
@@ -256,10 +272,24 @@ class ContextVariableDocumentStore(ContextVariableStore):
         async def v0_2_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
             d = cast(_ContextVariableDocument_v0_2_0, doc)
 
-            return _ContextVariableDocument(
+            return _ContextVariableDocument_v0_3_0(
                 id=d["id"],
                 creation_utc=datetime.now(timezone.utc).isoformat(),
                 version=Version.String("0.3.0"),
+                name=d["name"],
+                description=d.get("description"),
+                tool_id=d.get("tool_id"),
+                freshness_rules=d.get("freshness_rules"),
+            )
+
+        async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(_ContextVariableDocument_v0_3_0, doc)
+
+            return _ContextVariableDocument(
+                id=d["id"],
+                creation_utc=d["creation_utc"],
+                last_modified=d["creation_utc"],
+                version=Version.String("0.4.0"),
                 name=d["name"],
                 description=d.get("description"),
                 tool_id=d.get("tool_id"),
@@ -271,6 +301,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
             {
                 "0.1.0": v0_1_0_to_v0_2_0,
                 "0.2.0": v0_2_0_to_v0_3_0,
+                "0.3.0": v0_3_0_to_v0_4_0,
             },
         ).migrate(doc)
 
@@ -301,11 +332,24 @@ class ContextVariableDocumentStore(ContextVariableStore):
                 data=d["data"],
             )
 
+        async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(_ContextVariableValueDocument, doc)
+            return _ContextVariableValueDocument(
+                id=d["id"],
+                creation_utc=d.get("creation_utc", datetime.now(timezone.utc).isoformat()),
+                version=Version.String("0.4.0"),
+                last_modified=d["last_modified"],
+                variable_id=d["variable_id"],
+                key=d["key"],
+                data=d["data"],
+            )
+
         return await DocumentMigrationHelper[_ContextVariableValueDocument](
             self,
             {
                 "0.1.0": v0_1_0_to_v0_2_0,
                 "0.2.0": v0_2_0_to_v0_3_0,
+                "0.3.0": v0_3_0_to_v0_4_0,
             },
         ).migrate(doc)
 
@@ -320,7 +364,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
                 version=Version.String("0.2.0"),
                 creation_utc=d["creation_utc"],
                 variable_id=d["variable_id"],
-                tag_id=d["tag_id"],
+                group_id=d["group_id"],
             )
 
         async def v0_2_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
@@ -331,7 +375,17 @@ class ContextVariableDocumentStore(ContextVariableStore):
                 creation_utc=d["creation_utc"],
                 version=Version.String("0.3.0"),
                 variable_id=d["variable_id"],
-                tag_id=d["tag_id"],
+                group_id=d["group_id"],
+            )
+
+        async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(ContextVariableTagAssociationDocument, doc)
+            return ContextVariableTagAssociationDocument(
+                id=d["id"],
+                creation_utc=d["creation_utc"],
+                version=Version.String("0.4.0"),
+                variable_id=d["variable_id"],
+                group_id=d["group_id"],
             )
 
         return await DocumentMigrationHelper[ContextVariableTagAssociationDocument](
@@ -339,6 +393,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
             {
                 "0.1.0": v0_1_0_to_v0_2_0,
                 "0.2.0": v0_2_0_to_v0_3_0,
+                "0.3.0": v0_3_0_to_v0_4_0,
             },
         ).migrate(doc)
 
@@ -347,23 +402,28 @@ class ContextVariableDocumentStore(ContextVariableStore):
             store=self,
             database=self._database,
             allow_migration=self._allow_migration,
+            collections_prefix=self._collections_prefix,
         ):
             self._variable_collection = await self._database.get_or_create_collection(
-                name="variables",
+                name=f"{self._collections_prefix}_variables"
+                if self._collections_prefix
+                else "variables",
                 schema=_ContextVariableDocument,
                 document_loader=self._variable_document_loader,
             )
 
             self._variable_tag_association_collection = (
                 await self._database.get_or_create_collection(
-                    name="variable_tag_associations",
+                    name=f"{self._collections_prefix}_variable_tag_associations"
+                    if self._collections_prefix
+                    else "variable_tag_associations",
                     schema=ContextVariableTagAssociationDocument,
                     document_loader=self._variable_tag_association_document_loader,
                 )
             )
 
             self._value_collection = await self._database.get_or_create_collection(
-                name="values",
+                name=f"{self._collections_prefix}_values" if self._collections_prefix else "values",
                 schema=_ContextVariableValueDocument,
                 document_loader=self._value_document_loader,
             )
@@ -387,6 +447,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
             name=context_variable.name,
             description=context_variable.description,
             creation_utc=context_variable.creation_utc.isoformat(),
+            last_modified=context_variable.modified_utc.isoformat(),
             tool_id=context_variable.tool_id.to_string() if context_variable.tool_id else None,
             freshness_rules=context_variable.freshness_rules,
         )
@@ -397,7 +458,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
         variable_id: ContextVariableId,
         key: str,
     ) -> _ContextVariableValueDocument:
-        last_modified_str = context_variable_value.last_modified.isoformat()
+        last_modified_str = context_variable_value.modified_utc.isoformat()
 
         return _ContextVariableValueDocument(
             id=ObjectId(context_variable_value.id),
@@ -413,8 +474,8 @@ class ContextVariableDocumentStore(ContextVariableStore):
         self,
         context_variable_document: _ContextVariableDocument,
     ) -> ContextVariable:
-        tags = [
-            d["tag_id"]
+        groups = [
+            d["group_id"]
             for d in await self._variable_tag_association_collection.find(
                 {"variable_id": {"$eq": context_variable_document["id"]}}
             )
@@ -425,11 +486,12 @@ class ContextVariableDocumentStore(ContextVariableStore):
             name=context_variable_document["name"],
             description=context_variable_document.get("description"),
             creation_utc=datetime.fromisoformat(context_variable_document["creation_utc"]),
+            modified_utc=datetime.fromisoformat(context_variable_document["last_modified"]),
             tool_id=ToolId.from_string(context_variable_document["tool_id"])
             if context_variable_document["tool_id"]
             else None,
             freshness_rules=context_variable_document["freshness_rules"],
-            tags=tags,
+            groups=groups,
         )
 
     def _deserialize_context_variable_value(
@@ -438,7 +500,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
     ) -> ContextVariableValue:
         return ContextVariableValue(
             id=ContextVariableValueId(context_variable_value_document["id"]),
-            last_modified=datetime.fromisoformat(context_variable_value_document["last_modified"]),
+            modified_utc=datetime.fromisoformat(context_variable_value_document["last_modified"]),
             data=context_variable_value_document["data"],
         )
 
@@ -450,12 +512,12 @@ class ContextVariableDocumentStore(ContextVariableStore):
         creation_utc: Optional[datetime] = None,
         tool_id: Optional[ToolId] = None,
         freshness_rules: Optional[str] = None,
-        tags: Optional[Sequence[TagId]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
     ) -> ContextVariable:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
             context_variable_checksum = xxh3_checksum(
-                f"{name}{description}{tool_id}{freshness_rules}{tags}"
+                f"{name}{description}{tool_id}{freshness_rules}{groups}"
             )
 
             context_variable = ContextVariable(
@@ -463,17 +525,18 @@ class ContextVariableDocumentStore(ContextVariableStore):
                 name=name,
                 description=description,
                 creation_utc=creation_utc,
+                modified_utc=creation_utc,
                 tool_id=tool_id,
                 freshness_rules=freshness_rules,
-                tags=tags or [],
+                groups=groups or [],
             )
 
             await self._variable_collection.insert_one(
                 self._serialize_context_variable(context_variable)
             )
 
-            for tag_id in tags or []:
-                tag_checksum = xxh3_checksum(f"{context_variable.id}{tag_id}")
+            for group_id in groups or []:
+                tag_checksum = xxh3_checksum(f"{context_variable.id}{group_id}")
 
                 await self._variable_tag_association_collection.insert_one(
                     document={
@@ -481,7 +544,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
                         "version": self.VERSION.to_string(),
                         "creation_utc": datetime.now(timezone.utc).isoformat(),
                         "variable_id": context_variable.id,
-                        "tag_id": tag_id,
+                        "group_id": group_id,
                     }
                 )
 
@@ -520,6 +583,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
                         else None
                     }
                 ),
+                "last_modified": datetime.now(timezone.utc).isoformat(),
             }
 
             result = await self._variable_collection.update_one(
@@ -568,13 +632,13 @@ class ContextVariableDocumentStore(ContextVariableStore):
     @override
     async def list_variables(
         self,
-        tags: Optional[Sequence[TagId]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
     ) -> Sequence[ContextVariable]:
         filters: Where = {}
 
         async with self._lock.reader_lock:
-            if tags is not None:
-                if len(tags) == 0:
+            if groups is not None:
+                if len(groups) == 0:
                     variable_ids = {
                         doc["variable_id"]
                         for doc in await self._variable_tag_association_collection.find(filters={})
@@ -585,7 +649,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
                         else {}
                     )
                 else:
-                    tag_filters: Where = {"$or": [{"tag_id": {"$eq": tag}} for tag in tags]}
+                    tag_filters: Where = {"$or": [{"group_id": {"$eq": group}} for group in groups]}
                     tag_associations = await self._variable_tag_association_collection.find(
                         filters=tag_filters
                     )
@@ -634,7 +698,7 @@ class ContextVariableDocumentStore(ContextVariableStore):
 
             value = ContextVariableValue(
                 id=ContextVariableValueId(self._id_generator.generate(value_checksum)),
-                last_modified=last_modified,
+                modified_utc=last_modified,
                 data=data,
             )
 
@@ -707,25 +771,25 @@ class ContextVariableDocumentStore(ContextVariableStore):
     async def add_variable_tag(
         self,
         variable_id: ContextVariableId,
-        tag_id: TagId,
+        group_id: GroupId,
         creation_utc: Optional[datetime] = None,
     ) -> ContextVariable:
         async with self._lock.writer_lock:
             variable = await self.read_variable(variable_id=variable_id)
 
-            if tag_id in variable.tags:
+            if group_id in variable.groups:
                 return variable
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            association_checksum = xxh3_checksum(f"{variable_id}{tag_id}")
+            association_checksum = xxh3_checksum(f"{variable_id}{group_id}")
 
             association_document: ContextVariableTagAssociationDocument = {
                 "id": ObjectId(self._id_generator.generate(association_checksum)),
                 "version": self.VERSION.to_string(),
                 "creation_utc": creation_utc.isoformat(),
                 "variable_id": variable_id,
-                "tag_id": tag_id,
+                "group_id": group_id,
             }
 
             _ = await self._variable_tag_association_collection.insert_one(
@@ -745,18 +809,18 @@ class ContextVariableDocumentStore(ContextVariableStore):
     async def remove_variable_tag(
         self,
         variable_id: ContextVariableId,
-        tag_id: TagId,
+        group_id: GroupId,
     ) -> ContextVariable:
         async with self._lock.writer_lock:
             delete_result = await self._variable_tag_association_collection.delete_one(
                 {
                     "variable_id": {"$eq": variable_id},
-                    "tag_id": {"$eq": tag_id},
+                    "group_id": {"$eq": group_id},
                 }
             )
 
             if delete_result.deleted_count == 0:
-                raise ItemNotFoundError(item_id=UniqueId(tag_id))
+                raise ItemNotFoundError(item_id=UniqueId(group_id))
 
             variable_document = await self._variable_collection.find_one(
                 {"id": {"$eq": variable_id}}
@@ -766,3 +830,124 @@ class ContextVariableDocumentStore(ContextVariableStore):
             raise ItemNotFoundError(item_id=UniqueId(variable_id))
 
         return await self._deserialize_context_variable(context_variable_document=variable_document)
+
+
+class CompositeContextVariableStore(ContextVariableStore):
+    def __init__(
+        self,
+        writable_store: ContextVariableStore,
+        readable_stores: Sequence[ContextVariableStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[ContextVariableStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_variable(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        creation_utc: Optional[datetime] = None,
+        tool_id: Optional[ToolId] = None,
+        freshness_rules: Optional[str] = None,
+        groups: Optional[Sequence[GroupId]] = None,
+    ) -> ContextVariable:
+        return await self._writable_store.create_variable(
+            name=name,
+            description=description,
+            creation_utc=creation_utc,
+            tool_id=tool_id,
+            freshness_rules=freshness_rules,
+            groups=groups,
+        )
+
+    @override
+    async def update_variable(
+        self,
+        variable_id: ContextVariableId,
+        params: ContextVariableUpdateParams,
+    ) -> ContextVariable:
+        return await self._writable_store.update_variable(variable_id, params)
+
+    @override
+    async def delete_variable(
+        self,
+        variable_id: ContextVariableId,
+    ) -> None:
+        return await self._writable_store.delete_variable(variable_id)
+
+    @override
+    async def list_variables(
+        self,
+        groups: Optional[Sequence[GroupId]] = None,
+    ) -> Sequence[ContextVariable]:
+        results = await safe_gather(
+            *[store.list_variables(groups=groups) for store in self._all_stores]
+        )
+        return list(chain.from_iterable(results))
+
+    @override
+    async def read_variable(
+        self,
+        variable_id: ContextVariableId,
+    ) -> ContextVariable:
+        results = await safe_gather(
+            *[try_or_none(store.read_variable(variable_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(variable_id))
+        return result
+
+    @override
+    async def update_value(
+        self,
+        variable_id: ContextVariableId,
+        key: str,
+        data: JSONSerializable,
+    ) -> ContextVariableValue:
+        return await self._writable_store.update_value(variable_id, key, data)
+
+    @override
+    async def read_value(
+        self,
+        variable_id: ContextVariableId,
+        key: str,
+    ) -> Optional[ContextVariableValue]:
+        results = await safe_gather(
+            *[store.read_value(variable_id, key) for store in self._all_stores]
+        )
+        return next((r for r in results if r is not None), None)
+
+    @override
+    async def delete_value(
+        self,
+        variable_id: ContextVariableId,
+        key: str,
+    ) -> None:
+        return await self._writable_store.delete_value(variable_id, key)
+
+    @override
+    async def list_values(
+        self,
+        variable_id: ContextVariableId,
+    ) -> Sequence[tuple[str, ContextVariableValue]]:
+        results = await safe_gather(*[store.list_values(variable_id) for store in self._all_stores])
+        return list(chain.from_iterable(results))
+
+    @override
+    async def add_variable_tag(
+        self,
+        variable_id: ContextVariableId,
+        group_id: GroupId,
+        creation_utc: Optional[datetime] = None,
+    ) -> ContextVariable:
+        return await self._writable_store.add_variable_tag(variable_id, group_id, creation_utc)
+
+    @override
+    async def remove_variable_tag(
+        self,
+        variable_id: ContextVariableId,
+        group_id: GroupId,
+    ) -> ContextVariable:
+        return await self._writable_store.remove_variable_tag(variable_id, group_id)

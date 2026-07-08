@@ -35,29 +35,33 @@ from parlant.api.health import configure_healthz
 from parlant.core.health import HealthReporter
 from parlant.api import agents, capabilities
 from parlant.api import evaluations
+from parlant.api import train as train_api
 from parlant.api import journeys
 from parlant.api import relationships
 from parlant.api import sessions
 from parlant.api import glossary
-from parlant.api import guidelines
+from parlant.api import rules
 from parlant.api import context_variables as variables
 from parlant.api import services
-from parlant.api import tags
+from parlant.api import groups
 from parlant.api import customers
 from parlant.api import logs
 from parlant.api import canned_responses
+from parlant.api.authentication import AuthenticationError
 from parlant.api.authorization import (
     AuthorizationException,
     AuthorizationPolicy,
     Operation,
     RateLimitExceededException,
 )
+from parlant.core.app_modules.request_context import RequestContext
 from parlant.core.version import VERSION
 from parlant.core.meter import Meter
 from parlant.core.tracer import Tracer
 from parlant.core.common import ItemNotFoundError, generate_id
 from parlant.core.loggers import Logger
 from parlant.core.application import Application
+from parlant.core.services.training_service import TrainingService
 
 
 mimetypes.add_type("text/javascript", ".js")
@@ -115,6 +119,7 @@ async def create_api_app(
     tracer = container[Tracer]
     authorization_policy = container[AuthorizationPolicy]
     application = container[Application]
+    request_context = container[RequestContext]
 
     meter = container[Meter]
     _hist_http_request_duration = meter.create_duration_histogram(
@@ -143,6 +148,16 @@ async def create_api_app(
         return await call_next(request)
 
     @api_app.middleware("http")
+    async def add_origin(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        origin = request.headers.get("X-Parlant-Origin")
+        if origin:
+            request_context.set_origin(origin)
+        return await call_next(request)
+
+    @api_app.middleware("http")
     async def handle_cancellation(
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
@@ -157,18 +172,16 @@ async def create_api_app(
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        if (
-            request.url.path.startswith("/docs")
-            or request.url.path.startswith("/redoc")
-            or request.url.path.startswith("/openapi.json")
-        ):
+        path = request.url.path
+
+        if "/docs" in path or "/redoc" in path or "/openapi.json" in path:
             await authorization_policy.authorize(
                 request=request,
                 operation=Operation.ACCESS_API_DOCS,
             )
             return await call_next(request)
 
-        if request.url.path.startswith("/chat/"):
+        if "/chat/" in path:
             await authorization_policy.authorize(
                 request=request,
                 operation=Operation.ACCESS_INTEGRATED_UI,
@@ -207,6 +220,17 @@ async def create_api_app(
 
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(exc),
+        )
+
+    @api_app.exception_handler(AuthenticationError)
+    async def authentication_error_handler(
+        request: Request, exc: AuthenticationError
+    ) -> HTTPException:
+        logger.trace(f"Authentication error: {exc}")
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(exc),
         )
 
@@ -284,8 +308,8 @@ async def create_api_app(
     )
 
     api_app.include_router(
-        prefix="/tags",
-        router=tags.create_router(
+        prefix="/groups",
+        router=groups.create_router(
             authorization_policy=authorization_policy,
             app=application,
         ),
@@ -324,8 +348,8 @@ async def create_api_app(
     )
 
     api_app.include_router(
-        prefix="/guidelines",
-        router=guidelines.create_router(
+        prefix="/rules",
+        router=rules.create_router(
             authorization_policy=authorization_policy,
             app=application,
         ),
@@ -356,6 +380,14 @@ async def create_api_app(
     )
 
     api_app.include_router(
+        prefix="/train",
+        router=train_api.create_router(
+            authorization_policy=authorization_policy,
+            training_service=container[TrainingService],
+        ),
+    )
+
+    api_app.include_router(
         prefix="/capabilities",
         router=capabilities.create_router(
             authorization_policy=authorization_policy,
@@ -365,7 +397,8 @@ async def create_api_app(
 
     api_app.include_router(
         router=logs.create_router(
-            websocket_logger,
+            websocket_logger=websocket_logger,
+            authorization_policy=authorization_policy,
         )
     )
 

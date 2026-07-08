@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Sequence
 
+from parlant.core.app_modules.request_context import RequestContext
 from parlant.core.loggers import Logger
 from parlant.core.agents import (
     AgentId,
@@ -8,30 +9,52 @@ from parlant.core.agents import (
     Agent,
     AgentUpdateParams,
     CompositionMode,
+    Effort,
     MessageOutputMode,
 )
-from parlant.core.tags import TagId, TagStore
+from parlant.core.groups import GroupId, GroupStore
+from parlant.core.store_provider import StoreProviderHints, StoreProvider
 
 
 @dataclass(frozen=True)
-class AgentTagUpdateParamsModel:
-    add: list[TagId] | None = None
-    remove: list[TagId] | None = None
+class AgentGroupUpdateParamsModel:
+    add: list[GroupId] | None = None
+    remove: list[GroupId] | None = None
 
 
 class AgentModule:
     def __init__(
         self,
+        request_context: RequestContext,
         logger: Logger,
-        agent_store: AgentStore,
-        tag_store: TagStore,
+        store_provider: StoreProvider,
     ):
+        self._request_context = request_context
         self._logger = logger
-        self._agent_store = agent_store
-        self._tag_store = tag_store
+        self._store_provider = store_provider
 
-    async def _ensure_tag(self, tag_id: TagId) -> None:
-        await self._tag_store.read_tag(tag_id)
+    @property
+    def _agent_store(self) -> AgentStore:
+        return self._store_provider.get_store(
+            AgentStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._request_context.get_origin(),
+            ),
+        )
+
+    @property
+    def _group_store(self) -> GroupStore:
+        return self._store_provider.get_store(
+            GroupStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._request_context.get_origin(),
+            ),
+        )
+
+    async def _ensure_tag(self, group_id: GroupId) -> None:
+        await self._group_store.read_group(group_id)
 
     async def create(
         self,
@@ -40,14 +63,15 @@ class AgentModule:
         max_engine_iterations: int | None,
         composition_mode: CompositionMode | None,
         message_output_mode: MessageOutputMode | None,
-        tags: list[TagId] | None,
+        effort: Effort | None,
+        groups: list[GroupId] | None,
         id: AgentId | None = None,
     ) -> Agent:
-        if tags:
-            for tag_id in tags:
-                await self._ensure_tag(tag_id)
+        if groups:
+            for group_id in groups:
+                await self._ensure_tag(group_id)
 
-            tags = list(set(tags))
+            groups = list(set(groups))
 
         agent = await self._agent_store.create_agent(
             name=name,
@@ -55,7 +79,8 @@ class AgentModule:
             max_engine_iterations=max_engine_iterations,
             composition_mode=composition_mode,
             message_output_mode=message_output_mode,
-            tags=tags,
+            effort=effort,
+            groups=groups,
             id=id,
         )
         return agent
@@ -76,7 +101,8 @@ class AgentModule:
         max_engine_iterations: int | None,
         composition_mode: CompositionMode | None,
         message_output_mode: MessageOutputMode | None,
-        tags: AgentTagUpdateParamsModel | None,
+        effort: Effort | None,
+        groups: AgentGroupUpdateParamsModel | None,
     ) -> Agent:
         update_params: AgentUpdateParams = {}
 
@@ -95,23 +121,26 @@ class AgentModule:
         if message_output_mode:
             update_params["message_output_mode"] = message_output_mode
 
+        if effort:
+            update_params["effort"] = effort
+
         await self._agent_store.update_agent(agent_id=agent_id, params=update_params)
 
-        if tags:
-            if tags.add:
-                for tag_id in tags.add:
-                    await self._ensure_tag(tag_id)
+        if groups:
+            if groups.add:
+                for group_id in groups.add:
+                    await self._ensure_tag(group_id)
 
-                    await self._agent_store.upsert_tag(
+                    await self._agent_store.upsert_group(
                         agent_id=agent_id,
-                        tag_id=tag_id,
+                        group_id=group_id,
                     )
 
-            if tags.remove:
-                for tag_id in tags.remove:
-                    await self._agent_store.remove_tag(
+            if groups.remove:
+                for group_id in groups.remove:
+                    await self._agent_store.remove_group(
                         agent_id=agent_id,
-                        tag_id=tag_id,
+                        group_id=group_id,
                     )
 
         agent = await self._agent_store.read_agent(agent_id)

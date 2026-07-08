@@ -219,7 +219,7 @@ async def main() -> None:
     ) as server:
         agent = await server.create_agent(
             name="Walker",
-            description="Is a knowledgeable travel agent who helps book flights, answer travel questions, and manage reservations.",
+            prompt="Is a knowledgeable travel agent who helps book flights, answer travel questions, and manage reservations.",
             output_mode=p.OutputMode.STREAM,
         )
 

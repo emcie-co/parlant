@@ -16,11 +16,11 @@ import parlant.sdk as p
 from tests.sdk.utils import Context, SDKTest
 
 
-class Test_that_guideline_composition_mode_overrides_agent_default(SDKTest):
+class Test_that_rule_composition_mode_overrides_agent_default(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Test Agent",
-            description="Agent for testing dynamic composition mode",
+            prompt="Agent for testing dynamic composition mode",
         )
 
         # Create canned responses
@@ -28,8 +28,8 @@ class Test_that_guideline_composition_mode_overrides_agent_default(SDKTest):
             template="I can help you with that specific request.",
         )
 
-        # Create guideline with STRICT composition mode
-        self.guideline = await self.agent.create_guideline(
+        # Create rule with STRICT composition mode
+        self.rule = await self.agent.create_rule(
             condition="Customer asks for help",
             action="Help the customer",
             composition_mode=p.CompositionMode.STRICT,
@@ -37,7 +37,7 @@ class Test_that_guideline_composition_mode_overrides_agent_default(SDKTest):
         )
 
     async def run(self, ctx: Context) -> None:
-        # Send message that matches the guideline
+        # Send message that matches the rule
         response = await ctx.send_and_receive_message(
             customer_message="I need help with something",
             recipient=self.agent,
@@ -50,7 +50,7 @@ class Test_that_journey_level_composition_mode_affects_all_states(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Test Agent",
-            description="Test agent",
+            prompt="Test agent",
         )
 
         # Create journey with COMPOSITED composition mode at journey level
@@ -85,7 +85,7 @@ class Test_that_journey_node_composition_mode_overrides_journey_level(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Test Agent",
-            description="Test agent",
+            prompt="Test agent",
         )
 
         # Create journey with FLUID composition mode
@@ -121,29 +121,29 @@ class Test_that_most_restrictive_composition_mode_wins(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Test Agent",
-            description="Test agent",
+            prompt="Test agent",
         )
 
         await self.agent.create_canned_response(
             template="Would you like a banana?",
         )
 
-        # Create guideline with FLUID composition mode
-        self.guideline_fluid = await self.agent.create_guideline(
+        # Create rule with FLUID composition mode
+        self.rule_fluid = await self.agent.create_rule(
             condition="Customer needs assistance",
             action="Offer both a banana and an apple",
             composition_mode=p.CompositionMode.COMPOSITED,
         )
 
-        # Create guideline with STRICT composition mode (more restrictive)
-        self.guideline_strict = await self.agent.create_guideline(
+        # Create rule with STRICT composition mode (more restrictive)
+        self.rule_strict = await self.agent.create_rule(
             condition="Customer is hungry",
             action="Offer some food",
             composition_mode=p.CompositionMode.STRICT,
         )
 
     async def run(self, ctx: Context) -> None:
-        # Send message that matches both guidelines
+        # Send message that matches both rules
         response = await ctx.send_and_receive_message(
             customer_message="I'm hungry - can you assist me?",
             recipient=self.agent,
@@ -156,15 +156,15 @@ class Test_that_composition_mode_does_not_persist_across_turns(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Test Agent",
-            description="Test agent",
+            prompt="Test agent",
         )
 
-        self.guideline = await self.agent.create_guideline(
+        self.rule = await self.agent.create_rule(
             condition="Customer wants a fruit and has not yet agreed to receive one",
             action="Offer both a banana and an apple, until the customer chooses one",
         )
 
-        self.guideline = await self.agent.create_guideline(
+        self.rule = await self.agent.create_rule(
             condition="Customer wants a fruit",
             action="Offer a banana (just offer it once)",
             composition_mode=p.CompositionMode.STRICT,

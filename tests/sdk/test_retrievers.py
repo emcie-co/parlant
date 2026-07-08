@@ -21,7 +21,7 @@ class Test_that_a_custom_retriever_can_be_used_to_add_data_to_message_context(SD
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Dummy agent",
-            description="Dummy agent",
+            prompt="Dummy agent",
         )
 
         async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
@@ -47,7 +47,7 @@ class Test_that_multiple_custom_retrievers_can_be_used_to_add_data_to_message_co
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Dummy agent",
-            description="Dummy agent",
+            prompt="Dummy agent",
         )
 
         async def custom_retriever_1(ctx: p.RetrieverContext) -> p.RetrieverResult:
@@ -75,7 +75,7 @@ class Test_that_a_retriever_can_return_a_canned_response(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Dummy agent",
-            description="Dummy agent",
+            prompt="Dummy agent",
             composition_mode=p.CompositionMode.STRICT,
         )
 
@@ -101,7 +101,7 @@ class Test_that_retriever_can_return_direct_result_immediately(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Dummy agent",
-            description="Dummy agent",
+            prompt="Dummy agent",
         )
 
         async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
@@ -129,7 +129,7 @@ class Test_that_retriever_can_return_deferred_callable_that_receives_engine_cont
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Dummy agent",
-            description="Dummy agent",
+            prompt="Dummy agent",
         )
 
         self.deferred_was_called = False
@@ -164,18 +164,16 @@ class Test_that_retriever_can_return_deferred_callable_that_receives_engine_cont
         )
 
 
-class Test_that_deferred_retriever_receives_updated_engine_context_with_guidelines_and_tools(
-    SDKTest
-):
+class Test_that_deferred_retriever_receives_updated_engine_context_with_rules_and_tools(SDKTest):
     """Test that the deferred callable receives the full EngineContext from on_generating_messages."""
 
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Dummy agent",
-            description="Dummy agent",
+            prompt="Dummy agent",
         )
 
-        # Add a guideline that should be matched
+        # Add a rule that should be matched
         self.observation = await self.agent.create_observation(
             condition="the customer asks about Chongas",
         )
@@ -184,9 +182,9 @@ class Test_that_deferred_retriever_receives_updated_engine_context_with_guidelin
             async def deferred(engine_ctx: p.EngineContext) -> p.RetrieverResult:
                 assert engine_ctx.state is not None
 
-                assert len(engine_ctx.state.guidelines) == 1
+                assert len(engine_ctx.state.rules) == 1
 
-                if engine_ctx.state.guidelines[0].id == self.observation.id:
+                if engine_ctx.state.rules[0].id == self.observation.id:
                     return p.RetrieverResult(
                         data="Chongas are a tropical island fruit",
                     )
@@ -215,7 +213,7 @@ class Test_that_deferred_retriever_can_return_none_based_on_engine_context(SDKTe
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Dummy agent",
-            description="Dummy agent",
+            prompt="Dummy agent",
         )
 
         self.deferred_returned_none = False
@@ -242,17 +240,17 @@ class Test_that_deferred_retriever_can_return_none_based_on_engine_context(SDKTe
         assert len(response) > 0
 
 
-class Test_that_retriever_guidelines_are_followed_by_agent(SDKTest):
+class Test_that_retriever_rules_are_followed_by_agent(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
-            name="Retriever Guideline Agent",
-            description="Agent for testing retriever transient guidelines",
+            name="Retriever Rule Agent",
+            prompt="Agent for testing retriever transient rules",
         )
 
         async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
             return p.RetrieverResult(
                 data={"status": "retrieved"},
-                guidelines=[
+                rules=[
                     {"action": "Offer the customer a Pepsi immediately"},
                 ],
             )
@@ -266,3 +264,63 @@ class Test_that_retriever_guidelines_are_followed_by_agent(SDKTest):
         )
 
         assert "pepsi" in response.lower(), f"Expected 'pepsi' in response but got: {response}"
+
+
+class Test_that_a_custom_retriever_adds_data_to_message_context_with_compass_engine(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Dummy agent",
+            prompt="Dummy agent",
+            engine="compass",
+            output_mode=p.OutputMode.STREAM,
+            composition_mode=p.CompositionMode.FLUID,
+        )
+
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            assert ctx.interaction.last_customer_message is not None
+            assert ctx.interaction.last_customer_message.content == "What is an orange eggplant?"
+            return p.RetrieverResult(data="An orange eggplant is actually a special type of tomato")
+
+        await self.agent.attach_retriever(custom_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="What is an orange eggplant?",
+            recipient=self.agent,
+        )
+
+        assert await nlp_test(
+            context=response,
+            condition="It says that an orange eggplant is a type of tomato",
+        )
+
+
+class Test_that_a_rule_attached_retriever_runs_with_compass_engine(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Dummy agent",
+            prompt="Dummy agent",
+            engine="compass",
+            output_mode=p.OutputMode.STREAM,
+            composition_mode=p.CompositionMode.FLUID,
+        )
+
+        self.observation = await self.agent.create_observation(
+            condition="the customer asks about Chongas",
+        )
+
+        async def custom_retriever(ctx: p.RetrieverContext) -> p.RetrieverResult:
+            return p.RetrieverResult(data="Chongas are a tropical island fruit")
+
+        await self.observation.attach_retriever(custom_retriever)
+
+    async def run(self, ctx: Context) -> None:
+        response = await ctx.send_and_receive_message(
+            customer_message="What are chongas?",
+            recipient=self.agent,
+        )
+
+        assert await nlp_test(
+            context=response,
+            condition="It says chongas are a fruit",
+        )

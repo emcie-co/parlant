@@ -65,8 +65,8 @@ from parlant.core.health import NullHealthReporter
 from parlant.core.engines.alpha.engine_context import EngineContext
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.glossary import GlossaryStore, Term
-from parlant.core.guideline_tool_associations import GuidelineToolAssociationStore
-from parlant.core.guidelines import Guideline, GuidelineStore
+from parlant.core.rule_tool_associations import RuleToolAssociationStore
+from parlant.core.rules import Rule, RuleStore
 from parlant.core.loggers import LogLevel, Logger
 from parlant.core.meter import LocalMeter
 from parlant.core.nlp.generation import (
@@ -89,7 +89,7 @@ from parlant.core.sessions import (
     EventSource,
     EventKind,
 )
-from parlant.core.tags import Tag, TagId
+from parlant.core.groups import GroupIds, GroupId
 from parlant.core.tools import LocalToolService, ToolId, ToolResult
 from parlant.core.tracer import LocalTracer
 from parlant.core.persistence.common import ObjectId
@@ -265,9 +265,9 @@ async def create_term(
         synonyms=synonyms,
     )
 
-    await container[GlossaryStore].upsert_tag(
+    await container[GlossaryStore].upsert_group(
         term_id=term.id,
-        tag_id=Tag.for_agent_id(agent_id).id,
+        group_id=GroupIds.for_agent_id(agent_id),
     )
 
     return term
@@ -276,7 +276,7 @@ async def create_term(
 async def create_context_variable(
     container: Container,
     name: str,
-    tags: list[TagId],
+    groups: list[GroupId],
     description: str = "",
 ) -> ContextVariable:
     return await container[ContextVariableStore].create_variable(
@@ -300,21 +300,21 @@ async def set_context_variable_value(
     )
 
 
-async def create_guideline(
+async def create_rule(
     container: Container,
     agent_id: AgentId,
     condition: str,
     action: str,
     tool_function: Optional[Callable[[], ToolResult]] = None,
-) -> Guideline:
-    guideline = await container[GuidelineStore].create_guideline(
+) -> Rule:
+    rule = await container[RuleStore].create_rule(
         condition=condition,
         action=action,
     )
 
-    _ = await container[GuidelineStore].upsert_tag(
-        guideline.id,
-        Tag.for_agent_id(agent_id).id,
+    _ = await container[RuleStore].upsert_group(
+        rule.id,
+        GroupIds.for_agent_id(agent_id),
     )
 
     if tool_function:
@@ -340,12 +340,12 @@ async def create_guideline(
                 required=[],
             )
 
-        await container[GuidelineToolAssociationStore].create_association(
-            guideline_id=guideline.id,
+        await container[RuleToolAssociationStore].create_association(
+            rule_id=rule.id,
             tool_id=ToolId("local", getattr(tool_function, "__name__", "unnamed_tool")),
         )
 
-    return guideline
+    return rule
 
 
 async def read_reply(

@@ -20,7 +20,7 @@ from pytest import mark, raises
 
 from parlant.core.agents import AgentId, AgentStore
 from parlant.core.common import ItemNotFoundError
-from parlant.core.tags import TagId, TagStore
+from parlant.core.groups import GroupId, GroupStore
 
 
 async def test_that_an_agent_can_be_created_without_description(
@@ -123,14 +123,14 @@ async def test_that_an_agent_can_be_created_with_tags(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
 
-    tag1 = await tag_store.create_tag("tag1")
-    tag2 = await tag_store.create_tag("tag2")
+    group1 = await group_store.create_group("group1")
+    group2 = await group_store.create_group("group2")
 
     response = await async_client.post(
         "/agents",
-        json={"name": "test-agent", "tags": [tag1.id, tag1.id, tag2.id]},
+        json={"name": "test-agent", "groups": [group1.id, group1.id, group2.id]},
     )
 
     assert response.status_code == status.HTTP_201_CREATED
@@ -141,8 +141,8 @@ async def test_that_an_agent_can_be_created_with_tags(
 
     assert agent_dto["name"] == "test-agent"
 
-    assert len(agent_dto["tags"]) == 2
-    assert set(agent_dto["tags"]) == {tag1.id, tag2.id}
+    assert len(agent_dto["groups"]) == 2
+    assert set(agent_dto["groups"]) == {group1.id, group2.id}
 
 
 async def test_that_an_agent_can_be_listed(
@@ -270,24 +270,24 @@ async def test_that_tags_can_be_added_to_an_agent(
     container: Container,
 ) -> None:
     agent_store = container[AgentStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
 
-    tag1 = await tag_store.create_tag("tag1")
-    tag2 = await tag_store.create_tag("tag2")
+    group1 = await group_store.create_group("group1")
+    group2 = await group_store.create_group("group2")
 
     agent = await agent_store.create_agent("test-agent")
 
-    update_payload = {"tags": {"add": [tag1.id, tag2.id]}}
+    update_payload = {"groups": {"add": [group1.id, group2.id]}}
     response = await async_client.patch(f"/agents/{agent.id}", json=update_payload)
     response.raise_for_status()
     updated_agent = response.json()
 
-    assert tag1.id in updated_agent["tags"]
-    assert tag2.id in updated_agent["tags"]
+    assert group1.id in updated_agent["groups"]
+    assert group2.id in updated_agent["groups"]
 
     agent_dto = (await async_client.get(f"/agents/{agent.id}")).raise_for_status().json()
-    assert tag1.id in agent_dto["tags"]
-    assert tag2.id in agent_dto["tags"]
+    assert group1.id in agent_dto["groups"]
+    assert group2.id in agent_dto["groups"]
 
 
 async def test_that_tags_can_be_removed_from_an_agent(
@@ -297,18 +297,18 @@ async def test_that_tags_can_be_removed_from_an_agent(
     agent_store = container[AgentStore]
     agent = await agent_store.create_agent("test-agent")
 
-    await agent_store.upsert_tag(agent.id, TagId("tag1"))
-    await agent_store.upsert_tag(agent.id, TagId("tag2"))
-    await agent_store.upsert_tag(agent.id, TagId("tag3"))
+    await agent_store.upsert_group(agent.id, GroupId("group1"))
+    await agent_store.upsert_group(agent.id, GroupId("group2"))
+    await agent_store.upsert_group(agent.id, GroupId("group3"))
 
-    update_payload = {"tags": {"remove": ["tag1", "tag3"]}}
+    update_payload = {"groups": {"remove": ["group1", "group3"]}}
     response = await async_client.patch(f"/agents/{agent.id}", json=update_payload)
     response.raise_for_status()
     updated_agent = response.json()
 
-    assert "tag1" not in updated_agent["tags"]
-    assert "tag2" in updated_agent["tags"]
-    assert "tag3" not in updated_agent["tags"]
+    assert "group1" not in updated_agent["groups"]
+    assert "group2" in updated_agent["groups"]
+    assert "group3" not in updated_agent["groups"]
 
 
 async def test_that_tags_can_be_added_and_removed_in_same_request(
@@ -316,30 +316,30 @@ async def test_that_tags_can_be_added_and_removed_in_same_request(
     container: Container,
 ) -> None:
     agent_store = container[AgentStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
 
-    tag1 = await tag_store.create_tag("tag1")
-    tag2 = await tag_store.create_tag("tag2")
-    tag3 = await tag_store.create_tag("tag3")
-    tag4 = await tag_store.create_tag("tag4")
+    group1 = await group_store.create_group("group1")
+    group2 = await group_store.create_group("group2")
+    group3 = await group_store.create_group("group3")
+    group4 = await group_store.create_group("group4")
 
     agent = await agent_store.create_agent("test-agent")
 
-    await agent_store.upsert_tag(agent.id, tag1.id)
-    await agent_store.upsert_tag(agent.id, tag2.id)
+    await agent_store.upsert_group(agent.id, group1.id)
+    await agent_store.upsert_group(agent.id, group2.id)
 
-    update_payload = {"tags": {"add": [tag3.id, tag4.id], "remove": [tag1.id]}}
+    update_payload = {"groups": {"add": [group3.id, group4.id], "remove": [group1.id]}}
     response = await async_client.patch(f"/agents/{agent.id}", json=update_payload)
     response.raise_for_status()
     updated_agent = response.json()
 
-    assert tag1.id not in updated_agent["tags"]
-    assert tag2.id in updated_agent["tags"]
-    assert tag3.id in updated_agent["tags"]
-    assert tag4.id in updated_agent["tags"]
+    assert group1.id not in updated_agent["groups"]
+    assert group2.id in updated_agent["groups"]
+    assert group3.id in updated_agent["groups"]
+    assert group4.id in updated_agent["groups"]
 
 
-async def test_that_an_agent_cannot_be_created_with_a_nonexistent_tag(
+async def test_that_an_agent_cannot_be_created_with_a_nonexistent_group(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
@@ -349,7 +349,7 @@ async def test_that_an_agent_cannot_be_created_with_a_nonexistent_tag(
 
     response = await async_client.patch(
         f"/agents/{agent.id}",
-        json={"tags": {"add": ["nonexistent-tag"]}},
+        json={"groups": {"add": ["nonexistent-group"]}},
     )
 
     assert response.status_code == status.HTTP_404_NOT_FOUND

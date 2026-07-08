@@ -15,6 +15,9 @@
 from typing_extensions import override
 
 
+from parlant.core.engines.alpha.guideline_matching.custom_guideline_matching_strategy import (
+    CustomGuidelineMatchingStrategy,
+)
 from parlant.core.engines.alpha.guideline_matching.generic.generic_guideline_matching_strategy import (
     GenericGuidelineMatchingStrategy,
 )
@@ -22,34 +25,50 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
     GuidelineMatchingStrategy,
     GuidelineMatchingStrategyResolver,
 )
-from parlant.core.guidelines import Guideline, GuidelineId
+from parlant.core.engines.rule_matcher_registry import (
+    RuleMatcherRegistry as GuidelineMatcherRegistry,
+)
+from parlant.core.rules import Rule as Guideline, RuleId as GuidelineId
 from parlant.core.loggers import Logger
-from parlant.core.tags import TagId
+from parlant.core.groups import GroupId
 
 
 class GenericGuidelineMatchingStrategyResolver(GuidelineMatchingStrategyResolver):
     def __init__(
         self,
         generic_strategy: GenericGuidelineMatchingStrategy,
+        matcher_registry: GuidelineMatcherRegistry,
         logger: Logger,
     ) -> None:
         self._generic_strategy = generic_strategy
+        self._matcher_registry = matcher_registry
         self._logger = logger
 
         self.guideline_overrides: dict[GuidelineId, GuidelineMatchingStrategy] = {}
-        self.tag_overrides: dict[TagId, GuidelineMatchingStrategy] = {}
+        self.tag_overrides: dict[GroupId, GuidelineMatchingStrategy] = {}
 
     @override
     async def resolve(self, guideline: Guideline) -> GuidelineMatchingStrategy:
+        # A code matcher registered via the SDK (engine-agnostic registry) takes
+        # precedence and runs as a custom strategy.
+        if matcher := self._matcher_registry.get(guideline.id):
+            return CustomGuidelineMatchingStrategy(
+                guideline=guideline,
+                matcher=matcher,
+                logger=self._logger,
+            )
+
         if override_strategy := self.guideline_overrides.get(guideline.id):
             return override_strategy
 
-        tag_strategies = [s for tag_id, s in self.tag_overrides.items() if tag_id in guideline.tags]
+        tag_strategies = [
+            s for group_id, s in self.tag_overrides.items() if group_id in guideline.groups
+        ]
 
         if first_tag_strategy := next(iter(tag_strategies), None):
             if len(tag_strategies) > 1:
                 self._logger.warning(
-                    f"More than one tag-based strategy override found for guideline (id='{guideline.id}'). Choosing first strategy ({first_tag_strategy.__class__.__name__})"
+                    f"More than one group-based strategy override found for guideline (id='{guideline.id}'). Choosing first strategy ({first_tag_strategy.__class__.__name__})"
                 )
             return first_tag_strategy
 

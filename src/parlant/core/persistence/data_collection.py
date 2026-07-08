@@ -75,9 +75,7 @@ class DataCollectingSchematicGenerator(SchematicGenerator[T]):
                     "model": result.info.model,
                     "duration": result.info.duration,
                     "input_tokens": result.info.usage.input_tokens,
-                    "cached_input_tokens": result.info.usage.extra
-                    and result.info.usage.extra.get("cached_input_tokens", 0)
-                    or 0,
+                    "cached_input_tokens": result.info.usage.cached_input_tokens,
                     "output_tokens": result.info.usage.output_tokens,
                 },
                 indent=2,

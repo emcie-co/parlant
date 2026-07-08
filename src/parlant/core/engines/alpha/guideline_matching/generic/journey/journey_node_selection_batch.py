@@ -1,11 +1,10 @@
 import asyncio
-from collections.abc import Sequence
-from enum import Enum
-from typing import Any, cast
+from typing import Any, Optional, cast, Sequence
 from typing_extensions import override
 from parlant.core import async_utils
 
 from parlant.core.common import JSONSerializable
+from parlant.core.journeys import JourneyNodeKind
 from parlant.core.engines.alpha.guideline_matching.common import measure_guideline_matching_batch
 
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
@@ -32,7 +31,7 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matching_context im
 )
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.emissions import EmittedEvent
-from parlant.core.guidelines import Guideline, GuidelineId, GuidelineStore
+from parlant.core.rules import Rule as Guideline, RuleId as GuidelineId, RuleStore as GuidelineStore
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
@@ -40,6 +39,7 @@ from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.sessions import EventKind, ToolEventData
 from parlant.core.tools import ToolId
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 PRE_ROOT_INDEX = "0"
@@ -57,19 +57,11 @@ EMPTY_GENERATION_INFO = GenerationInfo(
 )
 
 
-class JourneyNodeKind(Enum):
-    FORK = "fork"
-    CHAT = "chat"
-    TOOL = "tool"
-    NA = "NA"
-
-
 class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
     def __init__(
         self,
         logger: Logger,
         meter: Meter,
-        guideline_store: GuidelineStore,
         optimization_policy: OptimizationPolicy,
         schematic_generator_journey_node_selection: SchematicGenerator[
             JourneyBacktrackNodeSelectionSchema
@@ -80,13 +72,13 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
         ],
         examined_journey: Journey,
         context: GuidelineMatchingContext,
+        store_provider: StoreProvider,
         node_guidelines: Sequence[Guideline] = [],
         journey_path: Sequence[str | None] = [],
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._meter = meter
-
-        self._guideline_store = guideline_store
 
         self._optimization_policy = optimization_policy
         self._schematic_generator_journey_node_selection = (
@@ -113,6 +105,12 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
             self._first_executable_node = root_follow_up
 
     @property
+    def _guideline_store(self) -> GuidelineStore:
+        return self._store_provider.get_store(
+            GuidelineStore, StoreProviderHints(call_site="engine")
+        )
+
+    @property
     @override
     def size(self) -> int:
         return 1
@@ -133,10 +131,9 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
         ).get("follow_ups", [])
 
     @staticmethod
-    def _get_kind(guideline: Guideline) -> JourneyNodeKind:
-        return JourneyNodeKind(
-            cast(dict[str, Any], guideline.metadata.get("journey_node", {})).get("kind", "NA")
-        )
+    def _get_kind(guideline: Guideline) -> Optional[JourneyNodeKind]:
+        kind_str = cast(dict[str, Any], guideline.metadata.get("journey_node", {})).get("kind")
+        return JourneyNodeKind(kind_str) if kind_str else None
 
     @staticmethod
     def _get_tool_ids(guideline: Guideline) -> Sequence[ToolId]:
@@ -205,10 +202,9 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                         f"Journey '{self._examined_journey.title}': auto-advanced to node {guideline_id_to_node_index[current_node]}"
                     )
                     return GuidelineMatchingBatchResult(
-                        matches=[
+                        matched_guidelines=[
                             GuidelineMatch(
                                 guideline=guideline_id_to_guideline[current_node],
-                                score=10,
                                 rationale="This guideline was selected as part of a 'journey' - a sequence of actions that are performed in order. It was automatically selected as the only viable follow up for the last step that was executed",
                                 metadata={
                                     "journey_path": journey_path,
@@ -216,15 +212,16 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                                 },
                             )
                         ],
+                        skipped_guidelines=[],
                         generation_info=EMPTY_GENERATION_INFO,
                     )
                 else:
                     self._logger.debug(f"Journey '{self._examined_journey.title}': auto-exited")
                     return GuidelineMatchingBatchResult(
-                        matches=[
+                        matched_guidelines=[],
+                        skipped_guidelines=[
                             GuidelineMatch(
                                 guideline=root_guideline,
-                                score=10,
                                 rationale="Root guideline returned to indicate exit journey",
                                 metadata={
                                     "journey_path": journey_path,
@@ -243,10 +240,9 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                 f"Journey '{self._examined_journey.title}': auto-advanced to node {self._get_guideline_node_index(self._first_executable_node)}"
             )
             return GuidelineMatchingBatchResult(
-                matches=[
+                matched_guidelines=[
                     GuidelineMatch(
                         guideline=self._first_executable_node,
-                        score=10,
                         rationale="root node requires tool, and was selected automatically",
                         metadata={
                             "journey_path": [
@@ -256,6 +252,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                         },
                     )
                 ],
+                skipped_guidelines=[],
                 generation_info=EMPTY_GENERATION_INFO,
             )
         return None
@@ -276,10 +273,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
 
         journey_triggers = list(
             await async_utils.safe_gather(
-                *[
-                    self._guideline_store.read_guideline(c)
-                    for c in self._examined_journey.triggers
-                ]
+                *[self._guideline_store.read_guideline(c) for c in self._examined_journey.triggers]
             )
         )
 
@@ -287,7 +281,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
             if not self._previous_path or all(p is None for p in self._previous_path):
                 next_step_selector = JourneyNextStepSelection(
                     logger=self._logger,
-                    guideline_store=self._guideline_store,
+                    store_provider=self._store_provider,
                     optimization_policy=self._optimization_policy,
                     schematic_generator=self._schematic_generator_next_step_selection,
                     examined_journey=self._examined_journey,
@@ -304,7 +298,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
             ):
                 next_step_selector = JourneyNextStepSelection(
                     logger=self._logger,
-                    guideline_store=self._guideline_store,
+                    store_provider=self._store_provider,
                     optimization_policy=self._optimization_policy,
                     schematic_generator=self._schematic_generator_next_step_selection,
                     examined_journey=self._examined_journey,
@@ -321,7 +315,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                 ):  # If last executed step is a tool call, backtracking is not necessary
                     backtrack_checker = JourneyBacktrackCheck(
                         logger=self._logger,
-                        guideline_store=self._guideline_store,
+                        store_provider=self._store_provider,
                         optimization_policy=self._optimization_policy,
                         schematic_generator=self._schematic_generator_journey_backtrack_check,
                         examined_journey=self._examined_journey,
@@ -345,7 +339,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
 
                     node_selector = JourneyBacktrackNodeSelection(
                         logger=self._logger,
-                        guideline_store=self._guideline_store,
+                        store_provider=self._store_provider,
                         optimization_policy=self._optimization_policy,
                         schematic_generator=self._schematic_generator_journey_node_selection,
                         examined_journey=self._examined_journey,
@@ -361,7 +355,7 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                 # run backtrack check unless need to backtrack
                 backtrack_checker = JourneyBacktrackCheck(
                     logger=self._logger,
-                    guideline_store=self._guideline_store,
+                    store_provider=self._store_provider,
                     optimization_policy=self._optimization_policy,
                     schematic_generator=self._schematic_generator_journey_backtrack_check,
                     examined_journey=self._examined_journey,
@@ -375,13 +369,15 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
 
                 if not backtrack_result.requires_backtracking:
                     return GuidelineMatchingBatchResult(
-                        matches=[], generation_info=backtrack_result.generation_info
+                        matched_guidelines=[],
+                        skipped_guidelines=[],
+                        generation_info=backtrack_result.generation_info,
                     )
                 else:
                     if backtrack_result.backtrack_to_same_journey_process:
                         node_selector = JourneyBacktrackNodeSelection(
                             logger=self._logger,
-                            guideline_store=self._guideline_store,
+                            store_provider=self._store_provider,
                             optimization_policy=self._optimization_policy,
                             schematic_generator=self._schematic_generator_journey_node_selection,
                             examined_journey=self._examined_journey,
@@ -397,10 +393,9 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                             and self._get_kind(self._first_executable_node) == JourneyNodeKind.TOOL
                         ):  # Restarting a journey whose first step is to call a tool
                             return GuidelineMatchingBatchResult(
-                                matches=[
+                                matched_guidelines=[
                                     GuidelineMatch(
                                         guideline=self._first_executable_node,
-                                        score=10,
                                         rationale="Root node requires tool, and was selected automatically",
                                         metadata={
                                             "journey_path": [
@@ -412,11 +407,12 @@ class GenericJourneyNodeSelectionBatch(GuidelineMatchingBatch):
                                         },
                                     )
                                 ],
+                                skipped_guidelines=[],
                                 generation_info=EMPTY_GENERATION_INFO,
                             )
                         next_step_selector = JourneyNextStepSelection(
                             logger=self._logger,
-                            guideline_store=self._guideline_store,
+                            store_provider=self._store_provider,
                             optimization_policy=self._optimization_policy,
                             schematic_generator=self._schematic_generator_next_step_selection,
                             examined_journey=self._examined_journey,

@@ -22,7 +22,7 @@ class Test_that_canned_response_can_be_created_with_field_dependencies(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Field Dependencies Agent",
-            description="Agent for testing field dependencies",
+            prompt="Agent for testing field dependencies",
         )
         self.canrep_id = await self.agent.create_canned_response(
             template="Your order status is: ready.",
@@ -41,7 +41,7 @@ class Test_that_canned_response_with_field_dependency_is_excluded_when_field_una
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Test Agent",
-            description="",
+            prompt="",
         )
 
         # Create a canned response that depends on "order" field
@@ -50,9 +50,9 @@ class Test_that_canned_response_with_field_dependency_is_excluded_when_field_una
             field_dependencies=["order"],  # Should disqualify this response, since it's unavailable
         )
 
-        # Guideline that uses both canned responses - the one with dependency should be excluded
+        # Rule that uses both canned responses - the one with dependency should be excluded
         # because no tool provides the "order" field
-        await self.agent.create_guideline(
+        await self.agent.create_rule(
             condition="Customer asks about their order",
             action="Tell them that their order is ready for pickup",
             composition_mode=p.CompositionMode.STRICT,

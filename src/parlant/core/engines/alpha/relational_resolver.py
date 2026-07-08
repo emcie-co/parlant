@@ -21,7 +21,7 @@ each step in order:
   1. **Dependencies** — Filter guidelines whose dependency targets are not met.
      Uses topological sorting for single-pass resolution within each iteration.
   2. **Relational prioritization** — Filter guidelines that are deprioritized by
-     higher-priority guidelines, tags, or journeys. Includes transitive filtering
+     higher-priority guidelines, groups, or journeys. Includes transitive filtering
      of guidelines that depend on deprioritized entities.
   3. **Numerical priority** — Keep only entities at the highest priority level.
      Runs before entailment so that entailed guidelines cannot cause their
@@ -51,8 +51,9 @@ from parlant.core.relationships import (
     RelationshipKind,
     RelationshipStore,
 )
-from parlant.core.guidelines import Guideline, GuidelineId
-from parlant.core.tags import Tag, TagId, TagStore
+from parlant.core.rules import Rule as Guideline, RuleId as GuidelineId
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
+from parlant.core.groups import GroupId, Group, GroupIds, GroupStore
 from parlant.core.tools import ToolId
 from parlant.core.tracer import Tracer
 
@@ -61,7 +62,7 @@ from parlant.core.tracer import Tracer
 # Type aliases for the relationship cache used throughout the resolver.
 # ---------------------------------------------------------------------------
 
-_CacheKey = tuple[RelationshipKind, bool, str, GuidelineId | TagId | ToolId]
+_CacheKey = tuple[RelationshipKind, bool, str, GuidelineId | GroupId | ToolId]
 _RelationshipCache = dict[_CacheKey, list[Relationship]]
 
 
@@ -79,12 +80,12 @@ class ResolvedEntity:
 
     The ``entity_type`` field discriminates the union and supports cheap
     equality / hashing without comparing full entity payloads. Two
-    ``ResolvedEntity`` values are equal iff they share both the type tag
+    ``ResolvedEntity`` values are equal iff they share both the type group
     and the underlying entity's id.
     """
 
-    entity_type: Literal["guideline", "journey", "tag"]
-    entity: Guideline | Journey | Tag
+    entity_type: Literal["guideline", "journey", "group"]
+    entity: Guideline | Journey | Group
 
     def __hash__(self) -> int:
         return hash((self.entity_type, self.entity.id))
@@ -105,8 +106,8 @@ class ResolvedEntity:
         return cls(entity_type="journey", entity=j)
 
     @classmethod
-    def tag(cls, t: Tag) -> ResolvedEntity:
-        return cls(entity_type="tag", entity=t)
+    def group(cls, t: Group) -> ResolvedEntity:
+        return cls(entity_type="group", entity=t)
 
 
 class ResolutionKind(str, Enum):
@@ -189,9 +190,9 @@ class _DependencyTargetKind(Enum):
     """The target is one or more specific guidelines. All of them must remain
     in the surviving set for the dependency to be satisfied."""
 
-    ANY_MATCHED_TAG_MEMBER = auto()
-    """The target is a tag with ANY semantics (TAG_ANY). The dependency is
-    satisfied if at least one of the tag's matched member guidelines remains
+    ANY_MATCHED_GROUP_MEMBER = auto()
+    """The target is a group with ANY semantics (GROUP_ANY). The dependency is
+    satisfied if at least one of the group's matched member guidelines remains
     in the surviving set."""
 
     MET = auto()
@@ -200,7 +201,7 @@ class _DependencyTargetKind(Enum):
 
     UNMET = auto()
     """The dependency is unconditionally failed (e.g. a guideline that was
-    never matched, an inactive journey, or an empty/unmatched tag)."""
+    never matched, an inactive journey, or an empty/unmatched group)."""
 
 
 @dataclass
@@ -209,13 +210,13 @@ class _DependencyTarget:
 
     Created during phase 1 of ``_apply_dependencies`` and consumed during
     phase 3 (the topological walk). The ``guideline_ids`` field is only
-    meaningful for ``MATCHED_GUIDELINE`` and ``ANY_MATCHED_TAG_MEMBER``.
+    meaningful for ``MATCHED_GUIDELINE`` and ``ANY_MATCHED_GROUP_MEMBER``.
     """
 
     kind: _DependencyTargetKind
     guideline_ids: set[GuidelineId] = field(default_factory=set)
     relationship: Relationship | None = None
-    target_id: ResolvedEntityId | TagId | None = None
+    target_id: ResolvedEntityId | GroupId | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -249,13 +250,17 @@ class RelationalResolver:
 
     def __init__(
         self,
-        relationship_store: RelationshipStore,
-        tag_store: TagStore,
+        store_provider: StoreProvider,
         logger: Logger,
         tracer: Tracer,
     ) -> None:
-        self._relationship_store = relationship_store
-        self._tag_store = tag_store
+        self._relationship_store = store_provider.get_store(
+            RelationshipStore, StoreProviderHints(call_site="engine")
+        )
+        self._group_store = store_provider.get_store(
+            GroupStore, StoreProviderHints(call_site="engine")
+        )
+
         self._logger = logger
         self._tracer = tracer
 
@@ -281,18 +286,23 @@ class RelationalResolver:
                 guidelines_by_id: dict[GuidelineId, Guideline] = {
                     g.id: g for g in usable_guidelines
                 }
+                # Transient (tool-returned) guidelines arrive via ``matches``
+                # but aren't in ``usable_guidelines``; include them so that
+                # every downstream guideline_by_id lookup is satisfiable.
+                for m in matches:
+                    guidelines_by_id.setdefault(m.guideline.id, m.guideline)
                 journeys_by_id: dict[JourneyId, Journey] = {j.id: j for j in journeys}
-                tags_by_id: dict[TagId, Tag] = {t.id: t for t in await self._tag_store.list_tags()}
+                tags_by_id: dict[GroupId, Group] = {
+                    t.id: t for t in await self._group_store.list_groups()
+                }
 
-                # Build a tag → guidelines index from usable_guidelines so that
-                # all tag lookups are in-memory instead of hitting the store.
-                guidelines_by_tag: dict[TagId, list[Guideline]] = defaultdict(list)
+                # Build a group → guidelines index from usable_guidelines so that
+                # all group lookups are in-memory instead of hitting the store.
+                guidelines_by_tag: dict[GroupId, list[Guideline]] = defaultdict(list)
                 for g in usable_guidelines:
-                    for tid in g.tags:
+                    for tid in g.groups:
                         guidelines_by_tag[tid].append(g)
 
-                initial_match_ids = {m.guideline.id for m in matches}
-                initial_journey_ids = {j.id for j in journeys}
                 # Keep the full original match list so that dep-failed
                 # guidelines can be re-evaluated when entailment expands
                 # the match set in a later iteration.
@@ -460,10 +470,6 @@ class RelationalResolver:
                             )
                         ]
 
-                self._emit_tracer_events(
-                    initial_match_ids, current_matches, matches, resolutions, guidelines_by_id
-                )
-
                 return RelationalResolverResult(
                     matches=current_matches,
                     journeys=current_journeys,
@@ -555,10 +561,10 @@ class RelationalResolver:
         matches: Sequence[GuidelineMatch],
         journeys: Sequence[Journey],
         cache: _RelationshipCache,
-        guidelines_by_tag: dict[TagId, list[Guideline]],
+        guidelines_by_tag: dict[GroupId, list[Guideline]],
         guidelines_by_id: dict[GuidelineId, Guideline],
         journeys_by_id: dict[JourneyId, Journey],
-        tags_by_id: dict[TagId, Tag],
+        tags_by_id: dict[GroupId, Group],
         resolutions: dict[ResolvedEntity, list[Resolution]],
     ) -> Sequence[GuidelineMatch]:
         """Filter guidelines with unmet dependencies using topological ordering.
@@ -579,16 +585,16 @@ class RelationalResolver:
         """
         matched_ids = {m.guideline.id for m in matches}
 
-        # Map tag → set of matched guideline IDs (includes non-persisted guidelines)
-        tag_to_matched: dict[TagId, set[GuidelineId]] = defaultdict(set)
+        # Map group → set of matched guideline IDs (includes non-persisted guidelines)
+        tag_to_matched: dict[GroupId, set[GuidelineId]] = defaultdict(set)
         for m in matches:
-            for tid in m.guideline.tags:
+            for tid in m.guideline.groups:
                 tag_to_matched[tid].add(m.guideline.id)
-            # Also register journey node guidelines under their journey tag
-            # so that journey-tag dependency targets can participate in the
+            # Also register journey node guidelines under their journey group
+            # so that journey-group dependency targets can participate in the
             # topological sort and cascade correctly.
             if jid := self._extract_journey_id_from_guideline(m.guideline):
-                tag_to_matched[Tag.for_journey_id(cast(JourneyId, jid)).id].add(m.guideline.id)
+                tag_to_matched[GroupIds.for_journey_id(cast(JourneyId, jid))].add(m.guideline.id)
 
         # ── Phase 1: Resolve dependency targets ──────────────────────────
 
@@ -709,22 +715,22 @@ class RelationalResolver:
 
     # -- Dependency helpers -------------------------------------------------
 
-    def _dependency_source_ids(self, guideline: Guideline) -> list[GuidelineId | TagId]:
+    def _dependency_source_ids(self, guideline: Guideline) -> list[GuidelineId | GroupId]:
         """Return all entity IDs from which dependency relationships should be
-        queried for a given guideline (itself, its journey tag, its custom tags)."""
-        source_ids: list[GuidelineId | TagId] = [guideline.id]
+        queried for a given guideline (itself, its journey group, its custom groups)."""
+        source_ids: list[GuidelineId | GroupId] = [guideline.id]
 
         if journey_id := self._extract_journey_id_from_guideline(guideline):
-            source_ids.append(Tag.for_journey_id(journey_id).id)
+            source_ids.append(GroupIds.for_journey_id(journey_id))
 
-        for tag_id in guideline.tags:
-            source_ids.append(tag_id)
+        for group_id in guideline.groups:
+            source_ids.append(group_id)
 
         return source_ids
 
     async def _gather_dependency_relationships(
         self,
-        source_ids: Sequence[GuidelineId | TagId],
+        source_ids: Sequence[GuidelineId | GroupId],
         cache: _RelationshipCache,
     ) -> list[Relationship]:
         """Fetch all DEPENDENCY and DEPENDENCY_ANY relationships for a set of
@@ -758,9 +764,9 @@ class RelationalResolver:
         rel: Relationship,
         gid: GuidelineId,
         matched_ids: set[GuidelineId],
-        tag_to_matched: dict[TagId, set[GuidelineId]],
+        tag_to_matched: dict[GroupId, set[GuidelineId]],
         journeys: Sequence[Journey],
-        guidelines_by_tag: dict[TagId, list[Guideline]],
+        guidelines_by_tag: dict[GroupId, list[Guideline]],
         topo_edges: dict[GuidelineId, set[GuidelineId]],
     ) -> _DependencyTarget:
         """Resolve a single dependency relationship into a ``_DependencyTarget``.
@@ -769,7 +775,7 @@ class RelationalResolver:
         their dependencies.
         """
         # --- Target is a specific guideline ---
-        if rel.target.kind == RelationshipEntityKind.GUIDELINE:
+        if rel.target.kind == RelationshipEntityKind.RULE:
             dep_target_id = cast(GuidelineId, rel.target.id)
             if dep_target_id not in matched_ids:
                 return _DependencyTarget(
@@ -786,30 +792,30 @@ class RelationalResolver:
                 target_id=dep_target_id,
             )
 
-        # --- Target is a tag (journey tag, TAG_ANY, or TAG_ALL) ---
-        if rel.target.kind.is_tag:
-            tag_id = cast(TagId, rel.target.id)
+        # --- Target is a group (journey group, GROUP_ANY, or GROUP_ALL) ---
+        if rel.target.kind.is_group:
+            group_id = cast(GroupId, rel.target.id)
 
-            # Journey tag: check journey activity and link to its node
+            # Journey group: check journey activity and link to its node
             # guidelines so the topological sort can cascade correctly
             # (e.g. when a node guideline is removed, dependents of the
-            # journey tag are re-evaluated).
-            if journey_id := Tag.extract_journey_id(tag_id):
+            # journey group are re-evaluated).
+            if journey_id := GroupIds.extract_journey_id(group_id):
                 if not any(j.id == journey_id for j in journeys):
                     return _DependencyTarget(
                         kind=_DependencyTargetKind.UNMET,
                         relationship=rel,
-                        target_id=tag_id,
+                        target_id=group_id,
                     )
                 # Find matched node guidelines belonging to this journey.
-                journey_node_ids = tag_to_matched.get(tag_id, set()) & matched_ids
+                journey_node_ids = tag_to_matched.get(group_id, set()) & matched_ids
                 if not journey_node_ids:
                     # Journey is active but has no matched node guidelines
                     # in the current set — treat as MET (journey-level dep).
                     return _DependencyTarget(
                         kind=_DependencyTargetKind.MET,
                         relationship=rel,
-                        target_id=tag_id,
+                        target_id=group_id,
                     )
                 # Register topo edges so dependents are processed after
                 # the journey's node guidelines.
@@ -817,15 +823,15 @@ class RelationalResolver:
                     if mid != gid:
                         topo_edges[gid].add(mid)
                 return _DependencyTarget(
-                    kind=_DependencyTargetKind.ANY_MATCHED_TAG_MEMBER,
+                    kind=_DependencyTargetKind.ANY_MATCHED_GROUP_MEMBER,
                     guideline_ids=journey_node_ids,
                     relationship=rel,
-                    target_id=tag_id,
+                    target_id=group_id,
                 )
 
-            # Custom tag: collect members and check match status.
-            all_member_ids = {g.id for g in guidelines_by_tag.get(tag_id, [])}
-            all_member_ids.update(tag_to_matched.get(tag_id, set()))
+            # Custom group: collect members and check match status.
+            all_member_ids = {g.id for g in guidelines_by_tag.get(group_id, [])}
+            all_member_ids.update(tag_to_matched.get(group_id, set()))
             matched_members = all_member_ids & matched_ids
 
             # Register topo edges to all matched members.
@@ -833,32 +839,32 @@ class RelationalResolver:
                 if mid != gid:
                     topo_edges[gid].add(mid)
 
-            if rel.target.kind == RelationshipEntityKind.TAG_ANY:
+            if rel.target.kind == RelationshipEntityKind.GROUP_ANY:
                 if not matched_members:
                     return _DependencyTarget(
                         kind=_DependencyTargetKind.UNMET,
                         relationship=rel,
-                        target_id=tag_id,
+                        target_id=group_id,
                     )
                 return _DependencyTarget(
-                    kind=_DependencyTargetKind.ANY_MATCHED_TAG_MEMBER,
+                    kind=_DependencyTargetKind.ANY_MATCHED_GROUP_MEMBER,
                     guideline_ids=matched_members,
                     relationship=rel,
-                    target_id=tag_id,
+                    target_id=group_id,
                 )
             else:
-                # TAG_ALL: every member must be matched.
+                # GROUP_ALL: every member must be matched.
                 if not all_member_ids or (all_member_ids - matched_ids):
                     return _DependencyTarget(
                         kind=_DependencyTargetKind.UNMET,
                         relationship=rel,
-                        target_id=tag_id,
+                        target_id=group_id,
                     )
                 return _DependencyTarget(
                     kind=_DependencyTargetKind.MATCHED_GUIDELINE,
                     guideline_ids=matched_members,
                     relationship=rel,
-                    target_id=tag_id,
+                    target_id=group_id,
                 )
 
         # Unknown target kind — treat as unmet.
@@ -900,7 +906,7 @@ class RelationalResolver:
             return False
         if dep.kind == _DependencyTargetKind.MATCHED_GUIDELINE:
             return dep.guideline_ids <= surviving
-        if dep.kind == _DependencyTargetKind.ANY_MATCHED_TAG_MEMBER:
+        if dep.kind == _DependencyTargetKind.ANY_MATCHED_GROUP_MEMBER:
             return bool(dep.guideline_ids & surviving)
         return False
 
@@ -932,10 +938,10 @@ class RelationalResolver:
         matches: Sequence[GuidelineMatch],
         journeys: Sequence[Journey],
         cache: _RelationshipCache,
-        guidelines_by_tag: dict[TagId, list[Guideline]],
+        guidelines_by_tag: dict[GroupId, list[Guideline]],
         guidelines_by_id: dict[GuidelineId, Guideline],
         journeys_by_id: dict[JourneyId, Journey],
-        tags_by_id: dict[TagId, Tag],
+        tags_by_id: dict[GroupId, Group],
         resolutions: dict[ResolvedEntity, list[Resolution]],
     ) -> RelationalResolverResult:
         """Apply priority relationships and filter both matches and journeys.
@@ -945,10 +951,10 @@ class RelationalResolver:
         """
         match_ids = {m.guideline.id for m in matches}
 
-        # Map tag → matched guideline IDs for non-persisted guidelines
-        tag_to_matched: dict[TagId, set[GuidelineId]] = defaultdict(set)
+        # Map group → matched guideline IDs for non-persisted guidelines
+        tag_to_matched: dict[GroupId, set[GuidelineId]] = defaultdict(set)
         for m in matches:
-            for tid in m.guideline.tags:
+            for tid in m.guideline.groups:
                 tag_to_matched[tid].add(m.guideline.id)
 
         iterated: set[GuidelineId] = set()
@@ -958,13 +964,13 @@ class RelationalResolver:
         # Pre-populate deprioritized journeys from journey-to-journey priority.
         active_journey_ids = {j.id for j in journeys}
         for journey in journeys:
-            journey_tag = Tag.for_journey_id(journey.id).id
+            journey_group = GroupIds.for_journey_id(journey.id)
             rels = await self._get_relationships(
-                cache, RelationshipKind.PRIORITY, False, target_id=journey_tag
+                cache, RelationshipKind.PRIORITY, False, target_id=journey_group
             )
             for rel in rels:
-                if rel.source.kind.is_tag:
-                    if src_jid := Tag.extract_journey_id(cast(TagId, rel.source.id)):
+                if rel.source.kind.is_group:
+                    if src_jid := GroupIds.extract_journey_id(cast(GroupId, rel.source.id)):
                         if src_jid in active_journey_ids:
                             deprioritized_journeys.add(journey.id)
                             break
@@ -988,14 +994,14 @@ class RelationalResolver:
                 relationship = priority_rels.pop()
                 source = relationship.source
 
-                if source.kind == RelationshipEntityKind.GUIDELINE and source.id in match_ids:
+                if source.kind == RelationshipEntityKind.RULE and source.id in match_ids:
                     deprioritized = True
                     prioritized_guideline_id = cast(GuidelineId, source.id)
                     prioritizing_relationship = relationship
                     break
 
-                elif source.kind.is_tag:
-                    tag_guidelines = guidelines_by_tag.get(cast(TagId, source.id), [])
+                elif source.kind.is_group:
+                    tag_guidelines = guidelines_by_tag.get(cast(GroupId, source.id), [])
 
                     # Check persisted guidelines
                     if pid := next(
@@ -1016,7 +1022,7 @@ class RelationalResolver:
                         if pid := next(
                             (
                                 gid
-                                for gid in tag_to_matched.get(cast(TagId, source.id), set())
+                                for gid in tag_to_matched.get(cast(GroupId, source.id), set())
                                 if gid != match.guideline.id
                             ),
                             None,
@@ -1026,10 +1032,10 @@ class RelationalResolver:
                             prioritizing_relationship = relationship
                             break
 
-                    # Traverse into tag members for further priority checks.
+                    # Traverse into group members for further priority checks.
                     # For each unmatched member, check both direct guidelines
-                    # and their custom tags (so G1→T1 is found via member G2's
-                    # tag T1 when T1 is the source of the priority relationship).
+                    # and their custom groups (so G1→T1 is found via member G2's
+                    # group T1 when T1 is the source of the priority relationship).
                     for g in tag_guidelines:
                         if g.id not in iterated and g.id not in match_ids:
                             priority_rels.extend(
@@ -1037,8 +1043,8 @@ class RelationalResolver:
                                     cache, RelationshipKind.PRIORITY, False, target_id=g.id
                                 )
                             )
-                            for g_tid in g.tags:
-                                if not Tag.extract_journey_id(g_tid):
+                            for g_tid in g.groups:
+                                if not GroupIds.extract_journey_id(g_tid):
                                     priority_rels.extend(
                                         await self._get_relationships(
                                             cache,
@@ -1049,7 +1055,7 @@ class RelationalResolver:
                                     )
                     iterated.update(g.id for g in tag_guidelines if g.id not in match_ids)
 
-                    if jid := Tag.extract_journey_id(cast(TagId, source.id)):
+                    if jid := GroupIds.extract_journey_id(cast(GroupId, source.id)):
                         if any(j.id == jid for j in journeys):
                             deprioritized = True
                             prioritized_journey_id = cast(JourneyId, jid)
@@ -1115,15 +1121,12 @@ class RelationalResolver:
         # -- Guideline → journey deprioritization --
         result_ids = {m.guideline.id for m in result}
         for journey in journeys:
-            journey_tag = Tag.for_journey_id(journey.id).id
+            journey_group = GroupIds.for_journey_id(journey.id)
             rels = await self._get_relationships(
-                cache, RelationshipKind.PRIORITY, False, target_id=journey_tag
+                cache, RelationshipKind.PRIORITY, False, target_id=journey_group
             )
             for rel in rels:
-                if (
-                    rel.source.kind == RelationshipEntityKind.GUIDELINE
-                    and rel.source.id in result_ids
-                ):
+                if rel.source.kind == RelationshipEntityKind.RULE and rel.source.id in result_ids:
                     deprioritized_journeys.add(journey.id)
                     break
 
@@ -1151,9 +1154,9 @@ class RelationalResolver:
         """Gather all PRIORITY relationships directly targeting this match.
 
         Uses ``indirect=False`` so that priority does not propagate through
-        inactive intermediaries (reinstatement principle). Tag-mediated
+        inactive intermediaries (reinstatement principle). Group-mediated
         chains (e.g. G1 → T1 → G2) still work because we explicitly query
-        each of the guideline's tags as additional targets.
+        each of the guideline's groups as additional targets.
         """
         rels = await self._get_relationships(
             cache, RelationshipKind.PRIORITY, False, target_id=match.guideline.id
@@ -1167,13 +1170,13 @@ class RelationalResolver:
                         cache,
                         RelationshipKind.PRIORITY,
                         False,
-                        target_id=Tag.for_journey_id(jid).id,
+                        target_id=GroupIds.for_journey_id(jid),
                     )
                 )
 
-        # Custom tag priority (skip journey tags — handled above for nodes only)
-        for tid in match.guideline.tags:
-            if Tag.extract_journey_id(tid):
+        # Custom group priority (skip journey groups — handled above for nodes only)
+        for tid in match.guideline.groups:
+            if GroupIds.extract_journey_id(tid):
                 continue
             rels.extend(
                 await self._get_relationships(
@@ -1188,27 +1191,27 @@ class RelationalResolver:
         dep: Relationship,
         deprioritized_guidelines: set[GuidelineId],
         deprioritized_journeys: set[JourneyId],
-        tagged_cache: dict[TagId, Sequence[Guideline]],
+        tagged_cache: dict[GroupId, Sequence[Guideline]],
     ) -> bool:
         """Check if a single dependency target is deprioritized."""
-        if dep.target.kind == RelationshipEntityKind.GUIDELINE:
+        if dep.target.kind == RelationshipEntityKind.RULE:
             return dep.target.id in deprioritized_guidelines
-        elif dep.target.kind.is_tag:
-            if jid := Tag.extract_journey_id(cast(TagId, dep.target.id)):
+        elif dep.target.kind.is_group:
+            if jid := GroupIds.extract_journey_id(cast(GroupId, dep.target.id)):
                 return jid in deprioritized_journeys
             else:
-                tagged = tagged_cache.get(cast(TagId, dep.target.id), [])
-                return bool(tagged) and all(g.id in deprioritized_guidelines for g in tagged)
+                grouped = tagged_cache.get(cast(GroupId, dep.target.id), [])
+                return bool(grouped) and all(g.id in deprioritized_guidelines for g in grouped)
         return False
 
     async def _filter_deprioritized_dependents(
         self,
         matches: list[GuidelineMatch],
         cache: _RelationshipCache,
-        guidelines_by_tag: dict[TagId, list[Guideline]],
+        guidelines_by_tag: dict[GroupId, list[Guideline]],
         guidelines_by_id: dict[GuidelineId, Guideline],
         journeys_by_id: dict[JourneyId, Journey],
-        tags_by_id: dict[TagId, Tag],
+        tags_by_id: dict[GroupId, Group],
         deprioritized_guidelines: set[GuidelineId],
         deprioritized_journeys: set[JourneyId],
         resolutions: dict[ResolvedEntity, list[Resolution]],
@@ -1229,7 +1232,7 @@ class RelationalResolver:
                 rels = await self._get_relationships(
                     cache, dep_kind, False, source_id=match.guideline.id
                 )
-                for tid in match.guideline.tags:
+                for tid in match.guideline.groups:
                     rels.extend(
                         await self._get_relationships(cache, dep_kind, False, source_id=tid)
                     )
@@ -1239,14 +1242,14 @@ class RelationalResolver:
                     else:
                         and_deps.append(rel)
 
-            # Pre-fetch tagged guidelines for tag targets
-            tagged_cache: dict[TagId, Sequence[Guideline]] = {}
+            # Pre-fetch grouped guidelines for group targets
+            tagged_cache: dict[GroupId, Sequence[Guideline]] = {}
             all_deps = and_deps + [r for rels in or_groups.values() for r in rels]
             for dep in all_deps:
-                if dep.target.kind.is_tag and not Tag.extract_journey_id(
-                    cast(TagId, dep.target.id)
+                if dep.target.kind.is_group and not GroupIds.extract_journey_id(
+                    cast(GroupId, dep.target.id)
                 ):
-                    tid = cast(TagId, dep.target.id)
+                    tid = cast(GroupId, dep.target.id)
                     if tid not in tagged_cache:
                         tagged_cache[tid] = guidelines_by_tag.get(tid, [])
 
@@ -1279,13 +1282,13 @@ class RelationalResolver:
                 # Find the specific deprioritized dependencies for the
                 # resolution, pairing each target id with the relationship
                 # that established the dependency.
-                deprioritized_deps: list[tuple[ResolvedEntityId | TagId, Relationship]] = []
+                deprioritized_deps: list[tuple[ResolvedEntityId | GroupId, Relationship]] = []
                 for dep in and_deps:
                     if self._is_dep_target_deprioritized(
                         dep, deprioritized_guidelines, deprioritized_journeys, tagged_cache
                     ):
                         deprioritized_deps.append(
-                            (cast(ResolvedEntityId | TagId, dep.target.id), dep)
+                            (cast(ResolvedEntityId | GroupId, dep.target.id), dep)
                         )
                 for group_rels in or_groups.values():
                     if all(
@@ -1299,7 +1302,7 @@ class RelationalResolver:
                     ):
                         for dep in group_rels:
                             deprioritized_deps.append(
-                                (cast(ResolvedEntityId | TagId, dep.target.id), dep)
+                                (cast(ResolvedEntityId | GroupId, dep.target.id), dep)
                             )
 
                 for dep_id, dep_rel in deprioritized_deps:
@@ -1355,7 +1358,7 @@ class RelationalResolver:
         usable_guidelines: Sequence[Guideline],
         matches: Sequence[GuidelineMatch],
         cache: _RelationshipCache,
-        guidelines_by_tag: dict[TagId, list[Guideline]],
+        guidelines_by_tag: dict[GroupId, list[Guideline]],
     ) -> list[tuple[GuidelineMatch, list[tuple[Relationship, GuidelineId]]]]:
         """Activate additional guidelines implied by entailment relationships.
 
@@ -1378,15 +1381,15 @@ class RelationalResolver:
             while relationships:
                 rel = relationships.pop()
 
-                if rel.target.kind == RelationshipEntityKind.GUIDELINE:
+                if rel.target.kind == RelationshipEntityKind.RULE:
                     if any(rel.target.id == m.guideline.id for m in matches):
                         continue
                     target_guideline = next(g for g in usable_guidelines if g.id == rel.target.id)
                     related_by_match[target_guideline.id].append((match, target_guideline, rel))
 
-                elif rel.target.kind.is_tag:
-                    tagged = guidelines_by_tag.get(cast(TagId, rel.target.id), [])
-                    for g in tagged:
+                elif rel.target.kind.is_group:
+                    grouped = guidelines_by_tag.get(cast(GroupId, rel.target.id), [])
+                    for g in grouped:
                         if g.id not in match_ids:
                             related_by_match[g.id].append((match, g, rel))
                         relationships.extend(
@@ -1394,28 +1397,22 @@ class RelationalResolver:
                                 cache, RelationshipKind.ENTAILMENT, True, source_id=g.id
                             )
                         )
-
-        # For each entailed guideline: use the highest-scoring match for the
+        # For each entailed guideline: use the last match since all same for the
         # GuidelineMatch, but collect (relationship, source_guideline_id)
         # pairs for every entailing source.
         result: list[tuple[GuidelineMatch, list[tuple[Relationship, GuidelineId]]]] = []
         seen_guidelines: set[GuidelineId] = set()
         for gid, entries in related_by_match.items():
-            if gid in seen_guidelines:
-                continue
-            seen_guidelines.add(gid)
+            sources = [(entry[2], entry[0].guideline.id) for entry in entries]
 
-            best: tuple[GuidelineMatch, Guideline, Relationship] | None = None
-            for entry in entries:
-                if best is None or entry[0].score > best[0].score:
-                    best = entry
-            if best is not None:
-                sources = [(entry[2], entry[0].guideline.id) for entry in entries]
+            # We're basically saying, if this related guideline is already
+            # related to a match we will just take the later one, to avoid duplications
+            if entries and gid not in seen_guidelines:
+                seen_guidelines.add(gid)
                 result.append(
                     (
                         GuidelineMatch(
-                            guideline=best[1],
-                            score=best[0].score,
+                            guideline=entries[-1][1],
                             rationale="[Activated via entailment] Automatically inferred from context",
                         ),
                         sources,
@@ -1428,14 +1425,14 @@ class RelationalResolver:
 
     @staticmethod
     def _resolve_counterpart(
-        raw_id: GuidelineId | JourneyId | TagId,
+        raw_id: GuidelineId | JourneyId | GroupId,
         guidelines_by_id: dict[GuidelineId, Guideline],
         journeys_by_id: dict[JourneyId, Journey],
-        tags_by_id: dict[TagId, Tag],
+        tags_by_id: dict[GroupId, Group],
     ) -> ResolvedEntity | None:
         """Wrap a raw counterpart id as a ``ResolvedEntity``.
 
-        Journey-tag ids resolve to the underlying ``Journey`` (the
+        Journey-group ids resolve to the underlying ``Journey`` (the
         semantically meaningful entity) when the journey is known.
         Returns ``None`` if the id cannot be resolved against any of the
         provided lookup maps — callers may skip in that case.
@@ -1445,12 +1442,12 @@ class RelationalResolver:
             return ResolvedEntity.guideline(guidelines_by_id[cast(GuidelineId, raw)])
         if raw in journeys_by_id:
             return ResolvedEntity.journey(journeys_by_id[cast(JourneyId, raw)])
-        # A journey tag should resolve to its journey, not the tag wrapper.
-        if jid := Tag.extract_journey_id(cast(TagId, raw)):
+        # A journey group should resolve to its journey, not the group wrapper.
+        if jid := GroupIds.extract_journey_id(cast(GroupId, raw)):
             if jid in journeys_by_id:
                 return ResolvedEntity.journey(journeys_by_id[cast(JourneyId, jid)])
         if raw in tags_by_id:
-            return ResolvedEntity.tag(tags_by_id[cast(TagId, raw)])
+            return ResolvedEntity.group(tags_by_id[cast(GroupId, raw)])
         return None
 
     # -- Shared helpers -----------------------------------------------------
@@ -1460,8 +1457,8 @@ class RelationalResolver:
         cache: _RelationshipCache,
         kind: RelationshipKind,
         indirect: bool,
-        source_id: GuidelineId | TagId | ToolId | None = None,
-        target_id: GuidelineId | TagId | ToolId | None = None,
+        source_id: GuidelineId | GroupId | ToolId | None = None,
+        target_id: GuidelineId | GroupId | ToolId | None = None,
     ) -> list[Relationship]:
         """Fetch relationships with per-query caching."""
         entity_id = source_id if source_id else target_id
@@ -1493,12 +1490,12 @@ class RelationalResolver:
                 JourneyId,
                 cast(dict[str, JSONSerializable], guideline.metadata["journey_node"])["journey_id"],
             )
-        if any(Tag.extract_journey_id(tid) for tid in guideline.tags):
+        if any(GroupIds.extract_journey_id(tid) for tid in guideline.groups):
             return next(
                 (
-                    Tag.extract_journey_id(tid)
-                    for tid in guideline.tags
-                    if Tag.extract_journey_id(tid)
+                    GroupIds.extract_journey_id(tid)
+                    for tid in guideline.groups
+                    if GroupIds.extract_journey_id(tid)
                 ),
                 None,
             )
@@ -1509,7 +1506,7 @@ class RelationalResolver:
 
         Journey node guidelines carry ``journey_node`` metadata and represent
         the journey's behavior. This is distinct from journey CONDITION guidelines,
-        which are plain observations tagged with the journey tag. Condition
+        which are plain observations grouped with the journey group. Condition
         guidelines should not be subject to journey-level deprioritization.
         """
         return "journey_node" in guideline.metadata
@@ -1518,51 +1515,10 @@ class RelationalResolver:
     def _matches_equal(a: Sequence[GuidelineMatch], b: Sequence[GuidelineMatch]) -> bool:
         if len(a) != len(b):
             return False
-        return all(x.guideline.id == y.guideline.id and x.score == y.score for x, y in zip(a, b))
+        return all(x.guideline.id == y.guideline.id for x, y in zip(a, b))
 
     @staticmethod
     def _journeys_equal(a: Sequence[Journey], b: Sequence[Journey]) -> bool:
         if len(a) != len(b):
             return False
         return {j.id for j in a} == {j.id for j in b}
-
-    def _emit_tracer_events(
-        self,
-        initial_ids: set[GuidelineId],
-        final_matches: list[GuidelineMatch],
-        original_matches: Sequence[GuidelineMatch],
-        resolutions: dict[ResolvedEntity, list[Resolution]],
-        guidelines_by_id: dict[GuidelineId, Guideline],
-    ) -> None:
-        """Emit tracer events for activated (entailed) and deactivated guidelines."""
-        final_ids = {m.guideline.id for m in final_matches}
-        all_matches = {m.guideline.id: m for m in list(original_matches) + final_matches}
-
-        for match in final_matches:
-            if match.guideline.id not in initial_ids:
-                self._tracer.add_event(
-                    "gm.activate",
-                    attributes={
-                        "guideline_id": match.guideline.id,
-                        "condition": match.guideline.content.condition,
-                        "action": match.guideline.content.action or "",
-                        "rationale": "Activated via entailment",
-                    },
-                )
-
-        for gid in initial_ids - final_ids:
-            m = all_matches[gid]
-            entity = ResolvedEntity.guideline(guidelines_by_id[gid])
-            res_list = resolutions.get(entity, [])
-            rationale = (
-                "; ".join(r.details.description for r in res_list) if res_list else "Unknown reason"
-            )
-            self._tracer.add_event(
-                "gm.deactivate",
-                attributes={
-                    "guideline_id": gid,
-                    "condition": m.guideline.content.condition,
-                    "action": m.guideline.content.action or "",
-                    "rationale": rationale,
-                },
-            )

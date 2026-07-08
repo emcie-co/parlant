@@ -1,14 +1,14 @@
 from typing import Any, Sequence
 
 from lagom import Container
-from parlant.core.guidelines import GuidelineContent
+from parlant.core.rules import RuleContent
 from parlant.core.services.indexing.tool_running_action_detector import ToolRunningActionDetector
 from parlant.core.tools import LocalToolService, ToolId
 
 
 async def base_test_tool_running_action_detector(
     container: Container,
-    guideline: GuidelineContent,
+    rule: RuleContent,
     tools: Sequence[dict[str, Any]],
     is_tool_running: bool,
 ) -> None:
@@ -18,13 +18,13 @@ async def base_test_tool_running_action_detector(
     local_tools = [await local_tool_service.create_tool(**tool) for tool in tools]
 
     result = await tool_action_detector.detect_if_tool_running(
-        guideline=guideline,
+        rule=rule,
         tool_ids=[ToolId(service_name="local", tool_name=tool.name) for tool in local_tools],
     )
     assert result.is_tool_running_only == is_tool_running
 
 
-async def test_that_guideline_with_action_that_only_run_tool_is_detected(
+async def test_that_rule_with_action_that_only_run_tool_is_detected(
     container: Container,
 ) -> None:
     tool: dict[str, Any] = {
@@ -35,7 +35,7 @@ async def test_that_guideline_with_action_that_only_run_tool_is_detected(
         "required": [],
     }
     tools = [tool]
-    guideline = GuidelineContent(
+    rule = RuleContent(
         condition="The customer asks about vegetarian options",
         action="get all vegetarian pizza toppings options",
     )
@@ -43,13 +43,13 @@ async def test_that_guideline_with_action_that_only_run_tool_is_detected(
 
     await base_test_tool_running_action_detector(
         container,
-        guideline,
+        rule,
         tools,
         is_tool_running,
     )
 
 
-async def test_that_guideline_with_action_that_only_run_several_tools_is_detected(
+async def test_that_rule_with_action_that_only_run_several_tools_is_detected(
     container: Container,
 ) -> None:
     deactivate_account_tool: dict[str, Any] = {
@@ -80,7 +80,7 @@ async def test_that_guideline_with_action_that_only_run_several_tools_is_detecte
 
     tools = [deactivate_account_tool, revoke_sessions_tool]
 
-    guideline = GuidelineContent(
+    rule = RuleContent(
         condition="Suspicious activity detected",
         action="Deactivate the user's account and revoke all active sessions",
     )
@@ -89,13 +89,13 @@ async def test_that_guideline_with_action_that_only_run_several_tools_is_detecte
 
     await base_test_tool_running_action_detector(
         container,
-        guideline,
+        rule,
         tools,
         is_tool_running,
     )
 
 
-async def test_that_guideline_with_action_that_not_only_require_running_tools_is_not_detected(
+async def test_that_rule_with_action_that_not_only_require_running_tools_is_not_detected(
     container: Container,
 ) -> None:
     deactivate_account_tool: dict[str, Any] = {
@@ -126,7 +126,7 @@ async def test_that_guideline_with_action_that_not_only_require_running_tools_is
 
     tools = [deactivate_account_tool, revoke_sessions_tool]
 
-    guideline = GuidelineContent(
+    rule = RuleContent(
         condition="Suspicious activity detected",
         action="Deactivate the user's account and revoke all active sessions and reflect the situation to the user",
     )
@@ -134,13 +134,13 @@ async def test_that_guideline_with_action_that_not_only_require_running_tools_is
 
     await base_test_tool_running_action_detector(
         container,
-        guideline,
+        rule,
         tools,
         is_tool_running,
     )
 
 
-async def test_that_guideline_with_action_that_require_a_tool_but_unrelated_associated_tool_is_not_detected(
+async def test_that_rule_with_action_that_require_a_tool_but_unrelated_associated_tool_is_not_detected(
     container: Container,
 ) -> None:
     tool: dict[str, Any] = {
@@ -156,7 +156,7 @@ async def test_that_guideline_with_action_that_require_a_tool_but_unrelated_asso
         "required": ["customer_id"],
     }
     tools = [tool]
-    guideline = GuidelineContent(
+    rule = RuleContent(
         condition="need to verify the customer's identity",
         action="send a verification code",
     )
@@ -164,13 +164,13 @@ async def test_that_guideline_with_action_that_require_a_tool_but_unrelated_asso
 
     await base_test_tool_running_action_detector(
         container,
-        guideline,
+        rule,
         tools,
         is_tool_running,
     )
 
 
-async def test_that_guideline_with_action_that_require_running_tools_and_telling_the_user_something_is_not_detected(
+async def test_that_rule_with_action_that_require_running_tools_and_telling_the_user_something_is_not_detected(
     container: Container,
 ) -> None:
     tool: dict[str, Any] = {
@@ -181,7 +181,7 @@ async def test_that_guideline_with_action_that_require_running_tools_and_telling
         "required": [],
     }
     tools = [tool]
-    guideline = GuidelineContent(
+    rule = RuleContent(
         condition="The customer asks about vegetarian options",
         action="list all vegetarian pizza toppings options",
     )
@@ -189,7 +189,7 @@ async def test_that_guideline_with_action_that_require_running_tools_and_telling
 
     await base_test_tool_running_action_detector(
         container,
-        guideline,
+        rule,
         tools,
         is_tool_running,
     )

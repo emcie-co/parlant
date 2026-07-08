@@ -16,14 +16,15 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+from itertools import chain
 from typing import NewType, Optional, Sequence, Union, cast
 from typing_extensions import override, TypedDict, Self
 
 import networkx  # type: ignore
 
-from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, UniqueId, Version, IdGenerator
-from parlant.core.guidelines import GuidelineId
+from parlant.core.async_utils import ReaderWriterLock, safe_gather
+from parlant.core.common import ItemNotFoundError, try_or_none, UniqueId, Version, IdGenerator
+from parlant.core.rules import RuleId
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -34,7 +35,7 @@ from parlant.core.persistence.document_database_helper import (
     DocumentMigrationHelper,
     DocumentStoreMigrationHelper,
 )
-from parlant.core.tags import TagId
+from parlant.core.groups import GroupId
 from parlant.core.tools import ToolId
 
 RelationshipId = NewType("RelationshipId", str)
@@ -62,34 +63,34 @@ class RelationshipKind(Enum):
     """When SOURCE is activated and two or more of the targets T ∈ {T₁, T₂, ...} are activated, ask the customer to clarify which action they want to take."""
 
     REEVALUATION = "reevaluation"
-    """When TARGET tool is executed, re-evaluate SOURCE guideline before responding."""
+    """When TARGET tool is executed, re-evaluate SOURCE rule before responding."""
 
     OVERLAP = "overlap"
     """When SOURCE and TARGET tools are both evaluated, they should be evaluated in the same batch to prevent conflicts."""
 
 
-RelationshipEntityId = Union[GuidelineId, TagId, ToolId]
+RelationshipEntityId = Union[RuleId, GroupId, ToolId]
 
 
 class RelationshipEntityKind(Enum):
     """Enumeration of relationship entity kinds."""
 
-    GUIDELINE = "guideline"
-    """A guideline entity."""
+    RULE = "rule"
+    """A rule entity."""
 
-    TAG_ALL = "tag_all"
-    """A tag entity with ALL semantics: all tagged members must be active."""
+    GROUP_ALL = "group_all"
+    """A group entity with ALL semantics: all grouped members must be active."""
 
-    TAG_ANY = "tag_any"
-    """A tag entity with ANY semantics: at least one tagged member must be active."""
+    GROUP_ANY = "group_any"
+    """A group entity with ANY semantics: at least one grouped member must be active."""
 
     TOOL = "tool"
     """A tool entity."""
 
     @property
-    def is_tag(self) -> bool:
-        """Returns True if this entity kind is any tag variant (TAG_ALL or TAG_ANY)."""
-        return self in (RelationshipEntityKind.TAG_ALL, RelationshipEntityKind.TAG_ANY)
+    def is_group(self) -> bool:
+        """Returns True if this entity kind is any group variant (GROUP_ALL or GROUP_ANY)."""
+        return self in (RelationshipEntityKind.GROUP_ALL, RelationshipEntityKind.GROUP_ANY)
 
 
 @dataclass(frozen=True)
@@ -109,6 +110,7 @@ class Relationship:
 
     id: RelationshipId
     creation_utc: datetime
+    modified_utc: datetime
     source: RelationshipEntity
     target: RelationshipEntity
     kind: RelationshipKind
@@ -126,6 +128,8 @@ class RelationshipStore(ABC):
         target: RelationshipEntity,
         kind: RelationshipKind,
         group_id: Optional[str] = None,
+        creation_utc: Optional[datetime] = None,
+        id: Optional[RelationshipId] = None,
     ) -> Relationship: ...
 
     @abstractmethod
@@ -150,24 +154,24 @@ class RelationshipStore(ABC):
     ) -> Sequence[Relationship]: ...
 
 
-class GuidelineRelationshipDocument_v0_1_0(TypedDict, total=False):
+class RuleRelationshipDocument_v0_1_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
-    source: GuidelineId
-    target: GuidelineId
+    source: RuleId
+    target: RuleId
 
 
-class GuidelineRelationshipDocument_v0_2_0(TypedDict, total=False):
+class RuleRelationshipDocument_v0_2_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
-    source: GuidelineId
-    target: GuidelineId
+    source: RuleId
+    target: RuleId
     kind: RelationshipKind
 
 
-class RelationshipDocument(TypedDict, total=False):
+class RelationshipDocument_v0_3_0(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
@@ -179,14 +183,28 @@ class RelationshipDocument(TypedDict, total=False):
     group_id: str
 
 
+class RelationshipDocument(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    last_modified: str
+    source: str
+    source_type: str
+    target: str
+    target_type: str
+    kind: str
+    group_id: str
+
+
 class RelationshipDocumentStore(RelationshipStore):
-    VERSION = Version.from_string("0.3.0")
+    VERSION = Version.from_string("0.4.0")
 
     def __init__(
         self,
         id_generator: IdGenerator,
         database: DocumentDatabase,
         allow_migration: bool = False,
+        collections_prefix: str | None = None,
     ) -> None:
         self._id_generator = id_generator
 
@@ -194,9 +212,25 @@ class RelationshipDocumentStore(RelationshipStore):
         self._collection: DocumentCollection[RelationshipDocument]
         self._graphs: dict[RelationshipKind | RelationshipKind, networkx.DiGraph] = {}
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
         self._lock = ReaderWriterLock()
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[RelationshipDocument]:
+        async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(RelationshipDocument_v0_3_0, doc)
+            return RelationshipDocument(
+                id=d["id"],
+                version=Version.String("0.4.0"),
+                creation_utc=d["creation_utc"],
+                last_modified=d["creation_utc"],
+                source=d["source"],
+                source_type=d["source_type"],
+                target=d["target"],
+                target_type=d["target_type"],
+                kind=d["kind"],
+                group_id=d.get("group_id", ""),
+            )
+
         async def v0_2_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise ValueError("Cannot load v0.2.0 relationships")
 
@@ -208,6 +242,7 @@ class RelationshipDocumentStore(RelationshipStore):
             {
                 "0.1.0": v0_1_0_to_v0_2_0,
                 "0.2.0": v0_2_0_to_v0_3_0,
+                "0.3.0": v0_3_0_to_v0_4_0,
             },
         ).migrate(doc)
 
@@ -216,9 +251,12 @@ class RelationshipDocumentStore(RelationshipStore):
             store=self,
             database=self._database,
             allow_migration=self._allow_migration,
+            collections_prefix=self._collections_prefix,
         ):
             self._collection = await self._database.get_or_create_collection(
-                name="relationships",
+                name=f"{self._collections_prefix}_relationships"
+                if self._collections_prefix
+                else "relationships",
                 schema=RelationshipDocument,
                 document_loader=self._document_loader,
             )
@@ -241,6 +279,7 @@ class RelationshipDocumentStore(RelationshipStore):
             id=ObjectId(relationship.id),
             version=self.VERSION.to_string(),
             creation_utc=relationship.creation_utc.isoformat(),
+            last_modified=relationship.modified_utc.isoformat(),
             source=relationship.source.id_to_string(),
             source_type=relationship.source.kind.value,
             target=relationship.target.id_to_string(),
@@ -257,16 +296,23 @@ class RelationshipDocumentStore(RelationshipStore):
             id: str,
             entity_type_str: str,
         ) -> RelationshipEntity:
-            # Backwards compat: legacy "tag" maps to TAG_ALL
-            if entity_type_str == "tag":
-                entity_type_str = RelationshipEntityKind.TAG_ALL.value
+            # Backwards compat: legacy "tag" and "group" map to GROUP_ALL.
+            if entity_type_str in {"tag", "group"}:
+                entity_type_str = RelationshipEntityKind.GROUP_ALL.value
+            elif entity_type_str == "tag_all":
+                entity_type_str = RelationshipEntityKind.GROUP_ALL.value
+            elif entity_type_str == "tag_any":
+                entity_type_str = RelationshipEntityKind.GROUP_ANY.value
 
             entity_type = RelationshipEntityKind(entity_type_str)
 
-            if entity_type == RelationshipEntityKind.GUIDELINE:
-                return RelationshipEntity(id=GuidelineId(id), kind=RelationshipEntityKind.GUIDELINE)
-            elif entity_type in (RelationshipEntityKind.TAG_ALL, RelationshipEntityKind.TAG_ANY):
-                return RelationshipEntity(id=TagId(id), kind=entity_type)
+            if entity_type == RelationshipEntityKind.RULE:
+                return RelationshipEntity(id=RuleId(id), kind=RelationshipEntityKind.RULE)
+            elif entity_type in (
+                RelationshipEntityKind.GROUP_ALL,
+                RelationshipEntityKind.GROUP_ANY,
+            ):
+                return RelationshipEntity(id=GroupId(id), kind=entity_type)
             elif entity_type == RelationshipEntityKind.TOOL:
                 return RelationshipEntity(
                     id=ToolId.from_string(id), kind=RelationshipEntityKind.TOOL
@@ -287,9 +333,9 @@ class RelationshipDocumentStore(RelationshipStore):
             RelationshipKind(relationship_document["kind"])
             if source.kind
             in {
-                RelationshipEntityKind.GUIDELINE,
-                RelationshipEntityKind.TAG_ALL,
-                RelationshipEntityKind.TAG_ANY,
+                RelationshipEntityKind.RULE,
+                RelationshipEntityKind.GROUP_ALL,
+                RelationshipEntityKind.GROUP_ANY,
             }
             else RelationshipKind(relationship_document["kind"])
         )
@@ -297,6 +343,7 @@ class RelationshipDocumentStore(RelationshipStore):
         return Relationship(
             id=RelationshipId(relationship_document["id"]),
             creation_utc=datetime.fromisoformat(relationship_document["creation_utc"]),
+            modified_utc=datetime.fromisoformat(relationship_document["last_modified"]),
             source=source,
             target=target,
             kind=kind,
@@ -343,15 +390,28 @@ class RelationshipDocumentStore(RelationshipStore):
         kind: RelationshipKind,
         group_id: Optional[str] = None,
         creation_utc: Optional[datetime] = None,
+        id: Optional[RelationshipId] = None,
     ) -> Relationship:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            relationship_checksum = f"{source.id_to_string()}{target.id_to_string()}{kind.value}"
+            if id is not None:
+                relationship_id = id
+                existing_by_id = await self._collection.find_one(
+                    filters={"id": {"$eq": relationship_id}}
+                )
+                if existing_by_id:
+                    raise ValueError(f"Relationship with id '{relationship_id}' already exists")
+            else:
+                relationship_checksum = (
+                    f"{source.id_to_string()}{target.id_to_string()}{kind.value}"
+                )
+                relationship_id = RelationshipId(self._id_generator.generate(relationship_checksum))
 
             relationship = Relationship(
-                id=RelationshipId(self._id_generator.generate(relationship_checksum)),
+                id=relationship_id,
                 creation_utc=creation_utc,
+                modified_utc=creation_utc,
                 source=source,
                 target=target,
                 kind=kind,
@@ -555,3 +615,69 @@ class RelationshipDocumentStore(RelationshipStore):
                     )
 
         return relationships
+
+
+class CompositeRelationshipStore(RelationshipStore):
+    def __init__(
+        self,
+        writable_store: RelationshipStore,
+        readable_stores: Sequence[RelationshipStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[RelationshipStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_relationship(
+        self,
+        source: RelationshipEntity,
+        target: RelationshipEntity,
+        kind: RelationshipKind,
+        group_id: Optional[str] = None,
+        creation_utc: Optional[datetime] = None,
+        id: Optional[RelationshipId] = None,
+    ) -> Relationship:
+        return await self._writable_store.create_relationship(
+            source, target, kind, group_id=group_id, creation_utc=creation_utc, id=id
+        )
+
+    @override
+    async def read_relationship(
+        self,
+        relationship_id: RelationshipId,
+    ) -> Relationship:
+        results = await safe_gather(
+            *[try_or_none(store.read_relationship(relationship_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(relationship_id))
+        return result
+
+    @override
+    async def delete_relationship(
+        self,
+        relationship_id: RelationshipId,
+    ) -> None:
+        return await self._writable_store.delete_relationship(relationship_id)
+
+    @override
+    async def list_relationships(
+        self,
+        kind: Optional[RelationshipKind] = None,
+        indirect: bool = False,
+        source_id: Optional[RelationshipEntityId] = None,
+        target_id: Optional[RelationshipEntityId] = None,
+    ) -> Sequence[Relationship]:
+        results = await safe_gather(
+            *[
+                store.list_relationships(
+                    kind=kind,
+                    indirect=indirect,
+                    source_id=source_id,
+                    target_id=target_id,
+                )
+                for store in self._all_stores
+            ]
+        )
+        return list(chain.from_iterable(results))

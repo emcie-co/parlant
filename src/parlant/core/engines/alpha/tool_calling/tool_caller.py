@@ -12,15 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, asdict, field
 from enum import Enum
+from functools import reduce
 import json
 import time
 import traceback
 from typing import AsyncIterator, Mapping, NewType, Optional, Sequence
+
+from typing_extensions import Self
 
 from parlant.core import async_utils
 from parlant.core.agents import Agent
@@ -36,10 +40,11 @@ from parlant.core.meter import DurationHistogram, Meter
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import Event, SessionId, ToolResult
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 from parlant.core.tools import (
     Tool,
     ToolContext,
-    TransientGuideline,
+    TransientRule as TransientGuideline,
     ToolId,
     ToolService,
     DEFAULT_PARAMETER_PRECEDENCE,
@@ -58,6 +63,7 @@ ToolResultId = NewType("ToolResultId", str)
 @dataclass(frozen=True)
 class ToolCall:
     id: ToolCallId
+    rationale: str
     tool_id: ToolId
     arguments: Mapping[str, JSONSerializable]
 
@@ -108,9 +114,35 @@ class ToolCallEvaluation(Enum):
 @dataclass(frozen=True)
 class ToolInsights:
     # TODO: Refactor evaluations so that missing and invalid data are part of each evaluation
-    evaluations: Sequence[tuple[ToolId, ToolCallEvaluation]] = field(default_factory=list)
-    missing_data: Sequence[MissingToolData] = field(default_factory=list)
-    invalid_data: Sequence[InvalidToolData] = field(default_factory=list)
+    evaluations: Mapping[ToolId, Mapping[ToolCallId, ToolCallEvaluation]] = field(
+        default_factory=dict
+    )
+    missing_data: Mapping[ToolId, Mapping[ToolCallId, Sequence[MissingToolData]]] = field(
+        default_factory=dict
+    )
+    invalid_data: Mapping[ToolId, Mapping[ToolCallId, Sequence[InvalidToolData]]] = field(
+        default_factory=dict
+    )
+
+    def __bool__(self) -> bool:
+        return bool(self.missing_data or self.invalid_data)
+
+    @classmethod
+    def merge(cls, a: Self, b: Self) -> Self:
+        return cls(
+            evaluations={
+                tid: {**a.evaluations.get(tid, {}), **b.evaluations.get(tid, {})}
+                for tid in {*a.evaluations, *b.evaluations}
+            },
+            missing_data={
+                tid: {**a.missing_data.get(tid, {}), **b.missing_data.get(tid, {})}
+                for tid in {*a.missing_data, *b.missing_data}
+            },
+            invalid_data={
+                tid: {**a.invalid_data.get(tid, {}), **b.invalid_data.get(tid, {})}
+                for tid in {*a.invalid_data, *b.invalid_data}
+            },
+        )
 
 
 @dataclass(frozen=True)
@@ -162,14 +194,22 @@ class ToolCaller:
         self,
         logger: Logger,
         meter: Meter,
-        service_registry: ServiceRegistry,
         batcher: ToolCallBatcher,
+        store_provider: StoreProvider,
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._meter = meter
-
-        self._service_registry = service_registry
         self.batcher = batcher
+
+    @property
+    def _service_registry(self) -> ServiceRegistry:
+        return self._store_provider.get_store(
+            ServiceRegistry,
+            StoreProviderHints(
+                call_site="engine",
+            ),
+        )
 
     async def infer_tool_calls(
         self,
@@ -225,27 +265,15 @@ class ToolCaller:
 
         t_end = time.time()
 
-        # Aggregate insights from all batch results (e.g., missing data across batches)
-        aggregated_evaluations: list[tuple[ToolId, ToolCallEvaluation]] = []
-        aggregated_missing_data: list[MissingToolData] = []
-        aggregated_invalid_data: list[InvalidToolData] = []
-        for result in batch_results:
-            if result.insights and result.insights.evaluations:
-                aggregated_evaluations.extend(result.insights.evaluations)
-            if result.insights and result.insights.missing_data:
-                aggregated_missing_data.extend(result.insights.missing_data)
-            if result.insights and result.insights.invalid_data:
-                aggregated_invalid_data.extend(result.insights.invalid_data)
-
         return ToolCallInferenceResult(
             total_duration=t_end - t_start,
             batch_count=len(batches),
             batch_generations=[result.generation_info for result in batch_results],
             batches=[result.tool_calls for result in batch_results],
-            insights=ToolInsights(
-                evaluations=aggregated_evaluations,
-                missing_data=aggregated_missing_data,
-                invalid_data=aggregated_invalid_data,
+            insights=reduce(
+                ToolInsights.merge,
+                (result.insights for result in batch_results),
+                ToolInsights(),
             ),
         )
 

@@ -15,7 +15,7 @@
 import asyncio
 import os
 import time
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 import dateutil
 from fastapi import status
 import httpx
@@ -25,6 +25,8 @@ from datetime import datetime, timezone
 
 from parlant.core.common import generate_id, JSONSerializable
 from parlant.core.canned_responses import CannedResponseStore
+from parlant.core.emissions import EventEmitter
+from parlant.core.engines.types import Context, Engine, EngineRegistry, UtteranceRequest
 from parlant.core.tools import ToolResult
 from parlant.core.agents import AgentId, AgentStore, AgentUpdateParams, CompositionMode
 from parlant.core.async_utils import Timeout
@@ -37,14 +39,52 @@ from parlant.core.sessions import (
     SessionListener,
     SessionStore,
 )
+from parlant.core.tracer import Tracer
 
 from tests.test_utilities import (
     create_agent,
     create_customer,
-    create_guideline,
+    create_rule,
     create_session,
     post_message,
 )
+
+
+class CancellableTestEngine(Engine):
+    def __init__(self, tracer: Tracer) -> None:
+        self._tracer = tracer
+        self.started = asyncio.Event()
+
+    async def process(
+        self,
+        context: Context,
+        event_emitter: EventEmitter,
+    ) -> bool:
+        try:
+            await event_emitter.emit_status_event(
+                trace_id=self._tracer.trace_id,
+                data={"status": "processing", "data": {}},
+            )
+            self.started.set()
+            await asyncio.Future[None]()
+        except asyncio.CancelledError:
+            await event_emitter.emit_status_event(
+                trace_id=self._tracer.trace_id,
+                data={"status": "cancelled", "data": {}},
+            )
+            await event_emitter.emit_status_event(
+                trace_id=self._tracer.trace_id,
+                data={"status": "ready", "data": {"stage": "completed"}},
+            )
+            raise
+
+    async def utter(
+        self,
+        context: Context,
+        event_emitter: EventEmitter,
+        requests: Sequence[UtteranceRequest],
+    ) -> bool:
+        return False
 
 
 @fixture
@@ -811,7 +851,7 @@ async def test_that_a_jailbreak_message_is_flagged_and_tagged_as_such(
     event = response.json()
 
     assert event["data"].get("flagged")
-    assert "jailbreak" in event["data"].get("tags", [])
+    assert "jailbreak" in event["data"].get("groups", [])
 
 
 async def test_that_posting_problematic_messages_with_moderation_enabled_causes_them_to_be_flagged_and_tagged_as_such(
@@ -833,7 +873,7 @@ async def test_that_posting_problematic_messages_with_moderation_enabled_causes_
     event = response.json()
 
     assert event["data"].get("flagged")
-    assert "harassment" in event["data"].get("tags", [])
+    assert "harassment" in event["data"].get("groups", [])
 
 
 async def test_that_expressing_frustration_does_not_cause_a_message_to_be_flagged(
@@ -998,7 +1038,7 @@ async def test_that_tool_events_are_traced_with_message_events(
     agent_id: AgentId,
     session_id: SessionId,
 ) -> None:
-    await create_guideline(
+    await create_rule(
         container=container,
         agent_id=agent_id,
         condition="a customer says hello",
@@ -1166,7 +1206,7 @@ async def test_that_an_agent_message_can_be_regenerated(
         )
     ).raise_for_status()
 
-    _ = await create_guideline(
+    _ = await create_rule(
         container=container,
         agent_id=agent_id,
         condition="a customer ask what is the weather today",
@@ -1222,7 +1262,7 @@ async def test_that_an_agent_message_can_be_generated_on_demand(
                 json={
                     "kind": "message",
                     "source": "ai_agent",
-                    "guidelines": [
+                    "rules": [
                         {
                             "action": "Tell the user you'll be back in a minute, and in the meantime offer them a Pepsi",
                             "rationale": "buy_time",
@@ -1356,17 +1396,17 @@ async def test_that_agent_state_is_deleted_when_deleting_events(
                 AgentState(
                     trace_id=first_event_trace_id,
                     journey_paths={},
-                    applied_guideline_ids=[],
+                    applied_rule_ids=[],
                 ),
                 AgentState(
                     trace_id=second_event_trace_id,
                     journey_paths={},
-                    applied_guideline_ids=[],
+                    applied_rule_ids=[],
                 ),
                 AgentState(
                     trace_id=third_event_trace_id,
                     journey_paths={},
-                    applied_guideline_ids=[],
+                    applied_rule_ids=[],
                 ),
             ]
         },
@@ -1440,12 +1480,12 @@ async def test_that_deleting_events_from_a_non_agent_trace_keeps_agent_state(
                 AgentState(
                     trace_id=first_event_trace_id,
                     journey_paths={},
-                    applied_guideline_ids=[],
+                    applied_rule_ids=[],
                 ),
                 AgentState(
                     trace_id=third_event_trace_id,
                     journey_paths={},
-                    applied_guideline_ids=[],
+                    applied_rule_ids=[],
                 ),
             ]
         },
@@ -1632,6 +1672,87 @@ async def test_that_status_event_can_be_created(
     }
 
 
+async def test_that_cancelled_status_event_cancels_active_processing(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    engine = CancellableTestEngine(container[Tracer])
+    container[EngineRegistry]._providers["cancellable-test"] = lambda: engine
+
+    agent = await container[AgentStore].create_agent(
+        name="cancellable-test-agent",
+        engine="cancellable-test",
+    )
+    session = await create_session(container, agent_id=agent.id)
+
+    processing_event = (
+        (
+            await async_client.post(
+                f"/sessions/{session.id}/events",
+                json={
+                    "kind": "message",
+                    "source": "ai_agent",
+                },
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert processing_event["kind"] == "status"
+    assert processing_event["data"]["status"] == "processing"
+
+    await asyncio.wait_for(engine.started.wait(), timeout=1)
+
+    cancellation_event = (
+        (
+            await async_client.post(
+                f"/sessions/{session.id}/events",
+                json={
+                    "kind": "status",
+                    "source": "human_agent",
+                    "status": "cancelled",
+                },
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert cancellation_event["kind"] == "status"
+    assert cancellation_event["data"] == {"status": "cancelled", "data": {}}
+    assert cancellation_event["trace_id"] == processing_event["trace_id"]
+
+    events = (await async_client.get(f"/sessions/{session.id}/events")).raise_for_status().json()
+
+    assert [e["kind"] for e in events] == ["status", "status", "status"]
+    assert not any(e["kind"] == "message" for e in events)
+
+
+async def test_that_cancelled_status_event_fails_without_active_processing(
+    async_client: httpx.AsyncClient,
+    session_id: SessionId,
+) -> None:
+    response = await async_client.post(
+        f"/sessions/{session_id}/events",
+        json={
+            "kind": "status",
+            "source": "human_agent",
+            "status": "cancelled",
+        },
+    )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+
+    events = (
+        (await async_client.get(f"/sessions/{session_id}/events", params={"wait_for_data": 0}))
+        .raise_for_status()
+        .json()
+    )
+
+    assert events == []
+
+
 async def test_that_list_sessions_can_be_paginated(
     async_client: httpx.AsyncClient, container: Container
 ) -> None:
@@ -1717,6 +1838,169 @@ async def test_that_list_sessions_can_be_paginated_with_sort_directions(
     assert len(descending_data["items"]) == len(ascending_data["items"]) == 7
     assert descending_data["items"][0]["id"] == ascending_data["items"][-1]["id"]
     assert descending_data["items"][-1]["id"] == ascending_data["items"][0]["id"]
+
+
+async def test_that_list_sessions_with_min_modified_utc_paginates_by_effective_modified_utc(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    agent = await create_agent(container, "test-agent")
+    first_created_session = await create_session(
+        container,
+        agent_id=agent.id,
+        title="first-created-session",
+    )
+    await asyncio.sleep(0.015)
+    second_created_session = await create_session(
+        container,
+        agent_id=agent.id,
+        title="second-created-session",
+    )
+
+    checkpoint = datetime.now(timezone.utc)
+    await asyncio.sleep(0.015)
+    (
+        await async_client.post(
+            f"/sessions/{second_created_session.id}/events",
+            json={
+                "kind": "message",
+                "source": "customer",
+                "message": "older modification",
+            },
+        )
+    ).raise_for_status()
+    await asyncio.sleep(0.015)
+    (
+        await async_client.post(
+            f"/sessions/{first_created_session.id}/events",
+            json={
+                "kind": "message",
+                "source": "customer",
+                "message": "newer modification",
+            },
+        )
+    ).raise_for_status()
+
+    first_page = (
+        (
+            await async_client.get(
+                "/sessions",
+                params={
+                    "min_modified_utc": checkpoint.isoformat(),
+                    "limit": 1,
+                },
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert first_page["items"][0]["id"] == second_created_session.id
+    assert first_page["has_more"] is True
+    assert first_page["next_cursor"] is not None
+
+    second_page = (
+        (
+            await async_client.get(
+                "/sessions",
+                params={
+                    "min_modified_utc": checkpoint.isoformat(),
+                    "limit": 1,
+                    "cursor": first_page["next_cursor"],
+                },
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert second_page["items"][0]["id"] == first_created_session.id
+    assert second_page["has_more"] is False
+
+
+async def test_that_updated_event_makes_session_visible_to_min_modified_utc_listing(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    agent = await create_agent(container, "test-agent")
+    session = await create_session(container, agent_id=agent.id, title="session-with-event")
+    event = (
+        (
+            await async_client.post(
+                f"/sessions/{session.id}/events",
+                json={
+                    "kind": "message",
+                    "source": "customer",
+                    "message": "before checkpoint",
+                },
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    checkpoint = datetime.now(timezone.utc)
+    await asyncio.sleep(0.015)
+    (
+        await async_client.patch(
+            f"/sessions/{session.id}/events/{event['id']}",
+            json={"metadata": {"set": {"reviewed": True}}},
+        )
+    ).raise_for_status()
+
+    data = (
+        (
+            await async_client.get(
+                "/sessions",
+                params={"min_modified_utc": checkpoint.isoformat()},
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert [s["id"] for s in data] == [session.id]
+    assert dateutil.parser.isoparse(data[0]["modified_utc"]) >= checkpoint
+
+
+async def test_that_deleted_event_makes_session_visible_to_min_modified_utc_listing(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    agent = await create_agent(container, "test-agent")
+    session = await create_session(container, agent_id=agent.id, title="session-with-event")
+    (
+        await async_client.post(
+            f"/sessions/{session.id}/events",
+            json={
+                "kind": "message",
+                "source": "customer",
+                "message": "before checkpoint",
+            },
+        )
+    ).raise_for_status()
+
+    checkpoint = datetime.now(timezone.utc)
+    await asyncio.sleep(0.015)
+    delete_response = await async_client.delete(
+        f"/sessions/{session.id}/events",
+        params={"min_offset": 0},
+    )
+    assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+
+    data = (
+        (
+            await async_client.get(
+                "/sessions",
+                params={"min_modified_utc": checkpoint.isoformat()},
+            )
+        )
+        .raise_for_status()
+        .json()
+    )
+
+    assert [s["id"] for s in data] == [session.id]
+    assert dateutil.parser.isoparse(data[0]["modified_utc"]) >= checkpoint
 
 
 async def test_that_list_sessions_can_be_paginated_with_filters(

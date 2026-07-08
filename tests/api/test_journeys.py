@@ -19,9 +19,9 @@ from fastapi import status, HTTPException
 from lagom import Container
 from pytest import mark, raises
 
-from parlant.core.journeys import JourneyStore
-from parlant.core.guidelines import GuidelineStore
-from parlant.core.tags import Tag, TagStore
+from parlant.core.journeys import JourneyNodeKind, JourneyStore
+from parlant.core.rules import RuleStore
+from parlant.core.groups import GroupIds, GroupStore
 from parlant.core.common import ItemNotFoundError
 
 
@@ -29,7 +29,7 @@ async def test_that_a_journey_can_be_created(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
 
     payload = {
         "title": "Customer Onboarding",
@@ -44,21 +44,22 @@ async def test_that_a_journey_can_be_created(
 
     assert journey["title"] == payload["title"]
     assert journey["description"] == payload["description"]
-    assert journey["tags"] == []
+    assert journey["groups"] == []
+    assert "modified_utc" in journey
 
     assert len(journey["triggers"]) == 1
-    guideline = await guideline_store.read_guideline(guideline_id=journey["triggers"][0])
-    assert guideline.id == journey["triggers"][0]
+    rule = await rule_store.read_rule(rule_id=journey["triggers"][0])
+    assert rule.id == journey["triggers"][0]
 
-    guideline_after_update = await guideline_store.read_guideline(guideline.id)
-    assert guideline_after_update.tags == [Tag.for_journey_id(journey["id"]).id]
+    rule_after_update = await rule_store.read_rule(rule.id)
+    assert rule_after_update.groups == [GroupIds.for_journey_id(journey["id"])]
 
 
 async def test_that_a_journey_can_be_created_with_multiple_triggers(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
 
     payload = {
         "title": "Customer Onboarding",
@@ -73,23 +74,23 @@ async def test_that_a_journey_can_be_created_with_multiple_triggers(
 
     assert journey["title"] == payload["title"]
     assert journey["description"] == payload["description"]
-    assert journey["tags"] == []
+    assert journey["groups"] == []
 
     assert len(journey["triggers"]) == 2
-    first_guideline = await guideline_store.read_guideline(guideline_id=journey["triggers"][0])
-    second_guideline = await guideline_store.read_guideline(guideline_id=journey["triggers"][1])
-    assert first_guideline.id == journey["triggers"][0]
-    assert second_guideline.id == journey["triggers"][1]
+    first_rule = await rule_store.read_rule(rule_id=journey["triggers"][0])
+    second_rule = await rule_store.read_rule(rule_id=journey["triggers"][1])
+    assert first_rule.id == journey["triggers"][0]
+    assert second_rule.id == journey["triggers"][1]
 
 
 async def test_that_a_journey_can_be_created_with_tags(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
 
-    tag1 = await tag_store.create_tag("tag1")
-    tag2 = await tag_store.create_tag("tag2")
+    group1 = await group_store.create_group("group1")
+    group2 = await group_store.create_group("group2")
 
     response = await async_client.post(
         "/journeys",
@@ -97,7 +98,7 @@ async def test_that_a_journey_can_be_created_with_tags(
             "title": "Product Support",
             "description": "Assist customers with product issues",
             "triggers": ["Customer reports an issue"],
-            "tags": [tag1.id, tag2.id],
+            "groups": [group1.id, group2.id],
         },
     )
 
@@ -108,7 +109,7 @@ async def test_that_a_journey_can_be_created_with_tags(
     )
 
     assert journey_dto["title"] == "Product Support"
-    assert set(journey_dto["tags"]) == {tag1.id, tag2.id}
+    assert set(journey_dto["groups"]) == {group1.id, group2.id}
 
 
 async def test_that_a_journey_can_be_created_with_custom_id(
@@ -116,7 +117,7 @@ async def test_that_a_journey_can_be_created_with_custom_id(
     container: Container,
 ) -> None:
     """Test that a journey can be created with a custom ID."""
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
     custom_id = "custom-journey-id-123"
 
     payload = {
@@ -135,11 +136,11 @@ async def test_that_a_journey_can_be_created_with_custom_id(
     assert journey["id"] == custom_id
     assert journey["title"] == payload["title"]
     assert journey["description"] == payload["description"]
-    assert journey["tags"] == []
+    assert journey["groups"] == []
 
     assert len(journey["triggers"]) == 1
-    guideline = await guideline_store.read_guideline(guideline_id=journey["triggers"][0])
-    assert guideline.id == journey["triggers"][0]
+    rule = await rule_store.read_rule(rule_id=journey["triggers"][0])
+    assert rule.id == journey["triggers"][0]
 
 
 async def test_that_creating_journey_with_duplicate_id_fails(
@@ -173,7 +174,7 @@ async def test_that_journeys_can_be_listed(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
 
     _ = (
         (
@@ -197,15 +198,15 @@ async def test_that_journeys_can_be_listed(
     assert first_journey["title"] == "Customer Onboarding"
 
     assert len(first_journey["triggers"]) == 1
-    guideline = await guideline_store.read_guideline(guideline_id=first_journey["triggers"][0])
-    assert guideline.id == first_journey["triggers"][0]
+    rule = await rule_store.read_rule(rule_id=first_journey["triggers"][0])
+    assert rule.id == first_journey["triggers"][0]
 
 
 async def test_that_a_journey_can_be_read(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
 
     journey = (
         (
@@ -228,8 +229,8 @@ async def test_that_a_journey_can_be_read(
     assert journey_dto["description"] == "Guide new customers"
 
     assert len(journey_dto["triggers"]) == 1
-    guideline = await guideline_store.read_guideline(guideline_id=journey_dto["triggers"][0])
-    assert guideline.id == journey_dto["triggers"][0]
+    rule = await rule_store.read_rule(rule_id=journey_dto["triggers"][0])
+    assert rule.id == journey_dto["triggers"][0]
 
 
 @mark.parametrize(
@@ -278,17 +279,18 @@ async def test_that_a_journey_can_be_updated(
 
     assert updated_journey["title"] == expected_title
     assert updated_journey["description"] == expected_description
+    assert updated_journey["modified_utc"] != journey["modified_utc"]
 
 
 async def test_that_tags_can_be_added_to_a_journey(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
 
-    tag1 = await tag_store.create_tag("tag1")
-    tag2 = await tag_store.create_tag("tag2")
-    tag3 = await tag_store.create_tag("tag3")
+    group1 = await group_store.create_group("group1")
+    group2 = await group_store.create_group("group2")
+    group3 = await group_store.create_group("group3")
 
     journey = (
         (
@@ -298,7 +300,7 @@ async def test_that_tags_can_be_added_to_a_journey(
                     "title": "Customer Onboarding",
                     "description": "Guide new customers",
                     "triggers": ["Customer asks for onboarding help"],
-                    "tags": [tag1.id],
+                    "groups": [group1.id],
                 },
             )
         )
@@ -306,42 +308,42 @@ async def test_that_tags_can_be_added_to_a_journey(
         .json()
     )
 
-    update_payload = {"tags": {"add": [tag2.id, tag3.id]}}
+    update_payload = {"groups": {"add": [group2.id, group3.id]}}
     response = await async_client.patch(f"/journeys/{journey['id']}", json=update_payload)
     response.raise_for_status()
     updated_journey = response.json()
 
-    assert tag1.id in updated_journey["tags"]
-    assert tag2.id in updated_journey["tags"]
-    assert tag3.id in updated_journey["tags"]
+    assert group1.id in updated_journey["groups"]
+    assert group2.id in updated_journey["groups"]
+    assert group3.id in updated_journey["groups"]
 
 
 async def test_that_tags_can_be_removed_from_a_journey(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
 
-    tag2 = await tag_store.create_tag("tag2")
-    tag3 = await tag_store.create_tag("tag3")
+    group2 = await group_store.create_group("group2")
+    group3 = await group_store.create_group("group3")
 
     journey = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
         triggers=[],
-        tags=[tag2.id, tag3.id],
+        groups=[group2.id, group3.id],
     )
 
-    update_payload = {"tags": {"remove": [tag2.id]}}
+    update_payload = {"groups": {"remove": [group2.id]}}
     _ = (
         await async_client.patch(f"/journeys/{journey.id}", json=update_payload)
     ).raise_for_status()
     journey_after_second_update = (
         (await async_client.get(f"/journeys/{journey.id}")).raise_for_status().json()
     )
-    assert tag2.id not in journey_after_second_update["tags"]
-    assert tag3.id in journey_after_second_update["tags"]
+    assert group2.id not in journey_after_second_update["groups"]
+    assert group3.id in journey_after_second_update["groups"]
 
 
 async def test_that_a_journey_can_be_deleted(
@@ -349,9 +351,9 @@ async def test_that_a_journey_can_be_deleted(
     container: Container,
 ) -> None:
     journey_store = container[JourneyStore]
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
 
-    guideline = await guideline_store.create_guideline(
+    rule = await rule_store.create_rule(
         condition="Customer asks for onboarding help",
         action=None,
     )
@@ -359,7 +361,7 @@ async def test_that_a_journey_can_be_deleted(
     journey = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
-        triggers=[guideline.id],
+        triggers=[rule.id],
     )
 
     delete_response = await async_client.delete(f"/journeys/{journey.id}")
@@ -369,14 +371,14 @@ async def test_that_a_journey_can_be_deleted(
         await journey_store.read_journey(journey.id)
 
 
-async def test_that_a_guideline_is_deleted_when_it_is_removed_from_all_journeys(
+async def test_that_a_rule_is_deleted_when_it_is_removed_from_all_journeys(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
     journey_store = container[JourneyStore]
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
 
-    guideline = await guideline_store.create_guideline(
+    rule = await rule_store.create_rule(
         condition="Customer asks for onboarding help",
         action=None,
     )
@@ -384,24 +386,24 @@ async def test_that_a_guideline_is_deleted_when_it_is_removed_from_all_journeys(
     journey = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
-        triggers=[guideline.id],
+        triggers=[rule.id],
     )
 
     delete_response = await async_client.delete(f"/journeys/{journey.id}")
     assert delete_response.status_code == status.HTTP_204_NO_CONTENT
 
     with raises(ItemNotFoundError):
-        await guideline_store.read_guideline(guideline.id)
+        await rule_store.read_rule(rule.id)
 
 
-async def test_that_a_guideline_is_not_deleted_when_it_is_used_in_multiple_journeys(
+async def test_that_a_rule_is_not_deleted_when_it_is_used_in_multiple_journeys(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
     journey_store = container[JourneyStore]
 
-    guideline = await guideline_store.create_guideline(
+    rule = await rule_store.create_rule(
         condition="Customer asks for onboarding help",
         action=None,
     )
@@ -409,38 +411,38 @@ async def test_that_a_guideline_is_not_deleted_when_it_is_used_in_multiple_journ
     journey_to_delete = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
-        triggers=[guideline.id],
+        triggers=[rule.id],
     )
 
     journey_to_keep = await journey_store.create_journey(
         title="Customer Signup",
         description="Guide new customers to signup",
-        triggers=[guideline.id],
+        triggers=[rule.id],
     )
 
-    await guideline_store.upsert_tag(
-        guideline_id=guideline.id, tag_id=Tag.for_journey_id(journey_to_delete.id).id
+    await rule_store.upsert_group(
+        rule_id=rule.id, group_id=GroupIds.for_journey_id(journey_to_delete.id)
     )
 
-    await guideline_store.upsert_tag(
-        guideline_id=guideline.id, tag_id=Tag.for_journey_id(journey_to_keep.id).id
+    await rule_store.upsert_group(
+        rule_id=rule.id, group_id=GroupIds.for_journey_id(journey_to_keep.id)
     )
 
     delete_response = await async_client.delete(f"/journeys/{journey_to_delete.id}")
     assert delete_response.status_code == status.HTTP_204_NO_CONTENT
 
-    guideline_after_update = await guideline_store.read_guideline(guideline.id)
-    assert guideline_after_update.tags == [Tag.for_journey_id(journey_to_keep.id).id]
+    rule_after_update = await rule_store.read_rule(rule.id)
+    assert rule_after_update.groups == [GroupIds.for_journey_id(journey_to_keep.id)]
 
 
 async def test_that_a_tag_can_be_added_to_a_journey(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
 
-    tag = await tag_store.create_tag("new_tag")
+    group = await group_store.create_group("new_tag")
 
     journey = await journey_store.create_journey(
         title="Customer Onboarding",
@@ -450,47 +452,47 @@ async def test_that_a_tag_can_be_added_to_a_journey(
 
     response = await async_client.patch(
         f"/journeys/{journey.id}",
-        json={"tags": {"add": [tag.id]}},
+        json={"groups": {"add": [group.id]}},
     )
     response.raise_for_status()
     updated_journey = response.json()
 
-    assert tag.id in updated_journey["tags"]
+    assert group.id in updated_journey["groups"]
 
 
 async def test_that_a_tag_can_be_removed_from_a_journey(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
 
-    tag = await tag_store.create_tag("removable_tag")
+    group = await group_store.create_group("removable_tag")
     journey = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
         triggers=[],
-        tags=[tag.id],
+        groups=[group.id],
     )
 
     response = await async_client.patch(
         f"/journeys/{journey.id}",
-        json={"tags": {"remove": [tag.id]}},
+        json={"groups": {"remove": [group.id]}},
     )
     response.raise_for_status()
     updated_journey = response.json()
 
-    assert tag.id not in updated_journey["tags"]
+    assert group.id not in updated_journey["groups"]
 
 
 async def test_that_triggers_can_be_added_to_a_journey(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
     journey_store = container[JourneyStore]
 
-    guideline = await guideline_store.create_guideline(
+    rule = await rule_store.create_rule(
         condition="New Condition",
         action=None,
     )
@@ -502,25 +504,25 @@ async def test_that_triggers_can_be_added_to_a_journey(
 
     response = await async_client.patch(
         f"/journeys/{journey.id}",
-        json={"triggers": {"add": [guideline.id]}},
+        json={"triggers": {"add": [rule.id]}},
     )
     response.raise_for_status()
     updated_journey = response.json()
 
-    assert guideline.id in updated_journey["triggers"]
+    assert rule.id in updated_journey["triggers"]
 
-    guideline_after_update = await guideline_store.read_guideline(guideline.id)
-    assert guideline_after_update.tags == [Tag.for_journey_id(journey.id).id]
+    rule_after_update = await rule_store.read_rule(rule.id)
+    assert rule_after_update.groups == [GroupIds.for_journey_id(journey.id)]
 
 
 async def test_that_triggers_can_be_removed_from_a_journey(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
     journey_store = container[JourneyStore]
 
-    guideline = await guideline_store.create_guideline(
+    rule = await rule_store.create_rule(
         condition="Removable Condition",
         action=None,
     )
@@ -528,44 +530,44 @@ async def test_that_triggers_can_be_removed_from_a_journey(
     journey_to_delete = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
-        triggers=[guideline.id],
+        triggers=[rule.id],
     )
 
     journey_to_keep = await journey_store.create_journey(
         title="Customer Signup",
         description="Guide new customers to signup",
-        triggers=[guideline.id],
+        triggers=[rule.id],
     )
 
-    await guideline_store.upsert_tag(
-        guideline_id=guideline.id, tag_id=Tag.for_journey_id(journey_to_keep.id).id
+    await rule_store.upsert_group(
+        rule_id=rule.id, group_id=GroupIds.for_journey_id(journey_to_keep.id)
     )
 
-    await guideline_store.upsert_tag(
-        guideline_id=guideline.id, tag_id=Tag.for_journey_id(journey_to_delete.id).id
+    await rule_store.upsert_group(
+        rule_id=rule.id, group_id=GroupIds.for_journey_id(journey_to_delete.id)
     )
 
     response = await async_client.patch(
         f"/journeys/{journey_to_delete.id}",
-        json={"triggers": {"remove": [guideline.id]}},
+        json={"triggers": {"remove": [rule.id]}},
     )
     response.raise_for_status()
     updated_journey = response.json()
 
-    assert guideline.id not in updated_journey["triggers"]
+    assert rule.id not in updated_journey["triggers"]
 
-    guideline_after_update = await guideline_store.read_guideline(guideline.id)
-    assert guideline_after_update.tags == [Tag.for_journey_id(journey_to_keep.id).id]
+    rule_after_update = await rule_store.read_rule(rule.id)
+    assert rule_after_update.groups == [GroupIds.for_journey_id(journey_to_keep.id)]
 
 
-async def test_that_a_guideline_is_deleted_when_triggers_are_removed_from_all_journeys(
+async def test_that_a_rule_is_deleted_when_triggers_are_removed_from_all_journeys(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    guideline_store = container[GuidelineStore]
+    rule_store = container[RuleStore]
     journey_store = container[JourneyStore]
 
-    guideline = await guideline_store.create_guideline(
+    rule = await rule_store.create_rule(
         condition="Removable Condition",
         action=None,
     )
@@ -573,42 +575,40 @@ async def test_that_a_guideline_is_deleted_when_triggers_are_removed_from_all_jo
     journey = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
-        triggers=[guideline.id],
+        triggers=[rule.id],
     )
 
     await journey_store.create_journey(
         title="Customer Signup",
         description="Guide new customers to signup",
-        triggers=[guideline.id],
+        triggers=[rule.id],
     )
 
-    await guideline_store.upsert_tag(
-        guideline_id=guideline.id, tag_id=Tag.for_journey_id(journey.id).id
-    )
+    await rule_store.upsert_group(rule_id=rule.id, group_id=GroupIds.for_journey_id(journey.id))
 
     response = await async_client.patch(
         f"/journeys/{journey.id}",
-        json={"triggers": {"remove": [guideline.id]}},
+        json={"triggers": {"remove": [rule.id]}},
     )
     response.raise_for_status()
 
     with raises(ItemNotFoundError):
-        await guideline_store.read_guideline(guideline.id)
+        await rule_store.read_rule(rule.id)
 
 
 async def test_that_journeys_can_be_filtered_by_tag(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
 
-    tag = await tag_store.create_tag("tag1")
+    group = await group_store.create_group("group1")
     journey = await journey_store.create_journey(
         title="Customer Onboarding",
         description="Guide new customers",
         triggers=[],
-        tags=[tag.id],
+        groups=[group.id],
     )
 
     _ = await journey_store.create_journey(
@@ -617,7 +617,7 @@ async def test_that_journeys_can_be_filtered_by_tag(
         triggers=[],
     )
 
-    response = await async_client.get(f"/journeys?tag_id={tag.id}")
+    response = await async_client.get(f"/journeys?group_id={group.id}")
     response.raise_for_status()
     journeys = response.json()
 
@@ -762,3 +762,115 @@ async def test_that_labels_can_be_removed_from_a_journey(
     updated_journey = response.json()
 
     assert set(updated_journey["labels"]) == {"label1", "label3"}
+
+
+async def test_that_reading_a_journey_returns_nodes_and_edges(
+    async_client: httpx.AsyncClient,
+    container: Container,
+) -> None:
+    """Test that reading a journey returns its nodes and edges."""
+    journey_store = container[JourneyStore]
+
+    # Create a journey via API
+    response = await async_client.post(
+        "/journeys",
+        json={
+            "title": "Customer Support Flow",
+            "description": "Handle customer support requests",
+            "triggers": ["Customer needs support"],
+        },
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+    journey = response.json()
+    journey_id = journey["id"]
+
+    # Create some nodes for this journey
+    node1 = await journey_store.create_node(
+        journey_id=journey_id,
+        kind=JourneyNodeKind.CHAT,
+        action="Greet the customer",
+        tools=[],
+        description="Initial greeting",
+    )
+    node2 = await journey_store.create_node(
+        journey_id=journey_id,
+        kind=JourneyNodeKind.CHAT,
+        action="Identify the issue",
+        tools=[],
+        description="Ask about the problem",
+    )
+    node3 = await journey_store.create_node(
+        journey_id=journey_id,
+        kind=JourneyNodeKind.CHAT,
+        action="Provide solution",
+        tools=[],
+        description="Offer a resolution",
+    )
+
+    # Create edges between nodes
+    edge1 = await journey_store.create_edge(
+        journey_id=journey_id,
+        source=node1.id,
+        target=node2.id,
+        condition="Customer responds",
+    )
+    edge2 = await journey_store.create_edge(
+        journey_id=journey_id,
+        source=node2.id,
+        target=node3.id,
+        condition="Issue identified",
+    )
+    from parlant.core.journeys import JourneyNodeKind as _NodeKind
+
+    journey_nodes = await journey_store.list_nodes(journey_id=journey_id)
+    end_node = next(n for n in journey_nodes if n.kind == _NodeKind.END)
+    edge3 = await journey_store.create_edge(
+        journey_id=journey_id,
+        source=node3.id,
+        target=end_node.id,
+        condition=None,
+    )
+
+    # Read the journey via API
+    response = await async_client.get(f"/journeys/{journey_id}")
+    assert response.status_code == status.HTTP_200_OK
+    journey_data = response.json()
+
+    # Verify basic journey data
+    assert journey_data["id"] == journey_id
+    assert journey_data["title"] == "Customer Support Flow"
+    assert journey_data["description"] == "Handle customer support requests"
+
+    # Verify nodes are returned
+    assert "nodes" in journey_data
+    nodes = journey_data["nodes"]
+    assert len(nodes) >= 3  # At least our 3 nodes (plus possibly root and end nodes)
+
+    # Find our created nodes in the response
+    node_ids = {n["id"] for n in nodes}
+    assert node1.id in node_ids
+    assert node2.id in node_ids
+    assert node3.id in node_ids
+
+    # Verify node details for one of them
+    node1_data = next(n for n in nodes if n["id"] == node1.id)
+    assert node1_data["action"] == "Greet the customer"
+    assert node1_data["description"] == "Initial greeting"
+    assert node1_data["tools"] == []
+
+    # Verify edges are returned
+    assert "edges" in journey_data
+    edges = journey_data["edges"]
+    assert len(edges) == 3
+
+    # Verify edge details
+    edge_ids = {e["id"] for e in edges}
+    assert edge1.id in edge_ids
+    assert edge2.id in edge_ids
+    assert edge3.id in edge_ids
+
+    # Verify edge details for one of them
+    edge1_data = next(e for e in edges if e["id"] == edge1.id)
+    assert edge1_data["source"] == node1.id
+    assert edge1_data["target"] == node2.id
+    assert edge1_data["condition"] == "Customer responds"

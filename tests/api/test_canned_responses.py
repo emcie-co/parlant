@@ -22,7 +22,7 @@ from parlant.core.agents import AgentStore
 from parlant.core.common import ItemNotFoundError
 from parlant.core.canned_responses import CannedResponseStore, CannedResponseField
 from parlant.core.journeys import JourneyStore
-from parlant.core.tags import Tag, TagStore
+from parlant.core.groups import GroupIds, GroupStore
 
 
 async def test_that_a_canned_response_can_be_created(
@@ -49,16 +49,17 @@ async def test_that_a_canned_response_can_be_created(
 
     assert "id" in canned_response
     assert "creation_utc" in canned_response
+    assert "modified_utc" in canned_response
 
 
 async def test_that_a_canned_response_can_be_created_with_tags(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
 
-    tag_1 = await tag_store.create_tag(name="VIP")
-    tag_2 = await tag_store.create_tag(name="Finance")
+    tag_1 = await group_store.create_group(name="VIP")
+    tag_2 = await group_store.create_group(name="Finance")
 
     payload = {
         "value": "Your account balance is {{balance}}",
@@ -69,7 +70,7 @@ async def test_that_a_canned_response_can_be_created_with_tags(
                 "examples": ["9000"],
             }
         ],
-        "tags": [tag_1.id, tag_2.id],
+        "groups": [tag_1.id, tag_2.id],
     }
 
     response = await async_client.post("/canned_responses", json=payload)
@@ -81,8 +82,8 @@ async def test_that_a_canned_response_can_be_created_with_tags(
         .json()
     )
 
-    assert len(canned_response_dto["tags"]) == 2
-    assert set(canned_response_dto["tags"]) == {tag_1.id, tag_2.id}
+    assert len(canned_response_dto["groups"]) == 2
+    assert set(canned_response_dto["groups"]) == {tag_1.id, tag_2.id}
 
 
 async def test_that_a_canned_response_can_be_created_with_signals(
@@ -236,6 +237,7 @@ async def test_that_a_canned_response_can_be_updated(
     updated_canned_response = response.json()
     assert updated_canned_response["value"] == update_payload["value"]
     assert updated_canned_response["fields"] == update_payload["fields"]
+    assert updated_canned_response["modified_utc"] != canned_response.creation_utc.isoformat()
 
 
 async def test_that_a_canned_response_can_be_deleted(
@@ -263,9 +265,9 @@ async def test_that_a_tag_can_be_added_to_a_canned_response(
     container: Container,
 ) -> None:
     canned_response_store = container[CannedResponseStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
 
-    tag = await tag_store.create_tag(name="VIP")
+    group = await group_store.create_group(name="VIP")
 
     value = "Your account balance is {{balance}}"
     fields = [
@@ -275,12 +277,12 @@ async def test_that_a_tag_can_be_added_to_a_canned_response(
     canned_response = await canned_response_store.create_canned_response(value=value, fields=fields)
 
     response = await async_client.patch(
-        f"/canned_responses/{canned_response.id}", json={"tags": {"add": [tag.id]}}
+        f"/canned_responses/{canned_response.id}", json={"groups": {"add": [group.id]}}
     )
     assert response.status_code == status.HTTP_200_OK
 
     updated_canned_response = await canned_response_store.read_canned_response(canned_response.id)
-    assert tag.id in updated_canned_response.tags
+    assert group.id in updated_canned_response.groups
 
 
 async def test_that_a_tag_can_be_removed_from_a_canned_response(
@@ -288,9 +290,9 @@ async def test_that_a_tag_can_be_removed_from_a_canned_response(
     container: Container,
 ) -> None:
     canned_response_store = container[CannedResponseStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
 
-    tag = await tag_store.create_tag(name="VIP")
+    group = await group_store.create_group(name="VIP")
 
     value = "Your account balance is {{balance}}"
     fields = [
@@ -299,14 +301,16 @@ async def test_that_a_tag_can_be_removed_from_a_canned_response(
 
     canned_response = await canned_response_store.create_canned_response(value=value, fields=fields)
 
-    await canned_response_store.upsert_tag(canned_response_id=canned_response.id, tag_id=tag.id)
+    await canned_response_store.upsert_group(
+        canned_response_id=canned_response.id, group_id=group.id
+    )
     response = await async_client.patch(
-        f"/canned_responses/{canned_response.id}", json={"tags": {"remove": [tag.id]}}
+        f"/canned_responses/{canned_response.id}", json={"groups": {"remove": [group.id]}}
     )
     assert response.status_code == status.HTTP_200_OK
 
     updated_canned_response = await canned_response_store.read_canned_response(canned_response.id)
-    assert tag.id not in updated_canned_response.tags
+    assert group.id not in updated_canned_response.groups
 
 
 async def test_that_canned_responses_can_be_filtered_by_tags(
@@ -314,11 +318,11 @@ async def test_that_canned_responses_can_be_filtered_by_tags(
     container: Container,
 ) -> None:
     canned_response_store = container[CannedResponseStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
 
-    tag_vip = await tag_store.create_tag(name="VIP")
-    tag_finance = await tag_store.create_tag(name="Finance")
-    tag_greeting = await tag_store.create_tag(name="Greeting")
+    tag_vip = await group_store.create_group(name="VIP")
+    tag_finance = await group_store.create_group(name="Finance")
+    tag_greeting = await group_store.create_group(name="Greeting")
 
     first_canned_response = await canned_response_store.create_canned_response(
         value="Welcome {{username}}!",
@@ -328,7 +332,7 @@ async def test_that_canned_responses_can_be_filtered_by_tags(
             )
         ],
     )
-    await canned_response_store.upsert_tag(first_canned_response.id, tag_greeting.id)
+    await canned_response_store.upsert_group(first_canned_response.id, tag_greeting.id)
 
     second_canned_response = await canned_response_store.create_canned_response(
         value="Your balance is {{balance}}",
@@ -338,7 +342,7 @@ async def test_that_canned_responses_can_be_filtered_by_tags(
             )
         ],
     )
-    await canned_response_store.upsert_tag(second_canned_response.id, tag_finance.id)
+    await canned_response_store.upsert_group(second_canned_response.id, tag_finance.id)
 
     third_canned_response = await canned_response_store.create_canned_response(
         value="Exclusive VIP offer for {{username}}",
@@ -346,15 +350,17 @@ async def test_that_canned_responses_can_be_filtered_by_tags(
             CannedResponseField(name="username", description="VIP customer", examples=["Charlie"])
         ],
     )
-    await canned_response_store.upsert_tag(third_canned_response.id, tag_vip.id)
+    await canned_response_store.upsert_group(third_canned_response.id, tag_vip.id)
 
-    response = await async_client.get(f"/canned_responses?tags={tag_greeting.id}")
+    response = await async_client.get(f"/canned_responses?groups={tag_greeting.id}")
     assert response.status_code == status.HTTP_200_OK
     canned_responses = response.json()
     assert len(canned_responses) == 1
     assert canned_responses[0]["value"] == "Welcome {{username}}!"
 
-    response = await async_client.get(f"/canned_responses?tags={tag_finance.id}&tags={tag_vip.id}")
+    response = await async_client.get(
+        f"/canned_responses?groups={tag_finance.id}&groups={tag_vip.id}"
+    )
     assert response.status_code == status.HTTP_200_OK
     canned_responses = response.json()
     assert len(canned_responses) == 2
@@ -362,13 +368,13 @@ async def test_that_canned_responses_can_be_filtered_by_tags(
     assert "Your balance is {{balance}}" in values
     assert "Exclusive VIP offer for {{username}}" in values
 
-    response = await async_client.get("/canned_responses?tags=non_existent_tag")
+    response = await async_client.get("/canned_responses?groups=non_existent_group")
     assert response.status_code == status.HTTP_200_OK
     canned_responses = response.json()
     assert len(canned_responses) == 0
 
 
-async def test_that_agent_tag_can_be_added_to_a_canned_response(
+async def test_that_agent_group_can_be_added_to_a_canned_response(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
@@ -383,28 +389,28 @@ async def test_that_agent_tag_can_be_added_to_a_canned_response(
             )
         ],
     )
-    agent_tag = Tag.for_agent_id(agent.id).id
+    agent_group = GroupIds.for_agent_id(agent.id)
 
-    update_payload = {"tags": {"add": [agent_tag]}}
+    update_payload = {"groups": {"add": [agent_group]}}
     response = await async_client.patch(f"/canned_responses/{canrep.id}", json=update_payload)
     response.raise_for_status()
     updated_canned_response = response.json()
 
-    assert updated_canned_response["tags"] == [agent_tag]
+    assert updated_canned_response["groups"] == [agent_group]
 
 
-async def test_that_agent_tag_can_be_removed_from_a_canned_response(
+async def test_that_agent_group_can_be_removed_from_a_canned_response(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     canned_response_store = container[CannedResponseStore]
 
     agent = await container[AgentStore].create_agent("Test Agent")
 
-    tag1 = await tag_store.create_tag("tag1")
+    group1 = await group_store.create_group("group1")
 
-    agent_tag = Tag.for_agent_id(agent.id).id
+    agent_group = GroupIds.for_agent_id(agent.id)
 
     canrep = await canned_response_store.create_canned_response(
         value="Welcome {{username}}!",
@@ -413,10 +419,10 @@ async def test_that_agent_tag_can_be_removed_from_a_canned_response(
                 name="username", description="User's name", examples=["Alice", "Bob"]
             )
         ],
-        tags=[tag1.id, agent_tag],
+        groups=[group1.id, agent_group],
     )
 
-    update_payload = {"tags": {"remove": [agent_tag]}}
+    update_payload = {"groups": {"remove": [agent_group]}}
     _ = (
         await async_client.patch(f"/canned_responses/{canrep.id}", json=update_payload)
     ).raise_for_status()
@@ -425,15 +431,15 @@ async def test_that_agent_tag_can_be_removed_from_a_canned_response(
         (await async_client.get(f"/canned_responses/{canrep.id}")).raise_for_status().json()
     )
 
-    assert agent_tag not in canrep_after_update["tags"]
-    assert tag1.id in canrep_after_update["tags"]
+    assert agent_group not in canrep_after_update["groups"]
+    assert group1.id in canrep_after_update["groups"]
 
 
-async def test_that_journey_tags_can_be_added_to_a_canned_response(
+async def test_that_journey_groups_can_be_added_to_a_canned_response(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     journey_store = container[JourneyStore]
     canned_response_store = container[CannedResponseStore]
 
@@ -442,9 +448,9 @@ async def test_that_journey_tags_can_be_added_to_a_canned_response(
         description="A journey for customer support interactions.",
         triggers=[],
     )
-    journey_tag = Tag.for_journey_id(journey.id).id
+    journey_group = GroupIds.for_journey_id(journey.id)
 
-    tag1 = await tag_store.create_tag("tag1")
+    group1 = await group_store.create_group("group1")
 
     canrep = await canned_response_store.create_canned_response(
         value="Welcome {{username}}!",
@@ -455,20 +461,20 @@ async def test_that_journey_tags_can_be_added_to_a_canned_response(
         ],
     )
 
-    update_payload = {"tags": {"add": [tag1.id, journey_tag]}}
+    update_payload = {"groups": {"add": [group1.id, journey_group]}}
     response = await async_client.patch(f"/canned_responses/{canrep.id}", json=update_payload)
     response.raise_for_status()
     updated_canrep = response.json()
 
-    assert tag1.id in updated_canrep["tags"]
-    assert journey_tag in updated_canrep["tags"]
+    assert group1.id in updated_canrep["groups"]
+    assert journey_group in updated_canrep["groups"]
 
 
-async def test_that_journey_tags_can_be_removed_from_a_canned_response(
+async def test_that_journey_groups_can_be_removed_from_a_canned_response(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
     canned_response_store = container[CannedResponseStore]
     journey_store = container[JourneyStore]
 
@@ -477,9 +483,9 @@ async def test_that_journey_tags_can_be_removed_from_a_canned_response(
         description="A journey for customer support interactions.",
         triggers=[],
     )
-    journey_tag = Tag.for_journey_id(journey.id).id
+    journey_group = GroupIds.for_journey_id(journey.id)
 
-    tag1 = await tag_store.create_tag("tag1")
+    group1 = await group_store.create_group("group1")
 
     canrep = await canned_response_store.create_canned_response(
         value="Welcome {{username}}!",
@@ -488,10 +494,10 @@ async def test_that_journey_tags_can_be_removed_from_a_canned_response(
                 name="username", description="User's name", examples=["Alice", "Bob"]
             )
         ],
-        tags=[tag1.id, journey_tag],
+        groups=[group1.id, journey_group],
     )
 
-    update_payload = {"tags": {"remove": [journey_tag]}}
+    update_payload = {"groups": {"remove": [journey_group]}}
     _ = (
         await async_client.patch(f"/canned_responses/{canrep.id}", json=update_payload)
     ).raise_for_status()
@@ -500,8 +506,8 @@ async def test_that_journey_tags_can_be_removed_from_a_canned_response(
         (await async_client.get(f"/canned_responses/{canrep.id}")).raise_for_status().json()
     )
 
-    assert journey_tag not in canrep_after_update["tags"]
-    assert tag1.id in canrep_after_update["tags"]
+    assert journey_group not in canrep_after_update["groups"]
+    assert group1.id in canrep_after_update["groups"]
 
 
 async def test_that_a_canned_response_can_be_created_with_metadata(

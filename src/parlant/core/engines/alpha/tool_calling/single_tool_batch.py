@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
 from itertools import chain
@@ -53,6 +54,7 @@ from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import Event, EventKind, ToolEventData
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import Tool, ToolId, ToolParameterDescriptor, ToolParameterOptions
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 
 class ValidationStatus(Enum):
@@ -153,21 +155,27 @@ class SingleToolBatch(ToolCallBatch):
         logger: Logger,
         meter: Meter,
         optimization_policy: OptimizationPolicy,
-        service_registry: ServiceRegistry,
         consequential_schema_generator: SchematicGenerator[SingleToolBatchSchema],
         non_consequential_schema_generator: SchematicGenerator[NonConsequentialToolBatchSchema],
         candidate_tool: tuple[ToolId, Tool, Sequence[GuidelineMatch]],
         context: ToolCallContext,
+        store_provider: StoreProvider,
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._meter = meter
 
         self._optimization_policy = optimization_policy
-        self._service_registry = service_registry
         self._consequential_schema_generator = consequential_schema_generator
         self._non_consequential_schema_generator = non_consequential_schema_generator
         self._context = context
         self._candidate_tool = candidate_tool
+
+    @property
+    def _service_registry(self) -> ServiceRegistry:
+        return self._store_provider.get_store(
+            ServiceRegistry, StoreProviderHints(call_site="engine")
+        )
 
     def _is_tool_already_staged(self, tool_id: ToolId) -> bool:
         for event in self._context.staged_events:
@@ -218,14 +226,17 @@ class SingleToolBatch(ToolCallBatch):
                 tool_calls=[
                     ToolCall(
                         id=ToolCallId(generate_id()),
+                        rationale="Auto-approved non-consequential tool with no parameters",
                         tool_id=tool_id,
                         arguments={},
                     )
                 ],
                 insights=ToolInsights(
-                    evaluations=[(tool_id, ToolCallEvaluation.NEEDS_TO_RUN)],
-                    missing_data=[],
-                    invalid_data=[],
+                    evaluations={
+                        tool_id: {ToolCallId(generate_id()): ToolCallEvaluation.NEEDS_TO_RUN}
+                    },
+                    missing_data={},
+                    invalid_data={},
                 ),
             )
 
@@ -265,9 +276,9 @@ class SingleToolBatch(ToolCallBatch):
                 generation_info=generation_info,
                 tool_calls=inference_output,
                 insights=ToolInsights(
-                    evaluations=execution_status,
-                    missing_data=missing_data,
-                    invalid_data=invalid_data,
+                    evaluations={tool_id: execution_status},
+                    missing_data={tool_id: missing_data},
+                    invalid_data={tool_id: invalid_data},
                 ),
             )
 
@@ -299,9 +310,9 @@ class SingleToolBatch(ToolCallBatch):
     ) -> tuple[
         GenerationInfo,
         list[ToolCall],
-        list[tuple[ToolId, ToolCallEvaluation]],
-        list[MissingToolData],
-        list[InvalidToolData],
+        dict[ToolCallId, ToolCallEvaluation],
+        dict[ToolCallId, list[MissingToolData]],
+        dict[ToolCallId, list[InvalidToolData]],
     ]:
         inference_prompt = self._build_consequential_tool_prompt(
             agent,
@@ -358,18 +369,20 @@ class SingleToolBatch(ToolCallBatch):
         candidate_descriptor: tuple[ToolId, Tool, Sequence[GuidelineMatch]],
     ) -> tuple[
         list[ToolCall],
-        list[tuple[ToolId, ToolCallEvaluation]],
-        list[MissingToolData],
-        list[InvalidToolData],
+        dict[ToolCallId, ToolCallEvaluation],
+        dict[ToolCallId, list[MissingToolData]],
+        dict[ToolCallId, list[InvalidToolData]],
     ]:
         tool = candidate_descriptor[1]
         tool_calls = []
-        evaluations = []
-        missing_data: list[MissingToolData] = []
-        invalid_data: list[InvalidToolData] = []
+        evaluations: dict[ToolCallId, ToolCallEvaluation] = {}
+        missing_data: dict[ToolCallId, list[MissingToolData]] = defaultdict(list)
+        invalid_data: dict[ToolCallId, list[InvalidToolData]] = defaultdict(list)
         tool_id, tool, _ = candidate_descriptor
 
         for tc in inference_output:
+            tc_id = ToolCallId(generate_id())
+
             entries = {
                 e.parameter_name: e
                 for e in tc.argument_evaluations or []
@@ -393,7 +406,7 @@ class SingleToolBatch(ToolCallBatch):
                     )
 
                     if not options.hidden:
-                        invalid_data.append(
+                        invalid_data[tc_id].append(
                             InvalidToolData(
                                 parameter=options.display_name or evaluation.parameter_name,
                                 invalid_value=evaluation.value_as_string,
@@ -404,7 +417,7 @@ class SingleToolBatch(ToolCallBatch):
                             )
                         )
 
-                    evaluations.append((tool_id, ToolCallEvaluation.CANNOT_RUN))
+                    evaluations[tc_id] = ToolCallEvaluation.CANNOT_RUN
 
             if (
                 tc.is_applicable
@@ -441,12 +454,13 @@ class SingleToolBatch(ToolCallBatch):
                         tool_calls.append(
                             ToolCall(
                                 id=ToolCallId(generate_id()),
+                                rationale=tc.applicability_rationale,
                                 tool_id=tool_id,
                                 arguments=arguments,
                             )
                         )
 
-                        evaluations.append((tool_id, ToolCallEvaluation.NEEDS_TO_RUN))
+                        evaluations[tc_id] = ToolCallEvaluation.NEEDS_TO_RUN
                 else:
                     has_missing_arguments = False
 
@@ -466,8 +480,8 @@ class SingleToolBatch(ToolCallBatch):
                             display_name = tool_options.display_name or evaluation.parameter_name
 
                             if not tool_options.hidden:
-                                if display_name not in [p.parameter for p in missing_data]:
-                                    missing_data.append(
+                                if display_name not in [p.parameter for p in missing_data[tc_id]]:
+                                    missing_data[tc_id].append(
                                         MissingToolData(
                                             parameter=display_name,
                                             significance=tool_options.significance,
@@ -490,8 +504,8 @@ class SingleToolBatch(ToolCallBatch):
                             )
 
                             if not tool_options.hidden:
-                                if display_name not in [p.parameter for p in invalid_data]:
-                                    missing_data.append(
+                                if display_name not in [p.parameter for p in invalid_data[tc_id]]:
+                                    missing_data[tc_id].append(
                                         MissingToolData(
                                             parameter=display_name,
                                             significance=tool_options.significance,
@@ -508,7 +522,7 @@ class SingleToolBatch(ToolCallBatch):
                         has_missing_arguments = True
 
                     if has_missing_arguments:
-                        evaluations.append((tool_id, ToolCallEvaluation.CANNOT_RUN))
+                        evaluations[tc_id] = ToolCallEvaluation.CANNOT_RUN
 
                     self._logger.debug(
                         f"Inference::Completion::Rejected: Missing arguments for {tool_id.to_string()}\n{tc.model_dump_json(indent=2)}"
@@ -519,7 +533,7 @@ class SingleToolBatch(ToolCallBatch):
                     f"Inference::Completion::Skipped: {tool_id.to_string()}\n{tc.model_dump_json(indent=2)}"
                 )
 
-                evaluations.append((tool_id, ToolCallEvaluation.DATA_ALREADY_IN_CONTEXT))
+                evaluations[tc_id] = ToolCallEvaluation.DATA_ALREADY_IN_CONTEXT
 
         return tool_calls, evaluations, missing_data, invalid_data
 
@@ -1014,13 +1028,15 @@ Guidelines:
                     self._evaluate_non_consequential_tool_calls(output, candidate_descriptor)
                 )
 
+                tool_id = candidate_descriptor[0]
+
                 return ToolCallBatchResult(
                     generation_info=generation_info,
                     tool_calls=tool_calls,
                     insights=ToolInsights(
-                        evaluations=evaluations,
-                        missing_data=missing_data,
-                        invalid_data=invalid_data,
+                        evaluations={tool_id: evaluations},
+                        missing_data={tool_id: missing_data},
+                        invalid_data={tool_id: invalid_data},
                     ),
                 )
 
@@ -1240,7 +1256,7 @@ OUTPUT FORMAT:
         tool_id: ToolId,
         prompt: PromptBuilder,
         temperature: float,
-    ) -> tuple[GenerationInfo, Sequence[NonConsequentialToolCallEvaluation]]:
+    ) -> tuple[GenerationInfo, NonConsequentialToolBatchSchema]:
         inference = await self._non_consequential_schema_generator.generate(
             prompt=prompt,
             hints={"temperature": temperature},
@@ -1249,17 +1265,17 @@ OUTPUT FORMAT:
             f"Inference::Completion: {tool_id.to_string()}\n{inference.content.model_dump_json(indent=2)}"
         )
 
-        return inference.info, inference.content.calls
+        return inference.info, inference.content
 
     def _evaluate_non_consequential_tool_calls(
         self,
-        output: Sequence[NonConsequentialToolCallEvaluation],
+        output: NonConsequentialToolBatchSchema,
         candidate_descriptor: tuple[ToolId, Tool, Sequence[GuidelineMatch]],
     ) -> tuple[
         list[ToolCall],
-        list[tuple[ToolId, ToolCallEvaluation]],
-        list[MissingToolData],
-        list[InvalidToolData],
+        dict[ToolCallId, ToolCallEvaluation],
+        dict[ToolCallId, list[MissingToolData]],
+        dict[ToolCallId, list[InvalidToolData]],
     ]:
         MISSING_VALUE = "<<__missing__>>"
         MISSING_ARRAY_VALUE = "['<<__missing__>>']"
@@ -1269,11 +1285,13 @@ OUTPUT FORMAT:
 
         tool_id, tool, _ = candidate_descriptor
         tool_calls: list[ToolCall] = []
-        evaluations: list[tuple[ToolId, ToolCallEvaluation]] = []
-        missing_data: list[MissingToolData] = []
-        invalid_data: list[InvalidToolData] = []
+        evaluations: dict[ToolCallId, ToolCallEvaluation] = {}
+        missing_data: dict[ToolCallId, list[MissingToolData]] = defaultdict(list)
+        invalid_data: dict[ToolCallId, list[InvalidToolData]] = defaultdict(list)
 
-        for tc in output:
+        for tc in output.calls:
+            tc_id = ToolCallId(generate_id())
+
             if not self._is_tool_call_already_staged(tool_id, tc.args):
                 arguments: dict[str, str | None] = {}
 
@@ -1299,7 +1317,8 @@ OUTPUT FORMAT:
 
                     tool_calls.append(
                         ToolCall(
-                            id=ToolCallId(generate_id()),
+                            id=tc_id,
+                            rationale=output.reasoning_tldr or "N/A",
                             tool_id=tool_id,
                             arguments=arguments,
                         )
@@ -1309,7 +1328,7 @@ OUTPUT FORMAT:
                         f"Inference::Completion::Activated: {tool_id.to_string()}:\n{tc.model_dump_json(indent=2)}"
                     )
 
-                    evaluations.append((tool_id, ToolCallEvaluation.NEEDS_TO_RUN))
+                    evaluations[tc_id] = ToolCallEvaluation.NEEDS_TO_RUN
                 else:
                     self._logger.debug(
                         f"Inference::Completion::Rejected: Missing arguments for {tool_id.to_string()}\n{tc.model_dump_json(indent=2)}"
@@ -1323,7 +1342,7 @@ OUTPUT FORMAT:
                                 f"Inference::Completion: Argument '{parameter_name}' is missing"
                             )
 
-                            missing_data.append(
+                            missing_data[tc_id].append(
                                 MissingToolData(
                                     parameter=options.display_name or parameter_name,
                                     significance=options.significance,
@@ -1337,13 +1356,13 @@ OUTPUT FORMAT:
                                 f"Inference::Completion: Hidden argument '{parameter_name}' is missing"
                             )
 
-                    evaluations.append((tool_id, ToolCallEvaluation.CANNOT_RUN))
+                    evaluations[tc_id] = ToolCallEvaluation.CANNOT_RUN
             else:
                 self._logger.debug(
                     f"Inference::Completion::Skipped: {tool_id.to_string()}\n{tc.model_dump_json(indent=2)}"
                 )
 
-                evaluations.append((tool_id, ToolCallEvaluation.DATA_ALREADY_IN_CONTEXT))
+                evaluations[tc_id] = ToolCallEvaluation.DATA_ALREADY_IN_CONTEXT
 
         return tool_calls, evaluations, missing_data, invalid_data
 

@@ -82,13 +82,21 @@ class NovitaSchematicGenerator(BaseSchematicGenerator[T]):
     supported_novita_params = ["temperature", "logit_bias", "max_tokens"]
     supported_hints = supported_novita_params + ["strict"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name=model_name,
+        )
 
         self._client = AsyncClient(
             base_url=NOVITA_BASE_URL,
@@ -207,9 +215,15 @@ class NovitaSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class Novita_KimiK2(NovitaSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
-            model_name="moonshotai/kimi-k2.5", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter
+            model_name="moonshotai/kimi-k2.5",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -219,9 +233,15 @@ class Novita_KimiK2(NovitaSchematicGenerator[T]):
 
 
 class Novita_DeepSeekV3(NovitaSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
-            model_name="deepseek/deepseek-v3.2", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter
+            model_name="deepseek/deepseek-v3.2",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -231,8 +251,16 @@ class Novita_DeepSeekV3(NovitaSchematicGenerator[T]):
 
 
 class Novita_GLM5(NovitaSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
-        super().__init__(model_name="zai-org/glm-5.1", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter)
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
+        super().__init__(
+            model_name="zai-org/glm-5.1",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+        )
 
     @property
     @override
@@ -241,9 +269,15 @@ class Novita_GLM5(NovitaSchematicGenerator[T]):
 
 
 class Novita_MinimaxM2(NovitaSchematicGenerator[T]):
-    def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter
+    ) -> None:
         super().__init__(
-            model_name="minimax/minimax-m2.7", logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter
+            model_name="minimax/minimax-m2.7",
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -255,12 +289,20 @@ class Novita_MinimaxM2(NovitaSchematicGenerator[T]):
 class CustomNovitaSchematicGenerator(NovitaSchematicGenerator[T]):
     """Generic Novita AI generator that accepts any model name."""
 
-    def __init__(self, model_name: str, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
+    def __init__(
+        self,
+        model_name: str,
+        logger: Logger,
+        tracer: Tracer,
+        meter: Meter,
+        health_reporter: HealthReporter,
+    ) -> None:
         super().__init__(
             model_name=model_name,
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -289,13 +331,21 @@ class NovitaStreamingTextGenerator(BaseStreamingTextGenerator):
 
     supported_novita_params = ["temperature", "max_tokens"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+        super().__init__(
+            logger=logger,
+            tracer=tracer,
+            meter=meter,
+            health_reporter=health_reporter,
+            model_name=model_name,
+        )
 
         self._client = AsyncClient(
             base_url=NOVITA_BASE_URL,
@@ -361,7 +411,7 @@ class NovitaStreamingTextGenerator(BaseStreamingTextGenerator):
                     usage_info = UsageInfo(
                         input_tokens=chunk.usage.prompt_tokens,
                         output_tokens=chunk.usage.completion_tokens,
-                        extra={"cached_input_tokens": cached_tokens},
+                        cached_input_tokens=cached_tokens,
                     )
 
                 if chunk.choices and chunk.choices[0].delta.content:
@@ -389,9 +439,7 @@ class NovitaStreamingTextGenerator(BaseStreamingTextGenerator):
                     schema_name="streaming",
                     input_tokens=usage_info.input_tokens,
                     output_tokens=usage_info.output_tokens,
-                    cached_input_tokens=usage_info.extra.get("cached_input_tokens", 0)
-                    if usage_info.extra
-                    else 0,
+                    cached_input_tokens=usage_info.cached_input_tokens,
                 )
 
             # Signal completion
@@ -419,10 +467,12 @@ Please set NOVITA_API_KEY in your environment before running Parlant.
 
         return None
 
-    def __init__(self,
+    def __init__(
+        self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
         self.model_name = os.environ.get("NOVITA_MODEL", NOVITA_DEFAULT_MODEL)
         self._logger = logger
@@ -446,7 +496,7 @@ Please set NOVITA_API_KEY in your environment before running Parlant.
             logger=self._logger,
             tracer=self._tracer,
             meter=self._meter,
-                    health_reporter=self._health_reporter,
+            health_reporter=self._health_reporter,
         )
 
     def _get_specialized_generator_class(
@@ -482,7 +532,7 @@ Please set NOVITA_API_KEY in your environment before running Parlant.
                 logger=self._logger,
                 tracer=self._tracer,
                 meter=self._meter,
-                    health_reporter=self._health_reporter,
+                health_reporter=self._health_reporter,
             )
 
     @override

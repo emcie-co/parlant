@@ -15,6 +15,7 @@
 from abc import ABC, abstractmethod
 from contextlib import AsyncExitStack
 from datetime import datetime, timezone
+from itertools import chain
 from types import TracebackType
 from typing import Callable, Mapping, Optional, Sequence, cast
 import warnings
@@ -24,7 +25,7 @@ import aiofiles
 import httpx
 from typing_extensions import Literal
 
-from parlant.core.async_utils import ReaderWriterLock
+from parlant.core.async_utils import ReaderWriterLock, safe_gather
 from parlant.core.tracer import Tracer
 from parlant.core.emissions import EventEmitterFactory
 from parlant.core.loggers import Logger
@@ -38,7 +39,7 @@ from parlant.core.services.tools.openapi import OpenAPIClient
 from parlant.core.services.tools.plugins import PluginClient
 from parlant.core.services.tools.mcp_service import MCPToolClient
 from parlant.core.tools import LocalToolService, ToolService
-from parlant.core.common import ItemNotFoundError, Version, UniqueId
+from parlant.core.common import ItemNotFoundError, try_or_none, Version, UniqueId
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.document_database import (
     BaseDocument,
@@ -133,6 +134,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
         tracer: Tracer,
         nlp_services_provider: Callable[[], Mapping[str, NLPService]],
         allow_migration: bool = False,
+        collections_prefix: str | None = None,
     ):
         self._database = database
         self._tool_services_collection: DocumentCollection[_ToolServiceDocument]
@@ -150,6 +152,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
         self._service_sources: dict[str, str] = {}
 
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
         self._lock = ReaderWriterLock()
 
     def _cast_to_specific_tool_service_class(
@@ -194,9 +197,12 @@ class ServiceDocumentRegistry(ServiceRegistry):
             store=self,
             database=self._database,
             allow_migration=self._allow_migration,
+            collections_prefix=self._collections_prefix,
         ):
             self._tool_services_collection = await self._database.get_or_create_collection(
-                name="tool_services",
+                name=f"{self._collections_prefix}_tool_services"
+                if self._collections_prefix
+                else "tool_services",
                 schema=_ToolServiceDocument,
                 document_loader=self._document_loader,
             )
@@ -434,3 +440,110 @@ class ServiceDocumentRegistry(ServiceRegistry):
 
         if not result.deleted_count:
             raise ItemNotFoundError(item_id=UniqueId(name))
+
+
+class CompositeServiceRegistry(ServiceRegistry):
+    def __init__(
+        self,
+        writable_registry: ServiceRegistry,
+        readable_registries: Sequence[ServiceRegistry],
+    ) -> None:
+        self._writable_registry = writable_registry
+        self._readable_registries = readable_registries
+        self._all_registries: Sequence[ServiceRegistry] = [
+            writable_registry,
+            *readable_registries,
+        ]
+
+    @override
+    async def update_tool_service(
+        self,
+        name: str,
+        kind: ToolServiceKind,
+        url: str,
+        source: Optional[str] = None,
+        transient: bool = False,
+    ) -> ToolService:
+        return await self._writable_registry.update_tool_service(
+            name=name,
+            kind=kind,
+            url=url,
+            source=source,
+            transient=transient,
+        )
+
+    @override
+    async def read_tool_service(
+        self,
+        name: str,
+    ) -> ToolService:
+        results = await safe_gather(
+            *[try_or_none(registry.read_tool_service(name)) for registry in self._all_registries]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(name))
+        return result
+
+    @override
+    async def list_tool_services(
+        self,
+    ) -> Sequence[tuple[str, ToolService]]:
+        results = await safe_gather(
+            *[registry.list_tool_services() for registry in self._all_registries]
+        )
+        return list(chain.from_iterable(results))
+
+    @override
+    async def read_moderation_service(
+        self,
+        name: str,
+    ) -> ModerationService:
+        results = await safe_gather(
+            *[
+                try_or_none(registry.read_moderation_service(name))
+                for registry in self._all_registries
+            ]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(name))
+        return result
+
+    @override
+    async def list_moderation_services(
+        self,
+    ) -> Sequence[tuple[str, ModerationService]]:
+        results = await safe_gather(
+            *[registry.list_moderation_services() for registry in self._all_registries]
+        )
+        return list(chain.from_iterable(results))
+
+    @override
+    async def read_nlp_service(
+        self,
+        name: str,
+    ) -> NLPService:
+        results = await safe_gather(
+            *[try_or_none(registry.read_nlp_service(name)) for registry in self._all_registries]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(name))
+        return result
+
+    @override
+    async def list_nlp_services(
+        self,
+    ) -> Sequence[tuple[str, NLPService]]:
+        results = await safe_gather(
+            *[registry.list_nlp_services() for registry in self._all_registries]
+        )
+        return list(chain.from_iterable(results))
+
+    @override
+    async def delete_service(
+        self,
+        name: str,
+    ) -> None:
+        return await self._writable_registry.delete_service(name)

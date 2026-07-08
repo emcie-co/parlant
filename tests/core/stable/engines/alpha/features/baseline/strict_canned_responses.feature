@@ -22,7 +22,7 @@ Feature: Strict Canned Response
     Scenario: Adherence to guidelines without fabricating responses (strict canned response)
         Given a guideline "account_related_questions" to respond to the best of your knowledge when customers inquire about their account
         And a customer message, "What's my account balance?"
-        And that the "account_related_questions" guideline is matched with a priority of 10 because "Customer inquired about their account balance."
+        And that the "account_related_questions" guideline is matched because "Customer inquired about their account balance."
         And a canned response, "Your account balance is {{balance}}"
         When messages are emitted
         Then a no-match message is emitted
@@ -181,9 +181,9 @@ Feature: Strict Canned Response
         And an empty session with "Beef Wellingotn"
         And the term "Bug" defined as The name of our tech retail store, specializing in gadgets, computers, and tech services.
         And the term "Bug-Free" defined as Our free warranty and service package that comes with every purchase and covers repairs, replacements, and tech support beyond the standard manufacturer warranty.
-        And a tag "business"
-        And a customer tagged as "business"
-        And a context variable "plan" set to "Business Plan" for the tag "business"
+        And a group "business"
+        And a customer grouped as "business"
+        And a context variable "plan" set to "Business Plan" for the group "business"
         And a guideline to just welcome them to the store and ask how you can help when the customer greets you
         And a guideline to refer to them by their first name only, and welcome them 'back' when a customer greets you
         And a guideline to assure them you will escalate it internally and get back to them when a business-plan customer is having an issue
@@ -217,13 +217,13 @@ Feature: Strict Canned Response
     Scenario: The agent selects response based on customer's subscription tier context variable (strict canned response)
         Given an agent whose job is to provide technical support for cloud-based molecular modeling software
         And that the agent uses the canned_strict message composition mode
-        And a tag "Enterprise"
-        And a tag "Standard"
+        And a group "Enterprise"
+        And a group "Standard"
         And a customer named "Joanna"
         And an empty session with "Joanna"
-        And a customer tagged as "Enterprise"
-        And a context variable "api_access" set to "Unlimited" for the tag "Enterprise"
-        And a context variable "api_access" set to "Basic" for the tag "Standard"
+        And a customer grouped as "Enterprise"
+        And a context variable "api_access" set to "Unlimited" for the group "Enterprise"
+        And a context variable "api_access" set to "Basic" for the group "Standard"
         And a guideline to mention dedicated support channels and unlimited API access when responding to Enterprise customers with technical issues
         And a customer message, "I'm having trouble with the protein folding simulation API. Is there a limit to how many calls I can make?"
         And a canned response, "There is a limit of 100 API calls per day on your current plan. Would you like to upgrade for more access?"

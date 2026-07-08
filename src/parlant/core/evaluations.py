@@ -17,6 +17,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum, auto
+from itertools import chain
 from typing import (
     Mapping,
     NamedTuple,
@@ -30,15 +31,16 @@ from typing import (
 from typing_extensions import Literal, override, TypedDict, Self
 
 from parlant.core.agents import AgentId
-from parlant.core.async_utils import ReaderWriterLock, Timeout
+from parlant.core.async_utils import ReaderWriterLock, Timeout, safe_gather
 from parlant.core.common import (
     ItemNotFoundError,
+    try_or_none,
     JSONSerializable,
     UniqueId,
     Version,
     generate_id,
 )
-from parlant.core.guidelines import GuidelineContent, GuidelineId
+from parlant.core.rules import RuleContent, RuleId
 from parlant.core.journeys import JourneyEdgeId, JourneyId, JourneyNodeId
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.document_database import (
@@ -50,7 +52,7 @@ from parlant.core.persistence.document_database_helper import (
     DocumentMigrationHelper,
     DocumentStoreMigrationHelper,
 )
-from parlant.core.tags import TagId
+from parlant.core.groups import GroupId
 from parlant.core.tools import ToolId
 
 EvaluationId = NewType("EvaluationId", str)
@@ -64,7 +66,7 @@ class EvaluationStatus(Enum):
 
 
 class PayloadKind(Enum):
-    GUIDELINE = auto()
+    RULE = auto()
     JOURNEY = auto()
 
 
@@ -74,14 +76,18 @@ class PayloadOperation(Enum):
 
 
 @dataclass(frozen=True)
-class GuidelinePayload:
-    content: GuidelineContent
+class RulePayload:
+    content: RuleContent
     tool_ids: Sequence[ToolId]
     operation: PayloadOperation
     action_proposition: bool
     properties_proposition: bool
     journey_node_proposition: bool
-    updated_id: Optional[GuidelineId] = None
+    signal_proposition: bool = False
+    title_proposition: bool = False
+    title: Optional[str] = None
+    agent_id: Optional[AgentId] = None
+    updated_id: Optional[RuleId] = None
 
     def __repr__(self) -> str:
         return f"condition: {self.content.condition}, action: {self.content.action}"
@@ -93,7 +99,7 @@ class JourneyPayload:
     operation: PayloadOperation
 
 
-Payload: TypeAlias = Union[GuidelinePayload, JourneyPayload]
+Payload: TypeAlias = Union[RulePayload, JourneyPayload]
 
 
 class PayloadDescriptor(NamedTuple):
@@ -102,9 +108,12 @@ class PayloadDescriptor(NamedTuple):
 
 
 @dataclass(frozen=True)
-class InvoiceGuidelineData:
+class InvoiceRuleData:
     properties_proposition: Optional[dict[str, JSONSerializable]]
-    _type: Literal["guideline"] = "guideline"  # Union discriminator for Pydantic
+    signals_proposition: Optional[Sequence[str]] = None
+    anti_signals_proposition: Optional[Sequence[str]] = None
+    title_proposition: Optional[str] = None
+    _type: Literal["rule"] = "rule"  # Union discriminator for Pydantic
 
 
 @dataclass(frozen=True)
@@ -114,7 +123,7 @@ class InvoiceJourneyData:
     _type: Literal["journey"] = "journey"  # Union discriminator for Pydantic
 
 
-InvoiceData: TypeAlias = Union[InvoiceGuidelineData, InvoiceJourneyData]
+InvoiceData: TypeAlias = Union[InvoiceRuleData, InvoiceJourneyData]
 
 
 @dataclass(frozen=True)
@@ -136,7 +145,7 @@ class Evaluation:
     error: Optional[str]
     invoices: Sequence[Invoice]
     progress: float
-    tags: Sequence[TagId]
+    groups: Sequence[GroupId]
 
 
 class EvaluationUpdateParams(TypedDict, total=False):
@@ -153,7 +162,7 @@ class EvaluationStore(ABC):
         payload_descriptors: Sequence[PayloadDescriptor],
         creation_utc: Optional[datetime] = None,
         extra: Optional[Mapping[str, JSONSerializable]] = None,
-        tags: Optional[Sequence[TagId]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
     ) -> Evaluation: ...
 
     @abstractmethod
@@ -175,65 +184,70 @@ class EvaluationStore(ABC):
     ) -> Sequence[Evaluation]: ...
 
     @abstractmethod
-    async def upsert_tag(
+    async def upsert_group(
         self,
         evaluation_id: EvaluationId,
-        tag_id: TagId,
+        group_id: GroupId,
         creation_utc: Optional[datetime] = None,
     ) -> bool: ...
 
     @abstractmethod
-    async def remove_tag(
+    async def remove_group(
         self,
         evaluation_id: EvaluationId,
-        tag_id: TagId,
+        group_id: GroupId,
     ) -> None: ...
 
 
-class GuidelineContentDocument(TypedDict):
+class RuleContentDocument(TypedDict, total=False):
     condition: str
     action: Optional[str]
+    description: Optional[str]
 
 
-class GuidelinePayloadDocument_v0_1_0(TypedDict):
-    content: GuidelineContentDocument
+class RulePayloadDocument_v0_1_0(TypedDict):
+    content: RuleContentDocument
     action: Literal["add", "update"]
-    updated_id: Optional[GuidelineId]
+    updated_id: Optional[RuleId]
     coherence_check: bool
     connection_proposition: bool
 
 
-class GuidelinePayloadDocument_v0_2_0(TypedDict):
-    content: GuidelineContentDocument
+class RulePayloadDocument_v0_2_0(TypedDict):
+    content: RuleContentDocument
     tool_ids: Sequence[ToolId]
     action: Literal["add", "update"]
-    updated_id: Optional[GuidelineId]
-    coherence_check: bool
-    connection_proposition: bool
-    action_proposition: bool
-    properties_proposition: bool
-
-
-class GuidelinePayloadDocument_v0_4_0(TypedDict):
-    content: GuidelineContentDocument
-    tool_ids: Sequence[ToolId]
-    action: Literal["add", "update"]
-    updated_id: Optional[GuidelineId]
+    updated_id: Optional[RuleId]
     coherence_check: bool
     connection_proposition: bool
     action_proposition: bool
     properties_proposition: bool
-    journey_node_proposition: bool
 
 
-class GuidelinePayloadDocument(TypedDict):
-    content: GuidelineContentDocument
+class RulePayloadDocument_v0_4_0(TypedDict):
+    content: RuleContentDocument
     tool_ids: Sequence[ToolId]
     action: Literal["add", "update"]
-    updated_id: Optional[GuidelineId]
+    updated_id: Optional[RuleId]
+    coherence_check: bool
+    connection_proposition: bool
     action_proposition: bool
     properties_proposition: bool
     journey_node_proposition: bool
+
+
+class RulePayloadDocument(TypedDict):
+    content: RuleContentDocument
+    tool_ids: Sequence[ToolId]
+    action: Literal["add", "update"]
+    updated_id: Optional[RuleId]
+    action_proposition: bool
+    properties_proposition: bool
+    journey_node_proposition: bool
+    signal_proposition: bool
+    title_proposition: bool
+    title: Optional[str]
+    agent_id: Optional[AgentId]
 
 
 class JourneyPayloadDocument(TypedDict):
@@ -241,49 +255,49 @@ class JourneyPayloadDocument(TypedDict):
     action: Literal["add", "update"]
 
 
-_PayloadDocument = Union[GuidelinePayloadDocument, JourneyPayloadDocument]
+_PayloadDocument = Union[RulePayloadDocument, JourneyPayloadDocument]
 
 
 class _CoherenceCheckDocument(TypedDict):
     kind: str
-    first: GuidelineContentDocument
-    second: GuidelineContentDocument
+    first: RuleContentDocument
+    second: RuleContentDocument
     issue: str
     severity: int
 
 
 class _ConnectionPropositionDocument(TypedDict):
     check_kind: str
-    source: GuidelineContentDocument
-    target: GuidelineContentDocument
+    source: RuleContentDocument
+    target: RuleContentDocument
 
 
-class _InvoiceGuidelineDataDocument_v0_1_0(TypedDict):
+class _InvoiceRuleDataDocument_v0_1_0(TypedDict):
     coherence_checks: Optional[Sequence[_CoherenceCheckDocument]]
     connection_propositions: Optional[Sequence[_ConnectionPropositionDocument]]
 
 
-class InvoiceGuidelineDataDocument_v0_2_0(TypedDict):
-    coherence_checks: Optional[Sequence[_CoherenceCheckDocument]]
-    connection_propositions: Optional[Sequence[_ConnectionPropositionDocument]]
-    action_proposition: Optional[str]
-    properties_proposition: Optional[dict[str, JSONSerializable]]
-
-
-_InvoiceDataDocument_v0_2_0 = Union[InvoiceGuidelineDataDocument_v0_2_0]
-
-
-class InvoiceGuidelineDataDocument_v0_3_0(TypedDict):
+class InvoiceRuleDataDocument_v0_2_0(TypedDict):
     coherence_checks: Optional[Sequence[_CoherenceCheckDocument]]
     connection_propositions: Optional[Sequence[_ConnectionPropositionDocument]]
     action_proposition: Optional[str]
     properties_proposition: Optional[dict[str, JSONSerializable]]
 
 
-_InvoiceDataDocument_v0_3_0 = Union[InvoiceGuidelineDataDocument_v0_3_0]
+_InvoiceDataDocument_v0_2_0 = Union[InvoiceRuleDataDocument_v0_2_0]
 
 
-class InvoiceGuidelineDataDocument_v0_4_0(TypedDict):
+class InvoiceRuleDataDocument_v0_3_0(TypedDict):
+    coherence_checks: Optional[Sequence[_CoherenceCheckDocument]]
+    connection_propositions: Optional[Sequence[_ConnectionPropositionDocument]]
+    action_proposition: Optional[str]
+    properties_proposition: Optional[dict[str, JSONSerializable]]
+
+
+_InvoiceDataDocument_v0_3_0 = Union[InvoiceRuleDataDocument_v0_3_0]
+
+
+class InvoiceRuleDataDocument_v0_4_0(TypedDict):
     coherence_checks: Optional[Sequence[_CoherenceCheckDocument]]
     connection_propositions: Optional[Sequence[_ConnectionPropositionDocument]]
     properties_proposition: Optional[dict[str, JSONSerializable]]
@@ -294,29 +308,32 @@ class InvoiceJourneyDataDocument(TypedDict):
     edge_properties_proposition: dict[JourneyEdgeId, dict[str, JSONSerializable]]
 
 
-_InvoiceDataDocument_v0_4_0 = Union[InvoiceGuidelineDataDocument_v0_4_0, InvoiceJourneyDataDocument]
+_InvoiceDataDocument_v0_4_0 = Union[InvoiceRuleDataDocument_v0_4_0, InvoiceJourneyDataDocument]
 
 
-class InvoiceGuidelineDataDocument(TypedDict):
+class InvoiceRuleDataDocument(TypedDict):
     properties_proposition: Optional[dict[str, JSONSerializable]]
+    signals_proposition: Optional[Sequence[str]]
+    anti_signals_proposition: Optional[Sequence[str]]
+    title_proposition: Optional[str]
 
 
-_InvoiceDataDocument = Union[InvoiceGuidelineDataDocument, InvoiceJourneyDataDocument]
+_InvoiceDataDocument = Union[InvoiceRuleDataDocument, InvoiceJourneyDataDocument]
 
 
 class InvoiceDocument_v0_1_0(TypedDict, total=False):
     kind: str
-    payload: GuidelinePayloadDocument_v0_1_0
+    payload: RulePayloadDocument_v0_1_0
     checksum: str
     state_version: str
     approved: bool
-    data: Optional[_InvoiceGuidelineDataDocument_v0_1_0]
+    data: Optional[_InvoiceRuleDataDocument_v0_1_0]
     error: Optional[str]
 
 
 class InvoiceDocument_v0_2_0(TypedDict, total=False):
     kind: str
-    payload: GuidelinePayloadDocument_v0_2_0
+    payload: RulePayloadDocument_v0_2_0
     checksum: str
     state_version: str
     approved: bool
@@ -411,7 +428,7 @@ class EvaluationTagAssociationDocument(TypedDict, total=False):
     version: Version.String
     creation_utc: str
     evaluation_id: EvaluationId
-    tag_id: TagId
+    group_id: GroupId
 
 
 class EvaluationDocumentStore(EvaluationStore):
@@ -421,12 +438,14 @@ class EvaluationDocumentStore(EvaluationStore):
         self,
         database: DocumentDatabase,
         allow_migration: bool = False,
+        collections_prefix: str | None = None,
     ) -> None:
         self._database = database
         self._collection: DocumentCollection[EvaluationDocument]
         self._tag_association_collection: DocumentCollection[EvaluationTagAssociationDocument]
 
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
         self._lock = ReaderWriterLock()
 
     async def tag_association_document_loader(
@@ -445,7 +464,7 @@ class EvaluationDocumentStore(EvaluationStore):
                 version=Version.String("0.3.0"),
                 creation_utc=doc["creation_utc"],
                 evaluation_id=EvaluationId(doc["evaluation_id"]),
-                tag_id=TagId(doc["tag_id"]),
+                group_id=GroupId(doc["group_id"]),
             )
 
         async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
@@ -456,7 +475,7 @@ class EvaluationDocumentStore(EvaluationStore):
                 version=Version.String("0.4.0"),
                 creation_utc=doc["creation_utc"],
                 evaluation_id=EvaluationId(doc["evaluation_id"]),
-                tag_id=TagId(doc["tag_id"]),
+                group_id=GroupId(doc["group_id"]),
             )
 
         async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
@@ -467,7 +486,7 @@ class EvaluationDocumentStore(EvaluationStore):
                 version=Version.String("0.5.0"),
                 creation_utc=doc["creation_utc"],
                 evaluation_id=EvaluationId(doc["evaluation_id"]),
-                tag_id=TagId(doc["tag_id"]),
+                group_id=GroupId(doc["group_id"]),
             )
 
         return await DocumentMigrationHelper[EvaluationTagAssociationDocument](
@@ -498,8 +517,8 @@ class EvaluationDocumentStore(EvaluationStore):
                 invoices=[
                     InvoiceDocument_v0_3_0(
                         kind=inv["kind"],
-                        payload=GuidelinePayloadDocument_v0_4_0(
-                            content=GuidelineContentDocument(
+                        payload=RulePayloadDocument_v0_4_0(
+                            content=RuleContentDocument(
                                 condition=inv["payload"]["content"]["condition"],
                                 action=inv["payload"]["content"].get("action"),
                             ),
@@ -538,7 +557,7 @@ class EvaluationDocumentStore(EvaluationStore):
                         checksum=inv["checksum"],
                         state_version=inv["state_version"],
                         approved=inv["approved"],
-                        data=InvoiceGuidelineDataDocument_v0_4_0(
+                        data=InvoiceRuleDataDocument_v0_4_0(
                             coherence_checks=inv["data"].get("coherence_checks"),
                             connection_propositions=inv["data"].get("connection_propositions"),
                             properties_proposition={
@@ -576,7 +595,7 @@ class EvaluationDocumentStore(EvaluationStore):
                         checksum=inv["checksum"],
                         state_version=inv["state_version"],
                         approved=inv["approved"],
-                        data=InvoiceGuidelineDataDocument(
+                        data=InvoiceRuleDataDocument(
                             properties_proposition={
                                 **cast(
                                     dict[str, JSONSerializable],
@@ -590,6 +609,9 @@ class EvaluationDocumentStore(EvaluationStore):
                             if inv["data"].get("properties_proposition")
                             or inv["data"].get("action_proposition")
                             else None,
+                            signals_proposition=None,
+                            anti_signals_proposition=None,
+                            title_proposition=None,
                         )
                         if inv["data"]
                         else None,
@@ -613,15 +635,20 @@ class EvaluationDocumentStore(EvaluationStore):
             store=self,
             database=self._database,
             allow_migration=self._allow_migration,
+            collections_prefix=self._collections_prefix,
         ):
             self._collection = await self._database.get_or_create_collection(
-                name="evaluations",
+                name=f"{self._collections_prefix}_evaluations"
+                if self._collections_prefix
+                else "evaluations",
                 schema=EvaluationDocument,
                 document_loader=self.document_loader,
             )
 
             self._tag_association_collection = await self._database.get_or_create_collection(
-                name="evaluation_tag_associations",
+                name=f"{self._collections_prefix}_evaluation_tag_associations"
+                if self._collections_prefix
+                else "evaluation_tag_associations",
                 schema=EvaluationTagAssociationDocument,
                 document_loader=self.tag_association_document_loader,
             )
@@ -637,12 +664,23 @@ class EvaluationDocumentStore(EvaluationStore):
         pass
 
     def _serialize_invoice(self, invoice: Invoice) -> InvoiceDocument:
-        def serialize_invoice_guideline_data(
-            data: InvoiceGuidelineData,
-        ) -> InvoiceGuidelineDataDocument:
-            return InvoiceGuidelineDataDocument(
+        def serialize_invoice_rule_data(
+            data: InvoiceRuleData,
+        ) -> InvoiceRuleDataDocument:
+            return InvoiceRuleDataDocument(
                 properties_proposition=(
                     data.properties_proposition if data.properties_proposition is not None else None
+                ),
+                signals_proposition=(
+                    data.signals_proposition if data.signals_proposition is not None else None
+                ),
+                anti_signals_proposition=(
+                    data.anti_signals_proposition
+                    if data.anti_signals_proposition is not None
+                    else None
+                ),
+                title_proposition=(
+                    data.title_proposition if data.title_proposition is not None else None
                 ),
             )
 
@@ -655,11 +693,12 @@ class EvaluationDocumentStore(EvaluationStore):
             )
 
         def serialize_payload(payload: Payload) -> _PayloadDocument:
-            if isinstance(payload, GuidelinePayload):
-                return GuidelinePayloadDocument(
-                    content=GuidelineContentDocument(
+            if isinstance(payload, RulePayload):
+                return RulePayloadDocument(
+                    content=RuleContentDocument(
                         condition=payload.content.condition,
                         action=payload.content.action or None,
+                        description=payload.content.description or None,
                     ),
                     tool_ids=payload.tool_ids,
                     action=payload.operation.value,
@@ -667,6 +706,10 @@ class EvaluationDocumentStore(EvaluationStore):
                     action_proposition=payload.action_proposition,
                     properties_proposition=payload.properties_proposition,
                     journey_node_proposition=payload.journey_node_proposition,
+                    signal_proposition=payload.signal_proposition,
+                    title_proposition=payload.title_proposition,
+                    title=payload.title,
+                    agent_id=payload.agent_id,
                 )
             elif isinstance(payload, JourneyPayload):
                 return JourneyPayloadDocument(
@@ -682,14 +725,14 @@ class EvaluationDocumentStore(EvaluationStore):
                 raise TypeError(f"Unknown payload type: {type(payload)}")
 
         kind = invoice.kind.name  # Convert Enum to string
-        if kind == "GUIDELINE":
+        if kind == "RULE":
             return InvoiceDocument(
                 kind=kind,
                 payload=serialize_payload(invoice.payload),
                 checksum=invoice.checksum,
                 state_version=invoice.state_version,
                 approved=invoice.approved,
-                data=serialize_invoice_guideline_data(cast(InvoiceGuidelineData, invoice.data))
+                data=serialize_invoice_rule_data(cast(InvoiceRuleData, invoice.data))
                 if invoice.data
                 else None,
                 error=invoice.error,
@@ -721,36 +764,41 @@ class EvaluationDocumentStore(EvaluationStore):
         )
 
     async def _deserialize_evaluation(self, evaluation_document: EvaluationDocument) -> Evaluation:
-        def deserialize_guideline_content_document(
-            gc_doc: GuidelineContentDocument,
-        ) -> GuidelineContent:
-            return GuidelineContent(
+        def deserialize_rule_content_document(
+            gc_doc: RuleContentDocument,
+        ) -> RuleContent:
+            return RuleContent(
                 condition=gc_doc["condition"],
                 action=gc_doc["action"],
+                description=gc_doc.get("description"),
             )
 
-        def deserialize_invoice_guideline_data(
-            data_doc: InvoiceGuidelineDataDocument,
-        ) -> InvoiceGuidelineData:
-            return InvoiceGuidelineData(
+        def deserialize_invoice_rule_data(
+            data_doc: InvoiceRuleDataDocument,
+        ) -> InvoiceRuleData:
+            return InvoiceRuleData(
                 properties_proposition=(
                     data_doc["properties_proposition"]
                     if data_doc["properties_proposition"] is not None
                     else None
                 ),
+                signals_proposition=data_doc.get("signals_proposition"),
+                anti_signals_proposition=data_doc.get("anti_signals_proposition"),
+                title_proposition=data_doc.get("title_proposition"),
             )
 
         def deserialize_payload_document(
             kind: PayloadKind,
             payload_doc: _PayloadDocument,
         ) -> Payload:
-            if kind == PayloadKind.GUIDELINE:
-                payload_doc = cast(GuidelinePayloadDocument, payload_doc)
+            if kind == PayloadKind.RULE:
+                payload_doc = cast(RulePayloadDocument, payload_doc)
 
-                return GuidelinePayload(
-                    content=GuidelineContent(
+                return RulePayload(
+                    content=RuleContent(
                         condition=payload_doc["content"]["condition"],
                         action=payload_doc["content"]["action"] or None,
+                        description=payload_doc["content"].get("description"),
                     ),
                     tool_ids=payload_doc["tool_ids"],
                     operation=PayloadOperation(payload_doc["action"]),
@@ -758,6 +806,10 @@ class EvaluationDocumentStore(EvaluationStore):
                     action_proposition=payload_doc["action_proposition"],
                     properties_proposition=payload_doc["properties_proposition"],
                     journey_node_proposition=payload_doc["journey_node_proposition"],
+                    signal_proposition=payload_doc.get("signal_proposition", False),
+                    title_proposition=payload_doc.get("title_proposition", False),
+                    title=payload_doc.get("title"),
+                    agent_id=payload_doc.get("agent_id"),
                 )
             elif kind == PayloadKind.JOURNEY:
                 payload_doc = cast(JourneyPayloadDocument, payload_doc)
@@ -783,9 +835,9 @@ class EvaluationDocumentStore(EvaluationStore):
 
             data_doc = invoice_doc.get("data")
             if data_doc is not None:
-                if kind == PayloadKind.GUIDELINE:
-                    data: Optional[InvoiceData] = deserialize_invoice_guideline_data(
-                        cast(InvoiceGuidelineDataDocument, data_doc)
+                if kind == PayloadKind.RULE:
+                    data: Optional[InvoiceData] = deserialize_invoice_rule_data(
+                        cast(InvoiceRuleDataDocument, data_doc)
                     )
                 elif kind == PayloadKind.JOURNEY:
                     data = InvoiceJourneyData(
@@ -822,7 +874,7 @@ class EvaluationDocumentStore(EvaluationStore):
             tags_docs = await self._tag_association_collection.find(
                 filters={"evaluation_id": {"$eq": evaluation_id}},
             )
-            tags = [TagId(tag_doc["tag_id"]) for tag_doc in tags_docs]
+            groups = [GroupId(tag_doc["group_id"]) for tag_doc in tags_docs]
 
         return Evaluation(
             id=evaluation_id,
@@ -831,7 +883,7 @@ class EvaluationDocumentStore(EvaluationStore):
             error=evaluation_document.get("error"),
             invoices=invoices,
             progress=evaluation_document["progress"],
-            tags=tags,
+            groups=groups,
         )
 
     @override
@@ -840,7 +892,7 @@ class EvaluationDocumentStore(EvaluationStore):
         payload_descriptors: Sequence[PayloadDescriptor],
         creation_utc: Optional[datetime] = None,
         extra: Optional[Mapping[str, JSONSerializable]] = None,
-        tags: Optional[Sequence[TagId]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
     ) -> Evaluation:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
@@ -867,19 +919,19 @@ class EvaluationDocumentStore(EvaluationStore):
                 error=None,
                 invoices=invoices,
                 progress=0.0,
-                tags=tags or [],
+                groups=groups or [],
             )
 
             await self._collection.insert_one(self._serialize_evaluation(evaluation=evaluation))
 
-            for tag in tags or []:
+            for group in groups or []:
                 await self._tag_association_collection.insert_one(
                     document={
                         "id": ObjectId(generate_id()),
                         "version": self.VERSION.to_string(),
                         "creation_utc": creation_utc.isoformat(),
                         "evaluation_id": evaluation_id,
-                        "tag_id": tag,
+                        "group_id": group,
                     }
                 )
 
@@ -940,16 +992,16 @@ class EvaluationDocumentStore(EvaluationStore):
             ]
 
     @override
-    async def upsert_tag(
+    async def upsert_group(
         self,
         evaluation_id: EvaluationId,
-        tag_id: TagId,
+        group_id: GroupId,
         creation_utc: Optional[datetime] = None,
     ) -> bool:
         async with self._lock.writer_lock:
             evaluation = await self.read_evaluation(evaluation_id)
 
-            if tag_id in evaluation.tags:
+            if group_id in evaluation.groups:
                 return False
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
@@ -959,7 +1011,7 @@ class EvaluationDocumentStore(EvaluationStore):
                 "version": self.VERSION.to_string(),
                 "creation_utc": creation_utc.isoformat(),
                 "evaluation_id": evaluation_id,
-                "tag_id": tag_id,
+                "group_id": group_id,
             }
 
             _ = await self._tag_association_collection.insert_one(document=association_document)
@@ -972,21 +1024,21 @@ class EvaluationDocumentStore(EvaluationStore):
         return True
 
     @override
-    async def remove_tag(
+    async def remove_group(
         self,
         evaluation_id: EvaluationId,
-        tag_id: TagId,
+        group_id: GroupId,
     ) -> None:
         async with self._lock.writer_lock:
             delete_result = await self._tag_association_collection.delete_one(
                 {
                     "evaluation_id": {"$eq": evaluation_id},
-                    "tag_id": {"$eq": tag_id},
+                    "group_id": {"$eq": group_id},
                 }
             )
 
             if delete_result.deleted_count == 0:
-                raise ItemNotFoundError(item_id=UniqueId(tag_id))
+                raise ItemNotFoundError(item_id=UniqueId(group_id))
 
             evaluation_document = await self._collection.find_one({"id": {"$eq": evaluation_id}})
 
@@ -1024,3 +1076,74 @@ class PollingEvaluationListener(EvaluationListener):
                 return False
             else:
                 await timeout.wait_up_to(1)
+
+
+class CompositeEvaluationStore(EvaluationStore):
+    def __init__(
+        self,
+        writable_store: EvaluationStore,
+        readable_stores: Sequence[EvaluationStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[EvaluationStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_evaluation(
+        self,
+        payload_descriptors: Sequence[PayloadDescriptor],
+        creation_utc: Optional[datetime] = None,
+        extra: Optional[Mapping[str, JSONSerializable]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
+    ) -> Evaluation:
+        return await self._writable_store.create_evaluation(
+            payload_descriptors=payload_descriptors,
+            creation_utc=creation_utc,
+            extra=extra,
+            groups=groups,
+        )
+
+    @override
+    async def update_evaluation(
+        self,
+        evaluation_id: EvaluationId,
+        params: EvaluationUpdateParams,
+    ) -> Evaluation:
+        return await self._writable_store.update_evaluation(evaluation_id, params)
+
+    @override
+    async def read_evaluation(
+        self,
+        evaluation_id: EvaluationId,
+    ) -> Evaluation:
+        results = await safe_gather(
+            *[try_or_none(store.read_evaluation(evaluation_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(evaluation_id))
+        return result
+
+    @override
+    async def list_evaluations(
+        self,
+    ) -> Sequence[Evaluation]:
+        results = await safe_gather(*[store.list_evaluations() for store in self._all_stores])
+        return list(chain.from_iterable(results))
+
+    @override
+    async def upsert_group(
+        self,
+        evaluation_id: EvaluationId,
+        group_id: GroupId,
+        creation_utc: Optional[datetime] = None,
+    ) -> bool:
+        return await self._writable_store.upsert_group(evaluation_id, group_id, creation_utc)
+
+    @override
+    async def remove_group(
+        self,
+        evaluation_id: EvaluationId,
+        group_id: GroupId,
+    ) -> None:
+        return await self._writable_store.remove_group(evaluation_id, group_id)

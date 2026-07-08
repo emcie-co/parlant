@@ -24,7 +24,11 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matching_context im
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.engines.alpha.prompt_builder import BuiltInSection, PromptBuilder, SectionStatus
 from parlant.core.entity_cq import EntityQueries
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.rules import (
+    Rule as Guideline,
+    RuleContent as GuidelineContent,
+    RuleId as GuidelineId,
+)
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
@@ -98,25 +102,41 @@ class GenericLowCriticalityGuidelineMatchingBatch(GuidelineMatchingBatch):
                             f"Completion:\n{inference.content.model_dump_json(indent=2)}"
                         )
 
-                    matches = []
+                    matched_guidelines = []
+                    skipped_guidelines = []
 
                     for id, match in inference.content.applies.items():
                         per_item = json.dumps({"guideline_id": id, "applies": match}, indent=2)
                         if match:
                             self._logger.debug(f"Matched:\n{per_item}")
 
-                            matches.append(
+                            matched_guidelines.append(
                                 GuidelineMatch(
                                     guideline=self._guidelines[id],
-                                    score=10,
                                     rationale="Applies as per model evaluation.",
                                 )
                             )
                         else:
-                            self._logger.debug(f"Not matched:\n{per_item}")
+                            self._logger.debug(
+                                f"Not matched:\n{inference.content.model_dump_json(indent=2)}"
+                            )
+                            skipped_guidelines.append(
+                                GuidelineMatch(
+                                    guideline=self._guidelines[id],
+                                    rationale="Does not apply as per model evaluation.",
+                                )
+                            )
+
+                            skipped_guidelines.append(
+                                GuidelineMatch(
+                                    guideline=self._guidelines[id],
+                                    rationale="Does not apply as per model evaluation.",
+                                )
+                            )
 
                     return GuidelineMatchingBatchResult(
-                        matches=matches,
+                        matched_guidelines=matched_guidelines,
+                        skipped_guidelines=skipped_guidelines,
                         generation_info=inference.info,
                     )
 
@@ -408,6 +428,7 @@ def _make_event(e_id: str, source: EventSource, message: str) -> Event:
         source=source,
         kind=EventKind.MESSAGE,
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         offset=0,
         trace_id="",
         data={"message": message},

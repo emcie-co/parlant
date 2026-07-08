@@ -20,14 +20,22 @@ from typing import Awaitable, Callable, NewType, Optional, Sequence, TypedDict, 
 from typing_extensions import override, Self, Required
 
 from parlant.core import async_utils
-from parlant.core.async_utils import ReaderWriterLock
-from parlant.core.common import ItemNotFoundError, Version, IdGenerator, UniqueId, xxh3_checksum
+from parlant.core.async_utils import ReaderWriterLock, safe_gather
+from parlant.core.common import (
+    ItemNotFoundError,
+    try_or_none,
+    Version,
+    IdGenerator,
+    UniqueId,
+    xxh3_checksum,
+)
 from parlant.core.persistence.common import ObjectId, Where
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.vector_database import (
     BaseDocument as VectorBaseDocument,
     SimilarDocumentResult,
     VectorCollection,
+    VectorCollectionIndex,
     VectorDatabase,
 )
 from parlant.core.persistence.vector_database_helper import (
@@ -41,7 +49,7 @@ from parlant.core.persistence.document_database import (
     BaseDocument,
 )
 from parlant.core.persistence.document_database_helper import DocumentStoreMigrationHelper
-from parlant.core.tags import TagId
+from parlant.core.groups import GroupId
 
 
 CapabilityId = NewType("CapabilityId", str)
@@ -54,7 +62,7 @@ class Capability:
     title: str
     description: str
     signals: Sequence[str]
-    tags: list[TagId]
+    groups: list[GroupId]
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -74,7 +82,7 @@ class CapabilityStore:
         description: str,
         creation_utc: Optional[datetime] = None,
         signals: Optional[Sequence[str]] = None,
-        tags: Optional[Sequence[TagId]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
     ) -> Capability: ...
 
     @abstractmethod
@@ -93,7 +101,7 @@ class CapabilityStore:
     @abstractmethod
     async def list_capabilities(
         self,
-        tags: Optional[Sequence[TagId]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
     ) -> Sequence[Capability]: ...
 
     @abstractmethod
@@ -111,18 +119,18 @@ class CapabilityStore:
     ) -> Sequence[Capability]: ...
 
     @abstractmethod
-    async def upsert_tag(
+    async def upsert_group(
         self,
         capability_id: CapabilityId,
-        tag_id: TagId,
+        group_id: GroupId,
         creation_utc: Optional[datetime] = None,
     ) -> bool: ...
 
     @abstractmethod
-    async def remove_tag(
+    async def remove_group(
         self,
         capability_id: CapabilityId,
-        tag_id: TagId,
+        group_id: GroupId,
     ) -> None: ...
 
 
@@ -160,7 +168,7 @@ class CapabilityTagAssociationDocument(TypedDict, total=False):
     version: Version.String
     creation_utc: str
     capability_id: CapabilityId
-    tag_id: TagId
+    group_id: GroupId
 
 
 class CapabilityVectorStore(CapabilityStore):
@@ -174,12 +182,14 @@ class CapabilityVectorStore(CapabilityStore):
         embedder_type_provider: Callable[[], Awaitable[type[Embedder]]],
         embedder_factory: EmbedderFactory,
         allow_migration: bool = True,
+        collections_prefix: str | None = None,
     ):
         self._id_generator = id_generator
 
         self._vector_db = vector_db
         self._document_db = document_db
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
         self._vector_collection: VectorCollection[CapabilityVectorDocument]
         self._collection: DocumentCollection[CapabilityDocument]
         self._tag_association_collection: DocumentCollection[CapabilityTagAssociationDocument]
@@ -219,25 +229,35 @@ class CapabilityVectorStore(CapabilityStore):
             allow_migration=self._allow_migration,
         ):
             self._vector_collection = await self._vector_db.get_or_create_collection(
-                name="capabilities",
+                name=f"{self._collections_prefix}_capabilities"
+                if self._collections_prefix
+                else "capabilities",
                 schema=CapabilityVectorDocument,
                 embedder_type=embedder_type,
                 document_loader=self._vector_document_loader,
+            )
+            await self._vector_collection.ensure_indexes(
+                [VectorCollectionIndex(field="capability_id")]
             )
 
         async with DocumentStoreMigrationHelper(
             store=self,
             database=self._document_db,
             allow_migration=self._allow_migration,
+            collections_prefix=self._collections_prefix,
         ):
             self._collection = await self._document_db.get_or_create_collection(
-                name="capabilities",
+                name=f"{self._collections_prefix}_capabilities"
+                if self._collections_prefix
+                else "capabilities",
                 schema=CapabilityDocument,
                 document_loader=self._document_loader,
             )
 
             self._tag_association_collection = await self._document_db.get_or_create_collection(
-                name="capability_tags",
+                name=f"{self._collections_prefix}_capability_tags"
+                if self._collections_prefix
+                else "capability_tags",
                 schema=CapabilityTagAssociationDocument,
                 document_loader=self._association_document_loader,
             )
@@ -266,8 +286,8 @@ class CapabilityVectorStore(CapabilityStore):
         )
 
     async def _deserialize(self, doc: CapabilityDocument) -> Capability:
-        tags = [
-            d["tag_id"]
+        groups = [
+            d["group_id"]
             for d in await self._tag_association_collection.find(
                 {"capability_id": {"$eq": doc["id"]}}
             )
@@ -279,7 +299,7 @@ class CapabilityVectorStore(CapabilityStore):
             title=doc["title"],
             description=doc["description"],
             signals=doc["signals"],
-            tags=tags,
+            groups=groups,
         )
 
     def _list_capability_contents(self, capability: Capability) -> list[str]:
@@ -327,15 +347,15 @@ class CapabilityVectorStore(CapabilityStore):
         description: str,
         creation_utc: Optional[datetime] = None,
         signals: Optional[Sequence[str]] = None,
-        tags: Optional[Sequence[TagId]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
     ) -> Capability:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
             signals = list(signals) if signals else []
-            tags = list(tags) if tags else []
+            groups = list(groups) if groups else []
 
-            capability_checksum = xxh3_checksum(f"{title}{description}{signals}{tags}")
+            capability_checksum = xxh3_checksum(f"{title}{description}{signals}{groups}")
 
             capability_id = CapabilityId(self._id_generator.generate(capability_checksum))
             capability = Capability(
@@ -344,13 +364,13 @@ class CapabilityVectorStore(CapabilityStore):
                 title=title,
                 description=description,
                 signals=signals,
-                tags=tags,
+                groups=groups,
             )
 
             await self._insert_capability(capability)
 
-            for tag_id in tags:
-                tag_checksum = xxh3_checksum(f"{capability_id}{tag_id}")
+            for group_id in groups:
+                tag_checksum = xxh3_checksum(f"{capability_id}{group_id}")
 
                 await self._tag_association_collection.insert_one(
                     document={
@@ -358,7 +378,7 @@ class CapabilityVectorStore(CapabilityStore):
                         "version": self.VERSION.to_string(),
                         "creation_utc": creation_utc.isoformat(),
                         "capability_id": capability.id,
-                        "tag_id": tag_id,
+                        "group_id": group_id,
                     }
                 )
 
@@ -390,7 +410,7 @@ class CapabilityVectorStore(CapabilityStore):
                 title=title,
                 description=description,
                 signals=signals,
-                tags=[],
+                groups=[],
             )
 
             doc = await self._insert_capability(capability)
@@ -413,12 +433,12 @@ class CapabilityVectorStore(CapabilityStore):
     @override
     async def list_capabilities(
         self,
-        tags: Optional[Sequence[TagId]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
     ) -> Sequence[Capability]:
         filters: Where = {}
         async with self._lock.reader_lock:
-            if tags is not None:
-                if len(tags) == 0:
+            if groups is not None:
+                if len(groups) == 0:
                     capability_ids = {
                         doc["id"] for doc in await self._tag_association_collection.find(filters={})
                     }
@@ -433,7 +453,7 @@ class CapabilityVectorStore(CapabilityStore):
                         filters = {"$and": [{"id": {"$ne": id}} for id in capability_ids]}
 
                 else:
-                    tag_filters: Where = {"$or": [{"tag_id": {"$eq": tag}} for tag in tags]}
+                    tag_filters: Where = {"$or": [{"group_id": {"$eq": group}} for group in groups]}
                     tag_associations = await self._tag_association_collection.find(
                         filters=tag_filters
                     )
@@ -504,7 +524,7 @@ class CapabilityVectorStore(CapabilityStore):
                         count_item_vectors=lambda c: len(self._list_capability_contents(c)),
                         max_items_to_return=max_count,
                     ),
-                    hints={"tag": "capabilities"},
+                    hints={"group": "capabilities"},
                 )
                 for q in queries
             ]
@@ -543,28 +563,28 @@ class CapabilityVectorStore(CapabilityStore):
         return result
 
     @override
-    async def upsert_tag(
+    async def upsert_group(
         self,
         capability_id: CapabilityId,
-        tag_id: TagId,
+        group_id: GroupId,
         creation_utc: Optional[datetime] = None,
     ) -> bool:
         async with self._lock.writer_lock:
             capability = await self.read_capability(capability_id)
 
-            if tag_id in capability.tags:
+            if group_id in capability.groups:
                 return False
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            tag_checksum = xxh3_checksum(f"{capability_id}{tag_id}")
+            tag_checksum = xxh3_checksum(f"{capability_id}{group_id}")
 
             assoc_doc: CapabilityTagAssociationDocument = {
                 "id": ObjectId(self._id_generator.generate(tag_checksum)),
                 "version": self.VERSION.to_string(),
                 "creation_utc": creation_utc.isoformat(),
                 "capability_id": capability_id,
-                "tag_id": tag_id,
+                "group_id": group_id,
             }
 
             _ = await self._tag_association_collection.insert_one(document=assoc_doc)
@@ -576,23 +596,117 @@ class CapabilityVectorStore(CapabilityStore):
         return True
 
     @override
-    async def remove_tag(
+    async def remove_group(
         self,
         capability_id: CapabilityId,
-        tag_id: TagId,
+        group_id: GroupId,
     ) -> None:
         async with self._lock.writer_lock:
             delete_result = await self._tag_association_collection.delete_one(
                 {
                     "capability_id": {"$eq": capability_id},
-                    "tag_id": {"$eq": tag_id},
+                    "group_id": {"$eq": group_id},
                 }
             )
 
             if delete_result.deleted_count == 0:
-                raise ItemNotFoundError(item_id=UniqueId(tag_id))
+                raise ItemNotFoundError(item_id=UniqueId(group_id))
 
             doc = await self._collection.find_one({"id": {"$eq": capability_id}})
 
         if not doc:
             raise ItemNotFoundError(item_id=UniqueId(capability_id))
+
+
+class CompositeCapabilityStore(CapabilityStore):
+    def __init__(
+        self,
+        writable_store: CapabilityStore,
+        readable_stores: Sequence[CapabilityStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[CapabilityStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_capability(
+        self,
+        title: str,
+        description: str,
+        creation_utc: Optional[datetime] = None,
+        signals: Optional[Sequence[str]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
+    ) -> Capability:
+        return await self._writable_store.create_capability(
+            title=title,
+            description=description,
+            creation_utc=creation_utc,
+            signals=signals,
+            groups=groups,
+        )
+
+    @override
+    async def update_capability(
+        self,
+        capability_id: CapabilityId,
+        params: CapabilityUpdateParams,
+    ) -> Capability:
+        return await self._writable_store.update_capability(capability_id, params)
+
+    @override
+    async def read_capability(
+        self,
+        capability_id: CapabilityId,
+    ) -> Capability:
+        results = await safe_gather(
+            *[try_or_none(store.read_capability(capability_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(capability_id))
+        return result
+
+    @override
+    async def list_capabilities(
+        self,
+        groups: Optional[Sequence[GroupId]] = None,
+    ) -> Sequence[Capability]:
+        results = await safe_gather(
+            *[store.list_capabilities(groups=groups) for store in self._all_stores]
+        )
+        return list(chain.from_iterable(results))
+
+    @override
+    async def delete_capability(
+        self,
+        capability_id: CapabilityId,
+    ) -> None:
+        return await self._writable_store.delete_capability(capability_id)
+
+    @override
+    async def find_relevant_capabilities(
+        self,
+        query: str,
+        available_capabilities: Sequence[Capability],
+        max_count: int,
+    ) -> Sequence[Capability]:
+        return await self._writable_store.find_relevant_capabilities(
+            query, available_capabilities, max_count
+        )
+
+    @override
+    async def upsert_group(
+        self,
+        capability_id: CapabilityId,
+        group_id: GroupId,
+        creation_utc: Optional[datetime] = None,
+    ) -> bool:
+        return await self._writable_store.upsert_group(capability_id, group_id, creation_utc)
+
+    @override
+    async def remove_group(
+        self,
+        capability_id: CapabilityId,
+        group_id: GroupId,
+    ) -> None:
+        return await self._writable_store.remove_group(capability_id, group_id)

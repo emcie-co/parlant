@@ -15,6 +15,7 @@ interface Props {
 	isContinual: boolean;
 	isRegenerateHidden?: boolean;
 	isFirstMessageInDate?: boolean;
+	isInitializing?: boolean;
 	flagged?: string;
 	flaggedChanged?: (flagged: string) => void;
 	showLogsForMessage?: EventInterface | null;
@@ -22,11 +23,13 @@ interface Props {
 	resendMessageFn?: (sessionId: string, text?: string) => void;
 	showLogs: (event: EventInterface) => void;
 	setIsEditing?: React.Dispatch<React.SetStateAction<boolean>>;
+	shouldAutoScroll?: () => boolean;
+	scrollToBottom?: (behavior?: ScrollBehavior) => void;
 }
 
 
 
-const MessageEditing = ({event, resendMessageFn, setIsEditing}: Props) => {
+const MessageEditing = ({event, resendMessageFn, setIsEditing, shouldAutoScroll}: Props) => {
 	const ref = useRef<HTMLDivElement>(null);
 	const textArea = useRef<HTMLTextAreaElement>(null);
 	const [textValue, setTextValue] = useState(event?.data?.message || '');
@@ -37,6 +40,7 @@ const MessageEditing = ({event, resendMessageFn, setIsEditing}: Props) => {
 	}, [textArea?.current]);
 
 	useEffect(() => {
+		if (shouldAutoScroll && !shouldAutoScroll()) return;
 		ref?.current?.scrollIntoView({behavior: 'smooth', block: 'nearest'});
 	}, [ref?.current]);
 
@@ -61,7 +65,7 @@ const MessageEditing = ({event, resendMessageFn, setIsEditing}: Props) => {
 	);
 };
 
-function Message({event, isFirstMessageInDate, isContinual, showLogs, showLogsForMessage, resendMessageFn, flagged, flaggedChanged, sameTraceMessages: sameTraceMessages}: Props): ReactElement {
+function Message({event, isFirstMessageInDate, isContinual, isInitializing, showLogs, showLogsForMessage, resendMessageFn, flagged, flaggedChanged, sameTraceMessages: sameTraceMessages, shouldAutoScroll, scrollToBottom}: Props): ReactElement {
 	const [isEditing, setIsEditing] = useState(false);
 	return (
 		<div className={twMerge(isEditing && '[direction:rtl] flex justify-center')}>
@@ -72,9 +76,22 @@ function Message({event, isFirstMessageInDate, isContinual, showLogs, showLogsFo
 				)}>
 				<Spacer />
 				{isEditing ? (
-					<MessageEditing resendMessageFn={resendMessageFn} setIsEditing={setIsEditing} event={event} isContinual={isContinual} showLogs={showLogs} showLogsForMessage={showLogsForMessage} />
+					<MessageEditing resendMessageFn={resendMessageFn} setIsEditing={setIsEditing} event={event} isContinual={isContinual} showLogs={showLogs} showLogsForMessage={showLogsForMessage} shouldAutoScroll={shouldAutoScroll} />
 				) : (
-					<MessageBubble isFirstMessageInDate={isFirstMessageInDate} setIsEditing={setIsEditing} event={event} isContinual={isContinual} showLogs={showLogs} showLogsForMessage={showLogsForMessage} flagged={flagged} flaggedChanged={flaggedChanged} sameTraceMessages={sameTraceMessages} />
+					<MessageBubble
+						isFirstMessageInDate={isFirstMessageInDate}
+						setIsEditing={setIsEditing}
+						event={event}
+						isContinual={isContinual}
+						isInitializing={isInitializing}
+						showLogs={showLogs}
+						showLogsForMessage={showLogsForMessage}
+						flagged={flagged}
+						flaggedChanged={flaggedChanged}
+						sameTraceMessages={sameTraceMessages}
+						shouldAutoScroll={shouldAutoScroll}
+						scrollToBottom={scrollToBottom}
+					/>
 				)}
 				<Spacer />
 			</div>

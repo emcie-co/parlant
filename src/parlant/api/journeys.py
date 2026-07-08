@@ -17,7 +17,7 @@ from fastapi import APIRouter, Path, Query, Request, status
 from fastapi.responses import PlainTextResponse
 from html import escape
 from pydantic import Field
-from typing import Annotated, Sequence, TypeAlias, cast
+from typing import Annotated, Sequence, TypeAlias
 
 from parlant.api.authorization import Operation, AuthorizationPolicy
 from parlant.api.common import (
@@ -31,20 +31,22 @@ from parlant.api.common import (
 from parlant.core.app_modules.journeys import (
     JourneyGraph,
     JourneyLabelsUpdateParams,
-    JourneyTagUpdateParams,
+    JourneyGroupUpdateParams,
     JourneyTriggerUpdateParams,
 )
 from parlant.core.application import Application
-from parlant.core.common import DefaultBaseModel, JSONSerializable
+from parlant.core.common import DefaultBaseModel
+from typing import Any
 from parlant.core.journeys import (
     JourneyEdge,
     JourneyId,
     JourneyNode,
     JourneyNodeId,
-    JourneyStore,
+    JourneyNodeKind,
 )
-from parlant.core.guidelines import GuidelineId
-from parlant.core.tags import TagId
+from datetime import datetime
+from parlant.core.rules import RuleId
+from parlant.core.groups import GroupId
 import re
 
 API_GROUP = "journeys"
@@ -89,11 +91,11 @@ JourneyTriggerField: TypeAlias = Annotated[
     ),
 ]
 
-JourneyTagsField: TypeAlias = Annotated[
-    list[TagId],
+JourneyGroupsField: TypeAlias = Annotated[
+    list[GroupId],
     Field(
-        description="List of tag IDs associated with the journey",
-        examples=[["tag1", "tag2"]],
+        description="List of group IDs associated with the journey",
+        examples=[["group1", "group2"]],
     ),
 ]
 
@@ -102,6 +104,13 @@ JourneyLabelsField: TypeAlias = Annotated[
     Field(
         description="Labels associated with the journey",
         examples=[{"vip", "priority"}],
+    ),
+]
+
+JourneyLastModifiedField: TypeAlias = Annotated[
+    datetime,
+    Field(
+        description="UTC timestamp of the last modification to the journey",
     ),
 ]
 
@@ -115,7 +124,7 @@ journey_example: ExampleJson = {
         "customer needs unlocking their card",
         "customer needs help with card",
     ],
-    "tags": ["tag1", "tag2"],
+    "groups": ["group1", "group2"],
     "labels": ["vip", "priority"],
 }
 
@@ -137,6 +146,25 @@ stateDiagram
 ]
 
 
+class JourneyNodeDTO(DefaultBaseModel):
+    id: str
+    creation_utc: datetime
+    action: str | None = None
+    tools: list[str] = []
+    metadata: dict[str, Any] = {}
+    description: str | None = None
+    composition_mode: str | None = None
+
+
+class JourneyEdgeDTO(DefaultBaseModel):
+    id: str
+    creation_utc: datetime
+    source: str
+    target: str
+    condition: str | None = None
+    metadata: dict[str, Any] = {}
+
+
 class JourneyDTO(
     DefaultBaseModel,
     json_schema_extra={"example": journey_example},
@@ -150,11 +178,17 @@ class JourneyDTO(
     id: JourneyIdPath
     title: JourneyTitleField
     description: str
-    triggers: Sequence[GuidelineId]
-    tags: JourneyTagsField = []
+    triggers: Sequence[RuleId]
+    groups: JourneyGroupsField = []
     composition_mode: CompositionModeDTO | None = None
     labels: JourneyLabelsField = set()
     priority: int = 0
+    modified_utc: JourneyLastModifiedField
+
+
+class JourneyGraphDTO(JourneyDTO):
+    nodes: list[JourneyNodeDTO] = []
+    edges: list[JourneyEdgeDTO] = []
 
 
 class JourneyCreationParamsDTO(
@@ -169,24 +203,24 @@ class JourneyCreationParamsDTO(
     description: str
     triggers: Sequence[JourneyTriggerField]
     id: JourneyIdPath | None = None
-    tags: JourneyTagsField | None = None
+    groups: JourneyGroupsField | None = None
     composition_mode: CompositionModeDTO | None = None
     labels: JourneyLabelsField | None = None
     priority: int = 0
 
 
 JourneyTriggerUpdateAddField: TypeAlias = Annotated[
-    list[GuidelineId],
+    list[RuleId],
     Field(
-        description="List of guideline IDs to add to the journey",
+        description="List of rule IDs to add to the journey",
         examples=[["guid_123xz", "guid_456abc"]],
     ),
 ]
 
 JourneyTriggerUpdateRemoveField: TypeAlias = Annotated[
-    list[GuidelineId],
+    list[RuleId],
     Field(
-        description="List of guideline IDs to remove from the journey",
+        description="List of rule IDs to remove from the journey",
         examples=[["guid_123xz", "guid_456abc"]],
     ),
 ]
@@ -216,39 +250,39 @@ class JourneyTriggerUpdateParamsDTO(
 
 
 JourneyTagUpdateAddField: TypeAlias = Annotated[
-    list[TagId],
+    list[GroupId],
     Field(
-        description="List of tag IDs to add to the journey",
-        examples=[["tag1", "tag2"]],
+        description="List of group IDs to add to the journey",
+        examples=[["group1", "group2"]],
     ),
 ]
 
 JourneyTagUpdateRemoveField: TypeAlias = Annotated[
-    list[TagId],
+    list[GroupId],
     Field(
-        description="List of tag IDs to remove from the journey",
-        examples=[["tag1", "tag2"]],
+        description="List of group IDs to remove from the journey",
+        examples=[["group1", "group2"]],
     ),
 ]
 
-journey_tag_update_params_example: ExampleJson = {
+journey_group_update_params_example: ExampleJson = {
     "add": [
         "t9a8g703f4",
-        "tag_456abc",
+        "group_456abc",
     ],
     "remove": [
-        "tag_789def",
-        "tag_012ghi",
+        "group_789def",
+        "group_012ghi",
     ],
 }
 
 
-class JourneyTagUpdateParamsDTO(
+class JourneyGroupUpdateParamsDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": journey_tag_update_params_example},
+    json_schema_extra={"example": journey_group_update_params_example},
 ):
     """
-    Parameters for updating an existing journey's tags.
+    Parameters for updating an existing journey's groups.
     """
 
     add: JourneyTagUpdateAddField | None = None
@@ -285,17 +319,17 @@ class JourneyUpdateParamsDTO(
     title: JourneyTitleField | None = None
     description: str | None = None
     triggers: JourneyTriggerUpdateParamsDTO | None = None
-    tags: JourneyTagUpdateParamsDTO | None = None
+    groups: JourneyGroupUpdateParamsDTO | None = None
     composition_mode: CompositionModeDTO | None = None
     labels: JourneyLabelsUpdateParamsDTO | None = None
     priority: int | None = None
 
 
-TagIdQuery: TypeAlias = Annotated[
-    TagId | None,
+GroupIdQuery: TypeAlias = Annotated[
+    GroupId | None,
     Query(
-        description="The tag ID to filter journeys by",
-        examples=["tag:123"],
+        description="The group ID to filter journeys by",
+        examples=["group:123"],
     ),
 ]
 
@@ -306,17 +340,17 @@ async def _build_mermaid_chart(
     NORMAL_STYLE = "fill:#006e53,stroke:#ffffff,stroke-width:2px,color:#ffffff"
     TOOL_STYLE = "fill:#ffeeaa,stroke:#ffeeaa,stroke-width:2px,color:#dd6600"
 
+    def _is_end_node(node: JourneyNode) -> bool:
+        return node.kind == JourneyNodeKind.END
+
     def _is_tool_node(node: JourneyNode) -> bool:
-        return (
-            cast(dict[str, JSONSerializable], node.metadata.get("journey_node", {})).get("kind")
-            == "tool"
-        )
+        return node.kind == JourneyNodeKind.TOOL
 
     root_id: JourneyNodeId = model.journey.root_id
     nodes = model.nodes
     edges = model.edges
 
-    node_by_id = {n.id: n for n in nodes if n.id != JourneyStore.END_NODE_ID}
+    node_by_id = {n.id: n for n in nodes if not _is_end_node(n)}
 
     outgoing: dict[JourneyNodeId, list[JourneyEdge]] = defaultdict(list)
     for e in edges:
@@ -324,15 +358,19 @@ async def _build_mermaid_chart(
 
     alias: dict[JourneyNodeId, str] = {}
 
+    def _is_end_target(nid: JourneyNodeId) -> bool:
+        n = next((n for n in nodes if n.id == nid), None)
+        return n is not None and _is_end_node(n)
+
     def mermaid_id(nid: JourneyNodeId) -> str:
-        if nid == JourneyStore.END_NODE_ID:
+        if _is_end_target(nid):
             return "[*]"
         if nid not in alias:
             alias[nid] = f"N{len(alias)}"
         return alias[nid]
 
     def node_label(nid: JourneyNodeId) -> str:
-        if nid == JourneyStore.END_NODE_ID:
+        if _is_end_target(nid):
             return "End"
         n = node_by_id.get(nid)
         if not n:
@@ -364,7 +402,7 @@ async def _build_mermaid_chart(
         return re.sub(r"&#(x[0-9a-fA-F]+|[0-9]+);", convert_match, html_escaped)
 
     def declare(nid: JourneyNodeId) -> None:
-        if nid == JourneyStore.END_NODE_ID or nid in declared:
+        if _is_end_target(nid) or nid in declared:
             return
         lbl = node_label(nid)
         if not lbl:
@@ -409,10 +447,10 @@ async def _build_mermaid_chart(
                 else:
                     transitions.append(f"    {src} --> {dst}")
 
-            if tid != JourneyStore.END_NODE_ID and tid not in visited:
+            if not _is_end_target(tid) and tid not in visited:
                 stack.append(tid)
 
-    orphans = [n.id for n in nodes if n.id not in visited and n.id != JourneyStore.END_NODE_ID]
+    orphans = [n.id for n in nodes if n.id not in visited and not _is_end_node(n)]
     if orphans:
         lines.append("    %% Unreachable states:")
         for oid in orphans:
@@ -464,11 +502,11 @@ def create_router(
         """
         await authorization_policy.authorize(request=request, operation=Operation.CREATE_JOURNEY)
 
-        journey, guidelines = await app.journeys.create(
+        journey, rules = await app.journeys.create(
             title=params.title,
             description=params.description,
             triggers=params.triggers,
-            tags=params.tags,
+            groups=params.groups,
             id=params.id,
             composition_mode=composition_mode_dto_to_composition_mode(params.composition_mode)
             if params.composition_mode
@@ -481,13 +519,14 @@ def create_router(
             id=journey.id,
             title=journey.title,
             description=journey.description,
-            triggers=[g.id for g in guidelines],
-            tags=journey.tags,
+            triggers=[g.id for g in rules],
+            groups=journey.groups,
             composition_mode=composition_mode_to_composition_mode_dto(journey.composition_mode)
             if journey.composition_mode
             else None,
             labels=journey.labels,
             priority=journey.priority,
+            modified_utc=journey.modified_utc,
         )
 
     @router.get(
@@ -504,14 +543,14 @@ def create_router(
     )
     async def list_journeys(
         request: Request,
-        tag_id: TagIdQuery = None,
+        group_id: GroupIdQuery = None,
     ) -> Sequence[JourneyDTO]:
         """
         Retrieves a list of all journeys in the system.
         """
         await authorization_policy.authorize(request=request, operation=Operation.LIST_JOURNEYS)
 
-        journeys = await app.journeys.find(tag_id)
+        journeys = await app.journeys.find(group_id)
 
         result = []
         for journey in journeys:
@@ -521,7 +560,7 @@ def create_router(
                     title=journey.title,
                     description=journey.description,
                     triggers=journey.triggers,
-                    tags=journey.tags,
+                    groups=journey.groups,
                     composition_mode=composition_mode_to_composition_mode_dto(
                         journey.composition_mode
                     )
@@ -529,6 +568,7 @@ def create_router(
                     else None,
                     labels=journey.labels,
                     priority=journey.priority,
+                    modified_utc=journey.modified_utc,
                 )
             )
 
@@ -537,7 +577,7 @@ def create_router(
     @router.get(
         "/{journey_id}",
         operation_id="read_journey",
-        response_model=JourneyDTO,
+        response_model=JourneyGraphDTO,
         responses={
             status.HTTP_200_OK: {
                 "description": "Journey details successfully retrieved. Returns the complete journey object.",
@@ -552,7 +592,7 @@ def create_router(
     async def read_journey(
         request: Request,
         journey_id: JourneyIdPath,
-    ) -> JourneyDTO:
+    ) -> JourneyGraphDTO:
         """
         Retrieves details of a specific journey by ID.
         """
@@ -560,12 +600,33 @@ def create_router(
 
         model = await app.journeys.read(journey_id=journey_id)
 
-        return JourneyDTO(
+        def node_to_dto(node: JourneyNode) -> JourneyNodeDTO:
+            return JourneyNodeDTO(
+                id=str(node.id),
+                creation_utc=node.creation_utc,
+                action=node.action,
+                tools=[str(t) for t in node.tools],
+                metadata=dict(node.metadata),
+                description=node.description,
+                composition_mode=str(node.composition_mode) if node.composition_mode else None,
+            )
+
+        def edge_to_dto(edge: JourneyEdge) -> JourneyEdgeDTO:
+            return JourneyEdgeDTO(
+                id=str(edge.id),
+                creation_utc=edge.creation_utc,
+                source=str(edge.source),
+                target=str(edge.target),
+                condition=edge.condition,
+                metadata=dict(edge.metadata),
+            )
+
+        return JourneyGraphDTO(
             id=model.journey.id,
             title=model.journey.title,
             description=model.journey.description,
             triggers=model.journey.triggers,
-            tags=model.journey.tags,
+            groups=model.journey.groups,
             composition_mode=composition_mode_to_composition_mode_dto(
                 model.journey.composition_mode
             )
@@ -573,6 +634,9 @@ def create_router(
             else None,
             labels=model.journey.labels,
             priority=model.journey.priority,
+            modified_utc=model.journey.modified_utc,
+            nodes=[node_to_dto(n) for n in model.nodes],
+            edges=[edge_to_dto(e) for e in model.edges],
         )
 
     @router.get(
@@ -642,8 +706,8 @@ def create_router(
             )
             if params.triggers
             else None,
-            tags=JourneyTagUpdateParams(add=params.tags.add, remove=params.tags.remove)
-            if params.tags
+            groups=JourneyGroupUpdateParams(add=params.groups.add, remove=params.groups.remove)
+            if params.groups
             else None,
             composition_mode=composition_mode_dto_to_composition_mode(params.composition_mode)
             if params.composition_mode
@@ -661,12 +725,13 @@ def create_router(
             title=journey.title,
             description=journey.description,
             triggers=journey.triggers,
-            tags=journey.tags,
+            groups=journey.groups,
             composition_mode=composition_mode_to_composition_mode_dto(journey.composition_mode)
             if journey.composition_mode
             else None,
             labels=journey.labels,
             priority=journey.priority,
+            modified_utc=journey.modified_utc,
         )
 
     @router.delete(
@@ -690,7 +755,7 @@ def create_router(
         """
         Deletes a journey from the system.
 
-        Also deletes the associated guideline.
+        Also deletes the associated rule.
         Deleting a non-existent journey will return 404.
         No content will be returned from a successful deletion.
         """

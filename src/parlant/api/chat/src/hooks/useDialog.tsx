@@ -1,4 +1,4 @@
-import {useState, ReactNode} from 'react';
+import {useCallback, useState, ReactNode} from 'react';
 import {Dialog, DialogContent, DialogHeader, DialogPortal} from '@/components/ui/dialog';
 import {DialogDescription, DialogTitle} from '@radix-ui/react-dialog';
 import {spaceClick} from '@/utils/methods';
@@ -21,22 +21,22 @@ export const useDialog = (): UseDialogReturn => {
 	const [dialogSize, setDialogSize] = useState<Dimensions>({height: '', width: ''});
 	const [onDialogClosed, setOnDialogClosed] = useState<(() => void) | null>(null);
 
-	const openDialog = (title: string | null, content: ReactNode, dimensions: Dimensions, dialogClosed = null) => {
-		if (title) setDialogTitle(title);
+	const openDialog = useCallback((title: string | null, content: ReactNode, dimensions: Dimensions, dialogClosed: (() => void) | null = null) => {
+		setDialogTitle(title);
 		setDialogContent(content);
 		setDialogSize({height: dimensions.height, width: dimensions.width});
 		if (dialogClosed) setOnDialogClosed(dialogClosed);
-	};
+	}, []);
 
-	const closeDialog = (e?: React.MouseEvent) => {
+	const closeDialog = useCallback((e?: React.MouseEvent) => {
 		e?.stopPropagation();
 		setDialogContent(null);
 		setDialogTitle(null);
 		onDialogClosed?.();
 		setOnDialogClosed(null);
-	};
+	}, [onDialogClosed]);
 
-	const DialogComponent = () => (
+	const DialogComponent = useCallback(() => (
 		<Dialog open={!!dialogContent}>
 			<DialogPortal>
 				<DialogContent data-testid='dialog' aria-hidden={false} style={{maxHeight: dialogSize.height, width: dialogSize.width}} className={'[&>button]:hidden z-[99] !pointer-events-auto p-0 h-[80%] font-inter bg-white block max-w-[95%]'}>
@@ -54,7 +54,7 @@ export const useDialog = (): UseDialogReturn => {
 				</DialogContent>
 			</DialogPortal>
 		</Dialog>
-	);
+	), [closeDialog, dialogContent, dialogSize.height, dialogSize.width, dialogTitle]);
 
 	return {openDialog, DialogComponent, closeDialog};
 };

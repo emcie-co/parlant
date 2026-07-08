@@ -20,7 +20,7 @@ from pytest import raises
 
 from parlant.core.common import ItemNotFoundError
 from parlant.core.customers import CustomerId, CustomerStore
-from parlant.core.tags import TagStore
+from parlant.core.groups import GroupStore
 
 
 async def test_that_a_customer_can_be_created(
@@ -50,15 +50,15 @@ async def test_that_a_customer_can_be_created_with_tags(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
-    tag_store = container[TagStore]
-    tag1 = await tag_store.create_tag("tag1")
-    tag2 = await tag_store.create_tag("tag2")
+    group_store = container[GroupStore]
+    group1 = await group_store.create_group("group1")
+    group2 = await group_store.create_group("group2")
 
     response = await async_client.post(
         "/customers",
         json={
             "name": "John Doe",
-            "tags": [tag1.id, tag1.id, tag2.id],
+            "groups": [group1.id, group1.id, group2.id],
         },
     )
     assert response.status_code == status.HTTP_201_CREATED
@@ -67,8 +67,8 @@ async def test_that_a_customer_can_be_created_with_tags(
         (await async_client.get(f"/customers/{response.json()['id']}")).raise_for_status().json()
     )
 
-    assert len(customer_dto["tags"]) == 2
-    assert set(customer_dto["tags"]) == {tag1.id, tag2.id}
+    assert len(customer_dto["groups"]) == 2
+    assert set(customer_dto["groups"]) == {group1.id, group2.id}
 
 
 async def test_that_a_customer_can_be_read(
@@ -180,24 +180,24 @@ async def test_that_a_tag_can_be_added(
     container: Container,
 ) -> None:
     customer_store = container[CustomerStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
 
-    tag = await tag_store.create_tag(name="VIP")
+    group = await group_store.create_group(name="VIP")
 
-    name = "Tagged Customer"
+    name = "Grouped Customer"
 
     customer = await customer_store.create_customer(name=name)
 
     update_response = await async_client.patch(
         f"/customers/{customer.id}",
         json={
-            "tags": {"add": [tag.id]},
+            "groups": {"add": [group.id]},
         },
     )
     assert update_response.status_code == status.HTTP_200_OK
 
     updated_customer = await customer_store.read_customer(customer.id)
-    assert tag.id in updated_customer.tags
+    assert group.id in updated_customer.groups
 
 
 async def test_that_a_tag_can_be_removed(
@@ -205,26 +205,26 @@ async def test_that_a_tag_can_be_removed(
     container: Container,
 ) -> None:
     customer_store = container[CustomerStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
 
-    tag = await tag_store.create_tag(name="VIP")
+    group = await group_store.create_group(name="VIP")
 
-    name = "Tagged Customer"
+    name = "Grouped Customer"
 
     customer = await customer_store.create_customer(name=name)
 
-    await customer_store.upsert_tag(customer_id=customer.id, tag_id=tag.id)
+    await customer_store.upsert_group(customer_id=customer.id, group_id=group.id)
 
     update_response = await async_client.patch(
         f"/customers/{customer.id}",
         json={
-            "tags": {"remove": [tag.id]},
+            "groups": {"remove": [group.id]},
         },
     )
     assert update_response.status_code == status.HTTP_200_OK
 
     updated_customer = await customer_store.read_customer(customer.id)
-    assert tag.id not in updated_customer.tags
+    assert group.id not in updated_customer.groups
 
 
 async def test_that_metadata_can_be_set(
@@ -271,7 +271,7 @@ async def test_that_metadata_can_be_unset(
     assert "department" not in updated_customer.extra
 
 
-async def test_that_adding_nonexistent_tag_to_customer_returns_404(
+async def test_that_adding_nonexistent_group_to_customer_returns_404(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
@@ -281,7 +281,7 @@ async def test_that_adding_nonexistent_tag_to_customer_returns_404(
 
     response = await async_client.patch(
         f"/customers/{customer.id}",
-        json={"tags": {"add": ["nonexistent_tag"]}},
+        json={"groups": {"add": ["nonexistent_group"]}},
     )
 
     assert response.status_code == status.HTTP_404_NOT_FOUND

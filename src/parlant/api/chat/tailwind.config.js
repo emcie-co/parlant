@@ -36,6 +36,9 @@ module.exports = {
 			},
 			animation: {
 				'fade-in': 'fade-in 300ms linear',
+				// 500ms delay (held invisible via `backwards`) then a 500ms fade — so
+				// a fast-resolving action never flashes the indicator.
+				'fade-in-delayed': 'fade-in 500ms ease-out 500ms backwards',
 				'fade-in-fast': 'fade-in-fast 400ms ease-out',
 				'scroll-down': 'scroll-down 300ms linear',
 				'background-shift': 'background-shift 5s linear infinite',

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import asyncio
+from collections import defaultdict
 from dataclasses import dataclass, field as dataclass_field
 from itertools import chain
 from random import shuffle
@@ -52,11 +53,17 @@ from parlant.core.engines.alpha.perceived_performance_policy import (
     PerceivedPerformancePolicyProvider,
 )
 from parlant.core.engines.alpha.tool_calling.tool_caller import ToolInsights
+from parlant.core.engines.alpha.tracing import EngineTracer
 from parlant.core.entity_cq import EntityQueries
-from parlant.core.guidelines import GuidelineId
+from parlant.core.rules import RuleId as GuidelineId
 from parlant.core.journeys import Journey
-from parlant.core.tags import Tag
+from parlant.core.groups import GroupIds
 from parlant.core.canned_responses import CannedResponse, CannedResponseId, CannedResponseStore
+from parlant.core.engines.alpha.canned_response_source import (
+    CannedResponseLookup,
+    CannedResponseSource,
+    CannedResponseSourceKind,
+)
 from parlant.core.nlp.generation import SchematicGenerator, StreamingTextGenerator
 from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
@@ -74,10 +81,11 @@ from parlant.core.sessions import (
     ToolCall,
     ToolEventData,
 )
-from parlant.core.common import Criticality, DefaultBaseModel, JSONSerializable
+from parlant.core.common import Weight, DefaultBaseModel, JSONSerializable
 from parlant.core.loggers import Logger
 from parlant.core.shots import Shot, ShotCollection
 from parlant.core.tools import ToolId
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
 
 DEFAULT_NO_MATCH_CANREP = "Not sure I understand. Could you please say that another way?"
 
@@ -243,7 +251,14 @@ class StandardFieldExtraction(CannedResponseFieldExtractionMethod):
         self,
         tool_insights: ToolInsights,
     ) -> list[str]:
-        return [missing_data.parameter for missing_data in tool_insights.missing_data]
+        return [
+            missing_data.parameter
+            for missing_data in chain.from_iterable(
+                items
+                for missing_data_params in tool_insights.missing_data.values()
+                for items in missing_data_params.values()
+            )
+        ]
 
     def _extract_invalid_params(
         self,
@@ -251,7 +266,11 @@ class StandardFieldExtraction(CannedResponseFieldExtractionMethod):
     ) -> dict[str, str]:
         return {
             invalid_data.parameter: invalid_data.invalid_value
-            for invalid_data in tool_insights.invalid_data
+            for invalid_data in chain.from_iterable(
+                items
+                for invalid_data_params in tool_insights.invalid_data.values()
+                for items in invalid_data_params.values()
+            )
         }
 
 
@@ -362,7 +381,7 @@ class GenerativeFieldExtraction(CannedResponseFieldExtractionMethod):
                 rep = guideline_representations[p.guideline.id]
                 if rep.action:
                     guideline = f"Guideline #{i}) {_format_guideline(rep.condition, rep.action)}"
-                    guideline += f"\n    [Priority (1-10): {p.score}; Rationale: {p.rationale}]"
+                    guideline += f"\n    [Rationale: {p.rationale}]"
                     guidelines_texts.append(guideline)
             return "\n".join(guidelines_texts)
 
@@ -517,16 +536,18 @@ class CannedResponseGenerator(MessageEventComposer):
             FollowUpCannedResponseSelectionSchema
         ],
         perceived_performance_policy_provider: PerceivedPerformancePolicyProvider,
-        canned_response_store: CannedResponseStore,
         field_extractor: CannedResponseFieldExtractor,
         message_generator: MessageGenerator,
         entity_queries: EntityQueries,
         no_match_provider: NoMatchResponseProvider,
         health_reporter: HealthReporter,
+        store_provider: StoreProvider,
         streaming_text_generator: StreamingTextGenerator | None = None,
     ) -> None:
         self._logger = logger
+        self._store_provider = store_provider
         self._tracer = tracer
+        self._engine_tracer = EngineTracer(tracer)
         self._meter = meter
 
         self._hooks = hooks
@@ -536,7 +557,6 @@ class CannedResponseGenerator(MessageEventComposer):
         self._canrep_composition_generator = canned_response_composition_generator
         self._canrep_preamble_generator = canned_response_preamble_generator
         self._follow_up_canrep_generator = follow_up_canned_response_generator
-        self._canned_response_store = canned_response_store
         self._perceived_performance_policy_provider = perceived_performance_policy_provider
         self._field_extractor = field_extractor
         self._message_generator = message_generator
@@ -553,6 +573,12 @@ class CannedResponseGenerator(MessageEventComposer):
         self.candidate_similarity_threshold = 0.4
 
         self._define_histograms()
+
+    @property
+    def _canned_response_store(self) -> CannedResponseStore:
+        return self._store_provider.get_store(
+            CannedResponseStore, StoreProviderHints(call_site="engine")
+        )
 
     def set_preamble_config(self, agent_id: AgentId, config: PreambleConfiguration) -> None:
         """Set preamble configuration for a specific agent."""
@@ -815,14 +841,15 @@ You will now be given the current state of the interaction to which you must gen
                 },
             )
         else:
+            preamble_lookup = await self._entity_queries.find_canned_responses_for_context(
+                agent=agent,
+                journeys=canrep_context.journeys,
+                guidelines=[m.guideline for m in canrep_context.guideline_matches],
+            )
             preamble_responses = [
                 canrep
-                for canrep in await self._entity_queries.find_canned_responses_for_context(
-                    agent=agent,
-                    journeys=canrep_context.journeys,
-                    guidelines=[m.guideline for m in canrep_context.guideline_matches],
-                )
-                if Tag.preamble().id in canrep.tags
+                for canrep in preamble_lookup.canned_responses
+                if GroupIds.preamble() in canrep.groups
             ]
 
             async with self._hist_preamble_render_duration.measure():
@@ -909,11 +936,11 @@ You will now be given the current state of the interaction to which you must gen
                 data=MessageEventData(
                     message=canrep.content.preamble,
                     participant=Participant(id=agent.id, display_name=agent.name),
-                    tags=[Tag.preamble().id],
+                    groups=[GroupIds.preamble()],
                 ),
             )
 
-            self._tracer.add_event("canrep.preamble_generated")
+            self._engine_tracer.canrep_preamble_generated()
 
             return [
                 MessageEventComposition(
@@ -941,16 +968,22 @@ You will now be given the current state of the interaction to which you must gen
     async def _get_relevant_canned_responses(
         self,
         context: CannedResponseContext,
-    ) -> list[CannedResponse]:
+    ) -> CannedResponseLookup:
+        stored_lookup = await self._entity_queries.find_canned_responses_for_context(
+            agent=context.agent,
+            journeys=context.journeys,
+            guidelines=[m.guideline for m in context.guideline_matches],
+        )
         stored_responses = [
             canrep
-            for canrep in await self._entity_queries.find_canned_responses_for_context(
-                agent=context.agent,
-                journeys=context.journeys,
-                guidelines=[m.guideline for m in context.guideline_matches],
-            )
-            if Tag.preamble().id not in canrep.tags
+            for canrep in stored_lookup.canned_responses
+            if GroupIds.preamble() not in canrep.groups
         ]
+
+        # Build the unified source map: stored + per-tool TOOL sources.
+        sources: dict[CannedResponseId, list[CannedResponseSource]] = defaultdict(list)
+        for cid, src_list in stored_lookup.sources.items():
+            sources[cid].extend(src_list)
 
         # Add responses from staged tool events (transient)
         responses_by_staged_event: list[CannedResponse] = []
@@ -959,10 +992,19 @@ You will now be given the current state of the interaction to which you must gen
                 event_data: dict[str, Any] = cast(dict[str, Any], event.data)
                 tool_calls: list[Any] = cast(list[Any], event_data.get("tool_calls", []))
                 for tool_call in tool_calls:
-                    responses_by_staged_event.extend(
+                    tool_id = tool_call.get("tool_id", "")
+                    transient_canreps = [
                         CannedResponse.create_transient(r)
                         for r in tool_call["result"].get("canned_responses", [])
-                    )
+                    ]
+                    for c in transient_canreps:
+                        sources[c.id].append(
+                            CannedResponseSource(
+                                kind=CannedResponseSourceKind.TOOL,
+                                id=tool_id,
+                            )
+                        )
+                    responses_by_staged_event.extend(transient_canreps)
 
         all_candidates = [*stored_responses, *responses_by_staged_event]
 
@@ -1015,7 +1057,10 @@ You will now be given the current state of the interaction to which you must gen
             ):
                 relevant_responses.append(canrep)
 
-        return relevant_responses
+        return CannedResponseLookup(
+            canned_responses=relevant_responses,
+            sources={cid: list(s) for cid, s in sources.items()},
+        )
 
     async def _do_generate_events(
         self,
@@ -1103,7 +1148,7 @@ You will now be given the current state of the interaction to which you must gen
                         if not first_message_already_emitted:
                             ttfm_ms = context.start_of_processing.elapsed * 1000
                             await self._hist_ttfm_duration.record(ttfm_ms)
-                            self._tracer.add_event("canrep.ttfm")
+                            self._engine_tracer.canrep_ttfm()
                             self._health_reporter.report(
                                 ENGINE_TTFM_KIND,
                                 {EngineHealthView.ATTR_TTFM_MS: ttfm_ms},
@@ -1200,7 +1245,7 @@ You will now be given the current state of the interaction to which you must gen
             self._logger.info("Skipping response; interaction is empty and there are no guidelines")
             return []
 
-        canreps = await self._get_relevant_canned_responses(context)
+        canrep_lookup = await self._get_relevant_canned_responses(context)
 
         attempt_temperatures = self._optimization_policy.get_message_generation_retry_temperatures(
             hints={"type": "canned-response-generation"}
@@ -1216,7 +1261,8 @@ You will now be given the current state of the interaction to which you must gen
                 generation_info, generation_result = await self._generate_response(
                     loaded_context,
                     context,
-                    canreps,
+                    canrep_lookup.canned_responses,
+                    canrep_lookup.sources,
                     composition_mode,
                     attempt_temperatures[generation_attempt],
                 )
@@ -1326,7 +1372,7 @@ However, in this case, no special behavioral guidelines were provided.
 
             if rep.action:
                 guideline = f"Guideline #{i}) {_format_guideline(rep.condition, rep.action)}"
-                guideline += f"\n    [Priority (1-10): {p.score}; Rationale: {p.rationale}]"
+                guideline += f"\n    [Rationale: {p.rationale}]"
                 if p.guideline.metadata.get("agent_intention_condition"):
                     agent_intention_guidelines.append(guideline)
                 else:
@@ -1606,10 +1652,17 @@ If it makes sense in the current state of the interaction, inform the user about
                                 **({"significance": d.significance} if d.significance else {}),
                                 **({"examples": d.examples} if d.examples else {}),
                             }
-                            for d in tool_insights.missing_data
+                            for d in chain.from_iterable(
+                                items
+                                for missing_data_params in tool_insights.missing_data.values()
+                                for items in missing_data_params.values()
+                            )
                         ]
                     ),
-                    "missing_data": tool_insights.missing_data,
+                    "missing_data": {
+                        tid.to_string(): tool_insights.missing_data[tid]
+                        for tid in tool_insights.missing_data
+                    },
                 },
             )
 
@@ -1634,10 +1687,17 @@ You should inform the user about this invalid data: ###
                                 **({"significance": d.significance} if d.significance else {}),
                                 **({"examples": d.examples} if d.examples else {}),
                             }
-                            for d in tool_insights.invalid_data
+                            for d in chain.from_iterable(
+                                items
+                                for invalid_data_params in tool_insights.invalid_data.values()
+                                for items in invalid_data_params.values()
+                            )
                         ]
                     ),
-                    "invalid_data": tool_insights.invalid_data,
+                    "invalid_data": {
+                        tid.to_string(): tool_insights.invalid_data[tid]
+                        for tid in tool_insights.invalid_data
+                    },
                 },
             )
 
@@ -1712,7 +1772,7 @@ Produce a valid JSON object according to the following spec. Use the values prov
         guidelines_list_items = []
         for g in guidelines:
             internal_rep = internal_representation(g.guideline)
-            if internal_rep.action and not g.guideline.criticality == Criticality.LOW:
+            if internal_rep.action and not g.guideline.weight == Weight.LOW:
                 guidelines_list_items.append(
                     f'"{_format_guideline(internal_rep.condition, internal_rep.action)}"'
                 )
@@ -1852,10 +1912,17 @@ in order to run tools. If it makes sense in the current state of the interaction
                                 **({"significance": d.significance} if d.significance else {}),
                                 **({"examples": d.examples} if d.examples else {}),
                             }
-                            for d in tool_insights.missing_data
+                            for d in chain.from_iterable(
+                                items
+                                for missing_data_params in tool_insights.missing_data.values()
+                                for items in missing_data_params.values()
+                            )
                         ]
                     ),
-                    "missing_data": tool_insights.missing_data,
+                    "missing_data": {
+                        tid.to_string(): tool_insights.missing_data[tid]
+                        for tid in tool_insights.missing_data
+                    },
                 },
             )
 
@@ -1879,10 +1946,17 @@ in order to run tools. You should inform the user about this invalid data: ###
                                 **({"significance": d.significance} if d.significance else {}),
                                 **({"examples": d.examples} if d.examples else {}),
                             }
-                            for d in tool_insights.invalid_data
+                            for d in chain.from_iterable(
+                                items
+                                for invalid_data_params in tool_insights.invalid_data.values()
+                                for items in invalid_data_params.values()
+                            )
                         ]
                     ),
-                    "invalid_data": tool_insights.invalid_data,
+                    "invalid_data": {
+                        tid.to_string(): tool_insights.invalid_data[tid]
+                        for tid in tool_insights.invalid_data
+                    },
                 },
             )
 
@@ -2031,7 +2105,7 @@ QUICK RECAP (for reference before responding):
                     # Record time to first message
                     ttfm_ms = context.start_of_processing.elapsed * 1000
                     await self._hist_ttfm_duration.record(ttfm_ms)
-                    self._tracer.add_event("canrep.streaming.ttfm")
+                    self._engine_tracer.canrep_streaming_ttfm()
                     self._health_reporter.report(
                         ENGINE_TTFM_KIND, {EngineHealthView.ATTR_TTFM_MS: ttfm_ms}
                     )
@@ -2165,6 +2239,7 @@ Output a JSON object with three properties:
         loaded_context: EngineContext,
         context: CannedResponseContext,
         canned_responses: Sequence[CannedResponse],
+        canned_response_sources: Mapping[CannedResponseId, Sequence[CannedResponseSource]],
         composition_mode: CompositionMode,
         temperature: float,
     ) -> tuple[Mapping[str, GenerationInfo], Optional[_CannedResponseSelectionResult]]:
@@ -2202,6 +2277,12 @@ Output a JSON object with three properties:
         elif not canned_responses and composition_mode == CompositionMode.CANNED_STRICT:
             no_match_canrep = await self._no_match_provider.get_response(loaded_context, None)
 
+            self._engine_tracer.canrep_selected(
+                canned_response=no_match_canrep,
+                rendered=no_match_canrep.value,
+                is_fallback=True,
+            )
+
             return {}, _CannedResponseSelectionResult(
                 message=no_match_canrep.value,
                 draft=None,
@@ -2222,6 +2303,8 @@ Output a JSON object with three properties:
                 prompt=draft_prompt,
                 hints={"temperature": temperature},
             )
+
+            self._engine_tracer.canrep_draft(draft_response.content.insights)
 
         self._logger.trace(
             f"Canned Response Draft Completion:\n{draft_response.content.model_dump_json(indent=2)}"
@@ -2365,6 +2448,12 @@ Output a JSON object with three properties:
                     loaded_context, draft_message
                 )
 
+                self._engine_tracer.canrep_selected(
+                    canned_response=no_match_canrep,
+                    rendered=no_match_canrep.value,
+                    is_fallback=True,
+                )
+
                 return {
                     "draft": draft_response.info,
                     "selection": selection_response.info,
@@ -2418,6 +2507,12 @@ Output a JSON object with three properties:
                 loaded_context, draft_message
             )
 
+            self._engine_tracer.canrep_selected(
+                canned_response=no_match_canrep,
+                rendered=no_match_canrep.value,
+                is_fallback=True,
+            )
+
             return {
                 "draft": draft_response.info,
                 "selection": selection_response.info,
@@ -2427,6 +2522,16 @@ Output a JSON object with three properties:
                 rendered_canned_responses=rendered_canreps,
                 chosen_canned_responses=[(no_match_canrep.id, no_match_canrep.value)],
             )
+
+        selected_canrep = next(
+            canrep for canrep, _ in rendered_canreps if canrep.id == selected_canrep_id
+        )
+
+        self._engine_tracer.canrep_selected(
+            canned_response=selected_canrep,
+            rendered=rendered_canned_response,
+            sources=canned_response_sources.get(selected_canrep_id, []),
+        )
 
         return {
             "draft": draft_response.info,

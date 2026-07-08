@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from lagom import Container
+from typing import Sequence
 from pytest import fixture
 from parlant.core.agents import Agent
 from parlant.core.capabilities import Capability, CapabilityId
-from parlant.core.common import Criticality, generate_id
+from parlant.core.common import Weight, generate_id
 from parlant.core.customers import Customer
 from parlant.core.emissions import EmittedEvent
 from parlant.core.engines.alpha.guideline_matching.generic.guideline_previously_applied_actionable_customer_dependent_batch import (
@@ -30,13 +30,17 @@ from parlant.core.engines.alpha.guideline_matching.guideline_matching_context im
     GuidelineMatchingContext,
 )
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
+from parlant.core.rules import (
+    Rule as Guideline,
+    RuleContent as GuidelineContent,
+    RuleId as GuidelineId,
+)
 from parlant.core.journeys import Journey
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.nlp.generation import SchematicGenerator
 from parlant.core.sessions import EventSource, Session, SessionId, SessionStore
-from parlant.core.tags import TagId
+from parlant.core.groups import GroupId
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter
 
@@ -114,19 +118,20 @@ def create_guideline(
     context: ContextOfTest,
     condition: str,
     action: str | None = None,
-    tags: list[TagId] = [],
+    groups: list[GroupId] = [],
 ) -> Guideline:
     guideline = Guideline(
         id=GuidelineId(generate_id()),
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         content=GuidelineContent(
             condition=condition,
             action=action,
         ),
         enabled=True,
-        tags=tags,
+        groups=groups,
         metadata={},
-        criticality=Criticality.MEDIUM,
+        weight=Weight.MEDIUM,
     )
 
     context.guidelines.append(guideline)
@@ -194,7 +199,7 @@ async def base_test_that_correct_guidelines_are_matched(
 
     result = await guideline_previously_applied_matcher.process()
 
-    matched_guidelines = [p.guideline for p in result.matches]
+    matched_guidelines = [p.guideline for p in result.matched_guidelines]
 
     assert set(matched_guidelines) == set(previously_applied_target_guidelines)
 
@@ -539,7 +544,7 @@ async def test_that_customer_dependent_guideline_is_matched_based_on_capabilitie
             title="Reset Password",
             description="The ability to send the customer an email with a link to reset their password. The password can only be reset via this link",
             signals=["reset password", "password"],
-            tags=[],
+            groups=[],
         )
     ]
     conversation_context: list[tuple[EventSource, str]] = [
@@ -582,7 +587,7 @@ async def test_that_customer_dependent_guideline_is_matched_based_on_capabilitie
             title="Increase Credit Limit",
             description="The ability to increase the customer's credit limit",
             signals=["increase credit limit", "credit limit"],
-            tags=[],
+            groups=[],
         ),
         Capability(
             id=CapabilityId("cap_123"),
@@ -590,7 +595,7 @@ async def test_that_customer_dependent_guideline_is_matched_based_on_capabilitie
             title="Decrease Credit Limit",
             description="The ability to decrease the customer's credit limit",
             signals=["decrease credit limit", "credit limit"],
-            tags=[],
+            groups=[],
         ),
     ]
     conversation_context: list[tuple[EventSource, str]] = [

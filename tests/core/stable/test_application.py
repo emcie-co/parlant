@@ -21,12 +21,12 @@ from parlant.core.async_utils import Timeout
 from parlant.core.application import Application
 from parlant.core.agents import AgentId, AgentStore
 from parlant.core.customers import CustomerId, CustomerStore
-from parlant.core.guidelines import GuidelineStore
+from parlant.core.rules import RuleStore
 from parlant.core.sessions import EventKind, EventSource, Session, SessionStore
-from parlant.core.tags import Tag
+from parlant.core.groups import GroupIds
 from parlant.core.tools import ToolResult
 
-from tests.test_utilities import create_guideline, nlp_test
+from tests.test_utilities import create_rule, nlp_test
 
 REASONABLE_AMOUNT_OF_TIME = 10
 
@@ -65,14 +65,14 @@ async def proactive_agent_id(
     container: Container,
     agent_id: AgentId,
 ) -> AgentId:
-    guideline = await container[GuidelineStore].create_guideline(
+    rule = await container[RuleStore].create_rule(
         condition="The customer hasn't engaged yet",
         action="Greet the customer",
     )
 
-    await container[GuidelineStore].upsert_tag(
-        guideline_id=guideline.id,
-        tag_id=Tag.for_agent_id(agent_id).id,
+    await container[RuleStore].upsert_group(
+        rule_id=rule.id,
+        group_id=GroupIds.for_agent_id(agent_id),
     )
 
     return agent_id
@@ -165,6 +165,36 @@ async def test_that_when_a_client_event_is_posted_then_new_server_events_are_emi
     assert len(events) > 1
 
 
+async def test_that_processing_events_share_the_customer_event_trace(
+    context: ContextOfTest,
+    session: Session,
+) -> None:
+    event = await context.app.sessions.create_event(
+        session_id=session.id,
+        kind=EventKind.MESSAGE,
+        data={
+            "message": "Hey there",
+            "participant": {
+                "display_name": "Johnny Boy",
+            },
+        },
+        metadata={},
+    )
+
+    await context.app.sessions.wait_for_more_events(
+        session_id=session.id,
+        min_offset=event.offset + 1,
+        timeout=Timeout(REASONABLE_AMOUNT_OF_TIME),
+    )
+
+    events = list(await context.container[SessionStore].list_events(session.id))
+    generated_events = [e for e in events if e.offset > event.offset]
+
+    assert event.trace_id != "<main>"
+    assert generated_events
+    assert all(e.trace_id == event.trace_id for e in generated_events)
+
+
 async def test_that_a_session_update_is_detected_as_soon_as_a_client_event_is_posted(
     context: ContextOfTest,
     session: Session,
@@ -231,7 +261,7 @@ async def test_that_a_response_is_not_generated_automatically_after_a_tool_switc
     context: ContextOfTest,
     session: Session,
 ) -> None:
-    await create_guideline(
+    await create_rule(
         container=context.container,
         agent_id=session.agent_id,
         condition="the customer expresses dissatisfaction",

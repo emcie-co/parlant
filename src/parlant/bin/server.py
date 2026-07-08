@@ -22,8 +22,10 @@ import importlib
 import inspect
 import os
 import traceback
+import warnings
 from fastapi import FastAPI
 from lagom import Container, Singleton
+from lagom.interfaces import ReadableContainer
 from typing import (
     Any,
     AsyncIterator,
@@ -34,6 +36,7 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
+    TextIO,
     cast,
 )
 import rich
@@ -48,72 +51,75 @@ import uvicorn
 from parlant.adapters.loggers.websocket import WebSocketLogger
 from parlant.adapters.vector_db.transient import TransientVectorDatabase
 from parlant.api.authorization import (
+    AuthConfig,
     AuthorizationPolicy,
     DevelopmentAuthorizationPolicy,
-    ProductionAuthorizationPolicy,
+    create_composite_authorization_policy,
 )
 
+from parlant.core.app_modules.request_context import RequestContext
 from parlant.core.capabilities import CapabilityStore, CapabilityVectorStore
 from parlant.core.application_context import ApplicationContext
 from parlant.core.common import IdGenerator, generate_id
 from parlant.core.engines.alpha import message_generator
-from parlant.core.engines.alpha.guideline_matching.generic import (
-    guideline_actionable_batch,
-    guideline_previously_applied_actionable_batch,
-    guideline_previously_applied_actionable_customer_dependent_batch,
+from parlant.core.engines.alpha.rule_matching.generic import (
+    rule_actionable_batch,
+    rule_previously_applied_actionable_batch,
+    rule_previously_applied_actionable_customer_dependent_batch,
     response_analysis_batch,
 )
-from parlant.core.engines.alpha.guideline_matching.generic.disambiguation_batch import (
-    DisambiguationGuidelineMatchesSchema,
+from parlant.core.engines.alpha.rule_matching.generic.disambiguation_batch import (
+    DisambiguationRuleMatchesSchema,
 )
-from parlant.core.engines.alpha.guideline_matching.generic.guideline_low_criticality_batch import (
-    GenericLowCriticalityGuidelineMatchesSchema,
-    GenericLowCriticalityGuidelineMatching,
+from parlant.core.engines.alpha.rule_matching.generic.rule_low_criticality_batch import (
+    GenericLowCriticalityRuleMatchesSchema,
+    GenericLowCriticalityRuleMatching,
 )
-from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_check import (
+from parlant.core.engines.alpha.rule_matching.generic.journey.journey_backtrack_check import (
     JourneyBacktrackCheckSchema,
 )
-from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
+from parlant.core.engines.alpha.rule_matching.generic.journey.journey_backtrack_node_selection import (
     JourneyBacktrackNodeSelectionSchema,
 )
-from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_next_step_selection import (
+from parlant.core.engines.alpha.rule_matching.generic.journey.journey_next_step_selection import (
     JourneyNextStepSelectionSchema,
 )
-from parlant.core.engines.alpha.guideline_matching.generic_guideline_matching_strategy_resolver import (
-    GenericGuidelineMatchingStrategyResolver,
+from parlant.core.engines.alpha.rule_matching.generic_rule_matching_strategy_resolver import (
+    GenericRuleMatchingStrategyResolver,
 )
-from parlant.core.engines.alpha.guideline_matching.generic.guideline_previously_applied_actionable_batch import (
-    GenericPreviouslyAppliedActionableGuidelineMatchesSchema,
-    GenericPreviouslyAppliedActionableGuidelineMatching,
-    GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot,
+from parlant.core.engines.alpha.rule_matching.generic.rule_previously_applied_actionable_batch import (
+    GenericPreviouslyAppliedActionableRuleMatchesSchema,
+    GenericPreviouslyAppliedActionableRuleMatching,
+    GenericPreviouslyAppliedActionableRuleRuleMatchingShot,
 )
-from parlant.core.engines.alpha.guideline_matching.generic.response_analysis_batch import (
+from parlant.core.engines.alpha.rule_matching.generic.response_analysis_batch import (
     GenericResponseAnalysisSchema,
     GenericResponseAnalysisBatch,
     GenericResponseAnalysisShot,
 )
-from parlant.core.engines.alpha.guideline_matching.generic.guideline_actionable_batch import (
-    GenericActionableGuidelineMatchesSchema,
-    GenericActionableGuidelineMatching,
-    GenericActionableGuidelineGuidelineMatchingShot,
+from parlant.core.engines.alpha.rule_matching.generic.rule_actionable_batch import (
+    GenericActionableRuleMatchesSchema,
+    GenericActionableRuleMatching,
+    GenericActionableRuleRuleMatchingShot,
 )
-from parlant.core.engines.alpha.guideline_matching.generic.guideline_previously_applied_actionable_customer_dependent_batch import (
-    GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchesSchema,
-    GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatching,
-    GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingShot,
+from parlant.core.engines.alpha.rule_matching.generic.rule_previously_applied_actionable_customer_dependent_batch import (
+    GenericPreviouslyAppliedActionableCustomerDependentRuleMatchesSchema,
+    GenericPreviouslyAppliedActionableCustomerDependentRuleMatching,
+    GenericPreviouslyAppliedActionableCustomerDependentRuleMatchingShot,
 )
-from parlant.core.engines.alpha.guideline_matching.generic import observational_batch
-from parlant.core.engines.alpha.guideline_matching.generic.observational_batch import (
-    GenericObservationalGuidelineMatchesSchema,
-    ObservationalGuidelineMatching,
-    GenericObservationalGuidelineMatchingShot,
+from parlant.core.engines.alpha.rule_matching.generic import observational_batch
+from parlant.core.engines.alpha.rule_matching.generic.observational_batch import (
+    GenericObservationalRuleMatchesSchema,
+    ObservationalRuleMatching,
+    GenericObservationalRuleMatchingShot,
 )
-from parlant.core.engines.alpha.guideline_matching.guideline_matcher import (
-    GuidelineMatcher,
-    GuidelineMatchingStrategyResolver,
+from parlant.core.engines.alpha.rule_matching.rule_matcher import (
+    RuleMatcher,
+    RuleMatchingStrategyResolver,
     ResponseAnalysisBatch,
 )
 from parlant.core.engines.alpha.hooks import EngineHooks
+from parlant.core.engines.rule_matcher_registry import RuleMatcherRegistry
 from parlant.core.engines.alpha.optimization_policy import (
     BasicOptimizationPolicy,
     OptimizationPolicy,
@@ -142,9 +148,10 @@ from parlant.core.engines.alpha.canned_response_generator import (
     BasicNoMatchResponseProvider,
     NoMatchResponseProvider,
 )
-from parlant.core.journey_guideline_projection import JourneyGuidelineProjection
+from parlant.core.journey_rule_projection import JourneyRuleProjection
 from parlant.core.meter import Meter, LocalMeter
-from parlant.core.services.indexing.guideline_agent_intention_proposer import (
+from parlant.core.nlp.react import ReactGenerator
+from parlant.core.services.indexing.rule_agent_intention_proposer import (
     AgentIntentionProposerSchema,
 )
 from parlant.core.journeys import JourneyStore, JourneyVectorStore
@@ -153,13 +160,21 @@ from parlant.core.services.indexing.customer_dependent_action_detector import (
     CustomerDependentActionDetector,
     CustomerDependentActionSchema,
 )
-from parlant.core.services.indexing.guideline_action_proposer import (
-    GuidelineActionProposer,
-    GuidelineActionPropositionSchema,
+from parlant.core.services.indexing.rule_action_proposer import (
+    RuleActionProposer,
+    RuleActionPropositionSchema,
 )
-from parlant.core.services.indexing.guideline_continuous_proposer import (
-    GuidelineContinuousProposer,
-    GuidelineContinuousPropositionSchema,
+from parlant.core.services.indexing.rule_continuous_proposer import (
+    RuleContinuousProposer,
+    RuleContinuousPropositionSchema,
+)
+from parlant.core.services.indexing.rule_signal_proposer import (
+    RuleSignalProposer,
+    RuleSignalPropositionSchema,
+)
+from parlant.core.services.indexing.rule_title_proposer import (
+    RuleTitleProposer,
+    RuleTitlePropositionSchema,
 )
 from parlant.core.services.indexing.journey_reachable_nodes_evaluation import (
     ReachableNodesEvaluationSchema,
@@ -171,12 +186,15 @@ from parlant.core.services.indexing.tool_running_action_detector import (
 )
 from parlant.core.canned_responses import CannedResponseStore, CannedResponseVectorStore
 from parlant.core.nlp.service import NLPService
+from parlant.core.nlp.tokenization import EstimatingTokenizer, ZeroEstimatingTokenizer
 from parlant.core.persistence.common import MigrationRequired, ServerOutdated
 from parlant.core.shots import ShotCollection
-from parlant.core.tags import TagDocumentStore, TagStore
+from parlant.core.groups import GroupDocumentStore, GroupStore
 from parlant.api.app import create_api_app, ASGIApplication
 from parlant.core.background_tasks import BackgroundTaskService
 from parlant.core.tracer import LocalTracer, Tracer
+from parlant.core.cost_control import AdvisoryCostControlPolicy, CostControlPolicy
+from parlant.core.usage_reporter import UsageReporter
 from parlant.core.agents import AgentDocumentStore, AgentStore
 from parlant.core.context_variables import ContextVariableDocumentStore, ContextVariableStore
 from parlant.core.emission.event_publisher import EventPublisherFactory
@@ -194,11 +212,12 @@ from parlant.core.relationships import (
     RelationshipDocumentStore,
     RelationshipStore,
 )
-from parlant.core.guidelines import (
-    GuidelineDocumentStore,
-    GuidelineStore,
+from parlant.core.rules import (
+    RuleVectorStore,
+    RuleStore,
 )
 from parlant.adapters.db.json_file import JSONFileDocumentDatabase
+from parlant.adapters.db.sqlite import SQLiteDocumentDatabase
 from parlant.core.nlp.embedding import (
     BasicEmbeddingCache,
     Embedder,
@@ -220,9 +239,21 @@ from parlant.core.sessions import (
 )
 from parlant.core.glossary import GlossaryStore, GlossaryVectorStore
 from parlant.core.engines.alpha.engine import AlphaEngine
-from parlant.core.guideline_tool_associations import (
-    GuidelineToolAssociationDocumentStore,
-    GuidelineToolAssociationStore,
+from parlant.core.engines.compass.compacter import CompactionSchema
+from parlant.core.engines.compass.engine import CompassEngine
+from parlant.core.engines.compass.matcher import Matcher as CompassMatcher
+from parlant.core.engines.compass.matching.rule_evaluation import TurnEvaluator
+from parlant.core.engines.compass.matching.rule_ranker import RuleRanker
+from parlant.core.engines.compass.matching.rule_ranker import RuleRankSchema
+from parlant.core.engines.compass.matching.rule_discovery import RuleDiscoverer
+from parlant.core.engines.compass.matching.rule_recaller import RuleRecaller
+from parlant.core.engines.compass.matching.tool_recaller import ToolRecaller
+from parlant.core.engines.compass.reviewer import BasicReviewer, LowEffortReviewSchema
+from parlant.core.engines.compass.reviewer import Reviewer as CompassReviewer
+from parlant.core.engines.compass.variable_loader import VariableLoader
+from parlant.core.rule_tool_associations import (
+    RuleToolAssociationDocumentStore,
+    RuleToolAssociationStore,
 )
 from parlant.core.engines.alpha.tool_calling import single_tool_batch
 from parlant.core.engines.alpha.tool_calling.default_tool_call_batcher import DefaultToolCallBatcher
@@ -240,12 +271,41 @@ from parlant.core.engines.alpha.message_generator import (
     MessageSchema,
 )
 from parlant.core.engines.alpha.tool_event_generator import ToolEventGenerator
-from parlant.core.engines.types import Engine
-from parlant.core.services.indexing.behavioral_change_evaluation import BehavioralChangeEvaluator
+from parlant.core.engines.types import Engine, EngineRegistry
 from parlant.core.services.indexing.indexer import Indexer, NullIndexer
+from parlant.core.services.indexing.evaluation_service import EvaluationService
+from parlant.core.services.training_service import TrainingService
 from parlant.core.loggers import CompositeLogger, FileLogger, LogLevel, Logger
 from parlant.core.application import Application
+from parlant.core.store_provider import BasicStoreProvider, StoreProvider, StoreProviderHints
 from parlant.core.version import VERSION
+
+
+# Suppress known deprecation warnings from websockets library used by dependencies
+# This must be done early to catch warnings from FastAPI/uvicorn websocket handling
+def _suppress_websocket_deprecation_warnings(
+    message: Warning | str,
+    category: type[Warning],
+    filename: str,
+    lineno: int,
+    file: Optional[TextIO] = None,
+    line: Optional[str] = None,
+) -> None:
+    if category is DeprecationWarning:
+        msg_str = str(message)
+        if any(
+            keyword in msg_str
+            for keyword in ["ws_handler", "websockets", "WebSocketServerProtocol"]
+        ):
+            return  # Suppress websocket-related deprecation warnings
+    # Let all other warnings through
+    original_showwarning = getattr(warnings, "_default_showwarning", warnings.showwarning)
+    original_showwarning(message, category, filename, lineno, file, line)
+
+
+if not hasattr(warnings, "_default_showwarning"):
+    warnings._default_showwarning = warnings.showwarning  # type: ignore[attr-defined]
+warnings.showwarning = _suppress_websocket_deprecation_warnings
 
 
 DEFAULT_HOST = "0.0.0.0"
@@ -327,12 +387,14 @@ def load_nlp_service(
 
 
 def load_anthropic(container: Container) -> NLPService:
-    return load_nlp_service(
-        container,
-        "Anthropic",
-        "anthropic",
-        "AnthropicService",
-        "parlant.adapters.nlp.anthropic_service",
+    from parlant.adapters.nlp.anthropic_service import AnthropicService
+
+    return AnthropicService(
+        LOGGER,
+        container[Tracer],
+        container[Meter],
+        container[HealthReporter],
+        container[UsageReporter],
     )
 
 
@@ -379,15 +441,27 @@ def load_modelscope(container: Container) -> NLPService:
 
 
 def load_gemini(container: Container) -> NLPService:
-    return load_nlp_service(
-        container, "Gemini", "gemini", "GeminiService", "parlant.adapters.nlp.gemini_service"
+    from parlant.adapters.nlp.gemini_service import GeminiService
+
+    return GeminiService(
+        LOGGER,
+        container[Tracer],
+        container[Meter],
+        container[HealthReporter],
+        container[UsageReporter],
     )
 
 
 def load_openai(container: Container) -> NLPService:
     from parlant.adapters.nlp.openai_service import OpenAIService
 
-    return OpenAIService(LOGGER, container[Tracer], container[Meter], container[HealthReporter])
+    return OpenAIService(
+        LOGGER,
+        container[Tracer],
+        container[Meter],
+        container[HealthReporter],
+        container[UsageReporter],
+    )
 
 
 def load_together(container: Container) -> NLPService:
@@ -452,9 +526,9 @@ async def create_agent_if_absent(agent_store: AgentStore) -> None:
         await agent_store.create_agent(name=DEFAULT_AGENT_NAME)
 
 
-async def get_module_list_from_config() -> list[str]:
-    if CONFIG_FILE_PATH.exists():
-        config = toml.load(CONFIG_FILE_PATH)
+async def get_module_list_from_config(file_path: Path) -> list[str]:
+    if file_path.exists():
+        config = toml.load(file_path)
         # Expecting the following toml structure:
         #
         # [parlant]
@@ -547,6 +621,66 @@ def _define_singleton(container: Container, interface: type, implementation: typ
         raise
 
 
+def _load_auth_config_from_env() -> AuthConfig:
+    admin_api_key = os.environ.get("PARLANT_ADMIN_API_KEY")
+
+    if not admin_api_key:
+        raise StartupError(
+            "PARLANT_ENV=production requires PARLANT_ADMIN_API_KEY to be set. "
+            "Optionally also set PARLANT_CUSTOMER_JWT_SECRET or PARLANT_CUSTOMER_JWKS_URL "
+            "(to enable customer authentication), PARLANT_GUEST_TOKEN_SECRET (to keep guest "
+            "tokens valid across restarts), and PARLANT_AUTH_AUTO_PROVISION_CUSTOMERS."
+        )
+
+    customer_jwt_secret = os.environ.get("PARLANT_CUSTOMER_JWT_SECRET")
+    customer_jwks_url = os.environ.get("PARLANT_CUSTOMER_JWKS_URL")
+
+    if customer_jwt_secret and customer_jwks_url:
+        raise StartupError(
+            "PARLANT_CUSTOMER_JWT_SECRET and PARLANT_CUSTOMER_JWKS_URL are mutually "
+            "exclusive; set exactly one customer token verification method."
+        )
+
+    return AuthConfig(
+        admin_api_key=admin_api_key,
+        customer_jwt_secret=customer_jwt_secret,
+        customer_jwks_url=customer_jwks_url,
+        guest_token_secret=os.environ.get("PARLANT_GUEST_TOKEN_SECRET"),
+        auto_provision_customers=os.environ.get("PARLANT_AUTH_AUTO_PROVISION_CUSTOMERS", "").lower()
+        in ("1", "true", "yes"),
+    )
+
+
+def _production_authorization_policy_factory() -> Callable[
+    [ReadableContainer], AuthorizationPolicy
+]:
+    # Deferred to first resolution so the config is validated once the server
+    # actually stands up its API (and so an SDK-provided policy binding can
+    # supersede this one without requiring the production env vars).
+    policy: AuthorizationPolicy | None = None
+
+    def factory(c: ReadableContainer) -> AuthorizationPolicy:
+        nonlocal policy
+
+        if policy is None:
+            config = _load_auth_config_from_env()
+
+            if config.guest_token_secret is None:
+                LOGGER.warning(
+                    "PARLANT_GUEST_TOKEN_SECRET is not set; generated an ephemeral guest "
+                    "token secret. Guest sessions will not survive a server restart."
+                )
+
+            policy = create_composite_authorization_policy(
+                config=config,
+                customer_store=c[CustomerStore],
+            )
+
+        return policy
+
+    return factory
+
+
 def _define_singleton_value(container: Container, interface: type, implementation: Any) -> None:
     implementation_type = getattr(implementation, "__orig_class__", type(implementation))
 
@@ -584,22 +718,22 @@ async def setup_container() -> AsyncIterator[Container]:
     )
     _define_singleton_value(
         c,
-        ShotCollection[GenericPreviouslyAppliedActionableGuidelineGuidelineMatchingShot],
-        guideline_previously_applied_actionable_batch.shot_collection,
+        ShotCollection[GenericPreviouslyAppliedActionableRuleRuleMatchingShot],
+        rule_previously_applied_actionable_batch.shot_collection,
     )
     _define_singleton_value(
         c,
-        ShotCollection[GenericActionableGuidelineGuidelineMatchingShot],
-        guideline_actionable_batch.shot_collection,
+        ShotCollection[GenericActionableRuleRuleMatchingShot],
+        rule_actionable_batch.shot_collection,
     )
     _define_singleton_value(
         c,
-        ShotCollection[GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingShot],
-        guideline_previously_applied_actionable_customer_dependent_batch.shot_collection,
+        ShotCollection[GenericPreviouslyAppliedActionableCustomerDependentRuleMatchingShot],
+        rule_previously_applied_actionable_customer_dependent_batch.shot_collection,
     )
     _define_singleton_value(
         c,
-        ShotCollection[GenericObservationalGuidelineMatchingShot],
+        ShotCollection[GenericObservationalRuleMatchingShot],
         observational_batch.shot_collection,
     )
     _define_singleton_value(
@@ -610,6 +744,7 @@ async def setup_container() -> AsyncIterator[Container]:
     )
 
     _define_singleton_value(c, EngineHooks, EngineHooks())
+    _define_singleton_value(c, RuleMatcherRegistry, RuleMatcherRegistry())
 
     _define_singleton(c, EventEmitterFactory, EventPublisherFactory)
 
@@ -625,40 +760,45 @@ async def setup_container() -> AsyncIterator[Container]:
     _define_singleton(c, PerceivedPerformancePolicyProvider, PerceivedPerformancePolicyProvider)
     _define_singleton(c, OptimizationPolicy, BasicOptimizationPolicy)
 
-    _define_singleton(c, GuidelineActionProposer, GuidelineActionProposer)
-    _define_singleton(c, GuidelineContinuousProposer, GuidelineContinuousProposer)
+    _define_singleton(c, RuleActionProposer, RuleActionProposer)
+    _define_singleton(c, RuleContinuousProposer, RuleContinuousProposer)
+    _define_singleton(c, RuleSignalProposer, RuleSignalProposer)
+    _define_singleton(c, RuleTitleProposer, RuleTitleProposer)
     _define_singleton(c, CustomerDependentActionDetector, CustomerDependentActionDetector)
     _define_singleton(c, ToolRunningActionDetector, ToolRunningActionDetector)
 
-    _define_singleton(c, JourneyGuidelineProjection, JourneyGuidelineProjection)
+    _define_singleton(c, JourneyRuleProjection, JourneyRuleProjection)
 
-    _define_singleton(c, BehavioralChangeEvaluator, BehavioralChangeEvaluator)
+    _define_singleton(c, EvaluationService, EvaluationService)
+    _define_singleton(c, TrainingService, TrainingService)
     _define_singleton(c, EvaluationListener, PollingEvaluationListener)
     _define_singleton(c, Indexer, NullIndexer)
 
     _define_singleton(c, ResponseAnalysisBatch, GenericResponseAnalysisBatch)
-    _define_singleton(c, ObservationalGuidelineMatching, ObservationalGuidelineMatching)
+    _define_singleton(c, ObservationalRuleMatching, ObservationalRuleMatching)
     _define_singleton(
         c,
-        GenericPreviouslyAppliedActionableGuidelineMatching,
-        GenericPreviouslyAppliedActionableGuidelineMatching,
+        GenericPreviouslyAppliedActionableRuleMatching,
+        GenericPreviouslyAppliedActionableRuleMatching,
     )
-    _define_singleton(c, GenericActionableGuidelineMatching, GenericActionableGuidelineMatching)
-    _define_singleton(
-        c, GenericLowCriticalityGuidelineMatching, GenericLowCriticalityGuidelineMatching
-    )
+    _define_singleton(c, GenericActionableRuleMatching, GenericActionableRuleMatching)
+    _define_singleton(c, GenericLowCriticalityRuleMatching, GenericLowCriticalityRuleMatching)
 
     _define_singleton(
         c,
-        GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatching,
-        GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatching,
+        GenericPreviouslyAppliedActionableCustomerDependentRuleMatching,
+        GenericPreviouslyAppliedActionableCustomerDependentRuleMatching,
     )
 
-    _define_singleton(
-        c, GuidelineMatchingStrategyResolver, GenericGuidelineMatchingStrategyResolver
-    )
+    _define_singleton(c, RuleMatchingStrategyResolver, GenericRuleMatchingStrategyResolver)
 
-    _define_singleton(c, GuidelineMatcher, GuidelineMatcher)
+    # Must be a singleton: retrain() (via TrainingService / SDK startup) and the
+    # discovery path (via the compass Matcher) have to share the same trained frame,
+    # so the port binding aliases the concrete recaller registration.
+    _define_singleton(c, RuleDiscoverer, RuleRecaller)
+    _define_singleton(c, ToolRecaller, ToolRecaller)
+
+    _define_singleton(c, RuleMatcher, RuleMatcher)
 
     _define_singleton(c, ToolCallBatcher, DefaultToolCallBatcher)
     _define_singleton(c, ToolCaller, ToolCaller)
@@ -666,25 +806,29 @@ async def setup_container() -> AsyncIterator[Container]:
     _define_singleton(c, RelationalResolver, RelationalResolver)
     _define_singleton_value(c, PlannerProvider, PlannerProvider(default_planner=NullPlanner()))
 
-    _define_singleton(
-        c,
-        AuthorizationPolicy,
-        (
-            ProductionAuthorizationPolicy
-            if os.environ.get("PARLANT_ENV") == "production"
-            else DevelopmentAuthorizationPolicy
-        ),
-    )
+    if os.environ.get("PARLANT_ENV") == "production":
+        c[AuthorizationPolicy] = _production_authorization_policy_factory()
+    else:
+        _define_singleton(c, AuthorizationPolicy, DevelopmentAuthorizationPolicy)
 
     _define_singleton(c, Engine, AlphaEngine)
+    _define_singleton(c, VariableLoader, VariableLoader)
+    _define_singleton(c, TurnEvaluator, RuleRanker)
+    _define_singleton(c, CompassMatcher, CompassMatcher)
+    _define_singleton(c, CompassReviewer, BasicReviewer)
+    _define_singleton(c, CompassEngine, CompassEngine)
 
-    _define_singleton_value(
-        c, ApplicationContext, ApplicationContext(instance_id=generate_id())
-    )
+    _define_singleton_value(c, ApplicationContext, ApplicationContext(instance_id=generate_id()))
     _define_singleton(c, EventLoopMonitor, EventLoopMonitor)
     _define_singleton(c, HealthReporter, HealthReporter)
+    _define_singleton(c, UsageReporter, UsageReporter)
+    # Self-subscribes to the UsageReporter on construction.
+    _define_singleton_value(c, CostControlPolicy, AdvisoryCostControlPolicy(c[UsageReporter]))
 
     _define_singleton(c, Application, Application)
+    _define_singleton(c, RequestContext, RequestContext)
+
+    c[StoreProvider] = BasicStoreProvider(lambda: c)
 
     yield c
 
@@ -769,6 +913,13 @@ async def initialize_container(
             )
             c[store_interface] = lambda _c: c[store_implementation]
 
+    c[EngineRegistry] = EngineRegistry(
+        {
+            "alpha": lambda: c[AlphaEngine],
+            "compass": lambda: c[CompassEngine],
+        }
+    )
+
     await EXIT_STACK.enter_async_context(c[BackgroundTaskService])
     await EXIT_STACK.enter_async_context(c[EventLoopMonitor])
 
@@ -786,7 +937,9 @@ async def initialize_container(
 
     await c[BackgroundTaskService].start(c[WebSocketLogger].start(), tag="websocket-logger")
 
-    try_define(SessionListener, PollingSessionListener)
+    try_define(
+        SessionListener, PollingSessionListener(store_provider_factory=lambda: c[StoreProvider])
+    )
 
     nlp_service_name: str
     nlp_service_instance: NLPService
@@ -804,12 +957,11 @@ async def initialize_container(
             (ContextVariableStore, ContextVariableDocumentStore, "context_variables.json"),
             (CustomerStore, CustomerDocumentStore, "customers.json"),
             (EvaluationStore, EvaluationDocumentStore, "evaluations.json"),
-            (TagStore, TagDocumentStore, "tags.json"),
-            (GuidelineStore, GuidelineDocumentStore, "guidelines.json"),
+            (GroupStore, GroupDocumentStore, "groups.json"),
             (
-                GuidelineToolAssociationStore,
-                GuidelineToolAssociationDocumentStore,
-                "guideline_tool_associations.json",
+                RuleToolAssociationStore,
+                RuleToolAssociationDocumentStore,
+                "rule_tool_associations.json",
             ),
             (RelationshipStore, RelationshipDocumentStore, "relationships.json"),
             (SessionStore, SessionDocumentStore, "sessions.json"),
@@ -838,15 +990,21 @@ async def initialize_container(
         await try_define_func(ServiceRegistry, make_service_document_registry)
 
         try_define(NLPService, nlp_service_instance)
+        try_define(
+            EstimatingTokenizer,
+            nlp_service_instance
+            if isinstance(nlp_service_instance, EstimatingTokenizer)
+            else ZeroEstimatingTokenizer(),
+        )
 
         embedder_factory = EmbedderFactory(c)
 
         if c[OptimizationPolicy].use_embedding_cache():
             c[EmbeddingCache] = BasicEmbeddingCache(
                 await EXIT_STACK.enter_async_context(
-                    JSONFileDocumentDatabase(
+                    SQLiteDocumentDatabase(
                         c[Logger],
-                        PARLANT_HOME_DIR / "cache_embeddings.json",
+                        PARLANT_HOME_DIR / "embedding_cache.sqlite",
                     )
                 )
             )
@@ -869,6 +1027,7 @@ async def initialize_container(
             (CannedResponseStore, CannedResponseVectorStore, "canned_responses.json"),
             (JourneyStore, JourneyVectorStore, "journey_associations.json"),
             (CapabilityStore, CapabilityVectorStore, "capabilities.json"),
+            (RuleStore, RuleVectorStore, "rules.json"),
         ]:
             await try_define_vector_store(
                 store_interface,
@@ -890,11 +1049,11 @@ async def initialize_container(
 
     for schema in (
         GenericResponseAnalysisSchema,
-        GenericPreviouslyAppliedActionableGuidelineMatchesSchema,
-        GenericActionableGuidelineMatchesSchema,
-        GenericLowCriticalityGuidelineMatchesSchema,
-        GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchesSchema,
-        GenericObservationalGuidelineMatchesSchema,
+        GenericPreviouslyAppliedActionableRuleMatchesSchema,
+        GenericActionableRuleMatchesSchema,
+        GenericLowCriticalityRuleMatchesSchema,
+        GenericPreviouslyAppliedActionableCustomerDependentRuleMatchesSchema,
+        GenericObservationalRuleMatchesSchema,
         MessageSchema,
         CannedResponseDraftSchema,
         CannedResponseSelectionSchema,
@@ -905,17 +1064,22 @@ async def initialize_container(
         SingleToolBatchSchema,
         NonConsequentialToolBatchSchema,
         OverlappingToolsBatchSchema,
-        GuidelineActionPropositionSchema,
-        GuidelineContinuousPropositionSchema,
+        RuleActionPropositionSchema,
+        RuleContinuousPropositionSchema,
+        RuleSignalPropositionSchema,
+        RuleTitlePropositionSchema,
         CustomerDependentActionSchema,
         ToolRunningActionSchema,
         AgentIntentionProposerSchema,
-        DisambiguationGuidelineMatchesSchema,
+        DisambiguationRuleMatchesSchema,
         JourneyBacktrackNodeSelectionSchema,
         JourneyNextStepSelectionSchema,
         JourneyBacktrackCheckSchema,
         RelativeActionSchema,
         ReachableNodesEvaluationSchema,
+        RuleRankSchema,
+        LowEffortReviewSchema,
+        CompactionSchema,
     ):
         generator = await nlp_service_instance.get_schematic_generator(schema)
 
@@ -935,15 +1099,21 @@ async def initialize_container(
         streaming_generator = await nlp_service_instance.get_streaming_text_generator()
         try_define(StreamingTextGenerator, streaming_generator)
 
+    # Bind the ReAct generator if available
+    if nlp_service_instance.supports_react:
+        react_generator = await nlp_service_instance.get_react_generator()
+        try_define(ReactGenerator, react_generator)
+
 
 async def recover_server_tasks(
-    evaluation_store: EvaluationStore,
-    evaluator: BehavioralChangeEvaluator,
+    evaluation_service: EvaluationService,
 ) -> None:
-    for evaluation in await evaluation_store.list_evaluations():
+    hints = StoreProviderHints(call_site="engine")
+    evaluations = await evaluation_service.list_evaluations(hints=hints)
+    for evaluation in evaluations:
         if evaluation.status in [EvaluationStatus.PENDING, EvaluationStatus.RUNNING]:
             LOGGER.info(f"Recovering evaluation task: '{evaluation.id}'")
-            await evaluator.run_evaluation(evaluation)
+            await evaluation_service.run_evaluation(evaluation, hints=hints)
 
 
 async def check_required_schema_migrations() -> None:
@@ -972,7 +1142,9 @@ async def load_app(params: StartupParameters) -> AsyncIterator[tuple[ASGIApplica
         setup_container() as base_container,
         EXIT_STACK,
     ):
-        modules = set(await get_module_list_from_config() + params.modules)
+        modules = list(
+            dict.fromkeys((await get_module_list_from_config(CONFIG_FILE_PATH)) + params.modules)
+        )
 
         if modules:
             # Allow modules to return a different container
@@ -1001,8 +1173,7 @@ async def load_app(params: StartupParameters) -> AsyncIterator[tuple[ASGIApplica
             await params.initialize(actual_container)
 
         await recover_server_tasks(
-            evaluation_store=actual_container[EvaluationStore],
-            evaluator=actual_container[BehavioralChangeEvaluator],
+            evaluation_service=actual_container[EvaluationService],
         )
 
         if not params.configure:
@@ -1063,6 +1234,7 @@ async def serve_app(
         log_level="critical",
         timeout_graceful_shutdown=1,
         ws="wsproto",
+        root_path=os.environ.get("ROOT_PATH", ""),
     )
     server = uvicorn.Server(config)
     host_txt = "localhost" if host in ["127.0.0.1", "0.0.0.0"] else host

@@ -7,7 +7,7 @@ from pytest import fixture
 
 from parlant.core.agents import Agent
 from parlant.core.capabilities import Capability
-from parlant.core.common import Criticality, JSONSerializable
+from parlant.core.common import Weight, JSONSerializable
 from parlant.core.context_variables import (
     ContextVariable,
     ContextVariableId,
@@ -21,9 +21,9 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backt
     JourneyBacktrackCheckSchema,
 )
 from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_backtrack_node_selection import (
-    JourneyNodeKind,
     JourneyBacktrackNodeSelectionSchema,
 )
+from parlant.core.journeys import JourneyNodeKind
 from parlant.core.engines.alpha.guideline_matching.guideline_matching_context import (
     GuidelineMatchingContext,
 )
@@ -35,7 +35,12 @@ from parlant.core.engines.alpha.guideline_matching.generic.journey.journey_node_
 )
 from parlant.core.engines.alpha.optimization_policy import OptimizationPolicy
 from parlant.core.glossary import Term, TermId
-from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId, GuidelineStore
+from parlant.core.rules import (
+    Rule as Guideline,
+    RuleContent as GuidelineContent,
+    RuleId as GuidelineId,
+    RuleStore as GuidelineStore,
+)
 from parlant.core.journeys import Journey, JourneyId, JourneyNodeId
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
@@ -44,9 +49,9 @@ from parlant.core.services.indexing.journey_reachable_nodes_evaluation import (
     ReachableNodesEvaluationSchema,
     JourneyReachableNodesEvaluator,
 )
-from parlant.core.services.tools.service_registry import ServiceRegistry
 from parlant.core.sessions import EventKind, EventSource, Session, SessionId, SessionStore
-from parlant.core.tags import Tag, TagId
+from parlant.core.store_provider import BasicStoreProvider
+from parlant.core.groups import GroupIds, GroupId
 from tests.core.common.utils import create_event_message
 from tests.test_utilities import SyncAwaiter
 
@@ -467,7 +472,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                         ["2", "7"],
                     ),
                     (
-                        """ 
+                        """
                             - The customer said how many calzones they want
                             - The customer wants more than 5 calzones
                             - The agent warned the customer that delivery is likely to take more than an hour
@@ -475,7 +480,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                         ["2", "3", "4"],
                     ),
                     (
-                        """ 
+                        """
                             - The customer said how many calzones they want
                             - The customer wants 5 or less calzones
                             - The customer chose a calzone type (Classic Italian Calzone, Spinach and Ricotta Calzone, Chicken and Broccoli Calzone) for every calzone they ordered
@@ -483,7 +488,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                         ["2", "7", "8"],
                     ),
                     (
-                        """ 
+                        """
                             - The customer said how many calzones they want
                             - The customer wants 5 or less calzones
                             - The customer chose a calzone type (Classic Italian Calzone, Spinach and Ricotta Calzone, Chicken and Broccoli Calzone) for every calzone they ordered
@@ -492,7 +497,7 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
                         ["2", "7", "8", "9"],
                     ),
                     (
-                        """ 
+                        """
                             - The customer said how many calzones they want
                             - The customer wants 5 or less calzones
                             - The customer chose a calzone type (Classic Italian Calzone, Spinach and Ricotta Calzone, Chicken and Broccoli Calzone) for every calzone they ordered
@@ -964,34 +969,36 @@ JOURNEYS_DICT: dict[str, _JourneyData] = {
 
 
 def create_term(
-    name: str, description: str, synonyms: list[str] = [], tags: list[TagId] = []
+    name: str, description: str, synonyms: list[str] = [], groups: list[GroupId] = []
 ) -> Term:
     return Term(
         id=TermId("-"),
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         name=name,
         description=description,
         synonyms=synonyms,
-        tags=tags,
+        groups=groups,
     )
 
 
 def create_context_variable(
     name: str,
     data: JSONSerializable,
-    tags: list[TagId],
+    groups: list[GroupId],
 ) -> tuple[ContextVariable, ContextVariableValue]:
     return ContextVariable(
         id=ContextVariableId("-"),
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         name=name,
         description="",
         tool_id=None,
         freshness_rules=None,
-        tags=tags,
+        groups=groups,
     ), ContextVariableValue(
         ContextVariableValueId("-"),
-        last_modified=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         data=data,
     )
 
@@ -1009,19 +1016,20 @@ async def create_journey(
 
     for c in triggers:
         g = await guideline_store.create_guideline(condition=c, action=None)
-        await guideline_store.upsert_tag(
+        await guideline_store.upsert_group(
             guideline_id=g.id,
-            tag_id=Tag.for_journey_id(journey_id=journey_id).id,
+            group_id=GroupIds.for_journey_id(journey_id=journey_id),
         )
         trigger_ids.append(g.id)
 
     root_guideline = Guideline(
         id=GuidelineId("root"),
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         content=GuidelineContent(condition="", action=None),
-        criticality=Criticality.MEDIUM,
+        weight=Weight.MEDIUM,
         enabled=True,
-        tags=[],
+        groups=[],
         metadata={
             "journey_node": {
                 "follow_ups": ["1"],
@@ -1035,13 +1043,14 @@ async def create_journey(
         Guideline(
             id=GuidelineId(node.id),
             creation_utc=datetime.now(timezone.utc),
+            modified_utc=datetime.now(timezone.utc),
             content=GuidelineContent(
                 condition=node.condition or "",
                 action=node.action,
             ),
-            criticality=Criticality.MEDIUM,
+            weight=Weight.MEDIUM,
             enabled=False,
-            tags=[],
+            groups=[],
             metadata={
                 "journey_node": {
                     "follow_ups": [
@@ -1073,17 +1082,18 @@ async def create_journey(
         id=journey_id,
         root_id=JourneyNodeId(root_guideline.id),
         creation_utc=datetime.now(timezone.utc),
+        modified_utc=datetime.now(timezone.utc),
         description=description,
         triggers=trigger_ids,
         title=title,
-        tags=[],
+        groups=[],
     )
 
     result = await JourneyReachableNodesEvaluator(
         logger=context.logger,
         optimization_policy=context.container[OptimizationPolicy],
         schematic_generator=context.journey_reachable_nodes_evaluation_schematic_generator,
-        service_registry=context.container[ServiceRegistry],
+        store_provider=BasicStoreProvider(lambda: context.container),
     ).evaluate_reachable_follow_ups(node_guidelines=node_guidelines)
 
     for id, r in result.node_to_reachable_follow_ups.items():
@@ -1131,7 +1141,6 @@ async def base_test_that_correct_node_is_selected(
     journey_node_selector = GenericJourneyNodeSelectionBatch(
         logger=context.logger,
         meter=context.container[Meter],
-        guideline_store=context.container[GuidelineStore],
         schematic_generator_journey_node_selection=context.journey_node_selection_schematic_generator,
         schematic_generator_next_step_selection=context.journey_next_step_selection_schematic_generator,
         schematic_generator_journey_backtrack_check=context.journey_backtrack_check_schematic_generator,
@@ -1139,6 +1148,7 @@ async def base_test_that_correct_node_is_selected(
         node_guidelines=journey_node_guidelines,
         journey_path=journey_previous_path,
         optimization_policy=context.container[OptimizationPolicy],
+        store_provider=BasicStoreProvider(lambda: context.container),
         context=GuidelineMatchingContext(
             agent=agent,
             session=session,
@@ -1155,10 +1165,12 @@ async def base_test_that_correct_node_is_selected(
         ),
     )
     result = await journey_node_selector.process()
-    if len(result.matches) == 0:
+    if len(result.matched_guidelines) == 0:
         assert expected_next_node_index is None or "None" in expected_next_node_index
     else:
-        result_path: Sequence[str] = cast(list[str], result.matches[0].metadata["journey_path"])
+        result_path: Sequence[str] = cast(
+            list[str], result.matched_guidelines[0].metadata["journey_path"]
+        )
         if run_backtrack_journey_selector is not None:
             if run_backtrack_journey_selector:
                 assert result.generation_info.schema_name == "JourneyBacktrackNodeSelectionSchema"

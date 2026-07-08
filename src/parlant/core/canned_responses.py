@@ -23,7 +23,7 @@ import jinja2
 from typing_extensions import override, TypedDict, Self, Required
 
 from parlant.core import async_utils
-from parlant.core.async_utils import ReaderWriterLock
+from parlant.core.async_utils import ReaderWriterLock, safe_gather
 from parlant.core.nlp.embedding import Embedder, EmbedderFactory
 from parlant.core.persistence.document_database_helper import (
     DocumentMigrationHelper,
@@ -32,6 +32,7 @@ from parlant.core.persistence.document_database_helper import (
 from parlant.core.persistence.vector_database import (
     SimilarDocumentResult,
     VectorCollection,
+    VectorCollectionIndex,
     VectorDatabase,
     BaseDocument as VectorDocument,
 )
@@ -41,9 +42,10 @@ from parlant.core.persistence.vector_database_helper import (
     calculate_min_vectors_for_max_item_count,
     query_chunks,
 )
-from parlant.core.tags import TagId
+from parlant.core.groups import GroupId
 from parlant.core.common import (
     ItemNotFoundError,
+    try_or_none,
     JSONSerializable,
     UniqueId,
     Version,
@@ -73,12 +75,14 @@ class CannedResponse:
     def create_transient(
         value: str,
     ) -> CannedResponse:
+        now = datetime.now()
         return CannedResponse(
             id=CannedResponse.TRANSIENT_ID,
             value=value,
             fields=[],
-            creation_utc=datetime.now(),
-            tags=[],
+            creation_utc=now,
+            modified_utc=now,
+            groups=[],
             signals=[],
             metadata={},
             field_dependencies=[],
@@ -89,11 +93,12 @@ class CannedResponse:
 
     id: CannedResponseId
     creation_utc: datetime
+    modified_utc: datetime
     value: str
     fields: Sequence[CannedResponseField]
     signals: Sequence[str]
     metadata: Mapping[str, JSONSerializable]
-    tags: Sequence[TagId]
+    groups: Sequence[GroupId]
     field_dependencies: Sequence[str]
 
     def __hash__(self) -> int:
@@ -101,7 +106,7 @@ class CannedResponse:
 
 
 @dataclass(frozen=True)
-class CannedResponseRelevantResult:
+class CannedResponseRelevanceResult:
     canned_response: CannedResponse
     score: float
 
@@ -123,7 +128,7 @@ class CannedResponseStore(ABC):
         signals: Optional[Sequence[str]] = None,
         creation_utc: Optional[datetime] = None,
         metadata: Mapping[str, JSONSerializable] = {},
-        tags: Optional[Sequence[TagId]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
         field_dependencies: Optional[Sequence[str]] = None,
     ) -> CannedResponse: ...
 
@@ -149,7 +154,7 @@ class CannedResponseStore(ABC):
     @abstractmethod
     async def list_canned_responses(
         self,
-        tags: Optional[Sequence[TagId]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
     ) -> Sequence[CannedResponse]: ...
 
     @abstractmethod
@@ -158,21 +163,21 @@ class CannedResponseStore(ABC):
         query: str,
         available_canned_responses: Sequence[CannedResponse],
         max_count: int,
-    ) -> Sequence[CannedResponseRelevantResult]: ...
+    ) -> Sequence[CannedResponseRelevanceResult]: ...
 
     @abstractmethod
-    async def upsert_tag(
+    async def upsert_group(
         self,
         canned_response_id: CannedResponseId,
-        tag_id: TagId,
+        group_id: GroupId,
         creation_utc: Optional[datetime] = None,
     ) -> bool: ...
 
     @abstractmethod
-    async def remove_tag(
+    async def remove_group(
         self,
         canned_response_id: CannedResponseId,
-        tag_id: TagId,
+        group_id: GroupId,
     ) -> None: ...
 
 
@@ -231,10 +236,22 @@ class CannedResponseDocument_v0_5_0(TypedDict, total=False):
     metadata: Mapping[str, JSONSerializable]
 
 
+class CannedResponseDocument_v0_6_0(TypedDict, total=False):
+    id: ObjectId
+    version: Version.String
+    creation_utc: str
+    value: str
+    fields: str
+    signals: Sequence[str]
+    metadata: Mapping[str, JSONSerializable]
+    field_dependencies: Sequence[str]
+
+
 class CannedResponseDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
+    last_modified: str
     value: str
     fields: str
     signals: Sequence[str]
@@ -255,19 +272,19 @@ class UtteranceTagAssociationDocument_v0_3_0(TypedDict, total=False):
     version: Version.String
     creation_utc: str
     utterance_id: CannedResponseId
-    tag_id: TagId
+    group_id: GroupId
 
 
-class CannedResponseTagAssociationDocument(TypedDict, total=False):
+class CannedResponseGroupAssociationDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
     canned_response_id: CannedResponseId
-    tag_id: TagId
+    group_id: GroupId
 
 
 class CannedResponseVectorStore(CannedResponseStore):
-    VERSION = Version.from_string("0.6.0")
+    VERSION = Version.from_string("0.7.0")
 
     def __init__(
         self,
@@ -277,6 +294,7 @@ class CannedResponseVectorStore(CannedResponseStore):
         embedder_type_provider: Callable[[], Awaitable[type[Embedder]]],
         embedder_factory: EmbedderFactory,
         allow_migration: bool = True,
+        collections_prefix: str | None = None,
     ) -> None:
         self._id_generator = id_generator
 
@@ -286,9 +304,10 @@ class CannedResponseVectorStore(CannedResponseStore):
         self._canreps_vector_collection: VectorCollection[CannedResponseVectorDocument]
         self._canreps_collection: DocumentCollection[CannedResponseDocument]
         self._canrep_tag_association_collection: DocumentCollection[
-            CannedResponseTagAssociationDocument
+            CannedResponseGroupAssociationDocument
         ]
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
         self._lock = ReaderWriterLock()
         self._embedder_factory = embedder_factory
         self._embedder_type_provider = embedder_type_provider
@@ -324,6 +343,17 @@ class CannedResponseVectorStore(CannedResponseStore):
                 checksum=doc["checksum"],
             )
 
+        async def v0_6_0_to_v0_7_0(doc: VectorDocument) -> Optional[VectorDocument]:
+            doc = cast(CannedResponseVectorDocument, doc)
+
+            return CannedResponseVectorDocument(
+                id=doc["id"],
+                canned_response_id=doc["canned_response_id"],
+                version=Version.String("0.7.0"),
+                content=doc["content"],
+                checksum=doc["checksum"],
+            )
+
         return await VectorDocumentMigrationHelper[CannedResponseVectorDocument](
             self,
             {
@@ -332,6 +362,7 @@ class CannedResponseVectorStore(CannedResponseStore):
                 "0.3.0": v0_1_0_to_v0_4_0,
                 "0.4.0": v0_4_0_to_v0_5_0,
                 "0.5.0": v0_5_0_to_v0_6_0,
+                "0.6.0": v0_6_0_to_v0_7_0,
             },
         ).migrate(doc)
 
@@ -357,7 +388,7 @@ class CannedResponseVectorStore(CannedResponseStore):
         async def v0_5_0_to_v0_6_0(doc: BaseDocument) -> Optional[BaseDocument]:
             doc = cast(CannedResponseDocument_v0_5_0, doc)
 
-            return CannedResponseDocument(
+            return CannedResponseDocument_v0_6_0(
                 id=doc["id"],
                 version=Version.String("0.6.0"),
                 creation_utc=doc["creation_utc"],
@@ -368,6 +399,21 @@ class CannedResponseVectorStore(CannedResponseStore):
                 field_dependencies=[],
             )
 
+        async def v0_6_0_to_v0_7_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            d = cast(CannedResponseDocument_v0_6_0, doc)
+
+            return CannedResponseDocument(
+                id=d["id"],
+                version=Version.String("0.7.0"),
+                creation_utc=d["creation_utc"],
+                last_modified=d["creation_utc"],
+                value=d["value"],
+                fields=d["fields"],
+                signals=d["signals"],
+                metadata=d.get("metadata", {}),
+                field_dependencies=d.get("field_dependencies", []),
+            )
+
         return await DocumentMigrationHelper[CannedResponseDocument](
             self,
             {
@@ -376,62 +422,74 @@ class CannedResponseVectorStore(CannedResponseStore):
                 "0.3.0": v0_1_0_to_v0_4_0,
                 "0.4.0": v0_4_0_to_v0_5_0,
                 "0.5.0": v0_5_0_to_v0_6_0,
+                "0.6.0": v0_6_0_to_v0_7_0,
             },
         ).migrate(doc)
 
     async def _association_document_loader(
         self, doc: BaseDocument
-    ) -> Optional[CannedResponseTagAssociationDocument]:
+    ) -> Optional[CannedResponseGroupAssociationDocument]:
         async def v0_1_0_to_v0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
             raise Exception(
                 "This code should not be reached! Please run the 'parlant-prepare-migration' script."
             )
 
         async def v0_2_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
-            doc = cast(CannedResponseTagAssociationDocument, doc)
+            doc = cast(CannedResponseGroupAssociationDocument, doc)
 
-            return CannedResponseTagAssociationDocument(
+            return CannedResponseGroupAssociationDocument(
                 id=doc["id"],
                 version=Version.String("0.3.0"),
                 creation_utc=doc["creation_utc"],
                 canned_response_id=CannedResponseId(doc["canned_response_id"]),
-                tag_id=TagId(doc["tag_id"]),
+                group_id=GroupId(doc["group_id"]),
             )
 
         async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
-            doc = cast(CannedResponseTagAssociationDocument, doc)
+            doc = cast(CannedResponseGroupAssociationDocument, doc)
 
-            return CannedResponseTagAssociationDocument(
+            return CannedResponseGroupAssociationDocument(
                 id=doc["id"],
                 version=Version.String("0.4.0"),
                 creation_utc=doc["creation_utc"],
                 canned_response_id=CannedResponseId(doc["canned_response_id"]),
-                tag_id=TagId(doc["tag_id"]),
+                group_id=GroupId(doc["group_id"]),
             )
 
         async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
-            doc = cast(CannedResponseTagAssociationDocument, doc)
+            doc = cast(CannedResponseGroupAssociationDocument, doc)
 
-            return CannedResponseTagAssociationDocument(
+            return CannedResponseGroupAssociationDocument(
                 id=doc["id"],
                 version=Version.String("0.5.0"),
                 creation_utc=doc["creation_utc"],
                 canned_response_id=CannedResponseId(doc["canned_response_id"]),
-                tag_id=TagId(doc["tag_id"]),
+                group_id=GroupId(doc["group_id"]),
             )
 
         async def v0_5_0_to_v0_6_0(doc: BaseDocument) -> Optional[BaseDocument]:
-            doc = cast(CannedResponseTagAssociationDocument, doc)
+            doc = cast(CannedResponseGroupAssociationDocument, doc)
 
-            return CannedResponseTagAssociationDocument(
+            return CannedResponseGroupAssociationDocument(
                 id=doc["id"],
                 version=Version.String("0.6.0"),
                 creation_utc=doc["creation_utc"],
                 canned_response_id=CannedResponseId(doc["canned_response_id"]),
-                tag_id=TagId(doc["tag_id"]),
+                group_id=GroupId(doc["group_id"]),
             )
 
-        return await DocumentMigrationHelper[CannedResponseTagAssociationDocument](
+        async def v0_6_0_to_v0_7_0(doc: BaseDocument) -> Optional[BaseDocument]:
+            doc = cast(CannedResponseGroupAssociationDocument, doc)
+
+            return CannedResponseGroupAssociationDocument(
+                id=doc["id"],
+                version=Version.String("0.7.0"),
+                creation_utc=doc["creation_utc"],
+                canned_response_id=CannedResponseId(doc["canned_response_id"]),
+                group_id=GroupId(doc["group_id"]),
+            )
+
+        return await DocumentMigrationHelper[CannedResponseGroupAssociationDocument](
             self,
             {
                 "0.1.0": v0_1_0_to_v0_2_0,
@@ -439,6 +497,7 @@ class CannedResponseVectorStore(CannedResponseStore):
                 "0.3.0": v0_3_0_to_v0_4_0,
                 "0.4.0": v0_4_0_to_v0_5_0,
                 "0.5.0": v0_5_0_to_v0_6_0,
+                "0.6.0": v0_6_0_to_v0_7_0,
             },
         ).migrate(doc)
 
@@ -453,26 +512,36 @@ class CannedResponseVectorStore(CannedResponseStore):
             allow_migration=self._allow_migration,
         ):
             self._canreps_vector_collection = await self._vector_db.get_or_create_collection(
-                name="canned_responses",
+                name=f"{self._collections_prefix}_canned_responses"
+                if self._collections_prefix
+                else "canned_responses",
                 schema=CannedResponseVectorDocument,
                 embedder_type=embedder_type,
                 document_loader=self._vector_document_loader,
+            )
+            await self._canreps_vector_collection.ensure_indexes(
+                [VectorCollectionIndex(field="canned_response_id")]
             )
 
         async with DocumentStoreMigrationHelper(
             store=self,
             database=self._database,
             allow_migration=self._allow_migration,
+            collections_prefix=self._collections_prefix,
         ):
             self._canreps_collection = await self._database.get_or_create_collection(
-                name="canned_responses",
+                name=f"{self._collections_prefix}_canned_responses"
+                if self._collections_prefix
+                else "canned_responses",
                 schema=CannedResponseDocument,
                 document_loader=self._document_loader,
             )
 
             self._canrep_tag_association_collection = await self._database.get_or_create_collection(
-                name="canned_response_tag_associations",
-                schema=CannedResponseTagAssociationDocument,
+                name=f"{self._collections_prefix}_canned_response_tag_associations"
+                if self._collections_prefix
+                else "canned_response_tag_associations",
+                schema=CannedResponseGroupAssociationDocument,
                 document_loader=self._association_document_loader,
             )
 
@@ -494,6 +563,7 @@ class CannedResponseVectorStore(CannedResponseStore):
             id=ObjectId(canned_response_id.id),
             version=self.VERSION.to_string(),
             creation_utc=canned_response_id.creation_utc.isoformat(),
+            last_modified=canned_response_id.modified_utc.isoformat(),
             value=canned_response_id.value,
             fields=json.dumps(
                 [
@@ -509,8 +579,8 @@ class CannedResponseVectorStore(CannedResponseStore):
     async def _deserialize_canned_response(
         self, canned_response_document: CannedResponseDocument
     ) -> CannedResponse:
-        tags = [
-            doc["tag_id"]
+        groups = [
+            doc["group_id"]
             for doc in await self._canrep_tag_association_collection.find(
                 {"canned_response_id": {"$eq": canned_response_document["id"]}}
             )
@@ -519,6 +589,11 @@ class CannedResponseVectorStore(CannedResponseStore):
         return CannedResponse(
             id=CannedResponseId(canned_response_document["id"]),
             creation_utc=datetime.fromisoformat(canned_response_document["creation_utc"]),
+            modified_utc=datetime.fromisoformat(
+                canned_response_document.get(
+                    "last_modified", canned_response_document["creation_utc"]
+                )
+            ),
             value=canned_response_document["value"],
             fields=[
                 CannedResponseField(
@@ -527,7 +602,7 @@ class CannedResponseVectorStore(CannedResponseStore):
                 for d in json.loads(canned_response_document["fields"])
             ],
             metadata=canned_response_document["metadata"],
-            tags=tags,
+            groups=groups,
             signals=canned_response_document["signals"],
             field_dependencies=canned_response_document.get("field_dependencies", []),
         )
@@ -567,7 +642,7 @@ class CannedResponseVectorStore(CannedResponseStore):
         signals: Optional[Sequence[str]] = None,
         creation_utc: Optional[datetime] = None,
         metadata: Mapping[str, JSONSerializable] = {},
-        tags: Optional[Sequence[TagId]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
         field_dependencies: Optional[Sequence[str]] = None,
     ) -> CannedResponse:
         self._validate_template(value)
@@ -583,16 +658,17 @@ class CannedResponseVectorStore(CannedResponseStore):
                 value=value,
                 fields=fields or [],
                 creation_utc=creation_utc,
+                modified_utc=creation_utc,
                 metadata=metadata,
-                tags=tags or [],
+                groups=groups or [],
                 signals=signals or [],
                 field_dependencies=field_dependencies or [],
             )
 
             await self._insert_canned_response(canrep)
 
-            for tag_id in tags or []:
-                tag_checksum = xxh3_checksum(f"{canrep.id}{tag_id}")
+            for group_id in groups or []:
+                tag_checksum = xxh3_checksum(f"{canrep.id}{group_id}")
 
                 await self._canrep_tag_association_collection.insert_one(
                     document={
@@ -600,7 +676,7 @@ class CannedResponseVectorStore(CannedResponseStore):
                         "version": self.VERSION.to_string(),
                         "creation_utc": creation_utc.isoformat(),
                         "canned_response_id": canrep.id,
-                        "tag_id": tag_id,
+                        "group_id": group_id,
                     }
                 )
 
@@ -660,11 +736,12 @@ class CannedResponseVectorStore(CannedResponseStore):
             canrep = CannedResponse(
                 id=CannedResponseId(canned_response_id),
                 creation_utc=datetime.fromisoformat(doc["creation_utc"]),
+                modified_utc=datetime.now(timezone.utc),
                 value=params.get("value", existing_value.value),
                 fields=params.get("fields", existing_value.fields),
                 signals=params.get("signals", existing_value.signals),
                 metadata=params.get("metadata", existing_value.metadata),
-                tags=existing_value.tags,
+                groups=existing_value.groups,
                 field_dependencies=params.get(
                     "field_dependencies", existing_value.field_dependencies
                 ),
@@ -676,13 +753,13 @@ class CannedResponseVectorStore(CannedResponseStore):
 
     async def list_canned_responses(
         self,
-        tags: Optional[Sequence[TagId]] = None,
+        groups: Optional[Sequence[GroupId]] = None,
     ) -> Sequence[CannedResponse]:
         filters: Where = {}
 
         async with self._lock.reader_lock:
-            if tags is not None:
-                if len(tags) == 0:
+            if groups is not None:
+                if len(groups) == 0:
                     canrep_ids = {
                         doc["canned_response_id"]
                         for doc in await self._canrep_tag_association_collection.find(filters={})
@@ -691,7 +768,7 @@ class CannedResponseVectorStore(CannedResponseStore):
                         {"$and": [{"id": {"$ne": id}} for id in canrep_ids]} if canrep_ids else {}
                     )
                 else:
-                    tag_filters: Where = {"$or": [{"tag_id": {"$eq": tag}} for tag in tags]}
+                    tag_filters: Where = {"$or": [{"group_id": {"$eq": group}} for group in groups]}
                     tag_associations = await self._canrep_tag_association_collection.find(
                         filters=tag_filters
                     )
@@ -739,28 +816,28 @@ class CannedResponseVectorStore(CannedResponseStore):
             await async_utils.safe_gather(*tasks)
 
     @override
-    async def upsert_tag(
+    async def upsert_group(
         self,
         canned_response_id: CannedResponseId,
-        tag_id: TagId,
+        group_id: GroupId,
         creation_utc: Optional[datetime] = None,
     ) -> bool:
         async with self._lock.writer_lock:
             canrep = await self.read_canned_response(canned_response_id)
 
-            if tag_id in canrep.tags:
+            if group_id in canrep.groups:
                 return False
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            association_checksum = xxh3_checksum(f"{canned_response_id}{tag_id}")
+            association_checksum = xxh3_checksum(f"{canned_response_id}{group_id}")
 
-            association_document: CannedResponseTagAssociationDocument = {
+            association_document: CannedResponseGroupAssociationDocument = {
                 "id": ObjectId(self._id_generator.generate(association_checksum)),
                 "version": self.VERSION.to_string(),
                 "creation_utc": creation_utc.isoformat(),
                 "canned_response_id": canned_response_id,
-                "tag_id": tag_id,
+                "group_id": group_id,
             }
 
             _ = await self._canrep_tag_association_collection.insert_one(
@@ -770,21 +847,21 @@ class CannedResponseVectorStore(CannedResponseStore):
         return True
 
     @override
-    async def remove_tag(
+    async def remove_group(
         self,
         canned_response_id: CannedResponseId,
-        tag_id: TagId,
+        group_id: GroupId,
     ) -> None:
         async with self._lock.writer_lock:
             delete_result = await self._canrep_tag_association_collection.delete_one(
                 {
                     "canned_response_id": {"$eq": canned_response_id},
-                    "tag_id": {"$eq": tag_id},
+                    "group_id": {"$eq": group_id},
                 }
             )
 
             if delete_result.deleted_count == 0:
-                raise ItemNotFoundError(item_id=UniqueId(tag_id))
+                raise ItemNotFoundError(item_id=UniqueId(group_id))
 
     @override
     async def filter_relevant_canned_responses(
@@ -792,7 +869,7 @@ class CannedResponseVectorStore(CannedResponseStore):
         query: str,
         available_canned_responses: Sequence[CannedResponse],
         max_count: int,
-    ) -> Sequence[CannedResponseRelevantResult]:
+    ) -> Sequence[CannedResponseRelevanceResult]:
         if not available_canned_responses:
             return []
 
@@ -811,7 +888,7 @@ class CannedResponseVectorStore(CannedResponseStore):
                         count_item_vectors=lambda c: len(self._list_canned_response_contents(c)),
                         max_items_to_return=max_count,
                     ),
-                    hints={"tag": "canned_responses"},
+                    hints={"group": "canned_responses"},
                 )
                 for q in queries
             ]
@@ -848,7 +925,7 @@ class CannedResponseVectorStore(CannedResponseStore):
                 result.append(canned_response)
 
         return [
-            CannedResponseRelevantResult(
+            CannedResponseRelevanceResult(
                 canned_response=canned_response,
                 score=1.0 - vector_doc.distance,
             )
@@ -857,3 +934,104 @@ class CannedResponseVectorStore(CannedResponseStore):
                 top_results,
             )
         ]
+
+
+class CompositeCannedResponseStore(CannedResponseStore):
+    def __init__(
+        self,
+        writable_store: CannedResponseStore,
+        readable_stores: Sequence[CannedResponseStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[CannedResponseStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_canned_response(
+        self,
+        value: str,
+        fields: Optional[Sequence[CannedResponseField]] = None,
+        signals: Optional[Sequence[str]] = None,
+        creation_utc: Optional[datetime] = None,
+        metadata: Mapping[str, JSONSerializable] = {},
+        groups: Optional[Sequence[GroupId]] = None,
+        field_dependencies: Optional[Sequence[str]] = None,
+    ) -> CannedResponse:
+        return await self._writable_store.create_canned_response(
+            value=value,
+            fields=fields,
+            signals=signals,
+            creation_utc=creation_utc,
+            metadata=metadata,
+            groups=groups,
+            field_dependencies=field_dependencies,
+        )
+
+    @override
+    async def read_canned_response(
+        self,
+        canned_response_id: CannedResponseId,
+    ) -> CannedResponse:
+        results = await safe_gather(
+            *[
+                try_or_none(store.read_canned_response(canned_response_id))
+                for store in self._all_stores
+            ]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(canned_response_id))
+        return result
+
+    @override
+    async def update_canned_response(
+        self,
+        canned_response_id: CannedResponseId,
+        params: CannedResponseUpdateParams,
+    ) -> CannedResponse:
+        return await self._writable_store.update_canned_response(canned_response_id, params)
+
+    @override
+    async def delete_canned_response(
+        self,
+        canned_response_id: CannedResponseId,
+    ) -> None:
+        return await self._writable_store.delete_canned_response(canned_response_id)
+
+    @override
+    async def list_canned_responses(
+        self,
+        groups: Optional[Sequence[GroupId]] = None,
+    ) -> Sequence[CannedResponse]:
+        results = await safe_gather(
+            *[store.list_canned_responses(groups=groups) for store in self._all_stores]
+        )
+        return list(chain.from_iterable(results))
+
+    @override
+    async def filter_relevant_canned_responses(
+        self,
+        query: str,
+        available_canned_responses: Sequence[CannedResponse],
+        max_count: int,
+    ) -> Sequence[CannedResponseRelevanceResult]:
+        return await self._writable_store.filter_relevant_canned_responses(
+            query, available_canned_responses, max_count
+        )
+
+    @override
+    async def upsert_group(
+        self,
+        canned_response_id: CannedResponseId,
+        group_id: GroupId,
+        creation_utc: Optional[datetime] = None,
+    ) -> bool:
+        return await self._writable_store.upsert_group(canned_response_id, group_id, creation_utc)
+
+    @override
+    async def remove_group(
+        self,
+        canned_response_id: CannedResponseId,
+        group_id: GroupId,
+    ) -> None:
+        return await self._writable_store.remove_group(canned_response_id, group_id)

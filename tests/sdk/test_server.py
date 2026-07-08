@@ -96,31 +96,31 @@ class Test_that_configure_api_can_add_middleware(SDKTest):
 
 class Test_that_get_tag_returns_tag_by_id(SDKTest):
     async def setup(self, server: p.Server) -> None:
-        self.tag = await server.create_tag("test-tag")
+        self.group = await server.create_group("test-group")
 
     async def run(self, ctx: Context) -> None:
-        retrieved = await ctx.server.get_tag(id=self.tag.id)
-        assert retrieved.id == self.tag.id
-        assert retrieved.name == self.tag.name
+        retrieved = await ctx.server.get_tag(id=self.group.id)
+        assert retrieved.id == self.group.id
+        assert retrieved.name == self.group.name
 
 
 class Test_that_get_tag_returns_tag_by_name(SDKTest):
     async def setup(self, server: p.Server) -> None:
-        self.tag = await server.create_tag("test-tag")
+        self.group = await server.create_group("test-group")
 
     async def run(self, ctx: Context) -> None:
-        retrieved = await ctx.server.get_tag(name="test-tag")
-        assert retrieved.id == self.tag.id
-        assert retrieved.name == self.tag.name
+        retrieved = await ctx.server.get_tag(name="test-group")
+        assert retrieved.id == self.group.id
+        assert retrieved.name == self.group.name
 
 
 class Test_that_get_tag_raises_when_both_id_and_name_are_provided(SDKTest):
     async def setup(self, server: p.Server) -> None:
-        self.tag = await server.create_tag("test-tag")
+        self.group = await server.create_group("test-group")
 
     async def run(self, ctx: Context) -> None:
         with pytest.raises(p.SDKError):
-            await ctx.server.get_tag(id=self.tag.id, name="test-tag")
+            await ctx.server.get_tag(id=self.group.id, name="test-group")
 
 
 class Test_that_get_tag_raises_when_name_does_not_exist(SDKTest):
@@ -167,9 +167,9 @@ class Test_that_indexer_runs_during_server_startup_with_full_payload(SDKTest):
     async def setup(self, server: p.Server) -> None:
         agent = await server.create_agent(
             name="Indexed Agent",
-            description="An agent for the indexer test",
+            prompt="An agent for the indexer test",
         )
-        await agent.create_guideline(
+        await agent.create_rule(
             condition="customer says hi",
             action="reply with a greeting",
         )
@@ -181,7 +181,7 @@ class Test_that_indexer_runs_during_server_startup_with_full_payload(SDKTest):
         payload = self.captured_payload
         assert {
             "agents",
-            "guidelines",
+            "rules",
             "journeys",
             "relationships",
             "glossary",
@@ -190,7 +190,7 @@ class Test_that_indexer_runs_during_server_startup_with_full_payload(SDKTest):
             "tools",
         }.issubset(payload.keys())
         assert len(payload["agents"]) == 1
-        assert len(payload["guidelines"]) >= 1
+        assert len(payload["rules"]) >= 1
 
 
 class Test_that_healthz_detects_event_loop_blocking_from_synchronous_tool(SDKTest):
@@ -198,7 +198,7 @@ class Test_that_healthz_detects_event_loop_blocking_from_synchronous_tool(SDKTes
 
         self.agent = await server.create_agent(
             name="Blocking Tool Agent",
-            description="Agent for testing event loop health detection",
+            prompt="Agent for testing event loop health detection",
         )
 
         @p.tool
@@ -238,7 +238,7 @@ class Test_that_healthz_reports_healthy_after_well_behaved_tool(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Good Tool Agent",
-            description="Agent for testing event loop stays healthy with async tools",
+            prompt="Agent for testing event loop stays healthy with async tools",
         )
 
         @p.tool
@@ -288,7 +288,7 @@ class Test_that_healthz_reports_nlp_section_after_message_exchange(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="NLP Health Agent",
-            description="Agent for testing NLP health reporting",
+            prompt="Agent for testing NLP health reporting",
         )
 
     async def run(self, ctx: Context) -> None:
@@ -322,7 +322,7 @@ class Test_that_healthz_reports_token_and_request_rates_after_message_exchange(S
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Token Rate Agent",
-            description="Agent for testing token/request rate reporting",
+            prompt="Agent for testing token/request rate reporting",
         )
 
     async def run(self, ctx: Context) -> None:
@@ -357,7 +357,7 @@ class Test_that_healthz_reports_engine_section_after_message_exchange(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
             name="Engine Health Agent",
-            description="Agent for testing engine health reporting",
+            prompt="Agent for testing engine health reporting",
         )
 
     async def run(self, ctx: Context) -> None:

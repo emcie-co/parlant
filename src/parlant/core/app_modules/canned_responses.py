@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Sequence, Mapping
 
 from parlant.core.agents import AgentId, AgentStore
+from parlant.core.app_modules.request_context import RequestContext
 from parlant.core.common import JSONSerializable
 from parlant.core.canned_responses import (
     CannedResponse,
@@ -12,13 +13,14 @@ from parlant.core.canned_responses import (
 )
 from parlant.core.journeys import JourneyId, JourneyStore
 from parlant.core.loggers import Logger
-from parlant.core.tags import Tag, TagId, TagStore
+from parlant.core.groups import GroupIds, GroupId, GroupStore
+from parlant.core.store_provider import StoreProviderHints, StoreProvider
 
 
 @dataclass(frozen=True)
-class CannedResponseTagUpdateParamsModel:
-    add: Sequence[TagId] | None = None
-    remove: Sequence[TagId] | None = None
+class CannedResponseGroupUpdateParamsModel:
+    add: Sequence[GroupId] | None = None
+    remove: Sequence[GroupId] | None = None
 
 
 @dataclass(frozen=True)
@@ -30,44 +32,80 @@ class CannedResponseMetadataUpdateParamsModel:
 class CannedResponseModule:
     def __init__(
         self,
+        request_context: RequestContext,
         logger: Logger,
-        canned_response_store: CannedResponseStore,
-        agent_store: AgentStore,
-        journey_store: JourneyStore,
-        tag_store: TagStore,
+        store_provider: StoreProvider,
     ):
+        self._request_context = request_context
         self._logger = logger
-        self._canrep_store = canned_response_store
-        self._agent_store = agent_store
-        self._journey_store = journey_store
-        self._tag_store = tag_store
+        self._store_provider = store_provider
 
-    async def _ensure_tag(self, tag_id: TagId) -> None:
-        if agent_id := Tag.extract_agent_id(tag_id):
+    @property
+    def _canrep_store(self) -> CannedResponseStore:
+        return self._store_provider.get_store(
+            CannedResponseStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._request_context.get_origin(),
+            ),
+        )
+
+    @property
+    def _agent_store(self) -> AgentStore:
+        return self._store_provider.get_store(
+            AgentStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._request_context.get_origin(),
+            ),
+        )
+
+    @property
+    def _journey_store(self) -> JourneyStore:
+        return self._store_provider.get_store(
+            JourneyStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._request_context.get_origin(),
+            ),
+        )
+
+    @property
+    def _group_store(self) -> GroupStore:
+        return self._store_provider.get_store(
+            GroupStore,
+            StoreProviderHints(
+                call_site="app",
+                origin=self._request_context.get_origin(),
+            ),
+        )
+
+    async def _ensure_tag(self, group_id: GroupId) -> None:
+        if agent_id := GroupIds.extract_agent_id(group_id):
             _ = await self._agent_store.read_agent(agent_id=AgentId(agent_id))
-        elif journey_id := Tag.extract_journey_id(tag_id):
+        elif journey_id := GroupIds.extract_journey_id(group_id):
             _ = await self._journey_store.read_journey(journey_id=JourneyId(journey_id))
         else:
-            _ = await self._tag_store.read_tag(tag_id=tag_id)
+            _ = await self._group_store.read_group(group_id=group_id)
 
     async def create(
         self,
         value: str,
         fields: Sequence[CannedResponseField],
         signals: Sequence[str] | None,
-        tags: Sequence[TagId] | None,
+        groups: Sequence[GroupId] | None,
         metadata: Mapping[str, JSONSerializable] | None = None,
         field_dependencies: Sequence[str] | None = None,
     ) -> CannedResponse:
-        if tags:
-            for tag_id in tags:
-                await self._ensure_tag(tag_id=tag_id)
+        if groups:
+            for group_id in groups:
+                await self._ensure_tag(group_id=group_id)
 
         canrep = await self._canrep_store.create_canned_response(
             value=value,
             fields=fields,
             signals=signals,
-            tags=tags if tags else None,
+            groups=groups if groups else None,
             metadata=metadata or {},
             field_dependencies=field_dependencies,
         )
@@ -80,9 +118,9 @@ class CannedResponseModule:
         )
         return canrep
 
-    async def find(self, tags: Sequence[TagId] | None) -> Sequence[CannedResponse]:
-        if tags:
-            canreps = await self._canrep_store.list_canned_responses(tags=tags)
+    async def find(self, groups: Sequence[GroupId] | None) -> Sequence[CannedResponse]:
+        if groups:
+            canreps = await self._canrep_store.list_canned_responses(groups=groups)
         else:
             canreps = await self._canrep_store.list_canned_responses()
 
@@ -93,7 +131,7 @@ class CannedResponseModule:
         canned_response_id: CannedResponseId,
         value: str | None,
         fields: Sequence[CannedResponseField],
-        tags: CannedResponseTagUpdateParamsModel | None,
+        groups: CannedResponseGroupUpdateParamsModel | None,
         metadata: CannedResponseMetadataUpdateParamsModel | None = None,
     ) -> CannedResponse:
         update_params: CannedResponseUpdateParams = {}
@@ -124,14 +162,14 @@ class CannedResponseModule:
         if needs_update:
             await self._canrep_store.update_canned_response(canned_response_id, update_params)
 
-        if tags:
-            if tags.add:
-                for tag_id in tags.add:
-                    await self._ensure_tag(tag_id=tag_id)
-                    await self._canrep_store.upsert_tag(canned_response_id, tag_id)
-            if tags.remove:
-                for tag_id in tags.remove:
-                    await self._canrep_store.remove_tag(canned_response_id, tag_id)
+        if groups:
+            if groups.add:
+                for group_id in groups.add:
+                    await self._ensure_tag(group_id=group_id)
+                    await self._canrep_store.upsert_group(canned_response_id, group_id)
+            if groups.remove:
+                for group_id in groups.remove:
+                    await self._canrep_store.remove_group(canned_response_id, group_id)
 
         updated_canrep = await self._canrep_store.read_canned_response(canned_response_id)
 

@@ -15,7 +15,6 @@
 import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
-import os
 import time
 from typing import Callable, cast
 
@@ -25,13 +24,14 @@ from parlant.client.types.event import Event as ClientEvent
 from fastapi import FastAPI
 import httpx
 
-from parlant.adapters.nlp.emcie_service import EmcieService
+from parlant.adapters.nlp.gemini_service import GeminiService
 from parlant.core.application_context import ApplicationContext
 from parlant.core.health import HealthReporter
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
 from parlant.core.sessions import Session
 from parlant.core.tracer import Tracer
+from parlant.core.usage_reporter import UsageReporter
 import parlant.sdk as p
 
 from parlant.core.engines.alpha.perceived_performance_policy import (
@@ -293,13 +293,12 @@ class SDKTest:
             configure_container=_configure,
             configure_hooks=self.configure_hooks,
             configure_api=self.configure_api,
-            nlp_service=lambda c: EmcieService(
+            nlp_service=lambda c: GeminiService(
                 c[Logger],
                 c[Tracer],
                 c[Meter],
                 c[HealthReporter],
-                model_tier=os.environ.get("EMCIE_MODEL_TIER", "jackal"),  # type: ignore
-                model_role=os.environ.get("EMCIE_MODEL_ROLE", "teacher"),  # type: ignore
+                c[UsageReporter],
             ),
         ), lambda: test_container
 

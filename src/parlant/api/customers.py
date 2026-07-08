@@ -29,12 +29,12 @@ from parlant.api.common import (
 from parlant.core.app_modules.common import decode_cursor, encode_cursor
 from parlant.core.app_modules.customers import (
     CustomerMetadataUpdateParams,
-    CustomerTagUpdateParams,
+    CustomerGroupUpdateParams,
 )
 from parlant.core.application import Application
 from parlant.core.common import DefaultBaseModel
 from parlant.core.customers import CustomerId
-from parlant.core.tags import TagId
+from parlant.core.groups import GroupId
 
 API_GROUP = "customers"
 
@@ -84,18 +84,18 @@ CustomerCreationUTCField: TypeAlias = Annotated[
     ),
 ]
 
-TagIdField: TypeAlias = Annotated[
-    TagId,
+GroupIdField: TypeAlias = Annotated[
+    GroupId,
     Field(
-        description="Unique identifier for the tag",
+        description="Unique identifier for the group",
         examples=["t9a8g703f4"],
     ),
 ]
 
-TagIdSequenceField: TypeAlias = Annotated[
-    Sequence[TagIdField],
+GroupIdSequenceField: TypeAlias = Annotated[
+    Sequence[GroupIdField],
     Field(
-        description="Collection of ids of tags that describe the customer",
+        description="Collection of ids of groups that describe the customer",
         examples=[["t9a8g703f4", "4gIAXU4tp"], []],
     ),
 ]
@@ -108,7 +108,7 @@ customer_example: ExampleJson = {
         "email": "scooby@dooby.do",
         "VIP": "Yes",
     },
-    "tags": ["VIP", "New User"],
+    "groups": ["VIP", "New User"],
 }
 
 
@@ -147,14 +147,14 @@ class CustomerDTO(
     Represents a customer in the system.
 
     Customers are entities that interact with agents through sessions. Each customer
-    can have metadata stored in the metadata field and can be tagged for categorization.
+    can have metadata stored in the metadata field and can be grouped for categorization.
     """
 
     id: CustomerIdPath
     creation_utc: CustomerCreationUTCField
     name: CustomerNameField
     metadata: CustomerMetadataField
-    tags: TagIdSequenceField
+    groups: GroupIdSequenceField
 
 
 class PaginatedCustomersDTO(DefaultBaseModel):
@@ -177,13 +177,13 @@ class CustomerCreationParamsDTO(
       automatically generated. Custom IDs can be any string format and are useful
       for maintaining consistent identifiers across deployments or integrations.
     - `metadata`: Key-value pairs to describe the customer
-    - `tags`: List of tag IDs to associate with the customer
+    - `groups`: List of group IDs to associate with the customer
     """
 
     name: CustomerNameField
     id: CustomerIdPath | None = None
     metadata: CustomerMetadataField | None = None
-    tags: TagIdSequenceField | None = None
+    groups: GroupIdSequenceField | None = None
 
 
 CustomerMetadataUnsetField: TypeAlias = Annotated[
@@ -213,51 +213,51 @@ class CustomerMetadataUpdateParamsDTO(
     unset: CustomerMetadataUnsetField | None = None
 
 
-CustomerTagUpdateAddField: TypeAlias = Annotated[
-    Sequence[TagIdField],
+CustomerGroupUpdateAddField: TypeAlias = Annotated[
+    Sequence[GroupIdField],
     Field(
-        description="Optional collection of tag ids to add to the customer's tags",
+        description="Optional collection of group ids to add to the customer's groups",
     ),
 ]
 
-CustomerTagUpdateRemoveField: TypeAlias = Annotated[
-    Sequence[TagIdField],
+CustomerGroupUpdateRemoveField: TypeAlias = Annotated[
+    Sequence[GroupIdField],
     Field(
-        description="Optional collection of tag ids to remove from the customer's tags",
+        description="Optional collection of group ids to remove from the customer's groups",
     ),
 ]
 
-tags_update_params_example: ExampleJson = {
+groups_update_params_example: ExampleJson = {
     "add": [
         "t9a8g703f4",
-        "tag_456abc",
+        "group_456abc",
     ],
     "remove": [
-        "tag_789def",
-        "tag_012ghi",
+        "group_789def",
+        "group_012ghi",
     ],
 }
 
 
-class CustomerTagUpdateParamsDTO(
+class CustomerGroupUpdateParamsDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": tags_update_params_example},
+    json_schema_extra={"example": groups_update_params_example},
 ):
     """
-    Parameters for updating a customer's tags.
+    Parameters for updating a customer's groups.
 
-    Allows adding new tags to and removing existing tags from a customer.
+    Allows adding new groups to and removing existing groups from a customer.
     Both operations can be performed in a single request.
     """
 
-    add: CustomerTagUpdateAddField | None = None
-    remove: CustomerTagUpdateRemoveField | None = None
+    add: CustomerGroupUpdateAddField | None = None
+    remove: CustomerGroupUpdateRemoveField | None = None
 
 
 customer_update_params_example: ExampleJson = {
     "name": "Scooby",
     "metadata": customer_metadata_update_params_example,
-    "tags": tags_update_params_example,
+    "groups": groups_update_params_example,
 }
 
 
@@ -269,7 +269,7 @@ class CustomerUpdateParamsDTO(
 
     name: CustomerNameField | None = None
     metadata: CustomerMetadataUpdateParamsDTO | None = None
-    tags: CustomerTagUpdateParamsDTO | None = None
+    groups: CustomerGroupUpdateParamsDTO | None = None
 
 
 def create_router(
@@ -302,7 +302,7 @@ def create_router(
         Creates a new customer in the system.
 
         A customer may be created with as little as a `name`.
-        `metadata` key-value pairs and additional `tags` may be attached to a customer.
+        `metadata` key-value pairs and additional `groups` may be attached to a customer.
         """
         await authorization_policy.authorize(
             request=request,
@@ -312,7 +312,7 @@ def create_router(
         customer = await app.customers.create(
             name=params.name,
             extra=params.metadata if params.metadata else {},
-            tags=params.tags,
+            groups=params.groups,
             id=params.id,
         )
 
@@ -321,7 +321,7 @@ def create_router(
             creation_utc=customer.creation_utc,
             name=customer.name,
             metadata=customer.extra,
-            tags=customer.tags,
+            groups=customer.groups,
         )
 
     @router.get(
@@ -346,7 +346,7 @@ def create_router(
         """
         Retrieves details of a specific customer by ID.
 
-        Returns a complete customer object including their metadata and tags.
+        Returns a complete customer object including their metadata and groups.
         The customer must exist in the system.
         """
         await authorization_policy.authorize(
@@ -361,7 +361,7 @@ def create_router(
             creation_utc=customer.creation_utc,
             name=customer.name,
             metadata=customer.extra,
-            tags=customer.tags,
+            groups=customer.groups,
         )
 
     @router.get(
@@ -428,7 +428,7 @@ def create_router(
                     creation_utc=customer.creation_utc,
                     name=customer.name,
                     metadata=customer.extra,
-                    tags=customer.tags,
+                    groups=customer.groups,
                 )
                 for customer in customers_result.items
             ]
@@ -440,7 +440,7 @@ def create_router(
                     creation_utc=customer.creation_utc,
                     name=customer.name,
                     metadata=customer.extra,
-                    tags=customer.tags,
+                    groups=customer.groups,
                 )
                 for customer in customers_result.items
             ],
@@ -479,7 +479,7 @@ def create_router(
 
         Only provided attributes will be updated; others remain unchanged.
         The customer's ID and creation timestamp cannot be modified.
-        Extra metadata and tags can be added or removed independently.
+        Extra metadata and groups can be added or removed independently.
         """
         await authorization_policy.authorize(
             request=request,
@@ -495,11 +495,11 @@ def create_router(
             )
             if params.metadata
             else None,
-            tags=CustomerTagUpdateParams(
-                add=params.tags.add,
-                remove=params.tags.remove,
+            groups=CustomerGroupUpdateParams(
+                add=params.groups.add,
+                remove=params.groups.remove,
             )
-            if params.tags
+            if params.groups
             else None,
         )
 
@@ -508,7 +508,7 @@ def create_router(
             creation_utc=customer.creation_utc,
             name=customer.name,
             metadata=customer.extra,
-            tags=customer.tags,
+            groups=customer.groups,
         )
 
     @router.delete(

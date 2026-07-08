@@ -13,109 +13,107 @@
 # limitations under the License.
 
 from lagom import Container
-from parlant.core.guidelines import GuidelineContent
+from parlant.core.rules import RuleContent
 from parlant.core.services.indexing.customer_dependent_action_detector import (
     CustomerDependentActionDetector,
 )
 
 
-async def check_guideline(
-    container: Container, guideline: GuidelineContent, is_customer_dependent: bool
-) -> None:
+async def check_rule(container: Container, rule: RuleContent, is_customer_dependent: bool) -> None:
     customer_dependent_action_detector = container[CustomerDependentActionDetector]
     result = await customer_dependent_action_detector.detect_if_customer_dependent(
-        guideline=guideline,
+        rule=rule,
     )
     assert (
         is_customer_dependent == result.is_customer_dependent
-    ), f"""Guideline incorrectly marked as {"not " if is_customer_dependent else ""}customer dependent:
-Condition: {guideline.condition}
-Action: {guideline.action}"""
+    ), f"""Rule incorrectly marked as {"not " if is_customer_dependent else ""}customer dependent:
+Condition: {rule.condition}
+Action: {rule.action}"""
 
 
 async def test_that_actions_which_are_not_customer_dependent_are_classified_correctly(
     container: Container,
 ) -> None:
-    guidelines = [
-        GuidelineContent(
+    rules = [
+        RuleContent(
             condition="The customer asks about vegetarian options",
             action="list all vegetarian pizza options",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="A user reports an error during account setup.",
             action="Apologize for the inconvenience and confirm the report receipt.",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="The user is anxious",
             action="Finish your response with our slogan - 'are you ready for some fun???'",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="the customer asks about job openings.",
             action="emphasize that we have plenty of positions relevant to the customer, and over 10,000 openings overall",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="The customer asks you to ease the mood",
             action="inform the customer that this is a serious conversation",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="The customer complains about slow service",
             action="apologize sincerely and explain that we are working to improve response times",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="The customer asks about store hours",
             action="inform them that we are open Monday through Friday 9 AM to 6 PM",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="The customer seems confused about our return policy",
             action="clearly explain our 30-day return policy and provide examples of eligible items",
         ),
     ]
 
-    for g in guidelines:
-        await check_guideline(container=container, guideline=g, is_customer_dependent=False)
+    for g in rules:
+        await check_rule(container=container, rule=g, is_customer_dependent=False)
 
 
 async def test_that_actions_which_are_customer_dependent_are_classified_correctly(
     container: Container,
 ) -> None:
-    guidelines = [
-        GuidelineContent(
+    rules = [
+        RuleContent(
             condition="The customer orders alcohol",
             action="Get the customer's age",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="the customer wants to book an appointment",
             action="Ask for the name of the person they want to meet and the time they want to meet them",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="The customer speaks a language other than English",
             action="Ask the customer for their location",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="The customer is navigating through a troubleshooting guide for a product malfunction.",
             action="Provide step-by-step assistance without rushing, ensuring understanding at each step.",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="The customer asks you to ease the mood",
             action="Play tic-tac-toe with the customer, ensuring to play the optimal strategy, until you either win or the game draws",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="The customer asks you to ease the mood",
             action="inform the customer that this is a serious conversation and ask them to tell a joke",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="The customer wants to cancel their subscription",
             action="ask for their account email and the reason for cancellation",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="The customer reports a billing issue",
             action="request their account number and ask them to describe the specific issue they're experiencing",
         ),
-        GuidelineContent(
+        RuleContent(
             condition="The customer wants to schedule a callback",
             action="ask for their preferred time and phone number, then confirm the appointment details",
         ),
     ]
 
-    for g in guidelines:
-        await check_guideline(container=container, guideline=g, is_customer_dependent=True)
+    for g in rules:
+        await check_rule(container=container, rule=g, is_customer_dependent=True)

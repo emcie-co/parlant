@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Sequence
 
 from parlant.core.engines.alpha.engine_context import EngineContext
-from parlant.core.engines.alpha.guideline_matching.guideline_match import GuidelineMatch
+from parlant.core.engines.rule_match import RuleMatch
 from parlant.core.engines.alpha.planners import (
     Plan,
     Planner,
@@ -34,8 +34,8 @@ from tests.sdk.utils import Context, SDKTest
 
 @dataclass
 class LifecycleRecord:
-    guidelines_matched_count: int = 0
-    guidelines_resolved_count: int = 0
+    rules_matched_count: int = 0
+    rules_resolved_count: int = 0
     tools_inferred_count: int = 0
     tools_called_count: int = 0
     inferred_tool_calls: list[list[ToolCall]] = field(default_factory=list)
@@ -51,17 +51,17 @@ class TrackingPlan(Plan):
     def reasoning(self) -> str:
         return self._inner.reasoning
 
-    async def on_guidelines_matched(
+    async def on_rules_matched(
         self,
         context: EngineContext,
-        matched_guidelines: list[GuidelineMatch],
+        matched_rules: list[RuleMatch],
     ) -> None:
-        self.record.guidelines_matched_count += 1
-        await self._inner.on_guidelines_matched(context, matched_guidelines)
+        self.record.rules_matched_count += 1
+        await self._inner.on_rules_matched(context, matched_rules)
 
-    async def on_guidelines_resolved(self, context: EngineContext) -> None:
-        self.record.guidelines_resolved_count += 1
-        await self._inner.on_guidelines_resolved(context)
+    async def on_rules_resolved(self, context: EngineContext) -> None:
+        self.record.rules_resolved_count += 1
+        await self._inner.on_rules_resolved(context)
 
     async def on_tools_inferred(
         self,
@@ -109,7 +109,7 @@ class Test_that_null_planner_passes_tools_through_when_present(SDKTest):
 
         self.agent = await server.create_agent(
             name="Planner Test Agent",
-            description="Agent for testing planner behavior",
+            prompt="Agent for testing planner behavior",
             planner=self.tracking_planner,
         )
 
@@ -133,7 +133,7 @@ class Test_that_null_planner_passes_tools_through_when_present(SDKTest):
         assert self.tracking_planner.record.create_plan_count == 1
 
         plan = self.tracking_planner.record.plans[0]
-        assert plan.record.guidelines_resolved_count >= 1
+        assert plan.record.rules_resolved_count >= 1
         assert plan.record.tools_inferred_count >= 1
         assert len(plan.record.inferred_tool_calls) >= 1
         assert len(plan.record.inferred_tool_calls[0]) == 1
@@ -145,16 +145,16 @@ class Test_that_null_planner_works_when_no_tools_present(SDKTest):
 
         self.agent = await server.create_agent(
             name="Planner Test Agent",
-            description="Agent for testing planner behavior",
+            prompt="Agent for testing planner behavior",
             planner=self.tracking_planner,
         )
 
-        await self.agent.create_guideline(
+        await self.agent.create_rule(
             condition="always",
             action="greet the user politely",
         )
 
-        await self.agent.create_guideline(
+        await self.agent.create_rule(
             condition="always",
             action="mention the current weather is sunny",
         )
@@ -168,7 +168,7 @@ class Test_that_null_planner_works_when_no_tools_present(SDKTest):
         assert self.tracking_planner.record.create_plan_count == 1
 
         plan = self.tracking_planner.record.plans[0]
-        assert plan.record.guidelines_resolved_count >= 1
+        assert plan.record.rules_resolved_count >= 1
         assert plan.record.tools_called_count >= 1
         assert plan.needs_additional_iteration is False
 
@@ -181,7 +181,7 @@ class Test_that_null_planner_passes_multiple_tools_through_without_sequencing(SD
 
         self.agent = await server.create_agent(
             name="Planner Test Agent",
-            description="Agent for testing planner behavior",
+            prompt="Agent for testing planner behavior",
             planner=self.tracking_planner,
         )
 

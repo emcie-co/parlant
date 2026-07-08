@@ -21,7 +21,7 @@ breakdown. The view's status is the worst across all observed schemas.
 
 from collections import Counter
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Sequence
 
 from parlant.core.health.reporter import (
@@ -31,6 +31,24 @@ from parlant.core.health.reporter import (
     OverallHealth,
     ViewSnapshot,
 )
+
+
+@dataclass(frozen=True)
+class PercentileResult:
+    """Result of a per-schema percentile query.
+
+    ``is_stale`` is ``True`` when the result is served from a frozen
+    snapshot taken the last time a query found live data — the live
+    buffer is currently empty for the requested schema. Callers
+    making time-sensitive decisions (e.g. request hedging) should
+    inspect ``is_stale`` and ``sample_count`` before trusting the
+    values.
+    """
+
+    values: dict[float, float]
+    sample_count: int
+    captured_at: datetime
+    is_stale: bool
 
 
 @dataclass(frozen=True)
@@ -113,6 +131,69 @@ class NLPHealthView:
         self._unhealthy_p95_ms = unhealthy_p95_ms
         self._recent_errors_top_k = recent_errors_top_k
         self._schema_thresholds: Mapping[str, SchemaThresholds] = dict(schema_thresholds or {})
+        self._frozen_per_schema: dict[str, PercentileResult] = {}
+
+    def percentiles_for_schema(
+        self,
+        schema: str,
+        ps: Sequence[float] = (0.5, 0.95, 0.99),
+        value_attribute: str = "latency_ms",
+    ) -> PercentileResult:
+        """Return p50/p95/p99 (or custom ``ps``) for ``schema``.
+
+        Reads the current ``NLP_REQUEST_KIND`` buffer (after age-pruning).
+        If matching entries exist, computes live percentiles and freezes
+        them as the schema's last-known snapshot. If no matching entries
+        exist, returns the frozen snapshot (with ``is_stale=True``) if
+        one was ever captured for this schema, otherwise a zero-filled
+        ``is_stale=True`` result.
+        """
+        if self._health_reporter is None:
+            return PercentileResult(
+                values={p: 0.0 for p in ps},
+                sample_count=0,
+                captured_at=datetime.now(timezone.utc),
+                is_stale=True,
+            )
+
+        reports = self._health_reporter.read_reports(NLP_REQUEST_KIND)
+
+        values: list[float] = []
+        for r in reports:
+            if r.attributes.get(self.ATTR_SCHEMA) != schema:
+                continue
+            raw = r.attributes.get(value_attribute)
+            if raw is None:
+                continue
+            values.append(float(raw))
+
+        now = datetime.now(timezone.utc)
+
+        if values:
+            live = PercentileResult(
+                values={p: _percentile(values, p) for p in ps},
+                sample_count=len(values),
+                captured_at=now,
+                is_stale=False,
+            )
+            self._frozen_per_schema[schema] = live
+            return live
+
+        frozen = self._frozen_per_schema.get(schema)
+        if frozen is not None:
+            return PercentileResult(
+                values=frozen.values,
+                sample_count=frozen.sample_count,
+                captured_at=frozen.captured_at,
+                is_stale=True,
+            )
+
+        return PercentileResult(
+            values={p: 0.0 for p in ps},
+            sample_count=0,
+            captured_at=now,
+            is_stale=True,
+        )
 
     def render(
         self,

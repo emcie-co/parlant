@@ -19,7 +19,7 @@ from pytest import fixture
 
 from parlant.core.agents import AgentStore
 from parlant.core.context_variables import ContextVariableStore
-from parlant.core.tags import Tag, TagId, TagStore
+from parlant.core.groups import GroupIds, GroupId, GroupStore
 from parlant.core.tools import LocalToolService, ToolId, ToolOverlap
 
 
@@ -62,7 +62,8 @@ async def test_that_a_context_variable_can_be_created(
     assert context_variable["name"] == "test_variable"
     assert context_variable["description"] == "test of context variable"
     assert context_variable["freshness_rules"] == freshness_rules
-    assert context_variable["tags"] == []
+    assert context_variable["groups"] == []
+    assert "modified_utc" in context_variable
 
 
 async def test_that_a_context_variable_can_be_created_with_tags(
@@ -70,9 +71,9 @@ async def test_that_a_context_variable_can_be_created_with_tags(
     container: Container,
     tool_id: ToolId,
 ) -> None:
-    tag_store = container[TagStore]
-    tag1 = await tag_store.create_tag("tag1")
-    tag2 = await tag_store.create_tag("tag2")
+    group_store = container[GroupStore]
+    group1 = await group_store.create_group("group1")
+    group2 = await group_store.create_group("group2")
 
     response = await async_client.post(
         "/context-variables",
@@ -83,7 +84,7 @@ async def test_that_a_context_variable_can_be_created_with_tags(
                 "service_name": tool_id.service_name,
                 "tool_name": tool_id.tool_name,
             },
-            "tags": [tag1.id, tag1.id, tag2.id],
+            "groups": [group1.id, group1.id, group2.id],
         },
     )
     assert response.status_code == status.HTTP_201_CREATED
@@ -94,8 +95,8 @@ async def test_that_a_context_variable_can_be_created_with_tags(
         .json()
     )
 
-    assert len(context_variable_dto["context_variable"]["tags"]) == 2
-    assert set(context_variable_dto["context_variable"]["tags"]) == {tag1.id, tag2.id}
+    assert len(context_variable_dto["context_variable"]["groups"]) == 2
+    assert set(context_variable_dto["context_variable"]["groups"]) == {group1.id, group2.id}
 
 
 async def test_that_a_context_variable_can_be_read(
@@ -125,7 +126,7 @@ async def test_that_a_context_variable_can_be_read(
     assert context_variable_dto["name"] == name
     assert context_variable_dto["description"] == description
     assert context_variable_dto["freshness_rules"] == freshness_rules
-    assert context_variable_dto["tags"] == []
+    assert context_variable_dto["groups"] == []
 
 
 async def test_that_context_variables_can_be_listed(
@@ -182,7 +183,7 @@ async def test_that_context_variables_of_specific_tag_can_be_listed(
         description="description 1",
         tool_id=tool_id,
         freshness_rules="0 18 14 5 4",
-        tags=[Tag.for_agent_id(agent.id).id],
+        groups=[GroupIds.for_agent_id(agent.id)],
     )
 
     _ = await context_variable_store.create_variable(
@@ -192,7 +193,7 @@ async def test_that_context_variables_of_specific_tag_can_be_listed(
     )
 
     returned_variables = (
-        (await async_client.get(f"/context-variables?tag_id={Tag.for_agent_id(agent.id).id}"))
+        (await async_client.get(f"/context-variables?group_id={GroupIds.for_agent_id(agent.id)}"))
         .raise_for_status()
         .json()
     )
@@ -211,10 +212,10 @@ async def test_that_a_context_variable_can_be_updated_with_new_values(
     tool_id: ToolId,
 ) -> None:
     context_variable_store = container[ContextVariableStore]
-    tag_store = container[TagStore]
+    group_store = container[GroupStore]
 
-    tag1 = await tag_store.create_tag("tag1")
-    tag2 = await tag_store.create_tag("tag2")
+    group1 = await group_store.create_group("group1")
+    group2 = await group_store.create_group("group2")
 
     name = "test_variable"
     description = "test of context variable"
@@ -228,7 +229,7 @@ async def test_that_a_context_variable_can_be_updated_with_new_values(
     updated_name = "updated_test_variable"
     updated_description = "updated test of variable"
     freshness_rules = "0 18 14 5 4"
-    tags_to_add = [tag1.id, tag2.id]
+    tags_to_add = [group1.id, group2.id]
 
     update_response = await async_client.patch(
         f"/context-variables/{variable.id}",
@@ -236,7 +237,7 @@ async def test_that_a_context_variable_can_be_updated_with_new_values(
             "name": updated_name,
             "description": updated_description,
             "freshness_rules": freshness_rules,
-            "tags": {
+            "groups": {
                 "add": tags_to_add,
             },
         },
@@ -248,7 +249,8 @@ async def test_that_a_context_variable_can_be_updated_with_new_values(
     assert data["name"] == updated_name
     assert data["description"] == updated_description
     assert data["freshness_rules"] == freshness_rules
-    assert set(data["tags"]) == set(tags_to_add)
+    assert set(data["groups"]) == set(tags_to_add)
+    assert data["modified_utc"] != variable.creation_utc.isoformat()
 
 
 async def test_that_tags_can_be_removed_from_a_context_variable(
@@ -269,26 +271,26 @@ async def test_that_tags_can_be_removed_from_a_context_variable(
 
     await context_variable_store.add_variable_tag(
         variable_id=variable.id,
-        tag_id=TagId("tag1"),
+        group_id=GroupId("group1"),
     )
 
     await context_variable_store.add_variable_tag(
         variable_id=variable.id,
-        tag_id=TagId("tag2"),
+        group_id=GroupId("group2"),
     )
 
     update_response = await async_client.patch(
         f"/context-variables/{variable.id}",
         json={
-            "tags": {
-                "remove": ["tag1"],
+            "groups": {
+                "remove": ["group1"],
             },
         },
     )
 
     assert update_response.status_code == status.HTTP_200_OK
     data = update_response.json()
-    assert set(data["tags"]) == {"tag2"}
+    assert set(data["groups"]) == {"group2"}
 
 
 async def test_that_a_context_variable_can_be_deleted(
@@ -391,7 +393,7 @@ async def test_that_context_variable_values_can_be_listed(
     assert retrieved_variable["id"] == variable.id
     assert retrieved_variable["name"] == name
     assert retrieved_variable["description"] == description
-    assert set(retrieved_variable["tags"]) == set()
+    assert set(retrieved_variable["groups"]) == set()
 
     retrieved_values = response.json()["key_value_pairs"]
 
@@ -437,7 +439,7 @@ async def test_that_context_variable_value_can_be_deleted(
     assert key not in read_response.json()["key_value_pairs"]
 
 
-async def test_that_adding_nonexistent_agent_tag_to_context_variable_returns_404(
+async def test_that_adding_nonexistent_agent_group_to_context_variable_returns_404(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
@@ -451,13 +453,13 @@ async def test_that_adding_nonexistent_agent_tag_to_context_variable_returns_404
 
     response = await async_client.patch(
         f"/context-variables/{variable.id}",
-        json={"tags": {"add": ["agent-id:nonexistent_agent"]}},
+        json={"groups": {"add": ["agent-id:nonexistent_agent"]}},
     )
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-async def test_that_adding_nonexistent_tag_to_guideline_returns_404(
+async def test_that_adding_nonexistent_group_to_rule_returns_404(
     async_client: httpx.AsyncClient,
     container: Container,
 ) -> None:
@@ -471,7 +473,7 @@ async def test_that_adding_nonexistent_tag_to_guideline_returns_404(
 
     response = await async_client.patch(
         f"/context-variables/{variable.id}",
-        json={"tags": {"add": ["nonexistent_tag"]}},
+        json={"groups": {"add": ["nonexistent_group"]}},
     )
 
     assert response.status_code == status.HTTP_404_NOT_FOUND

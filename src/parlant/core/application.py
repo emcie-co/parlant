@@ -21,9 +21,9 @@ from parlant.core.app_modules.journeys import JourneyModule
 from parlant.core.app_modules.relationships import RelationshipModule
 from parlant.core.app_modules.services import ServiceModule
 from parlant.core.app_modules.sessions import SessionModule
-from parlant.core.app_modules.tags import TagModule
+from parlant.core.app_modules.groups import GroupModule
 from parlant.core.app_modules.customers import CustomerModule
-from parlant.core.app_modules.guidelines import GuidelineModule
+from parlant.core.app_modules.rules import RuleModule
 from parlant.core.app_modules.glossary import GlossaryModule
 
 
@@ -33,9 +33,9 @@ class Application:
         agent_module: AgentModule,
         session_module: SessionModule,
         service_module: ServiceModule,
-        tag_module: TagModule,
+        group_module: GroupModule,
         customer_module: CustomerModule,
-        guideline_module: GuidelineModule,
+        rule_module: RuleModule,
         context_variable_module: ContextVariableModule,
         relationship_module: RelationshipModule,
         journey_module: JourneyModule,
@@ -47,11 +47,11 @@ class Application:
         self.agents = agent_module
         self.sessions = session_module
         self.services = service_module
-        self.tags = tag_module
+        self.groups = group_module
         self.capabilities = capability_module
         self.variables = context_variable_module
         self.customers = customer_module
-        self.guidelines = guideline_module
+        self.rules = rule_module
         self.relationships = relationship_module
         self.journeys = journey_module
         self.glossary = glossary_module

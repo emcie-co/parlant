@@ -9,7 +9,7 @@ import {agentAtom, customerAtom, dialogAtom, sessionAtom} from '@/store';
 import {getAvatarColor} from '../avatar/avatar';
 // import MessageRelativeTime from './message-relative-time';
 import {copy} from '@/lib/utils';
-import {Eye, EyeOff, Flag, Search} from 'lucide-react';
+import {Eye, EyeOff, Flag, Loader2, Search} from 'lucide-react';
 import FlagMessage from '../message-details/flag-message';
 import {EventInterface} from '@/utils/interfaces';
 import DraftBubble from './draft-bubble';
@@ -20,6 +20,7 @@ interface Props {
 	isSameSourceAsPrevious?: boolean;
 	isRegenerateHidden?: boolean;
 	isFirstMessageInDate?: boolean;
+	isInitializing?: boolean;
 	flagged?: string;
 	flaggedChanged?: (flagged: string) => void;
 	showLogsForMessage?: EventInterface | null;
@@ -28,9 +29,11 @@ interface Props {
 	showLogs: (event: EventInterface) => void;
 	setIsEditing?: React.Dispatch<React.SetStateAction<boolean>>;
 	sameTraceMessages?: EventInterface[];
+	shouldAutoScroll?: () => boolean;
+	scrollToBottom?: (behavior?: ScrollBehavior) => void;
 }
 
-const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, showLogsForMessage, setIsEditing, flagged, flaggedChanged, sameTraceMessages: sameTraceMessages}: Props) => {
+const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, isInitializing, showLogsForMessage, setIsEditing, flagged, flaggedChanged, sameTraceMessages: sameTraceMessages, shouldAutoScroll, scrollToBottom}: Props) => {
 	const ref = useRef<HTMLDivElement>(null);
 	const [agent] = useAtom(agentAtom);
 	const [customer] = useAtom(customerAtom);
@@ -162,22 +165,26 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 		const scrollContainer = ref.current?.closest('.messages');
 		if (!scrollContainer) return;
 
-		const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
-		const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
+		const shouldScroll = shouldAutoScroll?.() ?? scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight <= 4;
 
-		if (isRevealing && ref.current && isNearBottom) {
+		if (isRevealing && shouldScroll) {
 			// During streaming: scroll to keep message visible
-			ref.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
-		} else if (wasRevealingRef.current && !isRevealing && isNearBottom) {
+			if (scrollToBottom) {
+				scrollToBottom('instant');
+			} else {
+				ref.current?.scrollIntoView({ behavior: 'instant', block: 'end' });
+			}
+		} else if (wasRevealingRef.current && !isRevealing && shouldScroll) {
 			// Streaming just completed: scroll to very bottom of container
-			scrollContainer.scrollTo({
-				top: scrollContainer.scrollHeight,
-				behavior: 'smooth'
-			});
+			if (scrollToBottom) {
+				scrollToBottom('smooth');
+			} else {
+				scrollContainer.scrollTo({top: scrollContainer.scrollHeight, behavior: 'smooth'});
+			}
 		}
 
 		wasRevealingRef.current = isRevealing;
-	}, [revealedLength, isRevealing]);
+	}, [revealedLength, isRevealing, shouldAutoScroll, scrollToBottom]);
 
 	return (
 		<>
@@ -251,17 +258,11 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 									)}>
 									<div className={twMerge('markdown overflow-hidden relative min-w-[200px] max-w-[608px] [word-break:break-word] font-light text-[16px] pe-[38px]')}>
 										<span ref={markdownRef}>
-											{isRevealing ? (
-											<>
-												{/* During reveal: split into stable text and newly revealed text with fade */}
-												<span className={twJoin(!isOneLiner && 'leading-[26px]')}>{messageText.slice(0, animatedLength)}</span>
-												{revealedLength > animatedLength && (
-													<span key={animatedLength} className={twJoin(!isOneLiner && 'leading-[26px]', 'animate-fade-in-fast')}>{messageText.slice(animatedLength, revealedLength)}</span>
-												)}
-											</>
-										) : (
-											<Markdown className={twJoin(!isOneLiner && 'leading-[26px]')}>{messageText}</Markdown>
-										)}
+											{/* Streamdown renders partial markdown safely as the revealed prefix grows.
+											Only complete unbalanced markers while still revealing a prefix; once the
+											full message is shown, render it verbatim so a lone "*" isn't auto-closed
+											into a spurious trailing asterisk. */}
+											<Markdown parseIncomplete={isRevealing} className={twJoin(!isOneLiner && 'leading-[26px]')}>{isRevealing ? messageText.slice(0, revealedLength) : messageText}</Markdown>
 										{/* Blinking cursor for streaming messages */}
 											{isStreaming && (
 												<span className="inline-block w-[2px] h-[1em] bg-current align-text-bottom ml-[1px] animate-pulse" />
@@ -270,6 +271,12 @@ const MessageBubble = ({event, isFirstMessageInDate, showLogs, isContinual, show
 									</div>
 									<div className={twMerge('flex h-full font-normal text-[11px] text-[#AEB4BB] pe-[20px] font-inter self-end items-end whitespace-nowrap leading-[14px]', isOneLiner ? 'ps-[12px]' : '')}></div>
 								</div>
+								{isInitializing && isCustomer && serverStatus === 'pending' && (
+									<p className='flex items-center gap-[8px] mt-[10px] ps-[4px] font-normal text-[#A9AFB7] text-[14px] font-inter animate-fade-in-delayed'>
+										<Loader2 className='size-[14px] animate-spin' />
+										Initializing session...
+									</p>
+								)}
 							</div>
 							<div className={twMerge('mx-[10px] self-stretch relative invisible items-center flex group-hover/main:visible peer-hover:visible hover:visible')}>
 								<Tooltip value='Copy' side='top'>

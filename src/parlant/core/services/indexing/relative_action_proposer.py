@@ -245,7 +245,7 @@ Expected output (JSON):
             if node.action
         ]
         result = {"actions": result_structure}
-        return json.dumps(result, indent=4)
+        return json.dumps(result, indent=4, ensure_ascii=False)
 
     async def _generate_relative_action_step_proposer(
         self,
@@ -298,7 +298,7 @@ Example #{i}: ###
         formatted_shot += f"""
 - **Expected Result**:
 ```json
-{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2, ensure_ascii=False)}
 ```"""
         return formatted_shot
 

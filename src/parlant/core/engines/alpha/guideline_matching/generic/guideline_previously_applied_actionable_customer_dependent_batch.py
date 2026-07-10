@@ -198,7 +198,7 @@ class GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingBatch(
         if shot.interaction_events:
             formatted_shot += f"""
 - **Interaction Events**:
-{json.dumps([adapt_event(e) for e in shot.interaction_events], indent=2)}
+{json.dumps([adapt_event(e) for e in shot.interaction_events], indent=2, ensure_ascii=False)}
 
 """
         if shot.guidelines:
@@ -214,7 +214,7 @@ class GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchingBatch(
         formatted_shot += f"""
 - **Expected Result**:
 ```json
-{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2, ensure_ascii=False)}
 ```
 """
 
@@ -359,7 +359,7 @@ OUTPUT FORMAT
             for i, g in self._guidelines.items()
         ]
         result = {"checks": result_structure}
-        return json.dumps(result, indent=4)
+        return json.dumps(result, indent=4, ensure_ascii=False)
 
 
 class GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatching(

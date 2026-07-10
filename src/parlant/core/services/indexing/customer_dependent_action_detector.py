@@ -214,7 +214,7 @@ Guideline:
     Action: {shot.guideline.action}
 
 Expected Response:
-{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2, ensure_ascii=False)}
 ###
 """
                 for i, shot in enumerate(shots, start=1)

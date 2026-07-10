@@ -70,6 +70,9 @@ from parlant.core.engines.alpha.guideline_matching.guideline_match import (
     GuidelineMatch,
     AnalyzedGuideline,
 )
+from parlant.core.engines.alpha.guideline_matching.generic.common import (
+    internal_representation,
+)
 from parlant.core.guidelines import Guideline, GuidelineContent, GuidelineId
 from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
 from parlant.core.relationships import (
@@ -3511,3 +3514,37 @@ async def test_that_condition_with_special_characters_causes_no_errors(
         conversation_guideline_names=conversation_guideline_names,
         relevant_guideline_names=conversation_guideline_names,
     )
+
+
+def test_that_guideline_with_non_ascii_condition_and_action_is_not_escaped() -> None:
+    condition = 'Клиент спрашивает про "скидку"\nи доставку'
+    action = "Ответь клиенту на русском языке"
+
+    guideline = Guideline(
+        id=GuidelineId(generate_id()),
+        creation_utc=datetime.now(timezone.utc),
+        content=GuidelineContent(
+            condition=condition,
+            action=action,
+        ),
+        enabled=True,
+        tags=[],
+        metadata={},
+        criticality=Criticality.MEDIUM,
+    )
+
+    representation = internal_representation(guideline)
+
+    assert representation.condition is not None
+    assert representation.action is not None
+
+    # Non-ASCII characters must be passed through as-is, not \uXXXX-escaped
+    assert "Клиент спрашивает про" in representation.condition
+    assert "\\u041a" not in representation.condition
+    assert "Ответь клиенту на русском языке" == representation.action
+    assert "\\u041e" not in representation.action
+
+    # Special characters must still be escaped as valid JSON string content
+    # (guarding against regressing the fix from PR #725)
+    assert '\\"скидку\\"' in representation.condition
+    assert "\\n" in representation.condition

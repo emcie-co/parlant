@@ -550,7 +550,7 @@ class JourneyBacktrackNodeSelection:
         if shot.interaction_events:
             formatted_shot += f"""
 - **Interaction Events**:
-{json.dumps([adapt_event(e) for e in shot.interaction_events], indent=2)}
+{json.dumps([adapt_event(e) for e in shot.interaction_events], indent=2, ensure_ascii=False)}
 
 """
         if shot.journey_nodes:
@@ -579,7 +579,7 @@ class JourneyBacktrackNodeSelection:
         formatted_shot += f"""
 - **Expected Result**:
 ```json
-{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2, ensure_ascii=False)}
 ```
 """
         return formatted_shot

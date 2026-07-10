@@ -565,7 +565,7 @@ Please be tolerant of possible typos by the user with regards to these terms,and
 
 - **Expected Result**:
 ```json
-{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2, ensure_ascii=False)}
 ```"""
 
         return "\n".join(
@@ -845,7 +845,7 @@ However, note that you may choose to have multiple entries in 'tool_calls_for_ca
                         "This argument must be provided by the customer in the interaction itself, and NEVER automatically guessed by you"
                     )
 
-            return json.dumps(result)
+            return json.dumps(result, ensure_ascii=False)
 
         def _get_tool_spec(t_id: ToolId, t: Tool) -> dict[str, Any]:
             return {
@@ -958,7 +958,7 @@ Guidelines:
         if not staged_calls:
             return None
 
-        return json.dumps(staged_calls)
+        return json.dumps(staged_calls, ensure_ascii=False)
 
     async def _run_consequential_tool_inference(
         self,
@@ -1136,7 +1136,7 @@ Optional parameters: {optional_params}
             props={
                 "tool_name": f"{tool_id.service_name}:{tool_id.tool_name}",
                 "tool_description": tool.description,
-                "parameters_json": json.dumps(parameters_info, indent=2),
+                "parameters_json": json.dumps(parameters_info, indent=2, ensure_ascii=False),
                 "required_params": list(tool.required),
                 "optional_params": list(set(tool.parameters) - set(tool.required)),
                 "notes": tool_notes.strip(),

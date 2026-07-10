@@ -134,7 +134,7 @@ class GuidelineActionProposer:
             if examples := descriptor.get("examples"):
                 result["extraction_examples__only_for_reference"] = examples
 
-            return json.dumps(result)
+            return json.dumps(result, ensure_ascii=False)
 
         def _get_tool_spec(t_id: ToolId, t: Tool) -> dict[str, Any]:
             return {

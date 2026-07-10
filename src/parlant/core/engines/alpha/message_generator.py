@@ -323,7 +323,7 @@ class MessageGenerator(MessageEventComposer):
         return f"""
 - **Expected Result**:
 ```json
-{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2)}
+{json.dumps(shot.expected_result.model_dump(mode="json", exclude_unset=True), indent=2, ensure_ascii=False)}
 ```"""
 
     def _build_prompt(
@@ -609,7 +609,8 @@ Produce a valid JSON object in the following format: ###
                     **({"choices": d.choices} if d.choices else {}),
                 }
                 for d in missing_data
-            ]
+            ],
+            ensure_ascii=False,
         )
 
     def _format_invalid_data(self, invalid_data: Sequence[InvalidToolData]) -> str:
@@ -624,7 +625,8 @@ Produce a valid JSON object in the following format: ###
                     **({"choices": d.choices} if d.choices else {}),
                 }
                 for d in invalid_data
-            ]
+            ],
+            ensure_ascii=False,
         )
 
     def _get_output_format(

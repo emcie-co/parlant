@@ -553,6 +553,16 @@ class NLPServices:
         )
 
     @staticmethod
+    def minimax(container: Container) -> NLPService:
+        """Creates a MiniMax NLPService instance using the provided container."""
+        from parlant.adapters.nlp.minimax_service import MiniMaxService
+
+        if error := MiniMaxService.verify_environment():
+            raise NLPServiceConfigurationError(error)
+
+        return MiniMaxService(container[Logger], container[Tracer], container[Meter])
+
+    @staticmethod
     def snowflake(container: Container) -> NLPService:
         """Creates a SnowflakeCortexService instance using the provided container."""
         from parlant.adapters.nlp.snowflake_cortex_service import SnowflakeCortexService

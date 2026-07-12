@@ -535,15 +535,24 @@ class CannedResponseVectorStore(CannedResponseStore):
     def _list_canned_response_contents(self, canned_response: CannedResponse) -> list[str]:
         return [canned_response.value, *canned_response.signals]
 
+    def _build_vector_document_id(
+        self,
+        canned_response: CannedResponse,
+        index: int,
+        content: str,
+    ) -> ObjectId:
+        checksum = md5_checksum(f"{canned_response.id}:{index}:{content}")
+        return ObjectId(self._id_generator.generate(checksum))
+
     async def _insert_canned_response(
         self,
         canned_response: CannedResponse,
     ) -> CannedResponseDocument:
         insertion_tasks = []
 
-        for content in self._list_canned_response_contents(canned_response):
+        for index, content in enumerate(self._list_canned_response_contents(canned_response)):
             vec_doc = CannedResponseVectorDocument(
-                id=ObjectId(canned_response.id),
+                id=self._build_vector_document_id(canned_response, index, content),
                 canned_response_id=ObjectId(canned_response.id),
                 version=self.VERSION.to_string(),
                 content=content,

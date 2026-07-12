@@ -9,11 +9,12 @@ from parlant.core.engines.types import Context
 from parlant.core.loggers import StdoutLogger
 from parlant.core.meter import Meter
 from parlant.core.sessions import Event, EventKind, SessionId
-from parlant.core.tracer import LocalTracer
 from parlant.core.cost_control import AdvisoryCostControlPolicy
 from parlant.core.usage_reporter import UsageReporter
 
 from tests.core.stable.engines.compass.matching.utils import (
+    RecordedEvent,
+    RecordingTracer,
     create_agent,
     create_customer,
     create_session,
@@ -65,8 +66,18 @@ class _FakeHooks:
         return True
 
 
-async def test_process_cancellation_during_preparation_emits_cancelled_and_ready() -> None:
-    tracer = LocalTracer()
+@pytest.mark.parametrize(
+    ("cancel_message", "expected_cause"),
+    [
+        ("Forced cancellation by BackgroundTaskService [reason: cancelled_by_api]", "stop"),
+        ("Restarting task 'process-session(session-1)'", "send_as_interrupt"),
+    ],
+)
+async def test_process_cancellation_during_preparation_emits_turn_interrupted(
+    cancel_message: str,
+    expected_cause: str,
+) -> None:
+    tracer = RecordingTracer()
     entity_queries = _FakeEntityQueries()
     matcher = _CancellableMatcher()
     event_emitter = EventBuffer(entity_queries.agent)
@@ -93,7 +104,7 @@ async def test_process_cancellation_during_preparation_emits_cancelled_and_ready
     )
 
     await asyncio.wait_for(matcher.started.wait(), timeout=1)
-    task.cancel()
+    task.cancel(cancel_message)
 
     with pytest.raises(asyncio.CancelledError):
         await task
@@ -105,4 +116,15 @@ async def test_process_cancellation_during_preparation_emits_cancelled_and_ready
         "processing",
         "cancelled",
         "ready",
+    ]
+    assert tracer.events == [
+        RecordedEvent(
+            name="turn.interrupted",
+            attributes={
+                "cause": expected_cause,
+                "session_id": entity_queries.session.id,
+                "agent_id": entity_queries.agent.id,
+            },
+            span_id="engine.process",
+        )
     ]

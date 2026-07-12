@@ -82,7 +82,7 @@ class RecordingTracer(LocalTracer):
         super().__init__()
         self.started_spans: list[RecordedSpan] = []
         self.events: list[RecordedEvent] = []
-        self.attributes: dict[str, AttributeValue] = {}
+        self.recorded_attributes: dict[str, AttributeValue] = {}
         self._recorded_span_id: contextvars.ContextVar[str] = contextvars.ContextVar(
             "matching_recording_tracer_span_id",
             default="<main>",
@@ -118,10 +118,10 @@ class RecordingTracer(LocalTracer):
 
     def set_attribute(self, name: str, value: AttributeValue) -> None:
         super().set_attribute(name, value)
-        self.attributes[name] = value
+        self.recorded_attributes[name] = value
 
     def get_attribute(self, name: str) -> AttributeValue | None:
-        return self.attributes.get(name)
+        return self.recorded_attributes.get(name)
 
 
 def create_rule(

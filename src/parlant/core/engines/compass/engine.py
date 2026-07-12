@@ -46,6 +46,18 @@ from parlant.core.tracer import Tracer
 from parlant.core.usage_reporter import UsageReporter
 
 
+def _turn_interruption_cause(error: asyncio.CancelledError) -> str:
+    message = " ".join(str(arg) for arg in error.args)
+
+    if "cancelled_by_api" in message:
+        return "stop"
+
+    if "Restarting task" in message:
+        return "send_as_interrupt"
+
+    return "cancelled"
+
+
 class CompassEngine(Engine):
     def __init__(
         self,
@@ -210,8 +222,14 @@ class CompassEngine(Engine):
                             await self._update_usage(engine_context)
 
                     await latched_shield(finalize_turn)
-            except asyncio.CancelledError:
+            except asyncio.CancelledError as exc:
                 session_id = engine_context.session.id if engine_context else context.session_id
+                agent_id = engine_context.agent.id if engine_context else context.agent_id
+                CompassTracer(self._tracer).turn_interrupted(
+                    _turn_interruption_cause(exc),
+                    session_id,
+                    agent_id,
+                )
                 self._logger.warning(f"Processing cancelled on session {session_id}")
                 await event_emitter.emit_status_event(
                     trace_id=self._tracer.trace_id,

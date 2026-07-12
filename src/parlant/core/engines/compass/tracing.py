@@ -113,6 +113,16 @@ class CompassTracer:
     def process_failed(self, error: BaseException) -> None:
         self.event("process.failed", {"error_type": type(error).__name__})
 
+    def turn_interrupted(self, cause: str, session_id: str, agent_id: str) -> None:
+        self.event(
+            "turn.interrupted",
+            {
+                "cause": cause,
+                "session_id": session_id,
+                "agent_id": agent_id,
+            },
+        )
+
     def compaction_checked(
         self,
         needed: bool,

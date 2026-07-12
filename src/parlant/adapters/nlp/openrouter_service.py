@@ -229,6 +229,8 @@ class OpenRouterSchematicGenerator(BaseSchematicGenerator[T]):
         if response.usage:
             self._logger.trace(response.usage.model_dump_json(indent=2))
 
+        if not response.choices or response.choices[0].message is None:
+            raise ValueError("LLM returned empty or filtered response")
         raw_content = response.choices[0].message.content or "{}"
 
         # Check if we got empty response

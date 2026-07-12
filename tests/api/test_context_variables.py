@@ -475,3 +475,65 @@ async def test_that_adding_nonexistent_tag_to_guideline_returns_404(
     )
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+async def test_that_invalid_freshness_rules_raise_error_when_creating_context_variable(
+    async_client: httpx.AsyncClient,
+    tool_id: ToolId,
+) -> None:
+    invalid_freshness_rules = "invalid cron expression"
+
+    response = await async_client.post(
+        "/context-variables",
+        json={
+            "name": "test_variable_invalid_cron",
+            "description": "Test variable with invalid cron expression",
+            "tool_id": {
+                "service_name": tool_id.service_name,
+                "tool_name": tool_id.tool_name,
+            },
+            "freshness_rules": invalid_freshness_rules,
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    error_response = response.json()
+    assert "detail" in error_response
+    assert (
+        error_response["detail"]
+        == "the provided freshness_rules. contain an invalid cron expression."
+    )
+
+
+async def test_that_invalid_freshness_rules_raise_error_when_updating_context_variable(
+    container: Container,
+    async_client: httpx.AsyncClient,
+    tool_id: ToolId,
+) -> None:
+    context_variable_store = container[ContextVariableStore]
+
+    context_variable = await context_variable_store.create_variable(
+        name="test_variable",
+        description="test variable",
+        tool_id=tool_id,
+    )
+
+    new_name = "updated_test_variable"
+    new_description = "updated test of variable"
+    freshness_rules = "Invalid freshness"
+
+    response = await async_client.patch(
+        f"/context-variables/{context_variable.id}",
+        json={
+            "name": new_name,
+            "description": new_description,
+            "freshness_rules": freshness_rules,
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    error_response = response.json()
+    assert "detail" in error_response
+    assert (
+        error_response["detail"]
+        == "the provided freshness_rules. contain an invalid cron expression."
+    )

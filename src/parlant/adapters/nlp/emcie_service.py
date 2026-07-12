@@ -31,8 +31,6 @@ from parlant.adapters.nlp.common import normalize_json_output, record_llm_metric
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
-from parlant.core.services.indexing.common import ProgressReport
-from parlant.core.services.indexing.indexer import IndexRequest, Indexer
 from parlant.core.nlp.policies import policy, retry
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.nlp.service import (
@@ -58,6 +56,8 @@ from parlant.core.nlp.moderation import (
 from parlant.core.tracer import Tracer
 from parlant.core.version import VERSION
 from parlant.core.health import HealthReporter
+from parlant.core.services.indexing.common import ProgressReport
+from parlant.core.services.indexing.indexer import IndexRequest, Indexer
 
 
 RATE_LIMIT_ERROR_MESSAGE = (
@@ -131,14 +131,16 @@ def _get_error_detail(response: httpx.Response) -> tuple[str, str]:
 class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
     supported_emcie_params = ["temperature"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         model_role: ModelRole,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name, health_reporter=health_reporter)
 
         self._model_role = model_role
         self._tokenizer = EmcieEstimatingTokenizer()
@@ -208,24 +210,53 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
                     },
                 )
 
-                if response.is_error:
-                    error_message, request_id = _get_error_detail(response)
+                def _extract_error_text() -> str:
+                    try:
+                        payload = response.json()
+                    except json.JSONDecodeError:
+                        if response.text:
+                            return response.text
+                        return "<empty response body>"
+                    except Exception as exc:  # noqa: BLE001
+                        return f"<unable to parse error response: {exc}>"
+
+                    if not isinstance(payload, dict):
+                        return str(payload)
+
+                    detail = payload.get("detail")
+                    if not isinstance(detail, dict):
+                        return str(payload)
+
+                    error = detail.get("error")
+                    message = None
+                    if isinstance(error, dict):
+                        message = error.get("message")
+
+                    request_id = detail.get("request_id")
+
+                    pieces = []
+                    if message:
+                        pieces.append(message)
+                    if request_id:
+                        pieces.append(f"(RID={request_id})")
+
+                    return " ".join(pieces) if pieces else str(payload)
+
+                error_text = _extract_error_text()
 
                 if response.status_code == 429:
-                    raise RateLimitError(
-                        f"Emcie API rate limit exceeded: {error_message} (RID={request_id})"
-                    )
+                    raise RateLimitError(f"Emcie API rate limit exceeded: {error_text}")
                 elif response.status_code == 402:
                     raise InsufficientCreditsError(
-                        f"Insufficient API credits for Emcie API: {error_message} (RID={request_id})"
+                        f"Insufficient API credits for Emcie API: {error_text}"
                     )
                 elif response.status_code == 403:
                     raise UnauthorizedError(
-                        f"Unauthorized access to Emcie API: {error_message} (RID={request_id})"
+                        f"Unauthorized access to Emcie API: {error_text}"
                     )
                 elif response.status_code >= 500:
                     raise EmcieAPIError(
-                        f"Emcie API error: {response.status_code} {error_message} (RID={request_id})"
+                        f"Emcie API error: {response.status_code} {error_text}"
                     )
 
                 response.raise_for_status()
@@ -291,17 +322,20 @@ class EmcieSchematicGenerator(BaseSchematicGenerator[T]):
 
 
 class Jackal(EmcieSchematicGenerator[T]):
-    def __init__(self,
+    def __init__(
+        self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
         model_role: ModelRole,
     ) -> None:
         super().__init__(
             model_name="jackal",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
             model_role=model_role,
         )
 
@@ -312,17 +346,20 @@ class Jackal(EmcieSchematicGenerator[T]):
 
 
 class Bison(EmcieSchematicGenerator[T]):
-    def __init__(self,
+    def __init__(
+        self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
         model_role: ModelRole,
     ) -> None:
         super().__init__(
             model_name="bison",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
             model_role=model_role,
         )
 
@@ -345,14 +382,16 @@ class EmcieStreamingTextGenerator(BaseStreamingTextGenerator):
 
     supported_emcie_params = ["temperature"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         model_role: ModelRole,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
-        super().__init__(logger=logger, tracer=tracer, meter=meter, health_reporter=health_reporter, model_name=model_name)
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=model_name, health_reporter=health_reporter)
         self._model_role = model_role
         self._tokenizer = EmcieEstimatingTokenizer()
 
@@ -500,34 +539,40 @@ class EmcieStreamingTextGenerator(BaseStreamingTextGenerator):
 
 
 class JackalStreaming(EmcieStreamingTextGenerator):
-    def __init__(self,
+    def __init__(
+        self,
         model_role: ModelRole,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
         super().__init__(
             model_name="jackal",
             model_role=model_role,
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
 
 class BisonStreaming(EmcieStreamingTextGenerator):
-    def __init__(self,
+    def __init__(
+        self,
         model_role: ModelRole,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
         super().__init__(
             model_name="bison",
             model_role=model_role,
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
 
@@ -539,11 +584,13 @@ class BisonStreaming(EmcieStreamingTextGenerator):
 class EmcieEmbedder(BaseEmbedder):
     supported_arguments = ["dimensions"]
 
-    def __init__(self,
+    def __init__(
+        self,
         model_name: str,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
     ) -> None:
         super().__init__(logger, tracer, meter, model_name, health_reporter)
         self._tokenizer = EmcieEstimatingTokenizer()
@@ -631,7 +678,8 @@ class BisonEmbedding(EmcieEmbedder):
             model_name="bison-embedding",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -650,7 +698,8 @@ class JackalEmbedding(EmcieEmbedder):
             model_name="jackal-embedding",
             logger=logger,
             tracer=tracer,
-            meter=meter, health_reporter=health_reporter,
+            meter=meter,
+            health_reporter=health_reporter,
         )
 
     @property
@@ -689,10 +738,12 @@ Get an API key for Emcie by signing up at https://www.emcie.co."""
 
         return None
 
-    def __init__(self,
+    def __init__(
+        self,
         logger: Logger,
         tracer: Tracer,
-        meter: Meter, health_reporter: HealthReporter,
+        meter: Meter,
+        health_reporter: HealthReporter,
         model_tier: GenerationModelTier | None = None,
         model_role: ModelRole | None = None,
     ) -> None:

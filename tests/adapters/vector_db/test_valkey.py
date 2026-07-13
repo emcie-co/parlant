@@ -152,8 +152,8 @@ async def valkey_collection(valkey_db: ValkeyVectorDatabase):
     yield collection
     try:
         await valkey_db.delete_collection("test_collection")
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[fixture teardown] Failed to delete test_collection: {e}")
 
 
 @pytest.mark.asyncio
@@ -165,8 +165,10 @@ async def test_that_valkey_db_create_collection_creates_index(
         schema=BaseDocument,
         embedder_type=FakeEmbedder,
     )
-    assert collection is not None
-    await valkey_db.delete_collection("create_test")
+    try:
+        assert collection is not None
+    finally:
+        await valkey_db.delete_collection("create_test")
 
 
 @pytest.mark.asyncio
@@ -178,14 +180,16 @@ async def test_that_valkey_db_get_collection_returns_existing_collection(
         schema=BaseDocument,
         embedder_type=FakeEmbedder,
     )
-    collection = await valkey_db.get_collection(
-        name="get_test",
-        schema=BaseDocument,
-        embedder_type=FakeEmbedder,
-        document_loader=lambda doc: doc,  # type: ignore[arg-type, return-value]
-    )
-    assert collection is not None
-    await valkey_db.delete_collection("get_test")
+    try:
+        collection = await valkey_db.get_collection(
+            name="get_test",
+            schema=BaseDocument,
+            embedder_type=FakeEmbedder,
+            document_loader=lambda doc: doc,  # type: ignore[arg-type, return-value]
+        )
+        assert collection is not None
+    finally:
+        await valkey_db.delete_collection("get_test")
 
 
 @pytest.mark.asyncio
@@ -211,8 +215,10 @@ async def test_that_valkey_db_get_or_create_collection_creates_when_missing(
         embedder_type=FakeEmbedder,
         document_loader=lambda doc: doc,  # type: ignore[arg-type, return-value]
     )
-    assert collection is not None
-    await valkey_db.delete_collection("get_or_create_test")
+    try:
+        assert collection is not None
+    finally:
+        await valkey_db.delete_collection("get_or_create_test")
 
 
 @pytest.mark.asyncio

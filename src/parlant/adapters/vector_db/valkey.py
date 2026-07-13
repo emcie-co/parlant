@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import struct
-from typing import Any, Awaitable, Callable, Generic, Mapping, Optional, Sequence, Union, cast
+from typing import Any, Awaitable, Callable, Mapping, Optional, Sequence, Union, cast
 from typing_extensions import override, Self, TypeAlias
 
 from glide import (  # type: ignore[import-untyped]
@@ -25,9 +25,11 @@ from glide import (  # type: ignore[import-untyped]
     GlideClientConfiguration,
     GlideClusterClientConfiguration,
     NodeAddress,
+    ServerCredentials,
     ft,
     FtCreateOptions,
     FtSearchOptions,
+    FtSearchLimit,
     VectorField,
     VectorFieldAttributesHnsw,
     VectorAlgorithm,
@@ -35,6 +37,12 @@ from glide import (  # type: ignore[import-untyped]
     TagField,
 )
 from glide import DistanceMetricType, DataType  # type: ignore[import-untyped]
+from glide_shared.exceptions import (  # type: ignore[import-untyped]
+    ClosingError,
+    ConnectionError as GlideConnectionError,
+    RequestError,
+    TimeoutError as GlideTimeoutError,
+)
 
 from parlant.core.async_utils import ReaderWriterLock
 from parlant.core.common import JSONSerializable
@@ -65,7 +73,7 @@ _METADATA_KEY = "parlant:__metadata__"
 
 def _escape_tag_value(value: str) -> str:
     """Escape special characters in a TAG filter value for Valkey Search."""
-    special = r",<>{}[]\"':;!@#$%^&*()-+=~"
+    special = r",.<>{}[]\"':;!@#$%^&*()-+=~| "
     result = []
     for ch in value:
         if ch in special:
@@ -119,6 +127,8 @@ def _convert_where_to_filter_expr(where: Where) -> str:
             elif operator == "$nin":
                 escaped = "|".join(_escape_tag_value(str(v)) for v in value)
                 clauses.append(f"-@{field_name}:{{{escaped}}}")
+            else:
+                raise ValueError(f"Unsupported filter operator: {operator}")
 
     if not clauses:
         return "*"
@@ -165,28 +175,31 @@ class ValkeyVectorDatabase(VectorDatabase):
     async def __aenter__(self) -> Self:
         host, port = self._parse_url(self._url)
         addresses = [NodeAddress(host, port)]
+        creds = ServerCredentials(self._password) if self._password else None
 
-        if self._cluster_mode:
-            config = GlideClusterClientConfiguration(
-                addresses=addresses,
-                use_tls=self._tls,
-                request_timeout=self._request_timeout,
-            )
-            if self._password:
+        try:
+            if self._cluster_mode:
                 config = GlideClusterClientConfiguration(
                     addresses=addresses,
                     use_tls=self._tls,
                     request_timeout=self._request_timeout,
-                    credentials={"password": self._password},
+                    credentials=creds,
                 )
-            self._client = await GlideClusterClient.create(config)
-        else:
-            config_standalone = GlideClientConfiguration(
-                addresses=addresses,
-                use_tls=self._tls,
-                request_timeout=self._request_timeout,
-            )
-            self._client = await GlideClient.create(config_standalone)
+                self._client = await GlideClusterClient.create(config)
+            else:
+                config_standalone = GlideClientConfiguration(
+                    addresses=addresses,
+                    use_tls=self._tls,
+                    request_timeout=self._request_timeout,
+                    credentials=creds,
+                )
+                self._client = await GlideClient.create(config_standalone)
+        except (GlideConnectionError, GlideTimeoutError, ClosingError) as e:
+            self._logger.error(f"Failed to connect to Valkey at {host}:{port}: {e}")
+            raise RuntimeError(f"Valkey connection failed: {e}") from e
+        except RequestError as e:
+            self._logger.error(f"Valkey request error during connection: {e}")
+            raise RuntimeError(f"Valkey authentication or request error: {e}") from e
 
         return self
 
@@ -210,16 +223,14 @@ class ValkeyVectorDatabase(VectorDatabase):
             return host, int(port_str)
         return url, 6379
 
-    def _format_collection_name(
-        self,
-        name: str,
-        embedder_type: type[Embedder],
-    ) -> str:
-        return f"{name}_{embedder_type.__name__}"
+    @property
+    def _connected_client(self) -> ValkeyClient:
+        if self._client is None:
+            raise RuntimeError("ValkeyVectorDatabase not connected; use 'async with' context.")
+        return self._client
 
     async def _index_exists(self, index_name: str) -> bool:
-        assert self._client is not None
-        existing = await ft.list(self._client)
+        existing = await ft.list(self._connected_client)
         names = {i.decode() if isinstance(i, bytes) else str(i) for i in (existing or [])}
         return index_name in names
 
@@ -229,7 +240,6 @@ class ValkeyVectorDatabase(VectorDatabase):
         prefix: str,
         dimensions: int,
     ) -> None:
-        assert self._client is not None
         schema = [
             TagField("id", separator="|"),
             TagField("version", separator="|"),
@@ -245,7 +255,7 @@ class ValkeyVectorDatabase(VectorDatabase):
             ),
         ]
         await ft.create(
-            self._client,
+            self._connected_client,
             index_name,
             schema,
             FtCreateOptions(data_type=DataType.HASH, prefixes=[prefix]),
@@ -258,7 +268,6 @@ class ValkeyVectorDatabase(VectorDatabase):
         schema: type[TDocument],
         embedder_type: type[Embedder],
     ) -> ValkeyVectorCollection[TDocument]:
-        assert self._client is not None
         assert self._embedder_factory is not None
         assert self._embedding_cache_provider is not None
 
@@ -278,7 +287,7 @@ class ValkeyVectorDatabase(VectorDatabase):
         collection: ValkeyVectorCollection[TDocument] = ValkeyVectorCollection(
             logger=self._logger,
             tracer=self._tracer,
-            client=self._client,
+            client=self._connected_client,
             index_name=index_name,
             prefix=prefix,
             schema=schema,
@@ -296,7 +305,9 @@ class ValkeyVectorDatabase(VectorDatabase):
         embedder_type: type[Embedder],
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> ValkeyVectorCollection[TDocument]:
-        assert self._client is not None
+        # TODO: document_loader is accepted for interface conformance but not yet used.
+        # Valkey assumes documents are already embedded on insert. Implement loader support
+        # if schema migration or re-embedding of existing documents is needed.
         assert self._embedder_factory is not None
         assert self._embedding_cache_provider is not None
 
@@ -314,7 +325,7 @@ class ValkeyVectorDatabase(VectorDatabase):
         collection: ValkeyVectorCollection[TDocument] = ValkeyVectorCollection(
             logger=self._logger,
             tracer=self._tracer,
-            client=self._client,
+            client=self._connected_client,
             index_name=index_name,
             prefix=prefix,
             schema=schema,
@@ -332,7 +343,7 @@ class ValkeyVectorDatabase(VectorDatabase):
         embedder_type: type[Embedder],
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> ValkeyVectorCollection[TDocument]:
-        assert self._client is not None
+        # TODO: document_loader not yet used — see get_collection comment.
         assert self._embedder_factory is not None
         assert self._embedding_cache_provider is not None
 
@@ -350,7 +361,7 @@ class ValkeyVectorDatabase(VectorDatabase):
         collection: ValkeyVectorCollection[TDocument] = ValkeyVectorCollection(
             logger=self._logger,
             tracer=self._tracer,
-            client=self._client,
+            client=self._connected_client,
             index_name=index_name,
             prefix=prefix,
             schema=schema,
@@ -365,22 +376,31 @@ class ValkeyVectorDatabase(VectorDatabase):
         self,
         name: str,
     ) -> None:
-        assert self._client is not None
-
-        if name not in self._collections:
-            raise ValueError(f'Collection "{name}" not found.')
-
-        collection = self._collections[name]
-        index_name = collection._index_name
-        prefix = collection._prefix
+        if name in self._collections:
+            collection = self._collections[name]
+            index_name = collection._index_name
+            prefix = collection._prefix
+        else:
+            # Check server state for collections created by other processes
+            existing = await ft.list(self._connected_client)
+            index_names = [
+                i.decode() if isinstance(i, bytes) else str(i) for i in (existing or [])
+            ]
+            matched = [n for n in index_names if n.startswith(f"parlant_{name}_")]
+            if not matched:
+                raise ValueError(f'Collection "{name}" not found.')
+            index_name = matched[0]
+            # Derive prefix from index name: parlant_{name}_{embedder} -> parlant:{name}:{embedder}:
+            parts = index_name.split("_", 2)  # ['parlant', name, embedder_type]
+            prefix = f"parlant:{parts[1]}:{parts[2]}:" if len(parts) == 3 else f"parlant:{name}:"
 
         # Drop the FT index
-        await ft.dropindex(self._client, index_name)
+        await ft.dropindex(self._connected_client, index_name)
 
-        # Delete all document keys with this prefix using SCAN
+        # Delete all document keys with this prefix using SCAN + UNLINK
         cursor = "0"
         while True:
-            result = await self._client.custom_command(
+            result = await self._connected_client.custom_command(
                 ["SCAN", cursor, "MATCH", f"{prefix}*", "COUNT", "100"]
             )
             if isinstance(result, list) and len(result) == 2:
@@ -389,14 +409,16 @@ class ValkeyVectorDatabase(VectorDatabase):
                 cursor = cursor_val.decode() if isinstance(cursor_val, bytes) else str(cursor_val)
                 if keys:
                     key_list = [k.decode() if isinstance(k, bytes) else str(k) for k in keys]
-                    if key_list:
-                        await self._client.custom_command(["DEL"] + key_list)
+                    # Chunk deletes to avoid oversized commands (SCAN COUNT is a hint, not a limit)
+                    for i in range(0, len(key_list), 100):
+                        batch = key_list[i : i + 100]
+                        await self._connected_client.unlink(batch)
                 if cursor == "0":
                     break
             else:
                 break
 
-        del self._collections[name]
+        self._collections.pop(name, None)
 
     @override
     async def upsert_metadata(
@@ -404,24 +426,21 @@ class ValkeyVectorDatabase(VectorDatabase):
         key: str,
         value: JSONSerializable,
     ) -> None:
-        assert self._client is not None
         serialized = json.dumps(value)
-        await self._client.hset(_METADATA_KEY, {key: serialized})
+        await self._connected_client.hset(_METADATA_KEY, {key: serialized})
 
     @override
     async def remove_metadata(
         self,
         key: str,
     ) -> None:
-        assert self._client is not None
-        await self._client.custom_command(["HDEL", _METADATA_KEY, key])
+        await self._connected_client.hdel(_METADATA_KEY, [key])
 
     @override
     async def read_metadata(
         self,
     ) -> Mapping[str, JSONSerializable]:
-        assert self._client is not None
-        raw = await self._client.hgetall(_METADATA_KEY)
+        raw = await self._connected_client.hgetall(_METADATA_KEY)
         if not raw:
             return {}
         result: dict[str, JSONSerializable] = {}
@@ -432,7 +451,7 @@ class ValkeyVectorDatabase(VectorDatabase):
         return result
 
 
-class ValkeyVectorCollection(Generic[TDocument], BaseVectorCollection[TDocument]):
+class ValkeyVectorCollection(BaseVectorCollection[TDocument]):
     def __init__(
         self,
         logger: Logger,
@@ -452,6 +471,10 @@ class ValkeyVectorCollection(Generic[TDocument], BaseVectorCollection[TDocument]
         self._schema = schema
         self._embedder = embedder
         self._embedding_cache_provider = embedding_cache_provider
+        # NOTE: ReaderWriterLock is in-process only (asyncio-based). In multi-worker
+        # deployments, each process gets its own lock instance. Valkey's atomic commands
+        # (HSET, DEL) provide basic safety, but compound read-modify-write operations
+        # (e.g., update_one: find → merge → write) are NOT atomic across processes.
         self._lock = ReaderWriterLock()
 
     def _doc_to_hash_fields(self, document: TDocument) -> dict[str, bytes | str]:
@@ -468,37 +491,14 @@ class ValkeyVectorCollection(Generic[TDocument], BaseVectorCollection[TDocument]
         doc: dict[str, Any] = {}
         for k, v in raw.items():
             key_str = k.decode() if isinstance(k, bytes) else str(k)
-            if key_str == "content_vector":
-                continue  # Skip binary vector field
+            if key_str in ("content_vector", "score"):
+                continue  # Skip binary vector field and synthetic KNN score
             val_str = v.decode() if isinstance(v, bytes) else str(v)
             doc[key_str] = val_str
         return cast(TDocument, doc)
 
-    @override
-    async def find(
-        self,
-        filters: Where,
-    ) -> Sequence[TDocument]:
-        async with self._lock.reader_lock:
-            return await self._scan_and_filter(filters)
-
-    @override
-    async def find_one(
-        self,
-        filters: Where,
-    ) -> Optional[TDocument]:
-        async with self._lock.reader_lock:
-            docs = await self._scan_and_filter(filters)
-            return docs[0] if docs else None
-
-    @override
-    async def insert_one(
-        self,
-        document: TDocument,
-    ) -> InsertResult:
-        ensure_is_total(document, self._schema)
-
-        content = document["content"]
+    async def _embed_content(self, content: str) -> bytes:
+        """Embed content text and return packed vector bytes."""
         cache = self._embedding_cache_provider()
         cached = await cache.get(
             embedder_type=type(self._embedder),
@@ -516,15 +516,63 @@ class ValkeyVectorCollection(Generic[TDocument], BaseVectorCollection[TDocument]
             )
 
         if not vectors or len(vectors[0]) == 0:
-            raise ValueError(f"Empty embedding generated for document content: {content[:50]}...")
+            raise ValueError(f"Empty embedding for: {content[:50]}...")
 
-        vector_bytes = struct.pack(f"{len(vectors[0])}f", *vectors[0])
+        return struct.pack(f"{len(vectors[0])}f", *vectors[0])
 
-        async with self._lock.writer_lock:
-            key = _doc_key(self._prefix, str(document["id"]))
-            fields = self._doc_to_hash_fields(document)
-            fields["content_vector"] = vector_bytes
-            await self._client.hset(key, fields)
+    @override
+    async def find(
+        self,
+        filters: Where,
+    ) -> Sequence[TDocument]:
+        try:
+            async with self._lock.reader_lock:
+                return await self._search_with_filter(filters)
+        except (GlideConnectionError, GlideTimeoutError, ClosingError) as e:
+            self._logger.error(f"Valkey connection error during find: {e}")
+            raise RuntimeError(f"Valkey unavailable: {e}") from e
+        except RequestError as e:
+            self._logger.error(f"Valkey request error during find: {e}")
+            raise RuntimeError(f"Valkey search failed: {e}") from e
+
+    @override
+    async def find_one(
+        self,
+        filters: Where,
+    ) -> Optional[TDocument]:
+        try:
+            async with self._lock.reader_lock:
+                docs = await self._search_with_filter(filters, limit=1)
+                return docs[0] if docs else None
+        except (GlideConnectionError, GlideTimeoutError, ClosingError) as e:
+            self._logger.error(f"Valkey connection error during find_one: {e}")
+            raise RuntimeError(f"Valkey unavailable: {e}") from e
+        except RequestError as e:
+            self._logger.error(f"Valkey request error during find_one: {e}")
+            raise RuntimeError(f"Valkey search failed: {e}") from e
+
+    @override
+    async def insert_one(
+        self,
+        document: TDocument,
+    ) -> InsertResult:
+        ensure_is_total(document, self._schema)
+
+        content = document["content"]
+        vector_bytes = await self._embed_content(content)
+
+        try:
+            async with self._lock.writer_lock:
+                key = _doc_key(self._prefix, str(document["id"]))
+                fields = self._doc_to_hash_fields(document)
+                fields["content_vector"] = vector_bytes
+                await self._client.hset(key, fields)
+        except (GlideConnectionError, GlideTimeoutError, ClosingError) as e:
+            self._logger.error(f"Valkey connection error during insert_one: {e}")
+            raise RuntimeError(f"Valkey unavailable: {e}") from e
+        except RequestError as e:
+            self._logger.error(f"Valkey request error during insert_one: {e}")
+            raise RuntimeError(f"Valkey write failed: {e}") from e
 
         return InsertResult(acknowledged=True)
 
@@ -535,114 +583,90 @@ class ValkeyVectorCollection(Generic[TDocument], BaseVectorCollection[TDocument]
         params: TDocument,
         upsert: bool = False,
     ) -> UpdateResult[TDocument]:
-        async with self._lock.writer_lock:
-            # Find existing document
-            existing = await self._find_one_internal(filters)
+        try:
+            async with self._lock.writer_lock:
+                # Find existing document
+                existing = await self._find_one_internal(filters)
 
-            if existing:
-                # Merge
-                updated: dict[str, Any] = {**existing}
-                updated.update(params)
+                if existing:
+                    # Merge
+                    updated: dict[str, Any] = {**existing}
+                    updated.update(params)
 
-                content = updated.get("content", "")
-                cache = self._embedding_cache_provider()
-                cached = await cache.get(
-                    embedder_type=type(self._embedder),
-                    texts=[content],
-                )
-                if cached:
-                    vectors = list(cached.vectors)
-                else:
-                    embed_result = await self._embedder.embed([content])
-                    vectors = list(embed_result.vectors)
-                    await cache.set(
-                        embedder_type=type(self._embedder),
-                        texts=[content],
-                        vectors=vectors,
+                    content = updated.get("content", "")
+                    vector_bytes = await self._embed_content(content)
+                    key = _doc_key(self._prefix, str(updated["id"]))
+                    fields = self._doc_to_hash_fields(cast(TDocument, updated))
+                    fields["content_vector"] = vector_bytes
+                    await self._client.hset(key, fields)
+
+                    return UpdateResult(
+                        acknowledged=True,
+                        matched_count=1,
+                        modified_count=1,
+                        updated_document=cast(TDocument, updated),
                     )
 
-                if not vectors or len(vectors[0]) == 0:
-                    raise ValueError(f"Empty embedding generated for content: {content[:50]}...")
+                elif upsert:
+                    ensure_is_total(params, self._schema)
 
-                vector_bytes = struct.pack(f"{len(vectors[0])}f", *vectors[0])
-                key = _doc_key(self._prefix, str(updated["id"]))
-                fields = self._doc_to_hash_fields(cast(TDocument, updated))
-                fields["content_vector"] = vector_bytes
-                await self._client.hset(key, fields)
+                    content = params["content"]
+                    vector_bytes = await self._embed_content(content)
+                    key = _doc_key(self._prefix, str(params["id"]))
+                    fields = self._doc_to_hash_fields(params)
+                    fields["content_vector"] = vector_bytes
+                    await self._client.hset(key, fields)
 
-                return UpdateResult(
-                    acknowledged=True,
-                    matched_count=1,
-                    modified_count=1,
-                    updated_document=cast(TDocument, updated),
-                )
-
-            elif upsert:
-                ensure_is_total(params, self._schema)
-
-                content = params["content"]
-                cache = self._embedding_cache_provider()
-                cached = await cache.get(
-                    embedder_type=type(self._embedder),
-                    texts=[content],
-                )
-                if cached:
-                    vectors = list(cached.vectors)
-                else:
-                    embed_result = await self._embedder.embed([content])
-                    vectors = list(embed_result.vectors)
-                    await cache.set(
-                        embedder_type=type(self._embedder),
-                        texts=[content],
-                        vectors=vectors,
+                    return UpdateResult(
+                        acknowledged=True,
+                        matched_count=0,
+                        modified_count=0,
+                        updated_document=params,
                     )
-
-                if not vectors or len(vectors[0]) == 0:
-                    raise ValueError(f"Empty embedding generated for content: {content[:50]}...")
-
-                vector_bytes = struct.pack(f"{len(vectors[0])}f", *vectors[0])
-                key = _doc_key(self._prefix, str(params["id"]))
-                fields = self._doc_to_hash_fields(params)
-                fields["content_vector"] = vector_bytes
-                await self._client.hset(key, fields)
 
                 return UpdateResult(
                     acknowledged=True,
                     matched_count=0,
                     modified_count=0,
-                    updated_document=params,
+                    updated_document=None,
                 )
-
-            return UpdateResult(
-                acknowledged=True,
-                matched_count=0,
-                modified_count=0,
-                updated_document=None,
-            )
+        except (GlideConnectionError, GlideTimeoutError, ClosingError) as e:
+            self._logger.error(f"Valkey connection error during update_one: {e}")
+            raise RuntimeError(f"Valkey unavailable: {e}") from e
+        except RequestError as e:
+            self._logger.error(f"Valkey request error during update_one: {e}")
+            raise RuntimeError(f"Valkey write failed: {e}") from e
 
     @override
     async def delete_one(
         self,
         filters: Where,
     ) -> DeleteResult[TDocument]:
-        async with self._lock.writer_lock:
-            existing = await self._find_one_internal(filters)
+        try:
+            async with self._lock.writer_lock:
+                existing = await self._find_one_internal(filters)
 
-            if existing:
-                key = _doc_key(self._prefix, str(existing["id"]))
-                await self._client.custom_command(["DEL", key])
+                if existing:
+                    key = _doc_key(self._prefix, str(existing["id"]))
+                    await self._client.unlink([key])
+
+                    return DeleteResult(
+                        acknowledged=True,
+                        deleted_count=1,
+                        deleted_document=cast(TDocument, existing),
+                    )
 
                 return DeleteResult(
                     acknowledged=True,
-                    deleted_count=1,
-                    deleted_document=cast(TDocument, existing),
+                    deleted_count=0,
+                    deleted_document=None,
                 )
-
-            return DeleteResult(
-                acknowledged=True,
-                deleted_count=0,
-                deleted_document=None,
-            )
+        except (GlideConnectionError, GlideTimeoutError, ClosingError) as e:
+            self._logger.error(f"Valkey connection error during delete_one: {e}")
+            raise RuntimeError(f"Valkey unavailable: {e}") from e
+        except RequestError as e:
+            self._logger.error(f"Valkey request error during delete_one: {e}")
+            raise RuntimeError(f"Valkey write failed: {e}") from e
 
     @override
     async def do_find_similar_documents(
@@ -652,53 +676,89 @@ class ValkeyVectorCollection(Generic[TDocument], BaseVectorCollection[TDocument]
         k: int,
         hints: Mapping[str, Any] = {},
     ) -> Sequence[SimilarDocumentResult[TDocument]]:
-        async with self._lock.reader_lock:
-            embed_result = await self._embedder.embed([query], hints)
-            query_vectors = list(embed_result.vectors)
+        try:
+            async with self._lock.reader_lock:
+                embed_result = await self._embedder.embed([query], hints)
+                query_vectors = list(embed_result.vectors)
 
-            if not query_vectors or len(query_vectors[0]) == 0:
-                self._logger.warning(f"Empty embedding generated for query: {query}")
-                return []
+                if not query_vectors or len(query_vectors[0]) == 0:
+                    self._logger.warning(f"Empty embedding generated for query: {query}")
+                    return []
 
-            vector_bytes = struct.pack(f"{len(query_vectors[0])}f", *query_vectors[0])
+                vector_bytes = struct.pack(f"{len(query_vectors[0])}f", *query_vectors[0])
 
-            filter_expr = _convert_where_to_filter_expr(filters)
-            if filter_expr == "*":
-                knn_query = f"*=>[KNN {k} @content_vector $vector AS score]"
-            else:
-                knn_query = f"({filter_expr})=>[KNN {k} @content_vector $vector AS score]"
-
-            results = await ft.search(
-                client=self._client,
-                index_name=self._index_name,
-                query=knn_query,
-                options=FtSearchOptions(params={"vector": vector_bytes}),
-            )
-
-            count = results[0]
-            if count == 0:
-                return []
-
-            similar: list[SimilarDocumentResult[TDocument]] = []
-            for _key, fields in results[1].items():
-                score_raw = fields.get(b"score") or fields.get("score")
-                if score_raw is not None:
-                    score_str = (
-                        score_raw.decode() if isinstance(score_raw, bytes) else str(score_raw)
-                    )
-                    distance = float(score_str)
+                filter_expr = _convert_where_to_filter_expr(filters)
+                if filter_expr == "*":
+                    knn_query = f"*=>[KNN {k} @content_vector $vector AS score]"
                 else:
-                    distance = 0.0
+                    knn_query = f"({filter_expr})=>[KNN {k} @content_vector $vector AS score]"
 
-                doc = self._hash_to_doc(fields)
-                similar.append(SimilarDocumentResult(document=doc, distance=distance))
+                results = await ft.search(
+                    client=self._client,
+                    index_name=self._index_name,
+                    query=knn_query,
+                    options=FtSearchOptions(params={"vector": vector_bytes}),
+                )
 
-            return similar
+                # ft.search returns [count: int, docs: dict[bytes, dict[bytes, bytes]]]
+                count = results[0]
+                if count == 0:
+                    return []
+
+                similar: list[SimilarDocumentResult[TDocument]] = []
+                for _key, fields in results[1].items():
+                    score_raw = fields.get(b"score") or fields.get("score")
+                    if score_raw is not None:
+                        score_str = (
+                            score_raw.decode() if isinstance(score_raw, bytes) else str(score_raw)
+                        )
+                        distance = float(score_str)
+                    else:
+                        distance = 0.0
+
+                    doc = self._hash_to_doc(fields)
+                    similar.append(SimilarDocumentResult(document=doc, distance=distance))
+
+                return similar
+        except (GlideConnectionError, GlideTimeoutError, ClosingError) as e:
+            self._logger.error(f"Valkey connection error during similarity search: {e}")
+            raise RuntimeError(f"Valkey unavailable: {e}") from e
+        except RequestError as e:
+            self._logger.error(f"Valkey request error during similarity search: {e}")
+            raise RuntimeError(f"Valkey search failed: {e}") from e
 
     async def _find_one_internal(self, filters: Where) -> Optional[dict[str, Any]]:
         """Internal find_one without lock (caller must hold lock)."""
-        docs = await self._scan_and_filter(filters)
+        docs = await self._search_with_filter(filters, limit=1)
         return dict(docs[0]) if docs else None
+
+    async def _search_with_filter(
+        self, filters: Where, limit: Optional[int] = None
+    ) -> list[TDocument]:
+        """Use FT.SEARCH with the index to find documents matching filters."""
+        filter_expr = _convert_where_to_filter_expr(filters)
+
+        options: Optional[FtSearchOptions] = None
+        if limit is not None:
+            options = FtSearchOptions(limit=FtSearchLimit(offset=0, count=limit))
+
+        results = await ft.search(
+            client=self._client,
+            index_name=self._index_name,
+            query=filter_expr,
+            options=options,
+        )
+
+        # ft.search returns [count: int, docs: dict[bytes, dict[bytes, bytes]]]
+        count = results[0]
+        if count == 0:
+            return []
+
+        docs: list[TDocument] = []
+        for _key, fields in results[1].items():
+            doc = self._hash_to_doc(fields)
+            docs.append(doc)
+        return docs
 
     async def _scan_and_filter(self, filters: Where) -> list[TDocument]:
         """Fallback: scan all keys with prefix and filter in memory."""

@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import re
 import struct
 from typing import Any, Awaitable, Callable, Mapping, Optional, Sequence, Union, cast
 from typing_extensions import override, Self, TypeAlias
@@ -98,10 +99,13 @@ def _convert_where_to_filter_expr(where: Where) -> str:
         return "(" + " | ".join(f"({p})" for p in parts) + ")"
 
     # Field-level conditions
+    _VALID_FIELD_NAME = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
     clauses: list[str] = []
     for field_name, field_filter in where.items():
         if not isinstance(field_filter, dict):
             continue
+        if not _VALID_FIELD_NAME.match(field_name):
+            raise ValueError(f"Invalid field name in filter: {field_name!r}")
         for operator, value in field_filter.items():
             if operator == "$eq":
                 if isinstance(value, (int, float)):
@@ -114,12 +118,20 @@ def _convert_where_to_filter_expr(where: Where) -> str:
                 else:
                     clauses.append(f"-@{field_name}:{{{_escape_tag_value(str(value))}}}")
             elif operator == "$gt":
+                if not isinstance(value, (int, float)):
+                    raise ValueError(f"Range operator {operator} requires numeric value, got {type(value).__name__}")
                 clauses.append(f"@{field_name}:[({value} +inf]")
             elif operator == "$gte":
+                if not isinstance(value, (int, float)):
+                    raise ValueError(f"Range operator {operator} requires numeric value, got {type(value).__name__}")
                 clauses.append(f"@{field_name}:[{value} +inf]")
             elif operator == "$lt":
+                if not isinstance(value, (int, float)):
+                    raise ValueError(f"Range operator {operator} requires numeric value, got {type(value).__name__}")
                 clauses.append(f"@{field_name}:[-inf ({value}]")
             elif operator == "$lte":
+                if not isinstance(value, (int, float)):
+                    raise ValueError(f"Range operator {operator} requires numeric value, got {type(value).__name__}")
                 clauses.append(f"@{field_name}:[-inf {value}]")
             elif operator == "$in":
                 escaped = "|".join(_escape_tag_value(str(v)) for v in value)
@@ -268,8 +280,10 @@ class ValkeyVectorDatabase(VectorDatabase):
         schema: type[TDocument],
         embedder_type: type[Embedder],
     ) -> ValkeyVectorCollection[TDocument]:
-        assert self._embedder_factory is not None
-        assert self._embedding_cache_provider is not None
+        if self._embedder_factory is None:
+            raise RuntimeError("embedder_factory is required for collection operations")
+        if self._embedding_cache_provider is None:
+            raise RuntimeError("embedding_cache_provider is required for collection operations")
 
         if name in self._collections:
             raise ValueError(f'Collection "{name}" already exists.')
@@ -308,8 +322,10 @@ class ValkeyVectorDatabase(VectorDatabase):
         # TODO: document_loader is accepted for interface conformance but not yet used.
         # Valkey assumes documents are already embedded on insert. Implement loader support
         # if schema migration or re-embedding of existing documents is needed.
-        assert self._embedder_factory is not None
-        assert self._embedding_cache_provider is not None
+        if self._embedder_factory is None:
+            raise RuntimeError("embedder_factory is required for collection operations")
+        if self._embedding_cache_provider is None:
+            raise RuntimeError("embedding_cache_provider is required for collection operations")
 
         if cached := self._collections.get(name):
             return cast(ValkeyVectorCollection[TDocument], cached)
@@ -344,8 +360,10 @@ class ValkeyVectorDatabase(VectorDatabase):
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> ValkeyVectorCollection[TDocument]:
         # TODO: document_loader not yet used — see get_collection comment.
-        assert self._embedder_factory is not None
-        assert self._embedding_cache_provider is not None
+        if self._embedder_factory is None:
+            raise RuntimeError("embedder_factory is required for collection operations")
+        if self._embedding_cache_provider is None:
+            raise RuntimeError("embedding_cache_provider is required for collection operations")
 
         if cached := self._collections.get(name):
             return cast(ValkeyVectorCollection[TDocument], cached)
@@ -391,8 +409,10 @@ class ValkeyVectorDatabase(VectorDatabase):
                 raise ValueError(f'Collection "{name}" not found.')
             index_name = matched[0]
             # Derive prefix from index name: parlant_{name}_{embedder} -> parlant:{name}:{embedder}:
-            parts = index_name.split("_", 2)  # ['parlant', name, embedder_type]
-            prefix = f"parlant:{parts[1]}:{parts[2]}:" if len(parts) == 3 else f"parlant:{name}:"
+            # Use rsplit to handle collection names containing underscores
+            without_prefix = index_name[len("parlant_"):]
+            name_part, embedder_part = without_prefix.rsplit("_", 1)
+            prefix = f"parlant:{name_part}:{embedder_part}:"
 
         # Drop the FT index
         await ft.dropindex(self._connected_client, index_name)
@@ -483,6 +503,8 @@ class ValkeyVectorCollection(BaseVectorCollection[TDocument]):
         for key, value in document.items():
             if value is None:
                 continue
+            # Preserve numeric types as their string representation (Valkey stores all as strings,
+            # but numeric strings enable NUMERIC field indexing and proper round-trip)
             fields[key] = str(value)
         return fields
 
@@ -494,8 +516,30 @@ class ValkeyVectorCollection(BaseVectorCollection[TDocument]):
             if key_str in ("content_vector", "score"):
                 continue  # Skip binary vector field and synthetic KNN score
             val_str = v.decode() if isinstance(v, bytes) else str(v)
-            doc[key_str] = val_str
+            # Attempt numeric coercion for round-trip fidelity
+            doc[key_str] = self._coerce_value(val_str)
         return cast(TDocument, doc)
+
+    @staticmethod
+    def _coerce_value(val: str) -> Any:
+        """Attempt to restore original type from string representation."""
+        # Try int first (more specific)
+        try:
+            int_val = int(val)
+            # Only coerce if the string is exactly the int representation
+            # (avoids "01" -> 1 or "1.0" -> 1)
+            if str(int_val) == val:
+                return int_val
+        except ValueError:
+            pass
+        # Try float
+        try:
+            float_val = float(val)
+            if str(float_val) == val:
+                return float_val
+        except ValueError:
+            pass
+        return val
 
     async def _embed_content(self, content: str) -> bytes:
         """Embed content text and return packed vector bytes."""
@@ -527,6 +571,8 @@ class ValkeyVectorCollection(BaseVectorCollection[TDocument]):
     ) -> Sequence[TDocument]:
         try:
             async with self._lock.reader_lock:
+                if self._has_range_operators(filters):
+                    return await self._scan_and_filter(filters)
                 return await self._search_with_filter(filters)
         except (GlideConnectionError, GlideTimeoutError, ClosingError) as e:
             self._logger.error(f"Valkey connection error during find: {e}")
@@ -542,6 +588,9 @@ class ValkeyVectorCollection(BaseVectorCollection[TDocument]):
     ) -> Optional[TDocument]:
         try:
             async with self._lock.reader_lock:
+                if self._has_range_operators(filters):
+                    docs = await self._scan_and_filter(filters)
+                    return docs[0] if docs else None
                 docs = await self._search_with_filter(filters, limit=1)
                 return docs[0] if docs else None
         except (GlideConnectionError, GlideTimeoutError, ClosingError) as e:
@@ -674,11 +723,11 @@ class ValkeyVectorCollection(BaseVectorCollection[TDocument]):
         filters: Where,
         query: str,
         k: int,
-        hints: Mapping[str, Any] = {},
+        hints: Mapping[str, Any] = {},  # noqa: B006 — matches base class signature
     ) -> Sequence[SimilarDocumentResult[TDocument]]:
         try:
             async with self._lock.reader_lock:
-                embed_result = await self._embedder.embed([query], hints)
+                embed_result = await self._embedder.embed([query], hints or {})
                 query_vectors = list(embed_result.vectors)
 
                 if not query_vectors or len(query_vectors[0]) == 0:
@@ -760,8 +809,31 @@ class ValkeyVectorCollection(BaseVectorCollection[TDocument]):
             docs.append(doc)
         return docs
 
+    @staticmethod
+    def _has_range_operators(filters: Where) -> bool:
+        """Check if filters contain range operators that TAG fields can't handle."""
+        _RANGE_OPS = {"$gt", "$gte", "$lt", "$lte"}
+        if not filters:
+            return False
+        first_key = next(iter(filters.keys()))
+        if first_key == "$and":
+            return any(
+                ValkeyVectorCollection._has_range_operators(cast(Where, sub))
+                for sub in filters["$and"]
+            )
+        if first_key == "$or":
+            return any(
+                ValkeyVectorCollection._has_range_operators(cast(Where, sub))
+                for sub in filters["$or"]
+            )
+        for field_filter in filters.values():
+            if isinstance(field_filter, dict):
+                if any(op in _RANGE_OPS for op in field_filter):
+                    return True
+        return False
+
     async def _scan_and_filter(self, filters: Where) -> list[TDocument]:
-        """Fallback: scan all keys with prefix and filter in memory."""
+        """Fallback for queries with range operators: scan keys and filter in memory."""
         docs: list[TDocument] = []
         cursor = "0"
         while True:

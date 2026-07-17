@@ -105,23 +105,70 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
                     )
                 )
 
-                last_generation_exception: Exception | None = None
+                first_attempt_temperature = generation_attempt_temperatures[0]
+                judgments: dict[str, list[GenericActionableBatch]] = {
+                    guideline_id: [] for guideline_id in self._guidelines
+                }
+                generation_info = None
 
-                for generation_attempt in range(3):
-                    inference = await self._schematic_generator.generate(
-                        prompt=prompt,
-                        hints={"temperature": generation_attempt_temperatures[generation_attempt]},
+                for sample in range(3):
+                    last_generation_exception: Exception | None = None
+
+                    for attempt in range(3):
+                        try:
+                            inference = await self._schematic_generator.generate(
+                                prompt=prompt,
+                                hints={"temperature": first_attempt_temperature},
+                            )
+
+                            if not inference.content.checks:
+                                raise ValueError("No checks generated")
+
+                            for match in inference.content.checks:
+                                if match.guideline_id not in self._guidelines:
+                                    raise ValueError(f"Unknown guideline ID: {match.guideline_id}")
+
+                            self._logger.trace(
+                                f"Completion:\n{inference.content.model_dump_json(indent=2)}"
+                            )
+                            for match in inference.content.checks:
+                                judgments[match.guideline_id].append(match)
+                            generation_info = inference.info
+                            break
+                        except Exception as exc:
+                            self._logger.warning(
+                                f"Sample {sample + 1}, attempt {attempt + 1} failed: "
+                                f"{traceback.format_exception(exc)}"
+                            )
+                            last_generation_exception = exc
+                    else:
+                        raise GuidelineMatchingBatchError() from last_generation_exception
+
+                matches = []
+                for guideline_id, samples in judgments.items():
+                    applies = sum(sample.applies for sample in samples) >= 2
+                    majority_sample = next(
+                        sample for sample in samples if sample.applies == applies
                     )
-
-                    if not inference.content.checks:
-                        self._logger.warning(
-                            "Completion:\nNo checks generated! This shouldn't happen."
+                    if applies:
+                        self._logger.debug(
+                            f"Activated by majority vote:\n{guideline_id}: "
+                            f"{sum(sample.applies for sample in samples)}/3"
+                        )
+                        matches.append(
+                            GuidelineMatch(
+                                guideline=self._guidelines[guideline_id],
+                                score=10,
+                                rationale=majority_sample.rationale,
+                            )
                         )
                     else:
-                        self._logger.trace(
-                            f"Completion:\n{inference.content.model_dump_json(indent=2)}"
+                        self._logger.debug(
+                            f"Skipped by majority vote:\n{guideline_id}: "
+                            f"{sum(sample.applies for sample in samples)}/3"
                         )
 
+<<<<<<< HEAD
                     matches = []
 
                     for match in inference.content.checks:
@@ -146,11 +193,16 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
             except Exception as exc:
                 self._logger.warning(
                     f"Attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
+=======
+                return GuidelineMatchingBatchResult(
+                    matches=matches,
+                    generation_info=generation_info,
+>>>>>>> a0c372fd (Stabilize guideline matching with majority voting)
                 )
 
-                last_generation_exception = exc
-
-        raise GuidelineMatchingBatchError() from last_generation_exception
+            except Exception as exc:
+                self._logger.warning(f"Generation failed: {traceback.format_exception(exc)}")
+                raise GuidelineMatchingBatchError() from exc
 
     async def shots(self) -> Sequence[GenericActionableGuidelineGuidelineMatchingShot]:
         return await shot_collection.list()

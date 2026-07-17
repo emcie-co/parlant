@@ -146,6 +146,12 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
 
                 matches = []
                 for guideline_id, samples in judgments.items():
+                    if not samples:
+                        self._logger.warning(
+                            f"No judgments generated for guideline {guideline_id}; skipping"
+                        )
+                        continue
+
                     applies = sum(sample.applies for sample in samples) >= 2
                     majority_sample = next(
                         sample for sample in samples if sample.applies == applies
@@ -168,36 +174,10 @@ class GenericActionableGuidelineMatchingBatch(GuidelineMatchingBatch):
                             f"{sum(sample.applies for sample in samples)}/3"
                         )
 
-<<<<<<< HEAD
-                    matches = []
-
-                    for match in inference.content.checks:
-                        if match.applies:
-                            self._logger.debug(f"Matched:\n{match.model_dump_json(indent=2)}")
-
-                            matches.append(
-                                GuidelineMatch(
-                                    guideline=self._guidelines[match.guideline_id],
-                                    score=10 if match.applies else 1,
-                                    rationale=match.rationale,
-                                )
-                            )
-                        else:
-                            self._logger.debug(f"Not matched:\n{match.model_dump_json(indent=2)}")
-
-                    return GuidelineMatchingBatchResult(
-                        matches=matches,
-                        generation_info=inference.info,
-                    )
-
-            except Exception as exc:
-                self._logger.warning(
-                    f"Attempt {generation_attempt} failed: {traceback.format_exception(exc)}"
-=======
+                assert generation_info is not None
                 return GuidelineMatchingBatchResult(
                     matches=matches,
                     generation_info=generation_info,
->>>>>>> a0c372fd (Stabilize guideline matching with majority voting)
                 )
 
             except Exception as exc:

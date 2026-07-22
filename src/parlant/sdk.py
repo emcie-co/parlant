@@ -1502,6 +1502,12 @@ class JourneyState:
         actual_state: JourneyState | None = None
 
         if state is not None:
+            if state._journey is not None and state._journey.id != self._journey.id:
+                raise SDKError(
+                    "Cannot transition to a state that belongs to a different journey. "
+                    f"The provided state belongs to journey '{state._journey.id}', but this "
+                    f"transition is being created in journey '{self._journey.id}'."
+                )
             actual_state = state
         elif tools:
             actual_state = await self._journey._create_state(

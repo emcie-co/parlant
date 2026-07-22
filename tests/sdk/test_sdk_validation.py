@@ -14,6 +14,7 @@
 
 import pytest
 
+from parlant.core.journeys import JourneyStore
 from parlant.core.services.tools.plugins import tool
 from parlant.core.tools import ToolContext, ToolResult
 from tests.sdk.utils import SDKTest
@@ -668,3 +669,72 @@ class Test_that_fork_state_condition_validation_is_comprehensive(SDKTest):
         await self.fork_transition.target.transition_to(
             condition="if customer needs sub-journey help", journey=self.sub_journey
         )
+
+
+class Test_that_transition_to_rejects_a_state_belonging_to_a_different_journey(SDKTest):
+    """Regression test for https://github.com/emcie-co/parlant/issues/819.
+
+    transition_to(state=...) used to accept a JourneyState that belongs to a
+    different journey than the one being built. The invalid edge was then
+    persisted, and only later crashed with a raw KeyError out of
+    JourneyGuidelineProjection.project_journey_to_guidelines(...). The state
+    ownership must be validated up front, before anything is persisted.
+    """
+
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            name="Cross Journey Agent",
+            description="Agent for testing cross-journey state validation",
+        )
+
+        self.journey_one = await self.agent.create_journey(
+            title="Journey One",
+            triggers=[],
+            description="First journey",
+        )
+        self.journey_two = await self.agent.create_journey(
+            title="Journey Two",
+            triggers=[],
+            description="Second journey",
+        )
+
+        journey_two_transition = await self.journey_two.initial_state.transition_to(
+            chat_state="Inside journey two"
+        )
+        foreign_state = journey_two_transition.target
+
+        with pytest.raises(p.SDKError) as exc_info:
+            await self.journey_one.initial_state.transition_to(
+                condition="jump across journeys",
+                state=foreign_state,
+            )
+        assert "belongs to a different journey" in str(exc_info.value)
+
+        # The invalid edge must not have been persisted either.
+        journey_store = server.container[JourneyStore]
+        edges = await journey_store.list_edges(self.journey_one.id)
+        assert edges == []
+
+        # Reusing a state that belongs to the *same* journey must still work
+        # (this is a legitimate way to build DAG-like journeys, e.g. merging
+        # two branches back into a shared downstream state).
+        t0 = await self.journey_one.initial_state.transition_to(
+            chat_state="Ask for the customer's name"
+        )
+        t1 = await t0.target.transition_to(
+            condition="the customer replies with their name",
+            chat_state="Look up the account",
+        )
+        t2 = await t0.target.transition_to(
+            condition="the customer skips ahead",
+            chat_state="Skip the lookup",
+        )
+        t3 = await t1.target.transition_to(
+            condition="the account is found",
+            chat_state="Thank the customer",
+        )
+        reused = await t2.target.transition_to(
+            condition="the account is found",
+            state=t3.target,
+        )
+        assert reused.target.id == t3.target.id

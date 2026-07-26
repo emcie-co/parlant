@@ -14,17 +14,22 @@
 
 import pytest
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 from typing_extensions import override
 
+from parlant.adapters.db.transient import TransientDocumentDatabase
+from parlant.core.common import Version
 from parlant.core.health import HealthReporter
 from parlant.core.nlp.embedding import (
     BaseEmbedder,
+    BasicEmbeddingCache,
     EmbeddingResult,
     _EMBEDDING_CACHE_MAX_SIZE,
 )
+from parlant.core.persistence.common import ObjectId
+from parlant.core.persistence.document_database import BaseDocument
 from parlant.core.nlp.tokenization import EstimatingTokenizer, ZeroEstimatingTokenizer
 
 
@@ -81,6 +86,24 @@ def _make_unique_text(length: int, index: int) -> str:
     suffix = f"_{index:02d}"
     assert length > len(suffix), "length must be long enough to fit the suffix"
     return "a" * (length - len(suffix)) + suffix
+
+
+@pytest.mark.asyncio
+async def test_that_v0_1_0_cache_documents_are_migrated_to_current_version() -> None:
+    cache = BasicEmbeddingCache(TransientDocumentDatabase())
+    document = cast(
+        BaseDocument,
+        {
+            "id": ObjectId("cache-entry"),
+            "version": Version.String("0.1.0"),
+            "vectors": [[1.0, 2.0]],
+        },
+    )
+
+    migrated_document = await cache._document_loader(document)
+
+    assert migrated_document
+    assert migrated_document["version"] == cache.VERSION.to_string()
 
 
 @pytest.mark.asyncio

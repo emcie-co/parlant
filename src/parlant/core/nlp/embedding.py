@@ -394,7 +394,7 @@ class BasicEmbeddingCache(EmbeddingCache):
             return EmbedderResultDocument(
                 id=d["id"],
                 creation_utc=datetime.now(timezone.utc).isoformat(),
-                version=d["version"],
+                version=self.VERSION.to_string(),
                 vectors=d["vectors"],
             )
 

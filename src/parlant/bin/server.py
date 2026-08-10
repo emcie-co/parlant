@@ -277,6 +277,7 @@ class StartupError(Exception):
 
 NLPServiceName = Literal[
     "anthropic",
+    "atlascloud",
     "aws",
     "azure",
     "cerebras",
@@ -333,6 +334,16 @@ def load_anthropic(container: Container) -> NLPService:
         "anthropic",
         "AnthropicService",
         "parlant.adapters.nlp.anthropic_service",
+    )
+
+
+def load_atlascloud(container: Container) -> NLPService:
+    return load_nlp_service(
+        container,
+        "Atlas Cloud",
+        "atlascloud",
+        "AtlasCloudService",
+        "parlant.adapters.nlp.atlascloud_service",
     )
 
 
@@ -433,6 +444,7 @@ def load_litellm(container: Container) -> NLPService:
 
 NLP_SERVICE_INITIALIZERS: dict[NLPServiceName, Callable[[Container], NLPService]] = {
     "anthropic": load_anthropic,
+    "atlascloud": load_atlascloud,
     "aws": load_aws,
     "azure": load_azure,
     "cerebras": load_cerebras,
@@ -1181,6 +1193,12 @@ def main() -> None:
         default=True,
     )
     @click.option(
+        "--atlascloud",
+        is_flag=True,
+        help="Run with Atlas Cloud. The environment variable ATLASCLOUD_API_KEY must be set.",
+        default=False,
+    )
+    @click.option(
         "--anthropic",
         is_flag=True,
         help="Run with Anthropic. The environment variable ANTHROPIC_API_KEY must be set and install the extra package parlant[anthropic].",
@@ -1292,6 +1310,7 @@ def main() -> None:
         host: str,
         port: int,
         openai: bool,
+        atlascloud: bool,
         aws: bool,
         azure: bool,
         gemini: bool,
@@ -1315,6 +1334,7 @@ def main() -> None:
             sum(
                 [
                     openai,
+                    atlascloud,
                     aws,
                     azure,
                     deepseek,
@@ -1335,6 +1355,7 @@ def main() -> None:
         non_default_service_selected = any(
             (
                 aws,
+                atlascloud,
                 azure,
                 deepseek,
                 gemini,
@@ -1350,6 +1371,9 @@ def main() -> None:
         if not non_default_service_selected:
             nlp_service = "openai"
             require_env_keys(["OPENAI_API_KEY"])
+        elif atlascloud:
+            nlp_service = "atlascloud"
+            require_env_keys(["ATLASCLOUD_API_KEY"])
         elif aws:
             nlp_service = "aws"
             require_env_keys(["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"])

@@ -75,6 +75,8 @@ mongo = ["pymongo>=4.11.1"]
 
 anthropic = ["anthropic>=0.60.0", "torch>=2.8.0", "transformers>=4.53.0"]
 
+atlascloud = ["torch>=2.8.0", "transformers>=4.53.0"]
+
 aws = ["anthropic>=0.60.0", "transformers>=4.53.0", "torch>=2.8.0"]
 
 together = ["torch>=2.8.0", "together>=1.5.26", "transformers>=4.53.0"]

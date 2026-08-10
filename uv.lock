@@ -4499,6 +4499,10 @@ anthropic = [
     { name = "torch" },
     { name = "transformers" },
 ]
+atlascloud = [
+    { name = "torch" },
+    { name = "transformers" },
+]
 aws = [
     { name = "anthropic" },
     { name = "torch" },
@@ -4646,6 +4650,7 @@ requires-dist = [
     { name = "tokenizers", specifier = ">=0.21" },
     { name = "toml", specifier = ">=0.10.2" },
     { name = "torch", marker = "extra == 'anthropic'", specifier = ">=2.8.0" },
+    { name = "torch", marker = "extra == 'atlascloud'", specifier = ">=2.8.0" },
     { name = "torch", marker = "extra == 'aws'", specifier = ">=2.8.0" },
     { name = "torch", marker = "extra == 'cerebras'", specifier = ">=2.8.0" },
     { name = "torch", marker = "extra == 'deepseek'", specifier = ">=2.8.0" },
@@ -4654,6 +4659,7 @@ requires-dist = [
     { name = "torch", marker = "extra == 'together'", specifier = ">=2.8.0" },
     { name = "torch", marker = "extra == 'vertex'", specifier = ">=2.8.0" },
     { name = "transformers", marker = "extra == 'anthropic'", specifier = ">=4.53.0" },
+    { name = "transformers", marker = "extra == 'atlascloud'", specifier = ">=4.53.0" },
     { name = "transformers", marker = "extra == 'aws'", specifier = ">=4.53.0" },
     { name = "transformers", marker = "extra == 'cerebras'", specifier = ">=4.53.0" },
     { name = "transformers", marker = "extra == 'deepseek'", specifier = ">=4.53.0" },
@@ -4670,7 +4676,7 @@ requires-dist = [
     { name = "xxhash", specifier = ">=3.5.0" },
     { name = "zhipuai", marker = "extra == 'zhipu'", specifier = ">=2.0.0" },
 ]
-provides-extras = ["chroma", "qdrant", "mongo", "anthropic", "aws", "together", "cerebras", "deepseek", "gemini", "vertex", "ollama", "litellm", "azure", "mistral", "snowflake", "zhipu"]
+provides-extras = ["chroma", "qdrant", "mongo", "anthropic", "atlascloud", "aws", "together", "cerebras", "deepseek", "gemini", "vertex", "ollama", "litellm", "azure", "mistral", "snowflake", "zhipu"]
 
 [package.metadata.requires-dev]
 dev = [

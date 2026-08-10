@@ -395,6 +395,18 @@ class NLPServices:
         )
 
     @staticmethod
+    def atlascloud(container: Container) -> NLPService:
+        """Creates an Atlas Cloud NLPService instance using the provided container."""
+        from parlant.adapters.nlp.atlascloud_service import AtlasCloudService
+
+        if error := AtlasCloudService.verify_environment():
+            raise NLPServiceConfigurationError(error)
+
+        return AtlasCloudService(
+            container[Logger], container[Tracer], container[Meter], container[HealthReporter]
+        )
+
+    @staticmethod
     def anthropic(container: Container) -> NLPService:
         """Creates an Anthropic NLPService instance using the provided container."""
         from parlant.adapters.nlp.anthropic_service import AnthropicService

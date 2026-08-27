@@ -61,6 +61,7 @@ class ServiceRegistry(ABC):
         url: str,
         source: Optional[str] = None,
         transient: bool = False,
+        bearer_token_env: Optional[str] = None,
     ) -> ToolService: ...
 
     @abstractmethod
@@ -120,6 +121,7 @@ class _ToolServiceDocument(TypedDict, total=False):
     kind: ToolServiceKind
     url: str
     source: Optional[str]
+    bearer_token_env: Optional[str]
 
 
 class ServiceDocumentRegistry(ServiceRegistry):
@@ -271,6 +273,9 @@ class ServiceDocumentRegistry(ServiceRegistry):
             kind=kind,
             url=url,
             source=self._service_sources.get(name) if isinstance(service, OpenAPIClient) else None,
+            bearer_token_env=(
+                service.bearer_token_env if isinstance(service, MCPToolClient) else None
+            ),
         )
 
     async def _deserialize_tool_service(self, document: _ToolServiceDocument) -> ToolService:
@@ -294,6 +299,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
                 event_emitter_factory=self._event_emitter_factory,
                 logger=self._logger,
                 tracer=self._tracer,
+                bearer_token_env=document.get("bearer_token_env"),
             )
         else:
             raise ValueError("Unsupported ToolService kind.")
@@ -306,6 +312,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
         url: str,
         source: Optional[str] = None,
         transient: bool = False,
+        bearer_token_env: Optional[str] = None,
     ) -> ToolService:
         async with self._lock.writer_lock:
             service: ToolService
@@ -330,6 +337,7 @@ class ServiceDocumentRegistry(ServiceRegistry):
                     event_emitter_factory=self._event_emitter_factory,
                     logger=self._logger,
                     tracer=self._tracer,
+                    bearer_token_env=bearer_token_env,
                 )
             elif kind == "sdk":
                 service = PluginClient(

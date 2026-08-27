@@ -18,10 +18,12 @@ from ast import literal_eval
 from datetime import datetime, timezone
 import json
 from mailbox import FormatError
+import os
 from mcp.types import Tool as McpTool
 from types import TracebackType
 from typing import Any, Sequence, Mapping, Optional, Literal, Callable, Awaitable, cast
 from typing_extensions import override
+from urllib.parse import SplitResult, urlsplit, urlunsplit
 import asyncio
 import httpx
 
@@ -145,21 +147,59 @@ class MCPToolClient(ToolService):
         event_emitter_factory: EventEmitterFactory,
         logger: Logger,
         tracer: Tracer,
-        port: int = DEFAULT_MCP_PORT,
+        port: int | None = None,
+        bearer_token_env: str | None = None,
     ) -> None:
         self._event_emitter_factory = event_emitter_factory
         self._logger = logger
         self._tracer = tracer
         self._client: Client[StreamableHttpTransport] | None = None
         self._client_lock = asyncio.Lock()
-        if ":" in url[-6:]:
-            parts = url.split(":")
-            self.url = ":".join(parts[:-1])
-            self.port = int(parts[-1])
-        else:
-            self.url = url
-            self.port = port
-        self.endpoint_url = f"{self.url}:{self.port}"
+        self.bearer_token_env = bearer_token_env
+        self.endpoint_url, self._transport_url = self._normalize_endpoint(url, port)
+        parsed_endpoint = urlsplit(self.endpoint_url)
+        self.port = parsed_endpoint.port or (443 if parsed_endpoint.scheme == "https" else 80)
+        host = parsed_endpoint.hostname or ""
+        if ":" in host:
+            host = f"[{host}]"
+        self.url = urlunsplit(parsed_endpoint._replace(netloc=host))
+
+    @staticmethod
+    def _normalize_endpoint(url: str, port: int | None) -> tuple[str, str]:
+        parsed = urlsplit(url)
+        if not parsed.scheme or not parsed.hostname:
+            raise ValueError("MCP service URL must include a scheme and host")
+
+        has_endpoint_path = parsed.path not in ("", "/")
+        endpoint_port = port
+        if parsed.port is None and not has_endpoint_path and endpoint_port is None:
+            endpoint_port = DEFAULT_MCP_PORT
+
+        if parsed.port is None and endpoint_port is not None:
+            host = parsed.hostname
+            if ":" in host:
+                host = f"[{host}]"
+            credentials = ""
+            if parsed.username:
+                credentials = parsed.username
+                if parsed.password:
+                    credentials += f":{parsed.password}"
+                credentials += "@"
+            parsed = parsed._replace(netloc=f"{credentials}{host}:{endpoint_port}")
+
+        if has_endpoint_path:
+            endpoint = urlunsplit(parsed)
+            return endpoint, endpoint
+
+        endpoint_parts = SplitResult(
+            scheme=parsed.scheme,
+            netloc=parsed.netloc,
+            path="",
+            query=parsed.query,
+            fragment=parsed.fragment,
+        )
+        transport_parts = endpoint_parts._replace(path="/mcp")
+        return urlunsplit(endpoint_parts), urlunsplit(transport_parts)
 
     async def __aenter__(self) -> MCPToolClient:
         await self._connect(force=True)
@@ -174,8 +214,19 @@ class MCPToolClient(ToolService):
         await self._disconnect(exc_type, exc_value, traceback)
         return False
 
+    def _create_transport(self) -> StreamableHttpTransport:
+        auth: str | None = None
+        if self.bearer_token_env:
+            auth = os.environ.get(self.bearer_token_env)
+            if not auth:
+                raise ValueError(
+                    "MCP bearer token unavailable. "
+                    f"Set environment variable '{self.bearer_token_env}'."
+                )
+        return StreamableHttpTransport(url=self._transport_url, auth=auth)
+
     def _create_client(self) -> Client[StreamableHttpTransport]:
-        return Client(StreamableHttpTransport(url=f"{self.url}:{self.port}/mcp"))
+        return Client(self._create_transport())
 
     def _is_connected(self) -> bool:
         return self._client is not None and self._client.is_connected()
@@ -252,7 +303,7 @@ class MCPToolClient(ToolService):
                     return client
                 except asyncio.TimeoutError:
                     last_error = ConnectionError(
-                        f"Connection to MCP service at {self.url}:{self.port} timed out"
+                        f"Connection to MCP service at {self.endpoint_url} timed out"
                     )
                 except Exception as exc:
                     last_error = Exception(f"Failed to connect to MCP service: {str(exc)}")
@@ -262,7 +313,7 @@ class MCPToolClient(ToolService):
 
                 if attempt < DEFAULT_MCP_CONNECTION_ATTEMPTS:
                     self._logger.warning(
-                        f"MCP connection attempt {attempt} failed for {self.url}:{self.port}; retrying"
+                        f"MCP connection attempt {attempt} failed for {self.endpoint_url}; retrying"
                     )
                     await asyncio.sleep(DEFAULT_MCP_RETRY_DELAY_SECONDS * attempt)
 
@@ -284,7 +335,7 @@ class MCPToolClient(ToolService):
                 raise
 
             self._logger.warning(
-                f"MCP client session dropped for {self.url}:{self.port}; reconnecting and retrying"
+                f"MCP client session dropped for {self.endpoint_url}; reconnecting and retrying"
             )
             client = await self._connect(force=True)
             return await operation(client)

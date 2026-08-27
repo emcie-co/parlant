@@ -24,12 +24,14 @@ class ServiceModule:
         kind: ToolServiceKind,
         url: str,
         source: str | None,
+        bearer_token_env: str | None = None,
     ) -> ToolService:
         service = await self._service_registry.update_tool_service(
             name=name,
             kind=kind,
             url=url,
             source=source,
+            bearer_token_env=bearer_token_env,
         )
 
         return service

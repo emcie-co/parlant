@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import warnings
 from enum import Enum
 from typing import Annotated, Sequence, TypeAlias, cast
@@ -113,9 +114,15 @@ class OpenAPIServiceParamsDTO(
     source: ServiceOpenAPIParamsSourceField
 
 
+mcp_service_params_example: ExampleJson = {
+    "url": "https://example.com/mcp",
+    "bearer_token_env": "MCP_API_KEY",
+}
+
+
 class MCPServiceParamsDTO(
     DefaultBaseModel,
-    json_schema_extra={"example": sdk_service_params_example},
+    json_schema_extra={"example": mcp_service_params_example},
 ):
     """
     Configuration parameters for MCP-based service integration.
@@ -125,6 +132,12 @@ class MCPServiceParamsDTO(
     """
 
     url: ServiceParamsURLField
+    bearer_token_env: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
+        description="Environment variable that contains the MCP bearer token.",
+        examples=["MCP_API_KEY"],
+    )
 
 
 ServiceUpdateSDKServiceParamsField: TypeAlias = Annotated[
@@ -384,6 +397,14 @@ def create_router(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="Service URL is missing schema (http:// or https://)",
                 )
+            if params.mcp.bearer_token_env and not os.environ.get(params.mcp.bearer_token_env):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=(
+                        "MCP bearer token unavailable. "
+                        f"Set environment variable '{params.mcp.bearer_token_env}'."
+                    ),
+                )
         else:
             raise Exception("Should never logically get here")
 
@@ -391,14 +412,17 @@ def create_router(
             assert params.sdk
             url = params.sdk.url
             source = None
+            bearer_token_env = None
         elif params.kind == ToolServiceKindDTO.OPENAPI:
             assert params.openapi
             url = params.openapi.url
             source = params.openapi.source
+            bearer_token_env = None
         elif params.kind == ToolServiceKindDTO.MCP:
             assert params.mcp
             url = params.mcp.url
             source = None
+            bearer_token_env = params.mcp.bearer_token_env
         else:
             raise Exception("Should never logically get here")
 
@@ -407,6 +431,7 @@ def create_router(
             kind=_tool_service_kind_dto_to_tool_service_kind(params.kind),
             url=url,
             source=source,
+            bearer_token_env=bearer_token_env,
         )
 
         return ServiceDTO(

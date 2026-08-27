@@ -18,8 +18,13 @@ import tempfile
 from fastapi import status
 import httpx
 from lagom import Container
+from pytest import MonkeyPatch
 
-from parlant.core.services.tools.mcp_service import DEFAULT_MCP_PORT, MCPToolServer
+from parlant.core.services.tools.mcp_service import (
+    DEFAULT_MCP_PORT,
+    MCPToolClient,
+    MCPToolServer,
+)
 from parlant.core.services.tools.plugins import tool
 from parlant.core.tools import ToolResult, ToolContext
 from parlant.core.services.tools.service_registry import ServiceRegistry
@@ -361,6 +366,63 @@ async def test_that_mcp_service_is_created(
     assert content["name"] == "my_mcp_service"
     assert content["kind"] == "mcp"
     assert content["url"] == url
+
+
+async def test_that_mcp_service_reads_its_bearer_token_from_the_environment(
+    async_client: httpx.AsyncClient,
+    container: Container,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("XQUIK_API_KEY", "xq_test_token")
+
+    async with run_mcp_server(tools=[]) as server_info:
+        url = f"{server_info.url}:{server_info.port}"
+        content = (
+            (
+                await async_client.put(
+                    "/services/xquik",
+                    json={
+                        "kind": "mcp",
+                        "mcp": {
+                            "url": url,
+                            "bearer_token_env": "XQUIK_API_KEY",
+                        },
+                    },
+                )
+            )
+            .raise_for_status()
+            .json()
+        )
+
+        service = await container[ServiceRegistry].read_tool_service("xquik")
+
+    assert content == {"name": "xquik", "kind": "mcp", "url": url, "tools": None}
+    assert isinstance(service, MCPToolClient)
+    assert service.bearer_token_env == "XQUIK_API_KEY"
+    assert "xq_test_token" not in json.dumps(content)
+
+
+async def test_that_mcp_service_rejects_an_unset_bearer_token_environment(
+    async_client: httpx.AsyncClient,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("XQUIK_API_KEY", raising=False)
+
+    response = await async_client.put(
+        "/services/xquik",
+        json={
+            "kind": "mcp",
+            "mcp": {
+                "url": "https://xquik.com/mcp",
+                "bearer_token_env": "XQUIK_API_KEY",
+            },
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert response.json()["detail"] == (
+        "MCP bearer token unavailable. Set environment variable 'XQUIK_API_KEY'."
+    )
 
 
 async def test_that_mcp_service_is_created_and_deleted(

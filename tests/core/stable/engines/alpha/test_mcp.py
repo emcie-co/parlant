@@ -28,6 +28,7 @@ from parlant.core.services.tools.mcp_service import (
     mcp_tool_to_parlant_tool,
 )
 from lagom import Container
+from pytest import MonkeyPatch
 from parlant.core.agents import Agent
 from parlant.core.emissions import EventEmitterFactory
 from parlant.core.tracer import LocalTracer
@@ -406,8 +407,10 @@ async def test_that_mcp_service_endpoint_roundtrips_through_persistence(
     container: Container,
     logger: Logger,
     tmp_path: Path,
+    monkeypatch: MonkeyPatch,
 ) -> None:
     service_url = ""
+    monkeypatch.setenv("XQUIK_API_KEY", "xq_test_token")
 
     async with MCPToolServer([greet_me_like_pirate], port=get_random_port()) as server:
         service_url = f"{SERVER_BASE_URL}:{server.get_port()}"
@@ -424,10 +427,16 @@ async def test_that_mcp_service_endpoint_roundtrips_through_persistence(
                     name="my_mcp_service",
                     kind="mcp",
                     url=service_url,
+                    bearer_token_env="XQUIK_API_KEY",
                 )
 
                 assert isinstance(service, MCPToolClient)
                 assert service.endpoint_url == service_url
+                assert service.bearer_token_env == "XQUIK_API_KEY"
+
+        persisted_document = (tmp_path / "services.json").read_text()
+        assert "XQUIK_API_KEY" in persisted_document
+        assert "xq_test_token" not in persisted_document
 
         async with JSONFileDocumentDatabase(logger, tmp_path / "services.json") as database:
             async with ServiceDocumentRegistry(
@@ -441,6 +450,7 @@ async def test_that_mcp_service_endpoint_roundtrips_through_persistence(
 
                 assert isinstance(restored_service, MCPToolClient)
                 assert restored_service.endpoint_url == service_url
+                assert restored_service.bearer_token_env == "XQUIK_API_KEY"
 
 
 async def test_that_mcp_service_port_is_preserved_through_persistence_roundtrip(

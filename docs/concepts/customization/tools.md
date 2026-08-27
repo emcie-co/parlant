@@ -94,6 +94,44 @@ If you the tool itself implies the action, you can skip specifying it manually b
 await agent.attach_tool(condition=CONDITION, tool=my_tool)
 ```
 
+## Connect an authenticated MCP service
+
+Remote MCP services often require bearer authentication. Set the token in the
+Parlant server environment. Register only the environment variable's name:
+
+```bash
+export XQUIK_API_KEY="your-api-key"
+
+curl --request PUT http://localhost:8800/services/xquik \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "kind": "mcp",
+    "mcp": {
+      "url": "https://xquik.com/mcp",
+      "bearer_token_env": "XQUIK_API_KEY"
+    }
+  }'
+```
+
+Parlant reads the token when it connects. It stores the variable name, not the
+token. The service URL can include the complete MCP endpoint and query string.
+
+Attach the remote tool to a guideline with `ToolId`. This example lets an agent
+use Xquik for a relevant Twitter search:
+
+```python
+import parlant.sdk as p
+
+await agent.create_guideline(
+    condition="The user asks to search tweets by keyword",
+    action="Use Xquik to search X and return the relevant posts",
+    tools=[p.ToolId(service_name="xquik", tool_name="execute")],
+)
+```
+
+Xquik is an independent third-party service. Not affiliated with X Corp.
+"Twitter" and "X" are trademarks of X Corp.
+
 ## Tool Result
 The `ToolResult` is a special object that encapsulates the result of a tool call.
 

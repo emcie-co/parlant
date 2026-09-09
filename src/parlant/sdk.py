@@ -553,6 +553,18 @@ class NLPServices:
         )
 
     @staticmethod
+    def aimlapi(container: Container) -> NLPService:
+        """Creates an aimlapi.com NLPService instance using the provided container."""
+        from parlant.adapters.nlp.aimlapi_service import AIMLAPIService
+
+        if error := AIMLAPIService.verify_environment():
+            raise NLPServiceConfigurationError(error)
+
+        return AIMLAPIService(
+            container[Logger], container[Tracer], container[Meter], container[HealthReporter]
+        )
+
+    @staticmethod
     def snowflake(container: Container) -> NLPService:
         """Creates a SnowflakeCortexService instance using the provided container."""
         from parlant.adapters.nlp.snowflake_cortex_service import SnowflakeCortexService

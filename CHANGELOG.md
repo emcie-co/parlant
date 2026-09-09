@@ -6,6 +6,7 @@ All notable changes to Parlant will be documented here.
 
 ### Added
 
+- Add aimlapi.com as an NLP service (`parlant.adapters.nlp.aimlapi_service`), available as `NLPServices.aimlapi()` and `parlant-server --aimlapi`. Provides schematic generation, streaming and native embeddings over aimlapi.com's OpenAI-compatible API using the existing `openai` dependency; configured via `AIMLAPI_API_KEY`, `AIMLAPI_MODEL` and `AIMLAPI_EMBEDDER_MODEL`
 - Add `HealthReporter` (`parlant.core.health_reporter`) — a generic, per-process health-reporting service registered in the container. Subsystems call `report(kind, attributes)`; registered `HealthView` objects interpret reports per kind and contribute to the `/healthz` snapshot. Each kind has a configurable retention policy (`window` + `max_count`). Views declare `Criticality.CRITICAL` or `INFORMATIONAL`; only critical views feed the worst-of overall status rollup
 - Add `NLPHealthView` reporting NLP request health sliced by schema (success rate, p50/p95 latency, recent error breakdown) with configurable thresholds for `degraded`/`unhealthy` classification
 - Instrument `BaseSchematicGenerator.generate()` and `BaseEmbedder.embed()` to emit `nlp.request` / `nlp.embed` health reports on success and failure, providing dashboard visibility into LLM and embedding behavior across all adapters

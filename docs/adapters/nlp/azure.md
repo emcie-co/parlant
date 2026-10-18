@@ -102,6 +102,7 @@ export AZURE_EMBEDDING_MODEL_NAME="text-embedding-3-large" # Large embeddings
 - Model availability depends on what you've deployed in your Azure OpenAI resource
 - Not all models are available in all Azure regions
 - Check your Azure OpenAI resource deployment to see which models are available
+- **Structured Outputs**: When `strict` hints are enabled on compatible models (e.g. `gpt-4o`, `gpt-4o-mini` with API version `2024-08-01-preview` or later), Parlant uses Azure's native Structured Outputs feature to enforce 100% schema compliance. Other configurations fall back to standard JSON object mode.
 
 ## Authentication Priority
 

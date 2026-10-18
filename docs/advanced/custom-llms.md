@@ -27,6 +27,38 @@ Throughout the Parlant engine, you'll find references to `SchematicGenerator[T]`
 
 All LLM requests in Parlant are actually made using these schematic generators, which means that, whatever model you use, it must be able to generate valid JSON schemas consistently. This is the only requirement for a model in Parlant.
 
+### Constrained Sampling (Structured Outputs) vs. JSON Mode
+
+When evaluating or configuring NLP adapters, understanding how the underlying model guarantees schema adherence is critical:
+
+- **Constrained Sampling / Structured Outputs (Recommended)**: The provider or runtime enforces grammar constraints (such as context-free grammars or JSON Schema decoding masks) during token generation. The model is guaranteed to produce output conforming strictly to the requested Pydantic/JSON schema.
+- **Unconstrained JSON Mode / Prompted Fallback (Warning)**: The provider is instructed via generic prompt instructions or `{"type": "json_object"}` to return JSON. Output adherence is not mathematically guaranteed; models (especially smaller or local SLMs) can occasionally hallucinate missing brackets, omit fields, produce malformed JSON, or deviate from schema types under complex guidelines.
+
+#### NLP Adapter Structured Output Support Matrix
+
+| Adapter / Provider | Constrained Sampling (JSON Schema) | Sampling Mode | Notes |
+|--------------------|-----------------------------------|---------------|-------|
+| **OpenAI** (`openai_service.py`) | ✅ Yes | `beta.chat.completions.parse` / strict schema | Native structured outputs support |
+| **Azure OpenAI** (`azure_service.py`) | ✅ Yes | Strict schema parsing when supported | Falls back to JSON object mode if unconstrained |
+| **Google Gemini** (`gemini_service.py`) | ✅ Yes | Function Calling schema enforcement | Uses Gemini function calling schema constraints |
+| **Google Vertex AI** (`vertex_service.py`) | ✅ Yes (Gemini models) / ⚠️ JSON mode (Claude) | Native `response_schema` for Gemini | Gemini uses schema enforcement; Claude uses JSON extraction |
+| **Cerebras** (`cerebras_service.py`) | ✅ Yes | `response_format={"type": "json_schema"}` | Strict JSON schema enforcement |
+| **Fireworks AI** (`fireworks_service.py`) | ✅ Yes | `response_format={"type": "json_schema"}` | Strict JSON schema enforcement |
+| **Ollama** (`ollama_service.py`) | ✅ Yes | `format=schema.model_json_schema()` | Ollama grammar-based JSON schema constrained decoding |
+| **Snowflake Cortex** (`snowflake_cortex_service.py`) | ✅ Yes (strict mode) | `response_format={"type": "json", "schema": ...}` | Strict schema option supported on Cortex inference |
+| **Anthropic** (`anthropic_service.py`) | ⚠️ Unconstrained | Prompted JSON mode + local validation | Prompt-based JSON; potential schema drift on smaller models |
+| **AWS Bedrock** (`aws_service.py`) | ⚠️ Unconstrained | Prompted JSON mode + local validation | Prompt-based JSON; potential schema drift on smaller models |
+| **Mistral** (`mistral_service.py`) | ⚠️ JSON mode | `response_format={"type": "json_object"}` | Validates JSON format only, not schema grammar |
+| **DeepSeek** (`deepseek_service.py`) | ⚠️ JSON mode | `response_format={"type": "json_object"}` | Validates JSON format only; may return invalid or empty payload |
+| **LiteLLM** (`litellm_service.py`) | ⚠️ Dependent | `response_format={"type": "json_object"}` | Depends on underlying routed model capability |
+| **OpenRouter** (`openrouter_service.py`) | ⚠️ Dependent | `response_format={"type": "json_object"}` | Depends on underlying routed model capability |
+| **Qwen / DashScope** (`qwen_service.py`) | ⚠️ JSON mode | `response_format={"type": "json_object"}` | Validates JSON format only |
+| **Together AI** (`together_service.py`) | ⚠️ JSON mode | `response_format={"type": "json_object"}` | Validates JSON format only |
+| **Zhipu / GLM** (`zhipu_service.py`) | ⚠️ JSON mode | `response_format={"type": "json_object"}` | Validates JSON format only |
+
+> ⚠️ **Warning for Adapters without Constrained Sampling**
+> When using providers that do not natively constrain generation to a strict JSON schema (e.g. Anthropic, AWS Bedrock, Mistral, DeepSeek, or LiteLLM/OpenRouter with unconstrained models), agents may rarely encounter validation errors (`ValidationError`) if the model omits brackets or misformats fields under high-complexity prompts. For production deployments with intricate schemas, prefer adapters that offer constrained sampling or ensure appropriate retry policies.
+
 Let's now look at a few important interfaces that you need to implement in your custom NLP service.
 
 #### Estimating Tokenizers

@@ -298,11 +298,11 @@ Model 'xyz' does not support JSON mode
 
 **Solutions:**
 - OpenRouter automatically falls back to prompting for JSON output
-- Consider using a model that supports JSON mode:
+- Consider using a model that supports JSON mode or strict structured outputs:
   - `openai/gpt-4o`
   - `openai/gpt-4o-mini`
   - `anthropic/claude-3.5-sonnet`
-- The fallback still produces structured output reliably
+- ⚠️ **Note on Schema Adherence**: OpenRouter requests use `response_format={"type": "json_object"}`. While JSON structure is generally maintained, models without native constrained sampling may occasionally produce invalid field schemas or omit formatting under complex guidelines. For mission-critical schema strictness, prefer upstream models with verified structured output capabilities.
 
 ### Dimension Mismatch Errors
 

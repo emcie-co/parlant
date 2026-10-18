@@ -48,11 +48,13 @@ export OLLAMA_API_TIMEOUT="600"
 
 ### Text Generation Models
 
+Parlant passes the Pydantic JSON Schema (`format=self.schema.model_json_schema()`) directly to Ollama, leveraging Ollama's native grammar-constrained decoding for schema enforcement.
+
 ```bash
 # Recommended for most use cases (good balance of speed/accuracy)
 ollama pull gemma3:4b-it-qat
 
-# Fast but may struggle with complex schemas
+# Fast but small context window; may struggle with large guideline sets
 ollama pull gemma3:1b
 
 # embedding model required for creating embeddings

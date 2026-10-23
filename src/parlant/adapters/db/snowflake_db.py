@@ -35,7 +35,7 @@ from typing import (
 
 from typing_extensions import Self
 
-from parlant.core.loggers import Logger
+from parlant.core.loggers import ScopedLogger, Logger
 from parlant.core.persistence.common import Cursor, ObjectId, SortDirection, Where, ensure_is_total
 from parlant.core.persistence.document_database import (
     CollectionIndex,
@@ -125,7 +125,7 @@ def _load_connection_params_from_env() -> dict[str, Any]:
     return params
 
 
-FetchMode = Literal["none", "all", "one"]
+FetchMode = Literal["none", "all", "one", "rowcount"]
 
 
 class SnowflakeDocumentDatabase(DocumentDatabase):
@@ -137,7 +137,7 @@ class SnowflakeDocumentDatabase(DocumentDatabase):
         table_prefix: str | None = None,
         connection_factory: Callable[[Mapping[str, Any]], Any] | None = None,
     ) -> None:
-        self._logger = logger
+        self._logger = ScopedLogger(logger, "SnowflakeDocumentDatabase")
         self._connection_params = (
             dict(connection_params)
             if connection_params is not None
@@ -326,6 +326,8 @@ class SnowflakeDocumentDatabase(DocumentDatabase):
                 return cursor.fetchall()
             if fetch == "one":
                 return cursor.fetchone()
+            if fetch == "rowcount":
+                return cursor.rowcount
             return None
         except Exception as exc:  # pragma: no cover - wrapped below
             if self._snowflake_error and isinstance(exc, self._snowflake_error):
@@ -397,7 +399,7 @@ class SnowflakeDocumentCollection(DocumentCollection[TDocument]):
         self._database = database
         self._name = name
         self._schema = schema
-        self._logger = logger
+        self._logger = ScopedLogger(logger, "SnowflakeDocumentCollection")
 
         self._table = self._database._table_identifier(name)
         self._failed_table = self._database._failed_table_identifier(name)
@@ -434,7 +436,20 @@ class SnowflakeDocumentCollection(DocumentCollection[TDocument]):
         rows = await self._database._execute(sql, params or None, fetch="all")
         documents = [cast(TDocument, self._row_to_document(row)) for row in rows or []]
 
-        total_count = len(documents)
+        count_sql = f"SELECT COUNT(*) AS TOTAL_COUNT FROM {self._table}"
+        if base_clause:
+            count_sql += f" {base_clause}"
+        count_row = await self._database._execute(
+            count_sql,
+            base_params or None,
+            fetch="one",
+        )
+        if isinstance(count_row, Mapping):
+            total_count = int(count_row.get("TOTAL_COUNT", 0))
+        elif isinstance(count_row, Sequence) and count_row:
+            total_count = int(count_row[0])
+        else:
+            total_count = 0
         has_more = False
         next_cursor = None
 
@@ -449,7 +464,7 @@ class SnowflakeDocumentCollection(DocumentCollection[TDocument]):
 
                 if creation_utc is not None and identifier is not None:
                     next_cursor = Cursor(
-                        creation_utc=str(creation_utc),
+                        sort_value=str(creation_utc),
                         id=ObjectId(str(identifier)),
                     )
 
@@ -531,8 +546,48 @@ class SnowflakeDocumentCollection(DocumentCollection[TDocument]):
         existing = await self.find_one(filters)
 
         if existing:
-            updated_document = cast(TDocument, {**existing, **params})
-            await self._replace_document(updated_document)
+            clause, where_params = _build_where_clause(filters, self.INDEXED_FIELDS)
+            query_params: dict[str, Any] = dict(where_params)
+            data_expression = "DATA"
+            for index, (key, value) in enumerate(params.items()):
+                key_name = f"update_key_{index}"
+                value_name = f"update_value_{index}"
+                query_params[key_name] = key
+                query_params[value_name] = json.dumps(value, ensure_ascii=False)
+                data_expression = (
+                    f"OBJECT_INSERT({data_expression}, %({key_name})s, "
+                    f"PARSE_JSON(%({value_name})s), TRUE)"
+                )
+
+            column_assignments: list[str] = [f"DATA={data_expression}"]
+            if "version" in params:
+                query_params["update_version"] = _stringify(params["version"])
+                column_assignments.append("VERSION=%(update_version)s")
+            if "creation_utc" in params:
+                query_params["update_creation_utc"] = _stringify(params["creation_utc"])
+                column_assignments.append("CREATION_UTC=%(update_creation_utc)s")
+
+            matched_count = int(
+                await self._database._execute(
+                    f"""
+                    UPDATE {self._table}
+                    SET {", ".join(column_assignments)}
+                    {clause}
+                    """,
+                    query_params,
+                    fetch="rowcount",
+                )
+                or 0
+            )
+            if matched_count == 0:
+                return UpdateResult(
+                    True,
+                    matched_count=0,
+                    modified_count=0,
+                    updated_document=None,
+                )
+
+            updated_document = await self.find_one({"id": {"$eq": existing["id"]}})
             return UpdateResult(
                 True,
                 matched_count=1,
@@ -646,7 +701,7 @@ def _build_cursor_clause(
     )
 
     params = {
-        "cursor_creation": cursor.creation_utc,
+        "cursor_creation": cursor.sort_value,
         "cursor_id": str(cursor.id),
     }
 

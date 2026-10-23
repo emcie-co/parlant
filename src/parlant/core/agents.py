@@ -16,12 +16,15 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+from functools import total_ordering
+from itertools import chain
 from typing import NewType, Optional, Sequence, cast
 from typing_extensions import override, TypedDict, Self
 
-from parlant.core.async_utils import ReaderWriterLock
+from parlant.core.async_utils import ReaderWriterLock, safe_gather
 from parlant.core.common import (
     ItemNotFoundError,
+    try_or_none,
     UniqueId,
     Version,
     IdGenerator,
@@ -35,21 +38,15 @@ from parlant.core.persistence.document_database import (
     BaseDocument,
     DocumentDatabase,
     DocumentCollection,
+    group_ids_by_entity,
 )
 from parlant.core.persistence.document_database_helper import (
     DocumentMigrationHelper,
     DocumentStoreMigrationHelper,
 )
-from parlant.core.tags import TagId
+from parlant.core.groups import GroupId
 
 AgentId = NewType("AgentId", str)
-
-
-class CompositionMode(Enum):
-    FLUID = "fluid"
-    CANNED_FLUID = "canned_fluid"
-    CANNED_COMPOSITED = "canned_composited"
-    CANNED_STRICT = "canned_strict"
 
 
 class MessageOutputMode(Enum):
@@ -61,25 +58,87 @@ class MessageOutputMode(Enum):
     STREAM = "stream"
     """Message is streamed token by token."""
 
+    VOICE = "voice"
+    """Message is streamed as speakable segments to the in-process session
+    tap for real-time (voice) delivery, and persisted coarsely."""
+
+
+@total_ordering
+class Effort(Enum):
+    """Defines how much effort the agent invests in processing."""
+
+    MIN = "min"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    MAX = "max"
+
+    @property
+    def level(self) -> int:
+        return _EFFORT_ORDER[self]
+
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, Effort):
+            return NotImplemented
+
+        return self.level < other.level
+
+
+_EFFORT_ORDER: dict[Effort, int] = {
+    Effort.MIN: 0,
+    Effort.LOW: 1,
+    Effort.MEDIUM: 2,
+    Effort.HIGH: 3,
+    Effort.MAX: 4,
+}
+
+
+class Moderation(Enum):
+    """How the agent applies the optional moderation checkpoints
+    (the "moderation.customer" and "moderation.agent" model routes)."""
+
+    AUTO = "auto"
+    """Each checkpoint runs iff its route is configured; unconfigured
+    checkpoints are skipped silently."""
+
+    ON = "on"
+    """Moderation is required: both routes must be configured (routing a
+    checkpoint to the "null" provider counts as deliberately waiving it).
+    Validated at startup and on agent creation/update."""
+
+    OFF = "off"
+    """No moderation, regardless of configured routes."""
+
 
 class AgentUpdateParams(TypedDict, total=False):
     name: str
-    description: Optional[str]
-    max_engine_iterations: int
-    composition_mode: CompositionMode
+    instructions: Optional[str]
+    max_steps: int
     message_output_mode: MessageOutputMode
+    engine: str
+    effort: Effort
+    moderation: Moderation
+    message_review: bool
+    tool_review: bool
 
 
 @dataclass(frozen=True)
 class Agent:
     id: AgentId
     name: str
-    description: Optional[str]
+    instructions: Optional[str]
     creation_utc: datetime
-    max_engine_iterations: int
-    tags: Sequence[TagId]
-    composition_mode: CompositionMode = CompositionMode.FLUID
+    modified_utc: datetime
+    max_steps: int
+    groups: Sequence[GroupId]
+    engine: str
     message_output_mode: MessageOutputMode = MessageOutputMode.BLOCK
+    effort: Effort = Effort.MEDIUM
+    moderation: Moderation = Moderation.AUTO
+    # Review defaults for all of this agent's turns; matched rules can
+    # additionally request either review but never veto these.
+    message_review: bool = False
+    tool_review: bool = False
 
 
 class AgentStore(ABC):
@@ -87,13 +146,17 @@ class AgentStore(ABC):
     async def create_agent(
         self,
         name: str,
-        description: Optional[str] = None,
+        instructions: Optional[str] = None,
         creation_utc: Optional[datetime] = None,
-        max_engine_iterations: Optional[int] = None,
-        composition_mode: Optional[CompositionMode] = None,
+        max_steps: Optional[int] = None,
         message_output_mode: Optional[MessageOutputMode] = None,
-        tags: Optional[Sequence[TagId]] = None,
+        engine: Optional[str] = None,
+        effort: Optional[Effort] = None,
+        moderation: Optional[Moderation] = None,
+        groups: Optional[Sequence[GroupId]] = None,
         id: Optional[AgentId] = None,
+        message_review: bool = False,
+        tool_review: bool = False,
     ) -> Agent: ...
 
     @abstractmethod
@@ -121,18 +184,18 @@ class AgentStore(ABC):
     ) -> None: ...
 
     @abstractmethod
-    async def upsert_tag(
+    async def upsert_group(
         self,
         agent_id: AgentId,
-        tag_id: TagId,
+        group_id: GroupId,
         creation_utc: Optional[datetime] = None,
     ) -> bool: ...
 
     @abstractmethod
-    async def remove_tag(
+    async def remove_group(
         self,
         agent_id: AgentId,
-        tag_id: TagId,
+        group_id: GroupId,
     ) -> None: ...
 
 
@@ -140,11 +203,16 @@ class _AgentDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
+    last_modified: str
     name: str
-    description: Optional[str]
-    max_engine_iterations: int
-    composition_mode: str
+    instructions: Optional[str]
+    max_steps: int
     message_output_mode: str
+    engine: str
+    effort: str
+    moderation: str
+    message_review: bool
+    tool_review: bool
 
 
 class _AgentTagAssociationDocument(TypedDict, total=False):
@@ -152,138 +220,60 @@ class _AgentTagAssociationDocument(TypedDict, total=False):
     version: Version.String
     creation_utc: str
     agent_id: AgentId
-    tag_id: TagId
+    group_id: GroupId
 
 
 class AgentDocumentStore(AgentStore):
-    VERSION = Version.from_string("0.5.0")
+    VERSION = Version.from_string("0.6.0")
 
     def __init__(
         self,
         id_generator: IdGenerator,
         database: DocumentDatabase,
         allow_migration: bool = False,
+        collections_prefix: str | None = None,
     ):
         self._id_generator = id_generator
 
         self._database = database
+
         self._agents_collection: DocumentCollection[_AgentDocument]
         self._tag_association_collection: DocumentCollection[_AgentTagAssociationDocument]
+        self._collections_prefix = collections_prefix
+
         self._allow_migration = allow_migration
 
         self._lock = ReaderWriterLock()
 
     async def _document_loader(self, doc: BaseDocument) -> Optional[_AgentDocument]:
-        async def v0_1_0_to_v0_2_0(doc: BaseDocument) -> Optional[BaseDocument]:
-            raise Exception(
-                "This code should not be reached! Please run the 'parlant-prepare-migration' script."
-            )
-
-        async def v0_2_0_to_v0_3_0(doc: BaseDocument) -> Optional[BaseDocument]:
-            raise Exception(
-                "This code should not be reached! Please run the 'parlant-prepare-migration' script."
-            )
-
-        async def v0_3_0_to_v0_4_0(doc: BaseDocument) -> Optional[BaseDocument]:
-            doc = cast(_AgentDocument, doc)
-
-            if doc["version"] == "0.3.0":
-                utterance_to_canned_response_composition_mode = {
-                    "fluid": CompositionMode.FLUID.value,
-                    "fluid_utterance": CompositionMode.CANNED_FLUID.value,
-                    "composited_utterance": CompositionMode.CANNED_COMPOSITED.value,
-                    "strict_utterance": CompositionMode.CANNED_STRICT.value,
-                }
-
-                return _AgentDocument(
-                    id=ObjectId(doc["id"]),
-                    version=Version.String("0.4.0"),
-                    creation_utc=doc["creation_utc"],
-                    name=doc["name"],
-                    description=doc.get("description"),
-                    max_engine_iterations=doc["max_engine_iterations"],
-                    composition_mode=utterance_to_canned_response_composition_mode.get(
-                        doc["composition_mode"], CompositionMode.FLUID.value
-                    ),
-                )
-
-            if doc["version"] == "0.4.0":
-                return doc
-
-            return None
-
-        async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> Optional[BaseDocument]:
-            doc = cast(_AgentDocument, doc)
-
-            if doc["version"] == "0.4.0":
-                return _AgentDocument(
-                    id=ObjectId(doc["id"]),
-                    version=Version.String("0.5.0"),
-                    creation_utc=doc["creation_utc"],
-                    name=doc["name"],
-                    description=doc.get("description"),
-                    max_engine_iterations=doc["max_engine_iterations"],
-                    composition_mode=doc.get("composition_mode", CompositionMode.FLUID.value),
-                    message_output_mode=MessageOutputMode.BLOCK.value,
-                )
-
-            if doc["version"] == "0.5.0":
-                return doc
-
-            return None
-
-        return await DocumentMigrationHelper[_AgentDocument](
-            self,
-            {
-                "0.1.0": v0_1_0_to_v0_2_0,
-                "0.2.0": v0_2_0_to_v0_3_0,
-                "0.3.0": v0_3_0_to_v0_4_0,
-                "0.4.0": v0_4_0_to_v0_5_0,
-            },
-        ).migrate(doc)
+        # Fresh data baseline: no historical versions. Register converters here
+        # when the document schema next changes.
+        return await DocumentMigrationHelper[_AgentDocument](self, {}).migrate(doc)
 
     async def _association_document_loader(
         self, doc: BaseDocument
     ) -> Optional[_AgentTagAssociationDocument]:
-        doc = cast(_AgentTagAssociationDocument, doc)
-
-        if doc["version"] == "0.3.0":
-            return _AgentTagAssociationDocument(
-                id=ObjectId(doc["id"]),
-                version=Version.String("0.5.0"),
-                creation_utc=doc["creation_utc"],
-                agent_id=AgentId(doc["agent_id"]),
-                tag_id=TagId(doc["tag_id"]),
-            )
-
-        if doc["version"] == "0.4.0":
-            return _AgentTagAssociationDocument(
-                id=ObjectId(doc["id"]),
-                version=Version.String("0.5.0"),
-                creation_utc=doc["creation_utc"],
-                agent_id=AgentId(doc["agent_id"]),
-                tag_id=TagId(doc["tag_id"]),
-            )
-
-        if Version.from_string(doc["version"]) >= Version.from_string("0.5.0"):
-            return doc
-
-        return None
+        # Fresh data baseline: no historical versions. Register converters here
+        # when the document schema next changes.
+        return await DocumentMigrationHelper[_AgentTagAssociationDocument](self, {}).migrate(doc)
 
     async def __aenter__(self) -> Self:
         async with DocumentStoreMigrationHelper(
             store=self,
             database=self._database,
             allow_migration=self._allow_migration,
+            collections_prefix=self._collections_prefix,
         ):
             self._agents_collection = await self._database.get_or_create_collection(
-                name="agents",
+                name=f"{self._collections_prefix}_agents" if self._collections_prefix else "agents",
                 schema=_AgentDocument,
                 document_loader=self._document_loader,
             )
 
             self._tag_association_collection = await self._database.get_or_create_collection(
-                name="agent_tags",
+                name=f"{self._collections_prefix}_agent_groups"
+                if self._collections_prefix
+                else "agent_groups",
                 schema=_AgentTagAssociationDocument,
                 document_loader=self._association_document_loader,
             )
@@ -303,49 +293,84 @@ class AgentDocumentStore(AgentStore):
             id=ObjectId(agent.id),
             version=self.VERSION.to_string(),
             creation_utc=agent.creation_utc.isoformat(),
+            last_modified=agent.modified_utc.isoformat(),
             name=agent.name,
-            description=agent.description,
-            max_engine_iterations=agent.max_engine_iterations,
-            composition_mode=agent.composition_mode.value,
+            instructions=agent.instructions,
+            max_steps=agent.max_steps,
             message_output_mode=agent.message_output_mode.value,
+            engine=agent.engine,
+            effort=agent.effort.value,
+            moderation=agent.moderation.value,
+            message_review=agent.message_review,
+            tool_review=agent.tool_review,
         )
 
     async def _deserialize_agent(self, agent_document: _AgentDocument) -> Agent:
-        tags = [
-            d["tag_id"]
+        groups = [
+            d["group_id"]
             for d in await self._tag_association_collection.find(
                 {"agent_id": {"$eq": agent_document["id"]}}
             )
         ]
 
+        return self._to_agent(agent_document, groups)
+
+    async def _deserialize_many(
+        self,
+        documents: Sequence[_AgentDocument],
+    ) -> Sequence[Agent]:
+        """Reconstruct a whole page of entities with one association query."""
+        group_ids = await group_ids_by_entity(
+            self._tag_association_collection,
+            entity_field="agent_id",
+            value_field="group_id",
+            entity_ids=[d["id"] for d in documents],
+        )
+
+        return [self._to_agent(d, group_ids[d["id"]]) for d in documents]
+
+    def _to_agent(
+        self,
+        agent_document: _AgentDocument,
+        group_ids: Sequence[str],
+    ) -> Agent:
         return Agent(
             id=AgentId(agent_document["id"]),
             creation_utc=datetime.fromisoformat(agent_document["creation_utc"]),
+            modified_utc=datetime.fromisoformat(agent_document["last_modified"]),
             name=agent_document["name"],
-            description=agent_document["description"],
-            max_engine_iterations=agent_document["max_engine_iterations"],
-            tags=tags,
-            composition_mode=CompositionMode(agent_document.get("composition_mode", "fluid")),
+            instructions=agent_document["instructions"],
+            max_steps=agent_document["max_steps"],
+            groups=[GroupId(group_id) for group_id in group_ids],
             message_output_mode=MessageOutputMode(
                 agent_document.get("message_output_mode", "block")
             ),
+            engine=agent_document.get("engine", "compass"),
+            effort=Effort(agent_document.get("effort", Effort.MEDIUM.value)),
+            moderation=Moderation(agent_document.get("moderation", Moderation.AUTO.value)),
+            message_review=agent_document.get("message_review", False),
+            tool_review=agent_document.get("tool_review", False),
         )
 
     @override
     async def create_agent(
         self,
         name: str,
-        description: Optional[str] = None,
+        instructions: Optional[str] = None,
         creation_utc: Optional[datetime] = None,
-        max_engine_iterations: Optional[int] = None,
-        composition_mode: Optional[CompositionMode] = None,
+        max_steps: Optional[int] = None,
         message_output_mode: Optional[MessageOutputMode] = None,
-        tags: Optional[Sequence[TagId]] = None,
+        engine: Optional[str] = None,
+        effort: Optional[Effort] = None,
+        moderation: Optional[Moderation] = None,
+        groups: Optional[Sequence[GroupId]] = None,
         id: Optional[AgentId] = None,
+        message_review: bool = False,
+        tool_review: bool = False,
     ) -> Agent:
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
-            max_engine_iterations = max_engine_iterations or 3
+            max_steps = max_steps or 15
 
             # Use provided ID or generate one
             if id is not None:
@@ -356,24 +381,29 @@ class AgentDocumentStore(AgentStore):
                 if existing:
                     raise ValueError(f"Agent with id '{agent_id}' already exists")
             else:
-                agent_checksum = xxh3_checksum(f"{name}{description}{max_engine_iterations}{tags}")
+                agent_checksum = xxh3_checksum(f"{name}{instructions}{max_steps}{groups}")
                 agent_id = AgentId(self._id_generator.generate(agent_checksum))
 
             agent = Agent(
                 id=agent_id,
                 name=name,
-                description=description,
+                instructions=instructions,
                 creation_utc=creation_utc,
-                max_engine_iterations=max_engine_iterations,
-                tags=tags or [],
-                composition_mode=composition_mode or CompositionMode.FLUID,
+                modified_utc=creation_utc,
+                max_steps=max_steps,
+                groups=groups or [],
                 message_output_mode=message_output_mode or MessageOutputMode.BLOCK,
+                engine=engine or "compass",
+                effort=effort or Effort.MEDIUM,
+                moderation=moderation or Moderation.AUTO,
+                message_review=message_review,
+                tool_review=tool_review,
             )
 
             await self._agents_collection.insert_one(document=self._serialize_agent(agent=agent))
 
-            for tag_id in tags or []:
-                tag_checksum = xxh3_checksum(f"{agent.id}{tag_id}")
+            for group_id in groups or []:
+                tag_checksum = xxh3_checksum(f"{agent.id}{group_id}")
 
                 await self._tag_association_collection.insert_one(
                     document={
@@ -381,7 +411,7 @@ class AgentDocumentStore(AgentStore):
                         "version": self.VERSION.to_string(),
                         "creation_utc": creation_utc.isoformat(),
                         "agent_id": agent.id,
-                        "tag_id": tag_id,
+                        "group_id": group_id,
                     }
                 )
 
@@ -392,10 +422,9 @@ class AgentDocumentStore(AgentStore):
         self,
     ) -> Sequence[Agent]:
         async with self._lock.reader_lock:
-            return [
-                await self._deserialize_agent(d)
-                for d in await self._agents_collection.find(filters={})
-            ]
+            return await self._deserialize_many(
+                list(await self._agents_collection.find(filters={}))
+            )
 
     @override
     async def read_agent(self, agent_id: AgentId) -> Agent:
@@ -427,9 +456,12 @@ class AgentDocumentStore(AgentStore):
             if not agent_document:
                 raise ItemNotFoundError(item_id=UniqueId(agent_id))
 
+            update_payload = cast(_AgentDocument, to_json_dict(params))
+            update_payload["last_modified"] = datetime.now(timezone.utc).isoformat()
+
             result = await self._agents_collection.update_one(
                 filters={"id": {"$eq": agent_id}},
-                params=cast(_AgentDocument, to_json_dict(params)),
+                params=update_payload,
             )
 
         assert result.updated_document
@@ -457,33 +489,39 @@ class AgentDocumentStore(AgentStore):
             raise ItemNotFoundError(item_id=UniqueId(agent_id))
 
     @override
-    async def upsert_tag(
+    async def upsert_group(
         self,
         agent_id: AgentId,
-        tag_id: TagId,
+        group_id: GroupId,
         creation_utc: Optional[datetime] = None,
     ) -> bool:
         async with self._lock.writer_lock:
             agent = await self.read_agent(agent_id)
 
-            if tag_id in agent.tags:
+            if group_id in agent.groups:
                 return False
 
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            association_checksum = xxh3_checksum(f"{agent_id}{tag_id}")
+            association_checksum = xxh3_checksum(f"{agent_id}{group_id}")
 
             association_document: _AgentTagAssociationDocument = {
                 "id": ObjectId(self._id_generator.generate(association_checksum)),
                 "version": self.VERSION.to_string(),
                 "creation_utc": creation_utc.isoformat(),
                 "agent_id": agent_id,
-                "tag_id": tag_id,
+                "group_id": group_id,
             }
 
             _ = await self._tag_association_collection.insert_one(document=association_document)
 
             agent_document = await self._agents_collection.find_one({"id": {"$eq": agent_id}})
+
+            if agent_document:
+                await self._agents_collection.update_one(
+                    filters={"id": {"$eq": agent_id}},
+                    params={"last_modified": datetime.now(timezone.utc).isoformat()},
+                )
 
         if not agent_document:
             raise ItemNotFoundError(item_id=UniqueId(agent_id))
@@ -491,23 +529,123 @@ class AgentDocumentStore(AgentStore):
         return True
 
     @override
-    async def remove_tag(
+    async def remove_group(
         self,
         agent_id: AgentId,
-        tag_id: TagId,
+        group_id: GroupId,
     ) -> None:
         async with self._lock.writer_lock:
             delete_result = await self._tag_association_collection.delete_one(
                 {
                     "agent_id": {"$eq": agent_id},
-                    "tag_id": {"$eq": tag_id},
+                    "group_id": {"$eq": group_id},
                 }
             )
 
             if delete_result.deleted_count == 0:
-                raise ItemNotFoundError(item_id=UniqueId(tag_id))
+                raise ItemNotFoundError(item_id=UniqueId(group_id))
 
             agent_document = await self._agents_collection.find_one({"id": {"$eq": agent_id}})
 
+            if agent_document:
+                await self._agents_collection.update_one(
+                    filters={"id": {"$eq": agent_id}},
+                    params={"last_modified": datetime.now(timezone.utc).isoformat()},
+                )
+
         if not agent_document:
             raise ItemNotFoundError(item_id=UniqueId(agent_id))
+
+
+class CompositeAgentStore(AgentStore):
+    def __init__(
+        self,
+        writable_store: AgentStore,
+        readable_stores: Sequence[AgentStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[AgentStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_agent(
+        self,
+        name: str,
+        instructions: Optional[str] = None,
+        creation_utc: Optional[datetime] = None,
+        max_steps: Optional[int] = None,
+        message_output_mode: Optional[MessageOutputMode] = None,
+        engine: Optional[str] = None,
+        effort: Optional[Effort] = None,
+        moderation: Optional[Moderation] = None,
+        groups: Optional[Sequence[GroupId]] = None,
+        id: Optional[AgentId] = None,
+        message_review: bool = False,
+        tool_review: bool = False,
+    ) -> Agent:
+        return await self._writable_store.create_agent(
+            name=name,
+            instructions=instructions,
+            creation_utc=creation_utc,
+            max_steps=max_steps,
+            message_output_mode=message_output_mode,
+            engine=engine,
+            effort=effort,
+            moderation=moderation,
+            groups=groups,
+            id=id,
+            message_review=message_review,
+            tool_review=tool_review,
+        )
+
+    @override
+    async def list_agents(
+        self,
+    ) -> Sequence[Agent]:
+        results = await safe_gather(*[store.list_agents() for store in self._all_stores])
+        return list(chain.from_iterable(results))
+
+    @override
+    async def read_agent(
+        self,
+        agent_id: AgentId,
+    ) -> Agent:
+        results = await safe_gather(
+            *[try_or_none(store.read_agent(agent_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(agent_id))
+        return result
+
+    @override
+    async def update_agent(
+        self,
+        agent_id: AgentId,
+        params: AgentUpdateParams,
+    ) -> Agent:
+        return await self._writable_store.update_agent(agent_id, params)
+
+    @override
+    async def delete_agent(
+        self,
+        agent_id: AgentId,
+    ) -> None:
+        return await self._writable_store.delete_agent(agent_id)
+
+    @override
+    async def upsert_group(
+        self,
+        agent_id: AgentId,
+        group_id: GroupId,
+        creation_utc: Optional[datetime] = None,
+    ) -> bool:
+        return await self._writable_store.upsert_group(agent_id, group_id, creation_utc)
+
+    @override
+    async def remove_group(
+        self,
+        agent_id: AgentId,
+        group_id: GroupId,
+    ) -> None:
+        return await self._writable_store.remove_group(agent_id, group_id)

@@ -21,7 +21,7 @@ export default function Tooltip({children, value, className, style = {}, side = 
 					side={side}
 					align={align}
 					style={{boxShadow: 'none', ...style}}
-					className={twMerge('left-[34px] h-[32px] text-[13px] font-normal font-inter rounded-[20px] border border-[#EBECF0] border-solid bg-white p-[5px_16px_7px_16px]', className)}>
+					className={twMerge('left-[34px] h-[32px] text-[13px] font-normal font-manrope rounded-[20px] border border-[#EBECF0] border-solid bg-white p-[5px_16px_7px_16px]', className)}>
 					<div>{value}</div>
 				</TooltipContent>
 			</ShadcnTooltip>

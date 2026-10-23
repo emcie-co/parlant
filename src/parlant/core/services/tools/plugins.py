@@ -15,6 +15,7 @@
 from __future__ import annotations
 import asyncio
 import contextvars
+import math
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 import enum
@@ -52,13 +53,17 @@ from urllib.parse import urljoin
 import uvicorn
 
 from parlant.core.agents import AgentId
-from parlant.core.loggers import Logger
+from parlant.core.common import to_prompt_json
+from parlant.core.loggers import ScopedLogger, Logger
+from parlant.core.nlp.embedding import EmbeddingCacheProvider, Embedder
 from parlant.core.tools import (
+    Narration,
     Tool,
     ToolError,
     ToolParameterDescriptor,
     ToolParameterOptions,
     ToolParameterType,
+    ToolRelevanceResult,
     ToolResult,
     ToolContext,
     ToolResultError,
@@ -79,6 +84,44 @@ TOOL_RESULT_MAX_PAYLOAD_KB = int(os.environ.get("PARLANT_TOOL_RESULT_MAX_PAYLOAD
 _engine_context_registry: dict[str, Any] = {}
 
 ToolFunction = Union[
+    # The ToolContext parameter is optional: a tool that doesn't need it can
+    # declare only its own parameters (or none at all).
+    Callable[
+        [],
+        Union[ToolResult, Awaitable[ToolResult]],
+    ],
+    Callable[
+        [Any],
+        Union[ToolResult, Awaitable[ToolResult]],
+    ],
+    Callable[
+        [Any, Any],
+        Union[ToolResult, Awaitable[ToolResult]],
+    ],
+    Callable[
+        [Any, Any, Any],
+        Union[ToolResult, Awaitable[ToolResult]],
+    ],
+    Callable[
+        [Any, Any, Any, Any],
+        Union[ToolResult, Awaitable[ToolResult]],
+    ],
+    Callable[
+        [Any, Any, Any, Any, Any],
+        Union[ToolResult, Awaitable[ToolResult]],
+    ],
+    Callable[
+        [Any, Any, Any, Any, Any, Any],
+        Union[ToolResult, Awaitable[ToolResult]],
+    ],
+    Callable[
+        [Any, Any, Any, Any, Any, Any, Any],
+        Union[ToolResult, Awaitable[ToolResult]],
+    ],
+    Callable[
+        [Any, Any, Any, Any, Any, Any, Any, Any],
+        Union[ToolResult, Awaitable[ToolResult]],
+    ],
     Callable[
         [ToolContext],
         Union[ToolResult, Awaitable[ToolResult]],
@@ -122,6 +165,11 @@ ToolFunction = Union[
 class ToolEntry:
     tool: Tool
     function: ToolFunction
+    narration: Narration | None = None
+    """The tool's authored narration, kept server-side (like ``function``). The callable
+    form lives only here; it's resolved to a string in ``resolve_tool`` and never put on
+    the ``Tool`` dataclass or sent over the wire. The static form is also copied onto
+    ``tool.narration``."""
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         return self.function(*args, **kwargs)
@@ -139,6 +187,11 @@ class _ToolDecoratorParams(TypedDict, total=False):
 
     overlap: ToolOverlap
     """Defines how the tool overlaps with other tools. Defaults to ToolOverlap.AUTO."""
+
+    narration: Narration
+    """Message(s) to show in the agent's "thinking" status while the tool runs, instead of
+    the generic default. A string, several alternatives (one picked at random per call), or
+    a function of the ToolContext (resolved to a string server-side per call)."""
 
 
 _ToolParameterType = Union[str, int, float, bool, date, datetime, list[Any], None]
@@ -254,11 +307,15 @@ async def adapt_tool_arguments(
 
 
 async def _recompute_and_marshal_tool(
-    tool: Tool, plugin_data: Mapping[str, Any], context: ToolContext
+    tool: Tool,
+    plugin_data: Mapping[str, Any],
+    context: ToolContext,
+    narration: Narration | None = None,
 ) -> Tool:
     """This function is specifically used to refresh some of the tool's
     details based on dynamic changes (e.g., updating parameter descriptors
-    based on dynamically-generated enum choices)"""
+    based on dynamically-generated enum choices, or resolving a function-form
+    narration to a string)"""
     new_parameters = {}
 
     for name, (old_descriptor, options) in tool.parameters.items():
@@ -285,12 +342,31 @@ async def _recompute_and_marshal_tool(
             significance=options.significance,
             examples=options.examples,
             display_name=options.display_name,
-            precedence=options.precedence,
             adapter=None,
             choice_provider=None,
         )
 
         new_parameters[name] = (new_descriptor, marshalled_options)
+
+    # Resolve a function-form narration to a string (mirrors the choice_provider arg
+    # binding above): ToolContext is matched by type, other params by name from plugin_data.
+    # The static form passes through. Only the resolved string lands on the Tool / the wire.
+    resolved_narration: str | Sequence[str] | None
+    if callable(narration):
+        narration_args: dict[str, Any] = {}
+        for param_name, param in inspect.signature(narration).parameters.items():
+            # ToolContext is bound by type OR by the conventional name (so a bare
+            # ``lambda context: ...`` works); other params come from plugin_data by name.
+            if param.annotation is ToolContext or param_name in ("context", "ctx", "c"):
+                narration_args[param_name] = context
+            elif param_name in plugin_data:
+                narration_args[param_name] = plugin_data[param_name]
+        narration_result = narration(**narration_args)
+        resolved_narration = (
+            await narration_result if inspect.isawaitable(narration_result) else narration_result
+        )
+    else:
+        resolved_narration = narration
 
     return Tool(
         name=tool.name,
@@ -301,7 +377,14 @@ async def _recompute_and_marshal_tool(
         required=tool.required,
         consequential=tool.consequential,
         overlap=tool.overlap,
+        narration=resolved_narration,
     )
+
+
+def _takes_tool_context(func: ToolFunction) -> bool:
+    """Whether the tool function declares the (optional) leading ToolContext parameter."""
+    parameters = list(inspect.signature(func).parameters.values())
+    return bool(parameters) and parameters[0].annotation == ToolContext
 
 
 def _tool_decorator_impl(
@@ -312,22 +395,28 @@ def _tool_decorator_impl(
 
         parameters = list(signature.parameters.values())
 
-        assert len(parameters) >= 1, (
-            "A tool function must accept a parameter 'context: ToolContext'"
-        )
-
-        assert parameters[0].name in ["context", "ctx", "c"], (
-            "A tool function's first parameter must be named 'context', 'ctx', or 'c'"
-        )
-        assert parameters[0].annotation == ToolContext, (
-            "A tool function's first parameter must be 'context: ToolContext'"
-        )
+        if _takes_tool_context(func):
+            assert parameters[0].name in ["context", "ctx", "c"], (
+                "A tool function's ToolContext parameter must come first and be "
+                "named 'context', 'ctx', or 'c'"
+            )
+            parameters = parameters[1:]
+        else:
+            # The context parameter is optional, but a misplaced or unannotated
+            # one is a mistake worth failing loudly on.
+            assert all(param.annotation != ToolContext for param in parameters), (
+                "A tool function's ToolContext parameter must come first"
+            )
+            assert all(param.name not in ["context", "ctx", "c"] for param in parameters), (
+                "A tool parameter named 'context', 'ctx', or 'c' must be annotated "
+                "with ToolContext (or renamed)"
+            )
 
         assert signature.return_annotation == ToolResult, (
             "A tool function must return a ToolResult object"
         )
 
-        for param in parameters[1:]:
+        for param in parameters:
             param_info = _resolve_param_info(param)
 
             resolved_type = param_info.resolved_type
@@ -361,7 +450,8 @@ def _tool_decorator_impl(
         }
 
         parameters = list(inspect.signature(func).parameters.values())
-        parameters = parameters[1:]  # Skip tool context parameter
+        if _takes_tool_context(func):
+            parameters = parameters[1:]  # Skip the tool context parameter
 
         param_descriptors = {}
 
@@ -399,7 +489,7 @@ def _tool_decorator_impl(
                 elif inspect.isclass(param_info.resolved_type) and issubclass(
                     param_info.resolved_type, BaseModel
                 ):
-                    param_descriptor["description"] = json.dumps(
+                    param_descriptor["description"] = to_prompt_json(
                         {"json_schema": param_info.resolved_type.model_json_schema()}
                     )
 
@@ -418,12 +508,15 @@ def _tool_decorator_impl(
 
     def _find_required_params(func: ToolFunction) -> list[str]:
         parameters = list(inspect.signature(func).parameters.values())
-        parameters = parameters[1:]  # Skip tool context parameter
+        if _takes_tool_context(func):
+            parameters = parameters[1:]  # Skip the tool context parameter
         resolved_params = {p.name: _resolve_param_info(p) for p in parameters}
         return [name for name, type in resolved_params.items() if not type.is_optional]
 
     def decorator(func: ToolFunction) -> ToolEntry:
         _ensure_valid_tool_signature(func)
+
+        narration = kwargs.get("narration")
 
         entry = ToolEntry(
             tool=Tool(
@@ -435,8 +528,12 @@ def _tool_decorator_impl(
                 required=_find_required_params(func),
                 consequential=kwargs.get("consequential", False),
                 overlap=kwargs.get("overlap", ToolOverlap.AUTO),
+                # The static form is visible without resolution; a callable is left off
+                # the dataclass and resolved per-call in resolve_tool (it stays on the entry).
+                narration=narration if not callable(narration) else None,
             ),
             function=func,
+            narration=narration,
         )
 
         return entry
@@ -472,6 +569,30 @@ def tool(
 
 class ListToolsResponse(DefaultBaseModel):
     tools: list[Tool]
+
+
+class FindRelevantToolsRequest(DefaultBaseModel):
+    query: str
+    tool_names: list[str]
+    max_count: int
+
+
+class ToolRelevanceResultModel(DefaultBaseModel):
+    tool: Tool
+    score: float
+
+
+class FindRelevantToolsResponse(DefaultBaseModel):
+    tools: list[ToolRelevanceResultModel]
+
+
+def _cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(y * y for y in b))
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return dot / (norm_a * norm_b)
 
 
 class ReadToolResponse(DefaultBaseModel):
@@ -519,6 +640,8 @@ class PluginServer:
         plugin_data: Mapping[str, Any] = {},
         hosted: bool = False,
         context_vars: Mapping[contextvars.ContextVar[Any], Any] = {},
+        embedder: Embedder | None = None,
+        embedding_cache_provider: EmbeddingCacheProvider | None = None,
     ) -> None:
         self.tools = {entry.tool.name: entry for entry in tools}
         self.plugin_data = plugin_data
@@ -529,6 +652,12 @@ class PluginServer:
         self.context_vars = context_vars
 
         self._on_app_created = on_app_created
+
+        # When wired with an embedder, tools are
+        # embedded and ranked semantically; otherwise find_relevant_tools falls
+        # back to listing order.
+        self._embedder = embedder
+        self._embedding_cache_provider = embedding_cache_provider
 
         self._server: uvicorn.Server | None = None
 
@@ -541,10 +670,23 @@ class PluginServer:
         for _ in range(int(start_timeout / sample_frequency)):
             await asyncio.sleep(sample_frequency)
 
+            if self._task.done():
+                # The serve task died before the server came up (e.g. the
+                # port is already in use). Surface its failure loudly instead
+                # of letting it rot as an unretrieved task exception while we
+                # wait out the timeout.
+                if exception := self._task.exception():
+                    raise exception
+                raise RuntimeError(
+                    f"Plugin server on {self.host}:{self.port} exited before it started serving"
+                )
+
             if self.started():
                 return self
 
-        raise TimeoutError()
+        raise TimeoutError(
+            f"Plugin server on {self.host}:{self.port} did not start within {start_timeout}s"
+        )
 
     async def __aexit__(
         self,
@@ -578,13 +720,22 @@ class PluginServer:
 
         self._server = uvicorn.Server(config)
 
-        if self.hosted:
-            # Run without capturing signals.
-            # This is because we're being hosted in another process
-            # that has its own bookkeeping on signals.
-            await self._server._serve()
-        else:
-            await self._server.serve()
+        try:
+            if self.hosted:
+                # Run without capturing signals.
+                # This is because we're being hosted in another process
+                # that has its own bookkeeping on signals.
+                await self._server._serve()
+            else:
+                await self._server.serve()
+        except SystemExit:
+            # Uvicorn calls sys.exit(1) when it cannot start (most commonly a
+            # bind failure). Inside a task, that SystemExit would otherwise
+            # escape as loop teardown instead of a diagnosable error.
+            raise RuntimeError(
+                f"Plugin server failed to start on {self.host}:{self.port} "
+                "(is the port already in use?)"
+            ) from None
 
     async def shutdown(self) -> None:
         if server := self._server:
@@ -595,12 +746,67 @@ class PluginServer:
             return self._server.started
         return False
 
+    async def _embed(self, texts: list[str]) -> Sequence[Sequence[float]]:
+        assert self._embedder is not None
+
+        if self._embedding_cache_provider is not None:
+            cache = self._embedding_cache_provider()
+            if (cached := await cache.get(self._embedder, texts)) is not None:
+                return cached.vectors
+
+        result = await self._embedder.embed(texts)
+
+        if self._embedding_cache_provider is not None:
+            await self._embedding_cache_provider().set(self._embedder, texts, result.vectors)
+
+        return result.vectors
+
+    async def find_relevant_tools(
+        self,
+        query: str,
+        tool_names: Sequence[str],
+        max_count: int,
+    ) -> Sequence[ToolRelevanceResult]:
+        candidates = [self.tools[name].tool for name in tool_names if name in self.tools]
+
+        # No embedder wired → no semantic ranking; preserve listing order.
+        if not candidates or self._embedder is None:
+            return [ToolRelevanceResult(tool=t, score=0.0) for t in candidates[:max_count]]
+
+        # Embed ALL of this server's tools (a stable list → cache-friendly), then
+        # score the requested candidates against the query.
+        all_tools = [entry.tool for entry in self.tools.values()]
+        all_vectors = await self._embed([f"{t.name}: {t.description}" for t in all_tools])
+        vector_by_name = {t.name: v for t, v in zip(all_tools, all_vectors)}
+
+        (query_vector,) = await self._embed([query])
+
+        scored = [
+            ToolRelevanceResult(
+                tool=t, score=_cosine_similarity(query_vector, vector_by_name[t.name])
+            )
+            for t in candidates
+        ]
+        scored.sort(key=lambda r: r.score, reverse=True)
+        return scored[:max_count]
+
     def _create_app(self) -> FastAPI:
         app = FastAPI()
 
         @app.get("/tools")
         async def list_tools() -> ListToolsResponse:
             return ListToolsResponse(tools=[t.tool for t in self.tools.values()])
+
+        @app.post("/tools/relevant")
+        async def find_relevant_tools(
+            request: FindRelevantToolsRequest,
+        ) -> FindRelevantToolsResponse:
+            results = await self.find_relevant_tools(
+                request.query, request.tool_names, request.max_count
+            )
+            return FindRelevantToolsResponse(
+                tools=[ToolRelevanceResultModel(tool=r.tool, score=r.score) for r in results]
+            )
 
         @app.get("/tools/{name}")
         async def read_tool(name: str) -> ReadToolResponse:
@@ -632,6 +838,7 @@ class PluginServer:
                 spec.tool,
                 self.plugin_data,
                 ToolContext(context.agent_id, context.session_id, context.customer_id),
+                spec.narration,
             )
 
             return ReadToolResponse(tool=tool)
@@ -656,7 +863,7 @@ class PluginServer:
             # Restore EngineContext if context_id was provided (same-process hosted mode)
             if request.engine_context_id and request.engine_context_id in _engine_context_registry:
                 # Late import to avoid circular dependency
-                from parlant.core.engines.alpha.entity_context import EntityContext
+                from parlant.core.engines.entity_context import EntityContext
 
                 EntityContext.set(_engine_context_registry[request.engine_context_id])
 
@@ -701,7 +908,7 @@ class PluginServer:
                                     control=result.control,
                                     canned_responses=result.canned_responses,
                                     canned_response_fields=result.canned_response_fields,
-                                    guidelines=result.guidelines,
+                                    rules=result.rules,
                                 )
                             ).model_dump_json()
 
@@ -749,7 +956,10 @@ class PluginServer:
                 normalized_args = normalize_tool_arguments(tool_params, request.arguments)
                 adapted_args = await adapt_tool_arguments(tool_params, normalized_args)
 
-                result = self.tools[name].function(context, **adapted_args)  # type: ignore
+                if _takes_tool_context(func):
+                    result = self.tools[name].function(context, **adapted_args)  # type: ignore
+                else:
+                    result = self.tools[name].function(**adapted_args)  # type: ignore
             except BaseException as exc:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -784,7 +994,7 @@ class PluginClient(ToolService):
     ) -> None:
         self.url = url
         self._event_emitter_factory = event_emitter_factory
-        self._logger = logger
+        self._logger = ScopedLogger(logger, "PluginClient")
         self._tracer = tracer
 
     async def __aenter__(self) -> PluginClient:
@@ -815,23 +1025,24 @@ class PluginClient(ToolService):
             for name, (descriptor, options) in parameters.items()
         }
 
+    def _tool_from_json(self, t: Mapping[str, Any]) -> Tool:
+        return Tool(
+            name=t["name"],
+            creation_utc=dateutil.parser.parse(t["creation_utc"]),
+            description=t["description"],
+            metadata=t["metadata"],
+            parameters=self._translate_parameters(t["parameters"]),
+            required=t["required"],
+            consequential=t["consequential"],
+            overlap=ToolOverlap(t["overlap"]),
+            narration=t.get("narration"),  # .get: tolerate older servers without the field
+        )
+
     @override
     async def list_tools(self) -> Sequence[Tool]:
         response = await self._http_client.get(self._get_url("/tools"))
         content = response.json()
-        return [
-            Tool(
-                name=t["name"],
-                creation_utc=dateutil.parser.parse(t["creation_utc"]),
-                description=t["description"],
-                metadata=t["metadata"],
-                parameters=self._translate_parameters(t["parameters"]),
-                required=t["required"],
-                consequential=t["consequential"],
-                overlap=ToolOverlap(t["overlap"]),
-            )
-            for t in content["tools"]
-        ]
+        return [self._tool_from_json(t) for t in content["tools"]]
 
     @override
     async def read_tool(self, name: str) -> Tool:
@@ -843,17 +1054,24 @@ class PluginClient(ToolService):
             raise ToolError(name, "Failed to read tool from remote service")
 
         content = response.json()
-        t = content["tool"]
-        return Tool(
-            name=t["name"],
-            creation_utc=dateutil.parser.parse(t["creation_utc"]),
-            description=t["description"],
-            metadata=t["metadata"],
-            parameters=self._translate_parameters(t["parameters"]),
-            required=t["required"],
-            consequential=t["consequential"],
-            overlap=ToolOverlap(t["overlap"]),
+        return self._tool_from_json(content["tool"])
+
+    @override
+    async def find_relevant_tools(
+        self,
+        query: str,
+        tool_names: Sequence[str],
+        max_count: int,
+    ) -> Sequence[ToolRelevanceResult]:
+        response = await self._http_client.post(
+            self._get_url("/tools/relevant"),
+            json={"query": query, "tool_names": list(tool_names), "max_count": max_count},
         )
+        content = response.json()
+        return [
+            ToolRelevanceResult(tool=self._tool_from_json(r["tool"]), score=r["score"])
+            for r in content["tools"]
+        ]
 
     @override
     async def resolve_tool(
@@ -886,6 +1104,7 @@ class PluginClient(ToolService):
             required=t["required"],
             consequential=t["consequential"],
             overlap=ToolOverlap(t["overlap"]),
+            narration=t.get("narration"),  # .get: tolerate older servers without the field
         )
 
     @override
@@ -897,7 +1116,7 @@ class PluginClient(ToolService):
     ) -> ToolResult:
         # Register the current EngineContext for same-process PluginServer access
         # Late import to avoid circular dependency
-        from parlant.core.engines.alpha.entity_context import EntityContext
+        from parlant.core.engines.entity_context import EntityContext
 
         engine_context_id: str | None = None
         engine_context = EntityContext.get()

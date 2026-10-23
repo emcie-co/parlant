@@ -12,248 +12,43 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cached_property
-from typing import Any, AsyncIterator, Callable, Generic, Mapping, TypeVar, cast, get_args
+from typing import Any, Generic, Literal, Mapping, TypeVar, cast, get_args
 from typing_extensions import override
 
 from parlant.core.async_utils import Stopwatch
 from parlant.core.common import DefaultBaseModel
-from parlant.core.engines.alpha.prompt_builder import PromptBuilder
-from parlant.core.health import (
-    NLP_REQUEST_KIND,
-    NLP_REQUESTS_COUNTER,
-    NLP_TOKENS_COUNTER,
-    HealthReporter,
-    NLPHealthView,
-)
+from parlant.core.engines.compass.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
 from parlant.core.meter import DurationHistogram, Meter
-from parlant.core.nlp.generation_info import GenerationInfo, UsageInfo
+from parlant.core.nlp.generation_info import GenerationInfo
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.tracer import Tracer
+from parlant.core.usage_reporter import UsageReporter
 
 T = TypeVar("T", bound=DefaultBaseModel)
 
 
-# ============================================================================
-# Streaming Text Generator
-# ============================================================================
+# Normalized reasoning-depth hint accepted by every schematic generator under the
+# ``"reasoning_effort"`` key in ``generate``'s ``hints``. Each provider maps it to
+# its own model-specific reasoning configuration; models without reasoning support
+# ignore it. ``"minimal"`` is the floor ("as little reasoning as possible") and
+# resolves to *off* where the provider/model allows it.
+ReasoningEffort = Literal["minimal", "low", "medium", "high"]
+
+REASONING_EFFORT_HINT = "reasoning_effort"
 
 
-class StreamingTextGenerationResult:
-    """Result of a streaming text generation operation.
-
-    Provides access to both the chunk stream and the generation info.
-    The info property raises RuntimeError if accessed before the stream is fully consumed.
-    """
-
-    def __init__(
-        self,
-        stream: AsyncIterator[str | None],
-        info_getter: Callable[[], GenerationInfo],
-    ) -> None:
-        self._stream = stream
-        self._info_getter = info_getter
-
-    @property
-    def stream(self) -> AsyncIterator[str | None]:
-        """The async iterator that yields text chunks, terminated by None."""
-        return self._stream
-
-    @property
-    def info(self) -> GenerationInfo:
-        """Generation info including usage statistics.
-
-        Raises RuntimeError if accessed before the stream is fully consumed.
-        """
-        return self._info_getter()
-
-
-class StreamingTextGenerator(ABC):
-    """An interface for generating streaming text content based on a prompt.
-
-    Unlike SchematicGenerator which returns structured content, this generator
-    yields plain text chunks progressively, terminated by None to signal completion.
-    """
-
-    @abstractmethod
-    def generate(
-        self,
-        prompt: str | PromptBuilder,
-        hints: Mapping[str, Any] = {},
-    ) -> StreamingTextGenerationResult:
-        """Generate text content based on the provided prompt and hints.
-
-        Returns a StreamingTextGenerationResult containing:
-        - stream: AsyncIterator yielding text chunks, followed by None to signal completion
-        - info: GenerationInfo with usage statistics (available after stream completes)
-        """
-        ...
-
-    @property
-    @abstractmethod
-    def id(self) -> str:
-        """Return a unique identifier for the generator."""
-        ...
-
-    @property
-    @abstractmethod
-    def tokenizer(self) -> EstimatingTokenizer:
-        """Return a tokenizer that approximates that of the underlying model."""
-        ...
-
-
-_STREAMING_REQUEST_DURATION_HISTOGRAM: DurationHistogram | None = None
-
-
-class BaseStreamingTextGenerator(StreamingTextGenerator):
-    """Base class for streaming text generators with tracing and metrics."""
-
-    def __init__(
-        self,
-        logger: Logger,
-        tracer: Tracer,
-        meter: Meter,
-        model_name: str,
-        health_reporter: HealthReporter,
-    ) -> None:
-        self.logger = logger
-        self.tracer = tracer
-        self.meter = meter
-        self.model_name = model_name
-        self.health_reporter = health_reporter
-
-        global _STREAMING_REQUEST_DURATION_HISTOGRAM
-        if _STREAMING_REQUEST_DURATION_HISTOGRAM is None:
-            _STREAMING_REQUEST_DURATION_HISTOGRAM = meter.create_duration_histogram(
-                name="stream",
-                description="Duration of streaming generation requests in milliseconds",
-            )
-
-    @abstractmethod
-    async def do_generate(
-        self,
-        prompt: str | PromptBuilder,
-        hints: Mapping[str, Any] = {},
-    ) -> tuple[AsyncIterator[str | None], Callable[[], UsageInfo]]:
-        """Subclasses implement this to perform the actual generation.
-
-        Returns:
-            A tuple of:
-            - AsyncIterator yielding text chunks, terminated by None
-            - A callable that returns UsageInfo (may raise if called before stream completes)
-        """
-        ...
-
-    @override
-    def generate(
-        self,
-        prompt: str | PromptBuilder,
-        hints: Mapping[str, Any] = {},
-    ) -> StreamingTextGenerationResult:
-        assert _STREAMING_REQUEST_DURATION_HISTOGRAM is not None
-
-        start = Stopwatch.start()
-        stream_complete = False
-        duration: float = 0.0
-        usage_getter: Callable[[], UsageInfo] | None = None
-
-        async def wrapped_stream() -> AsyncIterator[str | None]:
-            nonlocal stream_complete, duration, usage_getter
-            ttft_seconds: float | None = None
-
-            try:
-                self.tracer.add_event(
-                    "stream.request_started",
-                    attributes={
-                        "model.name": self.model_name,
-                    },
-                )
-
-                inner_stream, usage_getter = await self.do_generate(prompt, hints)
-
-                async for chunk in inner_stream:
-                    if ttft_seconds is None and chunk is not None:
-                        ttft_seconds = start.elapsed
-                    yield chunk
-
-                duration = start.elapsed
-                stream_complete = True
-
-                self.tracer.add_event(
-                    "stream.request_completed",
-                    attributes={
-                        "model.name": self.model_name,
-                        "duration": duration,
-                    },
-                )
-                stream_usage: UsageInfo | None = None
-                try:
-                    stream_usage = usage_getter() if usage_getter is not None else None
-                except Exception:
-                    stream_usage = None
-                # Health latency tracks time-to-first-token rather than end-to-end:
-                # for streaming, TTFT is the user-perceived latency that matters.
-                # Fall back to total duration if no chunk was ever produced.
-                self._report_health(
-                    ttft_seconds if ttft_seconds is not None else duration,
-                    success=True,
-                    error=None,
-                    usage=stream_usage,
-                )
-            except Exception as exc:
-                duration = start.elapsed
-                self.tracer.add_event(
-                    "stream.request_failed",
-                    attributes={
-                        "model.name": self.model_name,
-                        "duration": duration,
-                    },
-                )
-                self._report_health(duration, success=False, error=exc, usage=None)
-                raise
-
-        def info_getter() -> GenerationInfo:
-            if not stream_complete:
-                raise RuntimeError("Cannot access generation info before stream is fully consumed")
-            assert usage_getter is not None
-            return GenerationInfo(
-                schema_name="streaming",
-                model=self.id,
-                duration=duration,
-                usage=usage_getter(),
-            )
-
-        return StreamingTextGenerationResult(
-            stream=wrapped_stream(),
-            info_getter=info_getter,
-        )
-
-    def _report_health(
-        self,
-        duration_seconds: float,
-        *,
-        success: bool,
-        error: BaseException | None,
-        usage: UsageInfo | None = None,
-    ) -> None:
-        self.health_reporter.report(
-            NLP_REQUEST_KIND,
-            {
-                NLPHealthView.ATTR_SCHEMA: "StreamingText",
-                NLPHealthView.ATTR_MODEL: self.model_name,
-                NLPHealthView.ATTR_SUCCESS: success,
-                NLPHealthView.ATTR_LATENCY_MS: duration_seconds * 1000.0,
-                NLPHealthView.ATTR_ERROR_CLASS: type(error).__name__ if error is not None else None,
-            },
-        )
-        self.health_reporter.increment_counter(NLP_REQUESTS_COUNTER, 1)
-        if usage is not None:
-            self.health_reporter.increment_counter(
-                NLP_TOKENS_COUNTER, usage.input_tokens + usage.output_tokens
-            )
+# When present in ``generate``'s ``hints`` with a positive float value, the request
+# is hedged: if the first attempt hasn't returned within this many seconds, an
+# identical second request is fired and whichever completes first wins. When usage
+# reporting is enabled, the loser finishes in the background so its usage can be
+# accounted for; otherwise it is cancelled. Safe because schematic generation is
+# a pure read with no side effects. Absent / ``None`` / ``<= 0`` disables hedging.
+HEDGE_TIMEOUT_HINT = "hedge_timeout"
 
 
 # ============================================================================
@@ -312,19 +107,28 @@ _REQUEST_DURATION_HISTOGRAM: DurationHistogram | None = None
 
 
 class BaseSchematicGenerator(SchematicGenerator[T]):
+    # Warn when a single schematic generation takes longer than this (seconds).
+    _SLOW_GENERATION_WARNING_SECONDS = 15.0
+    # Warn when a single schematic generation emits more output tokens than this
+    # (a lot, and expensive).
+    _LARGE_OUTPUT_WARNING_TOKENS = 4000
+
     def __init__(
         self,
         logger: Logger,
         tracer: Tracer,
         meter: Meter,
         model_name: str,
-        health_reporter: HealthReporter,
+        usage_reporter: UsageReporter | None = None,
+        *,
+        provider_name: str,
     ) -> None:
         self.logger = logger
         self.tracer = tracer
         self.meter = meter
         self.model_name = model_name
-        self.health_reporter = health_reporter
+        self.usage_reporter = usage_reporter
+        self._provider_name = provider_name
 
         global _REQUEST_DURATION_HISTOGRAM
         if _REQUEST_DURATION_HISTOGRAM is None:
@@ -332,6 +136,16 @@ class BaseSchematicGenerator(SchematicGenerator[T]):
                 name="gen",
                 description="Duration of generation requests in milliseconds",
             )
+
+    @property
+    def provider_name(self) -> str:
+        """The provider this generator reports usage under (``provider:model``).
+
+        Defaults to the adapter's own provider id; a hand-built instance may be
+        given another, so one model reached through two providers (say, a direct
+        account and a gateway at a different rate) is accounted and priced apart.
+        """
+        return self._provider_name
 
     @abstractmethod
     async def do_generate(
@@ -358,8 +172,8 @@ class BaseSchematicGenerator(SchematicGenerator[T]):
             start = Stopwatch.start()
 
             try:
-                result = await self.do_generate(prompt, hints)
-            except Exception as exc:
+                result = await self._generate_maybe_hedged(prompt, hints)
+            except Exception:
                 self.tracer.add_event(
                     "gen.request_failed",
                     attributes={
@@ -368,7 +182,6 @@ class BaseSchematicGenerator(SchematicGenerator[T]):
                         "duration": start.elapsed,
                     },
                 )
-                self._report_health(start.elapsed, success=False, error=exc)
                 raise
             else:
                 self.tracer.add_event(
@@ -379,35 +192,136 @@ class BaseSchematicGenerator(SchematicGenerator[T]):
                         "duration": start.elapsed,
                     },
                 )
-                self._report_health(
-                    start.elapsed, success=True, error=None, usage=result.info.usage
-                )
+                elapsed = start.elapsed
+                if self.usage_reporter is not None:
+                    self.usage_reporter.report_usage(
+                        self.model_name,
+                        result.info.usage,
+                        provider_name=self.provider_name,
+                    )
+
+                if elapsed > self._SLOW_GENERATION_WARNING_SECONDS:
+                    self.logger.warning(
+                        f"Schematic generation took exceptionally long: {elapsed:.1f}s "
+                        f"({self.__class__.__qualname__} / {self.model_name} / "
+                        f"{self.schema.__name__})"
+                    )
+
+                output_tokens = result.info.usage.output_tokens
+                if output_tokens > self._LARGE_OUTPUT_WARNING_TOKENS:
+                    self.logger.warning(
+                        f"Schematic generation produced a large (expensive) output: "
+                        f"{output_tokens} output tokens ({self.__class__.__qualname__} / "
+                        f"{self.model_name} / {self.schema.__name__})"
+                    )
 
             return result
 
-    def _report_health(
+    async def _generate_maybe_hedged(
         self,
-        duration_seconds: float,
-        *,
-        success: bool,
-        error: BaseException | None,
-        usage: UsageInfo | None = None,
-    ) -> None:
-        self.health_reporter.report(
-            NLP_REQUEST_KIND,
-            {
-                NLPHealthView.ATTR_SCHEMA: self.schema.__name__,
-                NLPHealthView.ATTR_MODEL: self.model_name,
-                NLPHealthView.ATTR_SUCCESS: success,
-                NLPHealthView.ATTR_LATENCY_MS: duration_seconds * 1000.0,
-                NLPHealthView.ATTR_ERROR_CLASS: type(error).__name__ if error is not None else None,
+        prompt: str | PromptBuilder,
+        hints: Mapping[str, Any],
+    ) -> SchematicGenerationResult[T]:
+        """Run ``do_generate``, optionally hedging on latency.
+
+        When ``hints`` carries a positive ``HEDGE_TIMEOUT_HINT`` and the
+        first attempt hasn't returned within that window, fire an identical
+        second request and return whichever finishes first. When usage reporting
+        is configured, a losing attempt finishes in the background and its token
+        usage is reported against the originating trace; otherwise it is
+        cancelled. Hedging only reacts to *slowness* — if the first attempt raises
+        before the window elapses, that error propagates (errors are the
+        provider's retry policy's job). Safe to double-fire because schematic
+        generation is a pure read with no side effects.
+        """
+        delay = hints.get(HEDGE_TIMEOUT_HINT)
+        should_hedge = isinstance(delay, (int, float)) and not isinstance(delay, bool) and delay > 0
+
+        first: asyncio.Task[SchematicGenerationResult[T]] = asyncio.ensure_future(
+            self.do_generate(prompt, hints)
+        )
+
+        if not should_hedge:
+            return await first
+
+        done, _ = await asyncio.wait({first}, timeout=float(cast(float, delay)))
+        if first in done:
+            return first.result()
+
+        self.tracer.add_event(
+            "gen.request_hedged",
+            attributes={
+                "model.name": self.model_name,
+                "schema.name": self.schema.__name__,
+                "hedge_timeout": float(cast(float, delay)),
             },
         )
-        self.health_reporter.increment_counter(NLP_REQUESTS_COUNTER, 1)
-        if usage is not None:
-            self.health_reporter.increment_counter(
-                NLP_TOKENS_COUNTER, usage.input_tokens + usage.output_tokens
+
+        second: asyncio.Task[SchematicGenerationResult[T]] = asyncio.ensure_future(
+            self.do_generate(prompt, hints)
+        )
+        attempts = [first, second]
+        tracked_attempts: set[asyncio.Task[SchematicGenerationResult[T]]] = set()
+
+        try:
+            pending: set[asyncio.Task[SchematicGenerationResult[T]]] = {first, second}
+            while pending:
+                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                for task in done:
+                    if task.exception() is None:
+                        result = task.result()
+
+                        if self.usage_reporter is not None:
+                            trace_id = self.tracer.trace_id
+                            for other in attempts:
+                                if other is task:
+                                    continue
+                                tracked_attempts.add(other)
+                                self.usage_reporter.track(
+                                    self._report_hedge_attempt_usage(other, trace_id),
+                                    trace_id=trace_id,
+                                )
+
+                        usage = replace(
+                            result.info.usage,
+                            requests=result.info.usage.requests + len(attempts) - 1,
+                        )
+                        return replace(result, info=replace(result.info, usage=usage))
+
+            # Both attempts failed — surface the first attempt's error.
+            error = first.exception()
+            assert error is not None
+            raise error
+        finally:
+            for task in attempts:
+                if task not in tracked_attempts and not task.done():
+                    task.cancel()
+            await asyncio.gather(
+                *(task for task in attempts if task not in tracked_attempts),
+                return_exceptions=True,
             )
+
+    async def _report_hedge_attempt_usage(
+        self,
+        attempt: asyncio.Task[SchematicGenerationResult[T]],
+        trace_id: str,
+    ) -> None:
+        """Report a losing hedge's tokens without counting its request twice."""
+        assert self.usage_reporter is not None
+
+        try:
+            result = await attempt
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            return
+
+        self.usage_reporter.report_usage(
+            self.model_name,
+            replace(result.info.usage, requests=0),
+            provider_name=self.provider_name,
+            trace_id=trace_id,
+        )
 
 
 class FallbackSchematicGenerator(SchematicGenerator[T]):

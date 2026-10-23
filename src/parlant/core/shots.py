@@ -34,11 +34,14 @@ class Shot:
 
     @staticmethod
     def message_event(source: EventSource, data: MessageEventData) -> Event:
+        creation_utc = datetime.now(timezone.utc)
+
         return Event(
             id=EventId(generate_id()),
             source=source,
             kind=EventKind.MESSAGE,
-            creation_utc=datetime.now(timezone.utc),  # unused in shots
+            creation_utc=creation_utc,  # unused in shots
+            modified_utc=creation_utc,  # unused in shots
             offset=0,  # unused in shots
             trace_id="<unused>",  # unused in shots
             data=cast(JSONSerializable, data),
@@ -48,11 +51,14 @@ class Shot:
 
     @staticmethod
     def tool_event(data: ToolEventData) -> Event:  # noqa: F821
+        creation_utc = datetime.now(timezone.utc)
+
         return Event(
             id=EventId(generate_id()),
             source=EventSource.SYSTEM,
             kind=EventKind.TOOL,
-            creation_utc=datetime.now(timezone.utc),  # unused in shots
+            creation_utc=creation_utc,  # unused in shots
+            modified_utc=creation_utc,  # unused in shots
             offset=0,  # unused in shots
             trace_id="<unused>",  # unused in shots
             data=cast(JSONSerializable, data),

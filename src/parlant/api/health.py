@@ -21,9 +21,7 @@ available through the container; everything else flows through here.
 """
 
 from datetime import timedelta
-from typing import Mapping
-
-from lagom import Container
+from parlant.core.container import Container
 
 from parlant.core.event_loop_monitor import EventLoopMonitor
 from parlant.core.health import (
@@ -39,53 +37,10 @@ from parlant.core.health import (
     HealthReporter,
     NLPHealthView,
     ReportRetention,
-    SchemaThresholds,
+    TunnelHealthView,
 )
-
-
-def _t(p50_deg: float, p50_unh: float, p95_deg: float, p95_unh: float) -> SchemaThresholds:
-    """Build SchemaThresholds from seconds for readability."""
-    return SchemaThresholds(
-        degraded_p50_ms=p50_deg * 1000,
-        unhealthy_p50_ms=p50_unh * 1000,
-        degraded_p95_ms=p95_deg * 1000,
-        unhealthy_p95_ms=p95_unh * 1000,
-    )
-
-
-DEFAULT_NLP_SCHEMA_THRESHOLDS: Mapping[str, SchemaThresholds] = {
-    # Canned response (hot path)
-    "CannedResponsePreambleSchema": _t(p50_deg=3, p50_unh=5, p95_deg=8, p95_unh=15),
-    "CannedResponseDraftSchema": _t(p50_deg=10, p50_unh=15, p95_deg=25, p95_unh=45),
-    "CannedResponseRevisionSchema": _t(p50_deg=10, p50_unh=15, p95_deg=25, p95_unh=45),
-    "CannedResponseSelectionSchema": _t(p50_deg=5, p50_unh=10, p95_deg=15, p95_unh=20),
-    "FollowUpCannedResponseSelectionSchema": _t(p50_deg=5, p50_unh=10, p95_deg=15, p95_unh=20),
-    "CannedResponseFieldExtractionSchema": _t(p50_deg=5, p50_unh=10, p95_deg=15, p95_unh=20),
-    "StreamingText": _t(p50_deg=5, p50_unh=8, p95_deg=10, p95_unh=15),
-    # Guideline matching
-    "GenericActionableGuidelineMatchesSchema": _t(p50_deg=8, p50_unh=12, p95_deg=15, p95_unh=20),
-    "GenericLowCriticalityGuidelineMatchesSchema": _t(
-        p50_deg=8, p50_unh=12, p95_deg=15, p95_unh=20
-    ),
-    "GenericObservationalGuidelineMatchesSchema": _t(p50_deg=8, p50_unh=12, p95_deg=15, p95_unh=20),
-    "GenericPreviouslyAppliedActionableGuidelineMatchesSchema": _t(
-        p50_deg=8, p50_unh=12, p95_deg=15, p95_unh=20
-    ),
-    "GenericPreviouslyAppliedActionableCustomerDependentGuidelineMatchesSchema": _t(
-        p50_deg=8, p50_unh=12, p95_deg=15, p95_unh=20
-    ),
-    "DisambiguationGuidelineMatchesSchema": _t(p50_deg=8, p50_unh=12, p95_deg=15, p95_unh=20),
-    # Tool calling
-    "SingleToolBatchSchema": _t(p50_deg=15, p50_unh=20, p95_deg=25, p95_unh=30),
-    "NonConsequentialToolBatchSchema": _t(p50_deg=10, p50_unh=15, p95_deg=20, p95_unh=25),
-    "OverlappingToolsBatchSchema": _t(p50_deg=20, p50_unh=25, p95_deg=30, p95_unh=35),
-    # Journey
-    "JourneyNextStepSelectionSchema": _t(p50_deg=5, p50_unh=8, p95_deg=10, p95_unh=15),
-    "JourneyBacktrackCheckSchema": _t(p50_deg=5, p50_unh=8, p95_deg=10, p95_unh=15),
-    "JourneyBacktrackNodeSelectionSchema": _t(p50_deg=8, p50_unh=12, p95_deg=15, p95_unh=20),
-    # Response analysis
-    "GenericResponseAnalysisSchema": _t(p50_deg=10, p50_unh=15, p95_deg=20, p95_unh=25),
-}
+from parlant.core.health.thresholds import HealthThresholds
+from parlant.core.tunnels import TunnelService
 
 
 def configure_healthz(container: Container) -> None:
@@ -93,8 +48,8 @@ def configure_healthz(container: Container) -> None:
 
     Sets up retention buffers and rate counters for the kinds the API
     surface cares about, then registers the views that interpret them.
-    Expects ``HealthReporter`` and ``EventLoopMonitor`` to already be
-    available on the container.
+    Expects ``HealthReporter``, ``EventLoopMonitor`` and ``HealthThresholds``
+    to already be available on the container.
     """
     health_reporter = container[HealthReporter]
 
@@ -119,11 +74,38 @@ def configure_healthz(container: Container) -> None:
     )
     health_reporter.configure_counter(ENGINE_TURNS_COUNTER, retention=timedelta(days=1))
 
+    thresholds = container[HealthThresholds]
+
     health_reporter.register_view(
         NLPHealthView(
             health_reporter=health_reporter,
-            schema_thresholds=DEFAULT_NLP_SCHEMA_THRESHOLDS,
+            degraded_below_success_rate=thresholds.nlp.degraded_below_success_rate,
+            unhealthy_below_success_rate=thresholds.nlp.unhealthy_below_success_rate,
+            degraded_p50_ms=thresholds.nlp.degraded_p50_ms,
+            unhealthy_p50_ms=thresholds.nlp.unhealthy_p50_ms,
+            degraded_p95_ms=thresholds.nlp.degraded_p95_ms,
+            unhealthy_p95_ms=thresholds.nlp.unhealthy_p95_ms,
+            route_thresholds=thresholds.nlp.routes,
         )
     )
-    health_reporter.register_view(EngineHealthView(health_reporter=health_reporter))
+    health_reporter.register_view(
+        EngineHealthView(
+            health_reporter=health_reporter,
+            degraded_below_success_rate=thresholds.engine.degraded_below_success_rate,
+            unhealthy_below_success_rate=thresholds.engine.unhealthy_below_success_rate,
+            degraded_p95_ms=thresholds.engine.degraded_p95_ms,
+            unhealthy_p95_ms=thresholds.engine.unhealthy_p95_ms,
+        )
+    )
     health_reporter.register_view(EventLoopHealthView(container[EventLoopMonitor]))
+
+    # Resolved on every render rather than once here. The tunnel is bound
+    # during `initialize_container`, which runs after this, so a service
+    # captured now would always be absent -- and every managed project would
+    # report its tunnel permanently off, which is worse than not reporting it.
+    def read_tunnel() -> TunnelService | None:
+        if TunnelService not in container.defined_types:
+            return None
+        return container[TunnelService]
+
+    health_reporter.register_view(TunnelHealthView(read_tunnel))

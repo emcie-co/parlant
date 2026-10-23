@@ -5,6 +5,7 @@ import {Button} from '../../ui/button';
 import {BASE_URL, deleteData, patchData} from '@/utils/api';
 import {toast} from 'sonner';
 import {EventInterface, SessionCsvInterface, SessionInterface} from '@/utils/interfaces';
+import {deliveredMessageText} from '@/utils/delivered-text';
 import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '../../ui/dropdown-menu';
 import {getDateStr, getTimeStr} from '@/utils/date';
 import styles from './session-list-item.module.scss';
@@ -133,15 +134,17 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 						Source: message.source === 'ai_agent' ? 'AI Agent' : 'Customer',
 						Participant: message?.data?.participant?.display_name || '',
 						Timestamp: message.creation_utc || '',
-						Message: message.data?.message || '',
+						// What was actually said: voice messages export the spoken
+						// portion, not words the customer never heard.
+						Message: deliveredMessageText(message),
 						Draft: message.data?.draft || '',
-						Tags: message.data?.tags || '',
+						Groups: message.data?.groups || '',
 						Flag: flaggedItems?.[message.trace_id] || '',
 					});
 				});
 			}
 
-			const headers = ['Trace ID', 'Source', 'Participant', 'Timestamp', 'Message', 'Draft', 'Tags', 'Flag'];
+			const headers = ['Trace ID', 'Source', 'Participant', 'Timestamp', 'Message', 'Draft', 'Groups', 'Flag'];
 
 			const filename = `session_${session.id}_"${session.title.replace(/[^a-zA-Z0-9]/g, '_')}.csv`;
 
@@ -241,7 +244,7 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 				onClick={() => !disabled && !editingTitle && !isDeleting && setSession(session)}
 				key={session.id}
 				className={twMerge(
-					'bg-white animate-fade-in text-[14px] hover:rounded-[6px] font-inter justify-between font-medium border-b-[0.6px] border-b-solid border-[#F9FAFC] cursor-pointer p-1 flex items-center ps-[8px] min-h-[74px] h-[74px] ml-0 mr-0 ',
+					'bg-white animate-fade-in text-[14px] hover:rounded-[6px] font-manrope justify-between font-medium border-b-[0.6px] border-b-solid border-[#F9FAFC] cursor-pointer p-1 flex items-center ps-[8px] min-h-[74px] h-[74px] ml-0 mr-0 ',
 					isSelected && ' rounded-[6px]',
 					editingTitle === session.id ? styles.editSession + ' !p-[4px_2px] ' : editingTitle ? ' opacity-[33%] ' : ' hover:bg-main ',
 					isSelected && editingTitle !== session.id ? '!bg-[#F5F6F8]' : '',
@@ -282,7 +285,7 @@ export default function SessionListItem({session, isSelected, refetch, editingTi
 							</DropdownMenuTrigger>
 							<DropdownMenuContent ref={contentRef} side='right' align='start' className='-ms-[10px] flex flex-col gap-[8px] py-[14px] px-[10px] border-none w-[168px] [box-shadow:_0px_8px_20px_-8px_#00000012] rounded-[8px]'>
 								{sessionActions.map((sessionAction) => (
-									<DropdownMenuItem tabIndex={0} key={sessionAction.title} onClick={sessionAction.onClick} className='gap-0 font-normal text-[14px] px-[20px] font-inter capitalize hover:!bg-[#FAF9FF]'>
+									<DropdownMenuItem tabIndex={0} key={sessionAction.title} onClick={sessionAction.onClick} className='gap-0 font-normal text-[14px] px-[20px] font-manrope capitalize hover:!bg-[#FAF9FF]'>
 										<img data-testid={sessionAction.title} src={sessionAction.imgPath} height={16} width={18} className='me-[8px]' alt='' />
 										{sessionAction.title}
 									</DropdownMenuItem>

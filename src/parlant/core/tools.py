@@ -20,7 +20,7 @@ from datetime import date, datetime, timezone
 from enum import Enum, auto
 import importlib
 import inspect
-import sys
+import random
 from types import UnionType
 from typing import (
     Any,
@@ -54,8 +54,6 @@ ToolParameterType = Literal[
     "uuid",
 ]
 
-DEFAULT_PARAMETER_PRECEDENCE: int = sys.maxsize
-
 VALID_TOOL_BASE_TYPES = [str, int, float, bool, date, datetime]
 
 
@@ -76,8 +74,8 @@ SessionStatus: TypeAlias = Literal["ready", "processing", "typing"]
 SessionMode: TypeAlias = Literal["auto", "manual"]
 """The mode of the session, indicating whether it is automatically managed by an AI agent or requires manual intervention."""
 
-Lifespan: TypeAlias = Literal["response", "session"]
-"""The lifespan of a tool result, indicating whether it is valid for the duration of a single response or for the entire session."""
+Lifespan: TypeAlias = Literal["response", "session", "auto"]
+"""The lifespan of a tool result, indicating whether it is valid for the duration of a single response, for the entire session, or automatically determined based on token count."""
 
 
 class ToolContext:
@@ -140,23 +138,26 @@ class ControlOptions(TypedDict, total=False):
     """The lifespan of the tool result, indicating whether it is valid for the duration of a single response or for the entire session."""
 
 
-class TransientGuideline(TypedDict):
-    """A transient guideline returned by a tool, instructing the agent on how to behave for the current response."""
+class TransientRule(TypedDict):
+    """A transient rule returned by a tool, instructing the agent on how to behave for the current response."""
 
-    action: str
-    """The action the agent should take. This becomes the 'action' part of a condition-action guideline pair."""
+    content: str
+    """The behavior the agent should follow, phrased like a policy's content."""
 
     condition: NotRequired[str]
-    """An optional condition for when this guideline applies."""
+    """An optional condition for when this rule applies."""
 
     priority: NotRequired[int]
-    """An optional priority for this guideline. When set, participates in the relational resolver's priority filtering."""
+    """An optional priority for this rule. When set, participates in the relational resolver's priority filtering."""
+
+    weight: NotRequired[str]
+    """An optional weight ('low', 'medium', or 'high'). Defaults to 'medium' when absent."""
 
     criticality: NotRequired[str]
-    """An optional criticality level ('low', 'medium', or 'high'). Defaults to 'medium' when absent."""
+    """Deprecated alias for 'weight'. Ignored when 'weight' is also present."""
 
     description: NotRequired[str]
-    """An optional description providing additional context for the guideline."""
+    """An optional description providing additional context for the rule."""
 
 
 @dataclass(frozen=True)
@@ -180,8 +181,8 @@ class ToolResult:
     canned_response_fields: Mapping[str, Any]
     """Fields for canned responses, which can be used to provide additional context or information for canned responses."""
 
-    guidelines: Sequence[TransientGuideline]
-    """Transient guidelines returned by the tool, which instruct the agent on how to behave for the current response only."""
+    rules: Sequence[TransientRule]
+    """Transient rules returned by the tool, which instruct the agent on how to behave for the current response only."""
 
     def __init__(
         self,
@@ -190,14 +191,14 @@ class ToolResult:
         control: Optional[ControlOptions] = None,
         canned_responses: Optional[Sequence[str]] = None,
         canned_response_fields: Optional[Mapping[str, Any]] = None,
-        guidelines: Optional[Sequence[TransientGuideline]] = None,
+        rules: Optional[Sequence[TransientRule]] = None,
     ) -> None:
         object.__setattr__(self, "data", data)
         object.__setattr__(self, "metadata", metadata or {})
         object.__setattr__(self, "control", control or ControlOptions())
         object.__setattr__(self, "canned_responses", canned_responses or [])
         object.__setattr__(self, "canned_response_fields", canned_response_fields or {})
-        object.__setattr__(self, "guidelines", guidelines or [])
+        object.__setattr__(self, "rules", rules or [])
 
 
 class ToolParameterOptions(DefaultBaseModel):
@@ -228,10 +229,6 @@ class ToolParameterOptions(DefaultBaseModel):
     )
     """A custom function to provide valid choices for the parameter's argument."""
 
-    precedence: Optional[int] = Field(default=DEFAULT_PARAMETER_PRECEDENCE)
-    """The precedence of this parameter comparing to other parameters. Lower values are higher precedence.
-    This value will be used in order to present the user with fewer and clearer questions about multiple missing parameters."""
-
     display_name: Optional[str] = Field(default=None)
     """An alias to use when presenting this parameter to user, instead of the real name"""
 
@@ -247,6 +244,19 @@ class ToolOverlap(Enum):
 
     ALWAYS = auto()
     """The tool always overlaps with other tools in context."""
+
+
+NarrationFn: TypeAlias = Callable[..., str | Awaitable[str]]
+"""A tool's narration as a function (resolved server-side, sync or async). Like a
+parameter's ``choice_provider``, it's bound by name: declare a ``context: ToolContext``
+param to receive the ToolContext (agent/session/customer), and/or params matching
+``plugin_data`` keys. It does NOT receive the engine's context (narration is resolved
+across the plugin boundary). Returns the message to show."""
+
+Narration: TypeAlias = str | Sequence[str] | NarrationFn
+"""How a tool authors its in-progress status message. A plain string, several alternative
+strings (one is picked at random per call), or a function (see :data:`NarrationFn`).
+The function form is resolved to a string server-side; only the string crosses the wire."""
 
 
 @dataclass(frozen=True)
@@ -277,8 +287,26 @@ class Tool:
     overlap: ToolOverlap
     """Defines how this tool overlaps with other tools in context. This is used to determine whether the tool should be evaluated in conjunction with other tools to prevent conflicts."""
 
+    narration: str | Sequence[str] | None = None
+    """Message(s) to show in the agent's "thinking" status while this tool runs, instead
+    of the generic default. The resolved, serializable form: a string, or several
+    alternatives (one picked at random). A function-form narration (see :data:`Narration`)
+    is resolved to a string server-side before reaching here. ``None`` means use the default."""
+
     def __hash__(self) -> int:
         return hash(self.name)
+
+
+def pick_narration(narration: str | Sequence[str] | None) -> str | None:
+    """Pick the narration message to show: the string as-is, a random one of several
+    alternatives, or ``None`` when there's nothing to show (so the caller falls back to
+    its default status text). The function form is already resolved to a string by the
+    time it reaches here."""
+    if not narration:
+        return None
+    if isinstance(narration, str):
+        return narration
+    return random.choice(list(narration))
 
 
 class ToolId(NamedTuple):
@@ -344,6 +372,16 @@ class ToolResultError(ToolError):
     pass
 
 
+@dataclass(frozen=True)
+class ToolRelevanceResult:
+    """A tool paired with its relevance score to a query. Higher is more
+    relevant. Scores are only meaningfully comparable within a single service's
+    embedding space; across services they are assumed roughly comparable."""
+
+    tool: Tool
+    score: float
+
+
 class ToolService(ABC):
     @abstractmethod
     async def list_tools(
@@ -370,6 +408,23 @@ class ToolService(ABC):
         context: ToolContext,
         arguments: Mapping[str, JSONSerializable],
     ) -> ToolResult: ...
+
+    async def find_relevant_tools(
+        self,
+        query: str,
+        tool_names: Sequence[str],
+        max_count: int,
+    ) -> Sequence[ToolRelevanceResult]:
+        """Rank this service's tools — restricted to ``tool_names`` — by relevance
+        to ``query``, returning at most ``max_count``. Names this service does not
+        own are silently skipped.
+
+        Default: no semantic ranking — the named tools in listing order with a
+        neutral score. Services that can embed (e.g. the plugin server) override
+        this."""
+        available = {tool.name: tool for tool in await self.list_tools()}
+        selected = [available[name] for name in tool_names if name in available]
+        return [ToolRelevanceResult(tool=tool, score=0.0) for tool in selected[:max_count]]
 
 
 @dataclass(frozen=True)
@@ -557,7 +612,14 @@ def cast_tool_argument(parameter_type: Any, argument: Any) -> Any:
         if cast_target is date:
             return date.fromisoformat(argument)
         if cast_target is bool:
-            return bool(argument.capitalize())
+            # The model may pass a native JSON bool or a string spelling; a
+            # plain bool() would crash on the former (no .capitalize) and turn
+            # any non-empty string — including "false" — into True.
+            if isinstance(argument, bool):
+                return argument
+            if isinstance(argument, str):
+                return argument.strip().lower() in ("true", "1", "yes")
+            return bool(argument)
         if issubclass(cast_target, BaseModel):
             return TypeAdapter(cast_target).validate_json(argument)
         if issubclass(cast_target, Enum) or cast_target in VALID_TOOL_BASE_TYPES:

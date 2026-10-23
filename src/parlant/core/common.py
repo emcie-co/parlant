@@ -16,10 +16,13 @@ from __future__ import annotations
 import base64
 from collections import defaultdict
 from enum import Enum
+import json
+import os
 import xxhash
 
 from typing import (
     Any,
+    Awaitable,
     Generic,
     Mapping,
     NewType,
@@ -36,6 +39,16 @@ import nanoid  # type: ignore
 from pydantic import BaseModel, ConfigDict
 import semver
 
+
+DISABLE_WARNINGS = os.getenv("PARLANT_WARNINGS", "1") in (
+    "0",
+    "false",
+    "False",
+    "no",
+    "No",
+    "n",
+    "N",
+)
 
 _ClassPropertyReturnType = TypeVar("_ClassPropertyReturnType")
 
@@ -94,6 +107,16 @@ JSONSerializable: TypeAlias = Union[
 ]
 """A JSON-serializable value."""
 
+
+def to_prompt_json(
+    value: Any,
+    *,
+    default: Callable[[Any], Any] | None = None,
+) -> str:
+    """Serialize a value as compact, Unicode-preserving JSON for an LLM prompt."""
+    return json.dumps(value, ensure_ascii=False, indent=None, default=default)
+
+
 UniqueId = NewType("UniqueId", str)
 
 
@@ -150,11 +173,29 @@ class Version:
 
 
 class ItemNotFoundError(Exception):
-    def __init__(self, item_id: UniqueId, message: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        item_id: UniqueId,
+        message: Optional[str] = None,
+        *,
+        item_type: Optional[str] = None,
+    ) -> None:
+        self.item_id = item_id
+        self.item_type = item_type
         if message:
             super().__init__(f"{message} (id='{item_id}')")
         else:
             super().__init__(f"Item '{item_id}' not found")
+
+
+_T = TypeVar("_T")
+
+
+async def try_or_none(coro: Awaitable[_T]) -> Optional[_T]:
+    try:
+        return await coro
+    except ItemNotFoundError:
+        return None
 
 
 id_generation_alphabet: str = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -210,14 +251,14 @@ def to_json_dict(d: Mapping[str, Any]) -> Mapping[str, Any]:
     return {k: adapt_value(v) for k, v in d.items()}
 
 
-class Criticality(Enum):
-    """Enumeration of guideline criticality levels."""
+class Weight(Enum):
+    """Enumeration of rule weight levels."""
 
     LOW = "low"
-    """Low priority guideline."""
+    """Low-weight rule."""
 
     MEDIUM = "medium"
-    """Medium priority guideline (default)."""
+    """Medium-weight rule (default)."""
 
     HIGH = "high"
-    """High priority guideline."""
+    """High-weight rule."""

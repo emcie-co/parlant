@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from typing import Optional
-from lagom import Container
+from parlant.core.container import Container
 from enum import Enum
 
 from parlant.core.background_tasks import BackgroundTaskService

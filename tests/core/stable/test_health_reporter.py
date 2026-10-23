@@ -29,7 +29,7 @@ from parlant.core.health import (
     ReportRetention,
     ViewSnapshot,
 )
-from parlant.core.health.nlp_view import SchemaThresholds
+from parlant.core.health.nlp_view import RouteThresholds
 from parlant.core.health.reporter import RollingCounter
 
 _TEST_APP_CONTEXT = ApplicationContext(instance_id="test-instance")
@@ -344,7 +344,7 @@ def _nlp_request_report(
         kind=NLP_REQUEST_KIND,
         timestamp=datetime.now(timezone.utc),
         attributes={
-            NLPHealthView.ATTR_SCHEMA: schema,
+            NLPHealthView.ATTR_ROUTE: schema,
             NLPHealthView.ATTR_MODEL: "test",
             NLPHealthView.ATTR_SUCCESS: success,
             NLPHealthView.ATTR_LATENCY_MS: latency_ms,
@@ -363,7 +363,7 @@ def _nlp_embed_report(
         kind=NLP_EMBED_KIND,
         timestamp=datetime.now(timezone.utc),
         attributes={
-            NLPHealthView.ATTR_SCHEMA: embedder,
+            NLPHealthView.ATTR_ROUTE: embedder,
             NLPHealthView.ATTR_MODEL: "test",
             NLPHealthView.ATTR_SUCCESS: success,
             NLPHealthView.ATTR_LATENCY_MS: latency_ms,
@@ -372,28 +372,10 @@ def _nlp_embed_report(
     )
 
 
-def test_that_nlp_view_separates_embedder_reports_from_schemas() -> None:
-    view = NLPHealthView()
-
-    snapshot = view.render(
-        {
-            NLP_REQUEST_KIND: [_nlp_request_report("MySchema")],
-            NLP_EMBED_KIND: [_nlp_embed_report("MyEmbedder")],
-        }
-    )
-
-    assert "schemas" in snapshot.body
-    assert "embedders" in snapshot.body
-    assert "MySchema" in snapshot.body["schemas"]
-    assert "MyEmbedder" in snapshot.body["embedders"]
-    assert "MyEmbedder" not in snapshot.body["schemas"]
-    assert "MySchema" not in snapshot.body["embedders"]
-
-
-def test_that_nlp_view_uses_per_schema_p95_thresholds_when_configured() -> None:
+def test_that_nlp_view_uses_per_route_p95_thresholds_when_configured() -> None:
     view = NLPHealthView(
-        schema_thresholds={
-            "FastSchema": SchemaThresholds(
+        route_thresholds={
+            "FastSchema": RouteThresholds(
                 degraded_p95_ms=100.0,
                 unhealthy_p95_ms=300.0,
             ),
@@ -406,13 +388,13 @@ def test_that_nlp_view_uses_per_schema_p95_thresholds_when_configured() -> None:
 
     snapshot = view.render({NLP_REQUEST_KIND: reports, NLP_EMBED_KIND: []})
 
-    assert snapshot.body["schemas"]["FastSchema"]["status"] == "degraded"
+    assert snapshot.body["routes"]["FastSchema"]["status"] == "degraded"
 
 
-def test_that_nlp_view_uses_per_schema_p50_thresholds_when_configured() -> None:
+def test_that_nlp_view_uses_per_route_p50_thresholds_when_configured() -> None:
     view = NLPHealthView(
-        schema_thresholds={
-            "ChattySchema": SchemaThresholds(
+        route_thresholds={
+            "ChattySchema": RouteThresholds(
                 degraded_p50_ms=50.0,
                 unhealthy_p50_ms=200.0,
             ),
@@ -424,15 +406,15 @@ def test_that_nlp_view_uses_per_schema_p50_thresholds_when_configured() -> None:
 
     snapshot = view.render({NLP_REQUEST_KIND: reports, NLP_EMBED_KIND: []})
 
-    assert snapshot.body["schemas"]["ChattySchema"]["status"] == "degraded"
+    assert snapshot.body["routes"]["ChattySchema"]["status"] == "degraded"
 
 
-def test_that_nlp_view_falls_back_to_default_thresholds_for_unconfigured_schemas() -> None:
+def test_that_nlp_view_falls_back_to_default_thresholds_for_unconfigured_routes() -> None:
     view = NLPHealthView(
         degraded_p95_ms=10_000.0,
         unhealthy_p95_ms=20_000.0,
-        schema_thresholds={
-            "ConfiguredSchema": SchemaThresholds(degraded_p95_ms=50.0, unhealthy_p95_ms=100.0),
+        route_thresholds={
+            "ConfiguredSchema": RouteThresholds(degraded_p95_ms=50.0, unhealthy_p95_ms=100.0),
         },
     )
 
@@ -442,4 +424,525 @@ def test_that_nlp_view_falls_back_to_default_thresholds_for_unconfigured_schemas
 
     snapshot = view.render({NLP_REQUEST_KIND: reports, NLP_EMBED_KIND: []})
 
-    assert snapshot.body["schemas"]["UnconfiguredSchema"]["status"] == "healthy"
+    assert snapshot.body["routes"]["UnconfiguredSchema"]["status"] == "healthy"
+
+
+# ── percentiles_for_route ────────────────────────────────────────────────
+
+_PS = (0.5, 0.95, 0.99)
+
+
+def _make_nlp_setup(
+    retention_seconds: float = 60.0,
+    max_count: int = 10_000,
+) -> tuple[HealthReporter, NLPHealthView]:
+    reporter = HealthReporter(_TEST_APP_CONTEXT)
+    reporter.configure_retention(
+        NLP_REQUEST_KIND,
+        ReportRetention(window=timedelta(seconds=retention_seconds), max_count=max_count),
+    )
+    view = NLPHealthView(health_reporter=reporter)
+    return reporter, view
+
+
+def _record_nlp(
+    reporter: HealthReporter,
+    schema: str,
+    latency_ms: float = 10.0,
+    *,
+    success: bool = True,
+    error_class: str | None = None,
+    extra: Mapping[str, Any] | None = None,
+) -> None:
+    attrs: dict[str, Any] = {
+        NLPHealthView.ATTR_ROUTE: schema,
+        NLPHealthView.ATTR_MODEL: "test",
+        NLPHealthView.ATTR_SUCCESS: success,
+        NLPHealthView.ATTR_LATENCY_MS: latency_ms,
+        NLPHealthView.ATTR_ERROR_CLASS: error_class,
+    }
+    if extra:
+        attrs.update(extra)
+    reporter.report(NLP_REQUEST_KIND, attrs)
+
+
+def test_that_percentiles_for_route_returns_live_values_when_the_buffer_has_matching_entries() -> (
+    None
+):
+    reporter, view = _make_nlp_setup()
+    for ms in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]:
+        _record_nlp(reporter, "S", latency_ms=float(ms))
+
+    result = view.percentiles_for_route("S")
+
+    # Tight bounds: p50 is somewhere in mid-range, p95 near the top.
+    assert 40.0 <= result.values[0.5] <= 60.0
+    assert 80.0 <= result.values[0.95] <= 100.0
+    assert 90.0 <= result.values[0.99] <= 100.0
+
+
+def test_that_live_result_is_not_marked_stale() -> None:
+    reporter, view = _make_nlp_setup()
+    _record_nlp(reporter, "S", latency_ms=10.0)
+
+    result = view.percentiles_for_route("S")
+
+    assert result.is_stale is False
+
+
+def test_that_live_result_sample_count_matches_contributing_entries() -> None:
+    reporter, view = _make_nlp_setup()
+    for _ in range(7):
+        _record_nlp(reporter, "S", latency_ms=10.0)
+
+    result = view.percentiles_for_route("S")
+
+    assert result.sample_count == 7
+
+
+def test_that_live_result_captured_at_is_set_to_query_time() -> None:
+    reporter, view = _make_nlp_setup()
+    _record_nlp(reporter, "S", latency_ms=10.0)
+
+    before = datetime.now(timezone.utc)
+    result = view.percentiles_for_route("S")
+    after = datetime.now(timezone.utc)
+
+    assert before <= result.captured_at <= after
+
+
+def test_that_default_percentiles_are_p50_p95_p99() -> None:
+    reporter, view = _make_nlp_setup()
+    _record_nlp(reporter, "S", latency_ms=10.0)
+
+    result = view.percentiles_for_route("S")
+
+    assert set(result.values.keys()) == {0.5, 0.95, 0.99}
+
+
+def test_that_custom_percentile_list_is_respected() -> None:
+    reporter, view = _make_nlp_setup()
+    _record_nlp(reporter, "S", latency_ms=10.0)
+
+    result = view.percentiles_for_route("S", ps=(0.25, 0.75))
+
+    assert set(result.values.keys()) == {0.25, 0.75}
+
+
+def test_that_custom_value_attribute_is_respected() -> None:
+    reporter, view = _make_nlp_setup()
+    _record_nlp(
+        reporter,
+        "S",
+        latency_ms=10.0,
+        extra={"ttfm_ms": 500.0},
+    )
+    _record_nlp(
+        reporter,
+        "S",
+        latency_ms=20.0,
+        extra={"ttfm_ms": 700.0},
+    )
+
+    result = view.percentiles_for_route("S", value_attribute="ttfm_ms")
+
+    # Values should be drawn from ttfm_ms, not latency_ms.
+    for v in result.values.values():
+        assert v in (500.0, 700.0)
+
+
+def test_that_query_for_one_route_ignores_entries_from_other_routes() -> None:
+    reporter, view = _make_nlp_setup()
+    # Schema A has tiny latencies; B has huge ones.
+    for _ in range(20):
+        _record_nlp(reporter, "A", latency_ms=10.0)
+    for _ in range(20):
+        _record_nlp(reporter, "B", latency_ms=10_000.0)
+
+    result_a = view.percentiles_for_route("A")
+    result_b = view.percentiles_for_route("B")
+
+    assert all(v == 10.0 for v in result_a.values.values())
+    assert all(v == 10_000.0 for v in result_b.values.values())
+
+
+def test_that_frozen_snapshots_are_independent_across_routes() -> None:
+    reporter, view = _make_nlp_setup(retention_seconds=0.1)
+    _record_nlp(reporter, "A", latency_ms=10.0)
+    _record_nlp(reporter, "B", latency_ms=1000.0)
+    # Populate frozen snapshots for both schemas while live data exists.
+    view.percentiles_for_route("A")
+    view.percentiles_for_route("B")
+
+    # Wait until reports age out.
+    import time
+
+    time.sleep(0.15)
+
+    result_a = view.percentiles_for_route("A")
+    result_b = view.percentiles_for_route("B")
+
+    assert result_a.is_stale is True and result_b.is_stale is True
+    assert all(v == 10.0 for v in result_a.values.values())
+    assert all(v == 1000.0 for v in result_b.values.values())
+
+
+def test_that_aging_out_one_routes_data_does_not_affect_another() -> None:
+    reporter, view = _make_nlp_setup(retention_seconds=60.0)
+    _record_nlp(reporter, "A", latency_ms=10.0)
+
+    result_a = view.percentiles_for_route("A")
+    result_b = view.percentiles_for_route("B")
+
+    assert result_a.is_stale is False
+    assert result_b.is_stale is True
+    assert result_b.sample_count == 0
+
+
+def test_that_percentiles_returns_frozen_snapshot_after_live_buffer_empties() -> None:
+    reporter, view = _make_nlp_setup(retention_seconds=0.1)
+    for ms in [10, 20, 30, 40, 50]:
+        _record_nlp(reporter, "S", latency_ms=float(ms))
+
+    # Populate the frozen snapshot via a live query.
+    live = view.percentiles_for_route("S")
+    assert live.is_stale is False
+    assert live.sample_count == 5
+
+    import time
+
+    time.sleep(0.15)
+
+    stale = view.percentiles_for_route("S")
+
+    assert stale.is_stale is True
+    assert stale.values == live.values
+    assert stale.sample_count == live.sample_count
+
+
+def test_that_frozen_result_is_marked_stale() -> None:
+    reporter, view = _make_nlp_setup(retention_seconds=0.1)
+    _record_nlp(reporter, "S", latency_ms=10.0)
+    view.percentiles_for_route("S")
+
+    import time
+
+    time.sleep(0.15)
+
+    result = view.percentiles_for_route("S")
+
+    assert result.is_stale is True
+
+
+def test_that_frozen_result_captured_at_is_preserved_across_repeated_stale_reads() -> None:
+    reporter, view = _make_nlp_setup(retention_seconds=0.1)
+    _record_nlp(reporter, "S", latency_ms=10.0)
+    live = view.percentiles_for_route("S")
+    live_captured_at = live.captured_at
+
+    import time
+
+    time.sleep(0.15)
+
+    first_stale = view.percentiles_for_route("S")
+    time.sleep(0.05)
+    second_stale = view.percentiles_for_route("S")
+
+    assert first_stale.captured_at == live_captured_at
+    assert second_stale.captured_at == live_captured_at
+
+
+def test_that_frozen_snapshot_is_refreshed_when_live_data_reappears() -> None:
+    reporter, view = _make_nlp_setup(retention_seconds=0.1)
+    _record_nlp(reporter, "S", latency_ms=10.0)
+    first_live = view.percentiles_for_route("S")
+
+    import time
+
+    time.sleep(0.15)
+    stale = view.percentiles_for_route("S")
+    assert stale.is_stale is True
+    assert all(v == 10.0 for v in stale.values.values())
+
+    # New traffic arrives with very different latencies.
+    for _ in range(5):
+        _record_nlp(reporter, "S", latency_ms=999.0)
+    refreshed = view.percentiles_for_route("S")
+
+    assert refreshed.is_stale is False
+    assert all(v == 999.0 for v in refreshed.values.values())
+    assert refreshed.captured_at > first_live.captured_at
+
+
+def test_that_repeated_stale_reads_return_consistent_values() -> None:
+    reporter, view = _make_nlp_setup(retention_seconds=0.1)
+    for ms in [10, 20, 30]:
+        _record_nlp(reporter, "S", latency_ms=float(ms))
+    view.percentiles_for_route("S")
+
+    import time
+
+    time.sleep(0.15)
+
+    r1 = view.percentiles_for_route("S")
+    r2 = view.percentiles_for_route("S")
+    r3 = view.percentiles_for_route("S")
+
+    assert r1.values == r2.values == r3.values
+    assert r1.sample_count == r2.sample_count == r3.sample_count
+
+
+def test_that_query_for_never_seen_route_returns_zero_filled_stale_result() -> None:
+    reporter, view = _make_nlp_setup()
+    _record_nlp(reporter, "OtherSchema", latency_ms=10.0)
+
+    result = view.percentiles_for_route("NeverSeen")
+
+    assert result.is_stale is True
+    assert result.sample_count == 0
+    assert result.values == {0.5: 0.0, 0.95: 0.0, 0.99: 0.0}
+
+
+def test_that_query_with_empty_buffer_and_no_frozen_returns_zero_filled_stale_result() -> None:
+    reporter, view = _make_nlp_setup()
+
+    result = view.percentiles_for_route("S")
+
+    assert result.is_stale is True
+    assert result.sample_count == 0
+    assert all(v == 0.0 for v in result.values.values())
+
+
+def test_that_entries_with_missing_value_attribute_are_excluded() -> None:
+    reporter, view = _make_nlp_setup()
+    # One valid entry, one with the value attribute missing.
+    _record_nlp(reporter, "S", latency_ms=42.0)
+    reporter.report(
+        NLP_REQUEST_KIND,
+        {
+            NLPHealthView.ATTR_SCHEMA: "S",
+            NLPHealthView.ATTR_MODEL: "test",
+            NLPHealthView.ATTR_SUCCESS: True,
+            NLPHealthView.ATTR_ERROR_CLASS: None,
+            # latency_ms intentionally omitted
+        },
+    )
+
+    result = view.percentiles_for_route("S")
+
+    assert result.sample_count == 1
+    assert all(v == 42.0 for v in result.values.values())
+
+
+def test_that_entries_with_none_value_attribute_are_excluded() -> None:
+    reporter, view = _make_nlp_setup()
+    _record_nlp(reporter, "S", latency_ms=42.0)
+    reporter.report(
+        NLP_REQUEST_KIND,
+        {
+            NLPHealthView.ATTR_SCHEMA: "S",
+            NLPHealthView.ATTR_MODEL: "test",
+            NLPHealthView.ATTR_SUCCESS: True,
+            NLPHealthView.ATTR_LATENCY_MS: None,
+            NLPHealthView.ATTR_ERROR_CLASS: None,
+        },
+    )
+
+    result = view.percentiles_for_route("S")
+
+    assert result.sample_count == 1
+
+
+def test_that_entries_with_missing_schema_attribute_are_treated_as_unknown_schema() -> None:
+    reporter, view = _make_nlp_setup()
+    reporter.report(
+        NLP_REQUEST_KIND,
+        {
+            # ATTR_SCHEMA intentionally omitted
+            NLPHealthView.ATTR_MODEL: "test",
+            NLPHealthView.ATTR_SUCCESS: True,
+            NLPHealthView.ATTR_LATENCY_MS: 10.0,
+            NLPHealthView.ATTR_ERROR_CLASS: None,
+        },
+    )
+
+    # Querying for any known schema should not see this entry.
+    result = view.percentiles_for_route("S")
+
+    assert result.sample_count == 0
+    assert result.is_stale is True
+
+
+def test_that_age_pruned_entries_do_not_contribute_to_live_percentiles() -> None:
+    reporter, view = _make_nlp_setup(retention_seconds=0.1)
+    _record_nlp(reporter, "S", latency_ms=1.0)
+
+    import time
+
+    time.sleep(0.15)
+
+    # New traffic arrives — the old 1.0ms entry must NOT be pooled in.
+    for _ in range(5):
+        _record_nlp(reporter, "S", latency_ms=999.0)
+
+    result = view.percentiles_for_route("S")
+
+    assert result.is_stale is False
+    assert all(v == 999.0 for v in result.values.values())
+
+
+###############################################################################
+# NLP view: route/agent grouping
+###############################################################################
+#
+# NLP health is grouped by ROUTE (the stable configuration vocabulary), with a
+# per-agent breakdown inside each route. Reports from server-scope (agentless)
+# calls group under the "server" bucket. Schema/model remain attributes for
+# drill-down but no longer drive grouping.
+
+
+def _routed_nlp_report(
+    route: str,
+    *,
+    agent_id: str | None = None,
+    success: bool = True,
+    latency_ms: float = 10.0,
+    schema: str = "SomeSchema",
+) -> HealthReport:
+    return HealthReport(
+        kind=NLP_REQUEST_KIND,
+        timestamp=datetime.now(timezone.utc),
+        attributes={
+            NLPHealthView.ATTR_ROUTE: route,
+            NLPHealthView.ATTR_AGENT: agent_id,
+            NLPHealthView.ATTR_SCHEMA: schema,
+            NLPHealthView.ATTR_MODEL: "test",
+            NLPHealthView.ATTR_SUCCESS: success,
+            NLPHealthView.ATTR_LATENCY_MS: latency_ms,
+            NLPHealthView.ATTR_ERROR_CLASS: None if success else "TestError",
+        },
+    )
+
+
+def test_that_nlp_view_groups_by_route_then_agent() -> None:
+    view = NLPHealthView()
+    reports = [
+        _routed_nlp_report("matching.rule_ranker", agent_id="agent-1"),
+        _routed_nlp_report("matching.rule_ranker", agent_id="agent-2"),
+        _routed_nlp_report("compaction", agent_id="agent-1"),
+    ]
+
+    snapshot = view.render({NLP_REQUEST_KIND: reports, NLP_EMBED_KIND: []})
+
+    routes = snapshot.body["routes"]
+    assert set(routes.keys()) == {"matching.rule_ranker", "compaction"}
+    assert routes["matching.rule_ranker"]["sample_count"] == 2
+    assert set(routes["matching.rule_ranker"]["agents"].keys()) == {"agent-1", "agent-2"}
+    assert routes["compaction"]["agents"]["agent-1"]["sample_count"] == 1
+
+
+def test_that_agentless_reports_group_under_the_server_bucket() -> None:
+    view = NLPHealthView()
+    reports = [
+        _routed_nlp_report("indexing", agent_id=None),
+        _routed_nlp_report("indexing", agent_id="agent-1"),
+    ]
+
+    snapshot = view.render({NLP_REQUEST_KIND: reports, NLP_EMBED_KIND: []})
+
+    agents = snapshot.body["routes"]["indexing"]["agents"]
+    assert set(agents.keys()) == {"server", "agent-1"}
+    assert agents["server"]["sample_count"] == 1
+
+
+def test_that_route_status_uses_per_route_thresholds_when_configured() -> None:
+    from parlant.core.health.nlp_view import RouteThresholds
+
+    view = NLPHealthView(
+        route_thresholds={
+            "matching.fast_route": RouteThresholds(degraded_p95_ms=100.0, unhealthy_p95_ms=150.0),
+        },
+    )
+    # p95 of these latencies is 120ms: degraded under the route's override,
+    # far below the view-wide default of 45s.
+    reports = [
+        _routed_nlp_report("matching.fast_route", latency_ms=ms) for ms in [10, 20, 30, 40, 120]
+    ]
+
+    snapshot = view.render({NLP_REQUEST_KIND: reports, NLP_EMBED_KIND: []})
+
+    assert snapshot.body["routes"]["matching.fast_route"]["status"] == "degraded"
+    assert snapshot.status == OverallHealth.DEGRADED
+
+
+def test_that_route_status_rolls_up_the_worst_agent() -> None:
+    view = NLPHealthView()
+    reports = [
+        *[_routed_nlp_report("react", agent_id="healthy-agent") for _ in range(10)],
+        *[_routed_nlp_report("react", agent_id="failing-agent", success=False) for _ in range(10)],
+    ]
+
+    snapshot = view.render({NLP_REQUEST_KIND: reports, NLP_EMBED_KIND: []})
+
+    route = snapshot.body["routes"]["react"]
+    assert route["agents"]["healthy-agent"]["status"] == "healthy"
+    assert route["agents"]["failing-agent"]["status"] == "unhealthy"
+    assert route["status"] == "unhealthy"
+
+
+def test_that_embed_reports_group_by_route_alongside_requests() -> None:
+    view = NLPHealthView()
+    embed_report = HealthReport(
+        kind=NLP_EMBED_KIND,
+        timestamp=datetime.now(timezone.utc),
+        attributes={
+            NLPHealthView.ATTR_ROUTE: "embedding.rules",
+            NLPHealthView.ATTR_AGENT: None,
+            NLPHealthView.ATTR_MODEL: "test-embedder",
+            NLPHealthView.ATTR_SUCCESS: True,
+            NLPHealthView.ATTR_LATENCY_MS: 5.0,
+            NLPHealthView.ATTR_ERROR_CLASS: None,
+        },
+    )
+
+    snapshot = view.render({NLP_REQUEST_KIND: [], NLP_EMBED_KIND: [embed_report]})
+
+    assert snapshot.body["routes"]["embedding.rules"]["sample_count"] == 1
+
+
+def test_that_percentiles_for_route_returns_live_values_for_matching_entries() -> None:
+    reporter = HealthReporter(_TEST_APP_CONTEXT)
+    reporter.configure_retention(NLP_REQUEST_KIND, _retention())
+    view = NLPHealthView(health_reporter=reporter)
+
+    for ms in [10.0, 20.0, 30.0]:
+        reporter.report(
+            NLP_REQUEST_KIND,
+            dict(_routed_nlp_report("matching.rule_ranker", latency_ms=ms).attributes),
+        )
+
+    result = view.percentiles_for_route("matching.rule_ranker")
+
+    assert result.is_stale is False
+    assert result.sample_count == 3
+    assert result.values[0.5] == 20.0
+
+
+def test_that_percentiles_for_one_route_ignore_entries_from_other_routes() -> None:
+    reporter = HealthReporter(_TEST_APP_CONTEXT)
+    reporter.configure_retention(NLP_REQUEST_KIND, _retention())
+    view = NLPHealthView(health_reporter=reporter)
+
+    reporter.report(
+        NLP_REQUEST_KIND,
+        dict(_routed_nlp_report("matching.rule_ranker", latency_ms=10.0).attributes),
+    )
+    reporter.report(
+        NLP_REQUEST_KIND,
+        dict(_routed_nlp_report("compaction", latency_ms=1000.0).attributes),
+    )
+
+    result = view.percentiles_for_route("matching.rule_ranker")
+
+    assert result.sample_count == 1
+    assert result.values[0.5] == 10.0

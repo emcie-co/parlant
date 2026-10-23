@@ -14,13 +14,15 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Literal, TypeAlias
+from typing import Any, Literal, TYPE_CHECKING, TypeAlias
 from typing_extensions import override
 
-from parlant.core.health import HealthReporter
-from parlant.core.sessions import Session
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
+from parlant.core.sessions import Session
+
+if TYPE_CHECKING:
+    from parlant.core.engines.engine_context import EngineContext
 
 
 ModerationTag: TypeAlias = Literal[
@@ -38,6 +40,22 @@ ModerationTag: TypeAlias = Literal[
 class CustomerModerationContext:
     session: Session
     message: str
+    # The turn's generic engine context. Customer-message moderation runs at
+    # the API boundary, BEFORE a turn starts, so it is None there; services
+    # that want conversational context can read the session's history instead.
+    engine_context: "EngineContext[Any, Any] | None" = None
+
+
+@dataclass(frozen=True)
+class AgentModerationContext:
+    session: Session
+    message: str
+    # Agent-message moderation runs inside the response turn, so the full
+    # engine context of that turn is available.
+    engine_context: "EngineContext[Any, Any] | None" = None
+
+
+ModerationContext: TypeAlias = "CustomerModerationContext | AgentModerationContext"
 
 
 @dataclass(frozen=True)
@@ -53,17 +71,30 @@ class ModerationService(ABC):
         context: CustomerModerationContext,
     ) -> ModerationCheck: ...
 
+    async def moderate_agent(
+        self,
+        context: AgentModerationContext,
+    ) -> ModerationCheck:
+        """Moderate an agent-authored message. Defaults to the same text
+        moderation as customer messages; services with asymmetric behavior
+        override this."""
+        return await self.moderate_customer(
+            CustomerModerationContext(
+                session=context.session,
+                message=context.message,
+                engine_context=context.engine_context,
+            )
+        )
+
 
 class BaseModerationService(ModerationService):
     def __init__(
         self,
         logger: Logger,
         meter: Meter,
-        health_reporter: HealthReporter,
     ) -> None:
         self.logger = logger
         self.meter = meter
-        self.health_reporter = health_reporter
 
         self._hist_moderation_request_duration = meter.create_duration_histogram(
             name="moderation",
@@ -83,7 +114,7 @@ class BaseModerationService(ModerationService):
     @abstractmethod
     async def do_moderate(
         self,
-        context: CustomerModerationContext,
+        context: ModerationContext,
     ) -> ModerationCheck: ...
 
 

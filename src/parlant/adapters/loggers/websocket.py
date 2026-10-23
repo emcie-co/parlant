@@ -13,13 +13,14 @@
 # limitations under the License.
 
 import asyncio
+import time
 from collections import deque
 from dataclasses import dataclass
 from typing import Any
 from fastapi import WebSocket
 from typing_extensions import override
 
-from parlant.core.engines.alpha.entity_context import EntityContext
+from parlant.core.engines.entity_context import EntityContext
 from parlant.core.common import UniqueId, generate_id
 from parlant.core.tracer import Tracer
 from parlant.core.loggers import TracingLogger, LogLevel
@@ -69,7 +70,7 @@ class WebSocketLogger(TracingLogger):
         return subscription
 
     def _timestamp(self) -> str:
-        return round(asyncio.get_event_loop().time(), 3).__str__()
+        return round(time.monotonic(), 3).__str__()
 
     @override
     def trace(self, message: str) -> None:

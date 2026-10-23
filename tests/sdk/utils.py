@@ -15,31 +15,118 @@
 import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
-import os
 import time
-from typing import Callable, cast
-
-from parlant.client import AsyncParlantClient as Client
-from parlant.client.types.event import Event as ClientEvent
+from typing import Any, Callable, Mapping, Sequence, cast
 
 from fastapi import FastAPI
 import httpx
 
-from parlant.adapters.nlp.emcie_service import EmcieService
 from parlant.core.application_context import ApplicationContext
+from parlant.core.engines.compass.hooks import CompassHooks
 from parlant.core.health import HealthReporter
-from parlant.core.loggers import Logger
-from parlant.core.meter import Meter
 from parlant.core.sessions import Session
-from parlant.core.tracer import Tracer
 import parlant.sdk as p
 
-from parlant.core.engines.alpha.perceived_performance_policy import (
-    NullPerceivedPerformancePolicy,
-    PerceivedPerformancePolicy,
-)
 
 from tests.test_utilities import get_random_port
+
+
+class ApiObject:
+    """A thin attribute view over a JSON object returned by the HTTP API."""
+
+    def __init__(self, data: Mapping[str, Any]) -> None:
+        self._data = dict(data)
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self._data[name]
+        except KeyError:
+            raise AttributeError(name) from None
+
+    def model_dump(self) -> dict[str, Any]:
+        return dict(self._data)
+
+
+ClientEvent = ApiObject
+
+
+class _SessionsApi:
+    """The four session operations the SDK tests drive the server with,
+    spoken as plain HTTP against the public API."""
+
+    def __init__(self, http: httpx.AsyncClient) -> None:
+        self._http = http
+
+    async def create(
+        self,
+        *,
+        agent_id: str,
+        customer_id: str | None = None,
+        allow_greeting: bool = False,
+    ) -> ApiObject:
+        body: dict[str, Any] = {"agent_id": agent_id}
+        if customer_id is not None:
+            body["customer_id"] = customer_id
+        response = await self._http.post(
+            "/sessions",
+            params={"allow_greeting": allow_greeting},
+            json=body,
+        )
+        response.raise_for_status()
+        return ApiObject(response.json())
+
+    async def create_event(
+        self,
+        *,
+        session_id: str,
+        kind: str,
+        source: str,
+        message: str | None = None,
+    ) -> ApiObject:
+        body: dict[str, Any] = {"kind": kind, "source": source}
+        if message is not None:
+            body["message"] = message
+        response = await self._http.post(f"/sessions/{session_id}/events", json=body)
+        response.raise_for_status()
+        return ApiObject(response.json())
+
+    async def list_events(
+        self,
+        *,
+        session_id: str,
+        min_offset: int | None = None,
+        source: str | None = None,
+        kinds: str | None = None,
+        trace_id: str | None = None,
+        wait_for_data: int | None = None,
+    ) -> list[ApiObject]:
+        params: dict[str, Any] = {}
+        if min_offset is not None:
+            params["min_offset"] = min_offset
+        if source is not None:
+            params["source"] = source
+        if kinds is not None:
+            params["kinds"] = kinds
+        if trace_id is not None:
+            params["trace_id"] = trace_id
+        if wait_for_data is not None:
+            params["wait_for_data"] = wait_for_data
+        response = await self._http.get(f"/sessions/{session_id}/events", params=params)
+        if response.status_code == 504:  # long-poll timed out: no matching events
+            return []
+        response.raise_for_status()
+        return [ApiObject(event) for event in response.json()]
+
+    async def retrieve(self, *, session_id: str) -> ApiObject:
+        response = await self._http.get(f"/sessions/{session_id}")
+        response.raise_for_status()
+        return ApiObject(response.json())
+
+
+class Client:
+    def __init__(self, base_url: str) -> None:
+        self._http = httpx.AsyncClient(base_url=base_url, timeout=120.0)
+        self.sessions = _SessionsApi(self._http)
 
 
 def get_message(event: ClientEvent) -> str:
@@ -55,6 +142,7 @@ class Context:
     client: Client
     container: p.Container
     _session_id: str | None = None
+    base_url: str = ""
 
     async def get_session(self) -> Session:
         if self._session_id is None:
@@ -69,6 +157,7 @@ class Context:
         recipient: p.Agent,
         sender: p.Customer | None = None,
         reuse_session: bool = False,
+        attachments: Sequence[Mapping[str, Any]] | None = None,
     ) -> ClientEvent:
         if (not self._session_id) or (not reuse_session):
             self._session_id = (
@@ -79,16 +168,32 @@ class Context:
                 )
             ).id
 
-        event = await self.client.sessions.create_event(
-            session_id=self._session_id,
-            kind="message",
-            source="customer",
-            message=customer_message,
-        )
+        if attachments is not None:
+            # The generated client can't carry attachments yet, so post over raw HTTP.
+            async with httpx.AsyncClient(base_url=self.base_url) as http:
+                response = await http.post(
+                    f"/sessions/{self._session_id}/events",
+                    json={
+                        "kind": "message",
+                        "source": "customer",
+                        "message": customer_message,
+                        "attachments": list(attachments),
+                    },
+                )
+                response.raise_for_status()
+                customer_offset = int(response.json()["offset"])
+        else:
+            event = await self.client.sessions.create_event(
+                session_id=self._session_id,
+                kind="message",
+                source="customer",
+                message=customer_message,
+            )
+            customer_offset = event.offset
 
         agent_messages = await self.client.sessions.list_events(
             session_id=self._session_id,
-            min_offset=event.offset,
+            min_offset=customer_offset,
             source="ai_agent",
             kinds="message",
             wait_for_data=30,
@@ -104,7 +209,7 @@ class Context:
             agent_message = await self._wait_for_streaming_completion(
                 session_id=self._session_id,
                 event_id=agent_message.id,
-                min_offset=event.offset,
+                min_offset=customer_offset,
             )
 
         return agent_message
@@ -189,12 +294,14 @@ class Context:
         recipient: p.Agent,
         sender: p.Customer | None = None,
         reuse_session: bool = False,
+        attachments: Sequence[Mapping[str, Any]] | None = None,
     ) -> str:
         agent_message = await self.send_and_receive_message_event(
             customer_message=customer_message,
             recipient=recipient,
             sender=sender,
             reuse_session=reuse_session,
+            attachments=attachments,
         )
 
         return get_message(agent_message)
@@ -203,6 +310,9 @@ class Context:
 class SDKTest:
     STARTUP_TIMEOUT = 60
     INSTANCE_ID = "sdk-test-instance"
+    SECRET_LOADER: p.SecretLoader | None = None
+    # Model routes for the test server; override to run a test on another provider.
+    MODELS: Mapping[str, str] = {"*": "gemini"}
 
     async def test_run(self) -> None:
         port = get_random_port()
@@ -212,7 +322,14 @@ class SDKTest:
 
         try:
             await self._wait_for_startup(port)
-            await self.run(Context(self.server, client, self.get_container()))
+            await self.run(
+                Context(
+                    self.server,
+                    client,
+                    self.get_container(),
+                    base_url=f"http://localhost:{port}",
+                )
+            )
         finally:
             server_task.cancel()
 
@@ -254,7 +371,7 @@ class SDKTest:
 
                 await asyncio.sleep(0.25)
 
-    async def configure_hooks(self, hooks: p.EngineHooks) -> p.EngineHooks:
+    async def configure_hooks(self, hooks: p.CompassHooks) -> p.CompassHooks:
         return hooks
 
     async def configure_api(self, app: FastAPI) -> None:
@@ -276,10 +393,14 @@ class SDKTest:
 
             # Apply test defaults
             container[ApplicationContext] = ApplicationContext(instance_id=self.INSTANCE_ID)
-            container[PerceivedPerformancePolicy] = NullPerceivedPerformancePolicy()
             # Tests need to observe newly reported health data immediately rather
             # than waiting for the production cache TTL to elapse.
             container[HealthReporter]._snapshot_cache_ttl = timedelta(0)
+
+            if self.SECRET_LOADER is not None:
+                container[p.SecretLoader] = self.SECRET_LOADER
+
+            container[CompassHooks] = await self.configure_hooks(container[CompassHooks])
 
             # Apply test-specific overrides
             test_container = await self.configure_container(test_container)
@@ -291,16 +412,13 @@ class SDKTest:
             tool_service_port=get_random_port(),
             log_level=p.LogLevel.TRACE,
             configure_container=_configure,
-            configure_hooks=self.configure_hooks,
             configure_api=self.configure_api,
-            nlp_service=lambda c: EmcieService(
-                c[Logger],
-                c[Tracer],
-                c[Meter],
-                c[HealthReporter],
-                model_tier=os.environ.get("EMCIE_MODEL_TIER", "jackal"),  # type: ignore
-                model_role=os.environ.get("EMCIE_MODEL_ROLE", "teacher"),  # type: ignore
-            ),
+            models=dict(self.MODELS),
+            hot_reload=False,
+            # The default 'local' stores persist to shared SQLite files under
+            # PARLANT_HOME_DIR; tests must stay hermetic.
+            session_store="transient",
+            customer_store="transient",
         ), lambda: test_container
 
     async def setup(self, server: p.Server) -> None: ...

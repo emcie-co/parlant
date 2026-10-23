@@ -48,6 +48,14 @@ class MessageEventHandle:
     update: Callable[[MessageEventData], Awaitable[MessageEventHandle]]
 
 
+@dataclass(frozen=True)
+class StatusEventHandle:
+    """A handle to an emitted status event that allows updating it."""
+
+    event: EmittedEvent
+    update: Callable[[StatusEventData], Awaitable[StatusEventHandle]]
+
+
 class EventEmitter(ABC):
     """An interface for emitting events in the system."""
 
@@ -57,7 +65,7 @@ class EventEmitter(ABC):
         trace_id: str,
         data: StatusEventData,
         metadata: Mapping[str, JSONSerializable] | None = None,
-    ) -> EmittedEvent:
+    ) -> StatusEventHandle:
         """Emit a status event with the given trace ID and data."""
         ...
 
@@ -67,6 +75,8 @@ class EventEmitter(ABC):
         trace_id: str,
         data: str | MessageEventData,
         metadata: Mapping[str, JSONSerializable] | None = None,
+        *,
+        source: EventSource = EventSource.AI_AGENT,
     ) -> MessageEventHandle:
         """Emit a message event with the given trace ID and data."""
         ...

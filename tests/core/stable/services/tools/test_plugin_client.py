@@ -17,7 +17,7 @@ from datetime import datetime
 import enum
 import json
 from typing import Annotated, Any, Mapping, Optional, cast
-from lagom import Container
+from parlant.core.container import Container
 from pydantic import BaseModel
 from pytest import fixture, raises
 import pytest
@@ -30,13 +30,15 @@ from parlant.core.tools import (
     ToolResult,
     ToolResultError,
     ToolOverlap,
+    pick_narration,
 )
+from parlant.core.nlp.embedding import EmbeddingResult, NullEmbedder
 from parlant.core.services.tools.plugins import PluginServer, tool
 from parlant.core.agents import Agent, AgentId, AgentStore
 from parlant.core.tracer import LocalTracer
 from parlant.core.emission.event_buffer import EventBuffer, EventBufferFactory
 from parlant.core.emissions import EventEmitter, EventEmitterFactory
-from parlant.core.services.tools.plugins import PluginClient
+from parlant.core.services.tools.plugins import PluginClient, _recompute_and_marshal_tool
 from parlant.core.sessions import SessionId, EventKind
 from parlant.core.tools import ToolExecutionError
 from tests.test_utilities import run_service_server
@@ -62,7 +64,7 @@ class SessionBuffers(EventEmitterFactory):
 async def agent(container: Container) -> Agent:
     return await container[AgentStore].create_agent(
         name="Test Agent",
-        max_engine_iterations=2,
+        max_steps=2,
     )
 
 
@@ -137,6 +139,140 @@ async def test_that_a_plugin_with_one_configured_tool_returns_that_tool(
             listed_tools = await client.list_tools()
             assert len(listed_tools) == 1
             assert my_tool.tool == listed_tools[0]
+
+
+def test_that_pick_narration_picks_a_message_or_none() -> None:
+    assert pick_narration("Looking that up…") == "Looking that up…"
+    assert pick_narration(["only one"]) == "only one"
+    options = ["a", "b", "c"]
+    assert pick_narration(options) in options
+    assert pick_narration(None) is None
+    assert pick_narration("") is None
+    assert pick_narration([]) is None
+
+
+# Container-free tests of the narration mechanics (the round-trip tests below exercise the
+# same thing end-to-end over HTTP, but require the DI container fixture).
+
+
+def test_that_static_narration_is_on_the_tool_and_a_callable_is_kept_off() -> None:
+    @tool(narration="Looking that up…")
+    def static_tool(context: ToolContext) -> ToolResult:
+        """desc"""
+        return ToolResult({})
+
+    assert static_tool.tool.narration == "Looking that up…"  # visible without resolution
+    assert static_tool.narration == "Looking that up…"  # also stashed on the entry
+
+    def narrate(context: ToolContext) -> str:
+        return "dynamic"
+
+    @tool(narration=narrate)
+    def dynamic_tool(context: ToolContext) -> ToolResult:
+        """desc"""
+        return ToolResult({})
+
+    assert dynamic_tool.tool.narration is None  # callable never on the serializable dataclass
+    assert dynamic_tool.narration is narrate  # only on the entry
+
+
+async def test_that_recompute_resolves_a_callable_narration_with_the_tool_context() -> None:
+    @tool(narration=lambda context: f"Helping {context.customer_id}…")
+    def my_tool(context: ToolContext) -> ToolResult:
+        """desc"""
+        return ToolResult({})
+
+    ctx = ToolContext(agent_id="a", session_id="s", customer_id="bob")
+    resolved = await _recompute_and_marshal_tool(my_tool.tool, {}, ctx, my_tool.narration)
+    assert resolved.narration == "Helping bob…"
+
+
+async def test_that_recompute_passes_static_narration_through() -> None:
+    @tool(narration=["one", "two"])
+    def my_tool(context: ToolContext) -> ToolResult:
+        """desc"""
+        return ToolResult({})
+
+    ctx = ToolContext(agent_id="a", session_id="s", customer_id="c")
+    resolved = await _recompute_and_marshal_tool(my_tool.tool, {}, ctx, my_tool.narration)
+    assert list(resolved.narration or []) == ["one", "two"]
+
+
+def test_that_the_plugin_client_reconstructs_narration_from_json() -> None:
+    tracer = LocalTracer()
+    client = PluginClient(
+        url="http://localhost",
+        event_emitter_factory=cast(Any, None),
+        logger=StdoutLogger(tracer),
+        tracer=tracer,
+    )
+    base: dict[str, Any] = {
+        "name": "t",
+        "creation_utc": datetime.now().isoformat(),
+        "description": "",
+        "metadata": {},
+        "parameters": {},
+        "required": [],
+        "consequential": False,
+        "overlap": ToolOverlap.AUTO.value,
+    }
+    assert client._tool_from_json({**base, "narration": "hi"}).narration == "hi"
+    assert client._tool_from_json({**base, "narration": ["a", "b"]}).narration == ["a", "b"]
+    assert client._tool_from_json(base).narration is None  # older server omits the field
+
+
+async def test_that_a_plugin_round_trips_static_narration(
+    container: Container, tool_context: ToolContext
+) -> None:
+    @tool(narration="Looking that up…")
+    def my_tool(context: ToolContext) -> ToolResult:
+        """My tool's description"""
+        return ToolResult({})
+
+    # The static form is visible on the dataclass without resolution (in-process use).
+    assert my_tool.tool.narration == "Looking that up…"
+
+    async with run_service_server([my_tool]) as server:
+        async with create_client(server, container[EventBufferFactory]) as client:
+            assert (await client.read_tool(my_tool.tool.name)).narration == "Looking that up…"
+            resolved = await client.resolve_tool(my_tool.tool.name, tool_context)
+            assert resolved.narration == "Looking that up…"
+
+
+async def test_that_a_plugin_round_trips_sequence_narration(
+    container: Container, tool_context: ToolContext
+) -> None:
+    options = ["Checking the catalog…", "One moment…"]
+
+    @tool(narration=options)
+    def my_tool(context: ToolContext) -> ToolResult:
+        """My tool's description"""
+        return ToolResult({})
+
+    async with run_service_server([my_tool]) as server:
+        async with create_client(server, container[EventBufferFactory]) as client:
+            resolved = await client.resolve_tool(my_tool.tool.name, tool_context)
+            assert list(resolved.narration or []) == options
+
+
+async def test_that_a_callable_narration_is_resolved_server_side_with_the_tool_context(
+    container: Container, tool_context: ToolContext
+) -> None:
+    @tool(narration=lambda context: f"Helping {context.customer_id}…")
+    def my_tool(context: ToolContext) -> ToolResult:
+        """My tool's description"""
+        return ToolResult({})
+
+    # The callable lives only on the ToolEntry, never on the (serializable) dataclass.
+    assert my_tool.tool.narration is None
+
+    async with run_service_server([my_tool]) as server:
+        async with create_client(server, container[EventBufferFactory]) as client:
+            # read_tool doesn't resolve callables, so narration is absent there...
+            assert (await client.read_tool(my_tool.tool.name)).narration is None
+            # ...but resolve_tool runs the callable server-side with the ToolContext.
+            resolved = await client.resolve_tool(my_tool.tool.name, tool_context)
+            assert resolved.narration == f"Helping {tool_context.customer_id}…"
 
 
 async def test_that_a_plugin_reads_a_tool(container: Container) -> None:
@@ -803,3 +939,132 @@ async def test_that_tool_decorator_can_set_overlap() -> None:
         return ToolResult({})
 
     assert my_tool.tool.overlap == ToolOverlap.NONE
+
+
+# ─────────────────── find_relevant_tools (offline, no HTTP) ──────────────────
+
+
+class _KeywordEmbedder(NullEmbedder):
+    """A deterministic embedder: a 2-d vector flagging 'weather'/'payment'."""
+
+    async def embed(self, texts: list[str], hints: Mapping[str, Any] = {}) -> EmbeddingResult:
+        return EmbeddingResult(
+            vectors=[[float("weather" in t.lower()), float("payment" in t.lower())] for t in texts]
+        )
+
+
+@tool
+def _weather_tool(context: ToolContext, city: str) -> ToolResult:
+    """Look up the current weather for a city."""
+    return ToolResult(data={})
+
+
+@tool
+def _payment_tool(context: ToolContext, amount: float) -> ToolResult:
+    """Charge a payment to the customer."""
+    return ToolResult(data={})
+
+
+async def test_that_plugin_server_ranks_tools_by_query_relevance() -> None:
+    server = PluginServer(
+        tools=[_weather_tool, _payment_tool],
+        embedder=_KeywordEmbedder(),
+    )
+
+    results = await server.find_relevant_tools(
+        "what's the weather like?", ["_weather_tool", "_payment_tool"], max_count=2
+    )
+
+    assert [r.tool.name for r in results] == ["_weather_tool", "_payment_tool"]
+    assert results[0].score > results[1].score
+
+
+async def test_that_plugin_server_without_an_embedder_preserves_order_and_skips_unknown() -> None:
+    server = PluginServer(tools=[_weather_tool, _payment_tool])
+
+    results = await server.find_relevant_tools(
+        "anything", ["_payment_tool", "does_not_exist", "_weather_tool"], max_count=5
+    )
+
+    # No embedder → listing order (as requested), unknown names silently skipped.
+    assert [r.tool.name for r in results] == ["_payment_tool", "_weather_tool"]
+    assert all(r.score == 0.0 for r in results)
+
+
+async def test_that_a_tool_can_be_declared_without_a_context_parameter(
+    tool_context: ToolContext,
+) -> None:
+    @tool
+    def my_tool(arg_1: int, arg_2: Optional[int]) -> ToolResult:
+        """A tool that needs no context"""
+        return ToolResult(arg_1 * (arg_2 or 0))
+
+    assert "context" not in my_tool.tool.parameters
+    assert "arg_1" in my_tool.tool.parameters
+    assert my_tool(2, 3).data == 6
+
+
+async def test_that_a_contextless_tool_can_be_called_through_the_plugin_server(
+    tool_context: ToolContext,
+    container: Container,
+) -> None:
+    @tool
+    def my_tool(arg_1: int, arg_2: int) -> ToolResult:
+        """A tool that needs no context"""
+        return ToolResult(arg_1 * arg_2)
+
+    async with run_service_server([my_tool]) as server:
+        async with create_client(server, container[EventBufferFactory]) as client:
+            result = await client.call_tool(
+                my_tool.tool.name,
+                tool_context,
+                arguments={"arg_1": 2, "arg_2": 4},
+            )
+            assert result.data == 8
+
+
+async def test_that_a_contextless_tool_with_no_parameters_is_valid(
+    tool_context: ToolContext,
+    container: Container,
+) -> None:
+    @tool
+    def my_tool() -> ToolResult:
+        """A tool with no parameters at all"""
+        return ToolResult("pong")
+
+    async with run_service_server([my_tool]) as server:
+        async with create_client(server, container[EventBufferFactory]) as client:
+            result = await client.call_tool(
+                my_tool.tool.name,
+                tool_context,
+                arguments={},
+            )
+            assert result.data == "pong"
+
+
+async def test_that_a_plugin_server_fails_fast_with_a_clear_error_when_its_port_is_taken() -> None:
+    import socket
+    import time
+
+    blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    blocker.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    blocker.bind(("127.0.0.1", 0))
+    blocker.listen(1)
+    taken_port = blocker.getsockname()[1]
+
+    try:
+        start = time.monotonic()
+
+        with raises(RuntimeError) as exc_info:
+            async with PluginServer(tools=[], port=taken_port, host="127.0.0.1"):
+                pass
+
+        elapsed = time.monotonic() - start
+
+        message = str(exc_info.value)
+        assert str(taken_port) in message
+        assert "in use" in message.lower() or "bind" in message.lower()
+        # Must surface the bind failure promptly, not wait out the startup timeout.
+        assert elapsed < 4
+    finally:
+        blocker.close()

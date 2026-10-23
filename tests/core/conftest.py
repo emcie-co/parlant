@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from datetime import datetime, timezone
-from lagom import Container
+from parlant.core.container import Container
 from pytest import fixture
 
 from parlant.core.agents import Agent, AgentId, AgentStore
@@ -30,7 +30,7 @@ def agent(
     sync_await: SyncAwaiter,
 ) -> Agent:
     store = container[AgentStore]
-    agent = sync_await(store.create_agent(name="test-agent", max_engine_iterations=2))
+    agent = sync_await(store.create_agent(name="test-agent", max_steps=2))
     return agent
 
 
@@ -47,7 +47,7 @@ def customer(context: ContextOfTest) -> Customer:
     customer = context.sync_await(
         store.create_customer(
             name="Test Customer",
-            extra={"email": "test@customer.com"},
+            metadata={"email": "test@customer.com"},
         ),
     )
     return customer
@@ -67,12 +67,10 @@ def context(
         sync_await,
         container,
         events=list(),
-        guidelines=dict(),
-        guideline_matches=dict(),
+        rules=dict(),
+        rule_matches=dict(),
         tools=dict(),
         actions=list(),
-        journeys=dict(),
-        nodes=dict(),
     )
 
 

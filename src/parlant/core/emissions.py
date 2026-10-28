@@ -15,7 +15,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Mapping
+from typing import Awaitable, Callable, Mapping, Protocol
 
 from parlant.core.agents import AgentId
 from parlant.core.common import JSONSerializable
@@ -45,7 +45,24 @@ class MessageEventHandle:
     """A handle to an emitted message event that allows updating it."""
 
     event: EmittedEvent
-    update: Callable[[MessageEventData], Awaitable[MessageEventHandle]]
+    update: MessageEventUpdater
+
+
+class MessageEventUpdater(Protocol):
+    async def __call__(
+        self,
+        data: MessageEventData,
+        *,
+        internal_metadata: Mapping[str, JSONSerializable] | None = None,
+    ) -> MessageEventHandle: ...
+
+
+@dataclass(frozen=True)
+class StatusEventHandle:
+    """A handle to an emitted status event that allows updating it."""
+
+    event: EmittedEvent
+    update: Callable[[StatusEventData], Awaitable[StatusEventHandle]]
 
 
 class EventEmitter(ABC):
@@ -57,7 +74,7 @@ class EventEmitter(ABC):
         trace_id: str,
         data: StatusEventData,
         metadata: Mapping[str, JSONSerializable] | None = None,
-    ) -> EmittedEvent:
+    ) -> StatusEventHandle:
         """Emit a status event with the given trace ID and data."""
         ...
 
@@ -67,6 +84,8 @@ class EventEmitter(ABC):
         trace_id: str,
         data: str | MessageEventData,
         metadata: Mapping[str, JSONSerializable] | None = None,
+        *,
+        source: EventSource = EventSource.AI_AGENT,
     ) -> MessageEventHandle:
         """Emit a message event with the given trace ID and data."""
         ...

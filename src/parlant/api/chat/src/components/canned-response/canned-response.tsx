@@ -27,7 +27,7 @@ const CannedResponse = ({cannedResponse: cannedResponse}: {cannedResponse: {id: 
 				</div>
 			</Tooltip>
 		</div>
-		// <Tooltip value={<TooltipComponent fragmentId={fragment.id} />} side='top' align='start' className='ml-[23px] -mb-[10px] font-medium font-inter'>
+		// <Tooltip value={<TooltipComponent fragmentId={fragment.id} />} side='top' align='start' className='ml-[23px] -mb-[10px] font-medium font-manrope'>
 		// </Tooltip>
 	);
 };

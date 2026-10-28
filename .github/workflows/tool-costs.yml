@@ -1,0 +1,36 @@
+name: Tool costs
+on:
+  pull_request:
+    branches: [compass]
+    paths:
+      - 'src/parlant/**'
+      - 'tests/**'
+      - '.github/workflows/tool-costs.yml'
+jobs:
+  tool-costs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --frozen --all-extras
+      - run: uv run python scripts/lint.py --mypy --ruff
+      - name: Cost accounting, plugin transport and background completion
+        env:
+          GEMINI_API_KEY: not-a-real-key
+        run: >-
+          uv run pytest tests/core/stable/test_pricing.py
+          tests/core/test_tracer.py
+          tests/core/stable/test_diagnostic_reports.py
+          tests/core/stable/engines/compass/test_tracing.py
+          tests/adapters/modules/test_parlant_dashboard_tracer.py
+          tests/core/stable/engines/test_session_metadata_workspace.py
+          tests/core/stable/services/tools/test_plugin_client.py
+          tests/core/stable/engines/compass/test_tool_runner.py
+          tests/sdk/test_tool_costs.py -q

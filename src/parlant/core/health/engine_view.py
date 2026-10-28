@@ -21,7 +21,7 @@ TTFM percentiles, recent errors, and turns-per-minute rate windows.
 
 from collections import Counter
 from datetime import timedelta
-from typing import Any, Mapping, Sequence
+from typing import Any, Literal, Mapping, Sequence, TypedDict
 
 from parlant.core.health.reporter import (
     StatusCriticality,
@@ -51,6 +51,22 @@ def _percentile(values: list[float], p: float) -> float:
     s = sorted(values)
     idx = max(0, min(len(s) - 1, int(round(p * (len(s) - 1)))))
     return s[idx]
+
+
+class EngineHealthReason(TypedDict):
+    """One contributing comparison, using unrounded observations and server thresholds.
+
+    Consumers must not reconstruct these decisions from rounded display metrics or
+    assume the default thresholds. A metric contributes its highest crossed severity;
+    separate metrics can contribute different severities in the same snapshot.
+    """
+
+    code: Literal["low_success_rate", "high_turn_latency"]
+    metric: Literal["success_rate", "p95_latency_ms"]
+    severity: Literal["degraded", "unhealthy"]
+    observed_value: float
+    threshold: float
+    comparison: Literal["lt", "gte"]
 
 
 class EngineHealthView:
@@ -103,6 +119,7 @@ class EngineHealthView:
                     "p50_ttfm_ms": 0.0,
                     "p95_ttfm_ms": 0.0,
                     "recent_errors": {},
+                    "reasons": [],
                     **rate_block,
                 },
             )
@@ -136,7 +153,7 @@ class EngineHealthView:
             error_counter[error_class] += 1
         recent_errors = dict(error_counter.most_common(self._recent_errors_top_k))
 
-        status = self._classify(success_rate=success_rate, p95_ms=p95_latency)
+        status, reasons = self._assess(success_rate=success_rate, p95_ms=p95_latency)
 
         return ViewSnapshot(
             status=status,
@@ -148,6 +165,7 @@ class EngineHealthView:
                 "p50_ttfm_ms": round(p50_ttfm, 2),
                 "p95_ttfm_ms": round(p95_ttfm, 2),
                 "recent_errors": recent_errors,
+                "reasons": reasons,
                 **rate_block,
             },
         )
@@ -168,9 +186,46 @@ class EngineHealthView:
         except KeyError:
             return {}
 
-    def _classify(self, *, success_rate: float, p95_ms: float) -> OverallHealth:
-        if success_rate < self._unhealthy_below_success_rate or p95_ms >= self._unhealthy_p95_ms:
-            return OverallHealth.UNHEALTHY
-        if success_rate < self._degraded_below_success_rate or p95_ms >= self._degraded_p95_ms:
-            return OverallHealth.DEGRADED
-        return OverallHealth.HEALTHY
+    def _assess(
+        self, *, success_rate: float, p95_ms: float
+    ) -> tuple[OverallHealth, list[EngineHealthReason]]:
+        # Verdict and explanations come from the same comparisons. Test critical
+        # before warning, preserving the previous classifier's exact boundaries.
+        reasons: list[EngineHealthReason] = []
+        success_thresholds: tuple[tuple[Literal["unhealthy", "degraded"], float], ...] = (
+            ("unhealthy", self._unhealthy_below_success_rate),
+            ("degraded", self._degraded_below_success_rate),
+        )
+        latency_thresholds: tuple[tuple[Literal["unhealthy", "degraded"], float], ...] = (
+            ("unhealthy", self._unhealthy_p95_ms),
+            ("degraded", self._degraded_p95_ms),
+        )
+        for severity, threshold in success_thresholds:
+            if success_rate < threshold:
+                reasons.append(
+                    {
+                        "code": "low_success_rate",
+                        "metric": "success_rate",
+                        "severity": severity,
+                        "observed_value": success_rate,
+                        "threshold": threshold,
+                        "comparison": "lt",
+                    }
+                )
+                break
+        for severity, threshold in latency_thresholds:
+            if p95_ms >= threshold:
+                reasons.append(
+                    {
+                        "code": "high_turn_latency",
+                        "metric": "p95_latency_ms",
+                        "severity": severity,
+                        "observed_value": p95_ms,
+                        "threshold": threshold,
+                        "comparison": "gte",
+                    }
+                )
+                break
+        if any(reason["severity"] == "unhealthy" for reason in reasons):
+            return OverallHealth.UNHEALTHY, reasons
+        return (OverallHealth.DEGRADED if reasons else OverallHealth.HEALTHY), reasons

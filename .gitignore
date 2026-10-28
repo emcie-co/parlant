@@ -22,4 +22,6 @@ scripts/sdks/
 scripts/fern/openapi
 fern.generate.log
 schematic_generation_test_cache.json
+schematic_generation_test_cache.sqlite
 test_timing.csv
+.archive

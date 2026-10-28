@@ -21,8 +21,9 @@ from tests.sdk.utils import Context, SDKTest
 class Test_that_canned_response_can_be_created_with_field_dependencies(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="canned-responses-agent-1",
             name="Field Dependencies Agent",
-            description="Agent for testing field dependencies",
+            instructions="Agent for testing field dependencies",
         )
         self.canrep_id = await self.agent.create_canned_response(
             template="Your order status is: ready.",
@@ -37,26 +38,73 @@ class Test_that_canned_response_can_be_created_with_field_dependencies(SDKTest):
         assert "order" in canrep.field_dependencies
 
 
+class Test_that_canned_response_can_be_created_with_notes(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="canned-responses-agent-2",
+            name="Note Agent",
+            instructions="Agent for testing canned response note",
+        )
+        self.canrep_id = await self.agent.create_canned_response(
+            template="We're happy to help!",
+            note="Warm, friendly tone. Use for greetings.",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        canrep_store = ctx.container[CannedResponseStore]
+        canrep = await canrep_store.read_canned_response(canned_response_id=self.canrep_id)
+
+        assert canrep.value == "We're happy to help!"
+        assert canrep.note == "Warm, friendly tone. Use for greetings."
+
+
+class Test_that_canned_response_notes_default_to_empty(SDKTest):
+    async def setup(self, server: p.Server) -> None:
+        self.agent = await server.create_agent(
+            id="canned-responses-agent-3",
+            name="Default Note Agent",
+            instructions="Agent for testing default canned response note",
+        )
+        self.canrep_id = await self.agent.create_canned_response(
+            template="Hello there.",
+        )
+
+    async def run(self, ctx: Context) -> None:
+        canrep_store = ctx.container[CannedResponseStore]
+        canrep = await canrep_store.read_canned_response(canned_response_id=self.canrep_id)
+
+        assert canrep.note == ""
+
+
 class Test_that_canned_response_with_field_dependency_is_excluded_when_field_unavailable(SDKTest):
     async def setup(self, server: p.Server) -> None:
         self.agent = await server.create_agent(
+            id="canned-responses-agent-4",
             name="Test Agent",
-            description="",
+            instructions="",
         )
 
-        # Create a canned response that depends on "order" field
+        # A canned response whose declared field dependency ("order") nothing
+        # provides — it must be disqualified from selection entirely.
         canrep_with_dependency = await self.agent.create_canned_response(
             template="Your order is ready for pickup.",
-            field_dependencies=["order"],  # Should disqualify this response, since it's unavailable
+            field_dependencies=["order"],
         )
 
-        # Guideline that uses both canned responses - the one with dependency should be excluded
-        # because no tool provides the "order" field
-        await self.agent.create_guideline(
-            condition="Customer asks about their order",
-            action="Tell them that their order is ready for pickup",
-            composition_mode=p.CompositionMode.STRICT,
-            canned_responses=[canrep_with_dependency],
+        # A satisfiable alternative the agent should fall back to.
+        canrep_fallback = await self.agent.create_canned_response(
+            template="I can't check your order status right now.",
+        )
+
+        # The policy is deliberately neutral about the outcome: the response
+        # content must come from the canned responses, so the exclusion is
+        # observable.
+        await self.agent.create_policy(
+            content=(
+                "When the customer asks about their order, "
+                "update them on their order status using an approved response"
+            ),
+            canned_responses=[canrep_with_dependency, canrep_fallback],
         )
 
     async def run(self, ctx: Context) -> None:
@@ -65,6 +113,11 @@ class Test_that_canned_response_with_field_dependency_is_excluded_when_field_una
             recipient=self.agent,
         )
 
-        # The response with field dependency should be excluded.
-        # Instead, the response is expected to be a fallback "no-match" one.
-        assert "order" not in response.lower()
+        # The dependency-unmet response must not drive the reply; the
+        # satisfiable one should.
+        assert "ready for pickup" not in response.lower(), (
+            f"Expected the dependency-unmet canned response to be excluded, got: {response}"
+        )
+        assert "right now" in response.lower(), (
+            f"Expected the satisfiable canned response to drive the reply, got: {response}"
+        )

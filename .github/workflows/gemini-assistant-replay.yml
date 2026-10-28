@@ -1,0 +1,56 @@
+name: Gemini protocol and history
+
+on:
+  pull_request:
+    branches: [compass]
+    paths:
+      - "src/parlant/adapters/nlp/gemini*.py"
+      - "src/parlant/core/nlp/react.py"
+      - "src/parlant/core/emissions.py"
+      - "src/parlant/core/emission/**"
+      - "src/parlant/core/engines/compass/loop/**"
+      - "tests/adapters/nlp/test_gemini_interactions.py"
+      - "tests/core/stable/engines/compass/loop/**"
+      - "tests/sdk/test_gemini_assistant_replay.py"
+      - ".github/workflows/gemini-assistant-replay.yml"
+  push:
+    branches: [compass]
+    paths:
+      - "src/parlant/adapters/nlp/gemini*.py"
+      - "src/parlant/core/nlp/react.py"
+      - "src/parlant/core/emissions.py"
+      - "src/parlant/core/emission/**"
+      - "src/parlant/core/engines/compass/loop/**"
+      - "tests/adapters/nlp/test_gemini_interactions.py"
+      - "tests/core/stable/engines/compass/loop/**"
+      - "tests/sdk/test_gemini_assistant_replay.py"
+      - ".github/workflows/gemini-assistant-replay.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  protocol:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - run: uv sync --frozen --extra gemini --extra anthropic
+      - name: Check formatting and lint
+        run: |
+          uv run --no-sync ruff check
+          uv run --no-sync ruff format --check
+      - name: Check real-client protocols and message loops without provider credentials
+        env:
+          PARLANT_ENV: test
+          PARLANT_HOME: ${{ runner.temp }}/parlant-native-history
+        run: >-
+          uv run --no-sync pytest -q
+          tests/adapters/nlp/test_gemini_interactions.py
+          tests/core/stable/engines/compass/loop/test_streaming_loop.py
+          tests/core/stable/engines/compass/loop/test_blocking_loop.py
+          tests/sdk/test_gemini_assistant_replay.py

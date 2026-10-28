@@ -22,11 +22,16 @@ from parlant.core.persistence.vector_database import BaseDocument, TDocument, Ve
 
 
 async def query_chunks(query: str, embedder: Embedder) -> list[str]:
-    max_length = embedder.max_tokens // 5
-    total_token_count = await embedder.tokenizer.estimate_token_count(query)
-
     words = query.split()
     total_word_count = len(words)
+
+    # An empty or whitespace-only query has nothing to chunk; bail before dividing by the
+    # (zero) word count. Callers treat an empty result as "no relevant matches".
+    if total_word_count == 0:
+        return []
+
+    max_length = embedder.max_tokens // 5
+    total_token_count = await embedder.tokenizer.estimate_token_count(query)
 
     tokens_per_word = total_token_count / total_word_count
 

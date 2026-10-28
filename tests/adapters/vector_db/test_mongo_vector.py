@@ -16,18 +16,18 @@ import os
 import uuid
 from typing import AsyncIterator, TypedDict, cast
 
-from lagom import Container
+from parlant.core.container import Container
 from pytest import fixture, mark
 from typing_extensions import Required
 
-from parlant.adapters.nlp.openai_service import OpenAITextEmbedding3Large
 from parlant.adapters.vector_db.mongo import MongoVectorCollection, MongoVectorDatabase
 from parlant.core.common import Version, xxh3_checksum
-from parlant.core.nlp.embedding import EmbedderFactory, NullEmbeddingCache
+from parlant.core.nlp.embedding import Embedder, NullEmbeddingCache
 from parlant.core.loggers import Logger
 from parlant.core.persistence.common import ObjectId
 from parlant.core.persistence.vector_database import BaseDocument
 from parlant.core.tracer import Tracer
+from tests.test_utilities import DeterministicEmbedder
 
 from pymongo import AsyncMongoClient
 
@@ -43,6 +43,10 @@ class _TestDocument(TypedDict, total=False):
     content: str
     checksum: Required[str]
     name: str
+
+
+async def _default_embedder() -> Embedder:
+    return DeterministicEmbedder()
 
 
 async def _identity_loader(doc: BaseDocument) -> _TestDocument:
@@ -75,7 +79,6 @@ async def mongo_database(
         database_name=db_name,
         logger=container[Logger],
         tracer=container[Tracer],
-        embedder_factory=EmbedderFactory(container),
         embedding_cache_provider=NullEmbeddingCache,
     ) as db:
         yield db
@@ -87,11 +90,12 @@ async def mongo_database(
 @fixture
 async def mongo_collection(
     mongo_database: MongoVectorDatabase,
+    container: Container,
 ) -> AsyncIterator[MongoVectorCollection[_TestDocument]]:
     collection = await mongo_database.get_or_create_collection(
         "test_collection",
         _TestDocument,
-        embedder_type=OpenAITextEmbedding3Large,
+        embedder=await _default_embedder(),
         document_loader=_identity_loader,
     )
     yield collection
@@ -328,18 +332,19 @@ async def test_that_metadata_operations_work(
 
 async def test_that_get_or_create_collection_is_idempotent(
     mongo_database: MongoVectorDatabase,
+    container: Container,
 ) -> None:
     collection1 = await mongo_database.get_or_create_collection(
         "idempotent_test",
         _TestDocument,
-        embedder_type=OpenAITextEmbedding3Large,
+        embedder=await _default_embedder(),
         document_loader=_identity_loader,
     )
 
     collection2 = await mongo_database.get_or_create_collection(
         "idempotent_test",
         _TestDocument,
-        embedder_type=OpenAITextEmbedding3Large,
+        embedder=await _default_embedder(),
         document_loader=_identity_loader,
     )
 
@@ -350,11 +355,12 @@ async def test_that_get_or_create_collection_is_idempotent(
 
 async def test_that_delete_collection_removes_it(
     mongo_database: MongoVectorDatabase,
+    container: Container,
 ) -> None:
     await mongo_database.get_or_create_collection(
         "to_delete",
         _TestDocument,
-        embedder_type=OpenAITextEmbedding3Large,
+        embedder=await _default_embedder(),
         document_loader=_identity_loader,
     )
 
@@ -373,7 +379,7 @@ async def test_that_loading_collection_preserves_documents(
     collection = await mongo_database.get_or_create_collection(
         "persist_test",
         _TestDocument,
-        embedder_type=OpenAITextEmbedding3Large,
+        embedder=await _default_embedder(),
         document_loader=_identity_loader,
     )
 
@@ -393,13 +399,12 @@ async def test_that_loading_collection_preserves_documents(
         database_name=mongo_database._database_name,
         logger=container[Logger],
         tracer=container[Tracer],
-        embedder_factory=EmbedderFactory(container),
         embedding_cache_provider=NullEmbeddingCache,
     ) as second_db:
         fetched_collection: MongoVectorCollection[_TestDocument] = await second_db.get_collection(
             "persist_test",
             _TestDocument,
-            embedder_type=OpenAITextEmbedding3Large,
+            embedder=await _default_embedder(),
             document_loader=_identity_loader,
         )
 

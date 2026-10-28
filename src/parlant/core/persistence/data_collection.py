@@ -8,7 +8,7 @@ from typing_extensions import override
 from parlant.core.async_utils import safe_gather
 from parlant.core.common import generate_id
 from parlant.core.tracer import Tracer
-from parlant.core.engines.alpha.prompt_builder import PromptBuilder
+from parlant.core.engines.compass.prompt_builder import PromptBuilder
 from parlant.core.nlp.generation import T, SchematicGenerationResult, SchematicGenerator
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 
@@ -75,10 +75,9 @@ class DataCollectingSchematicGenerator(SchematicGenerator[T]):
                     "model": result.info.model,
                     "duration": result.info.duration,
                     "input_tokens": result.info.usage.input_tokens,
-                    "cached_input_tokens": result.info.usage.extra
-                    and result.info.usage.extra.get("cached_input_tokens", 0)
-                    or 0,
+                    "cached_input_tokens": result.info.usage.cached_input_tokens,
                     "output_tokens": result.info.usage.output_tokens,
+                    "requests": result.info.usage.requests,
                 },
                 indent=2,
             )
@@ -90,6 +89,14 @@ class DataCollectingSchematicGenerator(SchematicGenerator[T]):
             )
 
         return result
+
+    @property
+    @override
+    def schema(self) -> type[T]:
+        # The base class derives the schema from __orig_class__, which only
+        # exists on subscripted constructions; delegate to the wrapped
+        # generator instead so bare wrapping keeps schema discovery intact.
+        return self._wrapped_generator.schema
 
     @property
     @override

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import ReactMarkdown from 'react-markdown';
+import {Streamdown} from 'streamdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeRaw from 'rehype-raw';
@@ -11,18 +11,38 @@ function preserveBlankLines(md: string): string {
 	return md?.replace?.(/\\n/g, '\n')?.replace(/\n(?!-)/g, '<br/>') || md;
 }
 
-const Markdown = ({children, className}: {children: string; className?: string}) => {
+// Streamdown is a drop-in for ReactMarkdown that gracefully handles partial
+// markdown tokens mid-stream (incomplete code fences, links, emphasis, etc.) —
+// so we can render the *currently revealed* prefix of a streaming message or
+// status text as live markdown without flicker, instead of waiting for the
+// stream to terminate.
+//
+// `parseIncomplete` must only be enabled while showing a partial prefix. On a
+// COMPLETE message it actively corrupts content: an unbalanced `*` (e.g. "2 * 3",
+// a footnote marker, a stray emphasis) is "completed" by appending a closing `*`
+// at the end, so the rendered message gains a trailing asterisk the API content
+// never had. Callers opt in only while still revealing.
+const Markdown = ({
+	children,
+	className,
+	parseIncomplete = false,
+}: {
+	children: string;
+	className?: string;
+	parseIncomplete?: boolean;
+}) => {
 	return (
-		<ReactMarkdown
+		<Streamdown
 			components={{
 				p: 'div',
-				img: ({node, ...props}) => <img {...props} loading='lazy' alt='' />
+				img: ({node, ...props}) => <img {...props} loading='lazy' alt='' />,
 			}}
 			rehypePlugins={[rehypeHighlight, rehypeRaw]}
 			remarkPlugins={[remarkGfm]}
+			parseIncompleteMarkdown={parseIncomplete}
 			className={twMerge('leading-[19px]', styles.markdown, className)}>
 			{preserveBlankLines(children)}
-		</ReactMarkdown>
+		</Streamdown>
 	);
 };
 

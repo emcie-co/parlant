@@ -87,13 +87,15 @@ def _session_document(
         "id": ObjectId(doc_id),
         "version": Version.String("0.7.0"),
         "creation_utc": "2025-01-01T00:00:00Z",
+        "modified_utc": "2025-01-01T00:00:00Z",
         "customer_id": CustomerId(customer_id),
         "agent_id": AgentId(agent_id),
         "title": None,
         "mode": "auto",
-        "consumption_offsets": {"client": 0},
         "agent_states": [],
         "metadata": {},
+        "metadata_revision": 0,
+        "labels": [],
     }
 
 
@@ -106,7 +108,7 @@ def test_where_clause_supports_nested_or_and_in() -> None:
                 {
                     "$and": [
                         {"customer_id": {"$eq": "cust-9"}},
-                        {"tag_id": {"$in": ["alpha", "beta"]}},
+                        {"group_id": {"$in": ["alpha", "beta"]}},
                         {"offset": {"$gte": 3}},
                     ]
                 },
@@ -117,7 +119,7 @@ def test_where_clause_supports_nested_or_and_in() -> None:
     clause, params = _build_where_clause(filters, {"agent_id", "customer_id", "offset"})
 
     assert '"AGENT_ID"' in clause
-    assert 'DATA:"tag_id"' in clause
+    assert 'DATA:"group_id"' in clause
     assert "TO_VARIANT" in clause
     assert '"OFFSET" >=' in clause
     assert params["param_0"] == "agent-1"
@@ -175,15 +177,20 @@ async def test_find_uses_sql_filters(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
     collection = SnowflakeDocumentCollection(db, "events", _SessionDocument, _TestLogger())
 
-    execute_mock = AsyncMock(return_value=[{"DATA": {"id": "1"}}])
+    execute_mock = AsyncMock(
+        side_effect=[
+            [{"DATA": {"id": "1"}}],
+            {"TOTAL_COUNT": 1},
+        ]
+    )
     monkeypatch.setattr(db, "_execute", execute_mock)
 
     result = await collection.find({"session_id": {"$eq": "abc"}})
 
     assert isinstance(result, FindResult)
     assert result.items[0]["id"] == "1"
-    sql = execute_mock.call_args[0][0]
-    params = execute_mock.call_args[0][1]
+    sql = execute_mock.call_args_list[0].args[0]
+    params = execute_mock.call_args_list[0].args[1]
     assert 'WHERE DATA:"session_id" =' in sql
     assert "ORDER BY CREATION_UTC ASC, ID ASC" in sql
     assert params["param_0"] == "abc"
@@ -198,16 +205,16 @@ async def test_find_paginates_and_sets_next_cursor(monkeypatch: pytest.MonkeyPat
         {"DATA": {"id": "1", "creation_utc": "2025-01-01"}},
         {"DATA": {"id": "2", "creation_utc": "2025-01-02"}},
     ]
-    execute_mock = AsyncMock(return_value=rows)
+    execute_mock = AsyncMock(side_effect=[rows, {"TOTAL_COUNT": 2}])
     monkeypatch.setattr(db, "_execute", execute_mock)
 
     result = await collection.find({}, limit=1)
 
     assert len(result.items) == 1
     assert result.has_more is True
-    assert result.next_cursor == Cursor(creation_utc="2025-01-01", id=ObjectId("1"))
+    assert result.next_cursor == Cursor(sort_value="2025-01-01", id=ObjectId("1"))
     assert result.total_count == 2
-    sql = execute_mock.call_args[0][0]
+    sql = execute_mock.call_args_list[0].args[0]
     assert "LIMIT 2" in sql
 
 
@@ -216,18 +223,23 @@ async def test_find_adds_cursor_clause(monkeypatch: pytest.MonkeyPatch) -> None:
     db = _make_database()
     collection = SnowflakeDocumentCollection(db, "events", _SessionDocument, _TestLogger())
 
-    execute_mock = AsyncMock(return_value=[])
+    execute_mock = AsyncMock(side_effect=[[], {"TOTAL_COUNT": 0}])
     monkeypatch.setattr(db, "_execute", execute_mock)
 
-    cursor = Cursor(creation_utc="2025-01-03", id=ObjectId("abc"))
-    await collection.find({}, cursor=cursor, sort_direction=SortDirection.DESC)
+    cursor = Cursor(sort_value="2025-01-03", id=ObjectId("abc"))
+    result = await collection.find(
+        {},
+        cursor=cursor,
+        sort_direction=SortDirection.DESC,
+    )
 
-    sql = execute_mock.call_args[0][0]
-    params = execute_mock.call_args[0][1]
+    sql = execute_mock.call_args_list[0].args[0]
+    params = execute_mock.call_args_list[0].args[1]
     assert "ORDER BY CREATION_UTC DESC, ID DESC" in sql
     assert "CREATION_UTC <" in sql
     assert params["cursor_creation"] == "2025-01-03"
     assert params["cursor_id"] == "abc"
+    assert result.total_count == 0
 
 
 @pytest.mark.asyncio
@@ -245,6 +257,39 @@ async def test_update_one_upserts_when_missing(monkeypatch: pytest.MonkeyPatch) 
 
     insert_mock.assert_awaited_once()
     assert result.updated_document == payload
+
+
+@pytest.mark.asyncio
+async def test_update_one_applies_revision_filter_in_the_atomic_update(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _make_database()
+    collection = SnowflakeDocumentCollection(db, "sessions", _SessionDocument, _TestLogger())
+    existing = _session_document()
+    existing["metadata_revision"] = 2
+    updated = {**existing, "metadata": {"application": "new"}, "metadata_revision": 3}
+
+    monkeypatch.setattr(
+        collection,
+        "find_one",
+        AsyncMock(side_effect=[existing, updated]),
+    )
+    execute_mock = AsyncMock(return_value=1)
+    monkeypatch.setattr(db, "_execute", execute_mock)
+
+    result = await collection.update_one(
+        {
+            "id": {"$eq": existing["id"]},
+            "metadata_revision": {"$eq": 2},
+        },
+        cast(_SessionDocument, {"metadata": updated["metadata"], "metadata_revision": 3}),
+    )
+
+    sql = execute_mock.call_args.args[0]
+    assert "OBJECT_INSERT" in sql
+    assert 'DATA:"metadata_revision"' in sql
+    assert result.matched_count == 1
+    assert result.updated_document == updated
 
 
 @pytest.mark.asyncio

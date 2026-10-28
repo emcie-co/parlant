@@ -13,10 +13,11 @@
 # limitations under the License.
 
 from __future__ import annotations
+import traceback
 from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator
 from typing import (
     Any,
-    AsyncIterator,
     Awaitable,
     Callable,
     Coroutine,
@@ -27,6 +28,7 @@ from typing import (
     AsyncContextManager,
 )
 import asyncio
+import time
 import math
 import aiorwlock
 
@@ -34,7 +36,7 @@ from parlant.core.loggers import Logger
 
 
 def _now() -> float:
-    return asyncio.get_event_loop().time()
+    return time.monotonic()
 
 
 class Timeout:
@@ -131,7 +133,7 @@ async def safe_gather(
     | asyncio.Task[_TResult2]
     | Coroutine[Any, Any, _TResult2]
     | Awaitable[_TResult2],
-) -> tuple[_TResult0, _TResult2]: ...
+) -> tuple[_TResult0, _TResult1, _TResult2]: ...
 
 
 @overload
@@ -152,7 +154,7 @@ async def safe_gather(
     | asyncio.Task[_TResult3]
     | Coroutine[Any, Any, _TResult3]
     | Awaitable[_TResult3],
-) -> tuple[_TResult0, _TResult3]: ...
+) -> tuple[_TResult0, _TResult1, _TResult2, _TResult3]: ...
 
 
 async def safe_gather(  # type: ignore[misc]
@@ -215,6 +217,23 @@ def completed_task(value: _TResult0 | None = None) -> asyncio.Task[_TResult0 | N
     return asyncio.create_task(return_value())
 
 
+_TASK_TRACEBACK_NOTE_PREFIX = (
+    "Full task traceback (frames above truncate at the async task boundary):"
+)
+
+
+def _preserve_task_traceback(exc: BaseException) -> None:
+    """Attach the exception's current (still-complete) traceback as a note so it survives the
+    truncation that a task done-callback's result retrieval causes. Idempotent across nested
+    latches."""
+    existing = getattr(exc, "__notes__", None) or []
+    if any(note.startswith(_TASK_TRACEBACK_NOTE_PREFIX) for note in existing):
+        return
+    add_note = getattr(exc, "add_note", None)
+    if add_note is not None:
+        add_note(_TASK_TRACEBACK_NOTE_PREFIX + "\n" + "".join(traceback.format_exception(exc)))
+
+
 def default_done_callback(
     logger: Logger | None = None,
 ) -> Callable[[asyncio.Future[_TResult0]], object]:
@@ -240,7 +259,7 @@ class ReaderWriterLock:
     @property
     def reader_lock(self) -> AsyncContextManager[None]:
         @asynccontextmanager
-        async def _reader_cm() -> AsyncIterator[None]:
+        async def _reader_cm() -> AsyncGenerator[None, None]:
             async with self._reader_lock:
                 yield
 
@@ -249,7 +268,7 @@ class ReaderWriterLock:
     @property
     def writer_lock(self) -> AsyncContextManager[None]:
         @asynccontextmanager
-        async def _writer_cm() -> AsyncIterator[None]:
+        async def _writer_cm() -> AsyncGenerator[None, None]:
             async with self._writer_lock:
                 yield
 
@@ -271,7 +290,15 @@ class CancellationSuppressionLatch(Generic[_TResult0]):
 
     async def __aenter__(self) -> CancellationSuppressionLatch[_TResult0]:
         async def unshielded_shim() -> None:
-            self._result = await self._func(self)
+            try:
+                self._result = await self._func(self)
+            except BaseException as exc:
+                # The done-callback below retrieves the task result first, which truncates
+                # this exception's __traceback__ down to the callback frame — erasing the real
+                # raise site by the time it surfaces. Preserve the full in-task traceback as an
+                # exception note (included verbatim by traceback formatting / our reports).
+                _preserve_task_traceback(exc)
+                raise
 
         self._unshielded_task = asyncio.create_task(unshielded_shim())
         self._unshielded_task.add_done_callback(default_done_callback())
@@ -309,19 +336,43 @@ class CancellationSuppressionLatch(Generic[_TResult0]):
             await self._shielded_task
             raise asyncio.CancelledError() from self._cancellation_error
 
+    @property
+    def cancellation_pending(self) -> bool:
+        """True once the shielded caller was cancelled while suppression was
+        enabled — the protected code can poll this to abandon voluntarily
+        before committing anything user-visible."""
+        return self._cancellation_error is not None
+
     def enable(self) -> None:
         self._enabled = True
 
-    async def _get_result(self) -> _TResult0:
-        if self._exception is not None:
-            if isinstance(self._exception, Exception):
-                raise Exception("Task failed") from self._exception
-            elif isinstance(self._exception, BaseException):
-                raise BaseException("Task failed") from self._exception
-            else:
-                raise self._exception
+    def disable(self) -> None:
+        self._enabled = False
 
+    def _raise_exception_if_any(self) -> None:
+        if self._exception is None:
+            return
+
+        if isinstance(self._exception, asyncio.CancelledError):
+            # The protected code abandoned itself (e.g. on a pending
+            # supersede-cancellation): surface it as a genuine cancellation.
+            raise self._exception
+
+        if isinstance(self._exception, Exception):
+            raise Exception("Task failed") from self._exception
+        elif isinstance(self._exception, BaseException):
+            raise BaseException("Task failed") from self._exception
+        else:
+            raise self._exception
+
+    def _raise_deferred_cancellation_if_unsuppressed(self) -> None:
+        if self._cancellation_error and not self._enabled:
+            raise asyncio.CancelledError() from self._cancellation_error
+
+    async def _get_result(self) -> _TResult0:
         await self._done.wait()
+        self._raise_exception_if_any()
+        self._raise_deferred_cancellation_if_unsuppressed()
         return self._result
 
 
@@ -332,3 +383,11 @@ async def latched_shield(
         pass
 
     return await latch._get_result()
+
+
+async def delay(
+    delay: float,
+    coro: asyncio.Future[_TResult0] | asyncio.Task[_TResult0] | Coroutine[Any, Any, _TResult0],
+) -> _TResult0:
+    await asyncio.sleep(delay)
+    return await coro

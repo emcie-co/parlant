@@ -1,17 +1,18 @@
 [project]
 name = "parlant"
-version = "3.3.1"
-description = ""
+version = "4.0.0-alpha.1"
+description = "Parlant is a vibe-coding platform for chat agents that talk to customers."
 readme = "README.md"
 license = "Apache-2.0"
 authors = [
     {name = "Yam Marcovitz", email = "yam@emcie.co"},
     {name = "Dor Zohar", email = "dor@emcie.co"},
 ]
-requires-python = ">=3.10,<3.15"  # Restricted for torch 2.8+ compatibility with triton
+requires-python = ">=3.10,<3.15"
 dependencies = [
     "aiofiles>=24.1.0",
-    "aiopenapi3>=0.8.1,<0.9.0",  # 0.9.0 hard-pins pydantic==2.11.9, which conflicts with downstream pydantic>=2.12 consumers
+    "aiosqlite>=0.21.0",
+    "aiopenapi3>=0.8.1,<0.9.0", # 0.9.0 hard-pins pydantic==2.11.9, which conflicts with downstream pydantic>=2.12 consumers
     "aiorwlock>=1.5.0",
     "authlib>=1.6.11",
     "boto3>=1.35.70",
@@ -23,25 +24,33 @@ dependencies = [
     "croniter>=5.0.1",
     "fastapi>=0.120.0",
     "fastmcp>=3.2.0",
-    "griffe<2", # Pinned to <2 because fastmcp (at least v3.2.4) is not compatible with griffe 2.0+ due to breaking changes. Can be removed in case of future fastmcp updates.
     "httpx>=0.28.1",
+    "httpx-sse>=0.4.3",
+    # Imported directly by the OpenAI/OpenRouter adapters: openai 3.0 moved its
+    # client onto HTTPX2, so a timeout handed to it must be an httpx2 object.
+    "httpx2>=2.13.1",
+    "keyring>=25.0.0",
     "jinja2>=3.1.6",
     "jsonfinder>=0.4.2",
     "jsonschema>=4.23.0",
     "lagom>=2.6.0",
     "limits>=5.5.0",
+    "maxminddb>=2.6.0", # local GeoIP lookups (no network) for session client locations
     "mcp>=1.23.0",
     "more-itertools>=10.3.0",
     "nano-vectordb>=0.0.4.3",
     "nanoid>=2.0.0",
     "networkx[default]>=3.3",
-    "openai>=2.8.0",
+    "numpy>=1.26.0",
+    # The OpenAI SDK powers both the built-in OpenAI and OpenRouter adapters.
+    # Keep it in the base install so OpenRouter never requires an extra.
+    "openai>=3.26.0",
     "openapi3-parser==1.1.21",
+    "platformdirs>=4.0.0",
     "opentelemetry-api>=1.37.0",
     "opentelemetry-exporter-otlp>=1.37.0",
     "opentelemetry-instrumentation>=0.58b0",
     "opentelemetry-sdk>=1.37.0",
-    "parlant-client @ git+https://github.com/emcie-co/parlant-client-python.git@v3.2.0",
     "python-dateutil>=2.8.2",
     "python-dotenv>=1.0.1",
     "requests>=2.33.0",
@@ -58,55 +67,37 @@ dependencies = [
     "types-croniter>=4.0.0.20241030",
     "types-jsonschema>=4.22.0.20240610",
     "uvicorn>=0.38.0",
+    "watchfiles>=1.0.0",
+    "websockets>=16.0",
     "websocket-client>=1.5.3",
     "wsproto>=1.2.0",
     "xxhash>=3.5.0",
+    "grpcio-status>=1.83.1",
 ]
 
+[project.urls]
+Homepage = "https://parlant.io"
+Documentation = "https://parlant.io/docs"
+
 [project.scripts]
-parlant = "parlant.bin.client:main"
-parlant-server = "parlant.bin.server:main"
-parlant-prepare-migration = "parlant.bin.prepare_migration:main"
+parlant = "parlant.bin.cli:main"
 
 [project.optional-dependencies]
-chroma = ["chromadb>=1.1.1"]
+# onnxruntime arrives through chromadb, and 1.24 dropped Python 3.10. The
+# [tool.uv] override below covers uv; this one is what pip reads, so a pip
+# install on 3.10 resolves a version that still supports it.
+chroma = ["chromadb>=1.1.1", "onnxruntime<1.24; python_full_version < '3.11'"]
 qdrant = ["qdrant-client>=1.7.0"]
 mongo = ["pymongo>=4.11.1"]
 
-anthropic = ["anthropic>=0.60.0", "torch>=2.8.0", "transformers>=4.53.0"]
+anthropic = ["anthropic>=0.60.0"]
 
-aws = ["anthropic>=0.60.0", "transformers>=4.53.0", "torch>=2.8.0"]
+gemini = ["google-genai>=2.32.0", "google-api-core>=2.24.2"]
 
-together = ["torch>=2.8.0", "together>=1.5.26", "transformers>=4.53.0"]
-
-cerebras = ["cerebras-cloud-sdk>=1.25.0", "torch>=2.8.0", "transformers>=4.53.0"]
-
-deepseek = ["torch>=2.8.0", "transformers>=4.53.0"]
-
-gemini = ["google-genai>=1.36.0", "google-api-core>=2.24.2", "torch>=2.8.0"]
-
-vertex = [
-    "google-genai>=1.36.0",
-    "google-api-core>=2.24.2",
-    "google-auth>=2.40.0",
-    "torch>=2.8.0",
-    "anthropic>=0.60.0",
-    "transformers>=4.53.0",
-]
-
-ollama = ["ollama>=0.5.0"]
-
-litellm = ["litellm>=1.83.10", "torch>=2.8.0", "transformers>=4.53.0"]
-
-azure = ["azure-identity>=1.20.0"]
-
-# fireworks = ["fireworks-ai>=0.19.19"]  # Disabled: pins protobuf=5.29.3 which has CVE-2025-4565
-
-mistral = ["mistralai>=1.0.0"]
-
-snowflake = ["snowflake-connector-python>=3.12.0"]
-
-zhipu = ["zhipuai>=2.0.0"]
+# LiteLLM is a unified gateway over 100+ providers with built-in cost tracking;
+# the adapter uses its Python SDK (litellm.acompletion/aembedding) and reads the
+# provider-reported cost it returns.
+litellm = ["litellm>=1.60.0"]
 
 [dependency-groups]
 dev = [
@@ -125,12 +116,14 @@ dev = [
     "types-requests>=2.32.0.20240712",
     "types-toml>=0.10.8",
     "pytest-xdist>=3.6.1",
+    "types-grpcio>=1.0.0.20251009",
+    "pymongo-inmemory>=0.5.0",
 ]
 
 [tool.uv]
 override-dependencies = [
-    "pyjwt>=2.11.1",  # Override zhipuai's pyjwt<2.9.0 cap to allow mcp>=1.23.0 (CVE-2025-66416, CVE-2026-32597)
     "onnxruntime<1.24; python_full_version < '3.11'",  # 1.24+ dropped Python 3.10 support
+    "onnxruntime; python_full_version >= '3.11'",  # counterpart: without it, the override erases the requirement entirely on newer Pythons
 ]
 constraint-dependencies = [
     # Minimum safe versions for transitive dependencies with known CVEs.
@@ -162,3 +155,36 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/parlant"]
+# The chat widget ships inside the package so `parlant widget init` can vendor
+# it without a network fetch. Only the source travels: node_modules (~127MB),
+# build output, and any local runtime data are excluded.
+exclude = [
+    "**/node_modules",
+    "**/node_modules/**",
+    "**/parlant-data",
+    "**/parlant-data/**",
+    "widget/dist",
+    "widget/dist/**",
+    "**/.env",
+    "**/*.tsbuildinfo",
+]
+
+[tool.hatch.build.targets.wheel.force-include]
+# Enumerated rather than including widget/ wholesale: force-include ignores
+# the exclude patterns above, so a blanket entry would ship widget/node_modules
+# (~127MB) into the wheel. tests/bin/test_packaging.py guards this.
+"widget/parlant-chat" = "parlant/_widget/parlant-chat"
+"widget/example" = "parlant/_widget/example"
+"widget/sample-agent" = "parlant/_widget/sample-agent"
+"widget/index.html" = "parlant/_widget/index.html"
+"widget/package.json" = "parlant/_widget/package.json"
+"widget/package-lock.json" = "parlant/_widget/package-lock.json"
+"widget/postcss.config.js" = "parlant/_widget/postcss.config.js"
+"widget/tailwind.config.js" = "parlant/_widget/tailwind.config.js"
+"widget/tsconfig.json" = "parlant/_widget/tsconfig.json"
+"widget/vite.config.ts" = "parlant/_widget/vite.config.ts"
+# The widget's own tests ship inside parlant-chat/ and example/; without this
+# config `npm test` in a vendored copy fails on a missing config.
+"widget/vitest.config.ts" = "parlant/_widget/vitest.config.ts"
+"widget/.env.example" = "parlant/_widget/.env.example"
+"widget/README.md" = "parlant/_widget/README.md"

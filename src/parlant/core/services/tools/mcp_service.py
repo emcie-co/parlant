@@ -30,7 +30,7 @@ from fastmcp.tools import Tool as FastMCPTool
 from fastmcp.client import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
-from parlant.core.loggers import Logger
+from parlant.core.loggers import ScopedLogger, Logger
 from parlant.core.tools import (
     Tool,
     ToolError,
@@ -148,7 +148,7 @@ class MCPToolClient(ToolService):
         port: int = DEFAULT_MCP_PORT,
     ) -> None:
         self._event_emitter_factory = event_emitter_factory
-        self._logger = logger
+        self._logger = ScopedLogger(logger, "MCPToolClient")
         self._tracer = tracer
         self._client: Client[StreamableHttpTransport] | None = None
         self._client_lock = asyncio.Lock()

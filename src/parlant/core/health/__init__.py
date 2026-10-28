@@ -25,7 +25,20 @@ from parlant.core.health.nlp_view import (
     NLP_REQUESTS_COUNTER,
     NLP_TOKENS_COUNTER,
     NLPHealthView,
-    SchemaThresholds,
+    PercentileResult,
+    RouteThresholds,
+)
+from parlant.core.health.tunnel_view import (
+    TunnelHealthView,
+    TunnelState,
+    TunnelStateSource,
+)
+from parlant.core.health.thresholds import (
+    EngineHealthThresholds,
+    EventLoopHealthThresholds,
+    HealthThresholds,
+    NLPHealthThresholds,
+    default_nlp_route_thresholds,
 )
 from parlant.core.health.reporter import (
     StatusCriticality,
@@ -44,11 +57,15 @@ __all__ = [
     "ENGINE_TTFM_KIND",
     "ENGINE_TURN_KIND",
     "ENGINE_TURNS_COUNTER",
+    "EngineHealthThresholds",
     "EngineHealthView",
+    "EventLoopHealthThresholds",
     "EventLoopHealthView",
     "HealthReport",
     "HealthReporter",
+    "HealthThresholds",
     "HealthView",
+    "NLPHealthThresholds",
     "NLPHealthView",
     "NLP_EMBED_KIND",
     "NLP_REQUEST_KIND",
@@ -56,8 +73,13 @@ __all__ = [
     "NLP_TOKENS_COUNTER",
     "NullHealthReporter",
     "OverallHealth",
+    "PercentileResult",
+    "TunnelHealthView",
+    "TunnelState",
+    "TunnelStateSource",
     "ReportRetention",
     "RollingCounter",
-    "SchemaThresholds",
+    "RouteThresholds",
     "ViewSnapshot",
+    "default_nlp_route_thresholds",
 ]

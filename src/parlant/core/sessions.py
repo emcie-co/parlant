@@ -15,11 +15,13 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
 from dataclasses import field
 from typing import (
+    Any,
+    Callable,
     Iterator,
     Literal,
     Mapping,
@@ -30,12 +32,14 @@ from typing import (
     TypeAlias,
     cast,
 )
-from typing_extensions import override, TypedDict, NotRequired, Required, Self
+from typing_extensions import override, TypedDict, NotRequired, Self
 
+from itertools import chain
 from parlant.core import async_utils
-from parlant.core.async_utils import ReaderWriterLock, Timeout
+from parlant.core.async_utils import ReaderWriterLock, Timeout, safe_gather
 from parlant.core.common import (
     ItemNotFoundError,
+    try_or_none,
     JSONSerializable,
     UniqueId,
     Version,
@@ -44,8 +48,10 @@ from parlant.core.common import (
 from parlant.core.agents import AgentId
 from parlant.core.context_variables import ContextVariableId
 from parlant.core.customers import CustomerId
-from parlant.core.guidelines import GuidelineId
-from parlant.core.journeys import JourneyId
+from parlant.core.store_provider import StoreProvider, StoreProviderHints
+from parlant.core.rules import RuleId
+from parlant.core.tools import TransientRule as TransientRule
+from parlant.core import metadata as metadata_utils
 from parlant.core.persistence.common import (
     ObjectId,
     Where,
@@ -61,7 +67,6 @@ from parlant.core.persistence.document_database import (
     DocumentCollection,
 )
 from parlant.core.glossary import TermId
-from parlant.core.canned_responses import CannedResponseId
 from parlant.core.persistence.document_database_helper import (
     DocumentMigrationHelper,
     DocumentStoreMigrationHelper,
@@ -75,10 +80,10 @@ EventId = NewType("EventId", str)
 class EventSource(Enum):
     """The source of an event in a session."""
 
-    CUSTOMER = "customer"
+    CUSTOMER = "user"
     """Represents an event from the customer, such as a message or action."""
 
-    CUSTOMER_UI = "customer_ui"
+    CUSTOMER_UI = "user_ui"
     """Represents an event from the customer UI, such as a page navigation or button click."""
 
     HUMAN_AGENT = "human_agent"
@@ -118,11 +123,13 @@ class Event:
     source: EventSource
     kind: EventKind
     creation_utc: datetime
+    modified_utc: datetime
     offset: int
     trace_id: str
     data: JSONSerializable
     metadata: Mapping[str, JSONSerializable]
     deleted: bool
+    metadata_revision: int = 0
 
     def is_from_client(self) -> bool:
         return self.source in [
@@ -145,16 +152,29 @@ class Participant(TypedDict):
     display_name: str
 
 
+class AttachmentRef(TypedDict):
+    """A reference to a file that lives in the integrator's own storage.
+
+    Parlant never stores the bytes; it only carries this reference through the
+    session so tools can act on the file (usually by forwarding its URL)."""
+
+    url: str
+    media_type: NotRequired[str]
+    caption: NotRequired[str]
+    filename: NotRequired[str]
+    metadata: NotRequired[Mapping[str, JSONSerializable]]
+
+
 class MessageEventData(TypedDict):
     """Data for a message event in a session."""
 
     message: str
     participant: Participant
     flagged: NotRequired[bool]
-    tags: NotRequired[Sequence[str]]
+    groups: NotRequired[Sequence[str]]
     draft: NotRequired[str]
-    canned_responses: NotRequired[Sequence[tuple[CannedResponseId, str]]]
     chunks: NotRequired[list[str | None]]
+    attachments: NotRequired[Sequence[AttachmentRef]]
 
 
 class ControlOptions(TypedDict, total=False):
@@ -164,25 +184,19 @@ class ControlOptions(TypedDict, total=False):
     lifespan: LifeSpan
 
 
-class TransientGuideline(TypedDict, total=False):
-    action: Required[str]
-    condition: str
-    priority: int
-    criticality: str
-    description: str
-
-
 class ToolResult(TypedDict):
     data: JSONSerializable
     metadata: Mapping[str, JSONSerializable]
     control: ControlOptions
     canned_responses: Sequence[str]
     canned_response_fields: Mapping[str, JSONSerializable]
-    guidelines: NotRequired[Sequence[TransientGuideline]]
+    rules: NotRequired[Sequence[TransientRule]]
+    costs: NotRequired[Mapping[str, str]]
 
 
 class ToolCall(TypedDict):
     tool_id: str
+    rationale: str
     arguments: Mapping[str, JSONSerializable]
     result: ToolResult
 
@@ -203,11 +217,13 @@ SessionStatus: TypeAlias = Literal[
 
 class StatusEventData(TypedDict):
     status: SessionStatus
-    data: JSONSerializable
+    data: NotRequired[JSONSerializable]
+    message: NotRequired[str]
+    chunks: NotRequired[list[str | None]]
 
 
-class GuidelineMatch(TypedDict):
-    guideline_id: GuidelineId
+class RuleMatch(TypedDict):
+    rule_id: RuleId
     condition: str
     action: str | None
     score: int
@@ -229,35 +245,57 @@ class ContextVariable(TypedDict):
     value: JSONSerializable
 
 
-ConsumerId: TypeAlias = Literal["client"]
-"""In the future we may support multiple consumer IDs"""
-
 SessionMode: TypeAlias = Literal["auto", "manual"]
 """The mode of the session, either 'auto' for automatic handling or 'manual' for manual handling by a human agent."""
 
-LifeSpan: TypeAlias = Literal["response", "session"]
-"""The lifespan of a tool result, either 'response' for just the current response or 'session' for the entire session."""
+LifeSpan: TypeAlias = Literal["response", "session", "auto"]
+"""The lifespan of a tool result, either 'response' for just the current response, 'session' for the entire session, or 'auto' for automatically determined based on token count."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class AgentState:
     trace_id: str
-    applied_guideline_ids: Sequence[GuidelineId]
-    journey_paths: Mapping[JourneyId, Sequence[str | None]]
+    applied_rule_ids: Sequence[RuleId]
+
+    def __init__(
+        self,
+        trace_id: str,
+        applied_rule_ids: Sequence[RuleId] | None = None,
+        applied_guideline_ids: Sequence[RuleId] | None = None,
+    ) -> None:
+        object.__setattr__(self, "trace_id", trace_id)
+        object.__setattr__(
+            self,
+            "applied_rule_ids",
+            applied_rule_ids if applied_rule_ids is not None else applied_guideline_ids or [],
+        )
+
+    @property
+    def applied_guideline_ids(self) -> Sequence[RuleId]:
+        return self.applied_rule_ids
 
 
 @dataclass(frozen=True)
 class Session:
     id: SessionId
     creation_utc: datetime
+    modified_utc: datetime
     customer_id: CustomerId
     agent_id: AgentId
     mode: SessionMode
     title: str | None
-    consumption_offsets: Mapping[ConsumerId, int]
     agent_states: Sequence[AgentState]
     metadata: Mapping[str, JSONSerializable]
     labels: Set[str] = field(default_factory=set)
+    metadata_revision: int = 0
+
+
+class MetadataRevisionConflict(RuntimeError):
+    """Signals that metadata changed after a caller loaded its base revision."""
+
+    def __init__(self, expected_revision: int) -> None:
+        super().__init__(f"Metadata revision {expected_revision} is no longer current")
+        self.expected_revision = expected_revision
 
 
 class SessionUpdateParams(TypedDict, total=False):
@@ -265,7 +303,6 @@ class SessionUpdateParams(TypedDict, total=False):
     agent_id: AgentId
     mode: SessionMode
     title: str | None
-    consumption_offsets: Mapping[ConsumerId, int]
     agent_states: Sequence[AgentState]
     metadata: Mapping[str, JSONSerializable]
 
@@ -273,6 +310,54 @@ class SessionUpdateParams(TypedDict, total=False):
 class EventUpdateParams(TypedDict, total=False):
     metadata: Mapping[str, JSONSerializable]
     data: JSONSerializable
+
+
+def censored_message_notice(data: "MessageEventData") -> str | None:
+    """The model-visible stand-in for a moderation-flagged message, or None
+    when the message isn't flagged.
+
+    A flagged message's original text must never reach a prompt (the engine
+    would otherwise act on content moderation rejected), but the fact of the
+    censorship — and its reasons — must: rules can condition on a message
+    having been censored, and the agent may need to explain why."""
+    if not data.get("flagged"):
+        return None
+
+    reasons = ", ".join(str(tag) for tag in data.get("groups", []))
+    return (
+        f"<This message was censored by content moderation (reasons: {reasons})>"
+        if reasons
+        else "<This message was censored by content moderation>"
+    )
+
+
+def delivered_message_text(
+    data: "MessageEventData",
+    metadata: Mapping[str, JSONSerializable] | None,
+) -> str:
+    """The message text a history consumer should treat as what was said.
+
+    A moderation-flagged message is replaced wholesale by its censor notice
+    (see :func:`censored_message_notice`) — the flagged text was never
+    "said" as far as any prompt is concerned.
+
+    Voice delivery may annotate a message event with the portion that was
+    actually played before an interruption
+    (``metadata["__parlant__"]["voice"]["spoken_text"]``,
+    empty when nothing was heard). Prompt-building code must reason from the
+    delivered text, never from words the customer never heard; absent the
+    annotation, the message text is the delivered truth."""
+    if (notice := censored_message_notice(data)) is not None:
+        return notice
+
+    voice = metadata_utils.internal_value(metadata, ("voice",), {})
+
+    if isinstance(voice, Mapping):
+        spoken = voice.get("spoken_text")
+        if isinstance(spoken, str):
+            return spoken
+
+    return data["message"]
 
 
 @dataclass(frozen=True)
@@ -330,6 +415,7 @@ class SessionStore(ABC):
         cursor: Cursor | None = None,
         sort_direction: SortDirection | None = None,
         labels: Optional[Set[str]] = None,
+        min_modified_utc: datetime | None = None,
     ) -> SessionListing: ...
 
     @abstractmethod
@@ -346,6 +432,37 @@ class SessionStore(ABC):
         session_id: SessionId,
         key: str,
     ) -> Session: ...
+
+    async def commit_session_metadata(
+        self,
+        session_id: SessionId,
+        expected_revision: int,
+        metadata: Mapping[str, JSONSerializable],
+    ) -> Session:
+        """Conditionally replace metadata at one exact metadata revision.
+
+        Compass-capable custom stores override this internal capability. It is
+        deliberately non-abstract so unrelated custom stores and test doubles
+        remain constructible.
+        """
+
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support atomic session metadata commits"
+        )
+
+    async def patch_event_metadata(
+        self,
+        session_id: SessionId,
+        event_id: EventId,
+        expected_revision: int,
+        set_values: Mapping[str, JSONSerializable],
+        unset_keys: Sequence[str] = (),
+    ) -> Event:
+        """Conditionally apply top-level event metadata operations."""
+
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support atomic event metadata patches"
+        )
 
     @abstractmethod
     async def upsert_labels(
@@ -406,110 +523,133 @@ class SessionStore(ABC):
     ) -> Event: ...
 
 
-class _SessionDocument_v0_4_0(TypedDict, total=False):
-    id: ObjectId
-    version: Version.String
-    creation_utc: str
-    customer_id: CustomerId
-    agent_id: AgentId
-    mode: SessionMode
-    title: str | None
-    consumption_offsets: Mapping[ConsumerId, int]
+async def patch_internal_event_metadata(
+    store: SessionStore,
+    session_id: SessionId,
+    event_id: EventId,
+    path: Sequence[str],
+    value: JSONSerializable,
+    *,
+    max_attempts: int = 8,
+) -> Event:
+    """Atomically set one Parlant-owned event metadata path.
+
+    Each retry rebuilds the reserved root from the latest event revision, so a
+    concurrent public annotation or independent internal voice update survives.
+    """
+
+    for _ in range(max_attempts):
+        event = await store.read_event(session_id, event_id)
+        updated = metadata_utils.set_internal_value(event.metadata, path, value)
+        try:
+            return await store.patch_event_metadata(
+                session_id,
+                event_id,
+                event.metadata_revision,
+                {
+                    metadata_utils.PARLANT_METADATA_KEY: updated[
+                        metadata_utils.PARLANT_METADATA_KEY
+                    ],
+                },
+            )
+        except MetadataRevisionConflict:
+            continue
+
+    raise MetadataRevisionConflict(event.metadata_revision)
 
 
-class _AgentStateDocument_v0_6_0(TypedDict):
-    correlation_id: str
-    applied_guideline_ids: Sequence[GuidelineId]
-    journey_paths: Mapping[JourneyId, Sequence[GuidelineId | None]]
+async def patch_internal_session_metadata(
+    store: SessionStore,
+    session_id: SessionId,
+    path: Sequence[str],
+    value: JSONSerializable,
+    *,
+    max_attempts: int = 8,
+) -> Session:
+    """Atomically set one Parlant-owned session metadata path."""
+
+    for _ in range(max_attempts):
+        session = await store.read_session(session_id)
+        updated = metadata_utils.set_internal_value(session.metadata, path, value)
+        try:
+            return await store.commit_session_metadata(
+                session_id,
+                session.metadata_revision,
+                updated,
+            )
+        except MetadataRevisionConflict:
+            continue
+
+    raise MetadataRevisionConflict(session.metadata_revision)
+
+
+async def patch_public_session_metadata(
+    store: SessionStore,
+    session_id: SessionId,
+    set_values: Mapping[str, JSONSerializable],
+    unset_keys: Sequence[str] = (),
+    *,
+    max_attempts: int = 8,
+) -> Session:
+    """Atomically apply one public session-metadata update request.
+
+    The complete requested mutation is replayed after a revision conflict, so
+    an API request that sets or removes several keys still performs one
+    conditional write on the uncontended path and preserves concurrent
+    Parlant-owned changes.
+    """
+
+    metadata_utils.ensure_public_metadata(set_values)
+    for key in unset_keys:
+        metadata_utils.ensure_public_metadata_key(key)
+
+    for _ in range(max_attempts):
+        session = await store.read_session(session_id)
+        updated = dict(session.metadata)
+        updated.update(set_values)
+        for key in unset_keys:
+            updated.pop(key, None)
+
+        if updated == dict(session.metadata):
+            return session
+
+        try:
+            return await store.commit_session_metadata(
+                session_id,
+                session.metadata_revision,
+                updated,
+            )
+        except MetadataRevisionConflict:
+            continue
+
+    raise MetadataRevisionConflict(session.metadata_revision)
 
 
 class _AgentStateDocument(TypedDict):
     trace_id: str
-    applied_guideline_ids: Sequence[GuidelineId]
-    journey_paths: Mapping[JourneyId, Sequence[str | None]]
-
-
-class _SessionDocument_v0_5_0(TypedDict, total=False):
-    id: ObjectId
-    version: Version.String
-    creation_utc: str
-    customer_id: CustomerId
-    agent_id: AgentId
-    mode: SessionMode
-    title: str | None
-    consumption_offsets: Mapping[ConsumerId, int]
-    agent_state: _AgentStateDocument_v0_6_0
-
-
-class _SessionDocument_v0_6_0(TypedDict, total=False):
-    id: ObjectId
-    version: Version.String
-    creation_utc: str
-    customer_id: CustomerId
-    agent_id: AgentId
-    mode: SessionMode
-    title: str | None
-    consumption_offsets: Mapping[ConsumerId, int]
-    agent_states: Sequence[_AgentStateDocument_v0_6_0]
-
-
-class _SessionDocument_v0_8_0(TypedDict, total=False):
-    id: ObjectId
-    version: Version.String
-    creation_utc: str
-    customer_id: CustomerId
-    agent_id: AgentId
-    mode: SessionMode
-    title: str | None
-    consumption_offsets: Mapping[ConsumerId, int]
-    agent_states: Sequence[_AgentStateDocument]
-    metadata: Mapping[str, JSONSerializable]
+    applied_rule_ids: Sequence[RuleId]
 
 
 class _SessionDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
+    modified_utc: str
     customer_id: CustomerId
     agent_id: AgentId
     mode: SessionMode
     title: str | None
-    consumption_offsets: Mapping[ConsumerId, int]
     agent_states: Sequence[_AgentStateDocument]
     metadata: Mapping[str, JSONSerializable]
+    metadata_revision: int
     labels: Sequence[str]
-
-
-class _EventDocument_v0_6_0(TypedDict, total=False):
-    id: ObjectId
-    version: Version.String
-    creation_utc: str
-    session_id: SessionId
-    source: str
-    kind: str
-    offset: int
-    correlation_id: str
-    data: JSONSerializable
-    deleted: bool
-
-
-class _EventDocument_v0_7_0(TypedDict, total=False):
-    id: ObjectId
-    version: Version.String
-    creation_utc: str
-    session_id: SessionId
-    source: str
-    kind: str
-    offset: int
-    trace_id: str
-    data: JSONSerializable
-    deleted: bool
 
 
 class _EventDocument(TypedDict, total=False):
     id: ObjectId
     version: Version.String
     creation_utc: str
+    modified_utc: str
     session_id: SessionId
     source: str
     kind: str
@@ -517,13 +657,14 @@ class _EventDocument(TypedDict, total=False):
     trace_id: str
     data: JSONSerializable
     metadata: Mapping[str, JSONSerializable] | None
+    metadata_revision: int
     deleted: bool
 
 
 class _UsageInfoDocument(TypedDict):
     input_tokens: int
     output_tokens: int
-    extra: Mapping[str, int] | None
+    extra: Mapping[str, int | float | str] | None
 
 
 class _GenerationInfoDocument(TypedDict):
@@ -533,29 +674,14 @@ class _GenerationInfoDocument(TypedDict):
     usage: _UsageInfoDocument
 
 
-class _GuidelineMatchInspectionDocument(TypedDict):
+class _RuleMatchInspectionDocument(TypedDict):
     total_duration: float
     batches: Sequence[_GenerationInfoDocument]
 
 
-class _PreparationIterationGenerationsDocument_v0_2_0(TypedDict):
-    guideline_proposition: _GuidelineMatchInspectionDocument
-    tool_calls: Sequence[_GenerationInfoDocument]
-
-
 class _PreparationIterationGenerationsDocument(TypedDict):
-    guideline_match: _GuidelineMatchInspectionDocument
+    rule_match: _RuleMatchInspectionDocument
     tool_calls: Sequence[_GenerationInfoDocument]
-
-
-class _MessageGenerationInspectionDocument_v0_1_0(TypedDict):
-    generation: _GenerationInfoDocument
-    messages: Sequence[MessageEventData | None]
-
-
-class _MessageGenerationInspectionDocument_v0_2_0(TypedDict):
-    generation: _GenerationInfoDocument
-    messages: Sequence[str | None]
 
 
 class _MessageGenerationInspectionDocument(TypedDict):
@@ -564,50 +690,12 @@ class _MessageGenerationInspectionDocument(TypedDict):
     messages: Sequence[str | None]
 
 
-class _PreparationIterationDocument_v0_2_0(TypedDict):
-    guideline_propositions: Sequence[GuidelineMatch]
-    tool_calls: Sequence[ToolCall]
-    terms: Sequence[Term]
-    context_variables: Sequence[ContextVariable]
-    generations: _PreparationIterationGenerationsDocument_v0_2_0
-
-
-_PreparationIterationDocument_v0_1_0: TypeAlias = _PreparationIterationDocument_v0_2_0
-
-
 class _PreparationIterationDocument(TypedDict):
-    guideline_matches: Sequence[GuidelineMatch]
+    rule_matches: Sequence[RuleMatch]
     tool_calls: Sequence[ToolCall]
     terms: Sequence[Term]
     context_variables: Sequence[ContextVariable]
     generations: _PreparationIterationGenerationsDocument
-
-
-class _InspectionDocument_v0_1_0(TypedDict, total=False):
-    id: ObjectId
-    version: Version.String
-    session_id: SessionId
-    trace_id: str
-    message_generations: Sequence[_MessageGenerationInspectionDocument_v0_1_0]
-    preparation_iterations: Sequence[_PreparationIterationDocument_v0_1_0]
-
-
-class _InspectionDocument_v0_2_0(TypedDict, total=False):
-    id: ObjectId
-    version: Version.String
-    session_id: SessionId
-    trace_id: str
-    message_generations: Sequence[_MessageGenerationInspectionDocument_v0_2_0]
-    preparation_iterations: Sequence[_PreparationIterationDocument_v0_2_0]
-
-
-class _InspectionDocument_v0_3_0(TypedDict, total=False):
-    id: ObjectId
-    version: Version.String
-    session_id: SessionId
-    trace_id: str
-    message_generations: Sequence[_MessageGenerationInspectionDocument_v0_2_0]
-    preparation_iterations: Sequence[_PreparationIterationDocument]
 
 
 class _InspectionDocument(TypedDict, total=False):
@@ -619,282 +707,37 @@ class _InspectionDocument(TypedDict, total=False):
     preparation_iterations: Sequence[_PreparationIterationDocument]
 
 
-class _MessageEventData_v0_5_0(TypedDict):
-    message: str
-    participant: Participant
-    flagged: NotRequired[bool]
-    tags: NotRequired[Sequence[str]]
-    draft: NotRequired[str]
-    utterances: NotRequired[Sequence[tuple[CannedResponseId, str]]]
-
-
-class _ToolResult_v0_5_0(TypedDict):
-    data: JSONSerializable
-    metadata: Mapping[str, JSONSerializable]
-    control: ControlOptions
-    utterances: Sequence[str]
-    utterance_fields: Mapping[str, JSONSerializable]
-
-
-class _ToolCall_v0_5_0(TypedDict):
-    tool_id: str
-    arguments: Mapping[str, JSONSerializable]
-    result: _ToolResult_v0_5_0
-
-
-class _ToolEventData_v0_5_0(TypedDict):
-    tool_calls: list[_ToolCall_v0_5_0]
-
-
 class SessionDocumentStore(SessionStore):
-    VERSION = Version.from_string("0.9.0")
+    VERSION = Version.from_string("0.11.0")
 
-    def __init__(self, database: DocumentDatabase, allow_migration: bool = False):
+    def __init__(
+        self,
+        database: DocumentDatabase,
+        allow_migration: bool = False,
+        collections_prefix: str | None = None,
+    ):
         self._database = database
         self._session_collection: DocumentCollection[_SessionDocument]
         self._event_collection: DocumentCollection[_EventDocument]
         self._allow_migration = allow_migration
+        self._collections_prefix = collections_prefix
 
         self._lock = ReaderWriterLock()
 
     async def _session_document_loader(self, doc: BaseDocument) -> _SessionDocument | None:
-        async def v0_1_0_to_v0_4_0(doc: BaseDocument) -> BaseDocument | None:
-            doc = cast(_SessionDocument_v0_4_0, doc)
-
-            return _SessionDocument_v0_4_0(
-                id=doc["id"],
-                version=Version.String("0.4.0"),
-                creation_utc=doc["creation_utc"],
-                customer_id=doc["customer_id"],
-                agent_id=doc["agent_id"],
-                mode=doc["mode"],
-                title=doc["title"],
-                consumption_offsets=doc["consumption_offsets"],
-            )
-
-        async def v0_4_0_to_v0_5_0(doc: BaseDocument) -> BaseDocument | None:
-            doc = cast(_SessionDocument_v0_4_0, doc)
-
-            return _SessionDocument_v0_5_0(
-                id=doc["id"],
-                version=Version.String("0.5.0"),
-                creation_utc=doc["creation_utc"],
-                customer_id=doc["customer_id"],
-                agent_id=doc["agent_id"],
-                mode=doc["mode"],
-                title=doc["title"],
-                consumption_offsets=doc["consumption_offsets"],
-                agent_state=_AgentStateDocument_v0_6_0(
-                    applied_guideline_ids=[],
-                    journey_paths={},
-                    correlation_id="N/A",
-                ),
-            )
-
-        async def v0_5_0_to_v0_6_0(doc: BaseDocument) -> BaseDocument | None:
-            doc = cast(_SessionDocument_v0_5_0, doc)
-
-            return _SessionDocument(
-                id=doc["id"],
-                version=Version.String("0.6.0"),
-                creation_utc=doc["creation_utc"],
-                customer_id=doc["customer_id"],
-                agent_id=doc["agent_id"],
-                mode=doc["mode"],
-                title=doc["title"],
-                consumption_offsets=doc["consumption_offsets"],
-                agent_states=[],
-            )
-
-        async def v0_6_0_to_v0_7_0(doc: BaseDocument) -> BaseDocument | None:
-            doc = cast(_SessionDocument_v0_6_0, doc)
-
-            return _SessionDocument(
-                id=doc["id"],
-                version=Version.String("0.7.0"),
-                creation_utc=doc["creation_utc"],
-                customer_id=doc["customer_id"],
-                agent_id=doc["agent_id"],
-                mode=doc["mode"],
-                title=doc["title"],
-                consumption_offsets=doc["consumption_offsets"],
-                agent_states=[
-                    _AgentStateDocument(
-                        trace_id=s["correlation_id"],
-                        applied_guideline_ids=s["applied_guideline_ids"],
-                        journey_paths=s["journey_paths"],
-                    )
-                    for s in doc.get("agent_states", [])
-                ],
-                metadata={},
-            )
-
-        async def v0_7_0_to_v0_8_0(doc: BaseDocument) -> BaseDocument | None:
-            doc = cast(_SessionDocument_v0_8_0, doc)
-
-            return _SessionDocument_v0_8_0(
-                id=doc["id"],
-                version=Version.String("0.8.0"),
-                creation_utc=doc["creation_utc"],
-                customer_id=doc["customer_id"],
-                agent_id=doc["agent_id"],
-                mode=doc["mode"],
-                title=doc["title"],
-                consumption_offsets=doc["consumption_offsets"],
-                agent_states=doc["agent_states"],
-                metadata=doc["metadata"],
-            )
-
-        async def v0_8_0_to_v0_9_0(doc: BaseDocument) -> BaseDocument | None:
-            doc = cast(_SessionDocument_v0_8_0, doc)
-
-            return _SessionDocument(
-                id=doc["id"],
-                version=Version.String("0.9.0"),
-                creation_utc=doc["creation_utc"],
-                customer_id=doc["customer_id"],
-                agent_id=doc["agent_id"],
-                mode=doc["mode"],
-                title=doc["title"],
-                consumption_offsets=doc["consumption_offsets"],
-                agent_states=doc["agent_states"],
-                metadata=doc.get("metadata", {}),
-                labels=[],  # Default to empty labels for existing sessions
-            )
-
+        # Fresh data baseline: no historical versions. Register converters here
+        # when the document schema next changes.
         return await DocumentMigrationHelper[_SessionDocument](
             self,
-            {
-                "0.1.0": v0_1_0_to_v0_4_0,
-                "0.2.0": v0_1_0_to_v0_4_0,
-                "0.3.0": v0_1_0_to_v0_4_0,
-                "0.4.0": v0_4_0_to_v0_5_0,
-                "0.5.0": v0_5_0_to_v0_6_0,
-                "0.6.0": v0_6_0_to_v0_7_0,
-                "0.7.0": v0_7_0_to_v0_8_0,
-                "0.8.0": v0_8_0_to_v0_9_0,
-            },
+            {},
         ).migrate(doc)
 
     async def _event_document_loader(self, doc: BaseDocument) -> _EventDocument | None:
-        async def v0_1_0_to_v0_5_0(doc: BaseDocument) -> BaseDocument | None:
-            doc = cast(_EventDocument_v0_6_0, doc)
-
-            return _EventDocument_v0_6_0(
-                id=doc["id"],
-                version=Version.String("0.5.0"),
-                creation_utc=doc["creation_utc"],
-                session_id=doc["session_id"],
-                source=doc["source"],
-                kind=doc["kind"],
-                offset=doc["offset"],
-                correlation_id=doc["correlation_id"],
-                data=doc["data"],
-                deleted=doc["deleted"],
-            )
-
-        async def v0_5_0_to_v0_6_0(doc: BaseDocument) -> BaseDocument | None:
-            doc = cast(_EventDocument_v0_6_0, doc)
-
-            if doc["kind"] == "message":
-                doc_data = cast(_MessageEventData_v0_5_0, doc["data"])
-
-                data = cast(
-                    JSONSerializable,
-                    MessageEventData(
-                        message=doc_data["message"],
-                        participant=doc_data["participant"],
-                        flagged=doc_data.get("flagged", False),
-                        tags=doc_data.get("tags", []),
-                        draft=doc_data.get("draft", ""),
-                        canned_responses=doc_data.get("utterances", []),
-                    ),
-                )
-
-            elif doc["kind"] == "tool":
-                t_data = cast(_ToolEventData_v0_5_0, doc["data"])
-
-                data = cast(
-                    JSONSerializable,
-                    ToolEventData(
-                        tool_calls=[
-                            ToolCall(
-                                tool_id=tc["tool_id"],
-                                arguments=tc["arguments"],
-                                result=ToolResult(
-                                    data=tc["result"]["data"],
-                                    metadata=tc["result"]["metadata"],
-                                    control=tc["result"]["control"],
-                                    canned_responses=tc["result"].get("utterances", []),
-                                    canned_response_fields=tc["result"].get("utterance_fields", {}),
-                                ),
-                            )
-                            for tc in t_data["tool_calls"]
-                        ]
-                    ),
-                )
-            else:
-                data = doc["data"]
-
-            return _EventDocument_v0_6_0(
-                id=doc["id"],
-                version=Version.String("0.6.0"),
-                creation_utc=doc["creation_utc"],
-                session_id=doc["session_id"],
-                source=doc["source"],
-                kind=doc["kind"],
-                offset=doc["offset"],
-                correlation_id=doc["correlation_id"],
-                data=data,
-                deleted=doc["deleted"],
-            )
-
-        async def v0_6_0_to_v0_7_0(doc: BaseDocument) -> BaseDocument | None:
-            doc = cast(_EventDocument_v0_6_0, doc)
-
-            data = doc["data"]
-
-            return _EventDocument(
-                id=doc["id"],
-                version=Version.String("0.7.0"),
-                creation_utc=doc["creation_utc"],
-                session_id=doc["session_id"],
-                source=doc["source"],
-                kind=doc["kind"],
-                offset=doc["offset"],
-                trace_id=doc["correlation_id"],
-                data=data,
-                deleted=doc["deleted"],
-            )
-
-        async def v0_7_0_to_v0_8_0(doc: BaseDocument) -> BaseDocument | None:
-            doc = cast(_EventDocument_v0_7_0, doc)
-
-            return _EventDocument(
-                id=doc["id"],
-                version=Version.String("0.8.0"),
-                creation_utc=doc["creation_utc"],
-                session_id=doc["session_id"],
-                source=doc["source"],
-                kind=doc["kind"],
-                offset=doc["offset"],
-                trace_id=doc["trace_id"],
-                data=doc["data"],
-                metadata=None,
-                deleted=doc["deleted"],
-            )
-
+        # Fresh data baseline: no historical versions. Register converters here
+        # when the document schema next changes.
         return await DocumentMigrationHelper[_EventDocument](
             self,
-            {
-                "0.1.0": v0_1_0_to_v0_5_0,
-                "0.2.0": v0_1_0_to_v0_5_0,
-                "0.3.0": v0_1_0_to_v0_5_0,
-                "0.4.0": v0_1_0_to_v0_5_0,
-                "0.5.0": v0_5_0_to_v0_6_0,
-                "0.6.0": v0_6_0_to_v0_7_0,
-                "0.7.0": v0_7_0_to_v0_8_0,
-            },
+            {},
         ).migrate(doc)
 
     async def __aenter__(self) -> Self:
@@ -902,14 +745,17 @@ class SessionDocumentStore(SessionStore):
             store=self,
             database=self._database,
             allow_migration=self._allow_migration,
+            collections_prefix=self._collections_prefix,
         ):
             self._session_collection = await self._database.get_or_create_collection(
-                name="sessions",
+                name=f"{self._collections_prefix}_sessions"
+                if self._collections_prefix
+                else "sessions",
                 schema=_SessionDocument,
                 document_loader=self._session_document_loader,
             )
             self._event_collection = await self._database.get_or_create_collection(
-                name="events",
+                name=f"{self._collections_prefix}_events" if self._collections_prefix else "events",
                 schema=_EventDocument,
                 document_loader=self._event_document_loader,
             )
@@ -919,6 +765,12 @@ class SessionDocumentStore(SessionStore):
                     CollectionIndex(
                         fields=(
                             ("creation_utc", SortDirection.ASC),
+                            ("id", SortDirection.ASC),
+                        )
+                    ),
+                    CollectionIndex(
+                        fields=(
+                            ("modified_utc", SortDirection.ASC),
                             ("id", SortDirection.ASC),
                         )
                     ),
@@ -945,6 +797,12 @@ class SessionDocumentStore(SessionStore):
                         fields=(
                             ("session_id", SortDirection.ASC),
                             ("offset", SortDirection.ASC),
+                        )
+                    ),
+                    CollectionIndex(
+                        fields=(
+                            ("modified_utc", SortDirection.ASC),
+                            ("session_id", SortDirection.ASC),
                         )
                     ),
                     CollectionIndex(
@@ -978,14 +836,11 @@ class SessionDocumentStore(SessionStore):
             doc_params["mode"] = params["mode"]
         if "title" in params:
             doc_params["title"] = params["title"]
-        if "consumption_offsets" in params:
-            doc_params["consumption_offsets"] = params["consumption_offsets"]
         if "agent_states" in params:
             doc_params["agent_states"] = [
                 _AgentStateDocument(
                     trace_id=s.trace_id,
-                    applied_guideline_ids=s.applied_guideline_ids,
-                    journey_paths=s.journey_paths,
+                    applied_rule_ids=s.applied_rule_ids,
                 )
                 for s in params["agent_states"]
             ]
@@ -1002,20 +857,20 @@ class SessionDocumentStore(SessionStore):
             id=ObjectId(session.id),
             version=self.VERSION.to_string(),
             creation_utc=session.creation_utc.isoformat(),
+            modified_utc=session.modified_utc.isoformat(),
             customer_id=session.customer_id,
             agent_id=session.agent_id,
             mode=session.mode,
             title=session.title if session.title else None,
-            consumption_offsets=session.consumption_offsets,
             agent_states=[
                 _AgentStateDocument(
                     trace_id=s.trace_id,
-                    applied_guideline_ids=s.applied_guideline_ids,
-                    journey_paths=s.journey_paths,
+                    applied_rule_ids=s.applied_rule_ids,
                 )
                 for s in session.agent_states
             ],
             metadata=session.metadata,
+            metadata_revision=session.metadata_revision,
             labels=list(session.labels),
         )
 
@@ -1026,21 +881,21 @@ class SessionDocumentStore(SessionStore):
         return Session(
             id=SessionId(session_document["id"]),
             creation_utc=datetime.fromisoformat(session_document["creation_utc"]),
+            modified_utc=datetime.fromisoformat(session_document["modified_utc"]),
             customer_id=session_document["customer_id"],
             agent_id=session_document["agent_id"],
             mode=session_document["mode"],
             title=session_document["title"],
-            consumption_offsets=session_document["consumption_offsets"],
             agent_states=[
                 AgentState(
                     trace_id=s["trace_id"],
-                    applied_guideline_ids=s["applied_guideline_ids"],
-                    journey_paths=s["journey_paths"],
+                    applied_rule_ids=s["applied_rule_ids"],
                 )
                 for s in session_document["agent_states"]
             ],
             metadata=session_document.get("metadata", {}),
             labels=set(session_document.get("labels", [])),
+            metadata_revision=session_document.get("metadata_revision", 0),
         )
 
     def _serialize_event(
@@ -1052,6 +907,7 @@ class SessionDocumentStore(SessionStore):
             id=ObjectId(event.id),
             version=self.VERSION.to_string(),
             creation_utc=event.creation_utc.isoformat(),
+            modified_utc=event.modified_utc.isoformat(),
             session_id=session_id,
             source=event.source.value,
             kind=event.kind.value,
@@ -1059,6 +915,7 @@ class SessionDocumentStore(SessionStore):
             trace_id=event.trace_id,
             data=event.data,
             metadata=event.metadata if event.metadata else None,
+            metadata_revision=event.metadata_revision,
             deleted=event.deleted,
         )
 
@@ -1069,6 +926,7 @@ class SessionDocumentStore(SessionStore):
         return Event(
             id=EventId(event_document["id"]),
             creation_utc=datetime.fromisoformat(event_document["creation_utc"]),
+            modified_utc=datetime.fromisoformat(event_document["modified_utc"]),
             source=EventSource(event_document["source"]),
             kind=EventKind(event_document["kind"]),
             offset=event_document["offset"],
@@ -1076,6 +934,7 @@ class SessionDocumentStore(SessionStore):
             data=event_document["data"],
             metadata=cast(Mapping[str, JSONSerializable], event_document["metadata"] or {}),
             deleted=event_document["deleted"],
+            metadata_revision=event_document.get("metadata_revision", 0),
         )
 
     @override
@@ -1092,19 +951,18 @@ class SessionDocumentStore(SessionStore):
         async with self._lock.writer_lock:
             creation_utc = creation_utc or datetime.now(timezone.utc)
 
-            consumption_offsets: dict[ConsumerId, int] = {"client": 0}
-
             session = Session(
                 id=SessionId(generate_id()),
                 creation_utc=creation_utc,
+                modified_utc=creation_utc,
                 customer_id=customer_id,
                 agent_id=agent_id,
                 mode=mode or "auto",
-                consumption_offsets=consumption_offsets,
                 title=title,
                 agent_states=[],
                 metadata=metadata,
                 labels=labels or set(),
+                metadata_revision=0,
             )
 
             await self._session_collection.insert_one(document=self._serialize_session(session))
@@ -1156,14 +1014,75 @@ class SessionDocumentStore(SessionStore):
             if not session_document:
                 raise ItemNotFoundError(item_id=UniqueId(session_id), message="Session not found")
 
+            serialized_params = self._serialize_session_update_params(params)
+            filters: dict[str, Any] = {"id": {"$eq": session_id}}
+            if "metadata" in params:
+                expected_revision = session_document.get("metadata_revision", 0)
+                filters["metadata_revision"] = {"$eq": expected_revision}
+                serialized_params["metadata_revision"] = expected_revision + 1
+
             result = await self._session_collection.update_one(
-                filters={"id": {"$eq": session_id}},
-                params=self._serialize_session_update_params(params),
+                filters=cast(Where, filters),
+                params={
+                    **serialized_params,
+                    "modified_utc": datetime.now(timezone.utc).isoformat(),
+                },
             )
 
-        assert result.updated_document
+            if result.matched_count == 0:
+                raise MetadataRevisionConflict(session_document.get("metadata_revision", 0))
 
-        return self._deserialize_session(session_document=result.updated_document)
+            updated_document = result.updated_document or await self._session_collection.find_one(
+                {"id": {"$eq": session_id}}
+            )
+
+        assert updated_document
+        return self._deserialize_session(session_document=updated_document)
+
+    async def _commit_session_metadata_unlocked(
+        self,
+        session_id: SessionId,
+        expected_revision: int,
+        metadata: Mapping[str, JSONSerializable],
+    ) -> Session:
+        """Apply a conditional metadata replacement while the store writer lock is held."""
+
+        result = await self._session_collection.update_one(
+            filters={
+                "id": {"$eq": session_id},
+                "metadata_revision": {"$eq": expected_revision},
+            },
+            params={
+                "metadata": metadata,
+                "metadata_revision": expected_revision + 1,
+                "modified_utc": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+        if result.matched_count == 0:
+            if not await self._session_collection.find_one({"id": {"$eq": session_id}}):
+                raise ItemNotFoundError(item_id=UniqueId(session_id), message="Session not found")
+            raise MetadataRevisionConflict(expected_revision)
+
+        updated_document = result.updated_document or await self._session_collection.find_one(
+            {"id": {"$eq": session_id}}
+        )
+        assert updated_document
+        return self._deserialize_session(updated_document)
+
+    @override
+    async def commit_session_metadata(
+        self,
+        session_id: SessionId,
+        expected_revision: int,
+        metadata: Mapping[str, JSONSerializable],
+    ) -> Session:
+        async with self._lock.writer_lock:
+            return await self._commit_session_metadata_unlocked(
+                session_id,
+                expected_revision,
+                metadata,
+            )
 
     @override
     async def list_sessions(
@@ -1174,12 +1093,117 @@ class SessionDocumentStore(SessionStore):
         cursor: Cursor | None = None,
         sort_direction: SortDirection | None = None,
         labels: Optional[Set[str]] = None,
+        min_modified_utc: datetime | None = None,
     ) -> SessionListing:
         async with self._lock.reader_lock:
             filters = {
                 **({"agent_id": {"$eq": agent_id}} if agent_id else {}),
                 **({"customer_id": {"$eq": customer_id}} if customer_id else {}),
             }
+
+            if min_modified_utc:
+                min_modified_utc_str = min_modified_utc.isoformat()
+
+                event_result = await self._event_collection.find(
+                    filters={"modified_utc": {"$gte": min_modified_utc_str}},
+                )
+
+                event_session_ids = {d["session_id"] for d in event_result.items}
+                latest_event_modified_utc_by_session_id: dict[SessionId, datetime] = {}
+
+                for event_document in event_result.items:
+                    event_modified_utc = datetime.fromisoformat(event_document["modified_utc"])
+                    session_id = event_document["session_id"]
+                    latest_event_modified_utc_by_session_id[session_id] = max(
+                        latest_event_modified_utc_by_session_id.get(session_id, event_modified_utc),
+                        event_modified_utc,
+                    )
+
+                modified_filters: list[Where] = [
+                    {"modified_utc": {"$gte": min_modified_utc_str}},
+                ]
+                if event_session_ids:
+                    modified_filters.append(
+                        {
+                            "id": {
+                                "$in": [ObjectId(session_id) for session_id in event_session_ids],
+                            }
+                        }
+                    )
+
+                session_filters: Where = (
+                    cast(Where, {"$and": [filters, {"$or": modified_filters}]})
+                    if filters
+                    else cast(Where, {"$or": modified_filters})
+                )
+
+                result = await self._session_collection.find(
+                    filters=session_filters,
+                    sort_direction=sort_direction,
+                )
+
+                matching_session_documents = list(result.items)
+
+                if labels:
+                    matching_session_documents = [
+                        d
+                        for d in matching_session_documents
+                        if labels.issubset(set(d.get("labels", [])))
+                    ]
+
+                sessions = []
+                for session_document in matching_session_documents:
+                    session = self._deserialize_session(session_document)
+                    latest_event_modified_utc = latest_event_modified_utc_by_session_id.get(
+                        session.id,
+                    )
+                    if latest_event_modified_utc:
+                        session = replace(
+                            session,
+                            modified_utc=max(session.modified_utc, latest_event_modified_utc),
+                        )
+                    sessions.append(session)
+
+                sessions.sort(
+                    key=lambda s: (s.modified_utc.isoformat(), str(s.id)),
+                    reverse=sort_direction == SortDirection.DESC,
+                )
+
+                total_count = len(sessions)
+
+                if cursor:
+                    if sort_direction == SortDirection.DESC:
+                        sessions = [
+                            s
+                            for s in sessions
+                            if (s.modified_utc.isoformat(), str(s.id))
+                            < (cursor.sort_value, str(cursor.id))
+                        ]
+                    else:
+                        sessions = [
+                            s
+                            for s in sessions
+                            if (s.modified_utc.isoformat(), str(s.id))
+                            > (cursor.sort_value, str(cursor.id))
+                        ]
+
+                paginated_sessions = sessions[:limit] if limit else sessions
+                has_more = bool(limit and len(sessions) > limit)
+                next_cursor = (
+                    Cursor(
+                        sort_value=paginated_sessions[-1].modified_utc.isoformat(),
+                        id=ObjectId(paginated_sessions[-1].id),
+                    )
+                    if has_more and paginated_sessions
+                    else None
+                )
+
+                return SessionListing(
+                    items=paginated_sessions,
+                    total_count=total_count,
+                    has_more=has_more,
+                    next_cursor=next_cursor,
+                )
 
             result = await self._session_collection.find(
                 filters=cast(Where, filters),
@@ -1212,24 +1236,27 @@ class SessionDocumentStore(SessionStore):
         key: str,
         value: JSONSerializable,
     ) -> Session:
+        metadata_utils.ensure_public_metadata_key(key)
         async with self._lock.writer_lock:
-            session_document = await self._session_collection.find_one({"id": {"$eq": session_id}})
+            for _ in range(8):
+                session_document = await self._session_collection.find_one(
+                    {"id": {"$eq": session_id}}
+                )
+                if not session_document:
+                    raise ItemNotFoundError(item_id=UniqueId(session_id))
 
-            if not session_document:
-                raise ItemNotFoundError(item_id=UniqueId(session_id))
+                revision = session_document.get("metadata_revision", 0)
+                updated_metadata = {**session_document.get("metadata", {}), key: value}
+                try:
+                    return await self._commit_session_metadata_unlocked(
+                        session_id,
+                        revision,
+                        updated_metadata,
+                    )
+                except MetadataRevisionConflict:
+                    continue
 
-            updated_metadata = {**session_document["metadata"], key: value}
-
-            result = await self._session_collection.update_one(
-                filters={"id": {"$eq": session_id}},
-                params={
-                    "metadata": updated_metadata,
-                },
-            )
-
-        assert result.updated_document
-
-        return self._deserialize_session(session_document=result.updated_document)
+        raise MetadataRevisionConflict(revision)
 
     @override
     async def unset_metadata(
@@ -1237,24 +1264,29 @@ class SessionDocumentStore(SessionStore):
         session_id: SessionId,
         key: str,
     ) -> Session:
+        metadata_utils.ensure_public_metadata_key(key)
         async with self._lock.writer_lock:
-            session_document = await self._session_collection.find_one({"id": {"$eq": session_id}})
+            for _ in range(8):
+                session_document = await self._session_collection.find_one(
+                    {"id": {"$eq": session_id}}
+                )
+                if not session_document:
+                    raise ItemNotFoundError(item_id=UniqueId(session_id))
 
-            if not session_document:
-                raise ItemNotFoundError(item_id=UniqueId(session_id))
+                revision = session_document.get("metadata_revision", 0)
+                updated_metadata = {
+                    k: v for k, v in session_document.get("metadata", {}).items() if k != key
+                }
+                try:
+                    return await self._commit_session_metadata_unlocked(
+                        session_id,
+                        revision,
+                        updated_metadata,
+                    )
+                except MetadataRevisionConflict:
+                    continue
 
-            updated_metadata = {k: v for k, v in session_document["metadata"].items() if k != key}
-
-            result = await self._session_collection.update_one(
-                filters={"id": {"$eq": session_id}},
-                params={
-                    "metadata": updated_metadata,
-                },
-            )
-
-        assert result.updated_document
-
-        return self._deserialize_session(session_document=result.updated_document)
+        raise MetadataRevisionConflict(revision)
 
     @override
     async def upsert_labels(
@@ -1273,7 +1305,10 @@ class SessionDocumentStore(SessionStore):
 
             result = await self._session_collection.update_one(
                 filters={"id": {"$eq": session_id}},
-                params={"labels": updated_labels},
+                params={
+                    "labels": updated_labels,
+                    "modified_utc": datetime.now(timezone.utc).isoformat(),
+                },
             )
 
         assert result.updated_document
@@ -1297,7 +1332,10 @@ class SessionDocumentStore(SessionStore):
 
             result = await self._session_collection.update_one(
                 filters={"id": {"$eq": session_id}},
-                params={"labels": updated_labels},
+                params={
+                    "labels": updated_labels,
+                    "modified_utc": datetime.now(timezone.utc).isoformat(),
+                },
             )
 
         assert result.updated_document
@@ -1332,6 +1370,7 @@ class SessionDocumentStore(SessionStore):
                 kind=kind,
                 offset=offset,
                 creation_utc=creation_utc,
+                modified_utc=creation_utc,
                 trace_id=trace_id,
                 data=data,
                 metadata=metadata,
@@ -1354,8 +1393,13 @@ class SessionDocumentStore(SessionStore):
             if not await self._session_collection.find_one(filters={"id": {"$eq": session_id}}):
                 raise ItemNotFoundError(item_id=UniqueId(session_id), message="Session not found")
 
+            # Scope the lookup to the session: an event id alone must not reach
+            # an event belonging to a different session (cross-session read).
             if event_document := await self._event_collection.find_one(
-                filters={"id": {"$eq": event_id}}
+                filters={
+                    "id": {"$eq": event_id},
+                    "session_id": {"$eq": session_id},
+                }
             ):
                 return self._deserialize_event(event_document)
 
@@ -1369,7 +1413,10 @@ class SessionDocumentStore(SessionStore):
         async with self._lock.writer_lock:
             result = await self._event_collection.update_one(
                 filters={"id": {"$eq": event_id}},
-                params={"deleted": True},
+                params={
+                    "deleted": True,
+                    "modified_utc": datetime.now(timezone.utc).isoformat(),
+                },
             )
 
         if result.matched_count == 0:
@@ -1436,23 +1483,93 @@ class SessionDocumentStore(SessionStore):
             update_params: _EventDocument = {}
             if "metadata" in params:
                 update_params["metadata"] = params["metadata"] if params["metadata"] else None
+                update_params["metadata_revision"] = event_document.get("metadata_revision", 0) + 1
             if "data" in params:
                 update_params["data"] = params["data"]
 
             if not update_params:
                 return self._deserialize_event(event_document)
 
+            update_params["modified_utc"] = datetime.now(timezone.utc).isoformat()
+
+            event_filters: dict[str, Any] = {
+                "id": {"$eq": ObjectId(event_id)},
+                "session_id": {"$eq": session_id},
+            }
+            if "metadata" in params:
+                event_filters["metadata_revision"] = {
+                    "$eq": event_document.get("metadata_revision", 0)
+                }
+
+            result = await self._event_collection.update_one(
+                filters=cast(Where, event_filters),
+                params=update_params,
+            )
+
+        if result.matched_count == 0:
+            raise MetadataRevisionConflict(event_document.get("metadata_revision", 0))
+
+        updated_document = result.updated_document or await self._event_collection.find_one(
+            {
+                "id": {"$eq": ObjectId(event_id)},
+                "session_id": {"$eq": session_id},
+            }
+        )
+        assert updated_document
+
+        return self._deserialize_event(updated_document)
+
+    @override
+    async def patch_event_metadata(
+        self,
+        session_id: SessionId,
+        event_id: EventId,
+        expected_revision: int,
+        set_values: Mapping[str, JSONSerializable],
+        unset_keys: Sequence[str] = (),
+    ) -> Event:
+        async with self._lock.writer_lock:
+            event_document = await self._event_collection.find_one(
+                filters={
+                    "id": {"$eq": ObjectId(event_id)},
+                    "session_id": {"$eq": session_id},
+                    "deleted": {"$ne": True},
+                }
+            )
+            if not event_document:
+                raise ItemNotFoundError(item_id=UniqueId(event_id), message="Event not found")
+            if event_document.get("metadata_revision", 0) != expected_revision:
+                raise MetadataRevisionConflict(expected_revision)
+
+            metadata = dict(event_document.get("metadata") or {})
+            metadata.update(set_values)
+            for key in unset_keys:
+                metadata.pop(key, None)
+
             result = await self._event_collection.update_one(
                 filters={
                     "id": {"$eq": ObjectId(event_id)},
                     "session_id": {"$eq": session_id},
+                    "metadata_revision": {"$eq": expected_revision},
                 },
-                params=update_params,
+                params={
+                    "metadata": metadata or None,
+                    "metadata_revision": expected_revision + 1,
+                    "modified_utc": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            if result.matched_count == 0:
+                raise MetadataRevisionConflict(expected_revision)
+
+            updated_document = result.updated_document or await self._event_collection.find_one(
+                {
+                    "id": {"$eq": ObjectId(event_id)},
+                    "session_id": {"$eq": session_id},
+                }
             )
 
-        assert result.updated_document
-
-        return self._deserialize_event(result.updated_document)
+        assert updated_document
+        return self._deserialize_event(updated_document)
 
 
 class SessionListener(ABC):
@@ -1503,8 +1620,14 @@ class SessionListener(ABC):
 
 
 class PollingSessionListener(SessionListener):
-    def __init__(self, session_store: SessionStore) -> None:
-        self._session_store = session_store
+    def __init__(self, store_provider_factory: Callable[[], StoreProvider]) -> None:
+        self._store_provider_factory = store_provider_factory
+
+    @property
+    def _session_store(self) -> SessionStore:
+        return self._store_provider_factory().get_store(
+            SessionStore, StoreProviderHints(call_site="engine")
+        )
 
     @override
     async def wait_for_more_events(
@@ -1592,3 +1715,239 @@ class PollingSessionListener(SessionListener):
                 return False
             else:
                 await timeout.wait_up_to(0.1)
+
+
+class CompositeSessionStore(SessionStore):
+    def __init__(
+        self,
+        writable_store: SessionStore,
+        readable_stores: Sequence[SessionStore],
+    ) -> None:
+        self._writable_store = writable_store
+        self._readable_stores = readable_stores
+        self._all_stores: Sequence[SessionStore] = [writable_store, *readable_stores]
+
+    @override
+    async def create_session(
+        self,
+        customer_id: CustomerId,
+        agent_id: AgentId,
+        creation_utc: datetime | None = None,
+        title: str | None = None,
+        mode: SessionMode | None = None,
+        metadata: Mapping[str, JSONSerializable] = {},
+        labels: Optional[Set[str]] = None,
+    ) -> Session:
+        return await self._writable_store.create_session(
+            customer_id=customer_id,
+            agent_id=agent_id,
+            creation_utc=creation_utc,
+            title=title,
+            mode=mode,
+            metadata=metadata,
+            labels=labels,
+        )
+
+    @override
+    async def read_session(
+        self,
+        session_id: SessionId,
+    ) -> Session:
+        results = await safe_gather(
+            *[try_or_none(store.read_session(session_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(session_id))
+        return result
+
+    @override
+    async def delete_session(
+        self,
+        session_id: SessionId,
+    ) -> None:
+        return await self._writable_store.delete_session(session_id)
+
+    @override
+    async def update_session(
+        self,
+        session_id: SessionId,
+        params: SessionUpdateParams,
+    ) -> Session:
+        return await self._writable_store.update_session(session_id, params)
+
+    @override
+    async def list_sessions(
+        self,
+        agent_id: AgentId | None = None,
+        customer_id: CustomerId | None = None,
+        limit: int | None = None,
+        cursor: Cursor | None = None,
+        sort_direction: SortDirection | None = None,
+        labels: Optional[Set[str]] = None,
+        min_modified_utc: datetime | None = None,
+    ) -> SessionListing:
+        results = await safe_gather(
+            *[
+                store.list_sessions(
+                    agent_id=agent_id,
+                    customer_id=customer_id,
+                    limit=limit,
+                    cursor=cursor,
+                    sort_direction=sort_direction,
+                    labels=labels,
+                    min_modified_utc=min_modified_utc,
+                )
+                for store in self._all_stores
+            ]
+        )
+        all_items = list(chain.from_iterable(r.items for r in results))
+        return SessionListing(
+            items=all_items,
+            total_count=sum(r.total_count for r in results),
+            has_more=any(r.has_more for r in results),
+        )
+
+    @override
+    async def set_metadata(
+        self,
+        session_id: SessionId,
+        key: str,
+        value: JSONSerializable,
+    ) -> Session:
+        return await self._writable_store.set_metadata(session_id, key, value)
+
+    @override
+    async def unset_metadata(
+        self,
+        session_id: SessionId,
+        key: str,
+    ) -> Session:
+        return await self._writable_store.unset_metadata(session_id, key)
+
+    @override
+    async def commit_session_metadata(
+        self,
+        session_id: SessionId,
+        expected_revision: int,
+        metadata: Mapping[str, JSONSerializable],
+    ) -> Session:
+        return await self._writable_store.commit_session_metadata(
+            session_id,
+            expected_revision,
+            metadata,
+        )
+
+    @override
+    async def patch_event_metadata(
+        self,
+        session_id: SessionId,
+        event_id: EventId,
+        expected_revision: int,
+        set_values: Mapping[str, JSONSerializable],
+        unset_keys: Sequence[str] = (),
+    ) -> Event:
+        return await self._writable_store.patch_event_metadata(
+            session_id,
+            event_id,
+            expected_revision,
+            set_values,
+            unset_keys,
+        )
+
+    @override
+    async def upsert_labels(
+        self,
+        session_id: SessionId,
+        labels: Set[str],
+    ) -> Session:
+        return await self._writable_store.upsert_labels(session_id, labels)
+
+    @override
+    async def remove_labels(
+        self,
+        session_id: SessionId,
+        labels: Set[str],
+    ) -> Session:
+        return await self._writable_store.remove_labels(session_id, labels)
+
+    @override
+    async def create_event(
+        self,
+        session_id: SessionId,
+        source: EventSource,
+        kind: EventKind,
+        trace_id: str,
+        data: JSONSerializable,
+        metadata: Mapping[str, JSONSerializable] = {},
+        creation_utc: datetime | None = None,
+    ) -> Event:
+        try:
+            return await self._writable_store.create_event(
+                session_id=session_id,
+                source=source,
+                kind=kind,
+                trace_id=trace_id,
+                data=data,
+                metadata=metadata,
+                creation_utc=creation_utc,
+            )
+        except Exception as e:
+            raise e
+
+    @override
+    async def read_event(
+        self,
+        session_id: SessionId,
+        event_id: EventId,
+    ) -> Event:
+        results = await safe_gather(
+            *[try_or_none(store.read_event(session_id, event_id)) for store in self._all_stores]
+        )
+        result = next((r for r in results if r is not None), None)
+        if result is None:
+            raise ItemNotFoundError(item_id=UniqueId(event_id))
+        return result
+
+    @override
+    async def delete_event(
+        self,
+        event_id: EventId,
+    ) -> None:
+        return await self._writable_store.delete_event(event_id)
+
+    @override
+    async def list_events(
+        self,
+        session_id: SessionId,
+        source: EventSource | None = None,
+        trace_id: str | None = None,
+        kinds: Sequence[EventKind] = [],
+        min_offset: int | None = None,
+        exclude_deleted: bool = True,
+    ) -> Sequence[Event]:
+        for store in self._all_stores:
+            result = await try_or_none(
+                store.list_events(
+                    session_id=session_id,
+                    source=source,
+                    trace_id=trace_id,
+                    kinds=kinds,
+                    min_offset=min_offset,
+                    exclude_deleted=exclude_deleted,
+                )
+            )
+
+            if result is not None:
+                return result
+
+        raise ItemNotFoundError(item_id=UniqueId(session_id))
+
+    @override
+    async def update_event(
+        self,
+        session_id: SessionId,
+        event_id: EventId,
+        params: EventUpdateParams,
+    ) -> Event:
+        return await self._writable_store.update_event(session_id, event_id, params)

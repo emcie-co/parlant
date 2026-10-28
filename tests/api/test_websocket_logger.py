@@ -13,9 +13,10 @@
 # limitations under the License.
 
 import asyncio
+import time
 from fastapi.testclient import TestClient
 from parlant.api.app import ASGIApplication
-from lagom import Container
+from parlant.core.container import Container
 import pytest
 
 from parlant.adapters.loggers.websocket import WebSocketLogger
@@ -86,9 +87,9 @@ async def test_that_draining_queued_messages_without_subscribers_does_not_starve
 
     drain_task = asyncio.create_task(logger.start())
 
-    t0 = asyncio.get_event_loop().time()
+    t0 = time.monotonic()
     await asyncio.sleep(0)
-    stall = asyncio.get_event_loop().time() - t0
+    stall = time.monotonic() - t0
 
     drain_task.cancel()
     try:

@@ -28,6 +28,7 @@ from typing import (
 )
 from typing_extensions import Required, override
 
+from parlant.core import async_utils
 from parlant.core.common import JSONSerializable, Version
 from parlant.core.nlp.embedding import Embedder
 from parlant.core.persistence.common import ObjectId, Where
@@ -42,6 +43,11 @@ class BaseDocument(TypedDict, total=False):
 
 
 TDocument = TypeVar("TDocument", bound=BaseDocument)
+
+
+@dataclass(frozen=True)
+class VectorCollectionIndex:
+    field: str
 
 
 async def identity_loader(doc: BaseDocument) -> BaseDocument:
@@ -88,7 +94,7 @@ class VectorDatabase(ABC):
         self,
         name: str,
         schema: type[TDocument],
-        embedder_type: type[Embedder],
+        embedder: Embedder,
     ) -> VectorCollection[TDocument]: ...
 
     @abstractmethod
@@ -96,7 +102,7 @@ class VectorDatabase(ABC):
         self,
         name: str,
         schema: type[TDocument],
-        embedder_type: type[Embedder],
+        embedder: Embedder,
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> VectorCollection[TDocument]: ...
 
@@ -105,7 +111,7 @@ class VectorDatabase(ABC):
         self,
         name: str,
         schema: type[TDocument],
-        embedder_type: type[Embedder],
+        embedder: Embedder,
         document_loader: Callable[[BaseDocument], Awaitable[Optional[TDocument]]],
     ) -> VectorCollection[TDocument]: ...
 
@@ -167,6 +173,23 @@ class VectorCollection(ABC, Generic[TDocument]):
         filters: Where,
     ) -> DeleteResult[TDocument]: ...
 
+    async def replace_documents(
+        self,
+        filters: Where,
+        documents: Sequence[TDocument],
+    ) -> None:
+        """Replace all matching documents, preserving documents outside the filter.
+
+        Replacement IDs must be unique and must not belong to documents outside
+        the filter. An empty replacement deletes all matches. Adapters may
+        optimize this operation; the default retains individual-operation
+        semantics and does not promise an atomic replacement.
+        """
+        for document in list(await self.find(filters)):
+            await self.delete_one({"id": {"$eq": document["id"]}})
+
+        await async_utils.safe_gather(*[self.insert_one(document) for document in documents])
+
     @abstractmethod
     async def find_similar_documents(
         self,
@@ -175,6 +198,14 @@ class VectorCollection(ABC, Generic[TDocument]):
         k: int,
         hints: Mapping[str, Any] = {},
     ) -> Sequence[SimilarDocumentResult[TDocument]]: ...
+
+    @abstractmethod
+    async def ensure_indexes(
+        self,
+        indexes: Sequence[VectorCollectionIndex],
+    ) -> None:
+        """Ensures the requested filter indexes exist for the collection."""
+        ...
 
 
 class BaseVectorCollection(VectorCollection[TDocument]):
@@ -198,5 +229,5 @@ class BaseVectorCollection(VectorCollection[TDocument]):
         k: int,
         hints: Mapping[str, Any] = {},
     ) -> Sequence[SimilarDocumentResult[TDocument]]:
-        with self._tracer.span("find_similar_documents"):
+        with self._tracer.span("persistence.find_similar_documents"):
             return await self.do_find_similar_documents(filters, query, k, hints)

@@ -12,15 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import dataclass
-from typing import Mapping, Optional
+from dataclasses import asdict, dataclass
+import json
+from parlant.core.nlp.common import UsageInfo
 
-
-@dataclass(frozen=True)
-class UsageInfo:
-    input_tokens: int
-    output_tokens: int
-    extra: Optional[Mapping[str, int]] = None
+__all__ = ["GenerationInfo", "UsageInfo"]
 
 
 @dataclass(frozen=True)
@@ -29,3 +25,6 @@ class GenerationInfo:
     model: str
     duration: float
     usage: UsageInfo
+
+    def __repr__(self) -> str:
+        return json.dumps(asdict(self), indent=2)

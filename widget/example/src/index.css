@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* shadcn-style tokens the widget uses. Copy/adjust these into your own theme. */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 240 10% 4%;
+  --primary: 240 6% 10%;
+  --primary-foreground: 0 0% 98%;
+  --muted: 240 5% 96%;
+  --muted-foreground: 240 4% 46%;
+  --border: 240 6% 90%;
+  --ring: 240 5% 65%;
+  --destructive: 0 72% 51%;
+}
+
+:root[data-theme="dark"] {
+  --background: 240 10% 4%;
+  --foreground: 0 0% 98%;
+  --primary: 0 0% 98%;
+  --primary-foreground: 240 6% 10%;
+  --muted: 240 4% 16%;
+  --muted-foreground: 240 5% 65%;
+  --border: 240 4% 20%;
+  --ring: 240 5% 45%;
+  --destructive: 0 72% 51%;
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+  body {
+    margin: 0;
+    /* The playground page is always dark (independent of the widget's own theme). */
+    background: #0a3327;
+    color: #e6ebe8;
+    font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+}
+
+/* Playground backdrop: a Parlant-green top fading into a very dark bottom, with a soft
+ * brand-green aurora. The chat widget keeps its own tokens, so it stands out against this. */
+.page-bg {
+  background:
+    radial-gradient(1100px 620px at 18% -8%, rgba(16, 185, 129, 0.24), transparent 60%),
+    linear-gradient(162deg, #0d6349 0%, #0a4433 26%, #082a20 50%, #08140f 78%, #060d0b 100%);
+}
+
+/* ── Light page skin ─────────────────────────────────────────────────────────
+ * When a light widget theme is selected, the playground flips to a light skin so the
+ * chosen theme is easy to judge. Overrides the dark Tailwind utilities the page uses.
+ * Dark code blocks (bg-black/40) keep their light text via :not(.bg-black\/40). */
+.page-bg.page-light {
+  background:
+    radial-gradient(1100px 620px at 18% -8%, rgba(16, 185, 129, 0.1), transparent 60%),
+    linear-gradient(162deg, #f7faf9 0%, #eef3f1 45%, #e7ece9 100%);
+}
+.page-light header img { filter: brightness(0); opacity: 0.82; }
+
+.page-light .text-zinc-50:not(.bg-black\/40) { color: #09090b; }
+.page-light .text-zinc-100:not(.bg-black\/40) { color: #18181b; }
+.page-light .text-zinc-200:not(.bg-black\/40) { color: #27272a; }
+.page-light .text-zinc-300:not(.bg-black\/40) { color: #3f3f46; }
+.page-light .text-zinc-400:not(.bg-black\/40) { color: #71717a; }
+.page-light .text-zinc-500:not(.bg-black\/40) { color: #a1a1aa; }
+/* Keep white text on solid-colored buttons (the red Reset button, the emerald selected
+ * segmented option). */
+.page-light .text-white:not(.bg-black\/40):not(.bg-red-600):not(.bg-emerald-600) { color: #09090b; }
+.page-light .text-amber-400\/90 { color: #b45309; }
+.page-light .text-rose-400 { color: #be123c; }
+.page-light :is(.text-emerald-300\/80, .text-emerald-300\/90, .text-emerald-400, .text-emerald-400\/90):not(.bg-black\/40) { color: #047857; }
+
+.page-light .border-white\/10 { border-color: rgba(0, 0, 0, 0.1); }
+.page-light .border-white\/15 { border-color: rgba(0, 0, 0, 0.13); }
+.page-light .border-white\/20 { border-color: rgba(0, 0, 0, 0.16); }
+
+.page-light .bg-white\/\[0\.02\] { background-color: rgba(0, 0, 0, 0.02); }
+.page-light .bg-white\/\[0\.03\] { background-color: rgba(255, 255, 255, 0.55); }
+.page-light .bg-white\/5 { background-color: rgba(0, 0, 0, 0.035); }
+.page-light .bg-white\/10 { background-color: rgba(0, 0, 0, 0.06); }
+.page-light .bg-zinc-900 { background-color: #ffffff; }
+/* Code blocks stay dark on the light skin (their text is light emerald), but bg-black/40 over
+ * a light page reads as muddy grey — deepen it so the code is legible. */
+.page-light .bg-black\/40 { background-color: rgba(15, 17, 21, 0.94); }
+
+.page-light input::placeholder,
+.page-light textarea::placeholder { color: #71717a; }
+
+
+/* Signed-in mode: the pasted customer token is the one thing the playground
+   needs from you — make its field impossible to miss, on both page skins. */
+.token-field-highlight {
+  border-color: rgba(16, 185, 129, 0.65) !important;
+  background: rgba(16, 185, 129, 0.09) !important;
+  box-shadow:
+    0 0 0 1px rgba(16, 185, 129, 0.45),
+    0 0 18px rgba(16, 185, 129, 0.28);
+  animation: token-glow 2.2s ease-in-out infinite;
+}
+.token-field-highlight.token-filled {
+  animation: none;
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.45);
+}
+@keyframes token-glow {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px rgba(16, 185, 129, 0.45),
+      0 0 14px rgba(16, 185, 129, 0.22);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(16, 185, 129, 0.7),
+      0 0 26px rgba(16, 185, 129, 0.45);
+  }
+}
+.page-light .token-field-highlight {
+  border-color: rgba(5, 150, 105, 0.8) !important;
+  background: rgba(16, 185, 129, 0.12) !important;
+}

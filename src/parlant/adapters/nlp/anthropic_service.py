@@ -77,7 +77,8 @@ class AnthropicEstimatingTokenizer(EstimatingTokenizer):
 
 
 class AnthropicAISchematicGenerator(BaseSchematicGenerator[T]):
-    supported_hints = ["temperature"]
+    # Claude 4.7+ models reject temperature/top_p/top_k, so no sampling hints are forwarded.
+    supported_hints: list[str] = []
 
     def __init__(self,
         model_name: str,
@@ -217,10 +218,10 @@ class Claude_Sonnet_3_5(AnthropicAISchematicGenerator[T]):
         return 200 * 1024
 
 
-class Claude_Sonnet_4(AnthropicAISchematicGenerator[T]):
+class Claude_Sonnet_5_5(AnthropicAISchematicGenerator[T]):
     def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
         super().__init__(
-            model_name="claude-sonnet-4-20250514",
+            model_name="claude-sonnet-5-5",
             logger=logger,
             tracer=tracer,
             meter=meter, health_reporter=health_reporter,
@@ -232,10 +233,10 @@ class Claude_Sonnet_4(AnthropicAISchematicGenerator[T]):
         return 200 * 1024
 
 
-class Claude_Opus_4_1(AnthropicAISchematicGenerator[T]):
+class Claude_Opus_4_8(AnthropicAISchematicGenerator[T]):
     def __init__(self, logger: Logger, tracer: Tracer, meter: Meter, health_reporter: HealthReporter) -> None:
         super().__init__(
-            model_name="claude-opus-4-1-20250805",
+            model_name="claude-opus-4-8",
             logger=logger,
             tracer=tracer,
             meter=meter, health_reporter=health_reporter,
@@ -289,8 +290,8 @@ Please set ANTHROPIC_API_KEY in your environment before running Parlant.
             or t == DisambiguationGuidelineMatchesSchema
             or t == CannedResponseSelectionSchema
         ):
-            return Claude_Opus_4_1[t](self.logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
-        return Claude_Sonnet_4[t](self.logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
+            return Claude_Opus_4_8[t](self.logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
+        return Claude_Sonnet_5_5[t](self.logger, self._tracer, self._meter, self._health_reporter)  # type: ignore
 
     @override
     async def get_embedder(self, hints: EmbedderHints = {}) -> Embedder:

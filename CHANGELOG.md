@@ -32,6 +32,7 @@ All notable changes to Parlant will be documented here.
 - Fix low-criticality matcher logging the entire inference blob once per guideline in a batch (N copies of the same payload at debug level); now logs a single per-item entry
 - Fix WebSocketLogger event loop starvation — when no WebSocket clients are subscribed, the drain loop processed queued messages without yielding, progressively blocking the async event loop and causing increasing latency over time
 - Fix journey reachable-follow-ups evaluation being order-dependent at fan-in nodes — `JourneyReachableNodesEvaluator` captured a child's path list by reference and then prepended to it in place, so a node with multiple parents had its stored routes mutated by whichever parent was visited first; the second parent then lost routes (or double-counted a hop) depending purely on graph/DFS order. The child's routes are now snapshotted per parent, making the result depend only on journey structure. This intentionally changes the computed follow-ups for existing fan-in journeys: a shared child's later parent now retains the routes it previously lost
+- Fix the Anthropic NLP service calling retired models: it now uses `claude-sonnet-5-5` (was `claude-sonnet-4-20250514`) and `claude-opus-4-8` (was `claude-opus-4-1-20250805`), and stops forwarding the `temperature` hint, which Claude 4.7+ models reject
 
 ### Security
 

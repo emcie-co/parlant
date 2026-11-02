@@ -13,6 +13,18 @@ Each entry says what changed and what it means for you, under `Added`,
 
 ## [Unreleased]
 
+### Changed
+
+- `parlant init --scaffold lead-gen` now creates its agent with
+  `preamble_config=p.PreambleConfiguration.encourage()`. Before its first tool
+  call the agent says one short line, such as "Let me check that", so the
+  visitor isn't left waiting in silence. Without it, preambles were unmanaged:
+  whatever the model wrote before a tool call went straight through.
+- Every tool in the `lead-gen` and `retail-store` scaffolds now has a
+  `narration`, such as "Checking which days are free" or "Tracking your
+  shipment". The chat shows it while the tool runs, instead of the generic
+  "Running tools".
+
 ### Fixed
 
 - With the Anthropic provider, indexing no longer fails on Claude Opus 4.7 and
